@@ -7,6 +7,7 @@ import { CollabPresenceBar } from '@/components/editor/collab/CollabRoomProvider
 import { EditorTopExportButton } from '@/components/editor/panels/ExportSelectionPanel';
 import { getAgentDockWidth } from '@/components/editor/panels/AgentDock';
 import { getInspectDockWidth } from '@/components/editor/panels/DevPropertiesPanel';
+import { useLeftDockInset } from '@/components/editor/page/editorBottomHudLayout';
 import WalletAccountChip from '@/components/layout/WalletAccountChip';
 import {
   useIsDesktopShell,
@@ -20,6 +21,8 @@ type Props = {
   workspaceMode: 'design' | 'dev';
   inspectOpen: boolean;
   agentOpen: boolean;
+  layersOpen?: boolean;
+  assetsOpen?: boolean;
   onGoHome: () => void;
   onRename: (name: string) => void;
   onShare: () => void;
@@ -111,6 +114,8 @@ function EditorTopChrome({
   workspaceMode,
   inspectOpen,
   agentOpen,
+  layersOpen = false,
+  assetsOpen = false,
   onGoHome,
   onRename,
   onShare,
@@ -118,6 +123,7 @@ function EditorTopChrome({
 }: Props) {
   const { t } = useTranslation();
   const desktop = useIsDesktopShell();
+  const leftTitleInsetPx = useLeftDockInset(layersOpen, assetsOpen);
   const setTitlebarLeading = useSetDesktopTitlebarLeading();
   const titleInputRef = useRef<HTMLInputElement>(null);
   const onGoHomeRef = useRef(onGoHome);
@@ -148,7 +154,10 @@ function EditorTopChrome({
   return (
     <>
       {!desktop ? (
-        <div className="pointer-events-none absolute left-4 top-3 z-20 hidden md:block">
+        <div
+          className="pointer-events-none absolute top-3 z-20 hidden md:block"
+          style={{ left: leftTitleInsetPx }}
+        >
           <div className="pointer-events-auto">
             <EditorHomeTitleCluster
               projectName={projectName}

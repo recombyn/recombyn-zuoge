@@ -5,16 +5,14 @@ type Props = {
   leftPct: number;
 };
 
-/**
- * High-contrast thumb for hue / alpha strips — visible on both light and saturated tracks.
- */
+/** Thin theme-colored tick for hue / alpha strips. */
 export const ColorSliderThumb = memo(({ leftPct }: Props) => (
   <div
-    className="pointer-events-none absolute top-1/2 h-[14px] w-[5px] -translate-x-1/2 -translate-y-1/2 rounded-[2px]"
+    className="pointer-events-none absolute top-0 h-full w-[2px] -translate-x-1/2 rounded-[1px]"
     style={{
       left: `${leftPct}%`,
-      background: '#3388ff',
-      boxShadow: '0 0 0 2px #fff, 0 0 0 3px rgba(15, 23, 42, 0.4)',
+      background: 'var(--ink)',
+      boxShadow: '0 0 0 1px #fff, 0 0 0 2px color-mix(in srgb, var(--ink) 18%, transparent)',
     }}
   />
 ));

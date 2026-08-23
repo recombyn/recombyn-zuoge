@@ -1472,6 +1472,8 @@ function EditorPage() {
               workspaceMode={workspaceMode}
               inspectOpen={inspectOpen}
               agentOpen={agentOpen}
+              layersOpen={layersOpen}
+              assetsOpen={assetsOpen}
               onGoHome={goHomeFromEditor}
               onRename={renameProjectFromChrome}
               onShare={openShareDialog}
