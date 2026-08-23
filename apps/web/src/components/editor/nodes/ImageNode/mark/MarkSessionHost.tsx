@@ -10,6 +10,7 @@ import {
   markPanelSink,
   openImageToolPanel,
   type ImageToolPanelState,
+  type ImageMarkPin,
 } from '@/store/modules/editor';
 import { getHttpErrorMessage } from '@/service/client';
 import {
@@ -19,10 +20,12 @@ import {
 } from '@/service/imageTools';
 import MarkRegionOverlay, { type MarkRect, type MarkRegion } from './MarkRegionOverlay';
 import MarkPromptBar from './MarkPromptBar';
-import { commitMarkRegion } from './markCommit';
-import { markComposerChipLabel } from './markChipUtils';
+import { commitMarkRegion, stageMarkRegion } from './markCommit';
+import { markComposerChipLabel, nextMarkRegionIndex } from './markChipUtils';
+import { markPinsForNode } from './markPinStore';
 import { markPromptFixedStyle, nodeSceneBox } from './markGeometry';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import store from '@/store';
 
 function regionLabel(layer: ImageDecomposeLayer, index: number): string {
   const name = String(layer.name || '').trim();
@@ -42,7 +45,8 @@ function layersToRegions(
   naturalW: number,
   naturalH: number,
   nodeW: number,
-  nodeH: number
+  nodeH: number,
+  startIndex = 0
 ): MarkRegion[] {
   const sx = nodeW / Math.max(1, naturalW);
   const sy = nodeH / Math.max(1, naturalH);
@@ -56,7 +60,7 @@ function layersToRegions(
     const rw = w * sx;
     const rh = h * sy;
     if (layer.type !== 'text' && rw >= nodeW * 0.96 && rh >= nodeH * 0.96) continue;
-    const index = out.length + 1;
+    const index = startIndex + out.length + 1;
     out.push({
       id: nanoid(8),
       index,
@@ -72,7 +76,13 @@ function layersToRegions(
   return out;
 }
 
-function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function MarkSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const camera = useRcbCamera();
@@ -80,6 +90,9 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
+  );
+  const imageMarkPins = useSelector(
+    (s: any) => (s.editor.imageMarkPins || {}) as Record<string, ImageMarkPin | ImageMarkPin[]>
   );
   const active = panel?.kind === 'mark' ? panel.nodeId : null;
   const markSink = markPanelSink(panel);
@@ -91,6 +104,8 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const src = String(node?.attrs?.src || '').trim();
 
   const [regions, setRegions] = useState<MarkRegion[]>([]);
+  const regionsRef = useRef(regions);
+  regionsRef.current = regions;
   const [draft, setDraft] = useState<MarkRect | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [promptText, setPromptText] = useState('');
@@ -135,9 +150,13 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
     if (!active || !src || !box) return;
     setRegions([]);
     setDraft(null);
+    setDetecting(false);
     if (!ilpEnabled) {
-      setDetecting(false);
       message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
+      return;
+    }
+    // Quick-edit mark: manual box only — skip slow auto-detect that blocks the canvas.
+    if (markSink === 'quickEdit') {
       return;
     }
 
@@ -156,8 +175,10 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
         if (gen !== detectGenRef.current) return;
         const nw = Math.max(1, Number(res.width) || box!.width);
         const nh = Math.max(1, Number(res.height) || box!.height);
-        const next = layersToRegions(res.layers || [], nw, nh, box!.width, box!.height).map(
-          (r, i) => ({ ...r, index: i + 1, selected: i === 0 })
+        const pins = active ? markPinsForNode(imageMarkPins, active) : [];
+        const startIndex = pins.reduce((m, p) => Math.max(m, Number(p.index) || 0), 0);
+        const next = layersToRegions(res.layers || [], nw, nh, box!.width, box!.height, startIndex).map(
+          (r, i) => ({ ...r, index: startIndex + i + 1, selected: i === 0 })
         );
         setRegions(next);
         if (next[0]) setActiveRegionId(next[0].id);
@@ -174,9 +195,12 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
       }
     }
     void runDetect();
-    return () => ac.abort();
+    return () => {
+      ac.abort();
+      if (gen === detectGenRef.current) setDetecting(false);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, src, ilpEnabled]);
+  }, [active, src, ilpEnabled, markSink]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -186,19 +210,37 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
     return markPromptFixedStyle(camera, box, promptRegion);
   }, [box, promptRegion, camera]);
 
-  if (!active || !box || !node) return null;
+  if (!active || !box || !node || hidden) return null;
 
   const onCommitDraft = (rect: MarkRect) => {
+    if (!active || !box) return;
+    const id = nanoid(8);
+    const pins = markPinsForNode(
+      (store.getState() as any).editor?.imageMarkPins || {},
+      active
+    );
+    const nextIndex = nextMarkRegionIndex(pins, regionsRef.current);
     const nextRegion: MarkRegion = {
-      id: nanoid(8),
-      index: 1,
+      id,
+      index: nextIndex,
       ...rect,
       kind: 'manual',
-      label: '1 区域',
+      label: `${nextIndex} 区域`,
       selected: true,
     };
-    setRegions([nextRegion]);
-    setActiveRegionId(nextRegion.id);
+
+    if (markSink === 'quickEdit') {
+      stageMarkRegion(dispatch, {
+        nodeId: active,
+        region: nextRegion,
+        box,
+        sink: 'quickEdit',
+      });
+      return;
+    }
+
+    setActiveRegionId(id);
+    setRegions((prev) => [...prev.map((r) => ({ ...r, selected: false })), nextRegion]);
   };
 
   const onSelectRegion = (id: string) => {
@@ -215,7 +257,9 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
       text,
       sink: markSink,
     });
+    setRegions((prev) => prev.filter((r) => r.id !== promptRegion.id));
     setPromptText('');
+    setActiveRegionId(null);
   };
 
   return (
@@ -224,12 +268,13 @@ function MarkSessionHost({ document }: { document: SceneDocument }): ReactNode {
         imageBox={box}
         regions={regions}
         draft={draft}
+        activeRegionId={activeRegionId}
         detecting={detecting}
         onDraftChange={setDraft}
         onCommitDraft={onCommitDraft}
         onSelectRegion={onSelectRegion}
       />
-      {promptStyle && promptRegion
+      {markSink !== 'quickEdit' && promptStyle && promptRegion
         ? createPortal(
             <MarkPromptBar
               style={promptStyle}

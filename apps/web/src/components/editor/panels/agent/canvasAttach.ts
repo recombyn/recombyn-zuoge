@@ -2,7 +2,6 @@ import {
   buildComposerContext,
   enrichComposerContextThumb,
   rasterizeNodesToPngDataUrl,
-  rasterizeNodesToPngFile,
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
 import {
@@ -21,7 +20,8 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Canvas → composer:
  * - single image / video → attachment strip (not inline input chip)
- * - multi: videos/images attach as media; remaining shapes → one PNG (not one giant raster of video)
+ * - multi-select (incl. ad-hoc) → one「组」chip + composite preview (not per-image uploads)
+ * - formal groupId → same「组」chip
  * - single shape / frame → context chip with thumb
  */
 export function canvasAttachToken(payload: string | string[]): string {
@@ -64,6 +64,27 @@ async function buildCanvasVideoAttachment(
     thumbUrl: thumb || undefined,
     uploadStatus: 'ready',
   };
+}
+
+async function attachGroupAsComposerChip(opts: {
+  doc: SceneDocument;
+  groupIds: string[];
+  existingChips: ComposerContext[];
+  insertChip: (ctx: ComposerContext) => void;
+}): Promise<boolean> {
+  const { doc, groupIds, existingChips, insertChip } = opts;
+  if (groupIds.length < 2) return false;
+  const base = buildComposerContext(doc, groupIds, null, existingChips);
+  if (!base) return false;
+  let ctx = await enrichComposerContextThumb(doc, base, { nodeIds: groupIds });
+  if (ctx && !String(ctx.dataUrl || '').trim()) {
+    const dataUrl = await rasterizeNodesToPngDataUrl(doc, groupIds);
+    if (dataUrl) {
+      ctx = { ...ctx, dataUrl, thumbUrl: String(ctx.thumbUrl || '').trim() || dataUrl };
+    }
+  }
+  insertChip(ctx || base);
+  return true;
 }
 
 export async function applyCanvasAttachPayload(opts: {
@@ -124,67 +145,62 @@ export async function applyCanvasAttachPayload(opts: {
     }
   };
 
-  // 编组 → one「组」chip in the input (never as image attachment / file).
+  // Formal groupId → one「组」chip.
   const groupIds = sharedGroupAttachIds(doc, attachable);
   if (groupIds) {
-    const base = buildComposerContext(doc, groupIds, null, existingChips);
-    let ctx = await enrichComposerContextThumb(doc, base, { nodeIds: groupIds });
-    if (ctx && !String(ctx.dataUrl || '').trim()) {
-      const dataUrl = await rasterizeNodesToPngDataUrl(doc, groupIds);
-      if (dataUrl) {
-        ctx = { ...ctx, dataUrl, thumbUrl: String(ctx.thumbUrl || '').trim() || dataUrl };
-      }
-    }
-    if (ctx) insertChip(ctx);
-    else if (base) insertChip(base);
+    await attachGroupAsComposerChip({
+      doc,
+      groupIds,
+      existingChips,
+      insertChip,
+    });
     return;
   }
 
-  // Ad-hoc multi: peel videos/images so we never rasterize video into canvas-group.png.
+  // Ad-hoc multi-select → one「组」chip; peel videos only (never rasterize video into group PNG).
   if (attachable.length > 1) {
     const videos: string[] = [];
-    const images: string[] = [];
-    const others: string[] = [];
+    const rest: string[] = [];
     for (const id of attachable) {
       const node = doc?.deltaSetLike?.[id];
       const src = String(node?.attrs?.src || '').trim();
       if (!imagesOnly && node?.key === 'video' && src) videos.push(id);
-      else if (node?.key === 'image' && src) images.push(id);
-      else others.push(id);
+      else rest.push(id);
     }
 
     for (const id of videos) {
       await attachOneVideo(id);
     }
-    const imageFiles: File[] = [];
-    for (const id of images) {
-      const src = String(doc?.deltaSetLike?.[id]?.attrs?.src || '').trim();
-      if (!src) continue;
-      try {
-        imageFiles.push(await imageSrcToFile(src, `canvas-${id}.png`));
-      } catch {
-        /* skip */
-      }
-    }
-    if (imageFiles.length) await onAttachFiles(imageFiles);
 
-    if (others.length > 1) {
-      const file = await rasterizeNodesToPngFile(doc, others);
-      if (file) {
-        await onAttachFiles([file]);
-        return;
+    if (rest.length > 1) {
+      await attachGroupAsComposerChip({
+        doc,
+        groupIds: rest,
+        existingChips,
+        insertChip,
+      });
+      return;
+    }
+
+    if (rest.length === 1) {
+      const id = rest[0]!;
+      const node = doc?.deltaSetLike?.[id];
+      if (imagesOnly && node?.key === 'video') return;
+      const src = String(node?.attrs?.src || '').trim();
+      if (node?.key === 'image' && src) {
+        try {
+          await onAttachFiles([await imageSrcToFile(src, `canvas-${id}.png`)]);
+          return;
+        } catch {
+          /* fall through to chip */
+        }
       }
-      const base = buildComposerContext(doc, others, null, existingChips);
-      const ctx = await enrichComposerContextThumb(doc, base, { nodeIds: others });
+      const base = buildComposerContext(doc, [id], null, existingChips);
+      const ctx = await enrichComposerContextThumb(doc, base, { nodeIds: [id] });
       if (ctx) insertChip(ctx);
       return;
     }
-    if (others.length === 1) {
-      const oid = others[0]!;
-      const base = buildComposerContext(doc, [oid], null, existingChips);
-      const ctx = await enrichComposerContextThumb(doc, base, { nodeIds: [oid] });
-      if (ctx) insertChip(ctx);
-    }
+
     return;
   }
 

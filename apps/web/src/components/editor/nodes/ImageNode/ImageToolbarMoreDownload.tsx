@@ -7,7 +7,7 @@ import {
   HiOutlineScissors,
 } from 'react-icons/hi2';
 import { MdOutlineFlip, MdOutlineOpacity } from 'react-icons/md';
-import { TbDroplet } from 'react-icons/tb';
+import { TbDroplet, TbShirt } from 'react-icons/tb';
 import { Dropdown } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
 import type { MenuItemType } from '@/components/base/dropdown';
@@ -17,6 +17,7 @@ import { IconCornerRadius } from '@/components/rcb/selection/chrome/StyleToolbar
 import { imageMoreRow, imageToolBtn } from './imageToolbarShared';
 
 export type ImageMoreAction =
+  | 'mockup'
   | 'expand'
   | 'adjust'
   | 'blendMode'
@@ -87,13 +88,23 @@ export function ToolbarMoreMenu({
 function ImageToolbarMoreDownload({
   onAction,
   showCornerRadius = true,
+  mockupEnabled = false,
 }: {
   onAction: (key: ImageMoreAction) => void;
   showCornerRadius?: boolean;
+  mockupEnabled?: boolean;
 }): ReactNode {
   const { t } = useTranslation();
   const items: ToolbarMoreItem[] = useMemo(() => {
-    const list: ToolbarMoreItem[] = [
+    const list: ToolbarMoreItem[] = [];
+    if (mockupEnabled) {
+      list.push({
+        key: 'mockup',
+        icon: <TbShirt className="h-4 w-4" strokeWidth={2} />,
+        label: t('editor.imageToolbar.mockup'),
+      });
+    }
+    list.push(
       {
         key: 'expand',
         icon: <HiOutlineArrowsPointingOut className="h-4 w-4" />,
@@ -113,8 +124,8 @@ function ImageToolbarMoreDownload({
         key: 'effects',
         icon: <TbDroplet className="h-4 w-4" />,
         label: t('editor.imageToolbar.effects'),
-      },
-    ];
+      }
+    );
     if (showCornerRadius) {
       list.push({
         key: 'cornerRadius',
@@ -140,7 +151,7 @@ function ImageToolbarMoreDownload({
       }
     );
     return list;
-  }, [t, showCornerRadius]);
+  }, [t, showCornerRadius, mockupEnabled]);
 
   return <ToolbarMoreMenu items={items} onAction={(key) => onAction(key as ImageMoreAction)} />;
 }

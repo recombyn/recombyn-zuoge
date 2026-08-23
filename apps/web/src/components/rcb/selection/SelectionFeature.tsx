@@ -87,7 +87,8 @@ import {
   pathLocalEndpoints,
   type ShapeOutlineItem,
 } from './HostPathChrome';
-import { subscribeShapeHosts } from '@/components/rcb/shapes/shapeHostRegistry';import { smartSnapThreshold } from './alignGuides';
+import { subscribeShapeHosts } from '@/components/rcb/shapes/shapeHostRegistry';
+import { smartSnapThreshold } from './alignGuides';
 import {
   CORNER_HANDLES,
   textResizeModeForHandle,
@@ -131,6 +132,7 @@ import {
   visualGuideBoxForNode,
   computeMovedUnion,
   computeResizedUnion,
+  resizeDragNearBox,
   collectSmartGuideTargets,
   smartGuideTargetsForDrag,
   computeRotateDelta,
@@ -287,10 +289,12 @@ type SelectionFeatureProps = {
   /** Fires when move / resize / rotate starts or ends (for hiding node titles). */
   onTransformingChange?: (transforming: boolean) => void;
   /**
-   * Composer "Add from canvas" pick mode ??clicks attach via onSelect and must
+   * Composer "Add from canvas" pick mode — clicks attach via onSelect and must
    * not start a move (already-selected hits would otherwise skip onSelect).
    */
   attachPickActive?: boolean;
+  /** Keep the pinned node selected during quick-edit / mark box sessions. */
+  imageToolSessionNodeId?: string | null;
 };
 
 function guidesForSelection(
@@ -333,6 +337,7 @@ function SelectionFeature({
   suppressChrome = false,
   onTransformingChange,
   attachPickActive = false,
+  imageToolSessionNodeId = null,
 }: SelectionFeatureProps) {
   const overlayRoot = useRcbOverlayRoot();
   const viewportEl = useRcbViewportEl();
@@ -409,6 +414,7 @@ function SelectionFeature({
   const gridSizeRef = useRef(gridSize);
   const readOnlyRef = useRef(readOnly);
   const attachPickActiveRef = useRef(attachPickActive);
+  const imageToolSessionNodeIdRef = useRef(imageToolSessionNodeId);
   /** Latest chrome pick options — read on pointer events (not effect deps). */
   const chromePickOptsRef = useRef({
     zoom: 1,
@@ -442,6 +448,7 @@ function SelectionFeature({
   gridSizeRef.current = gridSize;
   readOnlyRef.current = readOnly;
   attachPickActiveRef.current = attachPickActive;
+  imageToolSessionNodeIdRef.current = imageToolSessionNodeId;
 
   const [liveUnion, setLiveUnion] = useState<SceneBox | null>(null);
   const [liveOrigins, setLiveOrigins] = useState<Array<{ nodeId: string; box: SceneBox }> | null>(
@@ -1157,8 +1164,13 @@ function SelectionFeature({
         return;
       }
       if (!e.shiftKey) {
-        onSelectFrame?.(null);
-        onSelect([]);
+        const pin = imageToolSessionNodeIdRef.current;
+        const keepPinned =
+          pin && (liveOriginsNow?.some((o) => o.nodeId === pin) ?? selectedIds.includes(pin));
+        if (!keepPinned) {
+          onSelectFrame?.(null);
+          onSelect([]);
+        }
       }
       dragRef.current = seed('pointing_canvas', e, p);
       capture(e.pointerId);
@@ -1346,7 +1358,7 @@ function SelectionFeature({
             listNodeIds,
             getNodeBox,
             excludeIds: exclude,
-            nearBox: drag.union,
+            nearBox: resizeDragNearBox(drag, dx, dy),
             threshold,
             queryNodeIdsInRect: queryIdsInRect,
           }),
@@ -1669,7 +1681,7 @@ function SelectionFeature({
             listNodeIds,
             getNodeBox,
             excludeIds: excludeUp,
-            nearBox: drag.union,
+            nearBox: resizeDragNearBox(drag, dx, dy),
             threshold: thresholdUp,
             queryNodeIdsInRect: queryIdsInRect,
           }),

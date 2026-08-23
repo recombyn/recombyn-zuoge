@@ -1,5 +1,7 @@
 import { type CSSProperties, type ReactNode, memo } from 'react';
+import { HiOutlineCheck } from 'react-icons/hi2';
 import { useTranslation } from 'react-i18next';
+import { cn } from '@/utils/classnames';
 
 const PROMPT_CLASS =
   'pointer-events-auto flex min-w-[min(92vw,360px)] max-w-[min(92vw,420px)] items-center gap-2 rounded-2xl border border-[var(--line)] bg-white/95 px-3 py-2 shadow-[0_12px_40px_rgba(15,23,42,0.16)] backdrop-blur-sm';
@@ -18,6 +20,11 @@ function MarkPromptBar({
   onSubmit: (text: string) => void;
 }): ReactNode {
   const { t } = useTranslation();
+  const trimmed = value.trim();
+
+  const submit = () => {
+    onSubmit(trimmed);
+  };
 
   return (
     <div
@@ -40,11 +47,20 @@ function MarkPromptBar({
         onKeyDown={(e) => {
           if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
           e.preventDefault();
-          const text = value.trim();
-          if (!text) return;
-          onSubmit(text);
+          submit();
         }}
       />
+      <button
+        type="button"
+        className={cn(
+          'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
+          'bg-[var(--ink)] text-[var(--on-brand)] transition-opacity hover:opacity-90'
+        )}
+        aria-label={t('editor.imageToolbar.markConfirm', '确认标记')}
+        onClick={submit}
+      >
+        <HiOutlineCheck className="h-4 w-4" strokeWidth={2.5} />
+      </button>
     </div>
   );
 }

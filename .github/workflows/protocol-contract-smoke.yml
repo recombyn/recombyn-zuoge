@@ -1,7 +1,7 @@
 name: protocol-contract-smoke
 
 # Public guard + optional cross-repo ping to Private compatibility CI.
-# Private workflow: recombyn-intelligence/.github/workflows/protocol-compat.yml
+# Optional cross-repo ping → recombyn-dev protocol-compat.yml
 # (repository_dispatch type: protocol-changed)
 
 on:
@@ -108,13 +108,13 @@ jobs:
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch protocol-changed to Private
+      - name: Dispatch protocol-changed to recombyn-dev
         env:
           TOKEN: ${{ secrets.INTELLIGENCE_REPO_DISPATCH_TOKEN }}
-          TARGET: ${{ vars.INTELLIGENCE_REPO || 'recombyn/recombyn-intelligence' }}
+          TARGET: ${{ vars.DEV_REPO || 'recombyn/recombyn-dev' }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "Skip: set secret INTELLIGENCE_REPO_DISPATCH_TOKEN (PAT with repo scope on Private) to enable cross-repo CI."
+            echo "Skip: set secret INTELLIGENCE_REPO_DISPATCH_TOKEN (PAT with repo scope on recombyn-dev)."
             exit 0
           fi
           REF="${{ github.sha }}"

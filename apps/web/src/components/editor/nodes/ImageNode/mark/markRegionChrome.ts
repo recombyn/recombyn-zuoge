@@ -6,7 +6,9 @@ function resolveTone(opts: {
   hovered?: boolean;
   expanded?: boolean;
   pinned?: boolean;
+  badgeOnly?: boolean;
 }): MarkChromeTone {
+  if (opts.badgeOnly) return 'pinned';
   if (opts.draft) return 'draft';
   if (opts.expanded) return 'pinnedExpanded';
   if (opts.pinned) return 'pinned';
@@ -48,7 +50,16 @@ export function markRegionChrome(opts: {
   hovered?: boolean;
   expanded?: boolean;
   pinned?: boolean;
+  badgeOnly?: boolean;
 }) {
+  if (opts.badgeOnly) {
+    return {
+      border: 'none',
+      boxShadow: 'none',
+      badgeBg: BADGE.pinned,
+      cursor: 'pointer',
+    };
+  }
   const tone = resolveTone(opts);
   const borderWidth = opts.draft || opts.expanded ? 2 : 1.5;
   const boxShadow = opts.selected

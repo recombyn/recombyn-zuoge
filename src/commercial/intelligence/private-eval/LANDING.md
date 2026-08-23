@@ -5,7 +5,7 @@ Goal: prove Remote ≠ BasicLocal, then deepen engines.
 ## Week 1 — measure
 
 ```bash
-# From recombyn-intelligence/
+# From src/commercial/intelligence/
 python private-eval/run.py --smoke
 # Writes private-eval/results/latest.json (hop ok + key fingerprints)
 ```

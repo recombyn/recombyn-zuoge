@@ -5,9 +5,16 @@ import type { ImageMarkPin, ImageToolPanelState } from '@/store/modules/editor';
 import MarkPinOverlay from './MarkPinOverlay';
 import { listVisibleMarkPins } from './markPinVisibility';
 
-function MarkPinHost({ document }: { document: SceneDocument }): ReactNode {
+function MarkPinHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const pins = useSelector(
-    (s: any) => (s.editor.imageMarkPins || {}) as Record<string, ImageMarkPin>
+    (s: any) =>
+      (s.editor.imageMarkPins || {}) as Record<string, ImageMarkPin | ImageMarkPin[]>
   );
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
@@ -17,8 +24,8 @@ function MarkPinHost({ document }: { document: SceneDocument }): ReactNode {
   );
 
   const visible = useMemo(
-    () => listVisibleMarkPins(document, pins, panel, selectedIds),
-    [document, pins, panel, selectedIds]
+    () => listVisibleMarkPins(document, pins, panel, selectedIds, hidden),
+    [document, pins, panel, selectedIds, hidden]
   );
 
   if (!visible.length) return null;

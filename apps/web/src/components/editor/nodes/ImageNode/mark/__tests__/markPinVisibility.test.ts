@@ -27,18 +27,19 @@ describe('listVisibleMarkPins', () => {
     expect(visible[0]?.nodeId).toBe('img-1');
   });
 
-  it('hides pin while mark session is active on the same node', () => {
+  it('shows pin while mark session is active on the same node', () => {
     const visible = listVisibleMarkPins(
       document,
       { 'img-1': pin },
       { nodeId: 'img-1', kind: 'mark' },
       ['img-1']
     );
-    expect(visible).toHaveLength(0);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.nodeId).toBe('img-1');
   });
 
-  it('ignores non-image selections', () => {
-    const visible = listVisibleMarkPins(document, { 'shape-1': pin }, null, ['shape-1']);
+  it('hides pins while selection is transforming', () => {
+    const visible = listVisibleMarkPins(document, { 'img-1': [pin] }, null, ['img-1'], true);
     expect(visible).toHaveLength(0);
   });
 });

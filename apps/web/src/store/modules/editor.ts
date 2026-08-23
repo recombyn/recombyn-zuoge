@@ -38,6 +38,7 @@ import {
   createVideoNode
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
+  deletionTargetHasProcessing,
   isEphemeralUploadNode
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
@@ -87,7 +88,8 @@ export type ImageToolPanelKind =
   | 'lottieEdit'
   | 'mark'
   | 'mockup'
-  | 'upscale';
+  | 'upscale'
+  | 'layerMask';
 
 export type ImageToolPanelState = {
   nodeId: string;
@@ -163,7 +165,6 @@ const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   adjust: true,
   effects: true,
   blendMode: true,
-  mark: true,
   mockup: true,
 };
 
@@ -188,6 +189,7 @@ const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   lottieEdit: true,
   mark: true,
   mockup: true,
+  layerMask: true,
 };
 
 const TRANSIENT_NODE_ATTR_KEYS = new Set([
@@ -217,8 +219,8 @@ export function shouldClearImageToolPanelOnSelect(
   nextNodeId: string | null
 ): boolean {
   if (!panel) return false;
-  // Mockup / mark stay open while picking another image or clicking empty canvas.
-  if (panel.kind === 'mockup' || panel.kind === 'mark') return false;
+  // Mockup / mark / quick-edit stay open while picking another image or clicking empty canvas.
+  if (panel.kind === 'mockup' || panel.kind === 'mark' || panel.kind === 'quickEdit' || panel.kind === 'layerMask') return false;
   return !nextNodeId || panel.nodeId !== nextNodeId;
 }
 
@@ -396,7 +398,7 @@ const initialState = {
   pendingAgentContexts: [] as PendingMarkContextChip[],
   pendingQuickEditMarkContexts: [] as PendingMarkContextChip[],
   /** One pinned mark per image node (compact badge after confirm). */
-  imageMarkPins: {} as Record<string, ImageMarkPin>,
+  imageMarkPins: {} as Record<string, ImageMarkPin[]>,
   agentOpenNonce: 0,
 };
 
@@ -599,6 +601,9 @@ const editorSlice = createSlice({
         .filter(Boolean);
       const nodeIds = [...new Set([...requestedNodeIds, ...frameNodeIds])];
       if (!nodeIds.length && !frameIds.length) return;
+      if (deletionTargetHasProcessing(state.document, nodeIds, frameIds, { expandFrameChildren: false })) {
+        return;
+      }
 
       const ephemeralIds = nodeIds.filter((id: string) =>
         isEphemeralUploadNode(state.document?.deltaSetLike?.[id])
@@ -2298,7 +2303,25 @@ const editorSlice = createSlice({
     setImageMarkPin(state, action: PayloadAction<ImageMarkPin>) {
       const pin = action.payload;
       if (!pin?.nodeId) return;
-      state.imageMarkPins[pin.nodeId] = pin;
+      const raw = state.imageMarkPins[pin.nodeId];
+      const list = Array.isArray(raw) ? [...raw] : raw ? [raw] : [];
+      const idx = list.findIndex((p) => p.id === pin.id);
+      if (idx >= 0) list[idx] = pin;
+      else list.push(pin);
+      state.imageMarkPins[pin.nodeId] = list;
+    },
+    removeImageMarkPin(
+      state,
+      action: PayloadAction<{ nodeId: string; pinId: string }>
+    ) {
+      const nodeId = String(action.payload?.nodeId || '').trim();
+      const pinId = String(action.payload?.pinId || '').trim();
+      if (!nodeId || !pinId) return;
+      const raw = state.imageMarkPins[nodeId];
+      const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      const next = list.filter((p) => p.id !== pinId);
+      if (!next.length) delete state.imageMarkPins[nodeId];
+      else state.imageMarkPins[nodeId] = next;
     },
     clearImageMarkPin(state, action: PayloadAction<string>) {
       const nodeId = String(action.payload || '').trim();
@@ -2401,6 +2424,7 @@ export const {
   enqueueQuickEditMarkContexts,
   consumePendingQuickEditMarkContexts,
   setImageMarkPin,
+  removeImageMarkPin,
   clearImageMarkPin,
 } = editorSlice.actions;
 

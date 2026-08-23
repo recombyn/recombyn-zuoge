@@ -3,6 +3,7 @@ import {
   buildMarkChipPayload,
   markComposerChipLabel,
   markPinToRegion,
+  nextMarkRegionIndex,
   regionToMarkPin,
 } from '../markChipUtils';
 import type { MarkRegion } from '../MarkRegionOverlay';
@@ -36,6 +37,18 @@ describe('markComposerChipLabel', () => {
         label: '2 "中秋团圆"',
       })
     ).toBe('[2] 中秋团圆');
+  });
+});
+
+describe('nextMarkRegionIndex', () => {
+  it('increments past committed pins and in-session regions', () => {
+    expect(
+      nextMarkRegionIndex(
+        [{ ...regionToMarkPin('img-1', sampleRegion, 'quickEdit') }],
+        [{ index: 2 }]
+      )
+    ).toBe(3);
+    expect(nextMarkRegionIndex([], [])).toBe(1);
   });
 });
 

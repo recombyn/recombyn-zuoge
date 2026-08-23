@@ -15,10 +15,35 @@ import {
 } from '@/components/rcb';
 import { imageSrcToFile } from '@/utils/uploadImage';
 
-/**
- * Opaque mask fill — preview opacity is applied via CSS on the canvas so
- * overlapping strokes do not stack / darken (single flat alpha layer).
- */
+function canvasToHardMaskDataUrl(canvas: HTMLCanvasElement, nw: number, nh: number): string | undefined {
+  const hard = document.createElement('canvas');
+  hard.width = nw;
+  hard.height = nh;
+  const hctx = hard.getContext('2d');
+  if (!hctx) return undefined;
+  hctx.drawImage(canvas, 0, 0, nw, nh);
+  const data = hctx.getImageData(0, 0, nw, nh);
+  const px = data.data;
+  let any = false;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] > 8) {
+      px[i] = 255;
+      px[i + 1] = 255;
+      px[i + 2] = 255;
+      px[i + 3] = 255;
+      any = true;
+    } else {
+      px[i] = 0;
+      px[i + 1] = 0;
+      px[i + 2] = 0;
+      px[i + 3] = 0;
+    }
+  }
+  if (!any) return undefined;
+  hctx.putImageData(data, 0, 0);
+  return hard.toDataURL('image/png');
+}
+
 const MASK_FILL = '#9333EA';
 const PREVIEW_OPACITY = 0.38;
 /** Soft cap — getImageData + toDataURL on huge plates OOMs in Chromium. */
@@ -27,7 +52,9 @@ const MAX_ERASE_EDGE = 8192;
 export type EraserMaskOverlayHandle = {
   clear: () => void;
   hasStrokes: () => boolean;
-  /** Erase painted regions from `src` → PNG data URL. */
+  /** Grayscale PNG data URL aligned to source image pixels. */
+  exportMask: () => Promise<string | undefined>;
+  /** Local pixel punch-through when intelligence is unavailable. */
   applyErase: (src: string, opts?: { uploadKey?: string | null }) => Promise<string>;
 };
 
@@ -113,6 +140,16 @@ const EraserMaskOverlay = forwardRef<EraserMaskOverlayHandle, Props>(
       () => ({
         clear,
         hasStrokes: () => dirtyRef.current,
+        exportMask: async () => {
+          const maskEl = canvasRef.current;
+          if (!maskEl || !dirtyRef.current) return undefined;
+          const nw = Math.max(1, Math.round(imageBox.width));
+          const nh = Math.max(1, Math.round(imageBox.height));
+          if (nw > MAX_ERASE_EDGE || nh > MAX_ERASE_EDGE) {
+            throw new Error(`图片过大（>${MAX_ERASE_EDGE}px），请先缩小后再擦`);
+          }
+          return canvasToHardMaskDataUrl(maskEl, nw, nh);
+        },
         applyErase: async (src: string, opts?: { uploadKey?: string | null }) => {
           const maskEl = canvasRef.current;
           if (!maskEl || !dirtyRef.current) return src;
@@ -160,7 +197,7 @@ const EraserMaskOverlay = forwardRef<EraserMaskOverlayHandle, Props>(
           }
         },
       }),
-      []
+      [imageBox.height, imageBox.width]
     );
 
     // Keep backing-store resolution tied to stage size; preserve strokes across zoom.

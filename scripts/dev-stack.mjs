@@ -1,6 +1,6 @@
 /**
  * Local stack: API (8000) + Vite web (3000) + collab WS (1234).
- * When src/commercial/intelligence exists (recombyn-dev), also starts Intelligence (8091).
+ * When src/commercial/intelligence exists, also starts Intelligence (8091).
  *
  *   npm run dev:stack
  */

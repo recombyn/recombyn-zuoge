@@ -1,4 +1,3 @@
-/** OSS mirror: no commercial image toolbar actions. */
-export function CommercialImageToolbarTools(): null {
+export function CommercialImageToolbarTools(_props: { nodeId: string }): null {
   return null;
 }

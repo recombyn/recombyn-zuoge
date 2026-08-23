@@ -1357,8 +1357,26 @@ export async function nodeToSvgElement(
       })
     );
     setSvgImageHref(img, String(src));
-    const clipId = nextClipId('img-clip');
     const defs = ensureDefs(root);
+    const maskSrc = String(node.attrs?.maskSrc || '').trim();
+    const maskOn = maskSrc && String(node.attrs?.maskEnabled || 'true') !== 'false';
+    if (maskOn) {
+      const maskId = nextClipId('img-mask');
+      const maskNode = svgEl('mask', { id: maskId });
+      const maskImg = svgEl('image', {
+        width: boxW,
+        height: boxH,
+        x: 0,
+        y: 0,
+        preserveAspectRatio: 'none',
+      });
+      setSvgImageHref(maskImg, maskSrc);
+      maskNode.appendChild(maskImg);
+      defs.appendChild(maskNode);
+      setAttrs(img, { mask: urlRef(maskId) });
+      setAttrs(g, { 'data-layer-mask': '1' });
+    }
+    const clipId = nextClipId('img-clip');
     const clip = svgEl('clipPath', { id: clipId });
     const clipPath = svgEl('path', { d: clipD, 'data-radius-clip': '1' });
     clip.appendChild(clipPath);

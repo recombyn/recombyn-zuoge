@@ -10,6 +10,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 const AI_KINDS = new Set([
   'upscale',
   'removeBg',
+  'eraser',
   'multiAngle',
   'expand',
   'editText',
@@ -94,8 +95,8 @@ function buildFinishAttrsForKind(
     replacedCopy?: string;
   }
 ): Record<string, unknown> | undefined {
-  if (kind === 'removeBg') {
-    return { cutout: 'true', name: '抠图' };
+  if (kind === 'removeBg' || kind === 'eraser') {
+    return { cutout: 'true', name: kind === 'eraser' ? '擦除' : '抠图' };
   }
   if (kind === 'replaceText' && opts.replacedCopy) {
     return {
@@ -126,8 +127,8 @@ function ImageProcessWatcher() {
     const doc = documentRef.current;
     const node = doc?.deltaSetLike?.[pendingId];
     const kind = String(node?.attrs?.processKind || '');
-    // Local eraser finishes via ImageToolPanelHost (spawn + upload); do not auto-clear.
-    if (kind === 'import' || kind === 'upload' || kind === 'eraser') return undefined;
+    // Local import/upload finish in their own flows.
+    if (kind === 'import' || kind === 'upload') return undefined;
 
     let cancelled = false;
     const ac = new AbortController();
@@ -241,6 +242,7 @@ function ImageProcessWatcher() {
         );
         const labels: Record<string, string> = {
           removeBg: '抠图完成（透明 PNG）',
+          eraser: '擦除完成',
           upscale: '高清放大完成',
           multiAngle: '多角度生成完成',
           expand: '扩展完成',

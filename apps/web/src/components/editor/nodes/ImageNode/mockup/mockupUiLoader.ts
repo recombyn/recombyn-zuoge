@@ -1,5 +1,5 @@
 /**
- * Detect closed-source mockup UI under src/commercial/web (stripped on OSS sync).
+ * Probe whether mockup UI is available.
  * OSS clones without that folder keep the toolbar hidden.
  */
 

@@ -1,6 +1,6 @@
 /**
  * Image toolbar AI tools — POST /api/v1/image/process
- * (Seedream i2i, or vision decompose for editText / editElements).
+ * (Real-ESRGAN upscale, intelligence vision, or Seedream i2i).
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import { abortAfter, apiClient } from '@/service/client';
 export type ImageProcessKindApi =
   | 'upscale'
   | 'removeBg'
+  | 'eraser'
   | 'multiAngle'
   | 'expand'
   | 'editText'
@@ -78,7 +79,9 @@ export type ImageToolCapabilities = {
 
 /** Kinds that require Recombyn Intelligence (not available in OSS-only deploy). */
 export const INTELLIGENCE_VISION_KINDS = [
+  'upscale',
   'removeBg',
+  'eraser',
   'editText',
   'editElements',
 ] as const;
@@ -109,7 +112,7 @@ export function useImageToolCapabilities() {
   });
 }
 
-/** Run an image toolbar tool on the API (Seedream i2i or intelligence vision). */
+/** Run an image toolbar tool on the API (intelligence vision or Seedream i2i). */
 export const processImageTool = (
   data: ImageProcessBody,
   opts?: { signal?: AbortSignal }

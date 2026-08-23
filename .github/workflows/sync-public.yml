@@ -1,63 +1,137 @@
-# Private → public one-way mirror (runs only in recombyn-dev).
-# Strips src/commercial before pushing to github.com/recombyn/recombyn.
-#
-# Setup (private repo secrets):
-#   PUBLIC_REPO_TOKEN — PAT with repo scope on the public recombyn repo
-
-name: Sync OSS mirror
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-concurrency:
-  group: sync-public-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  sync:
-    runs-on: ubuntu-latest
-    env:
-      PUBLIC_REPO: recombyn/recombyn
-    steps:
-      - name: Checkout private tree
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Git config
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Clone public repo
-        env:
-          TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "PUBLIC_REPO_TOKEN is not configured in repository secrets." >&2
-            exit 1
-          fi
-          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git" ./pub
-
-      - name: Mirror working tree
-        run: rsync -a --delete --exclude=".git/" ./ ./pub/
-
-      - name: Strip commercial code and apply OSS stubs
-        run: node scripts/sync-public-strip.mjs ./pub
-
-      - name: Push public repo
-        working-directory: ./pub
-        env:
-          TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
-        run: |
-          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No OSS changes to publish."
-            exit 0
-          fi
-          git commit -m "chore: sync from recombyn-dev @ ${GITHUB_SHA::7}"
-          git push origin main
-
+# Private → public one-way mirror (runs only in recombyn-dev).
+
+# Strips src/commercial before pushing to github.com/recombyn/recombyn.
+
+#
+
+# Setup (private repo secrets):
+
+#   PUBLIC_REPO_TOKEN — PAT with repo scope on the public recombyn repo
+
+
+
+name: Sync OSS mirror
+
+
+
+on:
+
+  push:
+
+    branches: [main]
+
+  workflow_dispatch:
+
+
+
+concurrency:
+
+  group: sync-public-${{ github.ref }}
+
+  cancel-in-progress: true
+
+
+
+jobs:
+
+  sync:
+
+    runs-on: ubuntu-latest
+
+    env:
+
+      PUBLIC_REPO: recombyn/recombyn
+
+    steps:
+
+      - name: Checkout private tree
+
+        uses: actions/checkout@v4
+
+        with:
+
+          fetch-depth: 0
+
+
+
+      - name: Git config
+
+        run: |
+
+          git config --global user.name "github-actions[bot]"
+
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+
+
+      - name: Clone public repo
+
+        env:
+
+          TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+
+        run: |
+
+          if [ -z "$TOKEN" ]; then
+
+            echo "PUBLIC_REPO_TOKEN is not configured in repository secrets." >&2
+
+            exit 1
+
+          fi
+
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git" ./pub
+
+
+
+      - name: Mirror working tree
+        run: |
+          rsync -a --delete \
+            --exclude=".git/" \
+            --exclude="node_modules/" \
+            --exclude="**/.venv/" \
+            --exclude="**/__pycache__/" \
+            --exclude="**/.pytest_cache/" \
+            --exclude="**/dist/" \
+            --exclude="**/.next/" \
+            --exclude="**/build/" \
+            --exclude="**/.turbo/" \
+            --exclude="pub/" \
+            --exclude="pub-test/" \
+            ./ ./pub/
+
+
+
+      - name: Strip commercial code and apply OSS stubs
+
+        run: node scripts/sync-public-strip.mjs ./pub
+
+
+
+      - name: Push public repo
+
+        working-directory: ./pub
+
+        env:
+
+          TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+
+        run: |
+
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git"
+
+          git add -A
+
+          if git diff --staged --quiet; then
+
+            echo "No OSS changes to publish."
+
+            exit 0
+
+          fi
+
+          git commit -m "chore: sync from recombyn-dev @ ${GITHUB_SHA::7}"
+
+          git push origin main
+
+

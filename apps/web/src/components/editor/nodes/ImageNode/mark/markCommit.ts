@@ -1,6 +1,5 @@
 import type { Dispatch } from '@reduxjs/toolkit';
 import {
-  closeImageToolPanel,
   enqueueAgentContexts,
   enqueueQuickEditMarkContexts,
   openImageToolPanel,
@@ -32,6 +31,40 @@ export function buildPendingMarkChip(
   return chip;
 }
 
+function reopenMarkPanel(
+  dispatch: Dispatch,
+  nodeId: string,
+  sink: 'agent' | 'quickEdit'
+) {
+  dispatch(
+    openImageToolPanel({
+      nodeId,
+      kind: 'mark',
+      ...(sink === 'quickEdit' ? { markSink: 'quickEdit' } : {}),
+    })
+  );
+}
+
+/** Stage a mark chip (no prompt text) — used when quick-edit draws a box. */
+export function stageMarkRegion(
+  dispatch: Dispatch,
+  opts: {
+    nodeId: string;
+    region: MarkRegion;
+    box: SceneBox;
+    sink: 'agent' | 'quickEdit';
+  }
+) {
+  const chip = buildPendingMarkChip(opts.nodeId, opts.region, opts.box);
+  if (opts.sink === 'quickEdit') {
+    dispatch(enqueueQuickEditMarkContexts([chip]));
+  } else {
+    dispatch(enqueueAgentContexts([chip]));
+  }
+  dispatch(setImageMarkPin(regionToMarkPin(opts.nodeId, opts.region, opts.sink)));
+  reopenMarkPanel(dispatch, opts.nodeId, opts.sink);
+}
+
 export function commitMarkRegion(
   dispatch: Dispatch,
   opts: {
@@ -43,17 +76,22 @@ export function commitMarkRegion(
   }
 ) {
   const tail = opts.text.trim();
-  if (!tail) return;
+  if (!tail) {
+    stageMarkRegion(dispatch, {
+      nodeId: opts.nodeId,
+      region: opts.region,
+      box: opts.box,
+      sink: opts.sink,
+    });
+    return;
+  }
 
   const chip = buildPendingMarkChip(opts.nodeId, opts.region, opts.box, tail);
   if (opts.sink === 'quickEdit') {
     dispatch(enqueueQuickEditMarkContexts([chip]));
-    dispatch(setImageMarkPin(regionToMarkPin(opts.nodeId, opts.region, opts.sink)));
-    dispatch(openImageToolPanel({ nodeId: opts.nodeId, kind: 'quickEdit' }));
-    return;
+  } else {
+    dispatch(enqueueAgentContexts([chip]));
   }
-
-  dispatch(enqueueAgentContexts([chip]));
   dispatch(setImageMarkPin(regionToMarkPin(opts.nodeId, opts.region, opts.sink)));
-  dispatch(closeImageToolPanel());
+  reopenMarkPanel(dispatch, opts.nodeId, opts.sink);
 }

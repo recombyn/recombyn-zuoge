@@ -36,8 +36,8 @@ import {
   attachmentsFromBoot,
   contextsFromBoot,
 } from '@/utils/homeAgentBoot';
+import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import {
-  setAgentBusy,
   setDocument,
   patchDocumentNode,
   pushEditorHistory,
@@ -1261,6 +1261,8 @@ function AgentDock({
         pinnedContextKeysRef.current.add(ctx.key);
         contextDismissedKeyRef.current = null;
         inputRef.current?.insertContextAtCaret(ctx);
+        const tail = ctx.appendText?.trim();
+        if (tail) inputRef.current?.insertPlainAtCaret(tail);
       }
       inputRef.current?.focusEnd();
     });
@@ -1289,6 +1291,9 @@ function AgentDock({
     abortRef.current?.abort();
     setSending(false);
     dispatch(setAgentBusy(false));
+    for (const c of contextChips) {
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+    }
     resetChatSession();
     setInput('');
     setEditDraft('');
@@ -1308,6 +1313,7 @@ function AgentDock({
       abortRef.current?.abort();
       setSending(false);
       dispatch(setAgentBusy(false));
+      const chipsToClear = contextChips;
       // Keep the intent-LLM reply that just streamed; drop the rest of the thread.
       window.setTimeout(() => {
         let tip = '';
@@ -1317,6 +1323,9 @@ function AgentDock({
           ).trim();
           return prev;
         });
+        for (const c of chipsToClear) {
+          if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+        }
         resetChatSession();
         setInput('');
         setEditDraft('');
@@ -1474,10 +1483,12 @@ function AgentDock({
 
   const onContextsChange = (next: ComposerContext[]) => {
     const removed = contextChips.filter((c) => !next.some((n) => n.key === c.key));
-    for (const c of removed) {
+  for (const c of removed) {
+    if (!isMarkContextKey(c.key)) {
       pinnedContextKeysRef.current.delete(c.key);
       contextDismissedKeyRef.current = c.key;
-      if (c.kind === 'attachment' && c.uploadKey) {
+    }
+    if (c.kind === 'attachment' && c.uploadKey) {
         async function deleteRemovedAttachmentUpload() {
           try {
             await deleteUploadedFile(c.uploadKey);
@@ -2255,6 +2266,9 @@ function AgentDock({
       String(videoGenAspectRatio).trim() !== 'smart'
         ? String(videoGenAspectRatio).trim() || undefined
         : undefined;
+    for (const c of contextChips) {
+      syncMarkPinRemoved(dispatch, c.key);
+    }
     clearContextChips();
     setSending(true);
     // Clear prior Ask chips in the same write — a separate setMessages(clear)

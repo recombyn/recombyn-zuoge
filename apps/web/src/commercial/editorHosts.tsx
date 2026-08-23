@@ -4,7 +4,7 @@ import LayerMaskSessionHost from '@commercial/layerMask/LayerMaskSessionHost';
 import MarkSessionHost from '@/components/editor/nodes/ImageNode/mark/MarkSessionHost';
 import MockupSessionHost from '@/components/editor/nodes/ImageNode/mockup/MockupSessionHost';
 
-/** recombyn-dev: commercial canvas session hosts (stripped on OSS sync → oss-stubs). */
+/** Commercial canvas session hosts. */
 export function CommercialEditorHosts({
   document,
   selectionTransforming,

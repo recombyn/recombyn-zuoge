@@ -1,6 +1,6 @@
 /**
  * Mockup capability helpers (OSS-safe).
- * Render implementation lives in src/commercial/web (private repo only).
+ * Mockup tools — implementation loaded from @commercial when present.
  */
 
 import { getHttpErrorMessage } from '@/service/client';
@@ -26,7 +26,7 @@ export async function renderMockup(
 ): Promise<MockupRenderResult> {
   const mod = await import(/* @vite-ignore */ '@commercial/mockup/mockupTools').catch(() => null);
   if (!mod?.renderMockup) {
-    throw new Error('Mockup package not available (recombyn-dev includes src/commercial/web/mockup)');
+    throw new Error('Mockup tools are not available in this build');
   }
   return mod.renderMockup(image, templateId);
 }

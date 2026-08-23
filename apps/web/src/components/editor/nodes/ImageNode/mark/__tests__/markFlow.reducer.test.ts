@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import editorReducer, {
   clearImageMarkPin,
   enqueueQuickEditMarkContexts,
+  removeImageMarkPin,
   setImageMarkPin,
   type ImageMarkPin,
 } from '@/store/modules/editor';
@@ -19,20 +20,32 @@ const pin: ImageMarkPin = {
   sink: 'quickEdit',
 };
 
-describe('imageMarkPins reducer', () => {
-  it('stores one pin per image node', () => {
-    const state = editorReducer(undefined, setImageMarkPin(pin));
-    expect(state.imageMarkPins['img-1']).toEqual(pin);
+const pin2: ImageMarkPin = {
+  ...pin,
+  id: 'pin-2',
+  index: 2,
+  x: 50,
+  y: 60,
+  label: '2 区域',
+};
 
-    const replaced = editorReducer(
-      state,
-      setImageMarkPin({ ...pin, id: 'pin-2', x: 50 })
-    );
-    expect(replaced.imageMarkPins['img-1']?.id).toBe('pin-2');
-    expect(Object.keys(replaced.imageMarkPins)).toHaveLength(1);
+describe('imageMarkPins reducer', () => {
+  it('stores multiple pins per image node', () => {
+    const state = editorReducer(undefined, setImageMarkPin(pin));
+    expect(state.imageMarkPins['img-1']).toEqual([pin]);
+
+    const withTwo = editorReducer(state, setImageMarkPin(pin2));
+    expect(withTwo.imageMarkPins['img-1']).toHaveLength(2);
+    expect(withTwo.imageMarkPins['img-1']?.[1]?.id).toBe('pin-2');
   });
 
-  it('clears pin for a node', () => {
+  it('removes one pin by id', () => {
+    const withTwo = editorReducer(editorReducer(undefined, setImageMarkPin(pin)), setImageMarkPin(pin2));
+    const next = editorReducer(withTwo, removeImageMarkPin({ nodeId: 'img-1', pinId: 'pin-1' }));
+    expect(next.imageMarkPins['img-1']).toEqual([pin2]);
+  });
+
+  it('clears all pins for a node', () => {
     const withPin = editorReducer(undefined, setImageMarkPin(pin));
     const cleared = editorReducer(withPin, clearImageMarkPin('img-1'));
     expect(cleared.imageMarkPins['img-1']).toBeUndefined();

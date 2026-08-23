@@ -11,7 +11,7 @@ const py = existsSync(venvPy) ? venvPy : 'python';
 
 if (!existsSync(path.join(intelligenceRoot, 'src/recombyn_intelligence_service'))) {
   console.error(
-    '[dev:intelligence] src/commercial/intelligence not found — use recombyn-dev checkout.'
+    '[dev:intelligence] src/commercial/intelligence not found — install the Design Intelligence service tree.'
   );
   process.exit(1);
 }

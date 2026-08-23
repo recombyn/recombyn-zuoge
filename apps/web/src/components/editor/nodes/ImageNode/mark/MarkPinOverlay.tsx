@@ -43,7 +43,7 @@ function MarkPinOverlay({
   const origin = rcbSceneToScreen(camera, imageBox.left, imageBox.top);
   const stageW = Math.max(1, imageBox.width * z);
   const stageH = Math.max(1, imageBox.height * z);
-  const chrome = markRegionChrome({ pinned: !expanded, expanded });
+  const chrome = markRegionChrome({ pinned: !expanded, expanded, badgeOnly: !expanded });
   const promptStyle = useMemo(
     () => markPromptFixedStyle(camera, imageBox, pin),
     [camera, imageBox, pin]
@@ -88,10 +88,11 @@ function MarkPinOverlay({
   return (
     <RcbOverlayPortal>
       <div data-mark-pin-overlay className="pointer-events-none absolute" style={shellStyle}>
-        <button
-          type="button"
+        <div
           className="pointer-events-auto absolute p-0"
           style={regionStyle}
+          role="button"
+          tabIndex={0}
           aria-label={regionLabel}
           onPointerDown={(e) => {
             e.stopPropagation();
@@ -99,11 +100,16 @@ function MarkPinOverlay({
           }}
           onClick={(e) => {
             e.stopPropagation();
-            if (!expanded) setExpanded(true);
+            setExpanded((v) => !v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            setExpanded((v) => !v);
           }}
         >
           <span
-            className="pointer-events-none absolute left-1/2 top-1/2 flex h-5 min-w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md px-1 text-[11px] font-semibold text-white shadow-sm"
+            className="pointer-events-none absolute right-0 top-1/2 flex h-5 min-w-5 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-md px-1 text-[11px] font-semibold text-white shadow-sm"
             style={{ background: chrome.badgeBg }}
           >
             {pin.index}
@@ -116,7 +122,7 @@ function MarkPinOverlay({
               {regionLabel}
             </span>
           ) : null}
-        </button>
+        </div>
       </div>
       {expanded
         ? createPortal(

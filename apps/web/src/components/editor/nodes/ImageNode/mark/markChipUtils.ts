@@ -1,6 +1,17 @@
 import type { ImageMarkPin } from '@/store/modules/editor';
 import type { MarkRegion } from './MarkRegionOverlay';
 
+/** Next 1-based badge index — accounts for committed pins and in-session regions. */
+export function nextMarkRegionIndex(
+  pins: ImageMarkPin[],
+  regions: Array<Pick<MarkRegion, 'index'>>
+): number {
+  let max = 0;
+  for (const p of pins) max = Math.max(max, Number(p.index) || 0);
+  for (const r of regions) max = Math.max(max, Number(r.index) || 0);
+  return max + 1;
+}
+
 /** Chip label in composer — `[1] 区域` / `[1] 中秋团圆`. */
 export function markComposerChipLabel(region: {
   index: number;

@@ -16,7 +16,7 @@ function ImageThumb({ src }: { src: string }) {
   );
 }
 
-/** recombyn-dev: PS-style linked mask thumb on layer row (stripped on OSS sync). */
+/** Layer row icon when a mask is attached. */
 export function CommercialLayerMaskIcon({
   attrs,
   src,

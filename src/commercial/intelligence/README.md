@@ -1,9 +1,6 @@
-# recombyn-intelligence
+# Design Intelligence service
 
-> **Monorepo location:** `src/commercial/intelligence` in [recombyn-dev](https://github.com/recombyn/recombyn-dev).  
-> The standalone `recombyn/recombyn-intelligence` repo is deprecated; develop here only.
-
-Internal Design Intelligence HTTP service for Recombyn Cloud.
+Internal HTTP service for Recombyn Cloud (`src/commercial/intelligence`).
 
 Implements `POST /v1/{method}` expected by the product Runtime remote client.
 Empty `{}` → host Runtime uses its local fallback provider.
@@ -58,7 +55,7 @@ uvicorn recombyn_intelligence_service.app:app --host 127.0.0.1 --port 8091
 ## Run (Docker)
 
 ```bash
-docker build -t recombyn-intelligence .
+docker build -t recombyn-design-intelligence .
 docker compose up -d --build
 curl http://127.0.0.1:8091/health
 ```

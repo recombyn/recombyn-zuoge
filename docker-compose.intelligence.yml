@@ -7,7 +7,7 @@
 #
 # Point RECOMBYN_INTELLIGENCE_CONTEXT at a checkout that ships a Dockerfile
 # implementing POST /v1/{method} + GET /health.
-# Default: vendored service under src/commercial/intelligence (recombyn-dev only).
+# Default build context: ./src/commercial/intelligence when present.
 
 services:
   intelligence:

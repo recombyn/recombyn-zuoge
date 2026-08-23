@@ -1,27 +1,25 @@
-# Commercial / closed-source tree
+# Commercial tree (recombyn-dev)
 
-Proprietary code lives here in **recombyn-dev**. The OSS mirror (`recombyn/recombyn`) never receives this folder.
+Closed-source product code for the private monorepo. Not published to `recombyn/recombyn`.
 
 ## Layout
 
 ```
 src/commercial/
   intelligence/   # Design Intelligence HTTP service (port 8091)
-  web/            # React modules loaded via @commercial/* (lazy import)
-  api/            # Future: API-only closed routers
+  web/            # @commercial/* UI modules (layer mask, mockup, …)
+  docs/           # internal developer notes
 ```
 
-## Intelligence (vendored)
-
-Former standalone repo `recombyn-intelligence`, now colocated:
+## Intelligence
 
 ```bash
 cd src/commercial/intelligence
-python scripts/bootstrap_protocol.py   # venv + editable install
-npm run dev:intelligence               # or included in npm run dev:stack
+python scripts/bootstrap_protocol.py
+npm run dev:intelligence    # or: npm run dev:stack
 ```
 
-API auto-wires `RECOMBYN_INTELLIGENCE_URL=http://127.0.0.1:8091` when this tree exists.
+API auto-sets `RECOMBYN_INTELLIGENCE_URL=http://127.0.0.1:8091` when this tree exists.
 
 Docker: `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml --profile intelligence up`
 
@@ -29,17 +27,9 @@ Docker: `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml
 
 | Path | Description |
 |------|-------------|
-| `web/mockup/` | Mockup session UI + render helpers |
+| `web/mockup/` | Mockup session UI |
+| `web/layerMask/` | Layer mask editing |
 
-OSS stubs import `@commercial/...` with `.catch()` fallbacks.
+Wiring: `apps/web/src/commercial/` + `@commercial/*` alias.
 
-## Deprecated
-
-- Separate `recombyn-intelligence` checkout — use `src/commercial/intelligence`
-- `apps/web/src/private/` — local-only overrides (gitignored)
-
-## Sync
-
-Push **recombyn-dev** `main` → GitHub Actions strips `src/commercial/` → updates public **recombyn**.
-
-See [docs/private-sync.md](../../docs/private-sync.md).
+Internal sync notes: [docs/private-sync.md](./docs/private-sync.md).

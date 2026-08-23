@@ -339,6 +339,24 @@ export async function uploadImageFromSrc(
   return uploadImageFile(file, { signal: opts?.signal });
 }
 
+/** Upload when possible; keep data:/blob: locally if the API is unreachable (local dev). */
+export async function uploadImageFromSrcWithLocalFallback(
+  src: string,
+  filename = 'processed.png',
+  opts?: { signal?: AbortSignal; uploadKey?: string | null }
+): Promise<UploadedFileItem> {
+  try {
+    return await uploadImageFromSrc(src, filename, opts);
+  } catch (err) {
+    const s = String(src || '').trim();
+    if (s.startsWith('data:') || s.startsWith('blob:')) {
+      console.warn('[upload] using local preview URL', err);
+      return { url: s, name: filename };
+    }
+    throw err;
+  }
+}
+
 /**
  * COS / CDN display URLs often lack browser CORS — WaveSurfer `fetch` fails.
  * Resolve via authenticated upload pipeline into a same-origin blob: URL.

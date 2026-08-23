@@ -4,6 +4,7 @@ import {
   getDocumentGridSize,
   snapBoxToGrid,
   snapResizeToGrid,
+  snapResizeToPeers,
   smartSnapThreshold,
   smartGuideTargetPad,
   collectMoveSnapIndicators,
@@ -1123,6 +1124,17 @@ export type ResizeSnapContext = {
   threshold: number;
 };
 
+/** Rough resized union for smart-guide target queries during resize drag. */
+export function resizeDragNearBox(
+  drag: Pick<DragState, 'union' | 'handle' | 'angle0'>,
+  dx: number,
+  dy: number
+): SceneBox {
+  if (!drag.handle) return drag.union;
+  const rough = resizeFromHandle(drag.union, drag.handle, dx, dy, drag.angle0 || 0, {});
+  return unionOfBoxes([drag.union, rough]) ?? rough;
+}
+
 export function computeResizedUnion(ctx: ResizeSnapContext): {
   next: SceneBox;
   textMode: TextResizeMode | undefined;
@@ -1160,7 +1172,12 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
         pathNext = pathInsetFromVisualOuter(visualNext, outset);
       }
       if (ctx.targets.length) {
-        guides = collectMoveSnapIndicators(pathNext, ctx.targets, paintEps);
+        const peerSnapped = snapResizeToPeers(pathNext, handle, ctx.targets, ctx.threshold, Math.max(RESIZE_MIN_SIZE, Math.ceil(outset * 2)), {
+          lockAspect,
+          aspectRatio: ctx.drag.aspectRatio,
+        });
+        pathNext = peerSnapped.box;
+        guides = peerSnapped.guides;
       }
       next = inflateSelectionBox(pathNext, singleNode);
     } else {
@@ -1171,7 +1188,12 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
         });
       }
       if (ctx.targets.length) {
-        guides = collectMoveSnapIndicators(next, ctx.targets, paintEps);
+        const peerSnapped = snapResizeToPeers(next, handle, ctx.targets, ctx.threshold, RESIZE_MIN_SIZE, {
+          lockAspect,
+          aspectRatio: ctx.drag.aspectRatio,
+        });
+        next = peerSnapped.box;
+        guides = peerSnapped.guides;
       }
     }
   }

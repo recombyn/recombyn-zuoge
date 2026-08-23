@@ -8,4 +8,4 @@ Also ships default stage → contract schema ids and the canvas-ops required
 stage set. Runtime graph builders and AgentProfile loaders should share these
 names — do not invent parallel stage vocabularies.
 
-Proprietary intelligence implementations are out of scope (see intelligence-client).
+Remote intelligence service implementations live in `packages/intelligence-client`.

@@ -8,7 +8,7 @@ type Props = {
   nodeId: string;
 };
 
-/** recombyn-dev only — replaced by oss-stubs on public sync. */
+/** Optional commercial image tools. */
 export function CommercialImageToolbarTools({ nodeId }: Props) {
   const dispatch = useDispatch();
   const { t } = useTranslation();

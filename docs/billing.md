@@ -1,6 +1,6 @@
-# Billing（开源计费）
+# Billing（任务制积分）
 
-开源侧提供两样东西：**Billing Protocol**（怎么记账）和 **任务制积分地板**（默认预扣多少）。  
+本仓库提供两样东西：**Billing Protocol**（怎么记账）和 **任务制积分地板**（默认预扣多少）。  
 它们不是完整的 Cloud 套餐产品；加价、促销、list SKU 由宿主自己决定。
 
 协议包 pin：`recombyn-protocol >= 0.1.3`。
@@ -66,7 +66,7 @@ print(agent.estimate_credits_high())  # 30 = base + research/paint/review
 | `image` | 2 | 2 |
 | `chat` | 1 | 1 |
 
-宿主可用规则覆盖（如 `billing.task_pricing_json`）；上表是开源地板，不是 list 售价。
+宿主可用规则覆盖（如 `billing.task_pricing_json`）；上表是默认地板，不是 list 售价。
 
 ## 三层价格（不要塌缩）
 
@@ -75,7 +75,7 @@ Provider Price          # PricingVersion / rates
       ↓
 Internal Cost           # CostBreakdown.internal_cost_micros
       ↓
-Host commercial policy  # 不开源：加价 / 促销 / SKU
+Host commercial policy  # margin / promo / SKU (operator deployment)
       ↓
 User Credits / Ledger   # 用户看到的积分
 ```

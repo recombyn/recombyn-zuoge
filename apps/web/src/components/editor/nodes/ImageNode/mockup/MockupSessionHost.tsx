@@ -12,7 +12,7 @@ const PrivateMockupSessionHost = lazy(() =>
 );
 
 /**
- * OSS entry: lazy-loads closed-source UI from src/commercial/web (stripped on public sync).
+ * Lazy-loads mockup session UI from @commercial when available.
  */
 function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode {
   return (
