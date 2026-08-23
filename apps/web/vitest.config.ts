@@ -1,5 +1,10 @@
+import fs from 'fs';
 import path from 'path';
 import { defineConfig } from 'vitest/config';
+
+const commercialDevRoot = path.resolve(__dirname, '../../src/commercial/web');
+const commercialOssRoot = path.resolve(__dirname, 'src/commercial-oss');
+const commercialRoot = fs.existsSync(commercialDevRoot) ? commercialDevRoot : commercialOssRoot;
 
 /**
  * Frontend unit tests — Vitest + React Testing Library (Vite-native).
@@ -27,6 +32,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
+      '@commercial': commercialRoot,
       '@canvas-plugins': path.resolve(__dirname, '../../plugins/canvas'),
     },
   },

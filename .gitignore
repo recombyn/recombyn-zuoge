@@ -146,3 +146,5 @@ apps/api/storage/*.db-wal
 
 # Local runtime artifacts if mistakenly created under app/
 apps/api/app/storage/
+
+pub-bootstrap/

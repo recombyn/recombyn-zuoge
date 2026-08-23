@@ -47,6 +47,7 @@ import {
   consumePendingAgentContexts,
   EMPTY_ID_LIST,
   setAgentBusy,
+  type PendingMarkContextChip,
 } from '@/store/modules/editor';
 import type { RootState } from '@/store';
 import { cloneDocument } from '@/store/modules/editorHistory';
@@ -1233,15 +1234,7 @@ function AgentDock({
 
   /** Mark tool selections → insert @ chips into the composer. */
   const pendingAgentContexts = useSelector(
-    (s: RootState) =>
-      (s.editor.pendingAgentContexts || []) as Array<{
-        key: string;
-        label: string;
-        kind: string;
-        payload: string;
-        dataUrl?: string;
-        thumbUrl?: string;
-      }>
+    (s: RootState) => (s.editor.pendingAgentContexts || []) as PendingMarkContextChip[]
   );
   const pendingAgentContextsLockRef = useRef<string | null>(null);
   useEffect(() => {
