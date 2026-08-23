@@ -55,7 +55,7 @@ export const AlphaSlider = memo(({ value, color, onChange, disabled }: AlphaSlid
   return (
     <div
       ref={sliderRef}
-      className='relative h-4 rounded cursor-pointer overflow-hidden'
+      className='relative h-3 rounded cursor-pointer overflow-hidden'
       style={{
         backgroundImage: `linear-gradient(to right, transparent, ${rgb}), linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)`,
         backgroundSize: '100% 100%, 8px 8px, 8px 8px, 8px 8px, 8px 8px',
