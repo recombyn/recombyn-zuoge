@@ -220,7 +220,9 @@ describe('process glow local size during resize preview', () => {
       true
     );
     const local = readScenePaintLocalSize(el, { width: 160, height: 160 });
-    expect(local).toEqual({ width: 100, height: 100 });
+    expect(local).toEqual({ width: 160, height: 160 });
+    const anyEl = el as any;
+    expect(anyEl.__sceneDidResize).toBeFalsy();
     expect(el!.querySelector('image')).toBeNull();
   });
 });

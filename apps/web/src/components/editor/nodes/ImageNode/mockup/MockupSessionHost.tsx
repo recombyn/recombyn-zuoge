@@ -6,13 +6,13 @@ const EmptyMockupHost = memo(function EmptyMockupHost(_props: { document: SceneD
 });
 
 const PrivateMockupSessionHost = lazy(() =>
-  import(/* @vite-ignore */ '@/private/mockup/MockupSessionHost')
+  import(/* @vite-ignore */ '@commercial/mockup/MockupSessionHost')
     .then((m) => ({ default: m.default }))
     .catch(() => ({ default: EmptyMockupHost }))
 );
 
 /**
- * OSS entry: lazy-loads closed-source UI from src/private/mockup (not on GitHub).
+ * Lazy-loads mockup session UI from @commercial when available.
  */
 function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode {
   return (

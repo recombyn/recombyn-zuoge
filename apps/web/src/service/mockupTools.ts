@@ -1,6 +1,6 @@
 /**
  * Mockup capability helpers (OSS-safe).
- * Render implementation lives in src/private/mockup — not committed to GitHub.
+ * Mockup tools — implementation loaded from @commercial when present.
  */
 
 import { getHttpErrorMessage } from '@/service/client';
@@ -24,9 +24,9 @@ export async function renderMockup(
   image: string,
   templateId = 'demo-cylinder'
 ): Promise<MockupRenderResult> {
-  const mod = await import(/* @vite-ignore */ '@/private/mockup/mockupTools').catch(() => null);
+  const mod = await import(/* @vite-ignore */ '@commercial/mockup/mockupTools').catch(() => null);
   if (!mod?.renderMockup) {
-    throw new Error('Mockup UI package not installed (copy src/private.example/mockup → src/private/mockup)');
+    throw new Error('Mockup tools are not available in this build');
   }
   return mod.renderMockup(image, templateId);
 }

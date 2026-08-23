@@ -173,7 +173,7 @@ docker compose --profile av \
   -f docker-compose.av.yml \
   up -d --build
 
-# 3) Base + external/sibling intelligence provider service
+# 3) Base + optional Design Intelligence HTTP provider
 docker compose --profile intelligence \
   -f docker-compose.yml \
   -f docker-compose.intelligence.yml \

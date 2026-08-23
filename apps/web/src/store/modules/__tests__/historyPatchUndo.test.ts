@@ -124,7 +124,7 @@ describe('patch undo history', () => {
     expect(undone.historyPast).toHaveLength(0);
   });
 
-  it('does not resurrect a deleted upload placeholder through undo', () => {
+  it('blocks deleting an in-flight upload placeholder', () => {
     const { state: s0 } = seedWithPathNode();
     const started = reducer(
       s0,
@@ -139,8 +139,8 @@ describe('patch undo history', () => {
     const placeholderId = started.pendingImageProcessId as string;
     const deleted = reducer(started, removeDocumentNodes({ nodeIds: [placeholderId] }));
 
+    expect(deleted.document.deltaSetLike[placeholderId]).toBeDefined();
     expect(deleted.historyPast).toHaveLength(0);
-    expect(reducer(deleted, undo()).document.deltaSetLike[placeholderId]).toBeUndefined();
   });
 
   it('records one undo step for a completed upload, excluding the placeholder', () => {

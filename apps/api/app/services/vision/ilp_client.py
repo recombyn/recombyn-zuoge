@@ -186,6 +186,36 @@ async def text_decompose_via_ilp(
         return data
 
 
+async def upscale_via_ilp(
+    image_ref: str,
+    *,
+    resolution: str = "4K",
+    target_long_edge: int | None = None,
+) -> tuple[bytes, str]:
+    """Real-ESRGAN super-resolution on intelligence."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Depth layering service is not configured (set RECOMBYN_INTELLIGENCE_URL or IMAGE_LAYER_PIPELINE_URL)"
+        )
+
+    content, filename = await _load_bytes(image_ref)
+    data: dict[str, str] = {"resolution": (resolution or "4K").strip() or "4K"}
+    if target_long_edge is not None and int(target_long_edge) > 0:
+        data["target_long_edge"] = str(int(target_long_edge))
+    async with httpx.AsyncClient(timeout=_timeout()) as client:
+        resp = await client.post(
+            f"{base}/api/v1/pipeline/upscale",
+            files={"file": (filename, content, "application/octet-stream")},
+            data=data,
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ILP upscale failed ({resp.status_code}): {resp.text[:300]}")
+        engine = (resp.headers.get("x-ilp-engine") or "realesrgan").strip()
+        return resp.content, engine
+
+
 async def detect_regions_via_ilp(
     image_ref: str,
     *,
@@ -216,6 +246,29 @@ async def detect_regions_via_ilp(
         if not isinstance(data, dict):
             raise RuntimeError("ILP detect-regions returned invalid JSON")
         return data
+
+
+async def erase_alpha_via_ilp(image_ref: str, mask_bytes: bytes) -> bytes:
+    """Smart eraser — expand brush mask and punch alpha on intelligence."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Depth layering service is not configured (set RECOMBYN_INTELLIGENCE_URL or IMAGE_LAYER_PIPELINE_URL)"
+        )
+
+    content, filename = await _load_bytes(image_ref)
+    async with httpx.AsyncClient(timeout=_timeout()) as client:
+        resp = await client.post(
+            f"{base}/api/v1/pipeline/erase-alpha",
+            files={
+                "file": (filename, content, "application/octet-stream"),
+                "mask": ("mask.png", mask_bytes, "image/png"),
+            },
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            raise RuntimeError(f"ILP erase-alpha failed ({resp.status_code}): {resp.text[:300]}")
+        return resp.content
 
 
 async def inpaint_image_via_ilp(

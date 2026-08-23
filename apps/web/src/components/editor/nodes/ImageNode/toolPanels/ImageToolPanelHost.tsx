@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { useDispatch, useSelector, useStore } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
+import { getHttpErrorMessage } from '@/service/client';
 import {
   closeImageToolPanel,
   failImageProcess,
@@ -24,7 +25,8 @@ import {
   useRcbDevicePixelRatio,
   rcbSceneToScreen,
 } from '@/components/rcb';
-import { uploadImageFromSrc } from '@/utils/uploadImage';
+import { uploadImageFromSrcWithLocalFallback } from '@/utils/uploadImage';
+import { isIntelligenceVisionEnabled } from '@/service/imageTools';
 import {
   layerOpacityToPct,
   parseLayerOpacity,
@@ -38,6 +40,7 @@ import MattingHintOverlay, {
 } from './MattingHintOverlay';
 import RemoveBgToolPanel from './RemoveBgToolPanel';
 import { defaultBrushSize } from './maskBrushUtils';
+import { startEraserFromMask } from './eraserSession';
 import { startRemoveBgFromMasks } from './removeBgSession';
 import OpacityToolPanel from './OpacityToolPanel';
 import MultiAngleToolPanel from './MultiAngleToolPanel';
@@ -77,7 +80,7 @@ async function confirmEraserAsNewNode(opts: {
   if (!processId) throw new Error('橡皮失败');
   opts.onSpawned?.();
   try {
-    const uploaded = await uploadImageFromSrc(erased, 'eraser.png');
+    const uploaded = await uploadImageFromSrcWithLocalFallback(erased, 'eraser.png');
     const url = String(uploaded?.url || erased).trim() || erased;
     opts.dispatch(
       finishImageProcess({
@@ -176,7 +179,12 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
       return;
     }
     const node = document?.deltaSetLike?.[panel.nodeId];
-    if (isImageProcessRunning(node)) dispatch(closeImageToolPanel());
+    if (
+      isImageProcessRunning(node) &&
+      !isImageToolExternalSessionKind(panel.kind)
+    ) {
+      dispatch(closeImageToolPanel());
+    }
   }, [selectedNodeId, panel, document, dispatch]);
 
   useEffect(() => {
@@ -367,13 +375,29 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
             const node = document?.deltaSetLike?.[sourceId];
             const src = String(node?.attrs?.src || '');
             if (!src) {
-              message.error('未找到图片');
+              message.error(t('editor.imageToolbar.imageNotFound'));
               return;
             }
-            const applyErase = maskRef.current?.applyErase;
-            if (!applyErase) return;
             setEraseBusy(true);
             try {
+              if (isIntelligenceVisionEnabled()) {
+                const eraseMask = await maskRef.current?.exportMask();
+                if (!eraseMask) {
+                  message.error(t('editor.imageToolbar.eraserNoImage'));
+                  return;
+                }
+                await startEraserFromMask({
+                  eraseMask,
+                  sourceId,
+                  label: t('editor.imageToolbar.processingEraser'),
+                  dispatch,
+                  onSpawned: close,
+                });
+                return;
+              }
+
+              const applyErase = maskRef.current?.applyErase;
+              if (!applyErase) return;
               await confirmEraserAsNewNode({
                 applyErase,
                 src,
@@ -385,10 +409,14 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
                   (store.getState() as any).editor?.pendingImageProcessId || null,
                 onSpawned: close,
               });
-              message.success('擦除完成');
+              message.success(t('editor.imageToolbar.eraserDone'));
             } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : '';
-              message.error(msg && msg !== '橡皮失败' ? msg : '橡皮失败');
+              const raw = getHttpErrorMessage(err, '');
+              const msg =
+                /failed to fetch|networkerror|load failed/i.test(raw)
+                  ? t('agent.apiDown')
+                  : raw || t('editor.imageToolbar.eraserFailed');
+              message.error(msg);
             } finally {
               setEraseBusy(false);
             }
@@ -417,7 +445,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
             const node = document?.deltaSetLike?.[sourceId];
             const src = String(node?.attrs?.src || '');
             if (!src) {
-              message.error('未找到图片');
+              message.error(t('editor.imageToolbar.imageNotFound'));
               return;
             }
             setMattingBusy(true);

@@ -1,5 +1,5 @@
 /**
- * Detect closed-source mockup UI under src/private/mockup (gitignored).
+ * Probe whether mockup UI is available.
  * OSS clones without that folder keep the toolbar hidden.
  */
 
@@ -13,7 +13,7 @@ export function getMockupUiInstalled(): boolean | null {
 export function probeMockupUiInstalled(): Promise<boolean> {
   if (cached !== null) return Promise.resolve(cached);
   if (!pending) {
-    pending = import(/* @vite-ignore */ '@/private/mockup')
+    pending = import(/* @vite-ignore */ '@commercial/mockup')
       .then(() => {
         cached = true;
         return true;

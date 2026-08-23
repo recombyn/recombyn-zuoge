@@ -12,6 +12,16 @@ import {
 } from '@/components/home/FlowScrollSection';
 import { cn } from '@/utils/classnames';
 
+function resolvePlazaFlowStyle(
+  flow: boolean,
+  naturalAspect: string | null,
+  coverDocument: unknown
+): CSSProperties | undefined {
+  if (!flow) return undefined;
+  if (naturalAspect) return { aspectRatio: naturalAspect };
+  return plazaCoverAspectStyle(coverDocument);
+}
+
 type Props = {
   /** Lightweight cover document from Plaza list API (`coverDocument`). */
   coverDocument?: unknown | null;
@@ -69,15 +79,9 @@ function PlazaCoverThumb({
     return () => io.disconnect();
   }, [once]);
 
-  const flowStyle: CSSProperties | undefined = flow
-    ? naturalAspect
-      ? { aspectRatio: naturalAspect }
-      : plazaCoverAspectStyle(coverDocument)
-    : undefined;
+  const flowStyle = resolvePlazaFlowStyle(flow, naturalAspect, coverDocument);
 
-  const mediaClass = flow
-    ? 'block h-full w-full object-cover'
-    : 'h-full w-full object-contain';
+  const mediaClass = 'block h-full w-full object-cover';
 
   return (
     <div

@@ -40,6 +40,7 @@ import {
   parseStackKey
 } from '@/components/rcb/scene/document/sceneDocument';
 import { cn } from '@/utils/classnames';
+import { CommercialLayerMaskIcon } from '@/commercial/layerPanelMaskIcon';
 import {
   patchDocumentNode,
   setActiveFrameId,
@@ -244,8 +245,12 @@ function LayerIcon({
   }
 
   if (node.key === 'image' && src) {
-    const thumb = <LayerMediaThumb kind="image" src={src} />;
-    if (thumb) return thumb;
+    return (
+      <CommercialLayerMaskIcon
+        attrs={node.attrs as Record<string, unknown> | undefined}
+        src={src}
+      />
+    );
   }
 
   const kind = resolveLayerIconKind(node);
@@ -560,9 +565,9 @@ function LayerPanel({
   mobile = false,
 }: {
   onClose?: () => void;
-  /** Select + pan camera so the node is centered in the current viewport. */
+  /** Optional override when selecting from the layer list (default: Redux select only). */
   onSelectNode?: (nodeId: string) => void;
-  /** Select + pan camera so the artboard is centered. */
+  /** Optional override when selecting a frame row (default: Redux select only). */
   onSelectFrame?: (frameId: string) => void;
   mobile?: boolean;
 } = {}) {

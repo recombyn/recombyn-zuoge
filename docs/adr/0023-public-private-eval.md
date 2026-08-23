@@ -16,9 +16,9 @@ enter the Apache-2.0 git history or Public CI artifacts.
    - `eval/framework/` — docs pointer to the package
    - `eval/design-agent/` — **the** public suite (tasks, rubric, baseline, runners)
    - `eval/public/` — stable name alias documenting that public suite path
-2. **Private layout (`recombyn-intelligence`):**
-   - `private-eval/` — rankings, closed datasets, proprietary rubrics
-   - Dataset files are gitignored; only README + placeholders are committed
+2. **Operator-only eval** (not in this repository):
+   - Closed rankings, datasets, and proprietary rubrics
+   - Dataset files are gitignored in the operator environment; only README + placeholders may be committed in private forks
 3. **CI rule:** Public workflows may only read `eval/design-agent/**` and
    `packages/eval-framework/**`. They must not upload or clone private-eval
    corpora into Public artifacts.

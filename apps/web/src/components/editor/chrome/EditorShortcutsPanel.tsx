@@ -71,12 +71,6 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
       : 'Ctrl';
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onCloseRef.current();
-      }
-    };
     const onPointer = (e: PointerEvent) => {
       const el = rootRef.current;
       if (!el) return;
@@ -85,10 +79,8 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
       if (target instanceof Element && target.closest('[data-shortcuts-toggle]')) return;
       onCloseRef.current();
     };
-    window.addEventListener('keydown', onKey);
     window.addEventListener('pointerdown', onPointer, true);
     return () => {
-      window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', onPointer, true);
     };
   }, []);
@@ -276,10 +268,6 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
                   ]}
                 />
               }
-            />
-            <ShortcutRow
-              label={t('editor.shortcuts.chatEscape')}
-              keys={<Kbd>{t('editor.shortcuts.keys.esc')}</Kbd>}
             />
           </ShortcutSection>
         </div>

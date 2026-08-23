@@ -4234,8 +4234,8 @@ function execImageProcess(
       return {
         status: 'error',
         summary:
-          'removeBg / editText / editElements require Recombyn Intelligence (configure RECOMBYN_INTELLIGENCE_URL on the API)',
-        next_actions: ['Use upscale, expand, or other LLM image tools instead'],
+          'upscale / removeBg / editText / editElements require Recombyn Intelligence (configure RECOMBYN_INTELLIGENCE_URL on the API)',
+        next_actions: ['Use expand, replaceText, or other LLM image tools instead'],
       };
     }
     const node = doc.deltaSetLike?.[nodeId];

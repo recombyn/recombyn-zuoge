@@ -20,12 +20,11 @@ eval/
 |-------|------|-----------------|
 | Compare helpers | `packages/eval-framework` | Apache-2.0 |
 | Public suite | `eval/design-agent/` | Apache-2.0 |
-| Private rankings / closed datasets | **not in this repo** | private Intelligence |
+| Private rankings / closed datasets | **not in this repo** | operator-only |
 
 ```bash
 npm run eval:agent
 npm run eval:compare
 ```
 
-Private eval lives under the operator’s Intelligence checkout (`private-eval/`),
-never under Public CI artifacts. See [ADR 0023](../docs/adr/0023-public-private-eval.md).
+Operator-only eval corpora live outside this repository. See [ADR 0023](../docs/adr/0023-public-private-eval.md).

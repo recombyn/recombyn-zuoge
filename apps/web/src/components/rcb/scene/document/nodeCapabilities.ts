@@ -1,5 +1,7 @@
 /** Node predicates: is* / supports* (no document writes). */
 
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import type { SceneNodeAttrs } from '@/components/rcb/sceneNode';
 
 /**
@@ -80,6 +82,12 @@ export function isImageProcessRunning(node: SceneNodeRef): boolean {
   return Boolean(node) && String(node?.attrs?.processStatus || '') === 'running';
 }
 
+export function isFrameProcessRunning(
+  frame: { processStatus?: unknown } | null | undefined
+): boolean {
+  return Boolean(frame) && String(frame?.processStatus || '') === 'running';
+}
+
 /** Generator bottom composer — hide while upload / generate / AI shimmer is active. */
 export function shouldShowGeneratorComposer(opts: {
   node: SceneNodeRef;
@@ -94,11 +102,39 @@ export function shouldShowGeneratorComposer(opts: {
 
 /**
  * In-flight process placeholder (upload / import / AI tools like editElements).
- * Delete is permanent — scrubbed from history so Undo cannot revive it; clearing
- * pendingImageProcessId aborts applying the result (same as upload-in-flight).
+ * User delete is blocked while `processStatus === 'running'`; after completion or
+ * via `failImageProcess` / `cancelImportPlaceholder`, removal uses history scrub.
  */
 export function isEphemeralUploadNode(node: SceneNodeRef): boolean {
   return isImageProcessRunning(node);
+}
+
+/**
+ * True when any node or artboard in a delete target set is still processing.
+ * Pass expanded `nodeIds` (frame children already merged) with `expandFrameChildren: false`.
+ */
+export function deletionTargetHasProcessing(
+  document: SceneDocument | null | undefined,
+  nodeIds: string[],
+  frameIds: string[] = [],
+  opts?: { expandFrameChildren?: boolean }
+): boolean {
+  if (!document) return false;
+  let allNodeIds = nodeIds.map((id) => String(id || '').trim()).filter(Boolean);
+  if (opts?.expandFrameChildren !== false && frameIds.length) {
+    const bound = nodeIdsBoundToFrames(document, frameIds);
+    allNodeIds = [...new Set([...allNodeIds, ...bound])];
+  }
+  for (const id of allNodeIds) {
+    if (isImageProcessRunning(document.deltaSetLike?.[id])) return true;
+  }
+  if (!frameIds.length) return false;
+  const frames = Array.isArray(document.frames) ? document.frames : [];
+  for (const fid of frameIds) {
+    const frame = frames.find((f) => f?.id === fid);
+    if (isFrameProcessRunning(frame)) return true;
+  }
+  return false;
 }
 
 /**

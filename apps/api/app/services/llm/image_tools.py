@@ -18,6 +18,7 @@ IMAGE_PROCESS_KINDS = frozenset(
     {
         "upscale",
         "removeBg",
+        "eraser",
         "multiAngle",
         "expand",
         "editText",
@@ -30,12 +31,16 @@ IMAGE_PROCESS_KINDS = frozenset(
 )
 
 # Closed-source intelligence only — hidden in UI and rejected when service is down.
-ILP_EXCLUSIVE_KINDS = frozenset({"removeBg", "editText", "editElements", "detectRegions"})
+ILP_EXCLUSIVE_KINDS = frozenset(
+    {"removeBg", "eraser", "editText", "editElements", "detectRegions", "upscale"}
+)
 
 DECOMPOSE_KINDS = frozenset({"editText", "editElements"})
 DETECT_KINDS = frozenset({"detectRegions"})
 CUTOUT_KINDS = frozenset({"removeBg"})
-NO_LLM_KINDS = CUTOUT_KINDS | DECOMPOSE_KINDS | DETECT_KINDS
+ERASE_KINDS = frozenset({"eraser"})
+UPSCALE_KINDS = frozenset({"upscale"})
+NO_LLM_KINDS = CUTOUT_KINDS | ERASE_KINDS | DECOMPOSE_KINDS | DETECT_KINDS | UPSCALE_KINDS
 
 _ILP_REQUIRED_MSG = (
     "此功能需要接入 Recombyn Intelligence 闭源服务（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
@@ -64,7 +69,7 @@ def ilp_supports() -> list[str]:
 
     if not ilp_enabled():
         return []
-    return ["removeBg", "editText", "editElements", "detectRegions"]
+    return ["removeBg", "eraser", "editText", "editElements", "detectRegions", "upscale"]
 
 
 def _prompt_for(
@@ -187,7 +192,7 @@ async def process_image_tool(
     """
     Run a toolbar image tool.
 
-    - ``removeBg`` / ``editText`` / ``editElements`` → Recombyn Intelligence only
+    - ``removeBg`` / ``editText`` / ``editElements`` / ``upscale`` → Recombyn Intelligence only
     - other kinds → Seedream image-to-image
 
     Returns ``{ image, layers?, text?, kind, model?, width?, height?, warnings? }``.
@@ -207,6 +212,11 @@ async def process_image_tool(
 
         return await remove_background(src, meta=meta)
 
+    if k in ERASE_KINDS:
+        from app.services.vision.smart_erase import smart_erase
+
+        return await smart_erase(src, meta=meta)
+
     if k == "editElements":
         from app.services.vision.ilp_decompose import decompose_via_ilp
 
@@ -221,6 +231,11 @@ async def process_image_tool(
         from app.services.vision.ilp_detect_regions import detect_regions_via_ilp_adapter
 
         return await detect_regions_via_ilp_adapter(image=src)
+
+    if k in UPSCALE_KINDS:
+        from app.services.vision.ilp_upscale import upscale_image_via_ilp
+
+        return await upscale_image_via_ilp(src, meta=meta, resolution=resolution)
 
     prompt = _prompt_for(k, meta=meta)
     result = await generate_image(

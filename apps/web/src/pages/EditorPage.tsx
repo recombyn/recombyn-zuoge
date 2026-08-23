@@ -94,6 +94,36 @@ import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
 
 const BOOT_MIN_MS = 520;
 const BOOT_EXIT_MS = 280;
+const STAGE_LAYOUT_MIN = 40;
+
+type StageLayout = { width: number; height: number };
+
+/** Keep the scene point at the viewport center when the stage resizes (side panels). */
+function compensateCameraForViewportResize(
+  camera: CanvasCamera,
+  prev: StageLayout,
+  next: StageLayout
+): CanvasCamera | null {
+  if (
+    prev.width <= STAGE_LAYOUT_MIN ||
+    prev.height <= STAGE_LAYOUT_MIN ||
+    (Math.abs(prev.width - next.width) <= 0.5 && Math.abs(prev.height - next.height) <= 0.5)
+  ) {
+    return null;
+  }
+  return {
+    ...camera,
+    x: camera.x + (next.width - prev.width) / 2,
+    y: camera.y + (next.height - prev.height) / 2,
+  };
+}
+
+function readStageLayout(el: HTMLElement): StageLayout {
+  return {
+    width: Math.max(1, el.clientWidth),
+    height: Math.max(1, el.clientHeight),
+  };
+}
 
 
 function documentToCanvasFill(document: SceneDocument, themeFallback: string): FillPanelValue {
@@ -575,6 +605,8 @@ function EditorPage() {
   /** Local session: selection + grid. Camera fits once after stage layout (below). */
   const sessionReadyForIdRef = useRef<string | null>(null);
   const didInitialFitRef = useRef(false);
+  /** Previous stage layout size — used to keep the viewport anchor when side panels open/close. */
+  const prevStageLayoutRef = useRef({ width: 0, height: 0 });
   /** User pan/zoom 鈥?do not overwrite with auto-fit. */
   const cameraUserTouchedRef = useRef(false);
   const gridUserTouchedRef = useRef(false);
@@ -696,12 +728,15 @@ function EditorPage() {
     const el = stageEl;
     if (!el) return undefined;
     const apply = () => {
-      const next = {
-        width: Math.max(1, el.clientWidth),
-        height: Math.max(1, el.clientHeight),
-      };
-      setStageSize((prev) => {
-        if (prev.width === next.width && prev.height === next.height) return prev;
+      const next = readStageLayout(el);
+      const prev = prevStageLayoutRef.current;
+      if (didInitialFitRef.current && !bootOpenRef.current) {
+        const compensated = compensateCameraForViewportResize(cameraRef.current, prev, next);
+        if (compensated) setCamera(compensated);
+      }
+      prevStageLayoutRef.current = next;
+      setStageSize((prevSize) => {
+        if (prevSize.width === next.width && prevSize.height === next.height) return prevSize;
         return next;
       });
     };
@@ -823,6 +858,7 @@ function EditorPage() {
   useEffect(() => {
     sessionReadyForIdRef.current = null;
     didInitialFitRef.current = false;
+    prevStageLayoutRef.current = { width: 0, height: 0 };
     cameraUserTouchedRef.current = false;
     gridUserTouchedRef.current = false;
     setZoomFitActive(true);
@@ -992,55 +1028,33 @@ function EditorPage() {
     openAgentPanel();
   }, [agentOpenNonce, openAgentPanel, workspaceMode]);
 
-  const closeAgentPanel = useCallback(() => {
-    if (!isMobileViewport) setAgentOpen(false);
-  }, [isMobileViewport]);
+  const closeLayersPanel = useCallback(() => setLayersOpen(false), []);
 
-  const toggleAgentPanel = useCallback(() => {
-    if (agentOpen) {
-      setAgentOpen(false);
-      return;
-    }
-    openAgentPanel();
-  }, [agentOpen, openAgentPanel]);
-
-  const openShareDialog = useCallback(() => {
-    setShareOpen(true);
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        if (workspaceMode === 'dev') return;
-        e.preventDefault();
-        toggleAgentPanel();
-      }
-      if (e.key === 'Escape') {
-        setAgentOpen(false);
-        setInspectOpen(false);
-        setLayersOpen(false);
-        setAssetsOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [workspaceMode, toggleAgentPanel]);
-
-  useEffect(() => {
-    if (!isMobileViewport) return;
-    if (agentOpen) {
+  const selectLayerOnMobile = useCallback(
+    (nodeId: string) => {
+      dispatch(setSelectedNodeId(nodeId));
       setLayersOpen(false);
-      setAssetsOpen(false);
-    }
-  }, [agentOpen, isMobileViewport]);
+    },
+    [dispatch]
+  );
 
-  // Entering mobile: collapse left docks (they become sheets on demand).
+  const selectFrameOnMobile = useCallback(
+    (frameId: string) => {
+      dispatch(setActiveFrameId(frameId));
+      setLayersOpen(false);
+    },
+    [dispatch]
+  );
+
   useEffect(() => {
     if (!isMobileViewport) return;
     setLayersOpen(false);
     setAssetsOpen(false);
-  }, [isMobileViewport]);
+  }, [isMobileViewport, agentOpen]);
+
+  const openShareDialog = useCallback(() => {
+    setShareOpen(true);
+  }, []);
 
   const toggleLayersOpen = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setLayersOpen((prev) => {
@@ -1061,8 +1075,6 @@ function EditorPage() {
   const finishBoot = useCallback(() => {
     if (!bootOpenRef.current || bootFinishingRef.current) return;
     bootFinishingRef.current = true;
-    const el = stageRef.current;
-    const cam = cameraRef.current;
     const wait = Math.max(0, BOOT_MIN_MS - (Date.now() - bootStartedAt.current));
     window.setTimeout(() => {
       setBootProgress(advanceBootProgress(100));
@@ -1330,55 +1342,6 @@ function EditorPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [onFitViewManual, onZoomIn, onZoomOut, zoomAtStageCenter]);
 
-  /** Select a layer and pan so its center sits in the current viewport (keep zoom). */
-  const focusLayerNode = useCallback(
-    (nodeId: string) => {
-      dispatch(setSelectedNodeId(nodeId));
-      const node = document?.deltaSetLike?.[nodeId];
-      if (!node || !document) return;
-      const { left, top } = nodeLeftTop(document, node);
-      const w = Math.max(1, Number(node.width) || 1);
-      const h = Math.max(1, Number(node.height) || 1);
-      const cx = left + w / 2;
-      const cy = top + h / 2;
-      const el = stageRef.current;
-      const vw = el?.clientWidth || el?.getBoundingClientRect().width || 0;
-      const vh = el?.clientHeight || el?.getBoundingClientRect().height || 0;
-      if (vw < 1 || vh < 1) return;
-      setCamera((c) => {
-        const z = Math.max(0.05, c.zoom || 1);
-        return {
-          zoom: c.zoom,
-          x: vw / 2 - cx * z,
-          y: vh / 2 - cy * z,
-        };
-      });
-    },
-    [dispatch, document]
-  );
-
-  const focusLayerFrame = useCallback(
-    (frameId: string) => {
-      dispatch(setActiveFrameId(frameId));
-      const frame = (document?.frames || []).find((f: any) => f?.id === frameId);
-      if (!frame) return;
-      const cx = Number(frame.x) + Math.max(1, Number(frame.width) || 1) / 2;
-      const cy = Number(frame.y) + Math.max(1, Number(frame.height) || 1) / 2;
-      const el = stageRef.current;
-      const vw = el?.clientWidth || el?.getBoundingClientRect().width || 0;
-      const vh = el?.clientHeight || el?.getBoundingClientRect().height || 0;
-      if (vw < 1 || vh < 1) return;
-      setCamera((c) => {
-        const z = Math.max(0.05, c.zoom || 1);
-        return {
-          zoom: c.zoom,
-          x: vw / 2 - cx * z,
-          y: vh / 2 - cy * z,
-        };
-      });
-    },
-    [dispatch, document]
-  );
 
   const zoomPercent = Math.round(camera.zoom * 100);
   const projectName = currentTemplate?.name || t('home.untitled');
@@ -1395,11 +1358,7 @@ function EditorPage() {
         <div className="relative flex min-h-0 flex-1">
           {layersOpen && !isMobileViewport ? (
             <div className="relative z-30 h-full shrink-0">
-              <LayerPanel
-                onClose={() => setLayersOpen(false)}
-                onSelectNode={focusLayerNode}
-                onSelectFrame={focusLayerFrame}
-              />
+              <LayerPanel onClose={closeLayersPanel} />
             </div>
           ) : null}
 
@@ -1543,9 +1502,9 @@ function EditorPage() {
             ) : null
           ) : (
             <AgentDock
-              open={isMobileViewport ? true : agentOpen}
+              open={agentOpen}
               openSignal={agentOpenSignal}
-              onClose={closeAgentPanel}
+              onClose={() => setAgentOpen(false)}
               floating={isMobileViewport}
               allowedInteractionModes={
                 isMobileViewport ? MOBILE_AGENT_INTERACTION_MODES : undefined
@@ -1615,20 +1574,14 @@ function EditorPage() {
               type="button"
               aria-label={t('editor.closePanel')}
               className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]"
-              onClick={() => setLayersOpen(false)}
+              onClick={closeLayersPanel}
             />
             <div className="fixed inset-y-0 left-0 z-50">
               <LayerPanel
                 mobile
-                onClose={() => setLayersOpen(false)}
-                onSelectNode={(nodeId) => {
-                  focusLayerNode(nodeId);
-                  setLayersOpen(false);
-                }}
-                onSelectFrame={(frameId) => {
-                  focusLayerFrame(frameId);
-                  setLayersOpen(false);
-                }}
+                onClose={closeLayersPanel}
+                onSelectNode={selectLayerOnMobile}
+                onSelectFrame={selectFrameOnMobile}
               />
             </div>
           </>

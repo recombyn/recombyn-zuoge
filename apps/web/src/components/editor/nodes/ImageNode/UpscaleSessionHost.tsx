@@ -35,7 +35,7 @@ export type UpscalePreset = {
   height: number;
 };
 
-/** Seedream upscale tiers — model max 4K. */
+/** Real-ESRGAN upscale tiers on intelligence. */
 export const UPSCALE_PRESETS: UpscalePreset[] = [
   {
     key: '2k',

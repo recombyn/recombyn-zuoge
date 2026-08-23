@@ -13,7 +13,7 @@ def test_requires_ilp_kinds():
     assert requires_ilp("removeBg") is True
     assert requires_ilp("editText") is True
     assert requires_ilp("editElements") is True
-    assert requires_ilp("upscale") is False
+    assert requires_ilp("upscale") is True
 
 
 def test_ilp_supports_empty_when_off(monkeypatch):
@@ -23,7 +23,7 @@ def test_ilp_supports_empty_when_off(monkeypatch):
 
 def test_ilp_supports_when_on(monkeypatch):
     monkeypatch.setattr("app.services.vision.ilp_client.ilp_enabled", lambda: True)
-    assert ilp_supports() == ["removeBg", "editText", "editElements", "detectRegions"]
+    assert ilp_supports() == ["removeBg", "eraser", "editText", "editElements", "detectRegions", "upscale"]
 
 
 def test_process_image_tool_rejects_ilp_kind_when_off(monkeypatch):
@@ -32,6 +32,20 @@ def test_process_image_tool_rejects_ilp_kind_when_off(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Recombyn Intelligence"):
         asyncio.run(process_image_tool(kind="removeBg", image="data:image/png;base64,abc"))
+
+
+def test_process_image_tool_rejects_upscale_when_ilp_off(monkeypatch):
+    monkeypatch.setattr("app.services.vision.ilp_client.ilp_enabled", lambda: False)
+    from app.services.llm.image_tools import process_image_tool
+
+    with pytest.raises(RuntimeError, match="Recombyn Intelligence"):
+        asyncio.run(process_image_tool(kind="upscale", image="data:image/png;base64,abc"))
+
+
+def test_credit_cost_for_upscale_is_zero():
+    from app.api.routes.image_tools import credit_cost_for_kind
+
+    assert credit_cost_for_kind("upscale") == 0
 
 
 def test_decompose_via_ilp_maps_layers(monkeypatch):

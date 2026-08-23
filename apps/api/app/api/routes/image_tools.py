@@ -22,8 +22,9 @@ router = APIRouter(prefix="/image", tags=["image-tools"])
 # Wallet 积分 charged per LLM image tool when not tied to a Seedream catalog price.
 # Local CV kinds (removeBg / editText / editElements) are always 0.
 _KIND_CREDIT_COST: dict[str, int] = {
-    "upscale": 20,
+    "upscale": 0,
     "removeBg": 0,
+    "eraser": 0,
     "multiAngle": 30,
     "expand": 30,
     "editText": 0,

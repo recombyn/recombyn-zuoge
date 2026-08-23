@@ -608,6 +608,89 @@ export function snapTranslateToPeers(
   };
 }
 
+function collectPeerSnapCoords(targets: SmartGuideTarget[]): { xs: number[]; ys: number[] } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const t of targets) {
+    if (!(t.width > 0) || !(t.height > 0)) continue;
+    xs.push(t.left, t.left + t.width, t.left + t.width / 2);
+    ys.push(t.top, t.top + t.height, t.top + t.height / 2);
+  }
+  return { xs, ys };
+}
+
+function snapMovingCoord(coord: number, candidates: number[], threshold: number): number {
+  let best = coord;
+  let bestDist = threshold;
+  for (const c of candidates) {
+    const dist = Math.abs(c - coord);
+    if (dist > bestDist + 1e-9) continue;
+    bestDist = dist;
+    best = c;
+  }
+  return best;
+}
+
+/**
+ * Snap edges moved by `handle` onto peer/frame guides (resize 自动吸附).
+ */
+export function snapResizeToPeers(
+  resized: SceneBox,
+  handle: ResizeHandle,
+  targets: SmartGuideTarget[],
+  threshold: number,
+  min = 1,
+  opts?: { lockAspect?: boolean; aspectRatio?: number }
+): { box: SceneBox; guides: SmartGuideLine[] } {
+  const thr = Math.max(0, Number(threshold) || 0);
+  if (!(thr > 0) || !targets.length || !(resized.width > 0) || !(resized.height > 0)) {
+    return { box: resized, guides: [] };
+  }
+
+  const moveL = handle === 'w' || handle === 'nw' || handle === 'sw';
+  const moveR = handle === 'e' || handle === 'ne' || handle === 'se';
+  const moveT = handle === 'n' || handle === 'nw' || handle === 'ne';
+  const moveB = handle === 's' || handle === 'sw' || handle === 'se';
+  const { xs, ys } = collectPeerSnapCoords(targets);
+
+  let left = resized.left;
+  let top = resized.top;
+  let right = resized.left + resized.width;
+  let bottom = resized.top + resized.height;
+
+  if (moveL && xs.length) left = snapMovingCoord(left, xs, thr);
+  if (moveR && xs.length) right = snapMovingCoord(right, xs, thr);
+  if (moveT && ys.length) top = snapMovingCoord(top, ys, thr);
+  if (moveB && ys.length) bottom = snapMovingCoord(bottom, ys, thr);
+
+  let width = right - left;
+  let height = bottom - top;
+  if (width < min) {
+    if (moveL && !moveR) left = right - min;
+    else right = left + min;
+    width = min;
+  }
+  if (height < min) {
+    if (moveT && !moveB) top = bottom - min;
+    else bottom = top + min;
+    height = min;
+  }
+
+  let box: SceneBox = { left, top, width, height };
+  if (opts?.lockAspect) {
+    const ratio =
+      opts.aspectRatio && Number.isFinite(opts.aspectRatio) && opts.aspectRatio > 0
+        ? opts.aspectRatio
+        : resized.width / Math.max(1, resized.height);
+    box = applyAspectToHandle(handle, box.left, box.top, box.width, box.height, ratio);
+  }
+
+  return {
+    box,
+    guides: collectMoveSnapIndicators(box, targets, GUIDE_COINCIDE_EPS),
+  };
+}
+
 export function getDocumentGridSize(doc: unknown): number {
   const n = Number((doc as { gridSize?: unknown } | null)?.gridSize);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_GRID_SIZE;
