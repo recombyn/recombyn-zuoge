@@ -66,6 +66,13 @@ apps/web/src/private/
 # API closed eval corpora (Intelligence checkout — never publish)
 apps/api/private-eval/
 
+# Vendored intelligence runtime (src/commercial/intelligence)
+src/commercial/intelligence/.venv/
+src/commercial/intelligence/models/
+src/commercial/intelligence/data/
+src/commercial/intelligence/workspace/
+src/commercial/intelligence/.ocr-install.log
+
 # Local API startup scratch logs
 apps/api/startup*.log
 

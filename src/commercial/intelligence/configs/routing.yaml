@@ -1,0 +1,5 @@
+# Inpaint backend routing
+routing:
+  flux_enabled: false
+  flux_area_threshold: 0.35
+  # When enabled, set FAL_KEY or ILP_FLUX_API_KEY (+ optional ILP_FLUX_API_URL)

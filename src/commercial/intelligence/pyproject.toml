@@ -1,0 +1,49 @@
+[project]
+name = "recombyn-intelligence-service"
+version = "0.2.0"
+description = "Design Intelligence HTTP provider for Recombyn Cloud"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "recombyn-protocol>=0.1.3",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.0.0",
+  "python-multipart>=0.0.9",
+  "numpy>=1.24",
+  "opencv-python-headless>=4.8",
+  "Pillow>=10.0",
+  "PyYAML>=6.0",
+  "rembg>=2.0.50",
+  "onnxruntime>=1.16",
+  "torch>=2.1",
+  "transformers>=4.40",
+  "simple-lama-inpainting>=0.1.0",
+  "pytoshop>=1.2.1",
+  "six>=1.16.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27.0",
+  "pytest>=8.0.0",
+]
+queue = [
+  "celery>=5.3.0",
+  "redis>=5.0.0",
+]
+ocr = [
+  "paddleocr>=2.7.0",
+  "paddlepaddle>=2.6.0",
+]
+sam = [
+  "ultralytics>=8.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["recombyn_intelligence_service*", "image_layer_pipeline*", "mockup_pipeline*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

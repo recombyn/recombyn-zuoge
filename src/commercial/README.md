@@ -6,24 +6,40 @@ Proprietary code lives here in **recombyn-dev**. The OSS mirror (`recombyn/recom
 
 ```
 src/commercial/
-  web/          # React modules loaded via @commercial/* (lazy / dynamic import)
-  api/          # FastAPI routers, intelligence adapters (future)
+  intelligence/   # Design Intelligence HTTP service (port 8091)
+  web/            # React modules loaded via @commercial/* (lazy import)
+  api/            # Future: API-only closed routers
 ```
 
-## Current modules
+## Intelligence (vendored)
+
+Former standalone repo `recombyn-intelligence`, now colocated:
+
+```bash
+cd src/commercial/intelligence
+python scripts/bootstrap_protocol.py   # venv + editable install
+npm run dev:intelligence               # or included in npm run dev:stack
+```
+
+API auto-wires `RECOMBYN_INTELLIGENCE_URL=http://127.0.0.1:8091` when this tree exists.
+
+Docker: `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml --profile intelligence up`
+
+## Web modules
 
 | Path | Description |
 |------|-------------|
 | `web/mockup/` | Mockup session UI + render helpers |
 
-OSS stubs under `apps/web/src` import `@commercial/...` with `.catch()` fallbacks so the open tree still builds when this folder is absent.
+OSS stubs import `@commercial/...` with `.catch()` fallbacks.
 
 ## Deprecated
 
-`apps/web/src/private/` — local-only override directory (gitignored). Prefer `src/commercial/web/` for anything that should ship in the private repo.
+- Separate `recombyn-intelligence` checkout — use `src/commercial/intelligence`
+- `apps/web/src/private/` — local-only overrides (gitignored)
 
 ## Sync
 
-Push to **recombyn-dev** `main` → GitHub Actions strips `src/commercial/` → updates public **recombyn**.
+Push **recombyn-dev** `main` → GitHub Actions strips `src/commercial/` → updates public **recombyn**.
 
-See [docs/private-sync.md](../docs/private-sync.md).
+See [docs/private-sync.md](../../docs/private-sync.md).

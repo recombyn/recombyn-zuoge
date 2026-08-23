@@ -2,6 +2,14 @@
 
 Develop in the **private** monorepo; the public repo is an automated OSS mirror without commercial code.
 
+One checkout (`recombyn-dev`) replaces the old three-repo layout:
+
+| Before | After (recombyn-dev) |
+|--------|----------------------|
+| `recombyn/recombyn` (public) | Still mirrored automatically — do not push features here |
+| `recombyn/recombyn-dev` (private app) | `origin` — daily push target |
+| `recombyn/recombyn-intelligence` (private) | `src/commercial/intelligence/` |
+
 ## Repositories
 
 | Remote | GitHub | Role |

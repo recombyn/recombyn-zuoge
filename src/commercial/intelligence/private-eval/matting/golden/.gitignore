@@ -1,0 +1,6 @@
+# Place golden JPG/PNG here, or pass --golden-dir to benchmark_matting.py
+*.jpg
+*.jpeg
+*.png
+*.webp
+!/.gitkeep

@@ -1,0 +1,122 @@
+name: protocol-compat
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      protocol_ref:
+        description: "Git ref for recombyn-protocol source (packages/protocol)"
+        required: false
+        default: "main"
+  repository_dispatch:
+    types: [protocol-changed]
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve protocol ref
+        id: ref
+        run: |
+          REF="${{ github.event.client_payload.protocol_ref }}"
+          if [ -z "$REF" ]; then
+            REF="${{ github.event.inputs.protocol_ref }}"
+          fi
+          if [ -z "$REF" ]; then
+            REF="main"
+          fi
+          echo "protocol_ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Using protocol ref: $REF"
+
+      - name: Checkout intelligence service
+        uses: actions/checkout@v4
+
+      - name: Checkout wire contract (recombyn-protocol)
+        uses: actions/checkout@v4
+        with:
+          repository: recombyn/recombyn
+          ref: ${{ steps.ref.outputs.protocol_ref }}
+          path: _protocol_src
+          sparse-checkout: |
+            packages/protocol
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install protocol + service
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ./_protocol_src/packages/protocol
+          python -m pip install -e ".[dev]"
+          python - <<'PY'
+          from importlib.metadata import version
+          print("recombyn-protocol", version("recombyn-protocol"))
+          PY
+
+      - name: Protocol contract tests
+        run: python -m pytest tests/test_protocol_contract.py tests -q --tb=short
+
+      - name: Vision unit tests
+        run: python -m pytest tests/unit -q --tb=short
+
+  vision-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout intelligence service
+        uses: actions/checkout@v4
+
+      - name: Checkout wire contract (recombyn-protocol)
+        uses: actions/checkout@v4
+        with:
+          repository: recombyn/recombyn
+          ref: main
+          path: _protocol_src
+          sparse-checkout: |
+            packages/protocol
+          sparse-checkout-cone-mode: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install service + OCR
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ./_protocol_src/packages/protocol
+          python -m pip install -e ".[dev,ocr]"
+
+      - name: Model readiness check (dev upscale fallback)
+        env:
+          ILP_UPSCALE_ALLOW_LANCZOS: "1"
+        run: python scripts/setup_commercial_models.py --check
+
+      - name: Start intelligence service
+        env:
+          INTELLIGENCE_SERVICE_API_KEY: dev-key
+          ILP_UPSCALE_ALLOW_LANCZOS: "1"
+        run: |
+          uvicorn recombyn_intelligence_service.app:app --host 127.0.0.1 --port 8091 &
+          for i in $(seq 1 45); do
+            if curl -sf http://127.0.0.1:8091/health >/dev/null; then
+              echo "service ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "service failed to start"
+          exit 1
+
+      - name: Vision HTTP smoke
+        env:
+          INTELLIGENCE_SERVICE_API_KEY: dev-key
+          ILP_UPSCALE_ALLOW_LANCZOS: "1"
+        run: |
+          python scripts/test_ilp_e2e.py --api-key dev-key --mode health
+          python scripts/test_ilp_e2e.py --api-key dev-key --mode analyze

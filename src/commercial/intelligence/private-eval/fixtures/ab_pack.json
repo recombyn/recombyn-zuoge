@@ -1,0 +1,41 @@
+{
+  "suite": "ab",
+  "tasks": [
+    {
+      "id": "ab-halloween-poster",
+      "method": "ab",
+      "body": {
+        "prompt": "Halloween concert poster, bold typography, single hero, premium not kitsch",
+        "scene_key": "poster",
+        "flags": {}
+      }
+    },
+    {
+      "id": "ab-ai-landing",
+      "method": "ab",
+      "body": {
+        "prompt": "AI design tool landing page — editorial, no purple glow, one product metaphor",
+        "scene_key": "website",
+        "flags": {}
+      }
+    },
+    {
+      "id": "ab-auth-login",
+      "method": "ab",
+      "body": {
+        "prompt": "Redesign login page with stronger hierarchy, form-first, quiet brand field",
+        "scene_key": "website",
+        "flags": {}
+      }
+    },
+    {
+      "id": "ab-type-specimen",
+      "method": "ab",
+      "body": {
+        "prompt": "Type specimen poster — display contrast is the hero, generous tracking air",
+        "scene_key": "poster",
+        "flags": {}
+      }
+    }
+  ]
+}
