@@ -27,8 +27,8 @@ jobs:
 
       - name: Git config
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "recombyn"
+          git config --global user.email "51704449+recombyn@users.noreply.github.com"
 
       - name: Clone public repo
         env:
