@@ -341,6 +341,15 @@ function applyNodeFrameBindings(
   return next;
 }
 
+/** Bind a freshly created node to the clipContent frame its bbox intersects. */
+export function bindCreatedNodeToFrame(
+  doc: SceneDocument,
+  nodeId: string,
+  rect: { left: number; top: number; width: number; height: number }
+): SceneDocument {
+  return applyNodeFrameBindings(doc, [{ nodeId, ...rect }]);
+}
+
 function promoteNodesToWorldTop(doc: SceneDocument, nodeIds: Iterable<string>): SceneDocument {
   const ids = [...new Set([...nodeIds].map(String).filter(Boolean))];
   if (!ids.length) return doc;

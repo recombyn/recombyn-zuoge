@@ -88,8 +88,7 @@ export type ImageToolPanelKind =
   | 'lottieEdit'
   | 'mark'
   | 'mockup'
-  | 'upscale'
-  | 'layerMask';
+  | 'upscale';
 
 export type ImageToolPanelState = {
   nodeId: string;
@@ -156,6 +155,19 @@ export function markPanelSink(
   return panel?.markSink === 'quickEdit' ? 'quickEdit' : 'agent';
 }
 
+function pruneQuickEditMarkPins(
+  pins: Record<string, ImageMarkPin | ImageMarkPin[]>
+): Record<string, ImageMarkPin | ImageMarkPin[]> {
+  const out: Record<string, ImageMarkPin | ImageMarkPin[]> = {};
+  for (const [nodeId, raw] of Object.entries(pins || {})) {
+    const list = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(
+      (p) => p.sink !== 'quickEdit'
+    );
+    if (list.length) out[nodeId] = list;
+  }
+  return out;
+}
+
 const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   eraser: true,
   removeBg: true,
@@ -165,7 +177,6 @@ const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   adjust: true,
   effects: true,
   blendMode: true,
-  mockup: true,
 };
 
 /** Blend / effects dock beside any selected node (not image-only tools). */
@@ -188,8 +199,6 @@ const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   quickEdit: true,
   lottieEdit: true,
   mark: true,
-  mockup: true,
-  layerMask: true,
 };
 
 const TRANSIENT_NODE_ATTR_KEYS = new Set([
@@ -226,7 +235,7 @@ export function shouldClearImageToolPanelOnSelect(
 ): boolean {
   if (!panel) return false;
   // Mockup / mark / quick-edit stay open while picking another image or clicking empty canvas.
-  if (panel.kind === 'mockup' || panel.kind === 'mark' || panel.kind === 'quickEdit' || panel.kind === 'layerMask') return false;
+  if (panel.kind === 'mark' || panel.kind === 'quickEdit') return false;
   return !nextNodeId || panel.nodeId !== nextNodeId;
 }
 
@@ -358,6 +367,7 @@ const initialState = {
   shapeStylePanel: null as null | { kind: 'fill' | 'stroke' | 'radius'; nodeIds: string[] },
   /** Shared stroke settings for pen / pencil tools. */
   penStrokeColor: '#333333' as string,
+  penFillColor: 'transparent' as string,
   penStrokeWidth: 1 as number,
   /** Brush / stroke opacity while painting (0–100). */
   penStrokeOpacity: 100 as number,
@@ -405,6 +415,8 @@ const initialState = {
   pendingQuickEditMarkContexts: [] as PendingMarkContextChip[],
   /** One pinned mark per image node (compact badge after confirm). */
   imageMarkPins: {} as Record<string, ImageMarkPin[]>,
+  /** Composer chip hover — highlights the matching canvas mark pin. */
+  hoveredMarkPin: null as { nodeId: string; pinId: string } | null,
   agentOpenNonce: 0,
 };
 
@@ -607,7 +619,12 @@ const editorSlice = createSlice({
         .filter(Boolean);
       const nodeIds = [...new Set([...requestedNodeIds, ...frameNodeIds])];
       if (!nodeIds.length && !frameIds.length) return;
-      if (deletionTargetHasProcessing(state.document, nodeIds, frameIds, { expandFrameChildren: false })) {
+      if (
+        !frameIds.length &&
+        deletionTargetHasProcessing(state.document, nodeIds, frameIds, {
+          expandFrameChildren: false,
+        })
+      ) {
         return;
       }
 
@@ -2143,7 +2160,15 @@ const editorSlice = createSlice({
       state.shapeStylePanel = null;
     },
     closeImageToolPanel(state) {
+      const panel = state.imageToolPanel;
       state.imageToolPanel = null;
+      if (
+        panel?.kind === 'quickEdit' ||
+        (panel?.kind === 'mark' && panel.markSink === 'quickEdit')
+      ) {
+        state.imageMarkPins = pruneQuickEditMarkPins(state.imageMarkPins);
+        state.pendingQuickEditMarkContexts = [];
+      }
     },
     openVideoToolPanel(state, action) {
       const { nodeId, kind, keepTime } = action.payload || {};
@@ -2194,6 +2219,10 @@ const editorSlice = createSlice({
     setPenStrokeColor(state, action) {
       const hex = String(action.payload || '').trim();
       if (hex) state.penStrokeColor = hex;
+    },
+    setPenFillColor(state, action) {
+      const hex = String(action.payload ?? '').trim();
+      state.penFillColor = hex || 'transparent';
     },
     setPenStrokeWidth(state, action) {
       const n = Number(action.payload);
@@ -2334,6 +2363,12 @@ const editorSlice = createSlice({
       if (!nodeId) return;
       delete state.imageMarkPins[nodeId];
     },
+    setHoveredMarkPin(
+      state,
+      action: PayloadAction<{ nodeId: string; pinId: string } | null>
+    ) {
+      state.hoveredMarkPin = action.payload;
+    },
   },
 });
 
@@ -2412,6 +2447,7 @@ export const {
   openShapeStylePanel,
   closeShapeStylePanel,
   setPenStrokeColor,
+  setPenFillColor,
   setPenStrokeWidth,
   setPenStrokeOpacity,
   setBucketFill,
@@ -2432,6 +2468,7 @@ export const {
   setImageMarkPin,
   removeImageMarkPin,
   clearImageMarkPin,
+  setHoveredMarkPin,
 } = editorSlice.actions;
 
 export default editorSlice.reducer;

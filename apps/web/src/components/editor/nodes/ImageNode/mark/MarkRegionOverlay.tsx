@@ -7,6 +7,8 @@ import {
   type ReactNode,
   memo,
 } from 'react';
+import { useTranslation } from 'react-i18next';
+import { HiOutlineXMark } from 'react-icons/hi2';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -91,7 +93,8 @@ type Props = {
   regions: MarkRegion[];
   draft: MarkRect | null;
   activeRegionId: string | null;
-  detecting?: boolean;
+  /** Block drag-to-box (auto-detect or image still processing). */
+  blocked?: { message: string; onCancel?: () => void } | null;
   onDraftChange: (rect: MarkRect | null) => void;
   onCommitDraft: (rect: MarkRect) => void;
   onSelectRegion: (id: string, additive: boolean) => void;
@@ -105,11 +108,13 @@ function MarkRegionOverlay({
   regions,
   draft,
   activeRegionId,
-  detecting,
+  blocked = null,
   onDraftChange,
   onCommitDraft,
   onSelectRegion,
 }: Props): ReactNode {
+  const { t } = useTranslation();
+  const interactionLocked = Boolean(blocked);
   const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const dragRef = useRef<{
@@ -201,7 +206,7 @@ function MarkRegionOverlay({
     width: stageW,
     height: stageH,
     zIndex: 34,
-    cursor: 'crosshair',
+    cursor: interactionLocked ? 'wait' : 'crosshair',
     touchAction: 'none',
   };
 
@@ -292,6 +297,7 @@ function MarkRegionOverlay({
           finishActiveDrag(e.clientX, e.clientY);
         }}
         onMouseDown={(e) => {
+          if (interactionLocked) return;
           if (e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
@@ -310,6 +316,7 @@ function MarkRegionOverlay({
           onDraftChange(null);
         }}
         onPointerDown={(e) => {
+          if (interactionLocked) return;
           if (e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
@@ -343,11 +350,27 @@ function MarkRegionOverlay({
           if (!dragRef.current) setHoverId(null);
         }}
       >
-        {detecting ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
-            <span className="rounded-full bg-white/90 px-3 py-1.5 text-[12px] font-medium text-[var(--ink)] shadow-sm">
-              识别主题中…
-            </span>
+        {blocked ? (
+          <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-black/20">
+            <div className="flex max-w-[min(92vw,360px)] items-center gap-2 rounded-full bg-white/95 py-1.5 pl-3 pr-1.5 shadow-sm">
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--ink)]">
+                {blocked.message}
+              </span>
+              {blocked.onCancel ? (
+                <button
+                  type="button"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+                  aria-label={t('editor.imageToolbar.markExit')}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    blocked.onCancel?.();
+                  }}
+                >
+                  <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {regions.map((r) => {

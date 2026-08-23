@@ -549,7 +549,7 @@ function DevPropertiesPanel({
       data-dev-props
       style={{ width: dockWidth }}
       className={cn(
-        'relative flex shrink-0 flex-col overflow-hidden border-l border-[var(--line)] bg-[var(--surface)]',
+        'relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[var(--line)] bg-[var(--surface)]',
         className
       )}
     >

@@ -1,5 +1,8 @@
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, memo } from 'react';
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, memo } from 'react';
+import { useDispatch } from 'react-redux';
 import { cn } from '@/utils/classnames';
+import { parseMarkChipKey } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
+import { setHoveredMarkPin } from '@/store/modules/editor';
 import { parseNodeText } from '@/components/rcb/scene/document/sceneText';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
@@ -11,6 +14,10 @@ import { renderComposerChipThumb, renderExport } from '@/components/rcb/scene/pa
 import { imageSrcToFile } from '@/utils/uploadImage';
 import { sanitizeSvg } from '@/utils/sanitizeHtml';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import {
+  buildTextSnippetContext,
+  shouldConvertPasteToTextChip,
+} from '@/components/editor/panels/composerTextSnippet';
 
 
 function editorHasComposerChips(el: HTMLElement | null | undefined): boolean {
@@ -265,6 +272,26 @@ function getPlainTextCaretOffset(root: HTMLElement): number | null {
   };
   frag.childNodes.forEach(walk);
   return offset;
+}
+
+/** Where to insert the next chip — live caret when focused, else saved or end. */
+function resolveInsertCaretOffset(
+  el: HTMLElement,
+  savedCaretRef: { current: number | null }
+): number {
+  const plainLen = readPlainText(el).length;
+  if (plainLen === 0) return 0;
+
+  if (document.activeElement === el) {
+    const live = getPlainTextCaretOffset(el);
+    if (live != null) return Math.min(live, plainLen);
+  }
+
+  if (savedCaretRef.current != null) {
+    return Math.min(Math.max(0, savedCaretRef.current), plainLen);
+  }
+
+  return plainLen;
 }
 
 function setPlainTextCaretOffset(root: HTMLElement, target: number): Range {
@@ -701,17 +728,8 @@ function insertChipAtSavedCaret(
 
   const sel = window.getSelection();
   let range: Range | null = null;
-  const plainLen = readPlainText(el).length;
-  // Prefer saved caret. Never trust the live selection right after el.focus() —
-  // browsers reset it to offset 0 (and may fire select → rememberCaret).
-  // Empty composer: always append (avoids inserting after a leftover <br>).
-  if (plainLen === 0) {
-    range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-  } else if (opts.savedCaretRef.current != null) {
-    range = setPlainTextCaretOffset(el, opts.savedCaretRef.current);
-  }
+  const insertAt = resolveInsertCaretOffset(el, opts.savedCaretRef);
+  range = setPlainTextCaretOffset(el, insertAt);
   if (!range) {
     range = document.createRange();
     range.selectNodeContents(el);
@@ -889,6 +907,7 @@ const AgentComposerInput = forwardRef<
   ref
 ) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const dispatch = useDispatch();
   const contextsRef = useRef(contexts);
   const onContextsChangeRef = useRef(onContextsChange);
   const onChangeRef = useRef(onChange);
@@ -926,6 +945,33 @@ const AgentComposerInput = forwardRef<
     if (off != null) savedCaretRef.current = off;
   };
 
+  const syncMarkChipHover = (target: EventTarget | null) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const chip =
+      target instanceof Element
+        ? (target.closest('[data-composer-chip="1"]') as HTMLElement | null)
+        : null;
+    if (!chip || !el.contains(chip)) {
+      dispatch(setHoveredMarkPin(null));
+      return;
+    }
+    const parsed = parseMarkChipKey(chipBaseKey(chip.dataset.chipId || ''));
+    if (!parsed) {
+      dispatch(setHoveredMarkPin(null));
+      return;
+    }
+    dispatch(setHoveredMarkPin({ nodeId: parsed.nodeId, pinId: parsed.regionId }));
+  };
+
+  const handleComposerMouseOver = (e: ReactMouseEvent<HTMLDivElement>) => {
+    syncMarkChipHover(e.target);
+  };
+
+  const handleComposerMouseLeave = () => {
+    dispatch(setHoveredMarkPin(null));
+  };
+
   // Capture caret before canvas/context-menu steals focus (blur selection is already gone).
   // Also blur the editor when clicking outside the composer — SVG canvas clicks do not
   // trigger the browser's default blur on contentEditable elements.
@@ -935,7 +981,12 @@ const AgentComposerInput = forwardRef<
       if (!el || disabled) return;
       const t = e.target as Node | null;
       if (!t || el.contains(t)) return;
-      rememberCaret();
+      if (document.activeElement === el) {
+        rememberCaret();
+      } else {
+        const len = readPlainText(el).length;
+        if (len > 0) savedCaretRef.current = len;
+      }
       // If the editor is focused and the click target is outside the whole composer
       // subtree (not just the editable), blur so the cursor disappears.
       const composerRoot = el.closest('[data-agent-composer-root]') || el.parentElement;
@@ -946,6 +997,44 @@ const AgentComposerInput = forwardRef<
     document.addEventListener('pointerdown', onPointerDownCapture, true);
     return () => document.removeEventListener('pointerdown', onPointerDownCapture, true);
   }, [disabled]);
+
+  const insertContextChip = (ctx: ComposerContext) => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    skipSyncRef.current = true;
+    const caretBeforeFocus = savedCaretRef.current;
+    const wasFocused = document.activeElement === el;
+    insertingRef.current = true;
+    try {
+      const unique: ComposerContext = { ...ctx, key: withChipInstance(ctx.key) };
+      onContextsChangeRef.current([...contextsRef.current, unique]);
+
+      el.focus();
+      if (wasFocused) {
+        const live = getPlainTextCaretOffset(el);
+        savedCaretRef.current =
+          live != null ? live : caretBeforeFocus ?? resolveInsertCaretOffset(el, savedCaretRef);
+      } else if (caretBeforeFocus != null) {
+        savedCaretRef.current = caretBeforeFocus;
+      } else {
+        savedCaretRef.current = resolveInsertCaretOffset(el, savedCaretRef);
+      }
+      insertChipAtSavedCaret(el, unique, {
+        savedCaretRef,
+        onRemove: removeContextByKey,
+        markHasChips: () => setDomHasChips((prev) => (prev ? prev : true)),
+      });
+
+      skipSyncRef.current = true;
+      onChangeRef.current(readPlainText(el));
+      queueMicrotask(() => {
+        skipSyncRef.current = true;
+      });
+    } finally {
+      insertingRef.current = false;
+    }
+  };
 
   useImperativeHandle(ref, () => ({
     focus: () => {
@@ -974,37 +1063,7 @@ const AgentComposerInput = forwardRef<
       savedCaretRef.current = getPlainTextCaretOffset(el);
     },
     insertContextAtCaret: (ctx: ComposerContext) => {
-      const el = editorRef.current;
-      if (!el) return;
-
-      // Block parent-driven rewrite before we mutate the DOM (and the follow-up tick).
-      skipSyncRef.current = true;
-      // Snapshot before focus(): browsers reset caret to 0 and fire select.
-      const caretBeforeFocus = savedCaretRef.current;
-      insertingRef.current = true;
-      try {
-        // Same element can be @-mentioned multiple times — unique instance key each insert.
-        const unique: ComposerContext = { ...ctx, key: withChipInstance(ctx.key) };
-        onContextsChangeRef.current([...contextsRef.current, unique]);
-
-        el.focus();
-        if (caretBeforeFocus != null) savedCaretRef.current = caretBeforeFocus;
-        insertChipAtSavedCaret(el, unique, {
-          savedCaretRef,
-          onRemove: removeContextByKey,
-          markHasChips: () => setDomHasChips((prev) => (prev ? prev : true)),
-        });
-
-        skipSyncRef.current = true;
-        const text = readPlainText(el);
-        onChangeRef.current(text);
-        // Keep skip through the React commit that follows state updates.
-        queueMicrotask(() => {
-          skipSyncRef.current = true;
-        });
-      } finally {
-        insertingRef.current = false;
-      }
+      insertContextChip(ctx);
     },
     insertContextBeforePlainText: (ctx: ComposerContext) => {
       const el = editorRef.current;
@@ -1205,6 +1264,14 @@ const AgentComposerInput = forwardRef<
     if (!plain) return;
     const el = editorRef.current;
     if (!el) return;
+    const trimmed = plain.trim();
+    if (trimmed && shouldConvertPasteToTextChip(trimmed)) {
+      rememberCaret();
+      insertContextChip(buildTextSnippetContext(trimmed, contextsRef.current));
+      stripOrphanPasteImages(el);
+      syncDomHasChips();
+      return;
+    }
     insertPlainAtCaret(plain);
     stripOrphanPasteImages(el);
     skipSyncRef.current = true;
@@ -1291,6 +1358,8 @@ const AgentComposerInput = forwardRef<
         onClick={rememberCaret}
         onBlur={rememberCaret}
         onSelect={rememberCaret}
+        onMouseOver={handleComposerMouseOver}
+        onMouseLeave={handleComposerMouseLeave}
         className={cn(
           'h-full w-full min-h-[26px] max-h-[140px] cursor-text overflow-y-auto whitespace-pre-wrap break-words bg-transparent py-0.5 text-[13px] leading-5 text-[var(--ink)] outline-none',
           '[&_[data-composer-chip]]:align-middle',

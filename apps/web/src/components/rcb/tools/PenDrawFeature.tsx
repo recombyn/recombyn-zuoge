@@ -532,12 +532,12 @@ function PenDrawFeature({
     const local = localizeAnchors(list, origin.left, origin.top);
     const d = penAnchorsToD(local, closed);
     const replaceNodeId = resumeNodeIdRef.current || undefined;
+    const frameId = draftFrameIdRef.current;
     resetDraft();
     onCommitRef.current(d, origin, closed, {
       ...(replaceNodeId ? { replaceNodeId } : {}),
-      frameId: draftFrameIdRef.current,
+      frameId,
     });
-    draftFrameIdRef.current = null;
     if (leave) onCancelRef.current?.();
   };
   const finishRef = useRef(finish);

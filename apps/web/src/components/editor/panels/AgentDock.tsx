@@ -36,7 +36,7 @@ import {
   attachmentsFromBoot,
   contextsFromBoot,
 } from '@/utils/homeAgentBoot';
-import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
+import { isMarkContextKey, syncMarkPinRemoved, syncMarkPinRestored } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import {
   setDocument,
   patchDocumentNode,
@@ -47,6 +47,7 @@ import {
   consumePendingAgentContexts,
   EMPTY_ID_LIST,
   setAgentBusy,
+  setHoveredMarkPin,
   type PendingMarkContextChip,
 } from '@/store/modules/editor';
 import type { RootState } from '@/store';
@@ -544,7 +545,8 @@ function clampAgentDockWidth(width: number): number {
   );
 }
 
-function readStoredAgentDockWidth(): number {
+/** Current agent dock width (for offsetting overlapping chrome). */
+export function getAgentDockWidth(): number {
   try {
     const raw = localStorage.getItem(AGENT_DOCK_WIDTH_KEY);
     if (!raw) return AGENT_DOCK_DEFAULT_W;
@@ -554,6 +556,10 @@ function readStoredAgentDockWidth(): number {
   } catch {
     return AGENT_DOCK_DEFAULT_W;
   }
+}
+
+function readStoredAgentDockWidth(): number {
+  return getAgentDockWidth();
 }
 
 function mentionAttachKindLabel(
@@ -615,6 +621,8 @@ type SavedComposerChip = {
   label: string;
   kind: string;
   thumbUrl?: string;
+  payload?: string;
+  appendText?: string;
 };
 
 /** Rebuild a live chip from frame:/node:/group: key against the current document. */
@@ -652,6 +660,16 @@ function rebuildComposerChipFromSaved(
   saved: SavedComposerChip,
   existing: ComposerContext[]
 ): ComposerContext {
+  if (isMarkContextKey(saved.key)) {
+    return {
+      key: saved.key,
+      label: saved.label,
+      kind: saved.kind,
+      payload: saved.payload || '',
+      ...(saved.appendText ? { appendText: saved.appendText } : {}),
+      ...(saved.thumbUrl ? { thumbUrl: saved.thumbUrl } : {}),
+    };
+  }
   const ctx = resolveComposerContextFromChipBase(
     document,
     chipBaseKey(saved.key),
@@ -1469,20 +1487,27 @@ function AgentDock({
         }
       }
     }
+    for (const c of contextChips) {
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+    }
     const keys = contextChips.map((c) => c.key);
     if (keys.length) contextDismissedKeyRef.current = keys[keys.length - 1];
     keys.forEach((k) => pinnedContextKeysRef.current.delete(k));
     setContextChips([]);
+    dispatch(setHoveredMarkPin(null));
   };
 
   const onContextsChange = (next: ComposerContext[]) => {
     const removed = contextChips.filter((c) => !next.some((n) => n.key === c.key));
-  for (const c of removed) {
-    if (!isMarkContextKey(c.key)) {
-      pinnedContextKeysRef.current.delete(c.key);
-      contextDismissedKeyRef.current = c.key;
-    }
-    if (c.kind === 'attachment' && c.uploadKey) {
+    const added = next.filter((c) => !contextChips.some((p) => p.key === c.key));
+    for (const c of removed) {
+      if (isMarkContextKey(c.key)) {
+        syncMarkPinRemoved(dispatch, c.key);
+      } else {
+        pinnedContextKeysRef.current.delete(c.key);
+        contextDismissedKeyRef.current = c.key;
+      }
+      if (c.kind === 'attachment' && c.uploadKey) {
         async function deleteRemovedAttachmentUpload() {
           try {
             await deleteUploadedFile(c.uploadKey);
@@ -1491,6 +1516,11 @@ function AgentDock({
           }
         }
         deleteRemovedAttachmentUpload();
+      }
+    }
+    for (const c of added) {
+      if (isMarkContextKey(c.key)) {
+        syncMarkPinRestored(dispatch, { key: c.key, payload: c.payload, document });
       }
     }
     setContextChips(next);
@@ -2221,6 +2251,7 @@ function AgentDock({
     setEditingUserId(null);
     setEditDraft('');
     setPendingReview(null);
+    dispatch(setHoveredMarkPin(null));
     const {
       frameChip,
       chipFrameId: chipFrameIdFromContext,
@@ -2910,6 +2941,11 @@ function AgentDock({
         rebuilt.push(rebuildComposerChipFromSaved(document, c, rebuilt));
       }
       setContextChips(rebuilt);
+      for (const c of rebuilt) {
+        if (isMarkContextKey(c.key)) {
+          syncMarkPinRestored(dispatch, { key: c.key, payload: c.payload, document });
+        }
+      }
       // Keep U+FFFC slots so the edit composer matches bubble chip order
       // (stripping markers used to dump every chip at the end).
       const inlineLen = rebuilt.filter((c) => c.kind !== 'attachment').length;
@@ -3428,7 +3464,7 @@ function AgentDock({
       className={cn(
         floating
           ? 'fixed inset-x-0 bottom-0 top-0 z-50 flex flex-col overflow-hidden bg-[var(--surface)]'
-          : 'relative flex shrink-0 flex-col overflow-hidden border-l border-[var(--line)] bg-[var(--surface)]',
+          : 'relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[var(--line)] bg-[var(--surface)]',
         className
       )}
     >

@@ -38,6 +38,7 @@ import {
 } from '@/store/modules/editor';
 import { layoutGeneratorPlateAtScene } from './canvasSession';
 import { ctxMenuSeedNodeIds, filterChatAttachNodeIds } from './attachPick';
+import { ctxMenuTargetHasProcessing } from './ctxMenuGuards';
 import type { CanvasClipboardApi } from './clipboard/useCanvasClipboard';
 import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
@@ -104,7 +105,32 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
   if (!frameIdsForAction.length && ctxMenu?.frameId) {
     frameIdsForAction = [String(ctxMenu.frameId)];
   }
+  const selectionBusy = ctxMenuTargetHasProcessing({
+    document: documentRef.current,
+    ids,
+    selectedFrameIds: frameIdsForAction,
+    ctxNodeId: hitNodeId,
+    ctxFrameId: ctxMenu?.frameId,
+    activeFrameId: activeFrameIdRef.current,
+  });
   clearCtxMenu();
+
+  if (
+    selectionBusy &&
+    (action === 'group' ||
+      action === 'ungroup' ||
+      action === 'copy' ||
+      action === 'cut' ||
+      action === 'duplicate' ||
+      action === 'front' ||
+      action === 'forward' ||
+      action === 'backward' ||
+      action === 'back' ||
+      action === 'toggleHidden' ||
+      action === 'toggleLocked')
+  ) {
+    return;
+  }
 
   if (action === 'upload') {
     // Empty canvas only — disabled when right-clicking a node.

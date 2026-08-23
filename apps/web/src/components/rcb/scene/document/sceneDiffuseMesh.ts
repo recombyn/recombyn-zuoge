@@ -6,6 +6,8 @@ export type MeshPoint = {
   /** Percent 0–100 along height */
   y: number;
   color: string;
+  /** Per-anchor opacity 0–100 (default 100). */
+  opacity?: number;
 };
 
 export const MESH_SIZES = [3, 4, 5, 6, 7, 8] as const;
@@ -30,6 +32,10 @@ function clampPct(n: number) {
   return Math.min(100, Math.max(0, Number(n) || 0));
 }
 
+function clampOpacityPct(n: number) {
+  return Math.min(100, Math.max(0, Math.round(Number(n) || 0)));
+}
+
 function parseRgb(hex: string): [number, number, number] {
   const h = normalizeColor(hex).replace('#', '');
   const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h.padEnd(6, '0');
@@ -51,6 +57,7 @@ export function createMeshGrid(size: MeshSize, baseColor = '#3B82F6'): MeshPoint
         x: n === 1 ? 50 : (col / (n - 1)) * 100,
         y: n === 1 ? 50 : (row / (n - 1)) * 100,
         color: i === 0 ? normalizeColor(baseColor) : PRESET_COLORS[i % PRESET_COLORS.length],
+        opacity: 100,
       });
     }
   }
@@ -75,7 +82,7 @@ export function remeshPoints(
         best = q;
       }
     }
-    return { ...p, color: best?.color || p.color };
+    return { ...p, color: best?.color || p.color, opacity: best?.opacity ?? 100 };
   });
 }
 
@@ -93,6 +100,7 @@ export function normalizeMeshPoints(
       x: clampPct(Number(rec.x ?? 50)),
       y: clampPct(Number(rec.y ?? 50)),
       color: normalizeColor(String(rec.color || fallbackColor)),
+      opacity: clampOpacityPct(Number(rec.opacity ?? 100)),
     };
   });
   const expect = size * size;
@@ -126,6 +134,7 @@ export function bakeDiffuseMesh(
       r,
       g,
       b,
+      a: clampOpacityPct(p.opacity ?? 100) / 100,
     };
   });
 
@@ -139,6 +148,7 @@ export function bakeDiffuseMesh(
       let wr = 0;
       let wg = 0;
       let wb = 0;
+      let wa = 0;
       let wsum = 0;
       for (const p of pts) {
         const dx = x - p.x;
@@ -148,13 +158,14 @@ export function bakeDiffuseMesh(
         wr += p.r * weight;
         wg += p.g * weight;
         wb += p.b * weight;
+        wa += p.a * weight;
         wsum += weight;
       }
       const i = (y * w + x) * 4;
       data[i] = Math.round(wr / wsum);
       data[i + 1] = Math.round(wg / wsum);
       data[i + 2] = Math.round(wb / wsum);
-      data[i + 3] = Math.round(255 * alphaScale);
+      data[i + 3] = Math.round(255 * (wa / wsum) * alphaScale);
     }
   }
   ctx.putImageData(img, 0, 0);

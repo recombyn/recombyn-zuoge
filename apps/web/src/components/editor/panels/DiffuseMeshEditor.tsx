@@ -77,6 +77,11 @@ function applyPresetColors(points: MeshPoint[], colors: string[]): MeshPoint[] {
   }));
 }
 
+function meshPointOpacity(point: MeshPoint | undefined): number {
+  const n = Number(point?.opacity ?? 100);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 100;
+}
+
 /**
  * Diffuse mesh settings panel — anchors are edited on-canvas (MeshHandlesOverlay).
  */
@@ -152,15 +157,25 @@ function DiffuseMeshEditor({
     emit(size, next);
   };
 
-  const updatePoint = (index: number, patch: Partial<MeshPoint>) => {
+  const updatePoint = useCallback((index: number, patch: Partial<MeshPoint>) => {
     setPoints((prev) => {
       const next = prev.map((p, i) => (i === index ? { ...p, ...patch } : p));
       emit(meshSizeRef.current, next);
       return next;
     });
-  };
+  }, [emit]);
 
   const active = points[selected] || points[0];
+  const activeOpacity = meshPointOpacity(active);
+
+  const updatePointColor = useCallback(
+    (hex: string) => updatePoint(selected, { color: hex }),
+    [selected, updatePoint]
+  );
+  const updatePointOpacity = useCallback(
+    (opacity: number) => updatePoint(selected, { opacity }),
+    [selected, updatePoint]
+  );
 
   return (
     <div className="space-y-3" data-diffuse-mesh-editor>
@@ -179,8 +194,10 @@ function DiffuseMeshEditor({
         <div className="space-y-3">
           <ColorPanel
             value={active?.color || baseColor}
-            onChange={(hex) => updatePoint(selected, { color: hex })}
-            showAlpha={false}
+            onChange={updatePointColor}
+            opacity={activeOpacity}
+            onOpacityChange={updatePointOpacity}
+            showAlpha
             title=""
             showHeader={false}
             padded={false}

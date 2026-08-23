@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import ImageVariantsOverlay from '@/components/editor/nodes/ImageNode/ImageVariantsOverlay';
 import {
@@ -65,8 +66,46 @@ import {
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { deflateSelectionBox, inflateSelectionBox, strokeOuterClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 import { isEditablePathNode } from '@/components/rcb/scene/paint/outlineToPath';
-import { patchDocumentNode, setDevHoverNodeId } from '@/store/modules/editor';
+import {
+  closeImageToolPanel,
+  openImageToolPanel,
+  patchDocumentNode,
+  setDevHoverNodeId,
+  type ImageToolPanelState,
+} from '@/store/modules/editor';
 import type { TextResizeMode } from '@/components/rcb/scene/paint/svgToScene';
+import store from '@/store';
+
+/** Soft blank click while an image quick-edit / mark session is pinned. */
+function handlePinnedImageToolBlankClick(
+  pin: string,
+  dispatch: ReturnType<typeof useDispatch>
+) {
+  const panel = (store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null } })
+    .editor?.imageToolPanel;
+  if (panel?.kind === 'mark' && panel?.nodeId === pin) {
+    if (panel.markSink === 'quickEdit') {
+      dispatch(openImageToolPanel({ nodeId: pin, kind: 'quickEdit' }));
+    } else {
+      dispatch(closeImageToolPanel());
+    }
+  }
+  // Keep the pinned node selected — never clear selection during these sessions.
+}
+
+function isImageToolSessionPinned(
+  pin: string | null | undefined,
+  liveOrigins: Array<{ nodeId: string; box: SceneBox }> | null | undefined,
+  selectedIds: string[],
+  reduxSelectedIds: string[]
+): pin is string {
+  if (!pin) return false;
+  return (
+    liveOrigins?.some((o) => o.nodeId === pin) ||
+    selectedIds.includes(pin) ||
+    reduxSelectedIds.includes(pin)
+  );
+}
 
 function setEndpointHover(handle: 'w' | 'e' | null) {
   if (typeof window === 'undefined') return;
@@ -352,6 +391,7 @@ function SelectionFeature({
   /** Prefer live context viewport ??prop stageEl can go stale after resize remounts. */
   const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
   const dispatch = useDispatch();
+  const { t } = useTranslation();
   const shapeStylePanel = useSelector(
     (s: any) => s.editor.shapeStylePanel as null | { kind: string }
   );
@@ -1165,9 +1205,9 @@ function SelectionFeature({
       }
       if (!e.shiftKey) {
         const pin = imageToolSessionNodeIdRef.current;
-        const keepPinned =
-          pin && (liveOriginsNow?.some((o) => o.nodeId === pin) ?? selectedIds.includes(pin));
-        if (!keepPinned) {
+        if (
+          !isImageToolSessionPinned(pin, liveOriginsNow, selectedIds, selectedNodeIds)
+        ) {
           onSelectFrame?.(null);
           onSelect([]);
         }
@@ -1465,10 +1505,15 @@ function SelectionFeature({
       if (drag.mode === 'pointing_canvas') {
         setMarquee(null);
         lastTextClickRef.current = null;
-        // Artboard bodies are ordinary canvas space. Only the title selects or
-        // moves an artboard; an empty body click clears the current selection.
-        onSelectFrame?.(null);
-        onSelect([]);
+        const pin = imageToolSessionNodeIdRef.current;
+        if (pin) {
+          handlePinnedImageToolBlankClick(pin, dispatch);
+        } else {
+          // Artboard bodies are ordinary canvas space. Only the title selects or
+          // moves an artboard; an empty body click clears the current selection.
+          onSelectFrame?.(null);
+          onSelect([]);
+        }
         endTransform();
         return;
       }
@@ -1485,8 +1530,13 @@ function SelectionFeature({
         );
         // Still under brush gate — treat as an empty click, not an artboard pick.
         if (!passed) {
-          onSelectFrame?.(null);
-          onSelect([]);
+          const pin = imageToolSessionNodeIdRef.current;
+          if (pin) {
+            handlePinnedImageToolBlankClick(pin, dispatch);
+          } else {
+            onSelectFrame?.(null);
+            onSelect([]);
+          }
           endTransform();
           return;
         }
@@ -1930,6 +1980,10 @@ function SelectionFeature({
   const selectedIsVideo = Boolean(singleNodeData && singleNodeData.key === 'video' && !selectedIsVideoGen);
   const selectedIsMediaGen =
     selectedIsImageGen || selectedIsVideoGen || selectedIsLottieGen || selectedIsAudioGen;
+  const mockupActive =
+    singleNodeData?.key === 'image' &&
+    (singleNodeData?.attrs?.mockupEnabled === true ||
+      singleNodeData?.attrs?.mockupEnabled === 'true');
   const singleShapeType = singleNodeData
     ? String(singleNodeData?.attrs?.shapeType || '')
     : '';
@@ -2145,6 +2199,7 @@ function SelectionFeature({
           interactiveBox={selectedFrameIds.length > 0}
           edgeHandles={edgeHandles}
           strokeOuterScene={strokeOuterScene}
+          strokeColor={mockupActive ? '#e67e22' : undefined}
         />
       ) : null}
 
@@ -2324,6 +2379,7 @@ function SelectionFeature({
               isVideo: selectedIsVideo,
             }).renameAriaLabel
           }
+          titleSuffix={mockupActive ? t('editor.imageToolbar.mockupActiveBadge') : undefined}
         />
       ) : null}
 

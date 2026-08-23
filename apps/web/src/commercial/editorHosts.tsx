@@ -1,6 +1,5 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import type { ReactNode } from 'react';
-import LayerMaskSessionHost from '@commercial/layerMask/LayerMaskSessionHost';
 import MarkSessionHost from '@/components/editor/nodes/ImageNode/mark/MarkSessionHost';
 import MockupSessionHost from '@/components/editor/nodes/ImageNode/mockup/MockupSessionHost';
 
@@ -15,7 +14,6 @@ export function CommercialEditorHosts({
   return (
     <>
       <MarkSessionHost document={document} hidden={selectionTransforming} />
-      <LayerMaskSessionHost document={document} hidden={selectionTransforming} />
       <MockupSessionHost document={document} />
     </>
   );

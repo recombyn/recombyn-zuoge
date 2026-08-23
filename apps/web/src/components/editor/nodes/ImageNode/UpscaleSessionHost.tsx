@@ -29,7 +29,6 @@ export type UpscaleResolution = '2K' | '4K';
 export type UpscalePreset = {
   key: string;
   title: string;
-  hintKey: string;
   resolution: UpscaleResolution;
   width: number;
   height: number;
@@ -40,7 +39,6 @@ export const UPSCALE_PRESETS: UpscalePreset[] = [
   {
     key: '2k',
     title: '2K',
-    hintKey: 'editor.imageToolbar.upscale2kHint',
     resolution: '2K',
     width: 2048,
     height: 2048,
@@ -48,7 +46,6 @@ export const UPSCALE_PRESETS: UpscalePreset[] = [
   {
     key: '4k',
     title: '4K',
-    hintKey: 'editor.imageToolbar.upscale4kHint',
     resolution: '4K',
     width: 4096,
     height: 4096,
@@ -151,70 +148,73 @@ function UpscaleSessionHost({ document }: { document: SceneDocument }): ReactNod
         style={toolbarStyle}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <FloatingToolbar className="relative">
-          <span className="inline-flex h-8 items-center gap-1.5 px-1.5 text-[12px] font-medium text-[var(--ink)]">
+        <FloatingToolbar className="relative gap-1 px-2.5 py-1.5">
+          <span className="inline-flex h-8 min-w-[5.5rem] items-center gap-1.5 px-2 text-[12px] font-medium text-[var(--ink)]">
             <Icon name="editor-upscale" width={16} height={16} className="text-current" />
             <span>{t('editor.imageToolbar.upscale')}</span>
           </span>
 
           <ImageToolSep />
 
-          <button
-            type="button"
-            className={cn(imageToolBtn, 'gap-1.5 font-medium', menuOpen && 'bg-[var(--accent-soft)]')}
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            <span className="tabular-nums">{selected?.title ?? '4K'}</span>
-            <HiOutlineChevronDown className="h-3 w-3 text-[var(--muted)]" />
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              className={cn(
+                imageToolBtn,
+                'min-w-[5.5rem] justify-between gap-2 px-3 font-medium',
+                menuOpen && 'bg-[var(--accent-soft)]'
+              )}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <span className="tabular-nums">{selected?.title ?? '4K'}</span>
+              <HiOutlineChevronDown className="h-3 w-3 shrink-0 text-[var(--muted)]" />
+            </button>
+
+            {menuOpen ? (
+              <DropdownPanel className="absolute bottom-[calc(100%+6px)] left-1/2 z-50 min-w-[11rem] -translate-x-1/2 p-1">
+                {UPSCALE_PRESETS.map((p) => (
+                  <DropdownPanelItem
+                    key={p.key}
+                    selected={p.key === selected?.key}
+                    className="flex-col items-start gap-0.5 px-3 py-2"
+                    onClick={() => {
+                      setSelectedKey(p.key);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <span className="text-[12px] font-semibold tabular-nums">{p.title}</span>
+                    <span className="text-[11px] font-normal text-[var(--muted)]">
+                      {p.resolution === '2K'
+                        ? t('editor.imageToolbar.upscale2kHint')
+                        : t('editor.imageToolbar.upscale4kHint')}
+                    </span>
+                  </DropdownPanelItem>
+                ))}
+              </DropdownPanel>
+            ) : null}
+          </div>
 
           <ImageToolSep />
 
           <button
             type="button"
-            className="mx-[10px] inline-flex h-7 min-w-[52px] items-center justify-center gap-1 rounded-xl px-2.5 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
+            className="inline-flex h-8 min-w-[5.75rem] items-center justify-center gap-1.5 rounded-xl px-4 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
             onClick={onConfirm}
           >
             <span>{t('editor.imageToolbar.upscaleConfirm')}</span>
             <PanelConfirmCost amount={UPSCALE_COST} />
           </button>
 
-          <Tooltip tip={'退出'} placement="top">
+          <Tooltip tip={t('editor.imageToolbar.panelExit', '退出')} placement="top">
             <button
               type="button"
-              aria-label={'退出'}
-              className={imageToolBtn}
+              aria-label={t('editor.imageToolbar.panelExit', '退出')}
+              className={cn(imageToolBtn, 'px-2.5')}
               onClick={close}
             >
               <BiExit className="h-[18px] w-[18px]" />
             </button>
           </Tooltip>
-
-          {menuOpen ? (
-            <DropdownPanel className="absolute bottom-[calc(100%+6px)] left-1/2 z-50 w-[13.5rem] -translate-x-1/2 gap-1 p-1.5">
-              <p className="px-2 pb-0.5 pt-1 text-[11px] leading-snug text-[var(--muted)]">
-                {t('editor.imageToolbar.upscaleHint')}
-              </p>
-              {UPSCALE_PRESETS.map((p) => (
-                <DropdownPanelItem
-                  key={p.key}
-                  selected={p.key === selected?.key}
-                  className="h-auto min-h-8 items-start py-1.5"
-                  onClick={() => {
-                    setSelectedKey(p.key);
-                    setMenuOpen(false);
-                  }}
-                >
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                    <span className="text-[13px] font-semibold text-[var(--ink)]">{p.title}</span>
-                    <span className="text-[11px] font-normal leading-snug text-[var(--muted)]">
-                      {t(p.hintKey)}
-                    </span>
-                  </span>
-                </DropdownPanelItem>
-              ))}
-            </DropdownPanel>
-          ) : null}
         </FloatingToolbar>
       </div>
     </RcbOverlayPortal>

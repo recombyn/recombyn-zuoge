@@ -28,14 +28,14 @@ import type { RcbCamera as CanvasCamera } from '@/components/rcb';
 import { setCanvasMeta } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-
-/** Shared optical size for bottom-left HUD glyphs. */
+import {
+  useBottomHudStackState,
+  useLeftDockInset,
+} from '@/components/editor/page/editorBottomHudLayout';
 const HUD_ICON = 'h-[15px] w-[15px] shrink-0';
 /** LuImages reads optically larger than Heroicons at the same box — nudge down 2px. */
 const HUD_ICON_ASSETS = 'h-[13px] w-[13px] shrink-0';
 const HUD_ICON_STROKE = 1.75;
-/** Min gap between left HUD (at left-4) and centered toolstrip before stacking. */
-const BOTTOM_HUD_TOOLS_GAP_PX = 12;
 
 const ZOOM_TRIGGER_BASE =
   'inline-flex h-7 min-w-[2.75rem] items-center justify-center gap-1.5 rounded px-2.5 transition-colors';
@@ -69,19 +69,6 @@ function zoomMenuSelectedKeys(opts: { zoom: number; fitActive: boolean }): strin
   if (opts.fitActive) return ['fit'];
   const hit = ZOOM_MENU_PRESETS.find((p) => Math.abs(opts.zoom - p.zoom) < 0.001);
   return hit ? [hit.key] : [];
-}
-
-/** True when left HUD at bottom-left would horizontally collide with centered tools. */
-function bottomHudCollidesWithTools(opts: {
-  stage: DOMRect;
-  hudWidth: number;
-  toolsWidth: number;
-}): boolean {
-  const { stage, hudWidth, toolsWidth } = opts;
-  if (!(hudWidth > 0) || !(toolsWidth > 0) || !(stage.width > 0)) return false;
-  const hudRight = stage.left + 16 + hudWidth;
-  const toolsLeft = stage.left + stage.width / 2 - toolsWidth / 2;
-  return hudRight + BOTTOM_HUD_TOOLS_GAP_PX > toolsLeft;
 }
 
 /**
@@ -483,7 +470,14 @@ function EditorBottomHud({
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const [fpsHudOn, setFpsHudOn] = useState(readFpsHudEnabled);
   const bottomHudRef = useRef<HTMLDivElement | null>(null);
-  const [stackBottomHud, setStackBottomHud] = useState(false);
+  const leftHudInsetPx = useLeftDockInset(layersOpen, assetsOpen);
+  const stackBottomHud = useBottomHudStackState({
+    stageEl,
+    hudRef: bottomHudRef,
+    leftHudInsetPx,
+    layersOpen,
+    assetsOpen,
+  });
 
   useEffect(() => {
     const sync = () => setFpsHudOn(readFpsHudEnabled());
@@ -507,40 +501,6 @@ function EditorBottomHud({
       window.removeEventListener(FPS_HUD_EVENT, sync);
     };
   }, []);
-
-  useEffect(() => {
-    const stage = stageEl;
-    const hud = bottomHudRef.current;
-    const tools = stage?.ownerDocument?.querySelector(
-      '[data-tour="editor-tools"]'
-    ) as HTMLElement | null;
-    if (!stage || !hud || !tools) {
-      setStackBottomHud(false);
-      return undefined;
-    }
-    const measure = () => {
-      const stageBox = stage.getBoundingClientRect();
-      const hudBox = hud.getBoundingClientRect();
-      const toolsBox = tools.getBoundingClientRect();
-      setStackBottomHud(
-        bottomHudCollidesWithTools({
-          stage: stageBox,
-          hudWidth: hudBox.width,
-          toolsWidth: toolsBox.width,
-        })
-      );
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(stage);
-    ro.observe(hud);
-    ro.observe(tools);
-    window.addEventListener('resize', measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [isDevMode, stageEl, toolsExpanded, useCompactTooling]);
 
   const toggleMinimap = useCallback(() => {
     setMinimapOpen((v) => !v);
@@ -610,9 +570,10 @@ function EditorBottomHud({
       {fpsHudOn ? <FpsHudOverlay /> : null}
       <div
         className={cn(
-          'pointer-events-none absolute left-4 z-20 flex flex-col items-start gap-2',
+          'pointer-events-none absolute z-20 flex flex-col items-start gap-2',
           stackBottomHud ? 'bottom-[4.75rem]' : 'bottom-4'
         )}
+        style={{ left: leftHudInsetPx }}
       >
         {minimapOpen ? (
           <EditorMinimap

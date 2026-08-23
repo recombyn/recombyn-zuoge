@@ -42,4 +42,21 @@ describe('listVisibleMarkPins', () => {
     const visible = listVisibleMarkPins(document, { 'img-1': [pin] }, null, ['img-1'], true);
     expect(visible).toHaveLength(0);
   });
+
+  it('shows pins on all nodes during quick-edit mark session', () => {
+    const pin2: ImageMarkPin = { ...pin, nodeId: 'img-2', id: 'pin-2' };
+    const doc = {
+      deltaSetLike: {
+        'img-1': { key: 'image', width: 400, height: 300, attrs: { src: 'a.png' } },
+        'img-2': { key: 'image', width: 200, height: 200, attrs: { src: 'b.png' } },
+      },
+    } as any;
+    const visible = listVisibleMarkPins(
+      doc,
+      { 'img-1': pin, 'img-2': pin2 },
+      { nodeId: 'img-1', kind: 'mark', markSink: 'quickEdit' },
+      []
+    );
+    expect(visible).toHaveLength(2);
+  });
 });

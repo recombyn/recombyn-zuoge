@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { RcbOverlayPortal, useRcbCamera, rcbSceneToScreen } from '@/components/rcb';
-import type { ImageMarkPin } from '@/store/modules/editor';
+import type { ImageMarkPin, ImageToolPanelState } from '@/store/modules/editor';
+import type { RootState } from '@/store';
+import store from '@/store';
 import MarkPromptBar from './MarkPromptBar';
 import { commitMarkRegion } from './markCommit';
 import { markComposerChipLabel, markPinToRegion } from './markChipUtils';
@@ -20,6 +22,9 @@ function MarkPinOverlay({
 }): ReactNode {
   const dispatch = useDispatch();
   const camera = useRcbCamera();
+  const hoveredMarkPin = useSelector((s: RootState) => s.editor.hoveredMarkPin);
+  const isChipHovered =
+    hoveredMarkPin?.nodeId === nodeId && hoveredMarkPin?.pinId === pin.id;
   const z = Math.max(0.05, camera.zoom || 1);
   const [expanded, setExpanded] = useState(false);
   const [promptText, setPromptText] = useState('');
@@ -43,7 +48,11 @@ function MarkPinOverlay({
   const origin = rcbSceneToScreen(camera, imageBox.left, imageBox.top);
   const stageW = Math.max(1, imageBox.width * z);
   const stageH = Math.max(1, imageBox.height * z);
-  const chrome = markRegionChrome({ pinned: !expanded, expanded, badgeOnly: !expanded });
+  const chrome = markRegionChrome({
+    pinned: !expanded,
+    expanded,
+    badgeOnly: !expanded && !isChipHovered,
+  });
   const promptStyle = useMemo(
     () => markPromptFixedStyle(camera, imageBox, pin),
     [camera, imageBox, pin]
@@ -74,8 +83,13 @@ function MarkPinOverlay({
   const regionLabel = pin.label || `${pin.index} 区域`;
 
   const onSubmitPrompt = (text: string) => {
+    const panel = (store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null } })
+      .editor?.imageToolPanel;
+    const sessionNodeId =
+      pin.sink === 'quickEdit' && panel?.nodeId ? panel.nodeId : undefined;
     commitMarkRegion(dispatch, {
       nodeId,
+      sessionNodeId,
       region: markPinToRegion(pin),
       box: imageBox,
       text,
@@ -124,7 +138,7 @@ function MarkPinOverlay({
           ) : null}
         </div>
       </div>
-      {expanded
+      {expanded && pin.sink === 'agent'
         ? createPortal(
             <MarkPromptBar
               style={promptStyle}

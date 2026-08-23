@@ -1,6 +1,54 @@
 import type { ImageMarkPin } from '@/store/modules/editor';
 import type { MarkRegion } from './MarkRegionOverlay';
 
+const MARK_REGION_RE =
+  /region:\s*#(\d+)\((\w+)@([\d.]+),([\d.]+),([\d.]+)x([\d.]+)\)/;
+
+/** Rebuild a canvas pin from a saved mark chip payload (edit / restore). */
+export function parseMarkPinFromChip(
+  chipKey: string,
+  payload: string,
+  nodeW: number,
+  nodeH: number,
+  sink: 'agent' | 'quickEdit' = 'agent'
+): ImageMarkPin | null {
+  const parts = String(chipKey || '').split(':');
+  if (parts[0] !== 'mark' || parts.length < 3) return null;
+  const nodeId = parts[1]?.trim();
+  const regionId = parts[2]?.trim();
+  if (!nodeId || !regionId) return null;
+  const m = String(payload || '').match(MARK_REGION_RE);
+  if (!m) return null;
+  const index = Number(m[1]);
+  const tag = m[2];
+  const nx = Number(m[3]);
+  const ny = Number(m[4]);
+  const nw = Number(m[5]);
+  const nh = Number(m[6]);
+  if (![index, nx, ny, nw, nh].every((n) => Number.isFinite(n))) return null;
+  const w = Math.max(1, nodeW);
+  const h = Math.max(1, nodeH);
+  const labelLine = String(payload || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.startsWith('label:'));
+  const label = labelLine ? labelLine.slice('label:'.length).trim() : undefined;
+  const kind =
+    tag === 'text' ? 'text' : tag === 'subject' ? 'image' : ('manual' as MarkRegion['kind']);
+  return {
+    nodeId,
+    id: regionId,
+    index,
+    x: Math.round(nx * w),
+    y: Math.round(ny * h),
+    w: Math.max(1, Math.round(nw * w)),
+    h: Math.max(1, Math.round(nh * h)),
+    kind,
+    label,
+    sink,
+  };
+}
+
 /** Next 1-based badge index — accounts for committed pins and in-session regions. */
 export function nextMarkRegionIndex(
   pins: ImageMarkPin[],

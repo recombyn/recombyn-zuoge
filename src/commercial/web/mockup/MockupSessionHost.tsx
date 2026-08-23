@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useId,
   useRef,
   useState,
   type DragEvent,
@@ -11,29 +10,23 @@ import {
 } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import { BiExit } from 'react-icons/bi';
-import { TbShirt } from 'react-icons/tb';
 import { message } from '@/components/base';
 import {
   RcbOverlayPortal,
   rcbCameraCssZoom,
   rcbSceneToScreen,
-  rcbScreenPxToScene,
   useRcbCamera,
-  useRcbScreenToolbarStyle,
 } from '@/components/rcb';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import { isMockupEnabled, mockupErrorMessage } from '@/service/mockupTools';
 import { uploadImageFromSrcWithLocalFallback } from '@/utils/uploadImage';
 import { cn } from '@/utils/classnames';
-import {
-  closeImageToolPanel,
-  patchDocumentNode,
-} from '@/store/modules/editor';
+import { patchDocumentNode } from '@/store/modules/editor';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import { renderMockup } from './mockupTools';
 import MockupDesignLayer from './MockupDesignLayer';
+import { isMockupNodeActive } from './mockupAttrs';
 import {
   autoFitMockupPlacement,
   composeMockupDesignSheet,
@@ -79,24 +72,34 @@ function readImageFile(file: File, onLoad: (dataUrl: string) => void) {
   reader.readAsDataURL(file);
 }
 
-/** Interactive mockup: drag design onto product, adjust placement, live cylindrical preview. */
+function pointInScreenRect(
+  clientX: number,
+  clientY: number,
+  left: number,
+  top: number,
+  width: number,
+  height: number
+) {
+  return clientX >= left && clientX <= left + width && clientY >= top && clientY <= top + height;
+}
+
+/** Passive mockup overlay: attr-driven, no session mode, drag-to-place + live warp preview. */
 function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const camera = useRcbCamera();
-  const uploadInputId = useId();
   const { data: imageToolCaps } = useImageToolCapabilities();
-  const mockupEnabled = isMockupEnabled(imageToolCaps);
+  const mockupIntelEnabled = isMockupEnabled(imageToolCaps);
 
-  const panel = useSelector(
-    (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
-  );
   const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
-
-  const sessionOpen = panel?.kind === 'mockup' && mockupEnabled;
-  const nodeId = sessionOpen ? panel!.nodeId : null;
-  const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;
-  const box = useMemo(() => (node ? nodeBox(document, node) : null), [document, node]);
+  const node = selectedNodeId ? document?.deltaSetLike?.[selectedNodeId] : null;
+  const active =
+    mockupIntelEnabled && node?.key === 'image' && isMockupNodeActive(node?.attrs || {});
+  const nodeId = active ? selectedNodeId! : '';
+  const box = useMemo(
+    () => (active && node ? nodeBox(document, node) : null),
+    [active, document, node]
+  );
 
   const template = useMemo(() => {
     const tpl = imageToolCaps?.mockup?.templates?.find((item) => item.id === DEFAULT_TEMPLATE_ID);
@@ -115,21 +118,37 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [rendering, setRendering] = useState(false);
   const previewSeqRef = useRef(0);
   const placementRef = useRef(placement);
+  const applySeqRef = useRef(0);
   placementRef.current = placement;
 
-  const close = useCallback(() => dispatch(closeImageToolPanel()), [dispatch]);
+  useEffect(() => {
+    if (!active || !nodeId) return;
+    const root = globalThis.document;
+    const hidden = new Set<Element>();
+    const hideSceneNode = () => {
+      root.querySelectorAll(`[data-scene-node-id="${nodeId}"]`).forEach((el) => {
+        if (el instanceof HTMLElement || el instanceof SVGElement) {
+          (el as HTMLElement).style.opacity = '0';
+          hidden.add(el);
+        }
+      });
+    };
+    hideSceneNode();
+    const raf = window.requestAnimationFrame(hideSceneNode);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      hidden.forEach((el) => {
+        if (el instanceof HTMLElement || el instanceof SVGElement) {
+          (el as HTMLElement).style.opacity = '';
+        }
+      });
+    };
+  }, [active, nodeId, camera]);
 
   useEffect(() => {
-    if (panel?.kind === 'mockup' && !mockupEnabled) {
-      dispatch(closeImageToolPanel());
-    }
-  }, [panel?.kind, mockupEnabled, dispatch]);
-
-  useEffect(() => {
-    if (!sessionOpen || !nodeId) {
+    if (!active || !nodeId) {
       setBaseSrc(null);
       setDesignSrc(null);
       setPlacement(defaultMockupPlacement());
@@ -137,11 +156,8 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
       setPreviewSrc(null);
       setPreviewBusy(false);
       setDragOver(false);
-      setRendering(false);
       return;
     }
-    const src = String(node?.attrs?.src || '').trim();
-    setBaseSrc(src || null);
     const savedDesign = String(node?.attrs?.mockupDesignSrc || '').trim();
     const savedPlacement = parseMockupPlacement(
       typeof node?.attrs?.mockupPlacement === 'string'
@@ -157,45 +173,71 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
     if (savedDesign) {
       setDesignSrc(savedDesign);
       setPlacement(savedPlacement || defaultMockupPlacement());
-      setDesignSelected(false);
     } else {
       setDesignSrc(null);
       setPlacement(defaultMockupPlacement());
-      setDesignSelected(false);
     }
-    setPreviewSrc(null);
-  }, [sessionOpen, nodeId, node?.attrs?.src, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement]);
+    setDesignSelected(false);
+  }, [active, nodeId, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement]);
 
-  const assignDesignSrc = useCallback(async (src: string, autoSelect = true) => {
-    const url = String(src || '').trim();
-    if (!url) return;
-    try {
-      const { width, height } = await loadImageNaturalSize(url);
-      const fit = autoFitMockupPlacement(width, height);
-      setDesignSrc(url);
-      setPlacement(fit);
-      setDesignSelected(autoSelect);
-      setPreviewSrc(null);
-    } catch (err) {
-      console.warn('[mockup] design load', err);
-      message.error(t('editor.imageToolbar.mockupFailed'));
-    }
-  }, [t]);
-
-  // Another on-canvas image becomes the design source (not the mockup host).
   useEffect(() => {
-    if (!sessionOpen || !nodeId) return;
+    if (!active || !nodeId) return;
+    const src =
+      String(node?.attrs?.mockupBaseSrc || node?.attrs?.src || '').trim();
+    setBaseSrc(src || null);
+  }, [active, nodeId, node?.attrs?.src, node?.attrs?.mockupBaseSrc]);
+
+  const persistPlacement = useCallback(
+    (nextPlacement: MockupPlacement, nextDesign: string) => {
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          patch: {
+            attrs: {
+              mockupDesignSrc: nextDesign,
+              mockupPlacement: JSON.stringify(nextPlacement),
+              mockupTemplateId: template.id,
+            },
+          },
+          skipHostReload: true,
+        })
+      );
+    },
+    [dispatch, nodeId, template.id]
+  );
+
+  const assignDesignSrc = useCallback(
+    async (src: string, autoSelect = true) => {
+      const url = String(src || '').trim();
+      if (!url) return;
+      try {
+        const { width, height } = await loadImageNaturalSize(url);
+        const fit = autoFitMockupPlacement(width, height);
+        setDesignSrc(url);
+        setPlacement(fit);
+        setDesignSelected(autoSelect);
+        setPreviewSrc(null);
+        persistPlacement(fit, url);
+      } catch (err) {
+        console.warn('[mockup] design load', err);
+        message.error(t('editor.imageToolbar.mockupFailed'));
+      }
+    },
+    [persistPlacement, t]
+  );
+
+  useEffect(() => {
+    if (!active || !nodeId) return;
     if (!selectedNodeId || selectedNodeId === nodeId) return;
     const other = document?.deltaSetLike?.[selectedNodeId];
     if (other?.key !== 'image') return;
     const src = String(other?.attrs?.src || '').trim();
     if (!src) return;
     void assignDesignSrc(src, true);
-  }, [sessionOpen, nodeId, selectedNodeId, document, assignDesignSrc]);
+  }, [active, nodeId, selectedNodeId, document, assignDesignSrc]);
 
-  // Debounced cylindrical preview whenever placement or design changes.
   useEffect(() => {
-    if (!sessionOpen || !designSrc) {
+    if (!active || !designSrc) {
       setPreviewSrc(null);
       setPreviewBusy(false);
       return;
@@ -224,28 +266,60 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
       })();
     }, designSelected ? 420 : 280);
     return () => window.clearTimeout(timer);
-  }, [sessionOpen, designSrc, placement, template.id, template.width, template.height, designSelected]);
+  }, [
+    active,
+    designSrc,
+    placement,
+    template.id,
+    template.width,
+    template.height,
+    designSelected,
+  ]);
 
+  // Auto-bake warped preview when idle (not dragging placement).
   useEffect(() => {
-    if (!sessionOpen || !nodeId) return;
-    if (!node || node.key !== 'image') close();
-  }, [sessionOpen, nodeId, node, close]);
-
-  useEffect(() => {
-    if (!sessionOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        if (designSelected) {
-          setDesignSelected(false);
-          return;
+    if (!active || !nodeId || !designSrc || !previewSrc || designSelected) return;
+    const seq = ++applySeqRef.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const uploaded = await uploadImageFromSrcWithLocalFallback(previewSrc, 'mockup.png');
+          if (applySeqRef.current !== seq) return;
+          dispatch(
+            patchDocumentNode({
+              nodeId,
+              patch: {
+                attrs: {
+                  src: uploaded.url || previewSrc,
+                  mockupTemplateId: template.id,
+                  mockupDesignSrc: designSrc,
+                  mockupPlacement: JSON.stringify(placementRef.current),
+                  mockupEnabled: 'true',
+                },
+              },
+              skipHostReload: true,
+            })
+          );
+        } catch (err) {
+          console.warn('[mockup] auto apply', err);
         }
-        close();
+      })();
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [active, nodeId, designSrc, previewSrc, designSelected, template.id, dispatch]);
+
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (designSelected) {
+        e.preventDefault();
+        setDesignSelected(false);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sessionOpen, designSelected, close]);
+  }, [active, designSelected]);
 
   const resolveDropSrc = useCallback((dt: DataTransfer | null): string | null => {
     const asset = readMediaAssetDragPayload(dt);
@@ -264,284 +338,145 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
     [assignDesignSrc]
   );
 
-  const onDragOver = useCallback((e: DragEvent) => {
-    const dt = e.dataTransfer;
-    const hasFile = Array.from(dt?.types || []).includes('Files');
-    const hasAsset =
-      dataTransferHasMediaAsset(dt) || dataTransferHasChatImage(dt) || hasFile;
-    if (!hasAsset) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (dt) dt.dropEffect = 'copy';
-    setDragOver(true);
-  }, []);
+  const screenRect = useMemo(() => {
+    if (!box) return null;
+    const z = Math.max(0.05, rcbCameraCssZoom(camera));
+    const origin = rcbSceneToScreen(camera, box.left, box.top);
+    return {
+      left: origin.x,
+      top: origin.y,
+      width: box.width * z,
+      height: box.height * z,
+    };
+  }, [box, camera]);
 
-  const onDragLeave = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
-  }, []);
-
-  const onDrop = useCallback(
-    (e: DragEvent) => {
+  useEffect(() => {
+    if (!active || !screenRect) return;
+    const hasAsset = (dt: DataTransfer | null) => {
+      const hasFile = Array.from(dt?.types || []).includes('Files');
+      return dataTransferHasMediaAsset(dt) || dataTransferHasChatImage(dt) || hasFile;
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (!hasAsset(e.dataTransfer)) return;
+      const r = screenRect;
+      if (!pointInScreenRect(e.clientX, e.clientY, r.left, r.top, r.width, r.height)) {
+        setDragOver(false);
+        return;
+      }
       e.preventDefault();
-      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      setDragOver(true);
+    };
+    const onDragLeave = () => setDragOver(false);
+    const onDrop = (e: DragEvent) => {
+      const r = screenRect;
       setDragOver(false);
+      if (!pointInScreenRect(e.clientX, e.clientY, r.left, r.top, r.width, r.height)) return;
+      e.preventDefault();
       const droppedUrl = resolveDropSrc(e.dataTransfer);
       if (droppedUrl) {
         void assignDesignSrc(droppedUrl, true);
         return;
       }
-      onFiles(e.dataTransfer.files);
+      onFiles(e.dataTransfer?.files || null);
+    };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [active, screenRect, resolveDropSrc, onFiles, assignDesignSrc]);
+
+  const onPlacementChange = useCallback(
+    (next: MockupPlacement) => {
+      setPlacement(next);
+      if (designSrc) persistPlacement(next, designSrc);
     },
-    [onFiles, resolveDropSrc, assignDesignSrc]
+    [designSrc, persistPlacement]
   );
 
-  const onApply = async () => {
-    if (!nodeId || !designSrc || rendering) return;
-    setRendering(true);
-    const hide = message.loading(t('editor.imageToolbar.processingMockup'), 0);
-    try {
-      let image = previewSrc;
-      if (!image) {
-        const sheet = await composeMockupDesignSheet(
-          designSrc,
-          placementRef.current,
-          template.width,
-          template.height
-        );
-        const result = await renderMockup(sheet, template.id);
-        image = String(result.image || '').trim() || null;
-      }
-      if (!image) throw new Error(t('editor.imageToolbar.mockupFailed'));
-      const uploaded = await uploadImageFromSrcWithLocalFallback(image, 'mockup.png');
-      dispatch(
-        patchDocumentNode({
-          nodeId,
-          patch: {
-            attrs: {
-              src: uploaded.url || image,
-              mockupTemplateId: template.id,
-              mockupDesignSrc: designSrc,
-              mockupPlacement: JSON.stringify(placementRef.current),
-            },
-          },
-        })
-      );
-      setBaseSrc(uploaded.url || image);
-      setDesignSelected(false);
-      message.success(t('editor.imageToolbar.mockupDone'));
-    } catch (err) {
-      console.warn('[mockup]', err);
-      const raw = mockupErrorMessage(err, '');
-      const msg =
-        /failed to fetch|networkerror|load failed/i.test(raw)
-          ? t('agent.apiDown')
-          : raw || t('editor.imageToolbar.mockupFailed');
-      message.error(msg);
-    } finally {
-      hide();
-      setRendering(false);
-    }
-  };
+  if (!active || !nodeId || !box || !screenRect) return null;
 
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
-  const toolbarGap = rcbScreenPxToScene(10, z);
-  const footerStyle = useRcbScreenToolbarStyle({
-    left: box ? box.left + box.width / 2 : 0,
-    top: box ? box.top + box.height + toolbarGap : 0,
-    anchor: 'top',
-  });
-
-  if (!sessionOpen || !nodeId || !box || !node) return null;
-
   const origin = rcbSceneToScreen(camera, box.left, box.top);
   const stageW = box.width * z;
   const stageH = box.height * z;
-  const headerH = 28;
-  const dimLabel = `${template.width} × ${template.height}`;
-  const adjusting = Boolean(designSrc && designSelected);
-  const stageBg = adjusting ? baseSrc : previewSrc || baseSrc;
-  const showDropHint = !designSrc;
+  const showWarped = Boolean(previewSrc) && !designSelected;
+  const ghostHitOnly = showWarped && Boolean(designSrc);
 
   return (
     <RcbOverlayPortal>
-      <div
-        data-mockup-session
-        data-image-tool-panel
-        className="pointer-events-none absolute inset-0 z-[36]"
-      >
+      <div data-mockup-session className="pointer-events-none absolute inset-0 z-[36]">
         <div
-          className="pointer-events-auto absolute flex items-center justify-between gap-3 text-[12px] font-medium text-[var(--accent)]"
-          style={{
-            left: origin.x,
-            top: origin.y - headerH - 4,
-            width: stageW,
-            height: headerH,
-          }}
-          data-image-tool-panel
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <span className="inline-flex items-center gap-1.5">
-            <TbShirt className="h-4 w-4 shrink-0" strokeWidth={2} />
-            <span>{t('editor.imageToolbar.mockup')}</span>
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="max-w-[9rem] truncate text-[11px] font-normal" title={template.name}>
-              {template.name}
-            </span>
-            <span className="tabular-nums text-[11px] font-normal text-[var(--muted)]">{dimLabel}</span>
-            <button
-              type="button"
-              aria-label="退出"
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-              onClick={close}
-            >
-              <BiExit className="h-4 w-4" />
-            </button>
-          </span>
-        </div>
-
-        <div
-          className="pointer-events-auto absolute overflow-hidden rounded-sm ring-2 ring-[var(--accent)]"
+          className={cn(
+            'pointer-events-none absolute overflow-hidden rounded-sm',
+            dragOver && 'ring-2 ring-[var(--accent)] ring-offset-1'
+          )}
           style={{
             left: origin.x,
             top: origin.y,
             width: stageW,
             height: stageH,
           }}
-          data-image-tool-panel
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            if (!designSrc) return;
-            const t = e.target as HTMLElement;
-            if (!t.closest('[data-mockup-design-layer]')) {
-              setDesignSelected(false);
-            }
-          }}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
         >
-          {stageBg ? (
+          {showWarped ? (
             <img
-              src={stageBg}
+              src={previewSrc!}
+              alt=""
+              className="absolute inset-0 h-full w-full object-contain"
+              draggable={false}
+            />
+          ) : baseSrc ? (
+            <img
+              src={baseSrc}
               alt=""
               className="absolute inset-0 h-full w-full object-contain bg-[var(--surface-2)]"
               draggable={false}
-              onPointerDown={() => {
-                if (designSrc && !designSelected) setDesignSelected(true);
-              }}
             />
           ) : (
             <div className="absolute inset-0 bg-[var(--surface-2)]" />
           )}
 
           {previewBusy ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 text-[13px] font-medium text-white">
-              {t('editor.imageToolbar.mockupPreviewLoading')}
+            <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-2 pt-1">
+              <span className="inline-block w-max max-w-[calc(100%-16px)] truncate whitespace-nowrap text-[11px] font-medium text-white drop-shadow">
+                {t('editor.imageToolbar.mockupPreviewLoading')}
+              </span>
             </div>
           ) : null}
 
-          {designSrc && adjusting ? (
+          {!previewBusy && designSrc && !previewSrc && !designSelected ? (
+            <div className="pointer-events-none absolute inset-x-0 top-6 flex justify-center px-2">
+              <span className="inline-block w-max max-w-[calc(100%-16px)] truncate whitespace-nowrap text-[11px] font-medium text-white drop-shadow">
+                {t('editor.imageToolbar.mockupPreviewFailed')}
+              </span>
+            </div>
+          ) : null}
+
+          {!designSrc && !previewBusy ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3">
+              <span className="inline-block w-max max-w-full truncate whitespace-nowrap rounded-md bg-black/45 px-2.5 py-1 text-[11px] font-medium text-white">
+                {t('editor.imageToolbar.mockupDropHint')}
+              </span>
+            </div>
+          ) : null}
+
+          {designSrc ? (
             <MockupDesignLayer
               imageBox={box}
               designSrc={designSrc}
               placement={placement}
               selected={designSelected}
               onSelect={() => setDesignSelected(true)}
-              onPlacementChange={setPlacement}
+              onPlacementChange={onPlacementChange}
               templateW={template.width}
               templateH={template.height}
+              ghostHitOnly={ghostHitOnly}
             />
           ) : null}
-
-          {!previewBusy && designSrc && !previewSrc && !adjusting ? (
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/35 px-4 text-center text-[13px] font-medium text-white">
-              <span>{t('editor.imageToolbar.mockupPreviewFailed')}</span>
-            </div>
-          ) : null}
-
-          {showDropHint ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-              <label
-                htmlFor={uploadInputId}
-                data-image-tool-panel
-                className={cn(
-                  'pointer-events-auto max-w-[88%] cursor-pointer rounded-full px-4 py-2 text-center text-[13px] font-medium text-white shadow-lg transition',
-                  dragOver ? 'scale-[1.02] bg-black/75' : 'bg-black/55 hover:bg-black/65'
-                )}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {t('editor.imageToolbar.mockupDropHint')}
-              </label>
-              <input
-                id={uploadInputId}
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(e) => {
-                  onFiles(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-            </div>
-          ) : designSrc ? (
-            <div className="pointer-events-none absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-2">
-              <button
-                type="button"
-                className="pointer-events-auto rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-white shadow hover:bg-black/65"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDesignSelected(true);
-                }}
-              >
-                {t('editor.imageToolbar.mockupAdjust')}
-              </button>
-              <label
-                htmlFor={uploadInputId}
-                className="pointer-events-auto cursor-pointer rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium text-white shadow hover:bg-black/65"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {t('editor.imageToolbar.mockupChangeDesign')}
-                <input
-                  id={uploadInputId}
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => {
-                    onFiles(e.target.files);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            </div>
-          ) : null}
-        </div>
-
-        <div
-          data-mockup-toolbar
-          data-image-tool-panel
-          className="pointer-events-auto absolute z-[37]"
-          style={footerStyle}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            disabled={!designSrc || rendering || previewBusy}
-            className={cn(
-              'inline-flex h-9 min-w-[120px] items-center justify-center rounded-full px-5 text-[13px] font-medium shadow-md transition',
-              designSrc && !rendering && !previewBusy
-                ? 'bg-white text-[var(--ink)] hover:bg-white/95'
-                : 'cursor-not-allowed bg-white/60 text-[var(--muted)]'
-            )}
-            onClick={() => void onApply()}
-          >
-            {t('editor.imageToolbar.mockupApply')}
-          </button>
         </div>
       </div>
     </RcbOverlayPortal>

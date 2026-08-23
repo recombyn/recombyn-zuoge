@@ -7,7 +7,7 @@ Closed-source product code for the private monorepo. Not published to `recombyn/
 ```
 src/commercial/
   intelligence/   # Design Intelligence HTTP service (port 8091)
-  web/            # @commercial/* UI modules (layer mask, mockup, …)
+  web/            # @commercial/* UI modules (mockup, …)
   docs/           # internal developer notes
 ```
 
@@ -28,7 +28,6 @@ Docker: `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml
 | Path | Description |
 |------|-------------|
 | `web/mockup/` | Mockup session UI |
-| `web/layerMask/` | Layer mask editing |
 
 Wiring: `apps/web/src/commercial/` + `@commercial/*` alias.
 

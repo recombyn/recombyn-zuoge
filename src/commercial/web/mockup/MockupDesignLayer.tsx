@@ -8,7 +8,7 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { useRcbCamera, rcbSceneToScreen } from '@/components/rcb';
+import { useRcbCamera, rcbCameraCssZoom } from '@/components/rcb';
 import type { MockupPlacement } from './mockupPlacement';
 import { DEMO_CYLINDER_PRINT } from './mockupPlacement';
 
@@ -34,6 +34,7 @@ function MockupDesignLayer({
   onPlacementChange,
   templateW = DEMO_CYLINDER_PRINT.templateW,
   templateH = DEMO_CYLINDER_PRINT.templateH,
+  ghostHitOnly = false,
 }: {
   imageBox: SceneBox;
   designSrc: string;
@@ -43,9 +44,12 @@ function MockupDesignLayer({
   onPlacementChange: (next: MockupPlacement) => void;
   templateW?: number;
   templateH?: number;
+  /** Invisible hit target only (warped preview visible underneath). */
+  ghostHitOnly?: boolean;
 }): ReactNode {
   const camera = useRcbCamera();
-  const z = Math.max(0.05, camera.zoom || 1);
+  const z = Math.max(0.05, rcbCameraCssZoom(camera));
+  const shellRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     mode: DragMode;
     pointerId: number;
@@ -59,18 +63,26 @@ function MockupDesignLayer({
     if (!dragRef.current) setLivePlacement(placement);
   }, [placement]);
 
-  const origin = rcbSceneToScreen(camera, imageBox.left, imageBox.top);
   const stageW = Math.max(1, imageBox.width * z);
   const stageH = Math.max(1, imageBox.height * z);
   const sx = stageW / templateW;
   const sy = stageH / templateH;
 
   const localFromClient = useCallback(
-    (clientX: number, clientY: number) => ({
-      x: (clientX - origin.x) / sx,
-      y: (clientY - origin.y) / sy,
-    }),
-    [origin.x, origin.y, sx, sy]
+    (clientX: number, clientY: number) => {
+      const rect = shellRef.current?.getBoundingClientRect();
+      const left = rect?.left ?? 0;
+      const top = rect?.top ?? 0;
+      const w = rect?.width && rect.width > 0 ? rect.width : stageW;
+      const h = rect?.height && rect.height > 0 ? rect.height : stageH;
+      const lsx = w / templateW;
+      const lsy = h / templateH;
+      return {
+        x: (clientX - left) / lsx,
+        y: (clientY - top) / lsy,
+      };
+    },
+    [stageW, stageH, templateW, templateH]
   );
 
   const applyDrag = useCallback(
@@ -135,10 +147,10 @@ function MockupDesignLayer({
 
   const shellStyle: CSSProperties = {
     position: 'absolute',
-    left: origin.x,
-    top: origin.y,
-    width: stageW,
-    height: stageH,
+    left: 0,
+    top: 0,
+    width: '100%',
+    height: '100%',
     zIndex: 35,
     touchAction: 'none',
   };
@@ -164,18 +176,13 @@ function MockupDesignLayer({
 
   return (
     <div
+      ref={shellRef}
       data-mockup-design-layer
-      className="pointer-events-auto absolute"
+      className="pointer-events-none absolute"
       style={shellStyle}
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) {
-          e.stopPropagation();
-          onSelect();
-        }
-      }}
     >
       <div
-        className="absolute overflow-hidden"
+        className="pointer-events-auto absolute overflow-hidden"
         style={{
           left,
           top,
@@ -183,15 +190,23 @@ function MockupDesignLayer({
           height,
           transform: `rotate(${p.angle}deg)`,
           transformOrigin: 'center center',
-          outline: selected ? '2px solid var(--accent)' : '1px dashed rgba(59,130,246,0.65)',
-          boxShadow: selected ? '0 0 0 1px rgba(255,255,255,0.85)' : undefined,
+          outline: ghostHitOnly
+            ? 'none'
+            : selected
+              ? '2px solid var(--accent)'
+              : '1px dashed rgba(59,130,246,0.65)',
+          boxShadow:
+            ghostHitOnly || !selected ? undefined : '0 0 0 1px rgba(255,255,255,0.85)',
           cursor: 'move',
+          opacity: ghostHitOnly ? 0 : 1,
         }}
         onPointerDown={(e) => startDrag(e, 'move')}
       >
-        <img src={designSrc} alt="" className="h-full w-full object-fill" draggable={false} />
+        {!ghostHitOnly ? (
+          <img src={designSrc} alt="" className="h-full w-full object-fill" draggable={false} />
+        ) : null}
       </div>
-      {selected ? (
+      {selected && !ghostHitOnly ? (
         <>
           {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => {
             const cx = corner.includes('e') ? left + width : left;

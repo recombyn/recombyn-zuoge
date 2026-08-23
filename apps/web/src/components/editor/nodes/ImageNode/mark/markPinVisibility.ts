@@ -18,7 +18,11 @@ export function listVisibleMarkPins(
 ): VisibleMarkPin[] {
   if (hidden) return [];
   const out: VisibleMarkPin[] = [];
-  for (const nodeId of selectedIds) {
+  const showAllPins =
+    panel?.kind === 'quickEdit' ||
+    (panel?.kind === 'mark' && panel.markSink === 'quickEdit');
+  const nodeIds = showAllPins ? Object.keys(pins) : selectedIds;
+  for (const nodeId of nodeIds) {
     const list = markPinsForNode(pins, nodeId);
     if (!list.length) continue;
     const node = document?.deltaSetLike?.[nodeId];

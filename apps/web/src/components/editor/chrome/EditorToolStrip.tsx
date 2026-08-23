@@ -89,6 +89,8 @@ const TOOL_SHORTCUT = {
   line: 'L',
   arrow: 'Shift L',
   circle: 'O',
+  polygon: 'G',
+  star: 'S',
   upload: 'I',
   imageGenerator: 'A',
 } as const;
@@ -463,8 +465,8 @@ function EditorToolStrip({
         key: 'circle',
         label: <MenuLabel iconKey="circle" label={L.circle} shortcut={TOOL_SHORTCUT.circle} />,
       },
-      { key: 'polygon', label: <MenuLabel iconKey="polygon" label={L.polygon} /> },
-      { key: 'star', label: <MenuLabel iconKey="star" label={L.star} /> },
+      { key: 'polygon', label: <MenuLabel iconKey="polygon" label={L.polygon} shortcut={TOOL_SHORTCUT.polygon} /> },
+      { key: 'star', label: <MenuLabel iconKey="star" label={L.star} shortcut={TOOL_SHORTCUT.star} /> },
     ],
     [L.arrow, L.circle, L.line, L.polygon, L.rect, L.star]
   );
@@ -612,6 +614,10 @@ function EditorToolStrip({
       if (key === 'l' && !e.shiftKey) dispatch(setShapeKind('line'));
       if (key === 'l' && e.shiftKey) dispatch(setShapeKind('arrow'));
       if (key === 'o' && !e.shiftKey) dispatch(setShapeKind('circle'));
+      if (key === 'g' && !e.shiftKey) dispatch(setShapeKind('polygon'));
+      if (key === 's' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        dispatch(setShapeKind('star'));
+      }
       if (key === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setOpenMenu('upload');
       }

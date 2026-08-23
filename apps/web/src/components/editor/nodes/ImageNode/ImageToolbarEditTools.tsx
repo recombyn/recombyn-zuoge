@@ -16,7 +16,6 @@ import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
 import ImageDecomposeMenu, { type DecomposeMode } from './ImageDecomposeMenu';
 
 import { ImageToolSep, imageToolBtn } from './imageToolbarShared';
-import { CommercialImageToolbarTools } from '@/commercial/imageToolbarTools';
 
 
 
@@ -80,8 +79,6 @@ function ImageToolbarEditTools({
 
   onEraser,
 
-  nodeId,
-
   onMark,
 
   onReplaceText,
@@ -103,9 +100,6 @@ function ImageToolbarEditTools({
   onRemoveBg?: (mode: RemoveBgMode) => void;
 
   onEraser: () => void;
-
-  /** Required for commercial toolbar slots (layer mask, etc.). */
-  nodeId: string;
 
   onMark?: () => void;
 
@@ -144,8 +138,6 @@ function ImageToolbarEditTools({
         <LuEraser className="h-4 w-4" />
 
       </Tool>
-
-      <CommercialImageToolbarTools nodeId={nodeId} />
 
       {onMark ? (
 

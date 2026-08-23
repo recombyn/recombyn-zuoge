@@ -1,5 +1,7 @@
 import {
+  useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
   type HTMLAttributes,
   type PointerEvent as ReactPointerEvent,
@@ -93,6 +95,23 @@ export const SELECTION_TOOLBAR_BELOW_BOX_GAP_PX = 20;
 
 /** Half knob + air outside the chrome edge (must clear 10px resize hit). */
 export const SELECTION_HANDLE_CLEARANCE_PX = 14;
+
+/** Screen px inset from stage edge when clamping floating chrome. */
+export const CHROME_VIEWPORT_INSET_PX = 16;
+
+/** Shift pill horizontally so it stays inside the overlay with a fixed inset. */
+export function clampChromeShiftX(
+  pillRect: DOMRectReadOnly,
+  overlayRect: DOMRectReadOnly,
+  insetPx = CHROME_VIEWPORT_INSET_PX
+): number {
+  const margin = Math.max(0, insetPx);
+  const minLeft = overlayRect.left + margin;
+  const maxRight = overlayRect.right - margin;
+  if (pillRect.left < minLeft) return minLeft - pillRect.left;
+  if (pillRect.right > maxRight) return maxRight - pillRect.right;
+  return 0;
+}
 
 /**
  * Scene distance from the **control-box** edge outward for chrome UI
@@ -233,6 +252,30 @@ export function WorldScreenChromeRoot({
   const alignEnd = hAlign === 'right';
   const { x: screenLeft, y: screenTop } = rcbSceneToScreen(camera, left, top, dpr);
   const railScreen = rail * zoom;
+  const pillRef = useRef<HTMLDivElement>(null);
+  const [shiftX, setShiftX] = useState(0);
+
+  useLayoutEffect(() => {
+    const pill = pillRef.current;
+    const overlay = pill?.closest('[data-rcb-overlay="1"]') as HTMLElement | null;
+    if (!pill || !overlay) {
+      setShiftX(0);
+      return;
+    }
+    const apply = () => {
+      const next = clampChromeShiftX(pill.getBoundingClientRect(), overlay.getBoundingClientRect());
+      setShiftX((prev) => (Math.abs(prev - next) < 0.5 ? prev : next));
+    };
+    apply();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+    ro?.observe(pill);
+    ro?.observe(overlay);
+    window.addEventListener('resize', apply);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', apply);
+    };
+  }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y, children]);
 
   return (
     <RcbOverlayPortal>
@@ -254,11 +297,15 @@ export function WorldScreenChromeRoot({
         }}
       >
         <div
+          ref={pillRef}
           className="pointer-events-auto"
           style={{
             marginTop: contentTop,
-            transform: anchor === 'bottom' ? 'translateY(-100%)' : undefined,
             width: 'max-content',
+            transform:
+              anchor === 'bottom'
+                ? `translate(${shiftX}px, -100%)`
+                : `translateX(${shiftX}px)`,
           }}
           {...rest}
         >
