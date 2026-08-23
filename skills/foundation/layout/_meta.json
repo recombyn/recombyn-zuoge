@@ -1,0 +1,29 @@
+{
+  "skill_key": "layout",
+  "name": "layout",
+  "displayName": "Layout",
+  "description": "Spacing rhythm, grid, alignment, whitespace — after the composition archetype",
+  "when_to_use": "Craft after composition — execute margins/grid/alignment; do not invent a second archetype",
+  "category": "craft",
+  "scenes": "all",
+  "sort_weight": 33,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": ["create_frame", "move_nodes", "align_nodes", "distribute_nodes", "update_node"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "scope": ["plan", "paint"],
+  "quality_signals": ["hierarchy"],
+  "mutex_group": "",
+  "prompt_negative": "Do not use random 13/16/15 margins. Do not hug every edge. Do not treat equal three-column cards as the default layout.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "版式",
+      "description": "间距节奏、网格、对齐、留白；构图原型之后执行"
+    },
+    "en": {
+      "displayName": "Layout",
+      "description": "Spacing, grid, alignment, whitespace after archetype"
+    }
+  }
+}

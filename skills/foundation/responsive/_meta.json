@@ -1,0 +1,27 @@
+{
+  "skill_key": "responsive",
+  "name": "responsive",
+  "displayName": "Responsive",
+  "description": "Breakpoints and stacking — same IA on desktop / tablet / mobile, not a cropped poster",
+  "when_to_use": "Craft foundation for multi-section web / app surfaces — lock breakpoints before painting a second device",
+  "category": "craft",
+  "scenes": "all",
+  "sort_weight": 40,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": ["create_frame", "update_node", "move_nodes"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "mutex_group": "",
+  "prompt_negative": "Do not design a poster and crop it for mobile. Do not hide the primary CTA below the fold on mobile.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "响应式",
+      "description": "断点与堆叠：同一信息架构，不是把海报裁成手机图"
+    },
+    "en": {
+      "displayName": "Responsive",
+      "description": "Breakpoints and stacking — same IA, not a cropped poster"
+    }
+  }
+}

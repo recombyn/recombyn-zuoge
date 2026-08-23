@@ -1,0 +1,52 @@
+{
+  "skill_key": "image_gen",
+  "name": "image_gen",
+  "displayName": "Image generation",
+  "description": "Image V3: brief → thesis → composition → material → lighting → bitmap. Not a pretty-picture button. No baked titles unless asked.",
+  "when_to_use": "Hero/atmosphere bitmaps, product plates, vector accents/marks, or stylized lettering",
+  "category": "craft",
+  "scenes": "all",
+  "sort_weight": 88,
+  "version": "3.2.0",
+  "context_mode": "full",
+  "extends": [
+    "design_brief",
+    "visual_direction",
+    "composition",
+    "anti_ai_slop"
+  ],
+  "preferred_tools": [
+    "create_image",
+    "create_frame",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "empty_canvas": true,
+      "intent_in": [
+        "create"
+      ]
+    },
+    {
+      "intent_in": [
+        "create"
+      ],
+      "min_prompt_chars": 8
+    }
+  ],
+  "mutex_group": "image",
+  "prompt_negative": "Do not generate a pretty picture without thesis/composition/material/lighting. Do not bake titles into the image unless the user explicitly wants text in the picture. If the user forbids image gen, skip bitmap heroes.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "图像生成",
+      "description": "图像 V3：简报→论点→构图→材质→光→图。不是出一张好看的图。禁止烘焙标题（除非用户要求图内文字）。"
+    },
+    "en": {
+      "displayName": "Image generation",
+      "description": "Image V3: brief → thesis → composition → material → lighting → image. No baked titles unless asked."
+    }
+  }
+}

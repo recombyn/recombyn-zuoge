@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+  <path d="M3 6h8v8H3V6Z"/>
+  <path fill="var(--surface, #fff)" d="M8 3h8v8H8V3Z"/>
+  <path fill="none" stroke="currentColor" stroke-width="1.2" d="M8.6 3.6h6.8v6.8H8.6V3.6Z"/>
+</svg>

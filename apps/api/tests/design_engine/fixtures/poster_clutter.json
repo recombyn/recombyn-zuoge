@@ -1,0 +1,82 @@
+{
+  "w": 1080,
+  "h": 1920,
+  "focusId": "frame_poster",
+  "frames": [
+    {
+      "id": "frame_poster",
+      "type": "frame",
+      "x": 0,
+      "y": 0,
+      "w": 1080,
+      "h": 1920,
+      "name": "Poster"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "bg",
+      "type": "rect",
+      "frameId": "frame_poster",
+      "x": 0,
+      "y": 0,
+      "w": 1080,
+      "h": 1920,
+      "fill": "#15181B"
+    },
+    {
+      "id": "title",
+      "type": "text",
+      "frameId": "frame_poster",
+      "x": 80,
+      "y": 120,
+      "w": 920,
+      "h": 120,
+      "text": "大荒龙脊",
+      "fontSize": 84,
+      "fill": "#D5D8D4"
+    },
+    {
+      "id": "kicker",
+      "type": "text",
+      "frameId": "frame_poster",
+      "x": 84,
+      "y": 280,
+      "w": 400,
+      "h": 36,
+      "text": "Relic",
+      "fontSize": 22,
+      "fill": "#D5D8D4"
+    },
+    {
+      "id": "hero",
+      "type": "image",
+      "frameId": "frame_poster",
+      "x": 180,
+      "y": 420,
+      "w": 720,
+      "h": 1100,
+      "src": "https://example.com/sword.png"
+    },
+    {
+      "id": "decoration_07",
+      "type": "rect",
+      "frameId": "frame_poster",
+      "x": 24,
+      "y": 24,
+      "w": 36,
+      "h": 36,
+      "fill": "#6B7C6A"
+    },
+    {
+      "id": "decoration_07b",
+      "type": "rect",
+      "frameId": "frame_poster",
+      "x": 26,
+      "y": 26,
+      "w": 34,
+      "h": 34,
+      "fill": "#6B7C6A"
+    }
+  ]
+}

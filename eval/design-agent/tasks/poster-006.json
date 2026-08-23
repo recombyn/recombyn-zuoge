@@ -1,0 +1,11 @@
+{
+  "id": "poster-006",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 马拉松赛事海报。主视觉一名跑者剪影对城市天际，低机位。时间地点用底部信息带（画板文字）。禁止 HUD 数据条、禁止四枚同等大小奖牌图标。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

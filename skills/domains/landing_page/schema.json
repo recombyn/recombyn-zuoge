@@ -1,0 +1,26 @@
+{
+  "input_schema": {
+    "type": "object",
+    "description": "Landing craft uses structured design_brief (P0) plus a family label.",
+    "properties": {
+      "design_brief": { "type": "object" },
+      "family": {
+        "type": "string",
+        "enum": ["SaaS", "AI", "Consumer", "Editorial", "Portfolio", "Commerce"]
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "allowed_ops": [
+      "create_frame",
+      "create_image",
+      "create_text",
+      "create_shape",
+      "update_node",
+      "delete_nodes",
+      "move_nodes",
+      "align_nodes"
+    ]
+  }
+}

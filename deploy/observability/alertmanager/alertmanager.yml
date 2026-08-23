@@ -1,0 +1,22 @@
+# Alertmanager — local default is a no-op receiver.
+# Override webhook_configs for Slack / Discord / PagerDuty (do not commit secrets).
+#
+# Example:
+#   receivers:
+#     - name: default
+#       webhook_configs:
+#         - url: 'https://hooks.example.com/alerts'
+#           send_resolved: true
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: default

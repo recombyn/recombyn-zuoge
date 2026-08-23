@@ -1,0 +1,8 @@
+{
+  "id": "image-010",
+  "family": "image",
+  "skill": "image_gen",
+  "prompt": "生成一组未开封的纸盒包装静物：牛皮纸、棉绳、顶光。除非用户要求，不要把品牌名印在盒子像素里。",
+  "ref_good": "refs/good/image-thesis-plate.md",
+  "ref_bad": "refs/bad/image-baked-title.md"
+}

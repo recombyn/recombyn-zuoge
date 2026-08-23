@@ -1,0 +1,8 @@
+{
+  "id": "image-003",
+  "family": "image",
+  "skill": "image_gen",
+  "prompt": "生成一张混凝土住宅室内：早晨侧光、安静、无人物。构图留出上方标题带。不要把项目名烘焙进墙面，不要假家具品牌 logo。",
+  "ref_good": "refs/good/image-thesis-plate.md",
+  "ref_bad": "refs/bad/image-baked-title.md"
+}

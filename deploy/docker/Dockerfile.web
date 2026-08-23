@@ -1,0 +1,26 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Monorepo workspaces: lockfile lives at repo root; web depends on packages/*.
+COPY package.json package-lock.json ./
+COPY apps/web/package.json ./apps/web/
+COPY apps/collab/package.json ./apps/collab/
+COPY packages ./packages
+RUN npm ci --ignore-scripts
+
+COPY apps/web ./apps/web
+COPY plugins/canvas ./plugins/canvas
+# Bake collab client flag at build time (self-host default: on).
+ARG VITE_COLLAB_ENABLED=true
+ENV VITE_COLLAB_ENABLED=$VITE_COLLAB_ENABLED
+# Google OAuth client id must be present at Vite build time (__GOOGLE_CLIENT_ID__).
+ARG GOOGLE_CLIENT_ID=
+ENV GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
+ARG VITE_GOOGLE_CLIENT_ID=
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+RUN npm run build --workspace=apps/web
+
+FROM nginx:alpine
+COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+EXPOSE 80

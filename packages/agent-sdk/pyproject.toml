@@ -1,0 +1,10 @@
+[project]
+name = "recombyn-agent-sdk"
+version = "0.1.0"
+description = "Open Design Agent Kernel stage / contract constants"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["recombyn_agent_sdk*"]

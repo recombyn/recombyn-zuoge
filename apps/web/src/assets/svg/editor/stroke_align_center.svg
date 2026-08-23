@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="4.5" y="4.5" width="7" height="7" rx="0.75" fill="var(--surface, #fff)" />
+  <rect x="3" y="3" width="10" height="10" rx="1" stroke="currentColor" stroke-width="2.75" />
+  <rect
+    x="4.25"
+    y="4.25"
+    width="7.5"
+    height="7.5"
+    rx="0.75"
+    stroke="currentColor"
+    stroke-width="1"
+    stroke-dasharray="1.5 1.25"
+    opacity="0.85"
+  />
+</svg>

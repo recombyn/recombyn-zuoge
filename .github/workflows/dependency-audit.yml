@@ -1,0 +1,51 @@
+name: Dependency audit
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api/pyproject.toml'
+      - 'apps/web/package.json'
+      - 'package-lock.json'
+      - 'package.json'
+      - '.github/workflows/dependency-audit.yml'
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install API + pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "../../packages/scene-builder-py"
+          pip install -e ".[dev]"
+          pip install pip-audit
+      - name: Audit API dependencies
+        # Soft gate until backlog is triaged; promote to required when clean.
+        run: pip-audit
+        continue-on-error: true
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install (workspaces)
+        run: npm ci --ignore-scripts
+      - name: Audit npm (high+)
+        run: npm audit --audit-level=high
+        continue-on-error: true

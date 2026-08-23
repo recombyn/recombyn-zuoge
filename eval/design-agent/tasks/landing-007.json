@@ -1,0 +1,11 @@
+{
+  "id": "landing-007",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一个语音转文字 AI 产品落地页。按 AI 流，Live Demo 必须出现：录音/文本输入 → 模型 → 逐字稿输出。不要用三张「智能/快速/安全」能力卡替代演示。不要编造准确率百分比。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "landing-009",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一个户外服装品牌落地页。Consumer 流，Hero 是一件外套的材质特写，不要模特墙。不要三列场景卡（登山/城市/旅行）作为默认结构。不要编造面料专利名。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

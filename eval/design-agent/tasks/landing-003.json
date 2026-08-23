@@ -1,0 +1,11 @@
+{
+  "id": "landing-003",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一个耳机消费品牌落地页。按 Consumer 流：欲望 Hero → 产品真相（材质/佩戴）→ 使用感受 → 社会证明占位 → Offer → CTA。用照片而不是图标网格。不要三列卖点卡当首页。不要编造折扣数字。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

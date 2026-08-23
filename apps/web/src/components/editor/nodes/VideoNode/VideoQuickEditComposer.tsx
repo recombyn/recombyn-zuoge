@@ -1,0 +1,512 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+/**
+ * Floating quick-edit chat under a selected video (toolbar → 快速编辑).
+ * Regenerates video in place via POST /chat/video.
+ */
+import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import { useDispatch } from 'react-redux';
+import { HiArrowUp, HiOutlineChevronDown, HiOutlinePlus } from 'react-icons/hi2';
+import { generateVideo, type ChatModelsResponse, type LlmModel } from '@/service/chat';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
+import {
+  RcbOverlayPortal,
+  rcbScreenPxToScene,
+  useRcbCamera,
+  useRcbScreenToolbarStyle,
+} from '@/components/rcb';
+import { SELECTION_TOOLBAR_BELOW_BOX_GAP_PX } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+import AgentComposerInput, {
+  type AgentComposerHandle,
+  type ComposerContext,
+} from '@/components/editor/panels/AgentComposerInput';
+import {
+  ComposerAttachmentChip,
+  composerAttachActionClass,
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/models/ModelPickerPanel';
+import {
+  buildByokAwareModelList,
+  cloudVideoFallbackId,
+  DEFAULT_CLOUD_VIDEO_MODEL_ID,
+} from '@/components/editor/panels/agent/llmModelMeta';
+import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
+import {
+  captureVideoPosterFrame
+} from '@/components/rcb/scene/document/nodeFactories';
+import {
+  clearImageProcessAttrs
+} from '@/components/rcb/scene/document/mediaLifecycle';
+import {
+  closeImageToolPanel,
+  patchDocumentNode,
+  pushEditorHistory,
+  setDocumentFromCanvas,
+} from '@/store/modules/editor';
+import { cn } from '@/utils/classnames';
+import { isDesktopLocal } from '@/utils/apiBase';
+import { estimateVideoCredits } from '@/utils/imageCredits';
+import { readFileAsDataUrl } from '@/utils/uploadImage';
+import store from '@/store';
+
+type SceneBox = { left: number; top: number; width: number; height: number };
+
+const VIDEO_ASPECTS = ['16:9', '9:16', '1:1'] as const;
+const VIDEO_DURATIONS = [5, 10] as const;
+const DEFAULT_ASPECT = '16:9';
+const DEFAULT_DURATION = 5;
+const DEFAULT_RESOLUTION = '720p';
+
+function modelIsVideo(model?: Pick<LlmModel, 'kind' | 'id'> | null): boolean {
+  if (!model?.id) return false;
+  if (model.kind === 'video') return true;
+  return /seedance|kling|minimax.*video|sora|runway|luma/i.test(model.id);
+}
+
+function buildVideoModelList(res?: {
+  models?: LlmModel[] | null;
+  videoModels?: LlmModel[] | null;
+}): LlmModel[] {
+  return buildByokAwareModelList({
+    byok: customProvidersAsModels(),
+    catalogs: [res?.models, res?.videoModels],
+    filter: (m) => modelIsVideo(m),
+  });
+}
+
+function VideoQuickEditComposer({
+  document,
+  nodeId,
+  box,
+}: {
+  document: SceneDocument;
+  nodeId: string;
+  box: SceneBox;
+}): ReactNode {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
+  const camera = useRcbCamera();
+  const zoom = Math.max(0.05, camera.zoom || 1);
+  const inputRef = useRef<AgentComposerHandle>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const node = document?.deltaSetLike?.[nodeId];
+  const src = String(node?.attrs?.src || '').trim();
+  const poster = String(node?.attrs?.poster || '').trim();
+  const savedPrompt = String(node?.attrs?.genPrompt || '').trim();
+
+  const [prompt, setPrompt] = useState(savedPrompt);
+  const [contexts, setContexts] = useState<ComposerContext[]>([]);
+  const [sending, setSending] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [models, setModels] = useState<LlmModel[]>([]);
+  const [modelId, setModelId] = useState(
+    () => cloudVideoFallbackId() || DEFAULT_CLOUD_VIDEO_MODEL_ID
+  );
+  const [aspectRatio, setAspectRatio] = useState(DEFAULT_ASPECT);
+  const [duration, setDuration] = useState(DEFAULT_DURATION);
+
+  useEffect(() => {
+    setPrompt(savedPrompt);
+  }, [nodeId, savedPrompt]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [nodeId]);
+
+  const modelsCatalogQuery = useQuery({
+    ...apiQuery.chatGetModels.queryOptions(),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (modelsCatalogQuery.isPending) return;
+    if (modelsCatalogQuery.isError) {
+      setModels([]);
+      return;
+    }
+    if (!modelsCatalogQuery.isFetched) return;
+    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
+    if (!res) {
+      setModels([]);
+      return;
+    }
+    const list = buildVideoModelList(res);
+    setModels(list);
+    if (list.length && !list.some((m) => m.id === modelId)) {
+      setModelId(list[0]!.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    modelsCatalogQuery.data,
+    modelsCatalogQuery.isPending,
+    modelsCatalogQuery.isError,
+    modelsCatalogQuery.isFetched,
+    nodeId,
+  ]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const attachments = contexts.filter((c) => c.kind === 'attachment');
+  const inlineContexts = contexts.filter((c) => c.kind !== 'attachment');
+  const selectedModel = models.find((m) => m.id === modelId);
+  const creditCost = estimateVideoCredits(selectedModel);
+  const settingsSummary = `${DEFAULT_RESOLUTION} · ${aspectRatio} · ${duration}s`;
+
+  const subjectChip = useMemo(
+    () =>
+      src
+        ? ({
+            key: `subject-${nodeId}`,
+            kind: 'attachment',
+            label: t('me.assetKindVideo', { defaultValue: '当前视频' }),
+            payload: src,
+            dataUrl: src,
+            thumbUrl: poster || src,
+          } satisfies ComposerContext)
+        : null,
+    [nodeId, src, poster, t]
+  );
+
+  const composerStyle = useRcbScreenToolbarStyle({
+    left: box.left + box.width / 2,
+    top: box.top + box.height + rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom),
+    anchor: 'top',
+  });
+
+  const removeContext = (key: string) => {
+    setContexts((prev) => prev.filter((c) => c.key !== key));
+  };
+
+  const onPickRef = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter(
+      (f) => f.type.startsWith('image/') || f.type.startsWith('video/')
+    );
+    e.target.value = '';
+    if (!files.length) return;
+    const results = await Promise.all(
+      files.map(async (file, i) => {
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          let thumb = dataUrl;
+          if (file.type.startsWith('video/')) {
+            try {
+              thumb = await captureVideoPosterFrame(dataUrl);
+            } catch {
+              /* optional */
+            }
+          }
+          return {
+            key: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${i}`,
+            kind: 'attachment' as const,
+            label: file.name || 'media',
+            payload: dataUrl,
+            dataUrl,
+            thumbUrl: thumb,
+          } satisfies ComposerContext;
+        } catch {
+          return null;
+        }
+      })
+    );
+    const next = results.filter(Boolean) as ComposerContext[];
+    if (next.length) setContexts((prev) => [...prev, ...next]);
+  };
+
+  const onGenerate = async () => {
+    const text = prompt.trim();
+    if (!text || sending) return;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setSending(true);
+    dispatch(pushEditorHistory());
+    dispatch(
+      patchDocumentNode({
+        nodeId,
+        skipHistory: true,
+        patch: {
+          attrs: {
+            processStatus: 'running',
+            processKind: 'quickEdit',
+            processLabel: t('editor.imageToolbar.processingQuickEdit'),
+          },
+        },
+      })
+    );
+    try {
+      const body: Parameters<typeof generateVideo>[0] = {
+        prompt: text,
+        model: modelId,
+        aspect_ratio: aspectRatio,
+        resolution: DEFAULT_RESOLUTION,
+        duration,
+      };
+      const refImages = [
+        poster,
+        ...attachments
+          .map((c) => String(c.thumbUrl || c.dataUrl || '').trim())
+          .filter((u) => Boolean(u) && !u.startsWith('data:video/')),
+      ].filter(Boolean);
+      if (refImages.length) body.images = refImages;
+
+      const res = await generateVideo(body, { signal: ac.signal });
+      const nextSrc =
+        (Array.isArray(res?.videos) && res.videos.find((u) => String(u || '').trim())) ||
+        (Array.isArray(res?.assets) &&
+          res.assets.map((a) => String(a?.url || '').trim()).find(Boolean)) ||
+        '';
+      if (!String(nextSrc).trim()) throw new Error(t('editor.tools.videoGenEmpty'));
+      if (ac.signal.aborted) return;
+
+      let nextPoster = '';
+      try {
+        nextPoster = await captureVideoPosterFrame(String(nextSrc));
+      } catch {
+        /* optional */
+      }
+
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          patch: {
+            attrs: {
+              src: String(nextSrc).trim(),
+              ...(nextPoster ? { poster: nextPoster } : {}),
+              genPrompt: text,
+              processStatus: null,
+              processKind: null,
+              processLabel: null,
+            },
+          },
+        })
+      );
+      dispatch(closeImageToolPanel());
+    } catch (err: any) {
+      if (ac.signal.aborted) return;
+      const doc = (store.getState() as any).editor?.document;
+      if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+      message.error(getHttpErrorMessage(err, t('editor.tools.videoGenFail')));
+    } finally {
+      if (abortRef.current === ac) abortRef.current = null;
+      setSending(false);
+    }
+  };
+
+  if (!node || !src) return null;
+
+  return (
+    <RcbOverlayPortal>
+      <div
+        data-video-quick-edit
+        data-image-quick-edit
+        data-sel-toolbar
+        data-scene-node-id={nodeId}
+        className={cn(
+          'pointer-events-auto absolute z-[32] flex h-[200px] w-[500px] flex-col overflow-visible',
+          'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
+          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
+        )}
+        style={composerStyle}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          e.nativeEvent.stopImmediatePropagation?.();
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
+          {subjectChip ? (
+            <ComposerAttachmentChip
+              attachment={subjectChip}
+              removable={false}
+              onRemove={() => undefined}
+            />
+          ) : null}
+          {attachments.map((att) => (
+            <ComposerAttachmentChip
+              key={att.key}
+              attachment={att}
+              disabled={sending}
+              onRemove={removeContext}
+            />
+          ))}
+          <Tooltip tip={t('editor.tools.videoGenRef')} placement="top">
+            <button
+              type="button"
+              disabled={sending}
+              aria-label={t('editor.tools.videoGenRef')}
+              onClick={() => fileRef.current?.click()}
+              className={composerAttachActionClass()}
+            >
+              <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </Tooltip>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,video/*"
+            multiple
+            className="hidden"
+            onChange={onPickRef}
+          />
+        </div>
+
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
+        <div
+          className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
+          onClick={(e) => {
+            if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
+            inputRef.current?.focus();
+          }}
+        >
+          <AgentComposerInput
+            ref={inputRef}
+            contexts={inlineContexts}
+            onContextsChange={(next) => setContexts([...attachments, ...next])}
+            value={prompt}
+            onChange={setPrompt}
+            onSubmit={() => void onGenerate()}
+            disabled={sending}
+            placeholder={t('editor.tools.videoGenPlaceholder', {
+              defaultValue: '描述要生成的视频…',
+            })}
+            className="min-h-full w-full text-[13px]"
+          />
+        </div>
+
+        <div className="mt-1 flex items-center gap-1.5 px-2.5 pb-2">
+          <Dropdown
+            trigger="click"
+            placement="top-start"
+            strategy="fixed"
+            offset={8}
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            items={[]}
+            floatingClassName="z-[90]"
+            referenceClassName="inline-flex min-w-0"
+            popupRender={() => (
+              <DropdownPanel className="w-[min(18rem,calc(100vw-2rem))] space-y-3 p-3">
+                <div>
+                  <p className="mb-1.5 text-[12px] font-medium text-[var(--ink)]">
+                    {t('agent.aspectRatio', { defaultValue: '比例' })}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {VIDEO_ASPECTS.map((a) => (
+                      <button
+                        key={a}
+                        type="button"
+                        className={cn(
+                          'h-7 rounded-lg px-2.5 text-[12px]',
+                          aspectRatio === a
+                            ? 'bg-[var(--ink)] text-[var(--on-brand)]'
+                            : 'bg-[var(--accent-soft)] text-[var(--ink)]'
+                        )}
+                        onClick={() => setAspectRatio(a)}
+                      >
+                        {a}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[12px] font-medium text-[var(--ink)]">
+                    {t('editor.tools.videoGenDuration', { defaultValue: '时长' })}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {VIDEO_DURATIONS.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        className={cn(
+                          'h-7 rounded-lg px-2.5 text-[12px] tabular-nums',
+                          duration === d
+                            ? 'bg-[var(--ink)] text-[var(--on-brand)]'
+                            : 'bg-[var(--accent-soft)] text-[var(--ink)]'
+                        )}
+                        onClick={() => setDuration(d)}
+                      >
+                        {d}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </DropdownPanel>
+            )}
+          >
+            <button
+              type="button"
+              disabled={sending}
+              className={cn(
+                'inline-flex h-7 max-w-[11rem] items-center gap-1 truncate rounded-full px-2 text-[12px] font-medium',
+                settingsOpen ? 'bg-[var(--accent-soft)]' : 'bg-[var(--canvas)]'
+              )}
+            >
+              <span className="truncate">{settingsSummary}</span>
+              <HiOutlineChevronDown className="h-3 w-3 shrink-0 opacity-70" strokeWidth={2} />
+            </button>
+          </Dropdown>
+
+          <div className="flex-1" />
+
+          {!isDesktopLocal() && models.length > 0 ? (
+            <Dropdown
+              trigger="click"
+              placement="top-end"
+              strategy="fixed"
+              offset={8}
+              open={modelOpen}
+              onOpenChange={setModelOpen}
+              items={[]}
+              floatingClassName="z-[90]"
+              referenceClassName="inline-flex"
+              popupRender={() => (
+                <div className="max-w-full" onPointerDown={(e) => e.stopPropagation()}>
+                  <ModelPickerPanel
+                    tab="video"
+                    models={models}
+                    selectedId={modelId}
+                    hideAuto
+                    useModelsAsIs
+                    onPick={(id) => {
+                      setModelId(id);
+                      setModelOpen(false);
+                    }}
+                  />
+                </div>
+              )}
+            >
+              <button
+                type="button"
+                disabled={sending}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--canvas)]"
+                title={selectedModel?.label || modelId}
+              >
+                <ModelBrandIcon model={selectedModel} className="h-4 w-4" />
+              </button>
+            </Dropdown>
+          ) : null}
+
+          <button
+            type="button"
+            disabled={sending || !prompt.trim()}
+            aria-label={t('agent.send')}
+            onClick={() => void onGenerate()}
+            className="inline-flex h-8 items-center gap-1 rounded-full bg-[var(--ink)] px-2.5 text-[var(--on-brand)] disabled:opacity-40"
+          >
+            <HiArrowUp className="h-4 w-4" strokeWidth={2} />
+            {!isDesktopLocal() && creditCost > 0 ? (
+              <span className="text-[12px] tabular-nums">{creditCost}</span>
+            ) : null}
+          </button>
+        </div>
+      </div>
+    </RcbOverlayPortal>
+  );
+}
+
+export default memo(VideoQuickEditComposer);

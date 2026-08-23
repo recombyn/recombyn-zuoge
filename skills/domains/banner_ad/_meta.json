@@ -1,0 +1,49 @@
+{
+  "skill_key": "banner_ad",
+  "name": "banner_ad",
+  "displayName": "Banner / ad strip",
+  "description": "Wide/tall ad banners: mid-band safe copy, one CTA, subject vs message split",
+  "when_to_use": "Banner / 横幅 / 广告条 / KV banner / web banner / 通栏 / 顶通 / ad strip — fixed marketing strip (not full poster roll-up, not multi-section landing)",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 76,
+  "version": "1.0.1",
+  "preferred_tools": [
+    "create_frame",
+    "create_image",
+    "create_text",
+    "create_shape",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create"
+      ],
+      "prompt_includes_any": [
+        "banner",
+        "横幅",
+        "广告条",
+        "通栏",
+        "顶通",
+        "KV",
+        "广告位"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Prefer one claim strip over a multi-section landing. Prefer mid-band safe copy. Simple marks may stay vector; complex atmosphere/product that looks crude as shapes should use images. Unless the user provides them, avoid inventing board facts such as logos, prices, phone numbers, etc. Prefer one primary CTA.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "横幅 / 广告条",
+      "description": "宽/高广告条：中带安全文案、单一 CTA、主体与信息分区"
+    },
+    "en": {
+      "displayName": "Banner / ad strip",
+      "description": "Fixed ad banners with mid-band safe copy and one CTA"
+    }
+  }
+}

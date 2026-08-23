@@ -1,0 +1,12 @@
+# CODEOWNERS — require review on critical surfaces.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @recombyn/maintainers
+
+/apps/api/app/services/design/ @recombyn/maintainers
+/apps/api/worker/ @recombyn/maintainers
+/apps/web/src/components/rcb/ @recombyn/maintainers
+/apps/web/src/components/editor/ @recombyn/maintainers
+/apps/collab/ @recombyn/maintainers
+/docs/adr/ @recombyn/maintainers
+/.github/workflows/ @recombyn/maintainers

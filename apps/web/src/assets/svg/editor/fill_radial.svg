@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none">
+  <defs>
+    <radialGradient id="editor-fill-radial" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f5f5f5" />
+      <stop offset="100%" stop-color="#525252" />
+    </radialGradient>
+  </defs>
+  <circle
+    cx="9"
+    cy="9"
+    r="6"
+    fill="url(#editor-fill-radial)"
+    stroke="currentColor"
+    stroke-width="1.5"
+  />
+</svg>

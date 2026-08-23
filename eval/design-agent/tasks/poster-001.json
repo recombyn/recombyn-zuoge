@@ -1,0 +1,9 @@
+{
+  "id": "poster-001",
+  "family": "poster",
+  "skill": "poster_craft",
+  "helpers": ["image_gen"],
+  "prompt": "做一张 1080x1920 黑金仙侠双手大剑宣传海报。把武器表现为一件古代神兵，而不是普通游戏装备。禁止紫蓝渐变、过度粒子、游戏HUD。标题与副标题用画板文字，不要写进图里。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md"
+}

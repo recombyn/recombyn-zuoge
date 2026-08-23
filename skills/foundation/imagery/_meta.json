@@ -1,0 +1,27 @@
+{
+  "skill_key": "imagery",
+  "name": "imagery",
+  "displayName": "Imagery",
+  "description": "When to use bitmap vs vector; hero coverage; no baked titles unless asked",
+  "when_to_use": "Craft after visual_direction DNA — decide photo/illustration/vector and keep type off the pixels",
+  "category": "craft",
+  "scenes": "all",
+  "sort_weight": 32,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": ["create_image", "create_shape", "create_icon", "update_node"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "mutex_group": "",
+  "prompt_negative": "Do not bake titles, slogans, prices, or fake logos into the image. Do not use a pretty-picture prompt instead of a thesis. Do not stack three equal photos.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "图像",
+      "description": "位图 vs 矢量；主视觉占比；禁止把标题画进图"
+    },
+    "en": {
+      "displayName": "Imagery",
+      "description": "Bitmap vs vector; hero coverage; no baked titles"
+    }
+  }
+}

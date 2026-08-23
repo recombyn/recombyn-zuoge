@@ -1,0 +1,8 @@
+{
+  "id": "image-005",
+  "family": "image",
+  "skill": "image_gen",
+  "prompt": "生成一张黎明海岸氛围图：薄雾、低饱和、一条水平线。给海报留底部安静带。不要把诗句写进天空。",
+  "ref_good": "refs/good/image-thesis-plate.md",
+  "ref_bad": "refs/bad/image-baked-title.md"
+}

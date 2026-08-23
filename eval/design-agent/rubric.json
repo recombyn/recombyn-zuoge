@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "note": "Must match Runtime REVIEW_SCORE_CAPS / REVIEW_REWORK_SCORE / REVIEW_PASS_SCORE. Offline eval must not invent a second total.",
+  "caps": {
+    "composition": 20,
+    "hierarchy": 20,
+    "typography": 15,
+    "color": 15,
+    "consistency": 15,
+    "content": 10,
+    "originality": 5
+  },
+  "gates": {
+    "rebuild_below": 70,
+    "pass_at": 90
+  },
+  "actions": {
+    "rebuild": "<70 or blocker",
+    "repair": "70–89 or major/slop",
+    "pass": ">=90 and no blocker/major/slop"
+  }
+}

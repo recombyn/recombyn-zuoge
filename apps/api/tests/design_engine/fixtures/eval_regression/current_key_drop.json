@@ -1,0 +1,9 @@
+{
+  "model": "auto",
+  "results": [
+    { "caseId": "poster-001", "review": { "total": 82, "issues": ["composition"] } },
+    { "caseId": "landing-001", "review": { "total": 86, "issues": [] } },
+    { "caseId": "dashboard-001", "review": { "total": 84, "issues": [] } },
+    { "caseId": "image-001", "review": { "total": 90, "issues": [] } }
+  ]
+}

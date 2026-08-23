@@ -1,0 +1,35 @@
+# Reject PR commits that include Cursor as Co-authored-by.
+# GitHub free repos cannot use ruleset commit_message_pattern; this check is the substitute.
+name: Block Cursor co-author
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  no-cursor-coauthor:
+    name: no-cursor-coauthor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject Co-authored-by Cursor
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          bad="$(git log --format=%B "${BASE_SHA}..${HEAD_SHA}" | grep -F 'Co-authored-by: Cursor' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::Commits must not include 'Co-authored-by: Cursor'. Amend/rebase without that trailer, then push."
+            git log --format='== %h%n%B' "${BASE_SHA}..${HEAD_SHA}" | grep -n -F 'Co-authored-by: Cursor' -B5 || true
+            exit 1
+          fi
+          echo "OK: no Cursor Co-authored-by trailer in PR commits."

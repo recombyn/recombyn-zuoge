@@ -1,0 +1,28 @@
+{
+  "skill_key": "polish",
+  "name": "polish",
+  "displayName": "Polish / Subtraction",
+  "description": "Subtraction pass — remove, merge, simplify; do not keep adding",
+  "when_to_use": "QA after Review 70–89 or before final — delete/merge before decorating more",
+  "category": "qa",
+  "scenes": "all",
+  "sort_weight": 92,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": ["update_node", "delete_nodes", "move_nodes", "align_nodes"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "scope": ["review"],
+  "mutex_group": "",
+  "prompt_negative": "Do not add new decorative layers during polish. Prefer remove/merge/align.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "精修 / 删减",
+      "description": "删减通道：删除、合并、简化，禁止继续堆料"
+    },
+    "en": {
+      "displayName": "Polish / Subtraction",
+      "description": "Remove, merge, simplify — do not keep adding"
+    }
+  }
+}

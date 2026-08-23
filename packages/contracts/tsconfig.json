@@ -1,0 +1,4 @@
+{
+  "extends": "@repo/tsconfig/node.json",
+  "include": ["src", "generated", "openapi-ts.config.ts"]
+}

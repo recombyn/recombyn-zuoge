@@ -1,0 +1,17 @@
+{
+  "name": "@recombyn/collab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "test:merge": "node dual_client_merge.test.mjs"
+  },
+  "dependencies": {
+    "lib0": "^0.2.114",
+    "ws": "^8.18.3",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.27"
+  }
+}

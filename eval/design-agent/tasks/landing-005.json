@@ -1,0 +1,11 @@
+{
+  "id": "landing-005",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一名室内设计师的作品集落地页。按 Portfolio 流：身份 → 1–2 个精选项目（一大一小）→ 其余作品 → 方法 → 联系。禁止六张同等缩略图宫格作为默认。不要编造奖项。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

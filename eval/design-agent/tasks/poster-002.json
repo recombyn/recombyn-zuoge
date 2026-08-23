@@ -1,0 +1,11 @@
+{
+  "id": "poster-002",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 夏日音乐节海报。标题 Summer Beat，副标题 July 18 · Riverside Park。主视觉是夜色舞台与人群，暖色、克制颗粒。标题用画板文字不要写进图。禁止紫蓝玻璃卡和三焦点抢戏。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

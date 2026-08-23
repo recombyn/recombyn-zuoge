@@ -1,0 +1,73 @@
+name: publish-protocol
+
+# Build (and optionally publish) Apache-2.0 recombyn-protocol.
+# - Always uploads wheel/sdist artifacts
+# - Publishes to PyPI only when secret PYPI_TOKEN is set AND input publish=true
+#   (or on tag protocol-v*)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to PyPI (requires PYPI_TOKEN)"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "protocol-v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/protocol
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install -U pip build
+          python -m build
+          python - <<'PY'
+          from importlib.metadata import version
+          import pathlib, subprocess, sys
+          subprocess.check_call([sys.executable, "-m", "pip", "install", "."], cwd=".")
+          print("built recombyn-protocol", version("recombyn-protocol"))
+          for p in pathlib.Path("dist").glob("*"):
+              print(" ", p.name)
+          PY
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: recombyn-protocol-dist
+          path: packages/protocol/dist/*
+
+  publish:
+    needs: build
+    if: >
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/protocol-v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist
+        uses: actions/download-artifact@v4
+        with:
+          name: recombyn-protocol-dist
+          path: dist
+      - name: Publish to PyPI
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          if [ -z "$PYPI_TOKEN" ]; then
+            echo "PYPI_TOKEN not set — skip publish (artifacts still available)."
+            exit 0
+          fi
+          python -m pip install -U twine
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" \
+            python -m twine upload dist/*

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="none">
+  <defs>
+    <linearGradient id="editor-fill-angular" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="35%" stop-color="#bbbbbb" />
+      <stop offset="70%" stop-color="#666666" />
+      <stop offset="100%" stop-color="#ffffff" />
+    </linearGradient>
+  </defs>
+  <circle
+    cx="9"
+    cy="9"
+    r="6"
+    fill="url(#editor-fill-angular)"
+    stroke="currentColor"
+    stroke-width="1.5"
+  />
+</svg>

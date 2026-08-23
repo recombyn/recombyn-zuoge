@@ -1,0 +1,32 @@
+{
+  "skill_key": "composition",
+  "name": "composition",
+  "displayName": "Composition",
+  "description": "Pick a composition archetype and hard spatial rules before creating nodes",
+  "when_to_use": "Foundation for any surface create — decide space relationships before components",
+  "category": "foundation",
+  "scenes": "all",
+  "sort_weight": 20,
+  "version": "3.1.0",
+  "context_mode": "rules",
+  "extends": [
+    "layout"
+  ],
+  "preferred_tools": ["create_frame", "create_image", "create_text", "create_shape", "update_node"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "scope": ["plan", "paint"],
+  "quality_signals": ["composition"],
+  "mutex_group": "",
+  "prompt_negative": "Do not create nodes before choosing an archetype. Do not use equal three-card default without a reason.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "构图",
+      "description": "先选构图原型与硬规则，再创建节点"
+    },
+    "en": {
+      "displayName": "Composition",
+      "description": "Archetype + hard spatial rules before nodes"
+    }
+  }
+}

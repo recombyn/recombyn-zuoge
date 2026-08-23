@@ -1,0 +1,62 @@
+{
+  "skill_key": "poster_craft",
+  "name": "poster_craft",
+  "displayName": "Poster / roll-up",
+  "description": "Poster V3 playbook: brief → thesis → composition → tokens → paint → observe → review → subtraction",
+  "when_to_use": "Poster / 海报 / roll-up / 易拉宝 / decorative print / decorative event visual — illustrated or photo hero with title groups (not SaaS UI chrome, not multi-section website)",
+  "category": "surface",
+  "scenes": "all",
+  "sort_weight": 78,
+  "version": "3.0.0",
+  "context_mode": "full",
+  "extends": [
+    "design_brief",
+    "visual_direction",
+    "design_system",
+    "composition",
+    "anti_ai_slop",
+    "design_review",
+    "polish"
+  ],
+  "preferred_tools": [
+    "create_frame",
+    "create_image",
+    "create_text",
+    "create_shape",
+    "update_node",
+    "delete_nodes"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create"
+      ],
+      "prompt_includes_any": [
+        "海报",
+        "poster",
+        "易拉宝",
+        "roll-up",
+        "rollup",
+        "展架",
+        "音乐节",
+        "1080x1920"
+      ]
+    }
+  ],
+  "mutex_group": "surface",
+  "scope": ["plan", "paint"],
+  "prompt_negative": "No unjustified purple-blue glass postcard defaults. No inventing logos/prices/QR. Prefer overlay type over baked titles. Complex atmosphere → image_gen, not crude shape piles.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "海报 / 易拉宝",
+      "description": "海报 V3：简报→论点→构图→Token→绘制→观察→评审→删减"
+    },
+    "en": {
+      "displayName": "Poster / roll-up",
+      "description": "Poster V3: brief → thesis → composition → tokens → paint → review"
+    }
+  }
+}

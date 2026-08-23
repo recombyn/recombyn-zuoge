@@ -1,0 +1,11 @@
+{
+  "id": "landing-002",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一个 B2B 项目管理 SaaS 的 1440 宽落地页。按 SaaS 流：Hero → Product Proof（产品截图）→ Problem → Solution → Workflow → Trust → CTA。Proof 在功能列表之前。不要三卡片默认模板，不要编造定价档和客户 logo。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

@@ -1,0 +1,131 @@
+# Agent Profile — design canvas (live default).
+# Kernel reads this for Voice (stage→pack) and Policy (routing/runtime → KV overlay).
+# Topology/contracts/capabilities are declared for later phases (P2+).
+#
+# Boundary (hard):
+#   Agent kernel  = control loop, tool scheduling, canvas R/W, max rounds / reflect,
+#                   permission, ops allowlist. NO design aesthetic / deliverable craft.
+#   Skills        = business playbooks (构图/审美/评审标准/few-shot). New scenes → Skills only.
+#                   May *reference* design tokens; do NOT redefine JSON图元 or patch schema.
+#   Tools         = atomic canvas ops + JSON element format + patch/tool_ops contract
+#                   (canvas_actions_seed / tool_ops_contract). Host validates.
+#   Stage packs   = stage *protocol* (JSON turn shapes, routing). Not craft curricula.
+# Hard caps (max rounds, review→paint max, wallet, allowlist) stay in kernel — never Skills.
+apiVersion: recombyn.agent/v1
+kind: AgentProfile
+id: design.canvas
+version: 1
+status: active
+
+metadata:
+  display_name: Design Agent
+  description: Canvas ops design agent (intent → decide|paint → observe → [review auto] → settle)
+  tags: [canvas, design]
+
+identity:
+  locale: zh-CN
+  prompts:
+    persona:
+      auto: agent.persona.auto
+      locked: agent.persona.locked
+    router: precheck.router_system
+    overlays:
+      ask: agent.prompt.ask_system
+      agent: agent.prompt.agent_system
+    stages:
+      intent: agent.prompt.intent_classify
+      decide:
+        protocol: agent.prompt.need_tools_overlay
+      paint:
+        protocol: agent.prompt.paint_system
+      review:
+        protocol: agent.prompt.review_system
+        mode_overlay: false
+
+topology:
+  # Live executor template (see graph/build.py registry). Admin flow JSON ≠ live.
+  template: canvas_ops_v1
+  stages_enabled: [intent, decide, paint, observe, review]
+  loops:
+    - from: review
+      when: must_fix
+      to: paint
+      max: 2
+
+# Roles — primary owns the edit loop; specialists may be forked context.
+roles:
+  primary:
+    id: design
+    stages: [intent, decide, paint, observe]
+    isolation: shared_state
+  specialists:
+    - id: review
+      stages: [review]
+      isolation: forked_context
+      subagent: review
+
+# Forked sub-agents — system+task only, no parent chat.
+# Looking at refs / synthesizing design_brief is Decide (design process), not a scout fork.
+# Review runs as the post-paint graph fork.
+subagents:
+  review:
+    description: Post-paint quality gate with fresh context (no parent transcript)
+    isolation: forked_context
+    model: $kv:agent.review.model
+    stage: review
+    system: agent.prompt.review_system
+    contract: ReviewTurn.v1
+    tools: []
+    max_turns: 1
+    parallel: false
+
+contracts:
+  intent: { schema: IntentTurn.v1 }
+  decide: { schema: DecideTurn.v1 }
+  act: { schema: ToolOpsBatch.v1 }
+  review: { schema: ReviewTurn.v1 }
+
+capabilities:
+  tools:
+    catalog: canvas_actions
+    host: canvas_fe
+    defer: true
+  skills:
+    catalog: design_skills
+    auto_triggers: true
+    namespaces: [core, ext, user]
+
+# Policy — literals override Admin KV; $kv:key copies that KV value onto the target.
+routing:
+  router_model: $kv:precheck.router_model
+  lanes: $kv:precheck.model_threshold
+  stage_pins:
+    review: $kv:agent.review.model
+  fallback: $kv:precheck.fallback_chain
+  vision_model: $kv:precheck.vision_model
+  image_model: $kv:assets.image_default_model
+  # Example literal override (commented):
+  # lanes:
+  #   fast: doubao-seed-2-1-turbo
+  #   standard: deepseek-v4-flash
+  #   reasoning: deepseek-v4-pro
+  #   vision: doubao-seed-2-1-turbo
+  #   image: doubao-seedream-5-0-lite
+
+runtime:
+  flags:
+    defer_tools: true
+    critique_enabled: true
+    # auto = Review only on structure retry / taste complaint / high-stakes
+    review_mode: auto
+    memory_clip: true
+    official_agent: true
+  memory:
+    recent_turns: $kv:memory.dialogue.recent_turns
+    recent_chars: $kv:memory.dialogue.recent_chars
+    summary_chars: $kv:memory.dialogue.summary_chars
+    facts_max: $kv:memory.dialogue.facts_max
+  attach:
+    max_images: $kv:agent.attach.max_images
+    max_data_url_chars: $kv:agent.attach.max_data_url_chars
+    place_hint: $kv:agent.attach.place_hint

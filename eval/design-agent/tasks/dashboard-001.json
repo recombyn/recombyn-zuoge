@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-001",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 工单后台：主任务是处理待审核队列。主区是筛选+表格+行内操作，不要四张 KPI 卡当默认墙。没有真实指标时用 — 占位，不要编造 GMV。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "image-006",
+  "family": "image",
+  "skill": "image_gen",
+  "prompt": "生成一张静物：一只切开的无花果、亚麻桌布、窗光。不要菜名和价格贴在盘子上。",
+  "ref_good": "refs/good/image-thesis-plate.md",
+  "ref_bad": "refs/bad/image-baked-title.md"
+}

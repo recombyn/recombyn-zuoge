@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-007",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 物流异常台。主任务是处理延误包裹：筛选+异常表+行内「改派」。不要四张运单 KPI。不要编造运单号以外的假时效。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

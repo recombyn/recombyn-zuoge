@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-006",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 客服收件箱。主任务是回下一封未读：主区会话列表+阅读器，操作是回复。不要四张满意度 KPI。没有真实工单用空态+一个操作。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

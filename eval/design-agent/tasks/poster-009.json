@@ -1,0 +1,8 @@
+{
+  "id": "poster-009",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 公益献血海报，克制、公共信息风。主视觉一枚简洁的红色符号（矢量即可），大标题与地点用画板文字。不要节日插画风，不要编造医院电话。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md"
+}

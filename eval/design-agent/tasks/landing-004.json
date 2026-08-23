@@ -1,0 +1,8 @@
+{
+  "id": "landing-004",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一份在线杂志的 1440 宽首页。按 Editorial 流：刊头 → 头条长文 → 次条 → 引语 → 订阅 CTA。不是产品站。不要三篇同等大小卡片，不要假作者头像墙。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md"
+}

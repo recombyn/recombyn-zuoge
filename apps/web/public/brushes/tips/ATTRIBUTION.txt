@@ -1,0 +1,11 @@
+Builtin pencil tip stamps (PNG, black + alpha)
+
+Round / soft / pencil / calligraphy / marker / chalk family:
+  Generated as circular/oval alpha tips (PS-style stamp geometry) so dense
+  stamping reads as a continuous stroke instead of sticker textures.
+
+watercolor.png:
+  From elkiwy/paynter res/ (MIT)
+  https://github.com/elkiwy/paynter
+
+Served at /brushes/tips/* via apps/web/public (deployed with the web app).

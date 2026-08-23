@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-008",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 内容审核台。主任务是通过/拒绝下一条：主区待审卡片或表，操作通过/拒绝。不要四张「今日审核量」KPI 墙。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

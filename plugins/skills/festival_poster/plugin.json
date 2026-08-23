@@ -1,0 +1,11 @@
+{
+  "format": "recombyn-plugin",
+  "formatVersion": 1,
+  "id": "festival_poster",
+  "kind": "skill",
+  "name": "Festival poster",
+  "version": "1.0.0",
+  "author": "recombyn",
+  "install": "user",
+  "permissions": ["tools", "create_frame", "create_text", "create_image"]
+}

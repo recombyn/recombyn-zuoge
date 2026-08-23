@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-005",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 设置/配置台。主任务是保存组织偏好：主区表单+分组，主操作是保存。侧栏只是上下文。不要仪表盘 KPI。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

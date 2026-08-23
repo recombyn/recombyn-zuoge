@@ -1,0 +1,41 @@
+# Example Ingress (nginx). Adjust host / TLS secret for your cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: recombyn
+  namespace: recombyn
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    # WebSocket upgrade for /collab
+    nginx.ingress.kubernetes.io/websocket-services: "collab"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: recombyn.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8000
+          - path: /collab
+            pathType: Prefix
+            backend:
+              service:
+                name: collab
+                port:
+                  number: 1234
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+  # tls:
+  #   - hosts: [recombyn.example.com]
+  #     secretName: recombyn-tls

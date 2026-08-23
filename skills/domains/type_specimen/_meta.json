@@ -1,0 +1,48 @@
+{
+  "skill_key": "type_specimen",
+  "name": "type_specimen",
+  "displayName": "Typography / font specimen",
+  "description": "Type specimens and font showcases using catalog faces only",
+  "when_to_use": "字体 / typography / font specimen / 字体展示 / type specimen / 字样 / font pairing board — show catalog type craft (not festive poster hero, not SaaS UI chrome)",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 73,
+  "version": "1.0.1",
+  "preferred_tools": [
+    "create_frame",
+    "create_text",
+    "create_shape",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create"
+      ],
+      "prompt_includes_any": [
+        "字体",
+        "typography",
+        "font specimen",
+        "字样",
+        "字体展示",
+        "type specimen",
+        "font pairing"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Prefer catalog fontFamily names only. Prefer editable text specimens over lettering images unless the user asks for display lettering art. Prefer a calm specimen plate over a busy poster collage.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "字体 / 字样展示",
+      "description": "仅用目录内字体做字样与搭配展示"
+    },
+    "en": {
+      "displayName": "Typography / font specimen",
+      "description": "Catalog-only type specimens and pairings"
+    }
+  }
+}

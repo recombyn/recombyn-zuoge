@@ -1,0 +1,30 @@
+{
+  "stageItems": {
+    "prepare": "Prepare task and context",
+    "scene": "Resolve scene and canvas",
+    "prompt": "Assemble design prompts",
+    "model_wait": "Waiting for model plan",
+    "model_stream": "Model streaming plan",
+    "lookup": "Lookup skills / rules",
+    "validate": "Validate tool ops",
+    "ops": "Apply ops to canvas",
+    "scene_check": "Read back canvas state",
+    "critic": "Review Agent",
+    "refine": "Refine from review",
+    "done": "Done",
+    "failed": "Failed"
+  },
+  "eventStage": {
+    "decision": "prepare",
+    "skill_start": "model_wait",
+    "skill_progress": "model_stream",
+    "thinking": "model_stream",
+    "token": "model_stream",
+    "tool_ops": "ops",
+    "svg_delta": "ops",
+    "drawing": "ops",
+    "scene_feedback_request": "scene_check",
+    "result": "done",
+    "chat_done": "done"
+  }
+}

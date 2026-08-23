@@ -1,0 +1,842 @@
+{
+  "actions": [
+    {
+      "op_key": "update_node",
+      "kind": "mutate",
+      "label": "Update node",
+      "sort_order": 10,
+      "model_hint": "Patch an existing node by nodeId (keeps z-order). Geometry: x,y,width,height. Morph shape: shapeType=rect|ellipse|circle|triangle|polygon|star|line|arrow|… (rect→circle = update_node shapeType=circle on same id — NEVER delete+create_shape). Style: fill (solid hex/rgba only — NEVER CSS linear-gradient()/radial-gradient()), fillType=solid|linear|radial|angular|diffuse|image?, fillEnd?, gradientAngle?, stroke,borderWidth,strokeAlign=center|inside|outside (default center; selection chrome sits on mid of stroke band), strokeStyle, strokeLinecap, strokeLinejoin, strokeOpacity, opacity,cornerRadius,rotation,blendMode,name, flipX/flipY, text styles…. Gradients: fillType=linear|radial|angular|diffuse + fill + fillEnd (+ gradientAngle?). Pencil edits: brushStyle (vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft), borderWidth (Size), pathPressure csv, pressureEnabled, pencilFill, pencilOutlineWidth, pencilOutlineColor. Visibility/edit: hidden, locked (boolean).",
+      "args_schema": {
+        "nodeId": "string",
+        "x": "number?",
+        "y": "number?",
+        "width": "number?",
+        "height": "number?",
+        "shapeType": "rect|ellipse|circle|line|arrow|triangle|polygon|star|path|pen|pencil?",
+        "sides": "number?",
+        "fill": "string? solid hex/rgba — never CSS gradient()",
+        "fillType": "solid|linear|radial|angular|diffuse|image?",
+        "fillEnd": "string? gradient end color",
+        "gradientAngle": "number?",
+        "stroke": "string?",
+        "borderWidth": "number?",
+        "strokeAlign": "center|inside|outside?",
+        "strokeStyle": "solid|dashed|dotted?",
+        "strokeLinecap": "butt|round|square?",
+        "strokeLinejoin": "miter|round|bevel?",
+        "strokeOpacity": "number 0-100?",
+        "opacity": "number?",
+        "brushStyle": "string? vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft",
+        "pathPressure": "string? csv 0.05-1 (pencil)",
+        "pressureEnabled": "boolean? (pencil)",
+        "pencilFill": "boolean? fill the ribbon silhouette",
+        "pencilOutlineWidth": "number? silhouette outline width",
+        "pencilOutlineColor": "string? silhouette outline color",
+        "text": "string?",
+        "cornerRadius": "number?",
+        "rotation": "number?",
+        "blendMode": "string?",
+        "name": "string?",
+        "flipX": "boolean?",
+        "flipY": "boolean?",
+        "hidden": "boolean?",
+        "locked": "boolean?",
+        "_rev": "update-filltype-gradient-1"
+      }
+    },
+    {
+      "op_key": "create_shape",
+      "kind": "create",
+      "label": "Create shape",
+      "sort_order": 20,
+      "model_hint": "Add a shape. Args: shapeType = rect|ellipse|circle|line|arrow|triangle|polygon|star|path|pen|pencil (+ path for pen/pencil/path; sides for polygon/star), x,y,width,height, fill, stroke, borderWidth, strokeAlign=center|inside|outside (default center — ink + selection indicator sit on stroke mid-band; outside/inside shift the band). Fills: solid → fill=#RRGGBB|rgba(…); gradient → fillType=linear|radial|angular|diffuse + fill + fillEnd + gradientAngle? (example vignette: fillType=linear fill=rgba(0,0,0,0) fillEnd=rgba(0,0,0,0.35) gradientAngle=90). NEVER put CSS linear-gradient()/radial-gradient()/conic-gradient() in fill — rejected by host. Diffuse may pass meshSize/meshPoints. Optional: strokeStyle, strokeLinecap, strokeLinejoin, strokeOpacity. Pen=pen+path (icons: closed path for filled silhouettes). Pencil/板绘=shapeType pencil: filled-ribbon silhouette around an M/L centerline (same outline for live preview and commit). path M/L only; borderWidth=Size (Px); stroke=ribbon fill color. brushStyle=vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft (default vector-ink). Optional pathPressure (csv 0–1, same length as points), pressureEnabled (default true when pathPressure set), pencilFill, pencilOutlineWidth, pencilOutlineColor. Line/arrow are open center strokes (full arrow path includes head). Icons: prefer primitives + boolean_op (cutouts/combines); create_svg/create_icon only for simple single-path marks. For Q-illustration / pencil sketch do NOT collage with circles — use multiple pencil strokes with pressure.",
+      "args_schema": {
+        "shapeType": "rect|ellipse|circle|line|arrow|triangle|polygon|star|path|pen|pencil",
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "sides": "number?",
+        "path": "string? SVG d or point list for pen/pencil",
+        "closed": "boolean?",
+        "brushStyle": "string? vector-ink|vector-even|vector-calligraphy|vector-pencil|vector-marker|vector-brush|vector-fountain|vector-technical|vector-soft",
+        "pathPressure": "string? csv 0–1 per M/L point (pencil)",
+        "pressureEnabled": "boolean? use pathPressure for width (default true when pathPressure set)",
+        "pencilFill": "boolean? fill the ribbon silhouette",
+        "pencilOutlineWidth": "number? silhouette outline width",
+        "pencilOutlineColor": "string? silhouette outline color",
+        "fill": "string? solid hex/rgba only — never CSS gradient()",
+        "fillType": "solid|linear|radial|angular|diffuse|image?",
+        "fillEnd": "string? gradient end color",
+        "gradientAngle": "number? degrees for linear/angular",
+        "stroke": "string?",
+        "borderWidth": "number?",
+        "strokeAlign": "center|inside|outside?",
+        "strokeStyle": "solid|dashed|dotted?",
+        "strokeLinecap": "butt|round|square?",
+        "strokeLinejoin": "miter|round|bevel?",
+        "strokeOpacity": "number 0-100?",
+        "name": "string?",
+        "_rev": "shape-filltype-native-2"
+      }
+    },
+    {
+      "op_key": "create_path",
+      "kind": "create",
+      "label": "Create path",
+      "sort_order": 22,
+      "model_hint": "Add a path/pen polyline as a shape node. Args: x,y,width,height, points=[[x,y],...] (>=2), closed?, stroke?, borderWidth?. For freehand calligraphy use create_shape shapeType=pencil instead.",
+      "args_schema": {
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "points": "number[][]",
+        "closed": "boolean?",
+        "stroke": "string?",
+        "borderWidth": "number?",
+        "fill": "string?",
+        "name": "string?"
+      }
+    },
+    {
+      "op_key": "edit_path_points",
+      "kind": "mutate",
+      "label": "Edit path points",
+      "sort_order": 23,
+      "model_hint": "Replace path/pen/pencil geometry on an existing node. Args: nodeId, points=[[x,y],...] (>=2), closed?.",
+      "args_schema": {
+        "nodeId": "string",
+        "points": "number[][]",
+        "closed": "boolean?"
+      }
+    },
+    {
+      "op_key": "append_path_points",
+      "kind": "mutate",
+      "label": "Append path points",
+      "sort_order": 24,
+      "model_hint": "Append points to an existing path/pen/pencil node (continue a stroke). Args: nodeId, points=[[x,y],...] (>=1).",
+      "args_schema": {
+        "nodeId": "string",
+        "points": "number[][]",
+        "closed": "boolean?"
+      }
+    },
+    {
+      "op_key": "simplify_path",
+      "kind": "mutate",
+      "label": "Simplify path",
+      "sort_order": 25,
+      "model_hint": "Reduce path/pen/pencil vertices (Ramer–Douglas–Peucker). Args: nodeId, tolerance? (px, default 2).",
+      "args_schema": {
+        "nodeId": "string",
+        "tolerance": "number?"
+      }
+    },
+    {
+      "op_key": "apply_brush_preset",
+      "kind": "mutate",
+      "label": "Apply brush preset",
+      "sort_order": 26,
+      "model_hint": "Set pencil/path stroke preset. Args: nodeIds, preset=ink|pencil|marker|calligraphy|brush.",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "preset": "ink|pencil|marker|calligraphy|brush"
+      }
+    },
+    {
+      "op_key": "smooth_path",
+      "kind": "mutate",
+      "label": "Smooth path",
+      "sort_order": 27,
+      "model_hint": "Chaikin-smooth a path/pen/pencil. Args: nodeId, iterations? (1-4, default 1).",
+      "args_schema": {
+        "nodeId": "string",
+        "iterations": "number?"
+      }
+    },
+    {
+      "op_key": "close_path",
+      "kind": "mutate",
+      "label": "Close path",
+      "sort_order": 28,
+      "model_hint": "Close an open path/pen/pencil (writes Z). Args: nodeId. Needs at least 3 points.",
+      "args_schema": {
+        "nodeId": "string"
+      }
+    },
+    {
+      "op_key": "create_text",
+      "kind": "create",
+      "label": "Create text",
+      "sort_order": 30,
+      "model_hint": "Add a text node. Args: text, x, y, width?, fontSize?, fill?, fontWeight?, fontFamily?. fontFamily only from Available fonts, and only when that face is ~≥90% similar to the needed look. Hero/main titles below that bar → prefer create_image+letteringText instead of forcing a near calligraphy font. Do not invent font names. Do not map 书法感→Zhi Mang Xing by default.",
+      "args_schema": {
+        "text": "string",
+        "x": "number",
+        "y": "number",
+        "width": "number?",
+        "fontSize": "number?",
+        "fill": "string?",
+        "fontWeight": "string|number?",
+        "fontFamily": "string?",
+        "_rev": "text-font-90pct-1"
+      }
+    },
+    {
+      "op_key": "outline_text",
+      "kind": "mutate",
+      "label": "Outline text",
+      "sort_order": 35,
+      "model_hint": "Convert text node(s) to editable path letterforms (fontkit). Args: nodeId or nodeIds[]. Target must be text with content. After outline: style with update_node fill/stroke; combine letterforms with boolean_op. Prefer create_text + fontFamily only when Available fonts ~≥90% match; use outline_text when you need path geometry (boolean, warp, stroke-only glyphs). FE runs this async — do not expect sync create_shape path as a substitute unless fonts cannot outline.",
+      "args_schema": {
+        "nodeId": "string?",
+        "nodeIds": "string[]?"
+      }
+    },
+    {
+      "op_key": "create_image",
+      "kind": "create",
+      "label": "Create image",
+      "sort_order": 40,
+      "model_hint": "Add an image node. Args: src or attachmentIndex (user attach), x,y,width,height. Or genPrompt for AI image hydrate. Optional letteringText=visible text in the image (helps later replaceText). Atmosphere/poster heroes: genPrompt must be SCENE ONLY — no baked titles/dates/logos; put copy in create_text. Finished poster refs with baked text: STYLE only — prefer genPrompt clean bg, not full-bleed attachmentIndex. Lettering gate: use create_text+fontFamily only if Available fonts match the needed look ~≥90%; otherwise (esp. hero/main title) genPrompt + letteringText. Do not hardcode brush/calligraphy mood → catalog calligraphy font.",
+      "args_schema": {
+        "src": "string?",
+        "attachmentIndex": "number?",
+        "genPrompt": "string?",
+        "letteringText": "string?",
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "_rev": "image-lettering-90pct-2"
+      }
+    },
+    {
+      "op_key": "create_svg",
+      "kind": "create",
+      "label": "Create SVG",
+      "sort_order": 50,
+      "model_hint": "Add SVG icon/illustration. Args: svg (required), x,y,width,height, fill?. svg = full <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">…</svg> OR fragment (<path d=\"…\"/> / <circle…/>). path d: use spaced commands Mm Ll Hh Vv Cc Ss Qq Tt Aa Zz + numbers; never glue arc params (bad: a22001…). Backend rejects invalid SVG and retries. For constructed icons with cutouts, prefer create_shape + boolean_op / pen over one giant path.",
+      "args_schema": {
+        "svg": "string (SVG markup, viewBox 0 0 24 24 preferred)",
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "fill": "string?"
+      }
+    },
+    {
+      "op_key": "create_lottie",
+      "kind": "create",
+      "label": "Create Lottie",
+      "sort_order": 52,
+      "model_hint": "Add a Lottie / Bodymovin motion plate. Prefer genPrompt (natural-language motion brief) — backend hydrates to animationData. Or pass animationData (Bodymovin JSON object/string with layers + w/h). Args: genPrompt and/or animationData, x,y,width,height, name?, durationSec? (hint for hydrate, default 3). Use for UI motion (loading, success, empty-state loop), not for static icons (use create_shape/boolean/create_svg) and not for video (create_image/video flows).",
+      "args_schema": {
+        "genPrompt": "string? motion brief for hydrate",
+        "animationData": "object|string? Bodymovin JSON",
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "name": "string?",
+        "durationSec": "number?",
+        "replaceNodeId": "string? fill an existing Lottie generator plate"
+      }
+    },
+    {
+      "op_key": "create_icon",
+      "kind": "create",
+      "label": "Create icon",
+      "sort_order": 55,
+      "model_hint": "Compact SVG mark (same as create_svg). REQUIRED: non-empty svg string with <svg viewBox=\"0 0 24 24\"> and at least one <path d=\"…\"> (or simple shapes). Prefer viewBox 0 0 24 24; valid path d only. NEVER use emoji/text as the mark — that is create_text, not create_icon. Empty svg is rejected. For icons that need cutouts/combines, prefer create_shape + boolean_op or pen instead of one giant path.",
+      "args_schema": {
+        "svg": "string (SVG markup, viewBox 0 0 24 24 preferred)",
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "fill": "string?",
+        "_rev": "boolean_op-prefer-2"
+      }
+    },
+    {
+      "op_key": "create_frame",
+      "kind": "frame",
+      "label": "Create frame",
+      "sort_order": 60,
+      "model_hint": "Create a frame/artboard. Args: x,y,width,height,name?. Fixed-size poster/mobile/H5/banner: MUST create_frame first at the deliverable size — never replace the artboard with a full-bleed create_shape bg rect. Exception only if the user explicitly refuses a frame (不要画板/自由画布/不要 create_frame). Multi-screen or multi-poster: one create_frame per board (name it), then that board's content, then the next create_frame — do not merge into one tall frame.",
+      "args_schema": {
+        "x": "number",
+        "y": "number",
+        "width": "number",
+        "height": "number",
+        "name": "string?",
+        "_rev": "must-create-frame-3"
+      }
+    },
+    {
+      "op_key": "duplicate_frame",
+      "kind": "frame",
+      "label": "Duplicate frame",
+      "sort_order": 65,
+      "model_hint": "Clone an artboard (size/background). Args: frameId, dx?, dy?, name?, includeChildren? (default false; true copies bound nodes).",
+      "args_schema": {
+        "frameId": "string",
+        "dx": "number?",
+        "dy": "number?",
+        "name": "string?",
+        "includeChildren": "boolean?"
+      }
+    },
+    {
+      "op_key": "reorder_frames",
+      "kind": "frame",
+      "label": "Reorder frames",
+      "sort_order": 66,
+      "model_hint": "Z-order artboards in the world stack. Args: frameIds, action=front|back|forward|backward.",
+      "args_schema": {
+        "frameIds": "string[]",
+        "action": "front|back|forward|backward"
+      }
+    },
+    {
+      "op_key": "fit_frame_to_content",
+      "kind": "frame",
+      "label": "Fit frame to content",
+      "sort_order": 67,
+      "model_hint": "Resize/move an artboard to wrap its bound children. Args: frameId, padding? (px, default 24).",
+      "args_schema": {
+        "frameId": "string",
+        "padding": "number?"
+      }
+    },
+    {
+      "op_key": "delete_nodes",
+      "kind": "delete",
+      "label": "Delete nodes",
+      "sort_order": 70,
+      "model_hint": "Remove nodes by id. Args: nodeIds (string[]). Only when user asked to delete.",
+      "args_schema": {
+        "nodeIds": "string[]"
+      }
+    },
+    {
+      "op_key": "hide_nodes",
+      "kind": "mutate",
+      "label": "Hide nodes",
+      "sort_order": 72,
+      "model_hint": "Hide or show scene nodes. Args: nodeIds, hidden? (default true).",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "hidden": "boolean?"
+      }
+    },
+    {
+      "op_key": "update_frame",
+      "kind": "frame",
+      "label": "Update frame",
+      "sort_order": 80,
+      "model_hint": "Update frame size/name/background/lock/clip. Args: frameId (must match FOCUS_FRAME_ID when set), width?, height?, name?, backgroundColor?, locked?, hidden?, clipContent?. When FOCUS_FRAME_ID is present, always use that id — never retarget by name.",
+      "args_schema": {
+        "frameId": "string",
+        "width": "number?",
+        "height": "number?",
+        "name": "string?",
+        "backgroundColor": "string?",
+        "locked": "boolean?",
+        "hidden": "boolean?",
+        "clipContent": "boolean?"
+      }
+    },
+    {
+      "op_key": "lock_frames",
+      "kind": "frame",
+      "label": "Lock frames",
+      "sort_order": 81,
+      "model_hint": "Lock or unlock artboards (prevent move/resize). Args: frameIds, locked? (default true).",
+      "args_schema": {
+        "frameIds": "string[]",
+        "locked": "boolean?"
+      }
+    },
+    {
+      "op_key": "hide_frames",
+      "kind": "frame",
+      "label": "Hide frames",
+      "sort_order": 82,
+      "model_hint": "Hide or show artboards. Args: frameIds, hidden? (default true).",
+      "args_schema": {
+        "frameIds": "string[]",
+        "hidden": "boolean?"
+      }
+    },
+    {
+      "op_key": "clip_frames",
+      "kind": "frame",
+      "label": "Clip frames",
+      "sort_order": 83,
+      "model_hint": "Clip artboard contents to the frame rect. Args: frameIds, clipContent? (default true).",
+      "args_schema": {
+        "frameIds": "string[]",
+        "clipContent": "boolean?"
+      }
+    },
+    {
+      "op_key": "delete_frame",
+      "kind": "frame",
+      "label": "Delete frame",
+      "sort_order": 90,
+      "model_hint": "Delete a frame. Args: frameId|id from SCENE_FRAMES. Destructive — first turn must ask confirmation via choice_ui (mode=confirm, apply+dismiss); emit this op only after user confirms. Never put ids in reply.",
+      "args_schema": {
+        "frameId": "string"
+      }
+    },
+    {
+      "op_key": "align_nodes",
+      "kind": "arrange",
+      "label": "Align nodes",
+      "sort_order": 100,
+      "model_hint": "Align 2+ nodes. Args: nodeIds, mode=left|centerX|right|top|middle|bottom (FE reads mode; centerX not center).",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "mode": "left|centerX|right|top|middle|bottom"
+      }
+    },
+    {
+      "op_key": "distribute_nodes",
+      "kind": "arrange",
+      "label": "Distribute nodes",
+      "sort_order": 110,
+      "model_hint": "Distribute 3+ nodes. Args: nodeIds, axis=h|v (h=horizontal, v=vertical)",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "axis": "h|v"
+      }
+    },
+    {
+      "op_key": "reorder_nodes",
+      "kind": "arrange",
+      "label": "Reorder z-index",
+      "sort_order": 120,
+      "model_hint": "Z-order. Args: nodeIds, action=front|back|forward|backward",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "action": "front|back|forward|backward"
+      }
+    },
+    {
+      "op_key": "group_nodes",
+      "kind": "arrange",
+      "label": "Group",
+      "sort_order": 130,
+      "model_hint": "Group nodes. Args: nodeIds",
+      "args_schema": {
+        "nodeIds": "string[]"
+      }
+    },
+    {
+      "op_key": "ungroup_nodes",
+      "kind": "arrange",
+      "label": "Ungroup",
+      "sort_order": 140,
+      "model_hint": "Ungroup. Args: nodeIds (group ids)",
+      "args_schema": {
+        "nodeIds": "string[]"
+      }
+    },
+    {
+      "op_key": "duplicate_nodes",
+      "kind": "arrange",
+      "label": "Duplicate nodes",
+      "sort_order": 150,
+      "model_hint": "Duplicate nodes. Args: nodeIds, offsetX?, offsetY?",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "offsetX": "number?",
+        "offsetY": "number?"
+      }
+    },
+    {
+      "op_key": "flip_nodes",
+      "kind": "arrange",
+      "label": "Flip nodes",
+      "sort_order": 160,
+      "model_hint": "Flip nodes. Args: nodeIds, flipX?=true and/or flipY?=true",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "flipX": "boolean?",
+        "flipY": "boolean?"
+      }
+    },
+    {
+      "op_key": "rotate_nodes",
+      "kind": "arrange",
+      "label": "Rotate nodes",
+      "sort_order": 165,
+      "model_hint": "Set absolute rotation in degrees. Args: nodeIds, rotation.",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "rotation": "number"
+      }
+    },
+    {
+      "op_key": "bind_nodes_to_frame",
+      "kind": "arrange",
+      "label": "Bind nodes to frame",
+      "sort_order": 166,
+      "model_hint": "Bind scene nodes to an artboard (attrs.frameId). Args: nodeIds, frameId.",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "frameId": "string"
+      }
+    },
+    {
+      "op_key": "unbind_nodes",
+      "kind": "arrange",
+      "label": "Unbind nodes",
+      "sort_order": 167,
+      "model_hint": "Clear artboard binding on nodes. Args: nodeIds.",
+      "args_schema": {
+        "nodeIds": "string[]"
+      }
+    },
+    {
+      "op_key": "boolean_op",
+      "kind": "arrange",
+      "label": "Boolean ops",
+      "sort_order": 170,
+      "model_hint": "Boolean on shapes — primary tool for constructed icons (cutouts/combines). Args: nodeIds (2+ from SCENE), mode=union|subtract|intersect|exclude. Examples: moon=large circle subtract small; magnifier=circle union handle rect; ring=outer circle subtract inner. Prefer this over dumping create_svg when the mark can be built from primitives/pen.",
+      "args_schema": {
+        "nodeIds": "string[]",
+        "mode": "union|subtract|intersect|exclude",
+        "_rev": "constructed-icons-2"
+      }
+    },
+    {
+      "op_key": "set_canvas_background",
+      "kind": "canvas",
+      "label": "Canvas background",
+      "sort_order": 180,
+      "model_hint": "Set infinite-canvas stage background (not artboard fill). Args: color (solid hex/rgba — never CSS gradient()), fillType?=solid|linear|radial|angular|diffuse|image, fillEnd?, gradientAngle?, opacity?",
+      "args_schema": {
+        "color": "string?",
+        "fillType": "solid|linear|radial|angular|diffuse|image?",
+        "fillEnd": "string?",
+        "gradientAngle": "number?",
+        "opacity": "number?"
+      }
+    },
+    {
+      "op_key": "set_viewport",
+      "kind": "canvas",
+      "label": "Viewport",
+      "sort_order": 190,
+      "model_hint": "Zoom/fit. Args: action=zoom_in|zoom_out|fit|set; for set pass percent (e.g. 100).",
+      "args_schema": {
+        "action": "zoom_in|zoom_out|fit|set",
+        "percent": "number?"
+      }
+    },
+    {
+      "op_key": "set_active_tool",
+      "kind": "canvas",
+      "label": "Active tool",
+      "sort_order": 191,
+      "model_hint": "Switch the editor tool. Args: tool=select|pan|frame|text|shape|image|pen|pencil. Prefer document ops (create_path/create_shape) over leaving the user in a drawing tool.",
+      "args_schema": {
+        "tool": "select|pan|frame|text|shape|image|pen|pencil"
+      }
+    },
+    {
+      "op_key": "set_grid",
+      "kind": "canvas",
+      "label": "Grid snap",
+      "sort_order": 192,
+      "model_hint": "Toggle canvas grid snap. Args: enabled (boolean).",
+      "args_schema": {
+        "enabled": "boolean"
+      }
+    },
+    {
+      "op_key": "image_process",
+      "kind": "image",
+      "label": "Image process",
+      "sort_order": 200,
+      "model_hint": "Run image toolbar pipeline on a node (spawns processing clone). Args: nodeId (image id), kind=upscale|eraser|replaceText|multiAngle|expand|adjust|crop|flipRotate|moveObject|vector. replaceText=i2i swap lettering (meta.originalText + meta.newText). Optional: targetWidth, targetHeight, meta (object).",
+      "args_schema": {
+        "nodeId": "string",
+        "kind": "upscale|eraser|replaceText|multiAngle|expand|adjust|crop|flipRotate|moveObject|vector",
+        "targetWidth": "number?",
+        "targetHeight": "number?",
+        "meta": "object?"
+      }
+    },
+    {
+      "op_key": "export_canvas",
+      "kind": "export",
+      "label": "Export",
+      "sort_order": 210,
+      "model_hint": "Export canvas/selection download. Args: format=png|jpeg|svg, nodeIds? (selection), multiplier? (scale, default 1), filename?",
+      "args_schema": {
+        "format": "png|jpeg|svg",
+        "nodeIds": "string[]?",
+        "multiplier": "number?",
+        "filename": "string?"
+      }
+    }
+  ],
+  "staleSchemaChecks": {
+    "boolean_op": {
+      "must_contain": [
+        "mode",
+        "constructed-icons-2"
+      ],
+      "stale_if_contains": []
+    },
+    "create_shape": {
+      "must_contain": [
+        "shapeType",
+        "triangle",
+        "pen",
+        "strokeAlign",
+        "vector-ink",
+        "shape-filltype-native-2",
+        "fillType",
+        "NEVER put CSS"
+      ],
+      "stale_if_contains": [
+        "shape-filltype-gradient-1",
+        "host coerces"
+      ]
+    },
+    "create_text": {
+      "must_contain": [
+        "text-font-90pct-1",
+        "~≥90%",
+        "letteringText"
+      ],
+      "stale_if_contains": [
+        "MUST be chosen from the Available fonts catalog when the style exists there"
+      ]
+    },
+    "create_image": {
+      "must_contain": [
+        "image-lettering-90pct-2",
+        "~≥90%",
+        "letteringText"
+      ],
+      "stale_if_contains": [
+        "ONLY when Needed style is NOT in Available fonts",
+        "image-lettering-90pct-1"
+      ]
+    },
+    "create_icon": {
+      "must_contain": [
+        "svg",
+        "viewBox",
+        "boolean_op-prefer-2"
+      ],
+      "stale_if_contains": []
+    },
+    "align_nodes": {
+      "must_contain": [
+        "mode"
+      ],
+      "stale_if_contains": [
+        "\"align\""
+      ]
+    },
+    "distribute_nodes": {
+      "must_contain": [
+        "\"h|v\""
+      ],
+      "stale_if_contains": []
+    },
+    "reorder_nodes": {
+      "must_contain": [
+        "\"action\""
+      ],
+      "stale_if_contains": [
+        "\"order\"",
+        "bring_to_front"
+      ]
+    },
+    "flip_nodes": {
+      "must_contain": [
+        "flipX"
+      ],
+      "stale_if_contains": [
+        "\"axis\""
+      ]
+    },
+    "set_viewport": {
+      "must_contain": [
+        "\"action\""
+      ],
+      "stale_if_contains": []
+    },
+    "set_canvas_background": {
+      "must_contain": [
+        "color",
+        "fillType"
+      ],
+      "stale_if_contains": []
+    },
+    "image_process": {
+      "must_contain": [
+        "moveObject",
+        "vector",
+        "replaceText"
+      ],
+      "stale_if_contains": []
+    },
+    "outline_text": {
+      "must_contain": [
+        "nodeId",
+        "nodeIds"
+      ],
+      "stale_if_contains": []
+    },
+    "create_svg": {
+      "must_contain": [
+        "viewBox"
+      ],
+      "stale_if_contains": []
+    },
+    "create_frame": {
+      "must_contain": [
+        "width",
+        "height",
+        "must-create-frame-3"
+      ],
+      "stale_if_contains": []
+    },
+    "update_node": {
+      "must_contain": [
+        "hidden",
+        "locked",
+        "shapeType",
+        "strokeAlign",
+        "borderWidth",
+        "update-filltype-gradient-1",
+        "fillType"
+      ],
+      "stale_if_contains": []
+    },
+    "update_frame": {
+      "must_contain": [
+        "locked",
+        "hidden",
+        "clipContent"
+      ],
+      "stale_if_contains": [
+        "\"clip\"",
+        "clipped"
+      ]
+    },
+    "create_path": {
+      "must_contain": [
+        "points"
+      ],
+      "stale_if_contains": [
+        "points|path",
+        "SVG d"
+      ]
+    },
+    "edit_path_points": {
+      "must_contain": [
+        "points"
+      ],
+      "stale_if_contains": [
+        "points|path"
+      ]
+    },
+    "apply_brush_preset": {
+      "must_contain": [
+        "nodeIds",
+        "preset"
+      ],
+      "stale_if_contains": [
+        "brushPreset",
+        "nodeId"
+      ]
+    },
+    "duplicate_frame": {
+      "must_contain": [
+        "includeChildren"
+      ],
+      "stale_if_contains": [
+        "copyChildren"
+      ]
+    },
+    "lock_frames": {
+      "must_contain": [
+        "frameIds"
+      ],
+      "stale_if_contains": [
+        "frameIds|frameId"
+      ]
+    },
+    "hide_frames": {
+      "must_contain": [
+        "frameIds",
+        "hidden"
+      ],
+      "stale_if_contains": []
+    },
+    "clip_frames": {
+      "must_contain": [
+        "clipContent"
+      ],
+      "stale_if_contains": [
+        "clipped",
+        "\"clip\""
+      ]
+    },
+    "hide_nodes": {
+      "must_contain": [
+        "nodeIds"
+      ],
+      "stale_if_contains": [
+        "nodeId"
+      ]
+    },
+    "rotate_nodes": {
+      "must_contain": [
+        "rotation"
+      ],
+      "stale_if_contains": [
+        "delta",
+        "angle"
+      ]
+    },
+    "bind_nodes_to_frame": {
+      "must_contain": [
+        "nodeIds",
+        "frameId"
+      ],
+      "stale_if_contains": []
+    },
+    "set_active_tool": {
+      "must_contain": [
+        "tool"
+      ],
+      "stale_if_contains": [
+        "Aliases",
+        "hand→pan",
+        "brush→pencil"
+      ]
+    },
+    "set_grid": {
+      "must_contain": [
+        "enabled"
+      ],
+      "stale_if_contains": [
+        "action"
+      ]
+    }
+  }
+}

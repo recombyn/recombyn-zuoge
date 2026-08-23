@@ -1,0 +1,51 @@
+{
+  "w": 1440,
+  "h": 2400,
+  "focusId": "frame_landing",
+  "frames": [
+    {
+      "id": "frame_landing",
+      "type": "frame",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 2400,
+      "name": "Landing"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nav",
+      "type": "rect",
+      "frameId": "frame_landing",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 72,
+      "fill": "#FFFFFF"
+    },
+    {
+      "id": "hero_title",
+      "type": "text",
+      "frameId": "frame_landing",
+      "x": 80,
+      "y": 160,
+      "w": 640,
+      "h": 160,
+      "text": "Design with intent",
+      "fontSize": 64,
+      "fill": "#111111"
+    },
+    {
+      "id": "cta",
+      "type": "rect",
+      "frameId": "frame_landing",
+      "x": 80,
+      "y": 400,
+      "w": 180,
+      "h": 48,
+      "fill": "#111111",
+      "cornerRadius": 8
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-010",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 库存台。主任务是找出缺货 SKU：主区库存表+筛选，低库存行强调。不要四张库存金额 KPI。价格与数量用 — 除非提示里给了。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

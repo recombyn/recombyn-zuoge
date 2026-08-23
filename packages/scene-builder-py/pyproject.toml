@@ -1,0 +1,9 @@
+[project]
+name = "scene-builder-py"
+version = "0.1.0"
+description = "Convert parsed blocks to Canvas Scene JSON"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scene_builder*"]

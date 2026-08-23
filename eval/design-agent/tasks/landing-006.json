@@ -1,0 +1,11 @@
+{
+  "id": "landing-006",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一个陶瓷餐具电商品牌落地页。按 Commerce 流：Hero 产品 → 证明 → 不均等利益点 → Offer → Trust → CTA。价格仅占位。不要 Logo 墙+双排三卡片。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

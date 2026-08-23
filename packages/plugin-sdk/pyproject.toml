@@ -1,0 +1,10 @@
+[project]
+name = "recombyn-plugin-sdk"
+version = "0.1.0"
+description = "Open .recombyn-plugin manifest parse / validate helpers"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["recombyn_plugin_sdk*"]

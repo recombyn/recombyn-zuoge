@@ -1,0 +1,28 @@
+{
+  "skill_key": "design_brief",
+  "name": "design_brief",
+  "displayName": "Design Brief",
+  "description": "Internal design contract: purpose, audience, emotion, thesis, hero, composition, avoid",
+  "when_to_use": "Always as foundation for create / complex edit — Decide fills DESIGN_BRIEF before paint",
+  "category": "foundation",
+  "scenes": "all",
+  "sort_weight": 10,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": [],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "scope": ["plan"],
+  "mutex_group": "",
+  "prompt_negative": "Do not invent junk P1 fields. Do not skip P0. Do not paint before brief.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "设计简报",
+      "description": "内部设计合同：目的、受众、情绪、视觉论点、主视觉、构图、禁止项"
+    },
+    "en": {
+      "displayName": "Design Brief",
+      "description": "Internal design contract before paint"
+    }
+  }
+}

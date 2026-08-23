@@ -1,0 +1,85 @@
+name: Nightly quality gates
+
+on:
+  schedule:
+    - cron: '0 18 * * *' # 02:00 CST
+  workflow_dispatch:
+
+jobs:
+  soak-and-eval-shape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SUPER_ADMIN_TEST_CODE: cinite01
+      COLLAB_TOKEN_SECRET: ci-collab-secret
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install API
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "../../packages/scene-builder-py"
+          pip install -e "../../packages/protocol"
+          pip install -e "../../packages/runtime"
+          pip install -e "../../packages/intelligence-client"
+          pip install -e "../../packages/agent-sdk"
+          pip install -e "../../packages/skill-sdk"
+          pip install -e "../../packages/plugin-sdk"
+          pip install -e "../../packages/billing-sdk"
+          pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Eval suite shape (pytest)
+        working-directory: apps/api
+        run: python -m pytest tests/unit_tests/test_design_agent_eval_suite.py tests/design_engine/test_eval_rubric.py -q
+
+      - name: Skill eval compare (skip if no latest.json)
+        run: node eval/design-agent/compare.mjs
+
+      - name: Start API
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ''
+          SQLITE_DB_PATH: storage/ci-nightly.db
+          REDIS_URL: redis://127.0.0.1:6379/0
+          AUTH_CONSOLE_LOGIN_CODE: 'true'
+          SUPER_ADMIN_TEST_CODE: ${{ env.SUPER_ADMIN_TEST_CODE }}
+          COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/api.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8000/api/v1/health >/dev/null && exit 0
+            sleep 1
+          done
+          tail -n 80 /tmp/api.log; exit 1
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: k6 soak (short)
+        run: k6 run -e K6_SOAK_DURATION=2m perf/k6/soak.js
+        env:
+          BASE_URL: http://127.0.0.1:8000

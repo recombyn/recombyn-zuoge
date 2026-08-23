@@ -1,0 +1,11 @@
+{
+  "id": "landing-008",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一个开发者文档搜索 SaaS 落地页。SaaS 流，Product Proof 是真实搜索结果界面而不是插画。一个主 CTA「开始试用」。不要三卡片功能墙，不要编造 GitHub star 数。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

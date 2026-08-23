@@ -1,0 +1,8 @@
+# Scene / product → AgentProfile id. First match wins; else `default`.
+default: design.canvas
+bindings:
+  - id: editor-design
+    when:
+      product: canvas
+      surface: editor
+    profile: design.canvas

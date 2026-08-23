@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <clipPath id="brand_logo_mark_tile">
+      <path d="M24 0H40C58 0 64 6 64 24V40C64 58 58 64 40 64H24C6 64 0 58 0 40V24C0 6 6 0 24 0Z"/>
+    </clipPath>
+    <radialGradient id="brand_logo_mark_glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0.62"/>
+      <stop offset="35%" stop-color="#fff" stop-opacity="0.28"/>
+      <stop offset="70%" stop-color="#fff" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path d="M24 0H40C58 0 64 6 64 24V40C64 58 58 64 40 64H24C6 64 0 58 0 40V24C0 6 6 0 24 0Z" fill="#141414"/>
+  <g clip-path="url(#brand_logo_mark_tile)">
+    <circle cx="45.83" cy="18.7" r="14.5" fill="url(#brand_logo_mark_glow)"/>
+    <g transform="translate(32 32) scale(0.76) translate(-32 -32)">
+      <g stroke="#fff" stroke-width="2.55" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M13.5 49.8 L22 40.2 C24.5 33.5 31 25.5 39.5 19.2 C44.2 15.8 47.8 14.6 50.2 14.5"/>
+        <path d="M22 40.2 C28.5 43.5 38 38.5 44.2 31.2 C47.5 26.5 49.6 19.5 50.2 14.5"/>
+      </g>
+      <circle cx="50.2" cy="14.5" r="2.45" fill="#fff"/>
+    </g>
+  </g>
+</svg>

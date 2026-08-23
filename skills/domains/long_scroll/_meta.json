@@ -1,0 +1,49 @@
+{
+  "skill_key": "long_scroll",
+  "name": "long_scroll",
+  "displayName": "Long image / scroll story",
+  "description": "Tall long-image / scroll storytelling: chapter rhythm, sticky thesis, mobile width",
+  "when_to_use": "长图 / long image / 长截图 / scroll story / 条漫式长图 / H5 long page visual — single tall continuous board (not multi artboard website, not short poster)",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 75,
+  "version": "1.0.1",
+  "preferred_tools": [
+    "create_frame",
+    "create_image",
+    "create_text",
+    "create_shape",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create"
+      ],
+      "prompt_includes_any": [
+        "长图",
+        "long image",
+        "长截图",
+        "scroll story",
+        "条漫",
+        "超长图",
+        "长页"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "When the user asks for a long image, prefer one tall scroll board over a short square poster or a multi-artboard website. Prefer chapter titles with breathing room. Simple separators may stay vector; complex chapter scenes that look crude as shapes should use images.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "长图 / 滚动叙事",
+      "description": "竖向长图叙事：章节节奏、主张复现、移动宽度"
+    },
+    "en": {
+      "displayName": "Long image / scroll story",
+      "description": "Tall continuous scroll storytelling"
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "skill_key": "landing_page",
+  "name": "landing_page",
+  "displayName": "Landing / website",
+  "description": "Landing V3: classify family → section thesis → tokens → paint → observe → review → subtraction",
+  "when_to_use": "Landing page / 落地页 / 官网 / website / marketing page / homepage hero — multi-section web layout (not resume, not pure poster)",
+  "category": "surface",
+  "scenes": "all",
+  "sort_weight": 86,
+  "version": "3.0.0",
+  "context_mode": "full",
+  "extends": [
+    "design_brief",
+    "visual_direction",
+    "design_system",
+    "composition",
+    "anti_ai_slop",
+    "design_review",
+    "polish",
+    "responsive"
+  ],
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "create_image",
+    "update_node",
+    "delete_nodes"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create"
+      ],
+      "prompt_includes_any": [
+        "落地页",
+        "官网",
+        "landing",
+        "homepage",
+        "网站",
+        "网页",
+        "营销页",
+        "首屏",
+        "Hero"
+      ]
+    }
+  ],
+  "mutex_group": "surface",
+  "scope": ["plan", "paint"],
+  "prompt_negative": "Never default to Hero + 3 cards + 3 cards + Logo + CTA. Classify family first. Do not invent logos, pricing tiers, or testimonials. Do not paint a festive poster unless the user asked.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "落地页 / 官网",
+      "description": "落地页 V3：先判品类，再按章节论点绘制，禁止三卡片默认模板"
+    },
+    "en": {
+      "displayName": "Landing / website",
+      "description": "Landing V3: classify family, then section thesis — never the 3-card default"
+    }
+  }
+}

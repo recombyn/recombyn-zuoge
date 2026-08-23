@@ -1,0 +1,107 @@
+{
+  "version": 2,
+  "note": "Category craft + system-state / unstable-input stress. System issues → prompt packs; design issues → skills. Browser E2E: stall >150s without canvas → Stop and retry.",
+  "cases": [
+    {
+      "id": "poster",
+      "skill_expect": ["poster_craft", "image_gen"],
+      "prompt": "做一张 1080x1920 夏日音乐节海报。标题 Summer Beat，副标题 July 18 · Riverside Park，主视觉要有舞台与人群氛围，色彩热烈，信息区干净可读。"
+    },
+    {
+      "id": "banner",
+      "skill_expect": ["banner_ad", "image_gen"],
+      "prompt": "做一条 1920x500 电商顶通横幅 Banner。主题：春季护肤新品，主文案「焕亮初夏」，副文案「限时礼赠」，右侧放产品瓶氛围图，左侧文案+单一 CTA「立即选购」。"
+    },
+    {
+      "id": "mobile_ui",
+      "skill_expect": ["mobile_app_ui"],
+      "prompt": "设计一个 390x844 手机 App 首页 UI：健身打卡应用。含顶部问候、今日训练卡片、进度环、底部 Tab（首页/训练/我的）。简洁现代，可编辑矢量组件，不要整屏位图糊弄。"
+    },
+    {
+      "id": "dashboard",
+      "skill_expect": ["dashboard_ui"],
+      "prompt": "做一个 1440x900 SaaS 数据仪表盘 UI：左侧窄导航，顶部筛选，主区 4 个 KPI 卡 + 折线图区 + 最近订单表。B2B 冷静配色，清晰层级。"
+    },
+    {
+      "id": "landing",
+      "skill_expect": ["landing_page"],
+      "prompt": "设计一个 1440 宽官网落地页首屏+三区块：AI 设计工具产品。Hero 大标题与 CTA，下方功能三列、客户评价、底栏 CTA。网页结构清晰，按营销站点区块节奏，不要做成单张活动宣传画。"
+    },
+    {
+      "id": "type_specimen",
+      "skill_expect": ["type_specimen"],
+      "prompt": "做一张字体展示板（type specimen）：展示目录内一款衬线+一款无衬线搭配。大字样、字母表/中文示意、正文段落与字重阶梯，注明字体名称。不要发明字体名。"
+    },
+    {
+      "id": "icon_set",
+      "skill_expect": ["icon_set"],
+      "prompt": "做一套 8 个统一风格的线性图标（64 网格）：首页、搜索、消息、收藏、设置、下载、分享、用户。同线宽同圆角，下方小标签，不要用 emoji。"
+    },
+    {
+      "id": "long_scroll",
+      "skill_expect": ["long_scroll", "image_gen"],
+      "prompt": "做一张 750 宽超长图（高度约 3200）：品牌故事长图。含开篇钩子、3 个章节（起源/工艺/承诺）、结尾 CTA。竖向滚动叙事，不是短海报。"
+    },
+    {
+      "id": "ecommerce",
+      "skill_expect": ["ecommerce_surface", "image_gen"],
+      "prompt": "做一张 750x1000 电商主图/商详头图：无线耳机产品。主体清晰、卖点三条、价格区占位（不要编造具体售价数字以外的虚假活动规则）。"
+    },
+    {
+      "id": "resume",
+      "skill_expect": ["resume_layout"],
+      "prompt": "做一页 A4 风简历版式（约 1240x1754）：产品设计师。姓名区、经历两段、技能条、教育。文档感，不要节日海报风，不要编造具体公司名与虚假业绩。"
+    }
+  ],
+  "system_cases": [
+    {
+      "id": "sys_vague",
+      "focus": "underspecified — should ask or pick defaults without hanging",
+      "prompt": "帮我做个好看的",
+      "expect": ["ask_or_defaults", "no_crash", "no_placement_wipe"]
+    },
+    {
+      "id": "sys_contradict_size",
+      "focus": "contradictory WxH — prefer explicit create_frame, do not invent third size",
+      "prompt": "做一张 1080x1920 的横幅 Banner，尺寸也要是 1920x500，标题「焕亮初夏」",
+      "expect": ["resolves_size", "canvas_or_ask", "no_placement_wipe"]
+    },
+    {
+      "id": "sys_edit_ambient",
+      "focus": "occupied canvas — new board must not delete ambient SCENE",
+      "prompt": "再单独做一张新的 750x1000 电商主图：无线耳机，不要动我画布上已有的海报",
+      "expect": ["new_frame", "no_delete_ambient", "canvasGen"]
+    },
+    {
+      "id": "sys_partial_typo",
+      "focus": "typos / mixed lang / noisy whitespace",
+      "prompt": "做个haibao！！！1080*1920\n\n\n标题叫Summr Beat  副标题随便\n颜色暖一点！！！",
+      "expect": ["canvas_or_ask", "no_crash"]
+    },
+    {
+      "id": "sys_incomplete",
+      "focus": "truncated brief — clarify or default, not empty paint loop",
+      "prompt": "海报标题叫",
+      "expect": ["ask_or_defaults", "no_empty_ops_loop"]
+    },
+    {
+      "id": "sys_off_domain",
+      "focus": "non-design request on design agent",
+      "prompt": "帮我写一首关于夏天的诗，不要画图",
+      "expect": ["chat_or_refuse_paint", "no_bogus_frame"]
+    },
+    {
+      "id": "sys_stop_midway",
+      "focus": "user stops mid-run then sends a different brief",
+      "prompt": "先做一张超复杂的 2000x3000 长图品牌故事，越多章节越好",
+      "followup_after_stop": "改成简单的 1080x1920 海报，标题 OK，黑白即可",
+      "expect": ["stop_ok", "followup_ok"]
+    },
+    {
+      "id": "sys_tiny_edit",
+      "focus": "tiny edit on existing work after Keep",
+      "prompt": "把标题改成更大一点，别重做整张",
+      "expect": ["update_not_rebuild", "no_delete_all"]
+    }
+  ]
+}

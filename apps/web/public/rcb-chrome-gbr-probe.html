@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RCB chrome GBR probe (world-surface mirror)</title>
+    <style>
+      body {
+        margin: 0;
+        font: 13px/1.35 ui-monospace, monospace;
+        background: #ddd;
+      }
+      #out {
+        position: fixed;
+        inset: 8px auto auto 8px;
+        z-index: 20;
+        max-width: 560px;
+        max-height: 90vh;
+        overflow: auto;
+        padding: 10px;
+        background: #111;
+        color: #9f9;
+        white-space: pre-wrap;
+        border-radius: 8px;
+      }
+      #stage {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        position: relative;
+        background: #eee;
+      }
+      #world {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 2000px;
+        height: 2000px;
+        transform-origin: 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <pre id="out">measuring…</pre>
+    <div id="stage"><div id="world"></div></div>
+    <script type="module">
+      // Match user DevTools: stroke ≈ 0.059 → zoom ≈ 1.5/0.059 ≈ 25.4
+      const ZOOM = 25.4;
+      const BOX = { left: 200, top: 180, width: 478, height: 429 };
+      const inv = 1 / ZOOM;
+      const halfVis = 8 * inv * 0.5;
+      const lArm = 28 * inv;
+      const lThick = 10 * inv;
+      const lClear = halfVis + 2 * inv;
+
+      // Sticky-ish world surface (like data-rcb-world-surface host)
+      const SURFACE = { left: -40.5, top: -60.25, width: 1200, height: 900 };
+
+      function nwBars(a, t, c) {
+        return [
+          { x: -c - t, y: -c - t, w: a + t, h: t },
+          { x: -c - t, y: -c - t, w: t, h: a + t },
+        ];
+      }
+      function barsToD(bars) {
+        return bars.map((b) => `M${b.x} ${b.y}h${b.w}v${b.h}h${-b.w}z`).join('');
+      }
+
+      const world = document.getElementById('world');
+      // Keep content on-screen after scale: place camera so NW corner is visible
+      const camX = 80 - BOX.left * ZOOM;
+      const camY = 100 - BOX.top * ZOOM;
+      world.style.transform = `translate3d(${camX}px, ${camY}px, 0) scale(${ZOOM})`;
+
+      function makeSurfaceSvg(id) {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('data-rcb-chrome', id);
+        svg.setAttribute('overflow', 'visible');
+        svg.setAttribute('preserveAspectRatio', 'none');
+        svg.setAttribute('viewBox', `${SURFACE.left} ${SURFACE.top} ${SURFACE.width} ${SURFACE.height}`);
+        svg.setAttribute('width', String(SURFACE.width));
+        svg.setAttribute('height', String(SURFACE.height));
+        Object.assign(svg.style, {
+          position: 'absolute',
+          left: `${SURFACE.left}px`,
+          top: `${SURFACE.top}px`,
+          width: `${SURFACE.width}px`,
+          height: `${SURFACE.height}px`,
+          overflow: 'visible',
+          display: 'block',
+          pointerEvents: 'none',
+        });
+        return svg;
+      }
+
+      // Host ink (black rect) — same surface lattice
+      const host = makeSurfaceSvg('host');
+      host.setAttribute('data-rcb-world-surface', '1');
+      const hostBody = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      hostBody.setAttribute('transform', `translate(${BOX.left} ${BOX.top})`);
+      const ink = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      ink.setAttribute('x', '0');
+      ink.setAttribute('y', '0');
+      ink.setAttribute('width', String(BOX.width));
+      ink.setAttribute('height', String(BOX.height));
+      ink.setAttribute('fill', '#111');
+      ink.setAttribute('stroke', '#000');
+      ink.setAttribute('stroke-width', '12');
+      hostBody.appendChild(ink);
+      host.appendChild(hostBody);
+
+      // Chrome twin — mirrorHostSurface copy
+      const chrome = makeSurfaceSvg('chrome');
+      const chromeBody = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      chromeBody.setAttribute('transform', `translate(${BOX.left} ${BOX.top})`);
+      chromeBody.setAttribute('pointer-events', 'none');
+
+      const selBox = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      selBox.setAttribute('data-rcb-sel-box', '1');
+      selBox.setAttribute('x', '0');
+      selBox.setAttribute('y', '0');
+      selBox.setAttribute('width', String(BOX.width));
+      selBox.setAttribute('height', String(BOX.height));
+      selBox.setAttribute('fill', 'none');
+      selBox.setAttribute('stroke', '#3388ff');
+      selBox.setAttribute('stroke-width', String(1.5 * inv));
+      selBox.setAttribute('pointer-events', 'none');
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('data-rcb-sel-rotate-l', 'nw');
+      path.setAttribute('d', barsToD(nwBars(lArm, lThick, lClear)));
+      path.setAttribute('fill', '#3388ff');
+      path.setAttribute('pointer-events', 'all');
+
+      const knob = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      knob.setAttribute('data-rcb-sel-knob', 'nw');
+      knob.setAttribute('x', String(-halfVis));
+      knob.setAttribute('y', String(-halfVis));
+      knob.setAttribute('width', String(halfVis * 2));
+      knob.setAttribute('height', String(halfVis * 2));
+      knob.setAttribute('fill', '#fff');
+      knob.setAttribute('stroke', '#3388ff');
+      knob.setAttribute('stroke-width', String(1.5 * inv));
+      knob.setAttribute('pointer-events', 'all');
+
+      chromeBody.appendChild(selBox);
+      chromeBody.appendChild(path);
+      chromeBody.appendChild(knob);
+      chrome.appendChild(chromeBody);
+
+      world.appendChild(host);
+      world.appendChild(chrome);
+
+      function screenFromBBox(el) {
+        const bb = el.getBBox();
+        const ctm = el.getScreenCTM();
+        if (!ctm) return null;
+        const pts = [
+          new DOMPoint(bb.x, bb.y),
+          new DOMPoint(bb.x + bb.width, bb.y),
+          new DOMPoint(bb.x, bb.y + bb.height),
+          new DOMPoint(bb.x + bb.width, bb.y + bb.height),
+        ].map((p) => p.matrixTransform(ctm));
+        const xs = pts.map((p) => p.x);
+        const ys = pts.map((p) => p.y);
+        const left = Math.min(...xs);
+        const top = Math.min(...ys);
+        const right = Math.max(...xs);
+        const bottom = Math.max(...ys);
+        return {
+          left,
+          top,
+          width: right - left,
+          height: bottom - top,
+          cx: (left + right) / 2,
+          cy: (top + bottom) / 2,
+        };
+      }
+
+      function inkCornerScreen() {
+        // Black rect NW corner via host ink CTM
+        const ctm = ink.getScreenCTM();
+        if (!ctm) return null;
+        const p = new DOMPoint(0, 0).matrixTransform(ctm);
+        return { x: p.x, y: p.y };
+      }
+
+      function measure(el, label) {
+        const gbr = el.getBoundingClientRect();
+        const ctm = screenFromBBox(el);
+        const gbrCx = gbr.left + gbr.width / 2;
+        const gbrCy = gbr.top + gbr.height / 2;
+        const dx = ctm ? gbrCx - ctm.cx : null;
+        const dy = ctm ? gbrCy - ctm.cy : null;
+        const corner = inkCornerScreen();
+        // Expected: L sits outside NW corner; GBR should be near corner too
+        const gbrToCorner = corner
+          ? { dx: +(gbrCx - corner.x).toFixed(2), dy: +(gbrCy - corner.y).toFixed(2), dist: +Math.hypot(gbrCx - corner.x, gbrCy - corner.y).toFixed(2) }
+          : null;
+        const ctmToCorner = corner && ctm
+          ? { dx: +(ctm.cx - corner.x).toFixed(2), dy: +(ctm.cy - corner.y).toFixed(2), dist: +Math.hypot(ctm.cx - corner.x, ctm.cy - corner.y).toFixed(2) }
+          : null;
+        const atCtm = ctm ? document.elementFromPoint(ctm.cx, ctm.cy) : null;
+        const atGbr = document.elementFromPoint(gbrCx, gbrCy);
+        const atCorner = corner ? document.elementFromPoint(corner.x - 12, corner.y - 12) : null;
+        return {
+          label,
+          gbr: { left: +gbr.left.toFixed(2), top: +gbr.top.toFixed(2), w: +gbr.width.toFixed(2), h: +gbr.height.toFixed(2), cx: +gbrCx.toFixed(2), cy: +gbrCy.toFixed(2) },
+          ctm: ctm
+            ? { left: +ctm.left.toFixed(2), top: +ctm.top.toFixed(2), w: +ctm.width.toFixed(2), h: +ctm.height.toFixed(2), cx: +ctm.cx.toFixed(2), cy: +ctm.cy.toFixed(2) }
+            : null,
+          gbrMinusCtm: dx == null ? null : { dx: +dx.toFixed(2), dy: +dy.toFixed(2), dist: +Math.hypot(dx, dy).toFixed(2) },
+          gbrToInkCorner: gbrToCorner,
+          ctmToInkCorner: ctmToCorner,
+          hitAtCtmIsSelf: atCtm === el,
+          hitAtGbrIsSelf: atGbr === el,
+          atOuterNearCorner: atCorner?.getAttribute?.('data-rcb-sel-rotate-l') || atCorner?.getAttribute?.('data-rcb-sel-knob') || atCorner?.tagName,
+        };
+      }
+
+      requestAnimationFrame(() => {
+        const report = {
+          zoom: ZOOM,
+          strokeScene: +(1.5 * inv).toFixed(6),
+          inkCorner: inkCornerScreen(),
+          path: measure(path, 'rotate-L nw'),
+          knob: measure(knob, 'knob nw'),
+        };
+        window.__RCB_GBR_PROBE__ = report;
+        document.getElementById('out').textContent = JSON.stringify(report, null, 2);
+      });
+    </script>
+  </body>
+</html>

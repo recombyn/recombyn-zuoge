@@ -1,0 +1,12 @@
+{
+  "extends": "@repo/tsconfig/react-web.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@commercial/*": ["../../src/commercial/web/*"],
+      "@canvas-plugins/*": ["../../plugins/canvas/*"]
+    }
+  },
+  "include": ["src", "../../src/commercial/web", "../../plugins/canvas", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["src/private", "../../src/commercial"]
+}

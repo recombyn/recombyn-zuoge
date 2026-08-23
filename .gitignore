@@ -1,0 +1,148 @@
+# dependencies
+node_modules/
+apps/web/node_modules/
+.pnp
+.pnp.js
+
+# production
+build/
+apps/web/build/
+apps/web/dist/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# api runtime
+apps/api/storage/uploads/*
+apps/api/storage/results/*
+apps/api/storage/backups/*
+apps/api/storage/*.db
+apps/api/storage/langgraph_*.db
+apps/api/storage/*.alembic.lock
+!apps/api/storage/uploads/.gitkeep
+!apps/api/storage/results/.gitkeep
+!apps/api/storage/backups/.gitkeep
+
+# turborepo
+.turbo/
+
+# testing
+coverage/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+apps/api/.coverage
+apps/api/htmlcov/
+
+# secrets / local env (keep *.example)
+.DS_Store
+.env
+.env.*
+!.env.example
+!**/.env.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.p12
+id_rsa*
+secrets/
+.credentials/
+
+# Local design-agent skills (MD guides — do not publish)
+apps/web/agent-skills/
+!apps/web/agent-skills.example/
+
+# Closed-source local overrides (optional; prefer src/commercial/ in recombyn-dev)
+apps/web/src/private/
+
+# API closed eval corpora (Intelligence checkout — never publish)
+apps/api/private-eval/
+
+# Vendored intelligence runtime (src/commercial/intelligence)
+src/commercial/intelligence/.venv/
+src/commercial/intelligence/models/
+src/commercial/intelligence/data/
+src/commercial/intelligence/workspace/
+src/commercial/intelligence/.ocr-install.log
+
+# Local API startup scratch logs
+apps/api/startup*.log
+
+# typescript incremental cache (looks like garbled JSON — not source)
+*.tsbuildinfo
+
+# Config .ts is source of truth; ignore accidental emit beside them
+apps/web/vite.config.js
+apps/web/vite.config.d.ts
+apps/web/vitest.config.js
+apps/web/vitest.config.d.ts
+
+# Never commit compiled siblings next to .ts/.tsx — Vite resolves .js before .ts
+# (keep real source as TypeScript only under apps/web/src)
+apps/web/src/**/*.js
+apps/web/src/**/*.jsx
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+apps/docs/dist/
+
+# Local agent tooling / scratch — track official Design Skill packs only
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/ui_ux_pro_max/
+!.agents/skills/ui_ux_pro_max/**
+!.agents/skills/garden_style/
+!.agents/skills/garden_style/**
+!.agents/skills/awesome_design_md/
+!.agents/skills/awesome_design_md/**
+!.agents/skills/shadcn_ui/
+!.agents/skills/shadcn_ui/**
+# IDE-only Langfuse docs — never publish
+.agents/skills/langfuse/
+apps/api/.agents/
+apps/api/skills-lock.json
+apps/api/_tmp_*
+apps/api/.tmp_*
+apps/api/list_packs.py
+
+# Local agent smoke / stress scratch (never commit)
+.tmp-*
+.tmp_*
+test-results/
+.tools/
+packages/contracts/openapi-ts-error-*.log
+**/canvasStress.results.json
+**/canvas.stress.browser.results.json
+e2e/tests/*.results.json
+e2e/.*.txt
+
+# Cursor IDE local (rules / skills / plans — do not publish)
+.cursor/
+
+# FFmpeg.wasm core (~32MB) — copied locally by apps/web/scripts/copy-ffmpeg-core.mjs
+apps/web/public/ffmpeg/
+
+# Local infra not published with OSS (keep on disk only)
+infra/langfuse/
+
+# sync strip dry-run scratch
+pub-test/
+
+# local sqlite sidecars
+apps/api/storage/*.db-shm
+apps/api/storage/*.db-wal
+
+
+# Local runtime artifacts if mistakenly created under app/
+apps/api/app/storage/

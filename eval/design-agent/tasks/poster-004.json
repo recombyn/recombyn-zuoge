@@ -1,0 +1,11 @@
+{
+  "id": "poster-004",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 独立电影节海报。主视觉一张静帧感的人物侧脸，暗室光。片名与日期用画板文字叠在安静带上。禁止三张剧照拼贴、禁止假评分和假奖项。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

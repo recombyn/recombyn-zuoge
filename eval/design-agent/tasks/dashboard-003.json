@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-003",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 分析台。主任务是看本周订单趋势：主区一张折线/柱状图，下方才是拆分表。不要四张同等 KPI。不要编造 GMV 数字。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

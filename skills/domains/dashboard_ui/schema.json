@@ -1,0 +1,28 @@
+{
+  "input_schema": {
+    "type": "object",
+    "description": "Dashboard craft uses structured design_brief (P0) plus a primary task.",
+    "properties": {
+      "design_brief": { "type": "object" },
+      "primary_task": {
+        "type": "string",
+        "enum": ["Monitor", "Analyze", "Work queue", "Master-detail", "Configure"]
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "allowed_ops": [
+      "create_frame",
+      "create_shape",
+      "create_text",
+      "create_icon",
+      "create_svg",
+      "create_image",
+      "update_node",
+      "delete_nodes",
+      "move_nodes",
+      "align_nodes"
+    ]
+  }
+}

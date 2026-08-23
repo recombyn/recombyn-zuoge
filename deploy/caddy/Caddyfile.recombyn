@@ -1,0 +1,19 @@
+# HTTP by IP (no TLS for bare IP)
+http://43.143.230.24 {
+	encode gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+recombyn.com, www.recombyn.com {
+	encode gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:3000
+}

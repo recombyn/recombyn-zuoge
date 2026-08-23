@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+# Last local gate for Co-authored-by: Cursor (same as .github/workflows/block-cursor-coauthor.yml).
+zero=0000000000000000000000000000000000000000
+fail=0
+while read local_ref local_sha remote_ref remote_sha
+do
+  [ -n "$local_sha" ] || continue
+  if [ "$local_sha" = "$zero" ]; then
+    continue
+  fi
+  if [ "$remote_sha" = "$zero" ] || [ -z "$remote_sha" ]; then
+    if git rev-parse --verify origin/main >/dev/null 2>&1; then
+      range="origin/main..$local_sha"
+    else
+      range="$local_sha"
+    fi
+  else
+    range="$remote_sha..$local_sha"
+  fi
+  if git log --format=%B "$range" 2>/dev/null | grep -F 'Co-authored-by: Cursor' >/dev/null; then
+    echo "error: push blocked — commits contain 'Co-authored-by: Cursor'." >&2
+    echo "Rewrite the message without that trailer, then push. CI check: no-cursor-coauthor." >&2
+    fail=1
+  fi
+done
+exit "$fail"

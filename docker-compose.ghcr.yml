@@ -1,0 +1,25 @@
+# Optional override: pull pre-built images from GHCR instead of local --build.
+# Requires Docker Compose v2.24+ (`!reset` to clear `build:` from the base file).
+#
+#   # Put RECOMBYN_TAG in .env (repo root), e.g. RECOMBYN_TAG=v0.1.0
+#   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+#
+# Published by `.github/workflows/release-docker.yml` on `v*.*.*` tags.
+
+services:
+  web:
+    image: ${RECOMBYN_WEB_IMAGE:-ghcr.io/recombyn/recombyn/web}:${RECOMBYN_TAG:-latest}
+    build: !reset null
+
+  collab:
+    image: ${RECOMBYN_COLLAB_IMAGE:-ghcr.io/recombyn/recombyn/collab}:${RECOMBYN_TAG:-latest}
+    build: !reset null
+
+  api:
+    image: ${RECOMBYN_API_IMAGE:-ghcr.io/recombyn/recombyn/api}:${RECOMBYN_TAG:-latest}
+    build: !reset null
+
+  worker:
+    image: ${RECOMBYN_API_IMAGE:-ghcr.io/recombyn/recombyn/api}:${RECOMBYN_TAG:-latest}
+    build: !reset null

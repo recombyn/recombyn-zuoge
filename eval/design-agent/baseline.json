@@ -1,0 +1,22 @@
+{
+  "version": 3,
+  "note": "PR19 skill-regression baseline. Empty tasks until the first passing `npm run eval:agent -- --v3-tasks` run is recorded. Compare fails when average drop > 3 or a key task drops > 5.",
+  "thresholds": {
+    "avg_drop": 3,
+    "key_task_drop": 5
+  },
+  "key_tasks": [
+    "poster-001",
+    "landing-001",
+    "dashboard-001",
+    "image-001"
+  ],
+  "skill_versions": {
+    "poster_craft": "3.0.0",
+    "landing_page": "3.0.0",
+    "dashboard_ui": "3.0.0",
+    "image_gen": "3.2.0"
+  },
+  "model": "auto",
+  "tasks": {}
+}

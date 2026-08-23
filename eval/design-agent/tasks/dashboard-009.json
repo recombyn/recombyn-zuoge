@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-009",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 值班事件台。主任务是确认正在响的事故：主区事件时间线，次区 runbook 链接。不要四张 SLA KPI。没有事件时给空态。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

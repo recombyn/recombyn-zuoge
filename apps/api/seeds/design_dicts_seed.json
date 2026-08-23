@@ -1,0 +1,124 @@
+{
+  "rev": 29,
+  "types": [
+    {
+      "code": "scene",
+      "label": "Scene",
+      "sortOrder": 10
+    },
+    {
+      "code": "prompt_pack_type",
+      "label": "Prompt pack type",
+      "sortOrder": 15
+    },
+    {
+      "code": "prompt_pack_kind",
+      "label": "Prompt pack key",
+      "sortOrder": 20
+    },
+    {
+      "code": "canvas_tool_kind",
+      "label": "Canvas capability kind",
+      "sortOrder": 30
+    }
+  ],
+  "items": [
+    {
+      "dictType": "scene",
+      "code": "all",
+      "label": "All scenes",
+      "sortOrder": 0
+    },
+    {
+      "dictType": "scene",
+      "code": "website",
+      "label": "Website",
+      "sortOrder": 10
+    },
+    {
+      "dictType": "scene",
+      "code": "mobile",
+      "label": "Mobile",
+      "sortOrder": 20
+    },
+    {
+      "dictType": "scene",
+      "code": "image",
+      "label": "Image",
+      "sortOrder": 30
+    },
+    {
+      "dictType": "scene",
+      "code": "poster",
+      "label": "Poster",
+      "sortOrder": 40
+    },
+    {
+      "dictType": "scene",
+      "code": "drawing",
+      "label": "Drawing",
+      "sortOrder": 50
+    },
+    {
+      "dictType": "prompt_pack_type",
+      "code": "need",
+      "label": "On-demand pack",
+      "sortOrder": 10
+    },
+    {
+      "dictType": "prompt_pack_type",
+      "code": "system",
+      "label": "System",
+      "sortOrder": 20
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "mutate",
+      "label": "Mutate",
+      "sortOrder": 10
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "create",
+      "label": "Create",
+      "sortOrder": 20
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "delete",
+      "label": "Delete",
+      "sortOrder": 30
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "arrange",
+      "label": "Arrange",
+      "sortOrder": 40
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "frame",
+      "label": "Frame",
+      "sortOrder": 50
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "canvas",
+      "label": "Canvas",
+      "sortOrder": 60
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "image",
+      "label": "Image",
+      "sortOrder": 70
+    },
+    {
+      "dictType": "canvas_tool_kind",
+      "code": "export",
+      "label": "Export",
+      "sortOrder": 80
+    }
+  ],
+  "descriptions": {}
+}

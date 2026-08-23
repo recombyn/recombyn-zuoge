@@ -1,0 +1,8 @@
+{
+  "id": "image-009",
+  "family": "image",
+  "skill": "image_gen",
+  "prompt": "生成一张材质习作：旧玉与暗金并置、定向光显示刻痕。不要任何文字。",
+  "ref_good": "refs/good/image-thesis-plate.md",
+  "ref_bad": "refs/bad/image-baked-title.md"
+}

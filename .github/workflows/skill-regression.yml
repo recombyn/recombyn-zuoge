@@ -1,0 +1,97 @@
+name: Skill eval regression
+
+# PR19 — skill changed → dataset shape + compare vs baseline
+# Live eval is optional (EVAL_TOKEN). Always fail the compare unit fixtures
+# when average drop > 3 or a key task drops > 5.
+
+on:
+  pull_request:
+    paths:
+      - 'skills/foundation/**'
+      - 'skills/domains/**'
+      - 'apps/api/seeds/design_skills/**'
+      - 'apps/api/tests/design_engine/**'
+      - 'eval/design-agent/**'
+      - '.github/workflows/skill-regression.yml'
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'skills/foundation/**'
+      - 'skills/domains/**'
+      - 'apps/api/seeds/design_skills/**'
+      - 'apps/api/tests/design_engine/**'
+      - 'eval/design-agent/**'
+      - '.github/workflows/skill-regression.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: skill-regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dataset-and-compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install API + open packages
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "../../packages/scene-builder-py"
+          pip install -e "../../packages/protocol"
+          pip install -e "../../packages/runtime"
+          pip install -e "../../packages/intelligence-client"
+          pip install -e "../../packages/agent-sdk"
+          pip install -e "../../packages/skill-sdk"
+          pip install -e "../../packages/plugin-sdk"
+          pip install -e "../../packages/billing-sdk"
+          pip install -e ".[dev]"
+
+      - name: Eval dataset + regression compare
+        working-directory: apps/api
+        run: python -m pytest tests/design_engine/test_eval_rubric.py tests/design_engine/test_eval_boundary.py -q
+
+      - name: Compare committed baseline (skip if no latest.json)
+        run: node eval/design-agent/compare.mjs
+
+  live-eval:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    needs: dataset-and-compare
+    env:
+      EVAL_TOKEN: ${{ secrets.EVAL_TOKEN }}
+      EVAL_API: ${{ secrets.EVAL_API }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Run V3 family tasks
+        run: npm run eval:agent -- --v3-tasks
+      - name: Compare vs baseline
+        run: npm run eval:compare -- --require-current
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skill-eval-results
+          path: |
+            eval/design-agent/results/latest.json
+            eval/design-agent/results/compare.json
+          if-no-files-found: ignore

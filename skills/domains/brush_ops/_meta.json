@@ -1,0 +1,50 @@
+{
+  "skill_key": "brush_ops",
+  "name": "brush_ops",
+  "displayName": "Brush / pencil",
+  "description": "Filled-ribbon pencil strokes on canvas: centerline path, pressure width, vector-ink family",
+  "when_to_use": "Brush / pencil / 板绘 / 线稿 / 压感 / freehand illustration strokes (not geometric shape collage)",
+  "category": "draw",
+  "scenes": "all",
+  "sort_weight": 65,
+  "version": "2.1.0",
+  "preferred_tools": [
+    "create_shape",
+    "update_node",
+    "create_frame"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "笔刷",
+        "铅笔",
+        "板绘",
+        "线稿",
+        "压感",
+        "brush",
+        "pencil",
+        "freehand",
+        "手绘"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Prefer create_shape pencil with M/L centerline + pathPressure over circle/ellipse piles as fake brush work.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "笔刷 / 铅笔",
+      "description": "矢量填充轮廓笔刷：中心线 + 压感宽度，vector-ink 系列"
+    },
+    "en": {
+      "displayName": "Brush / pencil",
+      "description": "Filled-ribbon pencil: centerline path, pressure width, vector-ink family"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@recombyn/eval-framework",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Open Design Agent eval compare helpers (public rubric / regression gates)",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./compare": "./src/compare.mjs"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ]
+}

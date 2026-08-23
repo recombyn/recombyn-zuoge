@@ -1,0 +1,7 @@
+# Skill ops runner sample — see handler.py
+
+# Enable: DESIGN_SKILL_OPS_RUNNER=true
+#
+# Contract:
+#   def run(ctx, payload: dict) -> list[dict]:
+#       """Return tool_ops only — never mutate Redis/DB/canvas directly."""

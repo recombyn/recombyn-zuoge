@@ -1,0 +1,11 @@
+{
+  "id": "poster-010",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1920x1080 横版展览 KV。主视觉一件青铜器居中，博物馆灯光。中英标题叠在安静带。禁止紫蓝渐变、禁止把说明文字烘焙进器物照片。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

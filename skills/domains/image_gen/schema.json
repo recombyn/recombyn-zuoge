@@ -1,0 +1,21 @@
+{
+  "input_schema": {
+    "type": "object",
+    "description": "Image gen follows design_brief thesis + composition + material + lighting.",
+    "properties": {
+      "design_brief": { "type": "object" },
+      "bake_title": {
+        "type": "boolean",
+        "description": "True only when the user explicitly wants text inside the bitmap."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "allowed_ops": [
+      "create_image",
+      "create_frame",
+      "update_node"
+    ]
+  }
+}

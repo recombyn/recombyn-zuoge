@@ -1,0 +1,11 @@
+{
+  "format": "recombyn-plugin",
+  "formatVersion": 1,
+  "id": "canvas-watermark",
+  "kind": "canvas",
+  "name": "Watermark",
+  "version": "1.0.0",
+  "author": "recombyn",
+  "install": "disk",
+  "permissions": ["insert_nodes"]
+}

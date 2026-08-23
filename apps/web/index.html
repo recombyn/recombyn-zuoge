@@ -1,0 +1,162 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.svg?v=ry3" type="image/svg+xml" />
+    <link rel="alternate icon" href="/favicon.ico?v=ry3" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=ry3" />
+    <meta name="theme-color" content="#0C0C0D" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Recombyn — AI 设计 Agent · 对话生成可编辑设计</title>
+    <meta
+      name="description"
+      content="Recombyn 是面向创意工作的 AI 设计 Agent：用对话在无限画布上生成海报、移动界面、网站与图片，结果可直接编辑、导出与分享。"
+    />
+    <meta name="robots" content="index,follow,max-image-preview:large" />
+    <link rel="canonical" href="https://recombyn.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Recombyn" />
+    <meta property="og:title" content="Recombyn — AI 设计 Agent · 对话生成可编辑设计" />
+    <meta
+      property="og:description"
+      content="Recombyn 是面向创意工作的 AI 设计 Agent：用对话在无限画布上生成海报、移动界面、网站与图片，结果可直接编辑、导出与分享。"
+    />
+    <meta property="og:url" content="https://recombyn.com/" />
+    <meta property="og:image" content="https://recombyn.com/logo-mark.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Recombyn — AI 设计 Agent · 对话生成可编辑设计" />
+    <meta
+      name="twitter:description"
+      content="Recombyn 是面向创意工作的 AI 设计 Agent：用对话在无限画布上生成海报、移动界面、网站与图片，结果可直接编辑、导出与分享。"
+    />
+    <meta name="twitter:image" content="https://recombyn.com/logo-mark.png" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="https://cdn.jsdelivr.net/npm/c1-alibaba-puhui-ti@1.0.0/fonts/AlibabaPuHuiTi-3-55-Regular.woff2"
+      crossorigin
+    />
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('theme') || 'light';
+          var dark =
+            mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+          document.documentElement.classList.toggle('dark', dark);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <!--
+      Editor/share: instant % boot bar (handed off to EditorBootOverlay).
+      Home and other routes: no splash — shell paints directly.
+    -->
+    <div
+      id="boot-splash"
+      style="
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: #f5f5f5;
+        pointer-events: none;
+      "
+      aria-hidden="true"
+      hidden
+    >
+      <div style="width: min(220px, 56vw); display: flex; flex-direction: column; align-items: center; gap: 12px;">
+        <div
+          id="boot-splash-track"
+          style="
+            width: 100%;
+            height: 6px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.1);
+          "
+        >
+          <div
+            id="boot-splash-fill"
+            style="
+              width: 8%;
+              height: 100%;
+              border-radius: inherit;
+              background: #111;
+              transition: width 0.25s ease-out;
+            "
+          ></div>
+        </div>
+        <span
+          id="boot-splash-pct"
+          style="
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+            color: #8a8a8a;
+            font-family: system-ui, sans-serif;
+          "
+        >8%</span>
+      </div>
+    </div>
+    <script>
+      (function () {
+        try {
+          var el = document.getElementById('boot-splash');
+          if (!el) return;
+          var path = String(location.pathname || '');
+          // Locale prefix ok: /zh/editor/…, /ja/s/…
+          var isCanvasBoot =
+            /(^|\/)editor(\/|$)/.test(path) || /(^|\/)s\/[^/]+/.test(path);
+          if (!isCanvasBoot) {
+            el.remove();
+            return;
+          }
+          el.hidden = false;
+          el.style.display = 'flex';
+          var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+          var track = document.getElementById('boot-splash-track');
+          var fill = document.getElementById('boot-splash-fill');
+          var label = document.getElementById('boot-splash-pct');
+          if (dark) {
+            el.style.background = '#1e1e1e';
+            if (track) track.style.background = 'rgba(255,255,255,0.12)';
+            if (fill) fill.style.background = '#f2f2f2';
+            if (label) label.style.color = '#9a9a9a';
+          }
+          var pct = Math.max(8, Number(window.__recombynBootPct) || 0);
+          window.__recombynBootPct = pct;
+          if (fill) fill.style.width = pct + '%';
+          if (label) label.textContent = pct + '%';
+          var timer = setInterval(function () {
+            if (!fill || !document.getElementById('boot-splash')) {
+              clearInterval(timer);
+              return;
+            }
+            if (pct >= 36) return;
+            pct = Math.min(36, pct + 2);
+            window.__recombynBootPct = Math.max(Number(window.__recombynBootPct) || 0, pct);
+            fill.style.width = pct + '%';
+            if (label) label.textContent = pct + '%';
+          }, 180);
+        } catch (e) {}
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "id": "poster-005",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 精品咖啡品牌海报。主视觉是一只陶瓷杯与深色木桌，侧光。中文品牌名用画板文字。不要蒸汽粒子墙、不要把价格和口号画进杯子照片。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "model": "auto",
+  "results": [
+    { "caseId": "poster-001", "review": { "total": 84, "issues": ["hero coverage"] } },
+    { "caseId": "landing-001", "review": { "total": 82, "issues": ["family flow"] } },
+    { "caseId": "dashboard-001", "review": { "total": 80, "issues": ["kpi wall"] } },
+    { "caseId": "image-001", "review": { "total": 86, "issues": ["baked title"] } }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "skill_key": "ecommerce_surface",
+  "name": "ecommerce_surface",
+  "displayName": "Ecommerce surfaces",
+  "description": "Ecommerce hero and PDP: subject-first hero, module order, sparse badges",
+  "when_to_use": "Ecommerce / 电商 / PDP / 商详 / product hero / 详情页 / shopping hero — product-led surfaces (not generic SaaS dashboard)",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 77,
+  "version": "2.0.1",
+  "preferred_tools": [
+    "create_frame",
+    "create_image",
+    "create_text",
+    "create_shape",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "电商",
+        "商详",
+        "PDP",
+        "详情页",
+        "ecommerce",
+        "product hero",
+        "加购"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Unless the user provides them, avoid inventing board facts such as prices, discounts, SKUs, review counts, etc. Prefer the product as hero over heavy chrome. Prefer modular PDP over a festive poster. Simple module chrome may stay vector; detailed product/lifestyle that looks crude as shapes should use images. Prefer cutout when white product plates would remain.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "电商表面",
+      "description": "电商主图与商详：主体优先、模块顺序、克制徽章"
+    },
+    "en": {
+      "displayName": "Ecommerce surfaces",
+      "description": "Ecommerce hero and PDP playbook"
+    }
+  }
+}

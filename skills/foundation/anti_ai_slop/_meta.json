@@ -1,0 +1,29 @@
+{
+  "skill_key": "anti_ai_slop",
+  "name": "anti_ai_slop",
+  "displayName": "Anti AI Slop",
+  "description": "Hard bans for generic AI aesthetics; Review must list hits",
+  "when_to_use": "QA foundation on every create — ban purple gradients, glass cards, equal feature cards, …",
+  "category": "qa",
+  "scenes": "all",
+  "sort_weight": 95,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": ["update_node", "delete_nodes"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "scope": ["review"],
+  "quality_signals": ["originality"],
+  "mutex_group": "",
+  "prompt_negative": "Never default to purple-blue gradient + glass cards + three equal feature cards.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "反 AI 俗套",
+      "description": "禁止泛化 AI 审美；Review 必须列出命中项"
+    },
+    "en": {
+      "displayName": "Anti AI Slop",
+      "description": "Hard bans for generic AI aesthetics"
+    }
+  }
+}

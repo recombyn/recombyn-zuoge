@@ -1,0 +1,11 @@
+{
+  "id": "poster-008",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 时装 Lookbook 封面海报。一件大衣占 60–85% 画面，留白给刊名。刊名用画板文字。禁止三件衣服并排同等大小，禁止假品牌 logo。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

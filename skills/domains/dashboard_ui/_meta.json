@@ -1,0 +1,70 @@
+{
+  "skill_key": "dashboard_ui",
+  "name": "dashboard_ui",
+  "displayName": "Dashboard / admin UI",
+  "description": "Dashboard V3: primary task → primary info → secondary → context → action; never four KPI cards by default",
+  "when_to_use": "Dashboard / 后台 / 控制台 / admin / console / analytics board / KPI / 数据看板 / 仪表盘 — multi-panel product UI (not marketing landing, not poster)",
+  "category": "surface",
+  "scenes": "all",
+  "sort_weight": 89,
+  "version": "3.0.0",
+  "context_mode": "full",
+  "extends": [
+    "design_brief",
+    "visual_direction",
+    "design_system",
+    "composition",
+    "anti_ai_slop",
+    "design_review",
+    "polish",
+    "responsive"
+  ],
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "create_icon",
+    "create_svg",
+    "update_node",
+    "delete_nodes",
+    "move_nodes"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "dashboard",
+        "后台",
+        "控制台",
+        "admin",
+        "console",
+        "看板",
+        "KPI",
+        "analytics",
+        "管理端",
+        "仪表盘",
+        "数据仪表",
+        "折线图",
+        "1440x900"
+      ]
+    }
+  ],
+  "mutex_group": "surface",
+  "prompt_negative": "Never default to four equal KPI cards. Name the primary task first. Do not invent metrics, chart series, or logos. Do not paint a festive poster or a marketing landing.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "后台 / Dashboard",
+      "description": "后台 V3：先定主任务，再排主信息→次信息→上下文→操作；禁止四张 KPI 默认墙"
+    },
+    "en": {
+      "displayName": "Dashboard / admin UI",
+      "description": "Dashboard V3: primary task first — never four KPI cards as the default"
+    }
+  }
+}

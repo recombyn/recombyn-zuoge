@@ -1,0 +1,27 @@
+{
+  "skill_key": "color",
+  "name": "color",
+  "displayName": "Color",
+  "description": "Palette roles and accent restraint — not scattered hex",
+  "when_to_use": "Craft after design_system tokens — lock primary/surface/muted/accent roles before painting fills",
+  "category": "craft",
+  "scenes": "all",
+  "sort_weight": 31,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": ["create_shape", "update_node"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "mutex_group": "",
+  "prompt_negative": "Do not default to purple–blue mesh as the whole brand. Do not assign a unique hex per node. Do not invent a second accent family.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "色彩",
+      "description": "角色色与强调克制，不要满板乱 hex"
+    },
+    "en": {
+      "displayName": "Color",
+      "description": "Roles + restrained accent, not hex spam"
+    }
+  }
+}

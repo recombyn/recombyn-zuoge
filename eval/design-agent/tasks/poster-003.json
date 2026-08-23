@@ -1,0 +1,11 @@
+{
+  "id": "poster-003",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 建筑展海报：主题「混凝土与光」。一张冷静的剖面/立面作为唯一主视觉，标题克制、边距宽。不要粒子、不要赛博霓虹、不要把展名烘焙进图。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

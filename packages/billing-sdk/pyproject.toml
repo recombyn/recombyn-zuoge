@@ -1,0 +1,13 @@
+[project]
+name = "recombyn-billing-sdk"
+version = "0.1.0"
+description = "Open helpers over Recombyn Billing / Usage / Pricing protocol schemas"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "recombyn-protocol>=0.1.2",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["recombyn_billing_sdk*"]

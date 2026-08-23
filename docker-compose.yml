@@ -1,0 +1,204 @@
+# Self-host stack — see docs/self-hosting.md
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-recombyn-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-recombyn}
+      MYSQL_USER: ${MYSQL_USER:-recombyn}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-recombyn}
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # mysql:8.4 images may omit healthcheck.sh; mysqladmin is always present.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 25s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.web
+      args:
+        VITE_COLLAB_ENABLED: ${VITE_COLLAB_ENABLED:-true}
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+      - collab
+
+  collab:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.collab
+    restart: unless-stopped
+    environment:
+      - HOST=0.0.0.0
+      - PORT=1234
+      - COLLAB_TOKEN_SECRET=${COLLAB_TOKEN_SECRET:-dev-collab-token-secret-change-me}
+    expose:
+      - "1234"
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.api
+      args:
+        INSTALL_OCR: "${INSTALL_OCR:-false}"
+        INSTALL_AV: "${INSTALL_AV:-false}"
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: apps/api/.env
+        required: false
+    volumes:
+      - ./apps/api/storage/uploads:/app/apps/api/storage/uploads
+      - ./apps/api/storage/results:/app/apps/api/storage/results
+      # Hot-reload overrides baked image copies (ADR 0018).
+      - ./skills:/app/skills
+      - ./plugins/skills:/app/plugins/skills
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - USE_VISION=${USE_VISION:-true}
+      - IMPORT_DPI=${IMPORT_DPI:-200}
+      - DATABASE_URL=${DATABASE_URL:-mysql://recombyn:recombyn@mysql:3306/recombyn}
+      - COLLAB_TOKEN_SECRET=${COLLAB_TOKEN_SECRET:-dev-collab-token-secret-change-me}
+      - COLLAB_PUBLIC_WS_URL=${COLLAB_PUBLIC_WS_URL:-ws://localhost:3000/collab}
+      - AUTH_CONSOLE_LOGIN_CODE=${AUTH_CONSOLE_LOGIN_CODE:-true}
+      - WALLET_BILLING_ENABLED=${WALLET_BILLING_ENABLED:-false}
+      - UPLOAD_AV_HOOK_ENABLED=${UPLOAD_AV_HOOK_ENABLED:-false}
+      - UPLOAD_AV_COMMAND=${UPLOAD_AV_COMMAND:-}
+      - OTEL_ENABLED=${OTEL_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-recombyn-api}
+      # Design Intelligence (ADR 0017). Default local = BasicLocal.
+      - RECOMBYN_INTELLIGENCE_MODE=${RECOMBYN_INTELLIGENCE_MODE:-local}
+      - RECOMBYN_INTELLIGENCE_URL=${RECOMBYN_INTELLIGENCE_URL:-}
+      - RECOMBYN_INTELLIGENCE_API_KEY=${RECOMBYN_INTELLIGENCE_API_KEY:-}
+      - RECOMBYN_INTELLIGENCE_TIMEOUT_SEC=${RECOMBYN_INTELLIGENCE_TIMEOUT_SEC:-30}
+      - RECOMBYN_INTELLIGENCE_CIRCUIT_SEC=${RECOMBYN_INTELLIGENCE_CIRCUIT_SEC:-30}
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      collab:
+        condition: service_started
+
+  clamav:
+    profiles: ["av"]
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+
+  alertmanager:
+    profiles: ["obs"]
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./deploy/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+  grafana:
+    profiles: ["obs"]
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: recombyn
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.api
+      args:
+        INSTALL_OCR: "${INSTALL_OCR:-false}"
+    command: celery -A worker.celery_app.celery worker -l info --concurrency=1
+    env_file:
+      - path: apps/api/.env
+        required: false
+    volumes:
+      - ./apps/api/storage/uploads:/app/apps/api/storage/uploads
+      - ./apps/api/storage/results:/app/apps/api/storage/results
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - USE_VISION=${USE_VISION:-true}
+      - IMPORT_DPI=${IMPORT_DPI:-200}
+      - DATABASE_URL=${DATABASE_URL:-mysql://recombyn:recombyn@mysql:3306/recombyn}
+      - WALLET_BILLING_ENABLED=${WALLET_BILLING_ENABLED:-false}
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+
+volumes:
+  redis_data:
+  mysql_data:
+  clamav_data:
+  prometheus_data:
+  grafana_data:

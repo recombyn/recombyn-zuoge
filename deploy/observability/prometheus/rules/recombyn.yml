@@ -1,0 +1,102 @@
+groups:
+  - name: recombyn-api
+    interval: 30s
+    rules:
+      - alert: RecombynApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="recombyn-api",status=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_requests_total{job="recombyn-api"}[5m])), 0.001)
+            > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 5xx rate > 5% (5m)"
+          description: "Investigate failing handlers on recombyn-api."
+
+      - alert: RecombynApiHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="recombyn-api"}[5m])) by (le)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency > 2s"
+          description: "Sustained high latency on recombyn-api."
+
+      - alert: RecombynDependencyDown
+        expr: |
+          recombyn_dependency_db_up == 0
+          or recombyn_dependency_redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DB or Redis dependency down"
+          description: "recombyn_dependency_* gauge is 0."
+
+      - alert: RecombynHydrateJobFailures
+        expr: |
+          sum(rate(recombyn_hydrate_jobs_total{event="failed"}[10m]))
+            /
+          clamp_min(sum(rate(recombyn_hydrate_jobs_total{event=~"enqueued|done|failed"}[10m])), 0.001)
+            > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hydrate job failure rate > 25% (10m)"
+          description: "Check Celery worker, image providers, Redis DLQ recombyn:dlq:hydrate, and logs filtered by trace_id."
+
+      - alert: RecombynHydrateDlqRising
+        expr: increase(recombyn_hydrate_dlq_total[30m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hydrate DLQ receiving failures"
+          description: "More than 5 hydrate jobs pushed to Redis DLQ in 30m. Replay via POST /api/v1/admin/ops/hydrate-dlq/replay."
+
+      - alert: RecombynHydrateDlqDepth
+        expr: recombyn_hydrate_dlq_depth > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hydrate DLQ depth > 20"
+          description: "Redis list recombyn:dlq:hydrate is backing up. Check worker health and replay or discard via admin ops."
+
+      - alert: RecombynExportJobFailures
+        expr: |
+          sum(rate(recombyn_export_jobs_total{event="failed"}[10m]))
+            /
+          clamp_min(sum(rate(recombyn_export_jobs_total{event=~"enqueued|done|failed"}[10m])), 0.001)
+            > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Export job failure rate > 25% (10m)"
+          description: "Check Celery worker, storage, Redis DLQ recombyn:dlq:export, and logs filtered by trace_id."
+
+      - alert: RecombynExportDlqRising
+        expr: increase(recombyn_export_dlq_total[30m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Export DLQ receiving failures"
+          description: "More than 5 export jobs pushed to Redis DLQ in 30m. Replay via POST /api/v1/admin/ops/export-dlq/replay."
+
+      - alert: RecombynExportDlqDepth
+        expr: recombyn_export_dlq_depth > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Export DLQ depth > 20"
+          description: "Redis list recombyn:dlq:export is backing up. Check worker health and replay or discard via admin ops."

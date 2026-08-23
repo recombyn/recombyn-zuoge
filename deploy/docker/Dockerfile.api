@@ -1,0 +1,60 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+RUN set -eux; \
+    . /etc/os-release; \
+    printf 'deb http://mirrors.aliyun.com/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list; \
+    printf 'deb http://mirrors.aliyun.com/debian %s-updates main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list; \
+    printf 'deb http://mirrors.aliyun.com/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/*; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends -o Acquire::Retries=5 --fix-missing \
+      libgl1 \
+      libglib2.0-0; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY packages/scene-builder-py ./packages/scene-builder-py
+COPY packages/protocol ./packages/protocol
+COPY packages/intelligence-client ./packages/intelligence-client
+COPY packages/skill-sdk ./packages/skill-sdk
+COPY packages/plugin-sdk ./packages/plugin-sdk
+COPY packages/agent-sdk ./packages/agent-sdk
+COPY packages/runtime ./packages/runtime
+COPY apps/api ./apps/api
+# Design Agent catalog (ADR 0018): scanned from repo root via _repo_root().
+# Without these, cloud images only see volume-mounted plugins (often one demo pack).
+COPY skills ./skills
+COPY plugins/skills ./plugins/skills
+
+ARG INSTALL_OCR=false
+ARG INSTALL_AV=false
+
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --trusted-host mirrors.aliyun.com \
+      ./packages/scene-builder-py \
+      ./packages/protocol \
+      ./packages/intelligence-client \
+      ./packages/skill-sdk \
+      ./packages/plugin-sdk \
+      ./packages/agent-sdk \
+      ./packages/runtime \
+    && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --trusted-host mirrors.aliyun.com \
+      ./apps/api \
+    && if [ "$INSTALL_OCR" = "true" ]; then \
+         pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple --trusted-host mirrors.aliyun.com "./apps/api[ocr]" \
+         && pip install --no-cache-dir paddlepaddle -i https://www.paddlepaddle.org.cn/packages/stable/cpu/; \
+       fi \
+    && if [ "$INSTALL_AV" = "true" ]; then \
+         apt-get update && apt-get install -y --no-install-recommends clamav-daemon \
+         && rm -rf /var/lib/apt/lists/*; \
+       fi
+
+WORKDIR /app/apps/api
+ENV PYTHONUNBUFFERED=1 \
+    USE_VISION=true
+
+COPY deploy/docker/api-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8000
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

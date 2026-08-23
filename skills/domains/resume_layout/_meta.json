@@ -1,0 +1,49 @@
+{
+  "skill_key": "resume_layout",
+  "name": "resume_layout",
+  "displayName": "Resume / CV",
+  "description": "Resume and CV layout: scannable columns, type scale, section rhythm — not poster decoration",
+  "when_to_use": "Resume / CV / 简历 / 履历 / curriculum vitae — structured personal/professional document on canvas",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 76,
+  "version": "2.0.1",
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "create_image",
+    "update_node",
+    "move_nodes"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "简历",
+        "履历",
+        "resume",
+        "CV",
+        "curriculum vitae"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Prefer a professional document over a festive poster. Unless the user provides them, avoid inventing board facts such as employers, dates, metrics, phone numbers, etc. Prefer plain section titles over emoji icons. Prefer readable body with margin.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "简历 / CV",
+      "description": "简历版式：栏结构、字阶与区块节奏，不做海报装饰风"
+    },
+    "en": {
+      "displayName": "Resume / CV",
+      "description": "Resume layout: columns, type scale, section rhythm"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+# Yjs WebSocket collab server (apps/collab).
+FROM node:20-alpine
+WORKDIR /app
+COPY apps/collab/package.json ./
+RUN npm install --omit=dev
+COPY apps/collab/server.mjs ./
+ENV HOST=0.0.0.0
+ENV PORT=1234
+EXPOSE 1234
+CMD ["node", "server.mjs"]

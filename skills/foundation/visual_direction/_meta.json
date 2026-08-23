@@ -1,0 +1,30 @@
+{
+  "skill_key": "visual_direction",
+  "name": "visual_direction",
+  "displayName": "Visual Direction",
+  "description": "Visual thesis + Style DNA — why the design should look this way",
+  "when_to_use": "Foundation after design_brief — lock thesis and material/geometry/lighting DNA before paint",
+  "category": "foundation",
+  "scenes": "all",
+  "sort_weight": 15,
+  "version": "3.1.0",
+  "context_mode": "rules",
+  "extends": [
+    "imagery"
+  ],
+  "preferred_tools": [],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "mutex_group": "",
+  "prompt_negative": "Do not use vague words like 科技感/高级 as thesis. Do not invent a second DNA mid-run.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "视觉方向",
+      "description": "视觉论点 + Style DNA"
+    },
+    "en": {
+      "displayName": "Visual Direction",
+      "description": "Visual thesis + Style DNA"
+    }
+  }
+}

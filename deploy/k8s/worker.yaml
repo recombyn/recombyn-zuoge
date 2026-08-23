@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: recombyn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/recombyn/recombyn/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery", "-A", "worker.celery_app.celery", "worker", "-l", "info", "--concurrency=1"]
+          envFrom:
+            - configMapRef:
+                name: recombyn-config
+            - secretRef:
+                name: recombyn-secret
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: recombyn-api-worker

@@ -1,0 +1,31 @@
+{
+  "skill_key": "design_system",
+  "name": "design_system",
+  "displayName": "Design System",
+  "description": "Tokens + hierarchy ratios for the run — paint from the sheet, not random numbers",
+  "when_to_use": "Foundation when creating a coherent board; lock type/spacing/radius/color roles before paint",
+  "category": "foundation",
+  "scenes": "all",
+  "sort_weight": 25,
+  "version": "3.1.0",
+  "context_mode": "rules",
+  "extends": [
+    "typography",
+    "color"
+  ],
+  "preferred_tools": ["create_text", "create_shape", "update_node"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "mutex_group": "",
+  "prompt_negative": "Do not pick random padding/fontSize/radius each node. Do not invent a second type mood mid-run.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "设计系统",
+      "description": "本轮 Token 与层级比例；从参数表取数，不要随机"
+    },
+    "en": {
+      "displayName": "Design System",
+      "description": "Run tokens + hierarchy ratios"
+    }
+  }
+}

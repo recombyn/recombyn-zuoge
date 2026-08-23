@@ -1,0 +1,22 @@
+{
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "festival": { "type": "string", "description": "Holiday name, e.g. Mid-Autumn" },
+      "color_theme": { "type": "string", "description": "Primary mood color or palette hint" },
+      "width": { "type": "number" },
+      "height": { "type": "number" }
+    },
+    "required": ["festival"]
+  },
+  "output_schema": {
+    "type": "object",
+    "allowed_ops": [
+      "create_frame",
+      "create_image",
+      "create_text",
+      "create_shape",
+      "update_node"
+    ]
+  }
+}

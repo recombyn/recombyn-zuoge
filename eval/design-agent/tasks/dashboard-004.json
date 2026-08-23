@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-004",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 主从明细后台：左侧用户列表，右侧资料检查器。选中后检查器是主信息。不要 KPI 行。不要编造用户 PII，用占位名。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

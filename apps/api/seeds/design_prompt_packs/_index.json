@@ -1,0 +1,704 @@
+{
+  "_comment": "Prompt pack index — bodies in stages/*.md + snippets.md (<!-- pack:<kind> --> sections). item.file = path under this dir.",
+  "kindLabels": {
+    "agent.prompt.need_tools_overlay": "Decide resource protocol (shared)",
+    "agent.prompt.paint_system": "Paint stage system",
+    "agent.prompt.review_system": "Review stage system",
+    "agent.prompt.ask_system": "Ask mode rules",
+    "agent.prompt.agent_system": "Agent mode rules",
+    "agent.prompt.paint_retry": "Paint retry hint",
+    "agent.prompt.ask_propose_situation": "Ask propose confirm copy",
+    "agent.prompt.intent_classify": "Intent classifier",
+    "agent.prompt.lc_tools_overlay": "LangChain structured overlay",
+    "agent.prompt.react_system": "Main decide system",
+    "agent.prompt.chat_agent_system": "Tool-chat system",
+    "agent.prompt.partial_system": "Partial edit system",
+    "agent.prompt.chat_fallback": "Chat fallback template",
+    "agent.prompt.size_auto": "Auto size hint",
+    "agent.prompt.ask_canvas_size": "Ask canvas size",
+    "agent.prompt.unsafe_ops_ask": "Unsafe ops confirm ask",
+    "agent.prompt.ask_blocked_edit": "Ask confirm hold",
+    "agent.prompt.pending_tools": "Pending tools reinject",
+    "agent.prompt.pending_skills": "Pending skills reinject",
+    "agent.prompt.pending_subagents": "Pending subagents reinject",
+    "agent.prompt.default_assistant_name": "Default assistant name",
+    "agent.prompt.tools_loaded_fallback": "Tools loaded fallback",
+    "agent.prompt.recover_edit_retry": "Force paint after resources",
+    "agent.prompt.tools_registry_header": "Canvas tools registry header",
+    "agent.prompt.tools_registry_empty": "Canvas tools not configured",
+    "agent.prompt.tools_catalog_header": "Canvas tools catalog header",
+    "agent.prompt.tools_catalog_empty": "Canvas tools catalog empty",
+    "agent.prompt.tool_details_header": "Tool details header",
+    "agent.prompt.tool_details_hint_line": "Tool details hint line",
+    "agent.prompt.tool_details_args_line": "Tool details args line",
+    "agent.prompt.tool_details_unknown": "Tool details unknown",
+    "agent.prompt.skill_catalog_header": "Skill catalog header",
+    "agent.prompt.skill_catalog_empty": "Skill catalog empty",
+    "agent.prompt.skill_details_header": "Skill details header",
+    "agent.prompt.skill_details_truncated": "Skill details truncated",
+    "agent.prompt.focus_frame_authority": "FOCUS frame authority",
+    "agent.prompt.focus_empty_frame": "Empty focus frame hint",
+    "agent.prompt.scene_frames_header": "SCENE_FRAMES header",
+    "agent.prompt.bg_candidate_hint": "Background candidate hint",
+    "agent.prompt.prompt_pack_inject_header": "Flow prompt inject header",
+    "agent.prompt.plan_system": "Short plan system",
+    "agent.prompt.official_agent_system": "Official tools agent",
+    "agent.persona.auto": "Persona · Auto",
+    "agent.persona.locked": "Persona · locked model",
+    "precheck.router_system": "Model router"
+  },
+  "items": [
+    {
+      "kind": "agent.persona.auto",
+      "title": "Persona · Auto",
+      "scenes": "all",
+      "sort_order": 10,
+      "when_to_use": "Persona · Auto",
+      "selectable": true,
+      "group": "agent_persona",
+      "type": "system",
+      "usedBy": [
+        "persona"
+      ],
+      "file": "stages/persona.md"
+    },
+    {
+      "kind": "agent.persona.locked",
+      "title": "Persona · locked model",
+      "scenes": "all",
+      "sort_order": 20,
+      "when_to_use": "Persona · locked model",
+      "selectable": true,
+      "group": "agent_persona",
+      "type": "system",
+      "usedBy": [
+        "persona"
+      ],
+      "file": "stages/persona.md"
+    },
+    {
+      "kind": "agent.prompt.agent_system",
+      "title": "Agent mode rules",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide",
+        "paint"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 40,
+      "when_to_use": "Agent mode gate: no asking; no brief_intake",
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.ask_blocked_edit",
+      "title": "Ask confirm hold",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 170,
+      "when_to_use": "Ask mode: hold unconfirmed edits",
+      "file": "stages/apply_ux.md"
+    },
+    {
+      "kind": "agent.prompt.ask_canvas_size",
+      "title": "Ask canvas size",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 150,
+      "when_to_use": "Ask for canvas size",
+      "file": "stages/apply_ux.md"
+    },
+    {
+      "kind": "agent.prompt.ask_propose_situation",
+      "title": "Ask propose confirm copy",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "apply"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 60,
+      "when_to_use": "Ask propose confirm UX line",
+      "file": "stages/apply_ux.md"
+    },
+    {
+      "kind": "agent.prompt.ask_system",
+      "title": "Ask mode rules",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide",
+        "apply"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 30,
+      "when_to_use": "Ask mode: HITL / choice_ui clarify and propose",
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.bg_candidate_hint",
+      "title": "Background candidate hint",
+      "scenes": "all",
+      "sort_order": 300,
+      "when_to_use": "Inject template · background candidate node",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "paint"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.chat_agent_system",
+      "title": "Tool-chat system",
+      "scenes": "all",
+      "sort_order": 50,
+      "when_to_use": "Tool-chat system",
+      "selectable": true,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "decide"
+      ],
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.chat_fallback",
+      "title": "Chat fallback template",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 130,
+      "when_to_use": "Chat fallback reply template",
+      "file": "stages/apply_ux.md"
+    },
+    {
+      "kind": "agent.prompt.default_assistant_name",
+      "title": "Default assistant name",
+      "type": "template",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 220,
+      "when_to_use": "Inject template · default assistant name",
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.focus_empty_frame",
+      "title": "Empty focus frame hint",
+      "scenes": "all",
+      "sort_order": 290,
+      "when_to_use": "Inject template · empty focus frame",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "paint",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.focus_frame_authority",
+      "title": "FOCUS frame authority",
+      "scenes": "all",
+      "sort_order": 291,
+      "when_to_use": "Inject template · FOCUS frame authority",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "paint",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.intent_classify",
+      "title": "Intent classifier",
+      "scenes": "all",
+      "sort_order": 15,
+      "when_to_use": "Intent: chat | canvas_op | design",
+      "selectable": true,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "intent"
+      ],
+      "file": "stages/intent_precheck.md"
+    },
+    {
+      "kind": "agent.prompt.lc_tools_overlay",
+      "title": "LangChain structured overlay",
+      "scenes": "all",
+      "sort_order": 70,
+      "when_to_use": "LangChain structured-output overlay",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "decide"
+      ],
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.need_tools_overlay",
+      "title": "Decide resource protocol (shared)",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 10,
+      "when_to_use": "Decide resource protocol: need_*; tool_ops=[] this turn",
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.official_agent_system",
+      "title": "Official tools agent",
+      "scenes": "all",
+      "sort_order": 80,
+      "when_to_use": "Official create_agent tool-loop system",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "decide"
+      ],
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.paint_retry",
+      "scenes": "all",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "system",
+      "title": "Paint retry hint",
+      "when_to_use": "Paint retry: attempt>0 extra constraints",
+      "sort_order": 311,
+      "usedBy": [
+        "paint"
+      ],
+      "file": "stages/paint.md"
+    },
+    {
+      "kind": "agent.prompt.paint_system",
+      "title": "Paint stage system",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "paint"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 20,
+      "when_to_use": "Paint: tool_ops + host FOCUS/size protocol",
+      "file": "stages/paint.md"
+    },
+    {
+      "kind": "agent.prompt.review_system",
+      "title": "Review stage system",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "review"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 21,
+      "when_to_use": "Review: pass/issues only; no tool_ops",
+      "file": "stages/review.md"
+    },
+    {
+      "kind": "agent.prompt.partial_system",
+      "title": "Partial edit system",
+      "scenes": "all",
+      "sort_order": 40,
+      "when_to_use": "Partial layer edit (not full-page create)",
+      "selectable": true,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "orchestrator"
+      ],
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.pending_skills",
+      "title": "Pending skills reinject",
+      "scenes": "all",
+      "sort_order": 160,
+      "when_to_use": "Inject template · skill details reinject",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "decide",
+        "resources"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.pending_subagents",
+      "title": "Pending subagents reinject",
+      "scenes": "all",
+      "sort_order": 165,
+      "when_to_use": "Inject template · subagent results reinject",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "decide",
+        "resources"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.pending_tools",
+      "title": "Pending tools reinject",
+      "scenes": "all",
+      "sort_order": 140,
+      "when_to_use": "Inject template · tool details reinject",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "decide",
+        "resources"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.plan_system",
+      "title": "Short plan system",
+      "scenes": "all",
+      "sort_order": 20,
+      "when_to_use": "Short plan system",
+      "selectable": true,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "decide"
+      ],
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.prompt_pack_inject_header",
+      "title": "Flow prompt inject header",
+      "scenes": "all",
+      "sort_order": 280,
+      "when_to_use": "Inject template · flow prompt header",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.react_system",
+      "title": "Main decide system",
+      "scenes": "all",
+      "sort_order": 10,
+      "when_to_use": "Decide main think: JSON protocol + need_* routing",
+      "selectable": true,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "decide"
+      ],
+      "file": "stages/decide.md"
+    },
+    {
+      "kind": "agent.prompt.recover_edit_retry",
+      "title": "Force paint after resources",
+      "scenes": "all",
+      "sort_order": 230,
+      "when_to_use": "Resources loaded but still no ops — force paint",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "system",
+      "usedBy": [
+        "paint",
+        "resources"
+      ],
+      "file": "stages/paint.md"
+    },
+    {
+      "kind": "agent.prompt.scene_frames_header",
+      "title": "SCENE_FRAMES header",
+      "scenes": "all",
+      "sort_order": 292,
+      "when_to_use": "Inject template · SCENE_FRAMES header",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "paint",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.size_auto",
+      "title": "Auto size hint",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "bootstrap",
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 140,
+      "when_to_use": "When canvas size is auto",
+      "file": "stages/paint.md"
+    },
+    {
+      "kind": "agent.prompt.skill_catalog_empty",
+      "title": "Skill catalog empty",
+      "scenes": "all",
+      "sort_order": 201,
+      "when_to_use": "Inject template · skill catalog empty",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.skill_catalog_header",
+      "title": "Skill catalog header",
+      "scenes": "all",
+      "sort_order": 200,
+      "when_to_use": "Inject template · skill catalog header",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.skill_details_header",
+      "title": "Skill details header",
+      "scenes": "all",
+      "sort_order": 190,
+      "when_to_use": "Inject template · skill details header",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.skill_details_truncated",
+      "title": "Skill details truncated",
+      "scenes": "all",
+      "sort_order": 202,
+      "when_to_use": "Inject template · skill details truncated",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tool_details_args_line",
+      "title": "Tool details args line",
+      "type": "template",
+      "group": "oss_baseline",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 310,
+      "when_to_use": "Inject template · tool details args",
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tool_details_header",
+      "title": "Tool details header",
+      "scenes": "all",
+      "sort_order": 180,
+      "when_to_use": "Inject template · tool details header",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tool_details_hint_line",
+      "title": "Tool details hint line",
+      "type": "template",
+      "group": "oss_baseline",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 300,
+      "when_to_use": "Inject template · tool details hint",
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tool_details_unknown",
+      "title": "Tool details unknown",
+      "scenes": "all",
+      "sort_order": 187,
+      "when_to_use": "Inject template · unknown tool",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tools_catalog_empty",
+      "title": "Canvas tools catalog empty",
+      "type": "template",
+      "group": "oss_baseline",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 280,
+      "when_to_use": "Inject template · tools catalog empty",
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tools_catalog_header",
+      "title": "Canvas tools catalog header",
+      "type": "template",
+      "group": "oss_baseline",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 270,
+      "when_to_use": "Inject template · tools catalog header",
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tools_loaded_fallback",
+      "title": "Tools loaded fallback",
+      "type": "template",
+      "group": "oss_baseline",
+      "usedBy": [
+        "resources"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 230,
+      "when_to_use": "Inject template · tools loaded fallback",
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tools_registry_empty",
+      "title": "Canvas tools not configured",
+      "scenes": "all",
+      "sort_order": 182,
+      "when_to_use": "Inject template · tools registry empty",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.tools_registry_header",
+      "title": "Canvas tools registry header",
+      "scenes": "all",
+      "sort_order": 181,
+      "when_to_use": "Inject template · tools registry header",
+      "selectable": false,
+      "group": "agent_prompt",
+      "type": "template",
+      "usedBy": [
+        "resources",
+        "decide"
+      ],
+      "file": "snippets.md"
+    },
+    {
+      "kind": "agent.prompt.unsafe_ops_ask",
+      "title": "Unsafe ops confirm ask",
+      "type": "system",
+      "group": "oss_baseline",
+      "usedBy": [
+        "decide"
+      ],
+      "scenes": "all",
+      "selectable": false,
+      "sort_order": 160,
+      "when_to_use": "Unsafe ops need confirm before apply",
+      "file": "stages/apply_ux.md"
+    },
+    {
+      "kind": "precheck.router_system",
+      "title": "Model router",
+      "scenes": "all",
+      "sort_order": 10,
+      "when_to_use": "Model router classifier system",
+      "selectable": false,
+      "group": "precheck",
+      "type": "system",
+      "usedBy": [
+        "precheck"
+      ],
+      "file": "stages/intent_precheck.md"
+    }
+  ]
+}

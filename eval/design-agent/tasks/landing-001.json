@@ -1,0 +1,9 @@
+{
+  "id": "landing-001",
+  "family": "landing",
+  "skill": "landing_page",
+  "helpers": ["image_gen"],
+  "prompt": "设计一个 AI 写作产品的 1440 宽落地页。先按 AI 品类：Hero → Live Demo（输入→模型→输出）→ Use Cases → Trust → CTA。不要 Hero+三卡片+三卡片+Logo+CTA 的默认模板。不要编造客户 logo 和报价。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md"
+}

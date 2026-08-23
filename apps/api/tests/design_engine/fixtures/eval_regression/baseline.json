@@ -1,0 +1,20 @@
+{
+  "version": 3,
+  "thresholds": {
+    "avg_drop": 3,
+    "key_task_drop": 5
+  },
+  "key_tasks": [
+    "poster-001",
+    "landing-001",
+    "dashboard-001",
+    "image-001"
+  ],
+  "model": "auto",
+  "tasks": {
+    "poster-001": { "score": 88, "issues": [] },
+    "landing-001": { "score": 86, "issues": [] },
+    "dashboard-001": { "score": 84, "issues": [] },
+    "image-001": { "score": 90, "issues": [] }
+  }
+}

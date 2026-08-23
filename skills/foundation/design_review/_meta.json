@@ -1,0 +1,29 @@
+{
+  "skill_key": "design_review",
+  "name": "design_review",
+  "displayName": "Design Review",
+  "description": "Dimensional craft scoring rubric for Review Agent (Runtime sums total)",
+  "when_to_use": "QA foundation — Review uses this rubric; Paint only gets compact checklist",
+  "category": "qa",
+  "scenes": "all",
+  "sort_weight": 90,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": [],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "scope": ["review"],
+  "quality_signals": ["consistency"],
+  "mutex_group": "",
+  "prompt_negative": "Do not invent total. Do not treat Observe geometry as aesthetic praise.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "设计评审",
+      "description": "分项评分标准；总分由 Runtime 求和"
+    },
+    "en": {
+      "displayName": "Design Review",
+      "description": "Dimensional rubric; Runtime owns total"
+    }
+  }
+}

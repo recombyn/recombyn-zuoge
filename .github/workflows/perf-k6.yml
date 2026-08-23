@@ -1,0 +1,151 @@
+name: Perf k6 (Gate B)
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'perf/k6/**'
+      - 'apps/api/**'
+      - 'apps/collab/**'
+      - 'deploy/observability/**'
+      - '.github/workflows/perf-k6.yml'
+  pull_request:
+    paths:
+      - 'perf/k6/**'
+      - 'apps/api/app/core/metrics.py'
+      - 'apps/api/app/main.py'
+      - 'apps/collab/**'
+      - 'deploy/observability/**'
+      - '.github/workflows/perf-k6.yml'
+  workflow_dispatch:
+
+jobs:
+  k6-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPER_ADMIN_TEST_CODE: ciperf01
+      SUPER_ADMIN_EMAIL: admin@recombyn.com
+      COLLAB_TOKEN_SECRET: ci-collab-secret
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/collab/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install API
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "../../packages/scene-builder-py"
+          pip install -e "../../packages/protocol"
+          pip install -e "../../packages/runtime"
+          pip install -e "../../packages/intelligence-client"
+          pip install -e "../../packages/agent-sdk"
+          pip install -e "../../packages/skill-sdk"
+          pip install -e "../../packages/plugin-sdk"
+          pip install -e "../../packages/billing-sdk"
+          pip install -e ".[dev]"
+
+      - name: Start API
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ''
+          SQLITE_DB_PATH: storage/ci-perf.db
+          REDIS_URL: redis://127.0.0.1:6379/0
+          AUTH_CONSOLE_LOGIN_CODE: 'true'
+          SUPER_ADMIN_TEST_CODE: ${{ env.SUPER_ADMIN_TEST_CODE }}
+          COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
+          COLLAB_PUBLIC_WS_URL: ws://127.0.0.1:1234
+          RATE_LIMIT_ENABLED: 'false'
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/api.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/api/v1/health >/dev/null; then
+              echo "API up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API failed to start"; tail -n 80 /tmp/api.log; exit 1
+
+      - name: Start collab
+        working-directory: apps/collab
+        env:
+          HOST: 127.0.0.1
+          PORT: '1234'
+          COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
+        run: |
+          npm install --ignore-scripts
+          nohup npm start > /tmp/collab.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:1234 >/dev/null; then
+              echo "collab up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "collab failed"; tail -n 80 /tmp/collab.log; exit 1
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Mint PERF_TOKEN
+        run: |
+          TOKEN=$(SUPER_ADMIN_TEST_CODE="$SUPER_ADMIN_TEST_CODE" node scripts/ci-mint-token.mjs)
+          echo "PERF_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Verify PERF_TOKEN
+        run: |
+          code=$(curl -s -o /tmp/me.json -w "%{http_code}" -H "Authorization: Bearer $PERF_TOKEN" http://127.0.0.1:8000/api/v1/auth/me)
+          echo "auth/me => $code"
+          cat /tmp/me.json
+          test "$code" = "200"
+
+      - name: k6 smoke
+        run: k6 run perf/k6/smoke.js
+        env:
+          BASE_URL: http://127.0.0.1:8000
+
+      - name: k6 api_crud
+        run: k6 run perf/k6/api_crud.js
+        env:
+          BASE_URL: http://127.0.0.1:8000
+          PERF_TOKEN: ${{ env.PERF_TOKEN }}
+
+      - name: k6 collab_ws
+        run: k6 run perf/k6/collab_ws.js
+        env:
+          COLLAB_WS_URL: ws://127.0.0.1:1234
+          COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
+
+      - name: Dual Yjs merge
+        working-directory: apps/collab
+        env:
+          COLLAB_WS_URL: ws://127.0.0.1:1234
+          COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
+        run: node dual_client_merge.test.mjs

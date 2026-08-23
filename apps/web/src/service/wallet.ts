@@ -1,0 +1,183 @@
+/**
+ * Wallet Query SoT — balance / plan / billing flag live in TanStack Query, not Redux.
+ */
+
+import { useQuery } from '@tanstack/react-query';
+import { apiQuery, queryClient } from '@/service/client';
+import type { WalletDto } from '@/models/wallet';
+import { normalizePlanId, PLAN_CATALOG, type PlanDef, type PlanId } from '@/utils/wallet';
+import { getApiBaseUrl, isDesktopLocal, isLocalDevHost } from '@/utils/apiBase';
+import { getToken } from '@/utils/token';
+
+export type WalletSnapshot = {
+  credits: number;
+  planId: PlanId;
+  planExpiresAt: number | null;
+  planLocked: boolean;
+  billingEnabled: boolean;
+  creditsIncluded: number;
+};
+
+function emptyWalletSnapshot(billingEnabled = false): WalletSnapshot {
+  return {
+    credits: 0,
+    planId: 'free',
+    planExpiresAt: null,
+    planLocked: false,
+    billingEnabled,
+    creditsIncluded: PLAN_CATALOG.free.creditsIncluded,
+  };
+}
+
+export type WalletPlanRow = {
+  planId: string;
+  priceCny: number;
+  creditsIncluded: number;
+  period?: string;
+  dailyRuns?: number;
+};
+
+function walletApiUrl(path: string): string {
+  const baked = getApiBaseUrl().replace(/\/$/, '');
+  const root = baked || (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8000');
+  return `${root}/api/v1${path}`;
+}
+
+function mergePlanCatalog(rows: WalletPlanRow[] | undefined): Record<PlanId, PlanDef> {
+  const out: Record<PlanId, PlanDef> = {
+    free: { ...PLAN_CATALOG.free },
+    plus: { ...PLAN_CATALOG.plus },
+    pro: { ...PLAN_CATALOG.pro },
+    ultra: { ...PLAN_CATALOG.ultra },
+  };
+  for (const row of rows || []) {
+    const id = normalizePlanId(row.planId);
+    const credits = Math.max(0, Math.round(Number(row.creditsIncluded) || 0));
+    out[id] = {
+      ...out[id],
+      id,
+      priceCny: Math.max(0, Math.round(Number(row.priceCny) || 0)),
+      creditsIncluded: credits,
+      dailyRuns:
+        row.dailyRuns != null && Number.isFinite(Number(row.dailyRuns))
+          ? Math.max(0, Math.round(Number(row.dailyRuns)))
+          : out[id].dailyRuns,
+    };
+  }
+  return out;
+}
+
+async function loadWalletPlans(): Promise<WalletPlanRow[]> {
+  const res = await fetch(walletApiUrl('/wallet/plans'));
+  if (!res.ok) throw new Error(`wallet plans ${res.status}`);
+  const body = (await res.json()) as { plans?: WalletPlanRow[] };
+  return Array.isArray(body.plans) ? body.plans : [];
+}
+
+/** Public membership SKUs from `/wallet/plans` (Intelligence via API; OSS fallback). */
+export function usePlanCatalog(): Record<PlanId, PlanDef> {
+  const q = useQuery({
+    queryKey: ['wallet', 'plans'],
+    queryFn: loadWalletPlans,
+    staleTime: 60_000,
+  });
+  return mergePlanCatalog(q.data);
+}
+
+export function walletDtoToSnapshot(
+  dto: WalletDto | null | undefined,
+  billingFallback = false,
+  catalog: Record<PlanId, PlanDef> = PLAN_CATALOG
+): WalletSnapshot {
+  if (!dto) {
+    return {
+      ...emptyWalletSnapshot(billingFallback),
+      creditsIncluded: catalog.free.creditsIncluded,
+    };
+  }
+  const planId = normalizePlanId(dto.planId);
+  let planExpiresAt: number | null = null;
+  if (dto.planExpiresAt != null && Number.isFinite(Number(dto.planExpiresAt))) {
+    planExpiresAt = Number(dto.planExpiresAt);
+  }
+  let billingEnabled = billingFallback;
+  if (dto.billingEnabled !== undefined) {
+    billingEnabled = Boolean(dto.billingEnabled);
+  }
+  return {
+    credits: Math.max(0, Math.round(Number(dto.credits) || 0)),
+    planId,
+    planExpiresAt,
+    planLocked: Boolean(dto.planLocked) && planId !== 'free',
+    billingEnabled,
+    creditsIncluded: (catalog[planId] || catalog.free).creditsIncluded,
+  };
+}
+
+/** After redeem / spend — refresh me + ledger lists. */
+export async function invalidateWalletCache() {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: apiQuery.walletWalletMe.key() }),
+    queryClient.invalidateQueries({ queryKey: apiQuery.walletWalletLedger.key() }),
+    queryClient.invalidateQueries({ queryKey: ['wallet', 'plans'] }),
+  ]);
+}
+
+/** Logout / 401 — drop cached balance so the next account cannot leak. */
+export function clearWalletCache() {
+  queryClient.removeQueries({ queryKey: apiQuery.walletWalletMe.key() });
+  queryClient.removeQueries({ queryKey: apiQuery.walletWalletLedger.key() });
+  queryClient.removeQueries({ queryKey: ['wallet', 'plans'] });
+}
+
+/** Authed wallet row — credits, plan, billingEnabled from `/wallet`. */
+export function useWalletMeQuery(enabled?: boolean) {
+  const authed = Boolean(getToken());
+  return useQuery({
+    ...apiQuery.walletWalletMe.queryOptions({
+      enabled: enabled ?? authed,
+    }),
+  });
+}
+
+/** Public billing flag from `/auth/config` (works before login). */
+export function useAuthBillingConfigQuery() {
+  return useQuery({
+    ...apiQuery.authAuthConfig.queryOptions(),
+    staleTime: 60_000,
+  });
+}
+
+/** Prefer wallet.me when logged in; else public auth config. */
+export function useBillingEnabled(): boolean {
+  const authed = Boolean(getToken());
+  const configQuery = useAuthBillingConfigQuery();
+  const walletQuery = useWalletMeQuery(authed);
+  const fromWallet = (walletQuery.data as WalletDto | undefined)?.billingEnabled;
+  if (typeof fromWallet === 'boolean') return fromWallet;
+  return Boolean((configQuery.data as { billingEnabled?: boolean } | undefined)?.billingEnabled);
+}
+
+/** Show per-action credit costs (tool CTAs, send bolt) — off for local desktop and loopback dev. */
+export function useShowCreditCosts(): boolean {
+  const billingEnabled = useBillingEnabled();
+  return billingEnabled && !isDesktopLocal() && !isLocalDevHost();
+}
+
+/** Convenience snapshot for chips / plans / ledger header. */
+export function useWalletSnapshot(): WalletSnapshot {
+  const authed = Boolean(getToken());
+  const configQuery = useAuthBillingConfigQuery();
+  const walletQuery = useWalletMeQuery(authed);
+  const catalog = usePlanCatalog();
+  const fromWallet = (walletQuery.data as WalletDto | undefined)?.billingEnabled;
+  const billingEnabled =
+    typeof fromWallet === 'boolean'
+      ? fromWallet
+      : Boolean((configQuery.data as { billingEnabled?: boolean } | undefined)?.billingEnabled);
+  return walletDtoToSnapshot(
+    walletQuery.data as WalletDto | undefined,
+    billingEnabled,
+    catalog
+  );
+}

@@ -1,0 +1,13 @@
+[project]
+name = "recombyn-runtime"
+version = "0.1.0"
+description = "Open Design Runtime helpers (intelligence request payload)"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "recombyn-protocol>=0.1.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["recombyn_runtime*"]

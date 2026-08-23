@@ -1,0 +1,8 @@
+{
+  "id": "image-004",
+  "family": "image",
+  "skill": "image_gen",
+  "prompt": "生成一张人物侧脸肖像：伦勃朗光、暗背景、皮肤质感真实。不要把姓名字幕烧进画面。",
+  "ref_good": "refs/good/image-thesis-plate.md",
+  "ref_bad": "refs/bad/image-baked-title.md"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "poster-007",
+  "family": "poster",
+  "skill": "poster_craft",
+  "prompt": "做一张 1080x1920 话剧开票海报。主视觉空舞台一束追光。剧名与场次用画板文字。不要把台词烘焙进背景，不要假明星头像墙。",
+  "ref_good": "refs/good/poster-single-hero.md",
+  "ref_bad": "refs/bad/poster-ai-postcard.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

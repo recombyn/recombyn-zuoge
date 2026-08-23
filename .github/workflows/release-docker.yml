@@ -1,0 +1,91 @@
+name: Release Docker (GHCR)
+
+# Build and push api / web / collab images on version tags (ADR 0009 follow-up).
+# Example: git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (e.g. v0.1.0 or sha-abc1234)'
+        required: true
+        default: 'dev'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            file: deploy/docker/Dockerfile.api
+          - name: web
+            file: deploy/docker/Dockerfile.web
+          - name: collab
+            file: deploy/docker/Dockerfile.collab
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tags
+        id: meta
+        shell: bash
+        run: |
+          OWNER_LC='${{ github.repository_owner }}'
+          OWNER_LC="${OWNER_LC,,}"
+          REPO_LC='${{ github.event.repository.name }}'
+          REPO_LC="${REPO_LC,,}"
+          IMAGE="${{ env.REGISTRY }}/${OWNER_LC}/${REPO_LC}/${{ matrix.name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RAW="${{ inputs.tag }}"
+          else
+            RAW="${GITHUB_REF_NAME}"
+          fi
+          STRIP="${RAW#v}"
+          TAGS="${IMAGE}:${RAW}"
+          if [ "$STRIP" != "$RAW" ]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE}:${STRIP}"
+          fi
+          case "$RAW" in
+            *-*) ;;
+            *) TAGS="${TAGS}"$'\n'"${IMAGE}:latest" ;;
+          esac
+          {
+            echo "image=${IMAGE}"
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Publishing:"
+          echo "$TAGS"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VITE_COLLAB_ENABLED=true
+            INSTALL_OCR=false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

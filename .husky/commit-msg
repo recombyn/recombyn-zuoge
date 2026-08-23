@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+file="$1"
+if [ -z "$file" ]; then
+  file="$(git rev-parse --git-path COMMIT_EDITMSG)"
+fi
+npx --no -- commitlint --edit "$file" || exit $?
+# CI `/no-cursor-coauthor` rejects this trailer. Strip it here so local commits match GitHub.
+# Pass the path via env: `node -e` does not put the eval string in argv, and Git for
+# Windows often fails to forward `"$1"` as a Node extra argument.
+HUSKY_COMMIT_MSG="$file" node -e "const fs=require('fs'); const p=process.env.HUSKY_COMMIT_MSG; if(!p) process.exit(0); const s=fs.readFileSync(p,'utf8'); const n=s.split(/\r?\n/).filter((l)=>!/^Co-authored-by:\\s*Cursor\\b/i.test(l)).join('\\n'); if (n!==s) fs.writeFileSync(p, n.endsWith('\\n')||n===''?n:n+'\\n');"

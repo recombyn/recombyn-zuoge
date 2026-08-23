@@ -1,0 +1,34 @@
+{
+  "skill_key": "shadcn_ui",
+  "name": "shadcn_ui",
+  "displayName": "shadcn/ui",
+  "description": "组件组合说明书：语义色、表单结构、叠层与变体优先",
+  "when_to_use": "Compose product UI on canvas (settings, forms, dialogs, nav, feedback) using semantic roles and shadcn-like composition — not ad-hoc chrome.",
+  "category": "ui",
+  "scenes": "all",
+  "sort_weight": 34,
+  "version": "1.1.1",
+  "preferred_tools": [
+    "create_frame",
+    "create_shape",
+    "create_text",
+    "create_image",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [],
+  "mutex_group": "",
+  "prompt_negative": "不要用随意蓝/绿 hex 充当状态色；不要把所有内容塞进一个无结构容器；不要省略对话框标题级信息。",
+  "locales": {
+    "zh-CN": {
+      "displayName": "shadcn/ui 说明书",
+      "description": "组件组合说明书：语义色、表单结构、叠层与变体优先"
+    },
+    "en": {
+      "displayName": "shadcn/ui handbook",
+      "description": "Compose UI with semantic colors, form structure, overlays, and variants first"
+    }
+  }
+}

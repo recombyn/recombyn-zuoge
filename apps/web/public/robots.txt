@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Allow: /home
+Disallow: /editor
+Disallow: /account
+Disallow: /login
+Disallow: /s/
+
+Sitemap: https://recombyn.com/sitemap.xml

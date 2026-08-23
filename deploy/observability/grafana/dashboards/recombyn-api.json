@@ -1,0 +1,162 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "HTTP request rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"recombyn-api\"}[1m])) by (handler, status)",
+          "legendFormat": "{{handler}} {{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "HTTP p95 latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"recombyn-api\"}[5m])) by (le, handler))",
+          "legendFormat": "{{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Dependencies up",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "recombyn_dependency_db_up",
+          "legendFormat": "db",
+          "refId": "A"
+        },
+        {
+          "expr": "recombyn_dependency_redis_up",
+          "legendFormat": "redis",
+          "refId": "B"
+        },
+        {
+          "expr": "recombyn_dependency_worker_up",
+          "legendFormat": "worker",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "title": "Design runs",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 8 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(rate(recombyn_design_runs_total[5m])) by (run_mode)",
+          "legendFormat": "start {{run_mode}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(recombyn_design_run_outcomes_total[5m])) by (outcome)",
+          "legendFormat": "outcome {{outcome}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "Hydrate jobs by event",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum(rate(recombyn_hydrate_jobs_total[5m])) by (event)",
+          "legendFormat": "{{event}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Hydrate DLQ depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 16 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "recombyn_hydrate_dlq_depth",
+          "legendFormat": "depth",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Hydrate DLQ pushes",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 16 },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "increase(recombyn_hydrate_dlq_total[1h])",
+          "legendFormat": "1h",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Export jobs by event",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "sum(rate(recombyn_export_jobs_total[5m])) by (event)",
+          "legendFormat": "{{event}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Export DLQ depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 24 },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "recombyn_export_dlq_depth",
+          "legendFormat": "depth",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Export DLQ pushes",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 24 },
+      "id": 10,
+      "targets": [
+        {
+          "expr": "increase(recombyn_export_dlq_total[1h])",
+          "legendFormat": "1h",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["recombyn", "api"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Recombyn API SLO",
+  "uid": "recombyn-api-slo",
+  "version": 2
+}

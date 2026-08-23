@@ -1,0 +1,21 @@
+# ClamAV AV profile overlay — wire UPLOAD_AV_* on api + install clamdscan client.
+#
+#   docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build
+#
+# Requires profile `av` (clamav service). API image builds with INSTALL_AV=true.
+
+services:
+  api:
+    build:
+      args:
+        INSTALL_AV: "true"
+    environment:
+      - UPLOAD_AV_HOOK_ENABLED=true
+      - UPLOAD_AV_COMMAND=clamdscan --stream --no-summary --host=clamav --port=3310
+    depends_on:
+      clamav:
+        condition: service_healthy
+
+  clamav:
+    expose:
+      - "3310"

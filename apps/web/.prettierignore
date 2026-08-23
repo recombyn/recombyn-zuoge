@@ -1,0 +1,17 @@
+# apps/web only — Prettier does not format Python (apps/api).
+node_modules
+dist
+build
+coverage
+public
+src-tauri
+package-lock.json
+*.min.js
+*.min.css
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.webp
+**/*.wasm
+**/*.svg

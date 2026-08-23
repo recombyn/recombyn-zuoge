@@ -1,0 +1,54 @@
+{
+  "id": "festival_poster",
+  "skill_key": "festival_poster",
+  "name": "festival_poster",
+  "displayName": "Festival poster",
+  "description": "Holiday / festival poster playbook: theme color, hero mood, title hierarchy",
+  "when_to_use": "Festival or holiday posters — Mid-Autumn, New Year, Spring Festival, Christmas, National Day, branded celebration KV",
+  "author": "recombyn",
+  "category": "deliverable",
+  "version": "1.0.1",
+  "enabled": true,
+  "scenes": "all",
+  "sort_weight": 76,
+  "preferred_tools": [
+    "create_frame",
+    "create_image",
+    "create_text",
+    "create_shape",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": ["create", "edit"],
+      "prompt_includes_any": [
+        "中秋海报",
+        "中秋",
+        "新年海报",
+        "春节海报",
+        "国庆海报",
+        "圣诞海报",
+        "节日海报",
+        "festival poster",
+        "holiday poster",
+        "new year poster",
+        "mid-autumn"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Unless the user provides them, avoid inventing board facts such as prices, phones, QR codes, or real brand logos. Prefer overlay text over baking titles into the background. Prefer poster_craft for generic non-holiday posters.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "节日海报",
+      "description": "节日主题海报：主题色、氛围图、标题层级"
+    },
+    "en": {
+      "displayName": "Festival poster",
+      "description": "Holiday posters: theme color, mood, title hierarchy"
+    }
+  }
+}

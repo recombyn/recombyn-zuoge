@@ -1,0 +1,32 @@
+{
+  "skill_key": "typography",
+  "name": "typography",
+  "displayName": "Typography",
+  "description": "Type ladder and overlay vs baked lettering — roles, not random fontSize",
+  "when_to_use": "Craft after design_system tokens — lock H1>H2>body>caption jumps and where type lives (overlay vs image)",
+  "category": "craft",
+  "scenes": "all",
+  "sort_weight": 30,
+  "version": "3.0.0",
+  "context_mode": "rules",
+  "preferred_tools": ["create_text", "update_node", "outline_text"],
+  "allowed_resources": ["tools"],
+  "triggers": [],
+  "scope": ["paint", "review"],
+  "trigger_confidence": 0.6,
+  "required_context": ["design_brief"],
+  "max_prompt_chars": 1200,
+  "quality_signals": ["typography"],
+  "mutex_group": "",
+  "prompt_negative": "Do not bake titles into bitmaps unless the user asked. Do not use one size for title and body. Do not invent a second type mood mid-board.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "字体排印",
+      "description": "层级跳跃；标题用画板文字，不要写进图"
+    },
+    "en": {
+      "displayName": "Typography",
+      "description": "Type ladder; overlay type over baked titles"
+    }
+  }
+}

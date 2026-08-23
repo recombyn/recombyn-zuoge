@@ -1,0 +1,8 @@
+{
+  "id": "dashboard-002",
+  "family": "dashboard",
+  "skill": "dashboard_ui",
+  "prompt": "做一个 1440x900 运维监控台。主任务是判断服务是否健康：主区一块状态画布/时间线，异常列表在次区。不要四张 KPI 卡当默认墙。没有真实数据用 — 。",
+  "ref_good": "refs/good/dashboard-task-first.md",
+  "ref_bad": "refs/bad/dashboard-kpi-wall.md"
+}

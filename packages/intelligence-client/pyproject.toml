@@ -1,0 +1,15 @@
+[project]
+name = "recombyn-intelligence-client"
+version = "0.1.1"
+description = "Design Intelligence client + provider protocol + Remote HTTP adapter"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "httpx>=0.27.0",
+  "recombyn-protocol>=0.1.1",
+  "recombyn-runtime>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["recombyn_intelligence_client*"]

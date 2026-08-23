@@ -1,0 +1,11 @@
+{
+  "id": "landing-010",
+  "family": "landing",
+  "skill": "landing_page",
+  "prompt": "设计一名摄影师作品集站。Portfolio 流，首屏一个精选系列，其余后置。禁止 Instagram 九宫格当首页。联系方式用占位，不要编造客户名单。",
+  "ref_good": "refs/good/landing-family-flow.md",
+  "ref_bad": "refs/bad/landing-three-cards.md",
+  "helpers": [
+    "image_gen"
+  ]
+}

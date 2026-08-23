@@ -1,0 +1,52 @@
+{
+  "skill_key": "icon_set",
+  "name": "icon_set",
+  "displayName": "Icon / mark set",
+  "description": "Consistent vector icon grids: shared stroke, grid, optical balance",
+  "when_to_use": "Icon / 图标 / icon set / 图标组 / app icon / favicon / UI glyph / symbol mark — static vector marks (not Lottie, not illustrated poster hero)",
+  "category": "deliverable",
+  "scenes": "all",
+  "sort_weight": 74,
+  "version": "1.1.1",
+  "preferred_tools": [
+    "create_frame",
+    "create_icon",
+    "create_svg",
+    "create_shape",
+    "create_text",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create"
+      ],
+      "prompt_includes_any": [
+        "图标",
+        "icon",
+        "icon set",
+        "favicon",
+        "glyph",
+        "符号",
+        "icon grid",
+        "线性图标",
+        "图标组"
+      ]
+    }
+  ],
+  "mutex_group": "",
+  "prompt_negative": "Prefer real geometry over emoji or pictograph text as icons. Prefer simple vector marks; textured/complex brand marks the user asked for may use images. Prefer static marks over Lottie for non-moving icons. Unless the user provides them, avoid inventing brand logos, etc. Prefer one stroke/fill language across a set.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "图标 / 符号组",
+      "description": "统一线宽与网格的矢量图标组"
+    },
+    "en": {
+      "displayName": "Icon / mark set",
+      "description": "Consistent vector icon grids"
+    }
+  }
+}
