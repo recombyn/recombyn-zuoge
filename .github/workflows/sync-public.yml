@@ -43,7 +43,7 @@ jobs:
 
       - name: Filter sync (drop commercial tree)
         run: |
-          rsync -av --delete \
+          rsync -a --delete \
             --exclude=".git/" \
             --exclude="src/commercial/" \
             --exclude="apps/web/src/private/" \
@@ -51,6 +51,7 @@ jobs:
             --exclude=".github/workflows/sync-public.yml" \
             --exclude="scripts/setup-private-remote.mjs" \
             ./ ./pub/
+          echo "Synced tree size:" && du -sh ./pub | cut -f1
 
       - name: Push public repo
         working-directory: ./pub
