@@ -26,11 +26,22 @@ function run(cmd, opts = {}) {
   execSync(cmd, { stdio: 'inherit', cwd: opts.cwd ?? root, ...opts });
 }
 
+function runRobocopy(cmd) {
+  console.log(`> ${cmd}`);
+  try {
+    execSync(cmd, { stdio: 'inherit', shell: true });
+  } catch (err) {
+    const code = err?.status;
+    // robocopy: 0–7 = success (files copied); >=8 = error
+    if (typeof code === 'number' && code >= 0 && code < 8) return;
+    throw err;
+  }
+}
+
 if (existsSync(pubDir)) rmSync(pubDir, { recursive: true, force: true });
 
-run(
-  `robocopy "${root}" "${pubDir}" /E /XD .git pub pub-bootstrap pub-test node_modules /NFL /NDL /NJH /NJS /nc /ns /np`,
-  { shell: true }
+runRobocopy(
+  `robocopy "${root}" "${pubDir}" /E /XD .git pub pub-bootstrap pub-test node_modules /NFL /NDL /NJH /NJS /nc /ns /np`
 );
 
 run(`node scripts/sync-public-strip.mjs "${pubDir}"`);
