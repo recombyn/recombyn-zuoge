@@ -42,6 +42,13 @@ export function isDesktopLocal(): boolean {
   return getDesktopMode() === 'local';
 }
 
+/** Browser on loopback — internal dev stack (Vite :3000 + API :8000); hide SaaS credit chips. */
+export function isLocalDevHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname.toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
 /** Tauri desktop shell (local or cloud flavor) — can spawn OS coding CLIs. */
 export function isDesktopShell(): boolean {
   return getDesktopMode() !== null;

@@ -5,7 +5,7 @@ import { BiExit } from 'react-icons/bi';
 import { HiOutlineBolt } from 'react-icons/hi2';
 import Slider from '@/components/base/slider';
 import Tooltip from '@/components/base/tooltip';
-import { useBillingEnabled } from '@/service/wallet';
+import { useShowCreditCosts } from '@/service/wallet';
 import { cn } from '@/utils/classnames';
 import './imageToolPanel.css';
 
@@ -19,8 +19,9 @@ const panelBtn =
  * Local desktop / BYOK also skip platform credits on the server.
  */
 export const IMAGE_TOOL_CREDIT_COST = {
-  upscale: 20,
+  upscale: 0,
   removeBg: 0,
+  eraser: 0,
   multiAngle: 30,
   expand: 30,
   editText: 0,
@@ -129,21 +130,15 @@ function PanelConfirmCost({
   amount: number;
 }) {
   const { t } = useTranslation();
-  const billingEnabled = useBillingEnabled();
+  const showCreditCosts = useShowCreditCosts();
   const n = Number.isFinite(amount) ? Math.round(amount) : 0;
-  // Free / no-LLM tools — no chip. Paid tools always show list price (even if billing is off locally).
-  if (n <= 0) return null;
+  // Free tools, local desktop, loopback dev, or wallet billing off — no credit chip.
+  if (n <= 0 || !showCreditCosts) return null;
   const display = String(n);
   const tip = t('wallet.creditCostTip', { count: display });
   // Native title — do not wrap Tooltip (div) inside confirm <button>s.
   return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center gap-0.5 text-current',
-        !billingEnabled && 'opacity-80'
-      )}
-      title={tip}
-    >
+    <span className="inline-flex shrink-0 items-center gap-0.5 text-current" title={tip}>
       <span className="tabular-nums">{display}</span>
       <HiOutlineBolt className="h-3.5 w-3.5 shrink-0" aria-hidden />
     </span>

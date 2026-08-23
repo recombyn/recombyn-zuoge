@@ -43,6 +43,8 @@ export function NodeProcessGlow({
       overflow: 'hidden',
       borderRadius,
       pointerEvents: 'none',
+      // Opaque base — semi-transparent SoftGlow must not reveal canvas ink below.
+      background: '#D5DEE6',
     }),
     [borderRadius]
   );
@@ -61,11 +63,11 @@ export function NodeProcessGlow({
     (): CSSProperties => ({
       position: 'absolute',
       left: '50%',
-      top: height - PILL_BOTTOM_PAD_PX * inv,
-      transform: `translate(-50%, -100%) scale(${inv})`,
+      bottom: PILL_BOTTOM_PAD_PX * inv,
+      transform: `translateX(-50%) scale(${inv})`,
       transformOrigin: 'center bottom',
     }),
-    [height, inv]
+    [inv]
   );
 
   return createPortal(
@@ -75,7 +77,7 @@ export function NodeProcessGlow({
       height={height}
       x={0}
       y={0}
-      style={{ overflow: 'visible', pointerEvents: 'none' }}
+      style={{ overflow: 'hidden', pointerEvents: 'none' }}
     >
       <div style={shellStyle}>
         <SoftGlowSurface

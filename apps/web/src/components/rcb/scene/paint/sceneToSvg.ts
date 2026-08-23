@@ -1336,7 +1336,7 @@ export async function nodeToSvgElement(
 
       tagNode(g, nodeId, 'image', undefined, left, top, boxW, boxH);
       // Process shimmer is editor chrome — never bake into export / cover clones.
-      setAttrs(g, { 'data-export-ignore': '1' });
+      setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       applyNodeEffects(root, g, node);
       rememberSceneCornerRadii(g, cornerR);
@@ -1357,8 +1357,26 @@ export async function nodeToSvgElement(
       })
     );
     setSvgImageHref(img, String(src));
-    const clipId = nextClipId('img-clip');
     const defs = ensureDefs(root);
+    const maskSrc = String(node.attrs?.maskSrc || '').trim();
+    const maskOn = maskSrc && String(node.attrs?.maskEnabled || 'true') !== 'false';
+    if (maskOn) {
+      const maskId = nextClipId('img-mask');
+      const maskNode = svgEl('mask', { id: maskId });
+      const maskImg = svgEl('image', {
+        width: boxW,
+        height: boxH,
+        x: 0,
+        y: 0,
+        preserveAspectRatio: 'none',
+      });
+      setSvgImageHref(maskImg, maskSrc);
+      maskNode.appendChild(maskImg);
+      defs.appendChild(maskNode);
+      setAttrs(img, { mask: urlRef(maskId) });
+      setAttrs(g, { 'data-layer-mask': '1' });
+    }
+    const clipId = nextClipId('img-clip');
     const clip = svgEl('clipPath', { id: clipId });
     const clipPath = svgEl('path', { d: clipD, 'data-radius-clip': '1' });
     clip.appendChild(clipPath);
@@ -1418,7 +1436,7 @@ export async function nodeToSvgElement(
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
       rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
-      setAttrs(g, { 'data-export-ignore': '1' });
+      setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       applyNodeEffects(root, g, node);
       return g;
@@ -1593,7 +1611,7 @@ export async function nodeToSvgElement(
         setAttrs(plate, { 'data-radius-body': '1' });
       }
       tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
-      setAttrs(g, { 'data-export-ignore': '1' });
+      setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       applyNodeEffects(root, g, node);
       rememberSceneCornerRadii(g, cornerR);
@@ -1689,7 +1707,7 @@ export async function nodeToSvgElement(
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
       rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
-      setAttrs(g, { 'data-export-ignore': '1' });
+      setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       applyNodeEffects(root, g, node);
       return g;
@@ -2296,14 +2314,6 @@ export function readScenePaintLocalSize(
   fallback: { width: number; height: number }
 ): { width: number; height: number } {
   if (!el) return fallback;
-  const anyEl = asHost(el);
-  if (anyEl.__sceneDidResize) {
-    const baseW = Number(anyEl.__sceneDragBaseW);
-    const baseH = Number(anyEl.__sceneDragBaseH);
-    if (baseW > 0 && baseH > 0) {
-      return { width: baseW, height: baseH };
-    }
-  }
   const geom = readGeom(el);
   if (geom) {
     return {
@@ -2315,6 +2325,40 @@ export function readScenePaintLocalSize(
     width: Math.max(1, fallback.width),
     height: Math.max(1, fallback.height),
   };
+}
+
+function isProcessPlateHost(el: SVGElement): boolean {
+  return el.getAttribute('data-rcb-process-plate') === '1';
+}
+
+/** Keep portaled SoftGlow foreignObject glued during live resize (no CSS scale). */
+export function syncProcessGlowForeignObject(
+  host: SVGElement | null | undefined,
+  width: number,
+  height: number
+): void {
+  if (!host) return;
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  const fo = host.querySelector(
+    'foreignObject[data-rcb-process-glow]'
+  ) as SVGForeignObjectElement | null;
+  if (!fo) return;
+  fo.setAttribute('width', String(w));
+  fo.setAttribute('height', String(h));
+}
+
+function previewResizeProcessPlate(
+  el: SVGElement,
+  box: { left: number; top: number; width: number; height: number }
+): boolean {
+  const w = Math.max(1, box.width);
+  const h = Math.max(1, box.height);
+  writeGeom(el, { left: box.left, top: box.top, width: w, height: h, abs: false });
+  if (!previewResizeLocalGeometry(el, w, h)) return false;
+  syncProcessGlowForeignObject(el, w, h);
+  reapplySceneTransform(el, box.left, box.top, w, h);
+  return true;
 }
 
 function previewResizeImage(
@@ -2333,6 +2377,10 @@ function previewResizeImage(
 
   const w = Math.max(1, box.width);
   const h = Math.max(1, box.height);
+  if (isProcessPlateHost(el)) {
+    return previewResizeProcessPlate(el, box);
+  }
+
   const EPS = 1e-3;
   const sameSize =
     Math.abs(geom.width - w) < EPS && Math.abs(geom.height - h) < EPS;

@@ -113,6 +113,8 @@ export type ComposerContext = {
    * `uploading` → local preview shown with spinner; omit / `ready` once server upload finishes.
    */
   uploadStatus?: 'uploading' | 'ready' | 'error';
+  /** Optional trailing text inserted after the chip (mark quick-edit). */
+  appendText?: string;
 };
 
 export type AgentComposerHandle = {
@@ -121,6 +123,10 @@ export type AgentComposerHandle = {
   focusEnd: () => void;
   /** Insert a context chip at the caret (or last known caret / end). */
   insertContextAtCaret: (ctx: ComposerContext) => void;
+  /** Insert a mark chip before any typed plain text (after existing chips). */
+  insertContextBeforePlainText: (ctx: ComposerContext) => void;
+  /** Insert plain text at the caret and sync React value. */
+  insertPlainAtCaret: (plain: string) => void;
   /** Plain text with U+FFFC where each context chip sits (DOM order). */
   getMarkedText: () => string;
   /**
@@ -999,6 +1005,45 @@ const AgentComposerInput = forwardRef<
       } finally {
         insertingRef.current = false;
       }
+    },
+    insertContextBeforePlainText: (ctx: ComposerContext) => {
+      const el = editorRef.current;
+      if (!el) return;
+
+      skipSyncRef.current = true;
+      insertingRef.current = true;
+      try {
+        const unique: ComposerContext = { ...ctx, key: withChipInstance(ctx.key) };
+        onContextsChangeRef.current([...contextsRef.current, unique]);
+
+        el.focus();
+        savedCaretRef.current = readPlainText(el).length > 0 ? 0 : null;
+        insertChipAtSavedCaret(el, unique, {
+          savedCaretRef,
+          onRemove: removeContextByKey,
+          markHasChips: () => setDomHasChips((prev) => (prev ? prev : true)),
+        });
+
+        skipSyncRef.current = true;
+        onChangeRef.current(readPlainText(el));
+        queueMicrotask(() => {
+          skipSyncRef.current = true;
+        });
+      } finally {
+        insertingRef.current = false;
+      }
+    },
+    insertPlainAtCaret: (plain: string) => {
+      const el = editorRef.current;
+      if (!el || !plain) return;
+      insertPlainAtCaret(plain);
+      skipSyncRef.current = true;
+      rememberCaret();
+      onChangeRef.current(readPlainText(el));
+      syncDomHasChips();
+      queueMicrotask(() => {
+        skipSyncRef.current = true;
+      });
     },
     getMarkedText: () => {
       const el = editorRef.current;

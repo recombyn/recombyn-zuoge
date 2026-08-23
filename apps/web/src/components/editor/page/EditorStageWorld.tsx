@@ -22,8 +22,9 @@ import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
 import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
-import MarkSessionHost from '@/components/editor/nodes/ImageNode/mark/MarkSessionHost';
-import MockupSessionHost from '@/components/editor/nodes/ImageNode/mockup/MockupSessionHost';
+import { CommercialEditorHosts } from '@/commercial/editorHosts';
+import ImageQuickEditSessionHost from '@/components/editor/nodes/ImageNode/ImageQuickEditSessionHost';
+import MarkPinHost from '@/components/editor/nodes/ImageNode/mark/MarkPinHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
@@ -98,6 +99,8 @@ const EDITOR_PAN_BLOCK_SELECTOR = [
   '[data-audio-playback-bar]',
   '[data-audio-trim-toolbar]',
   '[data-audio-speed-toolbar]',
+  '[data-mark-pin-overlay]',
+  '[data-mark-prompt]',
 ].join(',');
 
 function isEditableFocusTarget(el: HTMLElement | null | undefined): boolean {
@@ -823,8 +826,9 @@ function EditorStageWorld({
         <ShapeStylePanelHost document={document} />
         <CropExpandSessionHost document={document} />
         <UpscaleSessionHost document={document} />
-        <MarkSessionHost document={document} />
-        <MockupSessionHost document={document} />
+        <CommercialEditorHosts document={document} selectionTransforming={selectionTransforming} />
+        <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
+        <MarkPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} />
         <AudioTrimSessionHost document={document} />
         <AudioSpeedSessionHost document={document} />

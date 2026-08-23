@@ -1,6 +1,6 @@
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineSquare2Stack } from 'react-icons/hi2';
+import { VscLayers } from 'react-icons/vsc';
 import { imageToolBtn } from './imageToolbarShared';
 
 export type DecomposeMode = 'depth';
@@ -10,7 +10,7 @@ function ImageDecomposeMenu({ onPick }: { onPick: (mode: DecomposeMode) => void 
   const { t } = useTranslation();
   return (
     <button type="button" className={imageToolBtn} onClick={() => onPick('depth')}>
-      <HiOutlineSquare2Stack className="h-4 w-4" />
+      <VscLayers className="h-4 w-4" />
       <span>{t('editor.imageToolbar.editElements')}</span>
     </button>
   );

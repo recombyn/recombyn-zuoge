@@ -14,6 +14,7 @@ import { rcbCameraCssZoom, rcbCameraScreenOffset, rcbViewportSceneBounds } from 
 import { createCameraTransform, worldToScreen } from '@/components/rcb/camera/transform';
 import { getShapeBaseline } from '@/components/rcb/core/geometry';
 import { effectivePaintBox } from '@/components/rcb/core/transformPreview';
+import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   hitTestSceneAtPoint,
   type SceneHitBox,
@@ -533,6 +534,7 @@ function isTransparentCssColor(c: string): boolean {
  */
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
+  if (isImageProcessRunning(node)) return false;
   const key = String(node.key || '');
   if (key === 'lottie' || key === 'audio' || key === 'group' || key === 'text') {
     return false;
@@ -1614,14 +1616,31 @@ export function paintCanvasMediaInk(
   ctx.clip();
 
   const crop = readMediaCropNorm(opts.node);
+  const attrs = opts.node.attrs || {};
+  const maskSrc = String(attrs.maskSrc || '').trim();
+  const maskOn = maskSrc && String(attrs.maskEnabled || 'true') !== 'false';
   if (crop) {
     const imgW = w / crop.w;
     const imgH = h / crop.h;
     const imgX = (-crop.x / crop.w) * w;
     const imgY = (-crop.y / crop.h) * h;
     ctx.drawImage(img, imgX, imgY, imgW, imgH);
+    if (maskOn) {
+      const maskImg = getFillImageReady(maskSrc);
+      if (maskImg) {
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.drawImage(maskImg, imgX, imgY, imgW, imgH);
+      }
+    }
   } else {
     drawFillImageInBox(ctx, img, w, h, 'fill', 0);
+    if (maskOn) {
+      const maskImg = getFillImageReady(maskSrc);
+      if (maskImg) {
+        ctx.globalCompositeOperation = 'destination-in';
+        ctx.drawImage(maskImg, 0, 0, w, h);
+      }
+    }
   }
   ctx.restore();
 }
@@ -1697,6 +1716,14 @@ export function paintCanvasIdleNode(
       return;
     }
     if (isMedia) {
+      if (isImageProcessRunning(node)) {
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.fillStyle = '#D5DEE6';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+        return;
+      }
       if (key === 'image' || key === 'video') {
         paintCanvasMediaInk(ctx, { node, width: w, height: h, opacity });
       } else {

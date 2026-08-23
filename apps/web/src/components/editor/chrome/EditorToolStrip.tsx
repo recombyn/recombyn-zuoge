@@ -75,7 +75,56 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 const MENU_ICON_CLASS = 'h-4 w-4';
 const TOOL_ICON_CLASS = 'h-4 w-4 shrink-0';
 const STROKE = 1.5;
-const MENU_POPUP = 'min-w-[168px]';
+const MENU_POPUP = 'min-w-[11rem]';
+
+/** Keyboard hints shown in toolbar menus / tooltips — keep in sync with the keydown handler below. */
+const TOOL_SHORTCUT = {
+  select: 'V',
+  pan: 'H',
+  frame: 'F',
+  text: 'T',
+  pen: 'P',
+  pencil: 'Shift P',
+  rect: 'R',
+  line: 'L',
+  arrow: 'Shift L',
+  circle: 'O',
+  upload: 'I',
+  imageGenerator: 'A',
+} as const;
+
+function toolTipWithShortcut(label: string, shortcut?: string) {
+  return shortcut ? `${label} (${shortcut})` : label;
+}
+
+function resolveToolbarShapeKind(shapeKind: string | null | undefined): string {
+  if (!shapeKind || shapeKind === 'image') return 'rect';
+  return layerIconByKind[shapeKind] ? shapeKind : 'rect';
+}
+
+function pickUploadAction(
+  key: string,
+  actions: {
+    image: () => void;
+    video: () => void;
+    audio: () => void;
+    lottie: () => void;
+  }
+) {
+  if (key === 'video') {
+    actions.video();
+    return;
+  }
+  if (key === 'audio') {
+    actions.audio();
+    return;
+  }
+  if (key === 'lottie') {
+    actions.lottie();
+    return;
+  }
+  actions.image();
+}
 
 /**
  * Fit a generator plate into the visible stage, center it, snap painted outer
@@ -137,10 +186,12 @@ function MenuLabel({
   iconKey,
   label,
   icon,
+  shortcut,
 }: {
   iconKey?: string;
   label: string;
   icon?: ReactNode;
+  shortcut?: string;
 }) {
   const IconComp = iconKey ? layerIconByKind[iconKey] || layerIconByKind.rect : null;
   return (
@@ -151,7 +202,12 @@ function MenuLabel({
             <IconComp className={cn('block shrink-0', MENU_ICON_CLASS)} strokeWidth={STROKE} />
           ) : null)}
       </span>
-      <span className="flex-1 text-[12px] text-[var(--ink)]">{label}</span>
+      <span className="min-w-0 flex-1 text-[12px] text-[var(--ink)]">{label}</span>
+      {shortcut ? (
+        <span className="shrink-0 text-[11px] font-normal tabular-nums text-[var(--muted)]">
+          {shortcut}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -376,6 +432,7 @@ function EditorToolStrip({
         label: (
           <MenuLabel
             label={L.select}
+            shortcut={TOOL_SHORTCUT.select}
             icon={<LuMousePointer2 className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
           />
         ),
@@ -385,6 +442,7 @@ function EditorToolStrip({
         label: (
           <MenuLabel
             label={L.pan}
+            shortcut={TOOL_SHORTCUT.pan}
             icon={<LuHand className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
           />
         ),
@@ -395,10 +453,16 @@ function EditorToolStrip({
 
   const shapeItems: MenuItemType[] = useMemo(
     () => [
-      { key: 'rect', label: <MenuLabel iconKey="rect" label={L.rect} /> },
-      { key: 'line', label: <MenuLabel iconKey="line" label={L.line} /> },
-      { key: 'arrow', label: <MenuLabel iconKey="arrow" label={L.arrow} /> },
-      { key: 'circle', label: <MenuLabel iconKey="circle" label={L.circle} /> },
+      { key: 'rect', label: <MenuLabel iconKey="rect" label={L.rect} shortcut={TOOL_SHORTCUT.rect} /> },
+      { key: 'line', label: <MenuLabel iconKey="line" label={L.line} shortcut={TOOL_SHORTCUT.line} /> },
+      {
+        key: 'arrow',
+        label: <MenuLabel iconKey="arrow" label={L.arrow} shortcut={TOOL_SHORTCUT.arrow} />,
+      },
+      {
+        key: 'circle',
+        label: <MenuLabel iconKey="circle" label={L.circle} shortcut={TOOL_SHORTCUT.circle} />,
+      },
       { key: 'polygon', label: <MenuLabel iconKey="polygon" label={L.polygon} /> },
       { key: 'star', label: <MenuLabel iconKey="star" label={L.star} /> },
     ],
@@ -763,19 +827,12 @@ function EditorToolStrip({
 
   const pickUpload = (key: string) => {
     setOpenMenu(null);
-    if (key === 'video') {
-      openVideoUpload();
-      return;
-    }
-    if (key === 'audio') {
-      openAudioUpload();
-      return;
-    }
-    if (key === 'lottie') {
-      openLottieUpload();
-      return;
-    }
-    openImageUpload();
+    pickUploadAction(key, {
+      image: openImageUpload,
+      video: openVideoUpload,
+      audio: openAudioUpload,
+      lottie: openLottieUpload,
+    });
   };
 
   const pickSelect = (key: string) => {
@@ -788,15 +845,13 @@ function EditorToolStrip({
     dispatch(setShapeKind(id));
   };
 
-  const shapeIconKind =
-    shapeKind && shapeKind !== 'image' && layerIconByKind[shapeKind] ? shapeKind : 'rect';
+  const shapeIconKind = resolveToolbarShapeKind(shapeKind);
   const ShapeIcon = layerIconByKind[shapeIconKind];
   const PenIcon = layerIconByKind.pen;
   const PencilIcon = layerIconByKind.pencil;
   const TextIcon = layerIconByKind.text;
 
-  const selectOrPan = activeTool === 'select' || activeTool === 'pan';
-  const selectActive = selectOrPan;
+  const selectActive = activeTool === 'select' || activeTool === 'pan';
   const frameActive = activeTool === 'frame';
   const shapeActive = activeTool === 'shape';
   const imageActive = activeTool === 'image';
@@ -846,7 +901,7 @@ function EditorToolStrip({
         selectedKeys={[shapeKind]}
         onMenuPick={pickShape}
         onPrimaryClick={() =>
-          dispatch(setShapeKind(shapeKind && shapeKind !== 'image' ? shapeKind : 'rect'))
+          dispatch(setShapeKind(resolveToolbarShapeKind(shapeKind)))
         }
       >
         <ToolIcon>
@@ -858,7 +913,7 @@ function EditorToolStrip({
         <>
           {/* 钢笔 — options dock at page top-center while active */}
           <ToolBtn
-            tip={L.pen}
+            tip={toolTipWithShortcut(L.pen, TOOL_SHORTCUT.pen)}
             ariaLabel={L.pen}
             active={penActive}
             disabled={toolsLocked}
@@ -871,7 +926,7 @@ function EditorToolStrip({
 
           {/* 画笔 — options dock at page top-center while active */}
           <ToolBtn
-            tip={L.pencil}
+            tip={toolTipWithShortcut(L.pencil, TOOL_SHORTCUT.pencil)}
             ariaLabel={L.pencil}
             active={pencilActive}
             disabled={toolsLocked}
@@ -886,7 +941,7 @@ function EditorToolStrip({
 
       {/* 文字 */}
       <ToolBtn
-        tip={L.text}
+        tip={toolTipWithShortcut(L.text, TOOL_SHORTCUT.text)}
         active={textActive}
         disabled={toolsLocked}
         onClick={() => dispatch(setActiveTool('text'))}
@@ -898,7 +953,7 @@ function EditorToolStrip({
 
       {/* 智能画板 — free-draw; toolbar appears on the frame after commit */}
       <ToolBtn
-        tip={L.frame}
+        tip={toolTipWithShortcut(L.frame, TOOL_SHORTCUT.frame)}
         active={frameActive}
         disabled={toolsLocked}
         onClick={() => dispatch(setActiveTool('frame'))}
@@ -912,7 +967,7 @@ function EditorToolStrip({
 
       {/* 图片/视频上传 — hover opens panel (同形状工具) */}
       <SplitToolButton
-        tip={L.uploadMedia}
+        tip={toolTipWithShortcut(L.uploadMedia, TOOL_SHORTCUT.upload)}
         active={imageActive}
         disabled={toolsLocked}
         menuOpen={openMenu === 'upload'}
@@ -934,7 +989,7 @@ function EditorToolStrip({
       {/* 图像生成器 — places a generator node at viewport center.
           Video / Lottie / Audio generators: context menu 「生成器」 only. */}
       <ToolBtn
-        tip={L.imageGenerator}
+        tip={toolTipWithShortcut(L.imageGenerator, TOOL_SHORTCUT.imageGenerator)}
         disabled={toolsLocked}
         onClick={spawnImageGeneratorAtView}
       >

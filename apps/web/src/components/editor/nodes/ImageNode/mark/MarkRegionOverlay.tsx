@@ -12,6 +12,7 @@ import {
   useRcbCamera,
   rcbSceneToScreen,
 } from '@/components/rcb';
+import { markRegionChrome } from './markRegionChrome';
 
 /** Mark rect in image-local coords (origin = image top-left). */
 export type MarkRect = { x: number; y: number; w: number; h: number };
@@ -23,6 +24,7 @@ export type MarkRegion = MarkRect & {
   label?: string;
   kind?: 'image' | 'text' | 'manual' | string;
   selected?: boolean;
+  committed?: boolean;
 };
 
 /** Min size to *commit* a region (scene px). Preview uses a softer floor. */
@@ -88,6 +90,7 @@ type Props = {
   imageBox: { left: number; top: number; width: number; height: number };
   regions: MarkRegion[];
   draft: MarkRect | null;
+  activeRegionId: string | null;
   detecting?: boolean;
   onDraftChange: (rect: MarkRect | null) => void;
   onCommitDraft: (rect: MarkRect) => void;
@@ -101,6 +104,7 @@ function MarkRegionOverlay({
   imageBox,
   regions,
   draft,
+  activeRegionId,
   detecting,
   onDraftChange,
   onCommitDraft,
@@ -143,6 +147,25 @@ function MarkRegionOverlay({
     [origin.x, origin.y, z, cw, ch]
   );
 
+  const finishActiveDrag = useCallback(
+    (clientX: number, clientY: number, pointerId?: number) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (pointerId != null && drag.pointerId !== pointerId) return;
+      dragRef.current = null;
+      const p = localFromClient(clientX, clientY);
+      if (drag.hitId) {
+        onDraftChangeRef.current(null);
+        onSelectRegionRef.current(drag.hitId, drag.additive);
+        return;
+      }
+      const box = normalizeDragBox(drag.x0, drag.y0, p.x, p.y, cw, ch);
+      onDraftChangeRef.current(null);
+      if (box) onCommitDraftRef.current(box);
+    },
+    [localFromClient, cw, ch]
+  );
+
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const drag = dragRef.current;
@@ -155,29 +178,21 @@ function MarkRegionOverlay({
       // Soft preview (1px+) while dragging; commit still uses MIN_MARK on pointer-up.
       onDraftChangeRef.current(previewDragBox(drag.x0, drag.y0, p.x, p.y, cw, ch));
     };
-    const onUp = (e: PointerEvent) => {
-      const drag = dragRef.current;
-      if (!drag || e.pointerId !== drag.pointerId) return;
-      dragRef.current = null;
-      const p = localFromClient(e.clientX, e.clientY);
-      if (drag.hitId) {
-        onDraftChangeRef.current(null);
-        onSelectRegionRef.current(drag.hitId, drag.additive);
-        return;
-      }
-      const box = normalizeDragBox(drag.x0, drag.y0, p.x, p.y, cw, ch);
-      onDraftChangeRef.current(null);
-      if (box) onCommitDraftRef.current(box);
+    const onUp = (e: PointerEvent | MouseEvent) => {
+      const pointerId = 'pointerId' in e ? e.pointerId : undefined;
+      finishActiveDrag(e.clientX, e.clientY, pointerId);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('mouseup', onUp);
     window.addEventListener('pointercancel', onUp);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('mouseup', onUp);
       window.removeEventListener('pointercancel', onUp);
     };
-  }, [localFromClient, cw, ch]);
+  }, [localFromClient, cw, ch, finishActiveDrag]);
 
   const shellStyle: CSSProperties = {
     position: 'absolute',
@@ -198,30 +213,23 @@ function MarkRegionOverlay({
       label?: string;
       selected?: boolean;
       draft?: boolean;
+      badgeOnly?: boolean;
     }
   ) => {
     const selected = Boolean(opts.selected);
     const isDraft = Boolean(opts.draft);
     const hovered = opts.id != null && hoverId === opts.id;
+    const badgeOnly = Boolean(opts.badgeOnly);
     const left = r.x * z;
     const top = r.y * z;
     const width = Math.max(1, r.w * z);
     const height = Math.max(1, r.h * z);
-    // White strokes vanish on light photos — keep marks in the blue family.
-    const borderColor = isDraft
-      ? 'rgba(37,99,235,0.95)'
-      : selected
-        ? 'rgba(59,130,246,0.95)'
-        : hovered
-          ? 'rgba(96,165,250,0.9)'
-          : 'rgba(59,130,246,0.55)';
-    const fill =
-      isDraft || selected
-        ? 'inset 0 0 0 9999px rgba(59,130,246,0.16)'
-        : hovered
-          ? 'inset 0 0 0 9999px rgba(59,130,246,0.08)'
-          : 'inset 0 0 0 9999px rgba(59,130,246,0.04)';
-    const badgeBg = selected || isDraft ? '#2563eb' : '#60a5fa';
+    const chrome = markRegionChrome({
+      draft: isDraft,
+      selected,
+      hovered,
+      badgeOnly,
+    });
 
     return (
       <div
@@ -234,22 +242,20 @@ function MarkRegionOverlay({
           top,
           width,
           height,
-          border: `${isDraft ? 2 : 1.5}px dashed ${borderColor}`,
-          boxShadow: selected
-            ? `0 0 0 1px rgba(59,130,246,0.35), ${fill}`
-            : fill,
+          border: chrome.border,
+          boxShadow: chrome.boxShadow,
           boxSizing: 'border-box',
         }}
       >
         {opts.index != null ? (
           <span
             className="pointer-events-none absolute right-0 top-1/2 flex h-5 min-w-5 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-md px-1 text-[11px] font-semibold text-white shadow-sm"
-            style={{ background: badgeBg }}
+            style={{ background: chrome.badgeBg }}
           >
             {opts.index}
           </span>
         ) : null}
-        {opts.label ? (
+        {opts.label && !badgeOnly ? (
           <span
             className="pointer-events-none absolute -bottom-6 right-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium text-[#1e3a8a] shadow-sm"
             style={{ background: 'rgba(191,219,254,0.95)' }}
@@ -276,6 +282,33 @@ function MarkRegionOverlay({
         data-mark-overlay
         className="pointer-events-auto absolute"
         style={shellStyle}
+        onPointerUp={(e) => {
+          e.stopPropagation();
+          e.nativeEvent.stopImmediatePropagation?.();
+          finishActiveDrag(e.clientX, e.clientY, e.pointerId);
+        }}
+        onMouseUp={(e) => {
+          e.stopPropagation();
+          finishActiveDrag(e.clientX, e.clientY);
+        }}
+        onMouseDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const p = localFromClient(e.clientX, e.clientY);
+          if (!p.inside) return;
+
+          const hit = [...regions].reverse().find((r) => pointInRect(p.x, p.y, r));
+          dragRef.current = {
+            x0: p.x,
+            y0: p.y,
+            pointerId: -1,
+            hitId: hit?.id ?? null,
+            additive: e.shiftKey,
+            moved: false,
+          };
+          onDraftChange(null);
+        }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault();
@@ -317,14 +350,17 @@ function MarkRegionOverlay({
             </span>
           </div>
         ) : null}
-        {regions.map((r) =>
-          renderBox(r, {
+        {regions.map((r) => {
+          const isActive = r.id === activeRegionId;
+          const badgeOnly = !isActive;
+          return renderBox(r, {
             id: r.id,
             index: r.index,
             label: r.label,
-            selected: r.selected,
-          })
-        )}
+            selected: isActive,
+            badgeOnly,
+          });
+        })}
         {draft && draft.w >= 1 && draft.h >= 1
           ? renderBox(draft, { draft: true })
           : null}

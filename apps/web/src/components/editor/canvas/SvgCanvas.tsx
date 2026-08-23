@@ -19,6 +19,7 @@ import {
   selectionSharedGroupId,
 } from '@/components/rcb/scene/document/sceneGroups';
 import {
+  deletionTargetHasProcessing,
   isNodeHidden,
   isNodeLocked,
   isVideoNode,
@@ -224,6 +225,31 @@ type SvgCanvasProps = {
   viewRect?: { x: number; y: number; width: number; height: number } | null;
 };
 
+function ctxMenuCanDelete(opts: {
+  document: SceneDocument | null | undefined;
+  ids: string[];
+  selectedFrameIds: string[];
+  ctxNodeId?: string | null;
+  ctxFrameId?: string | null;
+  activeFrameId?: string | null;
+}): boolean {
+  const seedNodes = ctxMenuSeedNodeIds(opts.ids, opts.ctxNodeId);
+  const seedFrames = ctxMenuSeedFrameIds(opts.selectedFrameIds, opts.ctxFrameId);
+  let nodeIds = resolveSelectionNodeIds(opts.document, seedNodes, seedFrames);
+  let frameIds = [...seedFrames];
+  if (!nodeIds.length && !frameIds.length) {
+    if (opts.ctxFrameId) frameIds = [String(opts.ctxFrameId)];
+    else if (opts.activeFrameId) frameIds = [String(opts.activeFrameId)];
+    else if (opts.ctxNodeId) nodeIds = [String(opts.ctxNodeId)];
+  }
+  if (!nodeIds.length && !frameIds.length) return false;
+  const bound = frameIds.length ? nodeIdsBoundToFrames(opts.document, frameIds) : [];
+  const allNodes = [...new Set([...nodeIds, ...bound])];
+  return !deletionTargetHasProcessing(opts.document, allNodes, frameIds, {
+    expandFrameChildren: false,
+  });
+}
+
 function ctxMenuCanReplace(opts: {
   readOnly: boolean;
   document: SceneDocument | null | undefined;
@@ -333,7 +359,15 @@ function SvgCanvas({
   const collabActive = isCollabActive();
   const canUndo = !viewOnly && (collabActive ? canCollabUndo() || reduxCanUndo : reduxCanUndo);
   const canRedo = !viewOnly && (collabActive ? canCollabRedo() || reduxCanRedo : reduxCanRedo);
-  const imageToolPanelKind = useSelector((s: RootState) => s.editor.imageToolPanel?.kind as string | undefined);
+  const imageToolPanel = useSelector(
+    (s: RootState) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
+  );
+  const imageToolSessionNodeId =
+    imageToolPanel &&
+    (imageToolPanel.kind === 'mark' || imageToolPanel.kind === 'quickEdit')
+      ? imageToolPanel.nodeId
+      : null;
+  const imageToolPanelKind = imageToolPanel?.kind;
   const shapeStylePanel = useSelector((s: RootState) => s.editor.shapeStylePanel as null | { kind: string });
   const shapeStylePanelOpen = Boolean(shapeStylePanel);
   const cropExpandOpen = isImageToolCropSessionKind(imageToolPanelKind);
@@ -1415,13 +1449,21 @@ function SvgCanvas({
       // use visible overlap so all content belonging to the artboard is removed.
       const bound = frameIds.length ? nodeIdsBoundToFrames(doc0, frameIds) : [];
       const allNodes = [...new Set([...nodeIds, ...bound])];
+      if (
+        deletionTargetHasProcessing(doc0, allNodes, frameIds, { expandFrameChildren: false })
+      ) {
+        message.warning(
+          t('editor.cannotDeleteWhileProcessing', { defaultValue: '处理中无法删除' })
+        );
+        return false;
+      }
       allNodes.forEach((id) => abortNodeUpload(id));
 
       dispatch(removeDocumentNodes({ nodeIds: allNodes, frameIds }));
       requestProjectFlush();
       return true;
     },
-    [dispatch]
+    [dispatch, t]
   );
 
 
@@ -1968,6 +2010,7 @@ function SvgCanvas({
             enabled={selectMode}
             readOnly={readOnly}
             attachPickActive={Boolean(canvasAttachPick)}
+            imageToolSessionNodeId={imageToolSessionNodeId}
             document={document}
             selectedNodeIds={ids}
             selectedFrameIds={selectedFrameIds}
@@ -2004,6 +2047,7 @@ function SvgCanvas({
               Boolean(editingTextId) ||
               Boolean(editingPenId) ||
               cropExpandOpen ||
+              imageToolPanelKind === 'layerMask' ||
               imageToolSidePanelOpen ||
               videoToolOpen ||
               audioToolOpen ||
@@ -2189,13 +2233,14 @@ function SvgCanvas({
           }
           return Boolean(ctxMenu?.frameId || activeFrameId);
         })()}
-        canDelete={Boolean(
-          ids.length ||
-            ctxMenu?.nodeId ||
-            ctxMenu?.frameId ||
-            selectedFrameIds.length ||
-            activeFrameId
-        )}
+        canDelete={ctxMenuCanDelete({
+          document,
+          ids,
+          selectedFrameIds,
+          ctxNodeId: ctxMenu?.nodeId,
+          ctxFrameId: ctxMenu?.frameId,
+          activeFrameId,
+        })}
         canLayerActions={Boolean(
           ids.length || ctxMenu?.nodeId || ctxMenu?.frameId || selectedFrameIds.length || activeFrameId
         )}

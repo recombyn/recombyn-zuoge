@@ -271,7 +271,7 @@ docker compose up -d --build
 - API: http://localhost:8000  
 - MySQL: `127.0.0.1:3306` / db `recombyn`
 
-Design Intelligence defaults to **BasicLocal** (`RECOMBYN_INTELLIGENCE_MODE=local`). To attach an optional HTTP provider that implements the open `IntelligenceProvider` contract, set `RECOMBYN_INTELLIGENCE_CONTEXT` to a directory that ships a compatible Dockerfile, then:
+Design Intelligence defaults to **BasicLocal** (`RECOMBYN_INTELLIGENCE_MODE=local`). To attach an optional HTTP provider that implements the open `IntelligenceProvider` contract, point `RECOMBYN_INTELLIGENCE_CONTEXT` at a directory containing a compatible `Dockerfile`, then:
 
 ```bash
 export RECOMBYN_INTELLIGENCE_CONTEXT=/path/to/provider

@@ -5,7 +5,7 @@
 
 ## Context
 
-Public Recombyn (OS) and Private `recombyn-intelligence` (brain) must not
+Public Recombyn and the operator's Design Intelligence deployment must not
 drag each other — except for one shared contract: Intelligence method names,
 request field keys, and `remote_result_usable` rules.
 
@@ -58,6 +58,6 @@ CI that fails when either side breaks the contract.
 - [ADR 0017](./0017-intelligence-provider-boundary.md)
 - [ADR 0022](./0022-open-runtime-helpers.md)
 - `packages/protocol`
-- `recombyn-intelligence` `scripts/bootstrap_protocol.py`
+- `src/commercial/intelligence/scripts/bootstrap_protocol.py` (operator checkout)
 - `.github/workflows/protocol-contract-smoke.yml`
 - `.github/workflows/publish-protocol.yml`
