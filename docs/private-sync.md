@@ -1,81 +1,63 @@
 # Private → public sync (recombyn-dev → recombyn)
 
-Develop in the **private** monorepo; the public repo is an automated OSS mirror without commercial code.
-
-One checkout (`recombyn-dev`) replaces the old three-repo layout:
-
-| Before | After (recombyn-dev) |
-|--------|----------------------|
-| `recombyn/recombyn` (public) | Still mirrored automatically — do not push features here |
-| `recombyn/recombyn-dev` (private app) | `origin` — daily push target |
-| `recombyn/recombyn-intelligence` (private) | `src/commercial/intelligence/` |
-
-## Repositories
+**Two repositories only.** Develop in `recombyn-dev`; public `recombyn` is an automated mirror with commercial code **deleted**, not hidden behind runtime flags.
 
 | Remote | GitHub | Role |
 |--------|--------|------|
-| `origin` | `recombyn/recombyn-dev` | Daily development (includes `src/commercial/`) |
-| `public` | `recombyn/recombyn` | OSS mirror — do not push here directly |
+| `origin` | `recombyn/recombyn-dev` | Daily development (full tree) |
+| `public` | `recombyn/recombyn` | OSS mirror — never push features here |
 
-## One-time setup
+## How stripping works
 
-### 1. Create the private repo (org admin)
+On each push to `recombyn-dev` `main`, `sync-public.yml`:
 
-```bash
-gh repo create recombyn/recombyn-dev --private --description "Private dev monorepo"
+1. `rsync` the full private tree into a clone of public `recombyn`
+2. **`sync-public-strip.mjs`** — hard-deletes paths in `src/commercial/oss-exclude.paths`
+3. Overlays **`oss-stubs/`** — OSS-safe replacements (empty commercial hosts, no `ilpEnabled` branches)
+4. Verifies `src/commercial/` is gone before push
+
+No third repo. Intelligence lives at `src/commercial/intelligence/` and is removed from the public copy.
+
+## Commercial code layout (recombyn-dev)
+
+```
+src/commercial/
+  intelligence/     # Design Intelligence service (8091)
+  web/              # @commercial/* modules (layer mask, mockup, …)
+  oss-exclude.paths # delete list for public mirror
+
+apps/web/src/commercial/   # thin wiring (overwritten by oss-stubs/ on sync)
+oss-stubs/                 # OSS-safe versions copied onto public mirror
 ```
 
-### 2. Configure local remotes
+## Setup
 
 ```bash
-npm run setup:private-remote
-# or: node scripts/setup-private-remote.mjs
+npm run setup:private-remote   # origin → recombyn-dev, public → recombyn
+git push origin main           # triggers sync
 ```
 
-### 3. Push private `main`
-
-```bash
-git push -u origin main
-```
-
-### 4. GitHub Actions secret (private repo only)
-
-Private repo → **Settings → Secrets → Actions** → `PUBLIC_REPO_TOKEN`
-
-Use a fine-grained or classic PAT with **Contents: Read and write** on `recombyn/recombyn`.
+Secret on **recombyn-dev**: `PUBLIC_REPO_TOKEN` (write access to `recombyn/recombyn`).
 
 ```bash
 gh secret set PUBLIC_REPO_TOKEN --repo recombyn/recombyn-dev
-# paste token when prompted
 ```
-
-### 5. Verify sync
-
-```bash
-gh workflow run sync-public.yml --repo recombyn/recombyn-dev
-gh run list --repo recombyn/recombyn-dev --workflow sync-public.yml
-```
-
-Public `main` should update within ~1 minute.
 
 ## Daily workflow
 
-1. Commit on `recombyn-dev` `main`.
+1. Commit on `recombyn-dev` `main`
 2. `git push origin main`
-3. Action mirrors to public automatically.
+3. Action deletes commercial paths and pushes public `main`
 
-**Never** push feature work to `public` directly.
+## Adding a closed feature
 
-## Filtered paths (not in OSS mirror)
+1. Implement under `src/commercial/web/…` (or `intelligence/`)
+2. Wire from `apps/web/src/commercial/…` in private dev
+3. Add an OSS stub under `oss-stubs/apps/web/src/commercial/…` (no-op)
+4. If the feature has no public equivalent, add its path to `oss-exclude.paths`
 
-| Path | Reason |
-|------|--------|
-| `src/commercial/` | Closed-source product code |
-| `apps/web/src/private/` | Local override scratch |
-| `apps/api/private-eval/` | Closed eval corpora |
-| `.github/workflows/sync-public.yml` | Sync job stays private-only |
-| `scripts/setup-private-remote.mjs` | Private-remote helper |
+Do **not** gate OSS UI with `ilpEnabled` — public builds should not contain the code at all.
 
 ## Pulling public changes back
 
-Sync is **private → public** only. Cherry-pick or merge public PRs into `recombyn-dev` manually, then push private `main` again.
+Sync is private → public only. Cherry-pick public PRs into `recombyn-dev`, then push private `main` again.

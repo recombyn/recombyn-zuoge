@@ -136,6 +136,9 @@ apps/web/public/ffmpeg/
 # Local infra not published with OSS (keep on disk only)
 infra/langfuse/
 
+# sync strip dry-run scratch
+pub-test/
+
 # local sqlite sidecars
 apps/api/storage/*.db-shm
 apps/api/storage/*.db-wal

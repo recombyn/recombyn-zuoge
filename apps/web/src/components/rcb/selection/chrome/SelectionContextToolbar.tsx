@@ -30,9 +30,9 @@ import {
   openAudioToolPanel,
   isImageToolSidePanelKind,
   isQuickEditMarkPanel,
+  type ImageToolPanelState,
 } from '@/store/modules/editor';
 import FlipRotateToolbar from '@/components/editor/nodes/ImageNode/FlipRotateToolbar';
-import ImageQuickEditComposer from '@/components/editor/nodes/ImageNode/ImageQuickEditComposer';
 import LottieQuickEditComposer from '@/components/editor/nodes/LottieNode/LottieQuickEditComposer';
 import VideoQuickEditComposer from '@/components/editor/nodes/VideoNode/VideoQuickEditComposer';
 import AudioQuickEditComposer from '@/components/editor/nodes/AudioNode/AudioQuickEditComposer';
@@ -282,6 +282,7 @@ function openImageMoreTool(
     return;
   }
   switch (key) {
+    case 'mockup':
     case 'expand':
     case 'crop':
     case 'adjust':
@@ -345,7 +346,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
   const [decorationOpen, setDecorationOpen] = useState(false);
   const [alignOpen, setAlignOpen] = useState(false);
   const imageToolPanel = useSelector(
-    (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
+    (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
@@ -425,6 +426,19 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [decorationOpen, alignOpen]);
 
   if (!node || !box) return null;
+
+  if (quickEditComposerOpen || lottieEditOpen) {
+    if (kind === 'video') {
+      return <VideoQuickEditComposer document={document} nodeId={nodeId} box={box} />;
+    }
+    if (kind === 'audio') {
+      return <AudioQuickEditComposer document={document} nodeId={nodeId} box={box} />;
+    }
+    if (kind === 'lottie') {
+      return <LottieQuickEditComposer document={document} nodeId={nodeId} box={box} />;
+    }
+  }
+
   if (isImageProcessRunning(node)) return null;
   if (
     isImageGeneratorNode(node) ||
@@ -541,26 +555,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
       </>
     ) : null;
 
-  if (quickEditComposerOpen || lottieEditOpen) {
-    if (kind === 'video') {
-      return <VideoQuickEditComposer document={document} nodeId={nodeId} box={box} />;
-    }
-    if (kind === 'audio') {
-      return <AudioQuickEditComposer document={document} nodeId={nodeId} box={box} />;
-    }
-    if (kind === 'lottie') {
-      return <LottieQuickEditComposer document={document} nodeId={nodeId} box={box} />;
-    }
-    return (
-      <ImageQuickEditComposer
-        document={document}
-        nodeId={nodeId}
-        box={box}
-        hidden={quickEditMarkPaused}
-      />
-    );
-  }
-
   const flipRotateToolbar = (
     <FlipRotateToolbar
       nodeId={nodeId}
@@ -591,6 +585,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <button
             type="button"
             className={imageToolBtn}
+            data-image-quick-edit-trigger
+            aria-label={t('editor.imageToolbar.chat')}
             onClick={() => dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))}
           >
             <AppLogo size={16} />
@@ -611,9 +607,17 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 : undefined
             }
             onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
+            nodeId={nodeId}
             onMark={
               ilpEnabled
-                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'mark' }))
+                ? () =>
+                    dispatch(
+                      openImageToolPanel({
+                        nodeId,
+                        kind: 'mark',
+                        ...(quickEditOpen ? { markSink: 'quickEdit' as const } : {}),
+                      })
+                    )
                 : undefined
             }
             onReplaceText={
@@ -637,16 +641,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     )
                 : undefined
             }
-            onMockup={
-              mockupEnabled
-                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'mockup' }))
-                : undefined
-            }
             onMultiAngle={() =>
               dispatch(openImageToolPanel({ nodeId, kind: 'multiAngle' }))
             }
           />
           <ImageToolbarMoreDownload
+            mockupEnabled={mockupEnabled}
             showCornerRadius={supportsCornerRadius(node)}
             onAction={(key) => openImageMoreTool(dispatch, nodeId, key)}
           />

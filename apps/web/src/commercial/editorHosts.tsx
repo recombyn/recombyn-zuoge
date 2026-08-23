@@ -1,0 +1,22 @@
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+import type { ReactNode } from 'react';
+import LayerMaskSessionHost from '@commercial/layerMask/LayerMaskSessionHost';
+import MarkSessionHost from '@/components/editor/nodes/ImageNode/mark/MarkSessionHost';
+import MockupSessionHost from '@/components/editor/nodes/ImageNode/mockup/MockupSessionHost';
+
+/** recombyn-dev: commercial canvas session hosts (stripped on OSS sync → oss-stubs). */
+export function CommercialEditorHosts({
+  document,
+  selectionTransforming,
+}: {
+  document: SceneDocument;
+  selectionTransforming?: boolean;
+}): ReactNode {
+  return (
+    <>
+      <MarkSessionHost document={document} hidden={selectionTransforming} />
+      <LayerMaskSessionHost document={document} hidden={selectionTransforming} />
+      <MockupSessionHost document={document} />
+    </>
+  );
+}

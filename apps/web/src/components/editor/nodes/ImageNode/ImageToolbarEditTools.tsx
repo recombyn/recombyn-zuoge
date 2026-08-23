@@ -2,9 +2,10 @@ import { memo, type ReactNode } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { HiOutlineCube, HiOutlineLanguage, HiOutlinePencilSquare } from 'react-icons/hi2';
-
-import { LuCrosshair, LuEraser, LuPackage } from 'react-icons/lu';
+import { HiOutlineCube, HiOutlineLanguage } from 'react-icons/hi2';
+import { LuEraser } from 'react-icons/lu';
+import { PiSelectionPlus } from 'react-icons/pi';
+import { VscEditSparkle } from 'react-icons/vsc';
 
 import { Icon } from '@/components/base';
 
@@ -15,6 +16,7 @@ import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
 import ImageDecomposeMenu, { type DecomposeMode } from './ImageDecomposeMenu';
 
 import { ImageToolSep, imageToolBtn } from './imageToolbarShared';
+import { CommercialImageToolbarTools } from '@/commercial/imageToolbarTools';
 
 
 
@@ -78,6 +80,8 @@ function ImageToolbarEditTools({
 
   onEraser,
 
+  nodeId,
+
   onMark,
 
   onReplaceText,
@@ -85,8 +89,6 @@ function ImageToolbarEditTools({
   onEditText,
 
   onEditElements,
-
-  onMockup,
 
   onMultiAngle,
 
@@ -102,6 +104,9 @@ function ImageToolbarEditTools({
 
   onEraser: () => void;
 
+  /** Required for commercial toolbar slots (layer mask, etc.). */
+  nodeId: string;
+
   onMark?: () => void;
 
   onReplaceText?: () => void;
@@ -109,8 +114,6 @@ function ImageToolbarEditTools({
   onEditText?: () => void;
 
   onEditElements?: (mode: DecomposeMode) => void;
-
-  onMockup?: () => void;
 
   onMultiAngle: () => void;
 
@@ -142,11 +145,13 @@ function ImageToolbarEditTools({
 
       </Tool>
 
+      <CommercialImageToolbarTools nodeId={nodeId} />
+
       {onMark ? (
 
         <Tool label={t('editor.imageToolbar.mark')} onClick={onMark}>
 
-          <LuCrosshair className="h-4 w-4" strokeWidth={2} />
+          <PiSelectionPlus className="h-4 w-4" />
 
         </Tool>
 
@@ -166,19 +171,13 @@ function ImageToolbarEditTools({
 
         <Tool label={t('editor.imageToolbar.editText')} onClick={onEditText}>
 
-          <HiOutlinePencilSquare className="h-4 w-4" />
+          <VscEditSparkle className="h-4 w-4" />
 
         </Tool>
 
       ) : null}
 
       {onEditElements ? <ImageDecomposeMenu onPick={onEditElements} /> : null}
-
-      {onMockup ? (
-        <Tool label={t('editor.imageToolbar.mockup')} onClick={onMockup}>
-          <LuPackage className="h-4 w-4" strokeWidth={2} />
-        </Tool>
-      ) : null}
 
       <Tool label={t('editor.imageToolbar.multiAngle')} onClick={onMultiAngle}>
 

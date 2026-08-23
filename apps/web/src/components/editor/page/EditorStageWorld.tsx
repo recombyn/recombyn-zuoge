@@ -22,9 +22,9 @@ import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
 import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
-import MarkSessionHost from '@/components/editor/nodes/ImageNode/mark/MarkSessionHost';
+import { CommercialEditorHosts } from '@/commercial/editorHosts';
+import ImageQuickEditSessionHost from '@/components/editor/nodes/ImageNode/ImageQuickEditSessionHost';
 import MarkPinHost from '@/components/editor/nodes/ImageNode/mark/MarkPinHost';
-import MockupSessionHost from '@/components/editor/nodes/ImageNode/mockup/MockupSessionHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
@@ -826,9 +826,9 @@ function EditorStageWorld({
         <ShapeStylePanelHost document={document} />
         <CropExpandSessionHost document={document} />
         <UpscaleSessionHost document={document} />
-        <MarkSessionHost document={document} />
-        <MarkPinHost document={document} />
-        <MockupSessionHost document={document} />
+        <CommercialEditorHosts document={document} selectionTransforming={selectionTransforming} />
+        <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
+        <MarkPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} />
         <AudioTrimSessionHost document={document} />
         <AudioSpeedSessionHost document={document} />

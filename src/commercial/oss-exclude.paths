@@ -1,0 +1,13 @@
+# Paths removed from the public recombyn mirror (no stub replacement).
+# One path per line; # comments and blank lines ignored.
+# Sync: rsync → delete these → overlay oss-stubs/ → verify.
+
+src/commercial
+
+.github/workflows/sync-public.yml
+.github/workflows/protocol-compat.yml
+scripts/setup-private-remote.mjs
+scripts/sync-public-strip.mjs
+
+apps/web/src/private
+apps/api/private-eval
