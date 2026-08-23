@@ -60,8 +60,14 @@ secrets/
 apps/web/agent-skills/
 !apps/web/agent-skills.example/
 
-# Closed-source local modules (not published)
+# Closed-source local overrides (optional; prefer src/commercial/ in recombyn-dev)
 apps/web/src/private/
+
+# API closed eval corpora (Intelligence checkout — never publish)
+apps/api/private-eval/
+
+# Local API startup scratch logs
+apps/api/startup*.log
 
 # typescript incremental cache (looks like garbled JSON — not source)
 *.tsbuildinfo

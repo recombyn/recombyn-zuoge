@@ -3,9 +3,10 @@
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"],
+      "@commercial/*": ["../../src/commercial/web/*"],
       "@canvas-plugins/*": ["../../plugins/canvas/*"]
     }
   },
-  "include": ["src", "../../plugins/canvas", "vite.config.ts", "vitest.config.ts"],
-  "exclude": ["src/private"]
+  "include": ["src", "../../src/commercial/web", "../../plugins/canvas", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["src/private", "../../src/commercial"]
 }

@@ -83,6 +83,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
+        '@commercial': path.resolve(__dirname, '../../src/commercial/web'),
         '@canvas-plugins': path.resolve(__dirname, '../../plugins/canvas'),
       },
       // Prefer TS sources — leftover/cached `.js` URLs must not 404 after sibling emits were removed.
