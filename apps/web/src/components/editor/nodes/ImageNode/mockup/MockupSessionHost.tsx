@@ -7,7 +7,7 @@ const EmptyMockupHost = memo(function EmptyMockupHost(_props: { document: SceneD
 
 const PrivateMockupSessionHost = lazy(() =>
   import(/* @vite-ignore */ '@commercial/mockup/MockupSessionHost')
-    .then((m) => ({ default: m.default }))
+    .then((m) => ({ default: m.default as typeof EmptyMockupHost }))
     .catch(() => ({ default: EmptyMockupHost }))
 );
 

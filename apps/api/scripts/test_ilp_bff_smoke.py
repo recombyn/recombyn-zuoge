@@ -28,7 +28,7 @@ def test_routing_offline() -> bool:
         print("routing OK: ILP-exclusive tools hidden when service off")
 
         ilp.ilp_enabled = lambda: True  # type: ignore[method-assign]
-        assert ilp_supports() == ["removeBg", "editText", "editElements", "detectRegions"]
+        assert ilp_supports() == ["removeBg", "eraser", "editText", "editElements", "detectRegions", "upscale"]
         print("routing OK: ILP tools advertised when service on")
         return True
     finally:
