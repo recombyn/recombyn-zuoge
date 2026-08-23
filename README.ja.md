@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="docs/assets/readme-hero-v2.jpg" alt="recombyn — オープンソースのキャンバス + AI Design Agent" width="920" />
-</p>
-
-<p align="center">
   <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
   <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
   <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
