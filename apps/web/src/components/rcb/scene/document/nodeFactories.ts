@@ -174,13 +174,25 @@ export function createShapeNode({
         'stroke-enabled': 'true',
         'stroke-visible': 'true',
         'fill-enabled':
-          shapeType === 'pen' || shapeType === 'pencil' || fill === 'transparent'
+          shapeType === 'pencil'
             ? 'false'
-            : 'true',
+            : shapeType === 'pen'
+              ? closed
+                ? 'true'
+                : 'false'
+              : fill === 'transparent'
+                ? 'false'
+                : 'true',
         'fill-visible':
-          shapeType === 'pen' || shapeType === 'pencil' || fill === 'transparent'
+          shapeType === 'pencil'
             ? 'false'
-            : 'true',
+            : shapeType === 'pen'
+              ? closed
+                ? 'true'
+                : 'false'
+              : fill === 'transparent'
+                ? 'false'
+                : 'true',
         L: 'true',
         R: 'true',
         T: 'true',

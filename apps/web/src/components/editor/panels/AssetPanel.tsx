@@ -54,6 +54,11 @@ function clampAssetDockWidth(width: number): number {
 }
 
 function readStoredAssetDockWidth(): number {
+  return getAssetDockWidth();
+}
+
+/** Current asset dock width (for offsetting overlapping chrome). */
+export function getAssetDockWidth(): number {
   try {
     const raw = localStorage.getItem(ASSET_DOCK_WIDTH_KEY);
     if (!raw) return ASSET_DOCK_DEFAULT_W;
@@ -250,6 +255,7 @@ function AssetPanel({
 
   return (
     <aside
+      data-editor-left-dock={mobile ? undefined : ''}
       style={mobile ? { width: 'min(20rem, 82vw)' } : { width: dockWidth }}
       className={cn(
         'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--surface)]',

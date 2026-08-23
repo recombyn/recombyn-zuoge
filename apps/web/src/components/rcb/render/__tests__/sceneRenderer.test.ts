@@ -415,13 +415,25 @@ describe('Canvas idle path / text / shape paint', () => {
     expect(ops).toContain('clip');
   });
 
-  it('canvasIdleIsStrokeOnly matches pencil / unfilled path', () => {
+  it('canvasIdleIsStrokeOnly matches pencil / unfilled path; closed pen with fill is not stroke-only', () => {
     expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'pencil' } } as SceneNodeInput)).toBe(true);
     expect(
       canvasIdleIsStrokeOnly({
         attrs: { shapeType: 'path', path: 'M0 0 L1 1', 'fill-color': 'none' },
       } as SceneNodeInput)
     ).toBe(true);
+    expect(
+      canvasIdleIsStrokeOnly({
+        attrs: {
+          shapeType: 'pen',
+          closed: 'true',
+          path: 'M0 0 L10 0 L10 10 Z',
+          'fill-enabled': 'true',
+          'fill-visible': 'true',
+          'fill-color': '#911B1B',
+        },
+      } as SceneNodeInput)
+    ).toBe(false);
     expect(
       canvasIdleIsStrokeOnly({ attrs: { shapeType: 'rect', 'fill-color': '#abc' } } as SceneNodeInput)
     ).toBe(false);

@@ -5,6 +5,7 @@ import {
   chipBaseKey,
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
+import { isMarkContextKey } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import type {
   ImageModeComposerControls,
   VideoModeComposerControls,
@@ -66,11 +67,16 @@ function preferredChipThumbUrl(c: ComposerContext): string {
 
 function chipToBubbleContext(c: ComposerContext) {
   const preferred = preferredChipThumbUrl(c);
+  const mark = isMarkContextKey(c.key);
+  const textSnippet = c.kind === 'text' || String(c.key || '').startsWith('text-snippet:');
   return {
     key: chipBaseKey(c.key),
     label: c.label,
     kind: c.kind,
     ...(preferred ? { thumbUrl: preferred } : {}),
+    ...(mark && c.payload ? { payload: c.payload } : {}),
+    ...(mark && c.appendText ? { appendText: c.appendText } : {}),
+    ...(textSnippet && c.payload ? { payload: c.payload } : {}),
   };
 }
 

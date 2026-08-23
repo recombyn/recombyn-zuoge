@@ -1418,7 +1418,19 @@ function isTransparentPaint(v: unknown): boolean {
 export function canvasIdleIsStrokeOnly(node: SceneNodeInput): boolean {
   const a = node?.attrs || {};
   const t = String(a.shapeType || '');
-  if (t === 'pencil' || t === 'pen' || t === 'line' || t === 'arrow') return true;
+  if (t === 'pencil' || t === 'line' || t === 'arrow') return true;
+  if (t === 'pen') {
+    const d = String(a.path || '');
+    const closed =
+      a.closed !== false &&
+      a.closed !== 'false' &&
+      (a.closed === true || a.closed === 'true' || /\sZ\s*$/i.test(d.trim()));
+    if (!closed) return true;
+    if (!boolEffectAttr(a['fill-enabled'], true) || !boolEffectAttr(a['fill-visible'], true)) {
+      return true;
+    }
+    return isTransparentPaint(a['fill-color']);
+  }
   if (t === 'path' || String(node?.key || '') === 'path') {
     return isTransparentPaint(a['fill-color']);
   }
@@ -1616,31 +1628,14 @@ export function paintCanvasMediaInk(
   ctx.clip();
 
   const crop = readMediaCropNorm(opts.node);
-  const attrs = opts.node.attrs || {};
-  const maskSrc = String(attrs.maskSrc || '').trim();
-  const maskOn = maskSrc && String(attrs.maskEnabled || 'true') !== 'false';
   if (crop) {
     const imgW = w / crop.w;
     const imgH = h / crop.h;
     const imgX = (-crop.x / crop.w) * w;
     const imgY = (-crop.y / crop.h) * h;
     ctx.drawImage(img, imgX, imgY, imgW, imgH);
-    if (maskOn) {
-      const maskImg = getFillImageReady(maskSrc);
-      if (maskImg) {
-        ctx.globalCompositeOperation = 'destination-in';
-        ctx.drawImage(maskImg, imgX, imgY, imgW, imgH);
-      }
-    }
   } else {
     drawFillImageInBox(ctx, img, w, h, 'fill', 0);
-    if (maskOn) {
-      const maskImg = getFillImageReady(maskSrc);
-      if (maskImg) {
-        ctx.globalCompositeOperation = 'destination-in';
-        ctx.drawImage(maskImg, 0, 0, w, h);
-      }
-    }
   }
   ctx.restore();
 }

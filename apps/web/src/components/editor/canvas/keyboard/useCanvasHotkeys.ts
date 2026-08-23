@@ -8,6 +8,7 @@ import {
 } from '@/components/rcb/scene/document/sceneClipboard';
 import {
   clearCanvasAttachPick,
+  closeImageToolPanel,
   redo,
   setActiveFrameId,
   setSelectedFrameIds,
@@ -15,9 +16,11 @@ import {
   setSelectedNodeIds,
   undo,
 } from '@/store/modules/editor';
+import store from '@/store';
 import { collabRedo, collabUndo } from '@/components/editor/collab/collabRuntime';
 import type { CtxAction } from '@/components/rcb/selection/chrome/CanvasContextMenu';
 import { filterChatAttachNodeIds } from '../attachPick';
+import { selectionMutationBlocked } from '../ctxMenuGuards';
 import { tryConsumeGradientStopDelete } from '@/components/editor/panels/FillPanel';
 
 type UseCanvasHotkeysArgs = {
@@ -96,16 +99,38 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       return (el?.innerText || '').replace(/\u200b/g, '').trim();
     };
 
+    const selectionBusy = () => {
+      const doc = documentRef.current;
+      let frameIds = [...selectedFrameIdsRef.current];
+      let nodeIds = [...selectedIdsRef.current];
+      if (!frameIds.length && !nodeIds.length && activeFrameIdRef.current) {
+        frameIds = [activeFrameIdRef.current];
+      }
+      const expanded = resolveSelectionNodeIds(doc, nodeIds, frameIds);
+      return selectionMutationBlocked(doc, expanded.length ? expanded : nodeIds, frameIds);
+    };
+
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       const target = e.target as HTMLElement | null;
       const typing = isTypingTarget(target);
       const inComposer = isComposerTarget(target);
 
-      if (e.key === 'Escape' && canvasAttachPickRef.current) {
-        e.preventDefault();
-        dispatch(clearCanvasAttachPick());
-        return;
+      if (e.key === 'Escape') {
+        const panel = store.getState().editor?.imageToolPanel;
+        if (
+          panel?.kind === 'quickEdit' ||
+          (panel?.kind === 'mark' && panel.markSink === 'quickEdit')
+        ) {
+          e.preventDefault();
+          dispatch(closeImageToolPanel());
+          return;
+        }
+        if (canvasAttachPickRef.current) {
+          e.preventDefault();
+          dispatch(clearCanvasAttachPick());
+          return;
+        }
       }
 
       if (mod && (e.key === '=' || e.key === '+')) {
@@ -117,10 +142,12 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
         onZoomOut?.();
       }
       if (mod && e.key === 'z' && !e.shiftKey) {
+        if (typing) return;
         e.preventDefault();
         if (!collabUndo()) dispatch(undo());
       }
       if (mod && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        if (typing) return;
         e.preventDefault();
         if (!collabRedo()) dispatch(redo());
       }
@@ -144,7 +171,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
         const targetIds = resolveSelectionNodeIds(documentRef.current, ids, frameIds).filter(
           (id) => !isGeneratorNode(documentRef.current?.deltaSetLike?.[id])
         );
-        if (!targetIds.length) return;
+        if (!targetIds.length || selectionBusy()) return;
         e.preventDefault();
         runCtxActionRef.current('toggleHidden');
         return;
@@ -157,6 +184,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
         );
         if (!lockableNodes.length && !frameIds.length && !activeFrameIdRef.current) return;
         if (ids.length && !lockableNodes.length && !frameIds.length) return;
+        if (selectionBusy()) return;
         e.preventDefault();
         runCtxActionRef.current('toggleLocked');
         return;
@@ -202,6 +230,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           const ids = selectedIdsRef.current;
           const frameIds = selectedFrameIdsRef.current;
           if (!ids.length && !frameIds.length && !activeFrameIdRef.current) return;
+          if (selectionBusy()) return;
           e.preventDefault();
           copySelected(ids, frameIds);
           return;
@@ -210,6 +239,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           const ids = selectedIdsRef.current;
           const frameIds = selectedFrameIdsRef.current;
           if (!ids.length && !frameIds.length && !activeFrameIdRef.current) return;
+          if (selectionBusy()) return;
           e.preventDefault();
           cutSelected(ids, frameIds);
           return;
@@ -221,6 +251,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           const ids = selectedIdsRef.current;
           const frameIds = selectedFrameIdsRef.current;
           if (!ids.length && !frameIds.length && !activeFrameIdRef.current) return;
+          if (selectionBusy()) return;
           e.preventDefault();
           duplicateSelected(ids, frameIds);
           return;
@@ -229,7 +260,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           const ids = selectedIdsRef.current;
           const frameIds = selectedFrameIdsRef.current;
           const targetIds = resolveSelectionNodeIds(documentRef.current, ids, frameIds);
-          if (targetIds.length < 2) return;
+          if (targetIds.length < 2 || selectionBusy()) return;
           e.preventDefault();
           if (e.shiftKey) {
             runCtxActionRef.current('ungroup');
@@ -265,7 +296,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           selectedIdsRef.current,
           selectedFrameIdsRef.current
         );
-        if (!ids.length) return;
+        if (!ids.length || selectionBusy()) return;
         e.preventDefault();
         if (e.key === ']' && mod) reorderLayer('forward', ids);
         else if (e.key === ']') reorderLayer('front', ids);

@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
+import { ColorSliderThumb } from './ColorSliderThumb';
 import type { RgbaColor } from './index';
 
 interface AlphaSliderProps {
@@ -62,10 +63,7 @@ export const AlphaSlider = memo(({ value, color, onChange, disabled }: AlphaSlid
       }}
       onMouseDown={handleMouseDown}
     >
-      <div
-        className='absolute top-0 w-1 h-full bg-white border border-gray-300 rounded shadow-sm pointer-events-none'
-        style={{ left: `${value * 100}%`, transform: 'translateX(-50%)' }}
-      />
+      <ColorSliderThumb leftPct={value * 100} />
     </div>
   );
 });

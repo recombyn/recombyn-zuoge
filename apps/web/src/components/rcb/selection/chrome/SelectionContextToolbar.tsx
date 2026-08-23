@@ -275,14 +275,39 @@ function isPanelKindOnNode(
 function openImageMoreTool(
   dispatch: ReturnType<typeof useDispatch>,
   nodeId: string,
-  key: ImageMoreAction
+  key: ImageMoreAction,
+  document?: SceneDocument
 ) {
   if (key === 'cornerRadius') {
     dispatch(openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] }));
     return;
   }
+  if (key === 'mockup') {
+    const node = document?.deltaSetLike?.[nodeId];
+    const active =
+      node?.attrs?.mockupEnabled === true || node?.attrs?.mockupEnabled === 'true';
+    const src = String(node?.attrs?.src || '').trim();
+    dispatch(
+      patchDocumentNode({
+        nodeId,
+        patch: {
+          attrs: {
+            mockupEnabled: active ? 'false' : 'true',
+            ...(!active
+              ? {
+                  mockupTemplateId: 'demo-cylinder',
+                  ...(src && !node?.attrs?.mockupBaseSrc
+                    ? { mockupBaseSrc: src }
+                    : {}),
+                }
+              : {}),
+          },
+        },
+      })
+    );
+    return;
+  }
   switch (key) {
-    case 'mockup':
     case 'expand':
     case 'crop':
     case 'adjust':
@@ -428,6 +453,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
   if (!node || !box) return null;
 
   if (quickEditComposerOpen || lottieEditOpen) {
+    if (kind === 'image') return null;
     if (kind === 'video') {
       return <VideoQuickEditComposer document={document} nodeId={nodeId} box={box} />;
     }
@@ -607,7 +633,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 : undefined
             }
             onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
-            nodeId={nodeId}
             onMark={
               ilpEnabled
                 ? () =>
@@ -648,7 +673,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <ImageToolbarMoreDownload
             mockupEnabled={mockupEnabled}
             showCornerRadius={supportsCornerRadius(node)}
-            onAction={(key) => openImageMoreTool(dispatch, nodeId, key)}
+            onAction={(key) => openImageMoreTool(dispatch, nodeId, key, document)}
           />
           <Sep />
           <Tooltip

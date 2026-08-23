@@ -493,8 +493,8 @@ export function nodeHitsMarquee(
 
   if (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'path') {
     const d = String(node.attrs?.path || '');
-    // Filled closed path: AABB is fine (same spirit as click fill hit).
-    if (shapeType !== 'pen' && supportsFill(node) && boxesIntersect(hitMarquee, box)) {
+    // Filled closed path (incl. closed pen): AABB is fine (same spirit as click fill hit).
+    if (supportsFill(node) && boxesIntersect(hitMarquee, box)) {
       return true;
     }
     if (d) {

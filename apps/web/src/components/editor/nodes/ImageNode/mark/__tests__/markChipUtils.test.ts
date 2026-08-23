@@ -4,6 +4,7 @@ import {
   markComposerChipLabel,
   markPinToRegion,
   nextMarkRegionIndex,
+  parseMarkPinFromChip,
   regionToMarkPin,
 } from '../markChipUtils';
 import type { MarkRegion } from '../MarkRegionOverlay';
@@ -69,6 +70,21 @@ describe('buildMarkChipPayload', () => {
       300
     );
     expect(payload).toContain('region: #3(text@');
+  });
+
+  it('parseMarkPinFromChip restores scene geometry', () => {
+    const payload = buildMarkChipPayload('node-abc', sampleRegion, 400, 300);
+    const pin = parseMarkPinFromChip('mark:node-abc:r1:123', payload, 400, 300, 'agent');
+    expect(pin).toMatchObject({
+      nodeId: 'node-abc',
+      id: 'r1',
+      index: 1,
+      x: 40,
+      y: 60,
+      w: 120,
+      h: 80,
+      sink: 'agent',
+    });
   });
 });
 

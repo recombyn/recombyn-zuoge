@@ -282,10 +282,27 @@ describe('pickFullAndCanvasIds', () => {
 });
 
 describe('canvasIdleIsStrokeOnly', () => {
-  it('treats pencil/pen/line as stroke-only (no AABB fill)', () => {
+  it('treats pencil/line and open pen as stroke-only (no AABB fill)', () => {
     expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'pencil' } } as any)).toBe(true);
-    expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'pen' } } as any)).toBe(true);
+    expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'pen', closed: 'false' } } as any)).toBe(
+      true
+    );
     expect(canvasIdleIsStrokeOnly({ attrs: { shapeType: 'line' } } as any)).toBe(true);
+  });
+
+  it('treats closed pen with fill as fill proxy', () => {
+    expect(
+      canvasIdleIsStrokeOnly({
+        attrs: {
+          shapeType: 'pen',
+          closed: 'true',
+          path: 'M0 0 L10 0 L10 10 Z',
+          'fill-enabled': 'true',
+          'fill-visible': 'true',
+          'fill-color': '#911B1B',
+        },
+      } as any)
+    ).toBe(false);
   });
 
   it('treats unfilled path as stroke-only; filled rect as fill proxy', () => {

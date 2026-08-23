@@ -114,6 +114,8 @@ type CanvasContextMenuProps = {
   canUndo: boolean;
   canRedo: boolean;
   canPaste?: boolean;
+  /** Cut / copy / duplicate / reorder / group — false while upload or AI process is running. */
+  canMutateSelection?: boolean;
   modLabel: string;
   onAction: (action: CtxAction) => void;
   onClose: () => void;
@@ -522,6 +524,7 @@ function CanvasContextMenu({
   canUndo,
   canRedo,
   canPaste = false,
+  canMutateSelection = true,
   modLabel,
   onAction,
   onClose,
@@ -687,21 +690,21 @@ function CanvasContextMenu({
             icon={<HiOutlineScissors className={ICON_CLASS} strokeWidth={1.75} />}
             label={t('editor.contextMenu.cut')}
             shortcut={`${modLabel}+X`}
-            disabled={!hasNode}
+            disabled={!hasNode || !canMutateSelection}
             onClick={() => runAction('cut')}
           />
           <MenuItem
             icon={<HiOutlineClipboardDocument className={ICON_CLASS} strokeWidth={1.75} />}
             label={t('editor.contextMenu.copy')}
             shortcut={`${modLabel}+C`}
-            disabled={!hasNode}
+            disabled={!hasNode || !canMutateSelection}
             onClick={() => runAction('copy')}
           />
           <MenuItem
             icon={<HiOutlineSquare2Stack className={ICON_CLASS} strokeWidth={1.75} />}
             label={t('editor.contextMenu.duplicate')}
             shortcut={`${modLabel}+D`}
-            disabled={!hasNode}
+            disabled={!hasNode || !canMutateSelection}
             onClick={() => runAction('duplicate')}
           />
           <MenuItem
@@ -716,14 +719,14 @@ function CanvasContextMenu({
             icon={<Icon name="editor-group" width={14} height={14} className={ICON_CLASS} />}
             label={t('editor.contextMenu.group')}
             shortcut={`${modLabel}+G`}
-            disabled={!canGroup}
+            disabled={!canGroup || !canMutateSelection}
             onClick={() => runAction('group')}
           />
           <MenuItem
             icon={<Icon name="editor-ungroup" width={14} height={14} className={ICON_CLASS} />}
             label={t('editor.contextMenu.ungroup')}
             shortcut={`${modLabel}+Shift+G`}
-            disabled={!canUngroup}
+            disabled={!canUngroup || !canMutateSelection}
             onClick={() => runAction('ungroup')}
           />
           <div className="my-1 h-px bg-[var(--line)]" />
@@ -731,28 +734,28 @@ function CanvasContextMenu({
             icon={<HiOutlineChevronDoubleUp className={ICON_CLASS} strokeWidth={1.75} />}
             label={t('editor.contextMenu.bringToFront')}
             shortcut="]"
-            disabled={!hasNode}
+            disabled={!hasNode || !canMutateSelection}
             onClick={() => runAction('front')}
           />
           <MenuItem
             icon={<HiOutlineChevronUp className={ICON_CLASS} strokeWidth={1.75} />}
             label={t('editor.contextMenu.bringForward')}
             shortcut={`${modLabel}+]`}
-            disabled={!hasNode}
+            disabled={!hasNode || !canMutateSelection}
             onClick={() => runAction('forward')}
           />
           <MenuItem
             icon={<HiOutlineChevronDown className={ICON_CLASS} strokeWidth={1.75} />}
             label={t('editor.contextMenu.sendBackward')}
             shortcut={`${modLabel}+[`}
-            disabled={!hasNode}
+            disabled={!hasNode || !canMutateSelection}
             onClick={() => runAction('backward')}
           />
           <MenuItem
             icon={<HiOutlineChevronDoubleDown className={ICON_CLASS} strokeWidth={1.75} />}
             label={t('editor.contextMenu.sendToBack')}
             shortcut="["
-            disabled={!hasNode}
+            disabled={!hasNode || !canMutateSelection}
             onClick={() => runAction('back')}
           />
           <div className="my-1 h-px bg-[var(--line)]" />
@@ -760,14 +763,14 @@ function CanvasContextMenu({
             icon={visibilityIcon}
             label={visibilityLabel}
             shortcut={`${modLabel}+Shift+H`}
-            disabled={!hideEnabled}
+            disabled={!hideEnabled || !canMutateSelection}
             onClick={() => runAction('toggleHidden')}
           />
           <MenuItem
             icon={lockIcon}
             label={lockLabel}
             shortcut={`${modLabel}+Shift+K`}
-            disabled={!lockEnabled}
+            disabled={!lockEnabled || !canMutateSelection}
             onClick={() => runAction('toggleLocked')}
           />
           <div className="my-1 h-px bg-[var(--line)]" />

@@ -34,6 +34,7 @@ export function NodeProcessGlow({
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const inv = 1 / z;
   const label = String(node.attrs?.processLabel || '处理中');
+  const maxPillWidth = Math.max(32, width * z - 16);
 
   const shellStyle = useMemo(
     (): CSSProperties => ({
@@ -66,8 +67,9 @@ export function NodeProcessGlow({
       bottom: PILL_BOTTOM_PAD_PX * inv,
       transform: `translateX(-50%) scale(${inv})`,
       transformOrigin: 'center bottom',
+      maxWidth: maxPillWidth,
     }),
-    [inv]
+    [inv, maxPillWidth]
   );
 
   return createPortal(
@@ -90,7 +92,7 @@ export function NodeProcessGlow({
         />
         <div
           data-image-process-label
-          className="absolute z-[1] whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 py-1 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
+          className="absolute z-[1] inline-flex h-7 w-max items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
           style={pillStyle}
         >
           {label}

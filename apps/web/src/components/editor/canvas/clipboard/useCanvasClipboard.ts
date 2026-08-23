@@ -9,11 +9,13 @@ import {
   nodeIdsInsideFrames,
   pasteClipboardIntoDocument,
   parseAndValidateSceneClipboardJson,
+  resolveSelectionNodeIds,
   snapshotFramesForClipboard,
   snapshotNodesForClipboard,
   clipboardNodesBounds,
   type SceneClipboardPayload,
 } from '@/components/rcb/scene/document/sceneClipboard';
+import { selectionMutationBlocked } from '../ctxMenuGuards';
 import {
   DEFAULT_TEXT_BOX_WIDTH,
   measurePlainTextSize,
@@ -111,6 +113,8 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       if (frames.length) {
         nodes = [...new Set([...nodes, ...nodeIdsInsideFrames(doc, frames)])];
       }
+      const expanded = resolveSelectionNodeIds(doc, nodes, frames);
+      if (selectionMutationBlocked(doc, expanded.length ? expanded : nodes, frames)) return false;
       const nodeSnap = nodes.length ? snapshotNodesForClipboard(doc, nodes) : null;
       const frameSnap = snapshotFramesForClipboard(doc, frames);
       if (!nodeSnap?.nodes?.length && !frameSnap.length) return false;
@@ -201,6 +205,8 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       if (frames.length) {
         nodes = [...new Set([...nodes, ...nodeIdsInsideFrames(doc, frames)])];
       }
+      const expanded = resolveSelectionNodeIds(doc, nodes, frames);
+      if (selectionMutationBlocked(doc, expanded.length ? expanded : nodes, frames)) return;
       const nodeSnap = nodes.length ? snapshotNodesForClipboard(doc, nodes) : null;
       const frameSnap = snapshotFramesForClipboard(doc, frames);
       if (!nodeSnap?.nodes?.length && !frameSnap.length) return;

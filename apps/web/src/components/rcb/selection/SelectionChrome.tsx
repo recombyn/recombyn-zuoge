@@ -58,6 +58,8 @@ type SelectionChromeProps = {
   showBoxStroke?: boolean;
   /** Past outer stroke edge ??rotate sits beyond this (scene units). */
   strokeOuterScene?: number;
+  /** Override selection box / handle stroke color. */
+  strokeColor?: string;
 };
 
 /**
@@ -1792,10 +1794,12 @@ function SelectionChrome({
   edgeHandles = 'all',
   showBoxStroke = true,
   strokeOuterScene = 0,
+  strokeColor,
 }: SelectionChromeProps) {
   const camera = useRcbCamera();
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const inv = 1 / z;
+  const chromeColor = strokeColor || SEL_BASELINE;
   const [mountEpoch, setMountEpoch] = useState(0);
   const mount = getSceneSelectionChromeMount();
 
@@ -1864,7 +1868,7 @@ function SelectionChrome({
           <text
             x={left + w / 2}
             y={top - metaOffset}
-            fill={SEL_BASELINE}
+            fill={chromeColor}
             fontSize={metaFont}
             fontWeight={500}
             textAnchor="middle"
@@ -1909,7 +1913,7 @@ function SelectionChrome({
                 width={w}
                 height={h}
                 fill="none"
-                stroke={SEL_BASELINE}
+                stroke={chromeColor}
                 strokeWidth={stroke}
                 style={{ pointerEvents: 'none' }}
               />
@@ -1952,7 +1956,7 @@ function SelectionChrome({
                       width={handleVis}
                       height={handleVis}
                       fill="none"
-                      stroke={SEL_BASELINE}
+                      stroke={chromeColor}
                       strokeWidth={stroke}
                       style={{ pointerEvents: 'none' }}
                     />
@@ -1976,7 +1980,7 @@ function SelectionChrome({
                     {...handleAttrProps}
                     r={Math.max(0.01, lineEpVis / 2 - stroke / 2)}
                     fill="#fff"
-                    stroke={SEL_BASELINE}
+                    stroke={chromeColor}
                     strokeWidth={stroke}
                     style={{ pointerEvents: 'none' }}
                   />

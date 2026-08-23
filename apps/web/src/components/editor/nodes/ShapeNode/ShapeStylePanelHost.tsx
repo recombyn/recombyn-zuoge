@@ -353,8 +353,12 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
       if (!supportsFill(node)) continue;
       const shapeType = node?.attrs?.shapeType;
       const a = node?.attrs || {};
-      const visible =
+      const hasFill =
+        parseFillType(next.fillType) !== 'solid' ||
+        (String(next.fillColor || '').trim() !== '' && next.fillColor !== 'transparent');
+      const wasVisible =
         boolEffectAttr(a['fill-enabled'], true) && boolEffectAttr(a['fill-visible'], true);
+      const visible = hasFill ? true : wasVisible;
       dispatch(
         patchDocumentNode({
           nodeId: id,

@@ -958,10 +958,7 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
       return g;
     }
 
-    const fillPaint =
-      shapeType === 'pen'
-        ? resolveFill(node, 'transparent')
-        : resolveFill(node, closed ? '#FFFFFF' : 'transparent');
+    const fillPaint = resolveFill(node, closed ? '#FFFFFF' : 'transparent');
     const baseD = String(d);
     // Pen centerlines stay raw. 轮廓化 / densified silhouettes must not be
     // re-filleted (would shred fontkit / canvas glyph rings into wedges).
@@ -982,10 +979,13 @@ async function createShape(ctx: DrawCtx, document: SceneDocument, node: SceneNod
       setAttrs(path, { 'fill-rule': fillRule });
     }
     applyElementStroke(root, path, closed ? strokeFull : strokeOpen, {
-      hasOpaqueFill: closed && shapeType !== 'pen' && !isTransparentFill(fillPaint),
+      hasOpaqueFill: closed && !isTransparentFill(fillPaint),
     });
     if (shapeType === 'pen') {
-      setAttrs(path, { 'pointer-events': 'stroke' });
+      setAttrs(path, {
+        'pointer-events':
+          closed && !isTransparentFill(fillPaint) ? 'all' : 'stroke',
+      });
     }
     tagNode(path, nodeId, 'shape', shapeType, left, top, width, height);
     rememberSceneCornerRadii(path, cornerR);
@@ -1358,24 +1358,6 @@ export async function nodeToSvgElement(
     );
     setSvgImageHref(img, String(src));
     const defs = ensureDefs(root);
-    const maskSrc = String(node.attrs?.maskSrc || '').trim();
-    const maskOn = maskSrc && String(node.attrs?.maskEnabled || 'true') !== 'false';
-    if (maskOn) {
-      const maskId = nextClipId('img-mask');
-      const maskNode = svgEl('mask', { id: maskId });
-      const maskImg = svgEl('image', {
-        width: boxW,
-        height: boxH,
-        x: 0,
-        y: 0,
-        preserveAspectRatio: 'none',
-      });
-      setSvgImageHref(maskImg, maskSrc);
-      maskNode.appendChild(maskImg);
-      defs.appendChild(maskNode);
-      setAttrs(img, { mask: urlRef(maskId) });
-      setAttrs(g, { 'data-layer-mask': '1' });
-    }
     const clipId = nextClipId('img-clip');
     const clip = svgEl('clipPath', { id: clipId });
     const clipPath = svgEl('path', { d: clipD, 'data-radius-clip': '1' });
