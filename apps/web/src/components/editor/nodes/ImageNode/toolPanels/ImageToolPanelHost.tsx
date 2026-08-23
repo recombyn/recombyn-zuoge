@@ -304,11 +304,13 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
       );
       return;
     }
+    const skipHistory =
+      mode === 'preview' || (mode === 'commit' && adjustHistoryPushedRef.current);
+    if (mode === 'commit') adjustHistoryPushedRef.current = false;
     dispatch(
       patchDocumentNode({
         nodeId: panel.nodeId,
-        // History already snapped on first preview; avoid a duplicate empty undo step.
-        skipHistory: adjustHistoryPushedRef.current,
+        skipHistory,
         patch: {
           attrs: {
             ...(node?.attrs || {}),
@@ -326,10 +328,13 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
       liveHistoryPushedRef.current = true;
       dispatch(pushEditorHistory());
     }
+    const skipHistory =
+      mode === 'preview' || (mode === 'commit' && liveHistoryPushedRef.current);
+    if (mode === 'commit') liveHistoryPushedRef.current = false;
     dispatch(
       patchDocumentNode({
         nodeId: panel.nodeId,
-        skipHistory: mode === 'preview' || liveHistoryPushedRef.current,
+        skipHistory,
         patch: {
           attrs: {
             ...(node?.attrs || {}),
@@ -338,6 +343,16 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
         },
       })
     );
+  };
+
+  const closeLiveAttrPanel = () => {
+    if (
+      liveHistoryPushedRef.current &&
+      (panel.kind === 'opacity' || panel.kind === 'effects' || panel.kind === 'blendMode')
+    ) {
+      liveHistoryPushedRef.current = false;
+    }
+    close();
   };
 
   let body: ReactNode = null;
@@ -351,7 +366,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
             writeAttrPatch({ opacity: Math.min(1, Math.max(0, Math.round(v) / 100)) }, 'preview')
           }
           onReset={() => writeAttrPatch({ opacity: 1 }, 'preview')}
-          onClose={close}
+          onClose={closeLiveAttrPanel}
         />
       );
       break;
@@ -537,7 +552,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
           attrs={node?.attrs}
           onChange={(patch) => writeAttrPatch(patch, 'preview')}
           onReset={() => writeAttrPatch(EFFECTS_RESET, 'preview')}
-          onClose={close}
+          onClose={closeLiveAttrPanel}
         />
       );
       break;
@@ -550,7 +565,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
           blendMode={node?.attrs?.blendMode}
           onChange={(mode: BlendModeId) => writeAttrPatch({ blendMode: mode }, 'preview')}
           onReset={() => writeAttrPatch({ blendMode: 'normal' }, 'preview')}
-          onClose={close}
+          onClose={closeLiveAttrPanel}
         />
       );
       break;

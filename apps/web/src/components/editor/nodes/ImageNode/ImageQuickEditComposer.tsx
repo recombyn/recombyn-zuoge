@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode,
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
-import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
+import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle, HiOutlineXMark } from 'react-icons/hi2';
 import { PiSelectionPlus } from 'react-icons/pi';
 import { generateImage, type ChatModelsResponse, type LlmModel } from '@/service/chat';
 import { apiQuery, getHttpErrorMessage } from '@/service/client';
@@ -56,6 +56,7 @@ import {
   patchDocumentNode,
   pushEditorHistory,
   startCanvasAttachPick,
+  setHoveredMarkPin,
   type PendingMarkContextChip,
 } from '@/store/modules/editor';
 import { useImageToolCapabilities } from '@/service/imageTools';
@@ -80,7 +81,7 @@ function applyPendingMarkChips(
     const el = inputRef.current;
     if (!el) return false;
     for (const item of list) {
-      el.insertContextBeforePlainText({
+      el.insertContextAtCaret({
         key: item.key,
         label: item.label,
         kind: item.kind,
@@ -178,6 +179,14 @@ function ImageQuickEditComposer({
   const pendingQuickEditMarks = useSelector(
     (s: any) => (s.editor.pendingQuickEditMarkContexts || []) as PendingMarkContextChip[]
   );
+  const imageToolPanel = useSelector(
+    (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string; markSink?: string }
+  );
+  const markActive =
+    imageToolPanel?.kind === 'mark' &&
+    imageToolPanel?.markSink === 'quickEdit' &&
+    imageToolPanel?.nodeId === nodeId;
+  const nodeProcessing = String(node?.attrs?.processStatus || '') === 'running';
   const canvasAttachPick = useSelector(
     (s: any) => s.editor?.canvasAttachPick as null | { target: string }
   );
@@ -298,7 +307,19 @@ function ImageQuickEditComposer({
   });
 
   const removeContext = (key: string) => {
+    if (isMarkContextKey(key)) syncMarkPinRemoved(dispatch, key);
     setContexts((prev) => prev.filter((c) => c.key !== key));
+  };
+
+  const onInlineContextsChange = (next: ComposerContext[]) => {
+    const prevInline = contextsRef.current.filter((c) => c.kind !== 'attachment');
+    for (const c of prevInline) {
+      if (!next.some((item) => item.key === c.key) && isMarkContextKey(c.key)) {
+        syncMarkPinRemoved(dispatch, c.key);
+      }
+    }
+    const attachmentsOnly = contextsRef.current.filter((c) => c.kind === 'attachment');
+    setContexts([...attachmentsOnly, ...next]);
   };
 
   const onPickRef = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -433,7 +454,27 @@ function ImageQuickEditComposer({
       message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
       return;
     }
+    if (nodeProcessing) return;
+    if (markActive) {
+      dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }));
+      return;
+    }
     dispatch(openImageToolPanel({ nodeId, kind: 'mark', markSink: 'quickEdit' }));
+  };
+
+  const onExitMark = () => {
+    if (!markActive) return;
+    dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }));
+  };
+
+  const onCloseQuickEdit = () => {
+    abortRef.current?.abort();
+    dispatch(clearCanvasAttachPick());
+    dispatch(setHoveredMarkPin(null));
+    for (const c of contextsRef.current) {
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+    }
+    dispatch(closeImageToolPanel());
   };
 
   if (!node) return null;
@@ -475,7 +516,8 @@ function ImageQuickEditComposer({
           e.nativeEvent.stopImmediatePropagation?.();
         }}
       >
-        <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
+        <div className="flex items-center gap-1.5 px-3 pt-2.5">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           {subjectChip ? (
             <ComposerAttachmentChip
               attachment={subjectChip}
@@ -503,13 +545,21 @@ function ImageQuickEditComposer({
             </button>
           </Tooltip>
           {ilpEnabled ? (
-            <Tooltip tip={t('editor.imageToolbar.mark')} placement="top">
+            <Tooltip
+              tip={
+                nodeProcessing
+                  ? t('editor.imageToolbar.markBlockedProcessing')
+                  : t('editor.imageToolbar.mark')
+              }
+              placement="top"
+            >
               <button
                 type="button"
-                disabled={sending}
+                disabled={sending || nodeProcessing}
                 aria-label={t('editor.imageToolbar.mark')}
+                aria-pressed={markActive}
                 onClick={onMark}
-                className={composerAttachActionClass()}
+                className={composerAttachActionClass(markActive)}
               >
                 <PiSelectionPlus className="h-4 w-4" />
               </button>
@@ -545,11 +595,28 @@ function ImageQuickEditComposer({
             className="hidden"
             onChange={onPickRef}
           />
+          </div>
+          <Tooltip
+            tip={markActive ? t('editor.imageToolbar.markExit') : t('editor.imageToolbar.chatClose')}
+            placement="top"
+          >
+            <button
+              type="button"
+              disabled={sending}
+              aria-label={
+                markActive ? t('editor.imageToolbar.markExit') : t('editor.imageToolbar.chatClose')
+              }
+              onClick={markActive ? onExitMark : onCloseQuickEdit}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-40"
+            >
+              <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </Tooltip>
         </div>
 
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
         <div
-          className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
+          className="min-h-[72px] min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
           onClick={(e) => {
             if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
             inputRef.current?.focus();
@@ -558,7 +625,7 @@ function ImageQuickEditComposer({
           <AgentComposerInput
             ref={inputRef}
             contexts={inlineContexts}
-            onContextsChange={(next) => setContexts([...attachments, ...next])}
+            onContextsChange={onInlineContextsChange}
             value={prompt}
             onChange={setPrompt}
             onSubmit={() => void onGenerate()}

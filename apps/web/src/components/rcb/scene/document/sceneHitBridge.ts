@@ -360,7 +360,7 @@ function hitTestPathLike(opts: {
     Number(node.attrs?.['border-width'] ?? 2) || 2
   );
   const pathPad = sw / 2 + sceneHitSlop(zoom, 10);
-  const fillHit = shapeType !== 'pen' && supportsFill(node);
+  const fillHit = supportsFill(node);
   const inLooseBox =
     x >= box.left - pathPad &&
     x <= box.left + box.width + pathPad &&

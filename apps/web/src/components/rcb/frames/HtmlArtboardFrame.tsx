@@ -283,8 +283,8 @@ function HtmlArtboardFrame({
     if (!generating) return null;
     const mount = getSceneSelectionChromeMount();
     if (!mount) return null;
-    const pillWidth = 220;
-    const pillHeight = 28;
+    const pillBottomPad = 14;
+    const maxPillWidth = Math.max(32, frame.width * z - 16);
     return createPortal(
       <g data-artboard-process-layer={frame.id} pointerEvents="none">
         <foreignObject
@@ -293,29 +293,28 @@ function HtmlArtboardFrame({
           width={frame.width}
           height={frame.height}
           pointerEvents="none"
+          style={{ overflow: 'hidden' }}
         >
-          <div
-            data-artboard-process-shimmer
-            data-frame-id={frame.id}
-            className="rcb-artboard-process-shimmer h-full w-full overflow-hidden"
-            aria-hidden
-          />
-        </foreignObject>
-        <foreignObject
-          x={frame.x + frame.width / 2 - (pillWidth * inv) / 2}
-          y={frame.y + frame.height - (pillHeight + 14) * inv}
-          width={pillWidth * inv}
-          height={pillHeight * inv}
-          pointerEvents="none"
-          overflow="visible"
-        >
-          <div
-            data-artboard-process-label
-            data-frame-id={frame.id}
-            className="flex h-7 w-[220px] items-center justify-center whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
-            style={{ transform: `scale(${inv})`, transformOrigin: 'left top' }}
-          >
-            {processLabel}
+          <div className="relative h-full w-full overflow-hidden">
+            <div
+              data-artboard-process-shimmer
+              data-frame-id={frame.id}
+              className="rcb-artboard-process-shimmer absolute inset-0"
+              aria-hidden
+            />
+            <div
+              data-artboard-process-label
+              data-frame-id={frame.id}
+              className="absolute left-1/2 z-[1] inline-flex h-7 w-max items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
+              style={{
+                bottom: pillBottomPad * inv,
+                transform: `translateX(-50%) scale(${inv})`,
+                transformOrigin: 'center bottom',
+                maxWidth: maxPillWidth,
+              }}
+            >
+              {processLabel}
+            </div>
           </div>
         </foreignObject>
       </g>,

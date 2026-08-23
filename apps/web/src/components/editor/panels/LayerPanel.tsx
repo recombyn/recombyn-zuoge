@@ -40,7 +40,6 @@ import {
   parseStackKey
 } from '@/components/rcb/scene/document/sceneDocument';
 import { cn } from '@/utils/classnames';
-import { CommercialLayerMaskIcon } from '@/commercial/layerPanelMaskIcon';
 import {
   patchDocumentNode,
   setActiveFrameId,
@@ -71,6 +70,11 @@ function clampLayerDockWidth(width: number): number {
 }
 
 function readStoredLayerDockWidth(): number {
+  return getLayerDockWidth();
+}
+
+/** Current layer dock width (for offsetting overlapping chrome). */
+export function getLayerDockWidth(): number {
   try {
     const raw = localStorage.getItem(LAYER_DOCK_WIDTH_KEY);
     if (!raw) return LAYER_DOCK_DEFAULT_W;
@@ -245,12 +249,7 @@ function LayerIcon({
   }
 
   if (node.key === 'image' && src) {
-    return (
-      <CommercialLayerMaskIcon
-        attrs={node.attrs as Record<string, unknown> | undefined}
-        src={src}
-      />
-    );
+    return <LayerMediaThumb kind="image" src={src} />;
   }
 
   const kind = resolveLayerIconKind(node);
@@ -709,6 +708,7 @@ function LayerPanel({
 
   return (
     <aside
+      data-editor-left-dock={mobile ? undefined : ''}
       style={mobile ? { width: 'min(20rem, 82vw)' } : { width: dockWidth }}
       className={cn(
         'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--surface)]',

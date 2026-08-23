@@ -16,18 +16,11 @@ import {
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   expandSelectionWithGroups,
-  selectionSharedGroupId,
 } from '@/components/rcb/scene/document/sceneGroups';
 import {
   deletionTargetHasProcessing,
-  isNodeHidden,
-  isNodeLocked,
-  isVideoNode,
-  isExportableSceneNode,
-  isGeneratorNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  resolveSelectionNodeIds,
   nodeIdsBoundToFrames,
   type SceneClipboardPayload,
 } from '@/components/rcb/scene/document/sceneClipboard';
@@ -40,6 +33,7 @@ import { strokeCenterlineToFilledOutline } from '@/components/rcb/scene/paint/ou
 import { computeShapeBoolean, type ShapeBox } from '@/components/rcb/selection/shapeBoolean';
 import { createDragWriteCoalescer } from './dragWriteCoalescer';
 import {
+  bindCreatedNodeToFrame,
   createCanvasSession,
   layoutGeneratorPlateAtScene,
 } from './canvasSession';
@@ -132,12 +126,14 @@ import SvgPaper from './SvgPaper';
 import { pointerToWorld, type ArtboardRect } from './pointerToWorld';
 import {
   attachPickFilterOpts,
-  ctxMenuSeedFrameIds,
   ctxMenuSeedNodeIds,
   filterChatAttachNodeIds,
   frameForFullBleedPlate,
   resolveAttachPickPayload,
 } from './attachPick';
+import { ctxMenuTargetHasProcessing, resolveCtxMenuTargets } from './ctxMenuGuards';
+import { buildCanvasContextMenuProps } from './buildCanvasContextMenuProps';
+import { closedPenFillAttrs } from './penFillAttrs';
 import {
   noteCanvasFlyOrigin,
   resolveAttachPayloadFlyOrigin,
@@ -225,63 +221,6 @@ type SvgCanvasProps = {
   viewRect?: { x: number; y: number; width: number; height: number } | null;
 };
 
-function ctxMenuCanDelete(opts: {
-  document: SceneDocument | null | undefined;
-  ids: string[];
-  selectedFrameIds: string[];
-  ctxNodeId?: string | null;
-  ctxFrameId?: string | null;
-  activeFrameId?: string | null;
-}): boolean {
-  const seedNodes = ctxMenuSeedNodeIds(opts.ids, opts.ctxNodeId);
-  const seedFrames = ctxMenuSeedFrameIds(opts.selectedFrameIds, opts.ctxFrameId);
-  let nodeIds = resolveSelectionNodeIds(opts.document, seedNodes, seedFrames);
-  let frameIds = [...seedFrames];
-  if (!nodeIds.length && !frameIds.length) {
-    if (opts.ctxFrameId) frameIds = [String(opts.ctxFrameId)];
-    else if (opts.activeFrameId) frameIds = [String(opts.activeFrameId)];
-    else if (opts.ctxNodeId) nodeIds = [String(opts.ctxNodeId)];
-  }
-  if (!nodeIds.length && !frameIds.length) return false;
-  const bound = frameIds.length ? nodeIdsBoundToFrames(opts.document, frameIds) : [];
-  const allNodes = [...new Set([...nodeIds, ...bound])];
-  return !deletionTargetHasProcessing(opts.document, allNodes, frameIds, {
-    expandFrameChildren: false,
-  });
-}
-
-function ctxMenuCanReplace(opts: {
-  readOnly: boolean;
-  document: SceneDocument | null | undefined;
-  ids: string[];
-  ctxNodeId?: string | null;
-}): boolean {
-  if (opts.readOnly) return false;
-  const targetId = opts.ctxNodeId || (opts.ids.length === 1 ? opts.ids[0] : null);
-  if (!targetId) return false;
-  const node = opts.document?.deltaSetLike?.[targetId];
-  if (!node || isGeneratorNode(node)) return false;
-  if (String(node?.attrs?.processStatus || '') === 'running') return false;
-  return node.key === 'image' || isVideoNode(node);
-}
-
-function ctxMenuCanExport(opts: {
-  document: SceneDocument | null | undefined;
-  ids: string[];
-  selectedFrameIds: string[];
-  ctxNodeId?: string | null;
-  ctxFrameId?: string | null;
-  activeFrameId?: string | null;
-}): boolean {
-  const seedNodes = ctxMenuSeedNodeIds(opts.ids, opts.ctxNodeId);
-  const seedFrames = ctxMenuSeedFrameIds(opts.selectedFrameIds, opts.ctxFrameId);
-  const targetIds = resolveSelectionNodeIds(opts.document, seedNodes, seedFrames);
-  if (targetIds.length) {
-    return targetIds.some((id) => isExportableSceneNode(opts.document?.deltaSetLike?.[id]));
-  }
-  return Boolean(seedFrames.length || opts.ctxFrameId || opts.activeFrameId);
-}
-
 /**
  * SVG.js editor shell — mounts the board and composes feature components.
  */
@@ -316,6 +255,9 @@ function SvgCanvas({
   const shapeKind = useSelector((s: RootState) => s.editor.shapeKind);
   const pendingImageSrc = useSelector((s: RootState) => s.editor.pendingImageSrc);
   const penStrokeColor = useSelector((s: RootState) => String(s.editor.penStrokeColor || '#333333'));
+  const penFillColor = useSelector((s: RootState) =>
+    String(s.editor.penFillColor ?? 'transparent')
+  );
   const penStrokeWidth = useSelector((s: RootState) => {
     const n = Number(s.editor.penStrokeWidth);
     return Number.isFinite(n) && n > 0 ? n : 1;
@@ -364,7 +306,8 @@ function SvgCanvas({
   );
   const imageToolSessionNodeId =
     imageToolPanel &&
-    (imageToolPanel.kind === 'mark' || imageToolPanel.kind === 'quickEdit')
+    (imageToolPanel.kind === 'mark' ||
+      imageToolPanel.kind === 'quickEdit')
       ? imageToolPanel.nodeId
       : null;
   const imageToolPanelKind = imageToolPanel?.kind;
@@ -1134,7 +1077,11 @@ function SvgCanvas({
         Number(inkBrush.outlineStrokeWidth) || 0;
       (node.attrs as Record<string, unknown>).pencilOutlineColor =
         inkBrush.outlineStrokeColor || penStrokeColor;
-      const next = addNodeToDocument(doc, id, node);
+      const next = bindCreatedNodeToFrame(
+        addNodeToDocument(doc, id, node),
+        id,
+        { left: origin.x, top: origin.y, width: box.width, height: box.height }
+      );
       documentRef.current = next;
       dispatch(pushEditorHistory());
       dispatch(setDocumentFromCanvas(next));
@@ -1219,6 +1166,8 @@ function SvgCanvas({
                 closed: closed ? 'true' : 'false',
                 'border-color': penStrokeColor,
                 'border-width': penStrokeWidth,
+                'fill-color': penFillColor,
+                ...(closed ? closedPenFillAttrs(penFillColor) : {}),
               },
             },
           })
@@ -1232,7 +1181,7 @@ function SvgCanvas({
         width: box.width,
         height: box.height,
         shapeType: 'pen',
-        fill: 'transparent',
+        fill: penFillColor,
         stroke: penStrokeColor,
         borderWidth: penStrokeWidth,
         path: pathD,
@@ -1242,14 +1191,18 @@ function SvgCanvas({
       if (frameId && doc.frames?.some((frame) => String(frame.id) === frameId)) {
         (node.attrs as Record<string, unknown>).frameId = frameId;
       }
-      const next = addNodeToDocument(doc, id, node);
+      const next = bindCreatedNodeToFrame(
+        addNodeToDocument(doc, id, node),
+        id,
+        { left: origin.x, top: origin.y, width: box.width, height: box.height }
+      );
       documentRef.current = next;
       dispatch(pushEditorHistory());
       dispatch(setDocumentFromCanvas(next));
       // Close / Enter finish — keep pen tool so the next click starts a new path.
       dispatch(setSelectedNodeIds([id]));
     },
-    [dispatch, readOnly, penStrokeColor, penStrokeWidth]
+    [dispatch, readOnly, penStrokeColor, penFillColor, penStrokeWidth]
   );
 
   const onPenPathEditCommit = useCallback(
@@ -1279,6 +1232,12 @@ function SvgCanvas({
               shapeType,
               path: payload.pathD,
               closed: payload.closed ? 'true' : 'false',
+              ...(payload.closed
+                ? {
+                    'fill-enabled': 'true',
+                    'fill-visible': 'true',
+                  }
+                : {}),
               // Baked world path — leaving angle would double-rotate the silhouette.
               ...(payload.clearAngle ? { angle: 0 } : {}),
             },
@@ -1450,6 +1409,7 @@ function SvgCanvas({
       const bound = frameIds.length ? nodeIdsBoundToFrames(doc0, frameIds) : [];
       const allNodes = [...new Set([...nodeIds, ...bound])];
       if (
+        !frameIds.length &&
         deletionTargetHasProcessing(doc0, allNodes, frameIds, { expandFrameChildren: false })
       ) {
         message.warning(
@@ -1868,6 +1828,34 @@ function SvgCanvas({
     return EMPTY_NODE_IDS;
   }, [selectedNodeIds, selectedNodeId]);
 
+  const ctxMenuBusy = useMemo(
+    () =>
+      ctxMenuTargetHasProcessing({
+        document,
+        ids,
+        selectedFrameIds,
+        ctxNodeId: ctxMenu?.nodeId,
+        ctxFrameId: ctxMenu?.frameId,
+        activeFrameId,
+      }),
+    [document, ids, selectedFrameIds, ctxMenu?.nodeId, ctxMenu?.frameId, activeFrameId]
+  );
+
+  const ctxMenuCapabilities = useMemo(
+    () =>
+      buildCanvasContextMenuProps({
+        document,
+        readOnly,
+        ids,
+        selectedFrameIds,
+        ctxMenu,
+        activeFrameId,
+      }),
+    [document, readOnly, ids, selectedFrameIds, ctxMenu, activeFrameId]
+  );
+
+  const handleCloseCtxMenu = useCallback(() => setCtxMenu(null), [setCtxMenu]);
+
   const keepVisibleIds = useMemo(() => {
     const out = [...ids];
     if (editingTextId) out.push(editingTextId);
@@ -2047,7 +2035,6 @@ function SvgCanvas({
               Boolean(editingTextId) ||
               Boolean(editingPenId) ||
               cropExpandOpen ||
-              imageToolPanelKind === 'layerMask' ||
               imageToolSidePanelOpen ||
               videoToolOpen ||
               audioToolOpen ||
@@ -2209,118 +2196,26 @@ function SvgCanvas({
 
       <CanvasContextMenu
         menu={ctxMenu}
-        hasNode={Boolean(
-          ids.length ||
-            ctxMenu?.nodeId ||
-            selectedFrameIds.length ||
-            ctxMenu?.frameId ||
-            activeFrameId
-        )}
-        canReplace={ctxMenuCanReplace({
-          readOnly,
-          document,
-          ids,
-          ctxNodeId: ctxMenu?.nodeId,
-        })}
-        canAddToChat={(() => {
-          const targetIds = resolveSelectionNodeIds(
-            document,
-            ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId),
-            ctxMenuSeedFrameIds(selectedFrameIds, ctxMenu?.frameId)
-          );
-          if (targetIds.length) {
-            return filterChatAttachNodeIds(document, targetIds).length > 0;
-          }
-          return Boolean(ctxMenu?.frameId || activeFrameId);
-        })()}
-        canDelete={ctxMenuCanDelete({
-          document,
-          ids,
-          selectedFrameIds,
-          ctxNodeId: ctxMenu?.nodeId,
-          ctxFrameId: ctxMenu?.frameId,
-          activeFrameId,
-        })}
-        canLayerActions={Boolean(
-          ids.length || ctxMenu?.nodeId || ctxMenu?.frameId || selectedFrameIds.length || activeFrameId
-        )}
-        canExport={ctxMenuCanExport({
-          document,
-          ids,
-          selectedFrameIds,
-          ctxNodeId: ctxMenu?.nodeId,
-          ctxFrameId: ctxMenu?.frameId,
-          activeFrameId,
-        })}
-        canToggleHidden={(() => {
-          const targetIds = ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId);
-          if (!targetIds.length) return false;
-          // Generators have no hide — same as export.
-          return targetIds.some((id) => !isGeneratorNode(document?.deltaSetLike?.[id]));
-        })()}
-        canToggleLocked={(() => {
-          const targetIds = ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId);
-          if (targetIds.length) {
-            return targetIds.some((id) => !isGeneratorNode(document?.deltaSetLike?.[id]));
-          }
-          return Boolean(
-            ctxMenu?.frameId || selectedFrameIds.length || activeFrameId
-          );
-        })()}
-        canGroup={(() => {
-          const targetIds = resolveSelectionNodeIds(
-            document,
-            ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId),
-            ctxMenuSeedFrameIds(selectedFrameIds, ctxMenu?.frameId)
-          );
-          if (targetIds.length < 2) return false;
-          return !selectionSharedGroupId(document, targetIds);
-        })()}
-        canUngroup={(() => {
-          const targetIds = resolveSelectionNodeIds(
-            document,
-            ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId),
-            ctxMenuSeedFrameIds(selectedFrameIds, ctxMenu?.frameId)
-          );
-          if (targetIds.length < 2) return false;
-          return Boolean(selectionSharedGroupId(document, targetIds));
-        })()}
-        targetHidden={(() => {
-          const targetIds = ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId);
-          if (!targetIds.length) return false;
-          return targetIds.every((id) => isNodeHidden(document?.deltaSetLike?.[id]));
-        })()}
-        targetLocked={(() => {
-          const targetIds = ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId);
-          if (targetIds.length) {
-            return targetIds.every((id) => isNodeLocked(document?.deltaSetLike?.[id]));
-          }
-          const fid = ctxMenu?.frameId || activeFrameId;
-          if (!fid) return false;
-          const frame = (Array.isArray(document?.frames) ? document.frames : []).find(
-            (f) => f?.id === fid
-          );
-          return Boolean(frame?.locked);
-        })()}
-        exportKind={(() => {
-          const targetIds = resolveSelectionNodeIds(
-            document,
-            ctxMenuSeedNodeIds(ids, ctxMenu?.nodeId),
-            ctxMenuSeedFrameIds(selectedFrameIds, ctxMenu?.frameId)
-          );
-          if (!targetIds.length) return 'image';
-          const allVideo = targetIds.every((id) => {
-            const node = document?.deltaSetLike?.[id];
-            return isVideoNode(node) && Boolean(String(node?.attrs?.src || '').trim());
-          });
-          return allVideo ? 'video' : 'image';
-        })()}
+        hasNode={ctxMenuCapabilities.hasNode}
+        canReplace={ctxMenuCapabilities.canReplace}
+        canAddToChat={ctxMenuCapabilities.canAddToChat}
+        canDelete={ctxMenuCapabilities.canDelete}
+        canLayerActions={ctxMenuCapabilities.canLayerActions}
+        canExport={ctxMenuCapabilities.canExport}
+        canToggleHidden={ctxMenuCapabilities.canToggleHidden}
+        canToggleLocked={ctxMenuCapabilities.canToggleLocked}
+        canGroup={ctxMenuCapabilities.canGroup}
+        canUngroup={ctxMenuCapabilities.canUngroup}
+        targetHidden={ctxMenuCapabilities.targetHidden}
+        targetLocked={ctxMenuCapabilities.targetLocked}
+        exportKind={ctxMenuCapabilities.exportKind}
         canUndo={canUndo}
         canRedo={canRedo}
         canPaste
+        canMutateSelection={!ctxMenuBusy}
         modLabel={modLabel}
         onAction={runCtxAction}
-        onClose={() => setCtxMenu(null)}
+        onClose={handleCloseCtxMenu}
       />
     </div>
   );

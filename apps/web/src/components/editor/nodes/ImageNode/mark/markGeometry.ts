@@ -19,6 +19,22 @@ export function nodeSceneBox(
   };
 }
 
+export function listCanvasImageNodes(
+  document: SceneDocument
+): Array<{ nodeId: string; box: SceneBox; node: SceneNodeInput }> {
+  const out: Array<{ nodeId: string; box: SceneBox; node: SceneNodeInput }> = [];
+  const dsl = document?.deltaSetLike || {};
+  for (const nodeId of Object.keys(dsl)) {
+    const node = dsl[nodeId];
+    if (node?.key !== 'image') continue;
+    if (!String(node.attrs?.src || '').trim()) continue;
+    const box = nodeSceneBox(document, node);
+    if (!box) continue;
+    out.push({ nodeId, box, node });
+  }
+  return out;
+}
+
 export function markPromptFixedStyle(
   camera: RcbCamera,
   box: SceneBox,

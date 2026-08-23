@@ -191,10 +191,10 @@ function StylePanelShell({
     <div
       {...attrs}
       className={cn(
-        'overflow-hidden rounded-xl bg-[var(--surface)] shadow-[0_12px_40px_rgba(15,23,42,0.16)] ring-1 ring-[var(--line)]',
+        'box-border overflow-hidden rounded-xl bg-[var(--surface)] shadow-[0_12px_40px_rgba(15,23,42,0.16)] ring-1 ring-[var(--line)]',
         className
       )}
-      style={width ? { width } : undefined}
+      style={width ? { width, maxWidth: width } : undefined}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="flex h-11 items-center justify-between px-3">

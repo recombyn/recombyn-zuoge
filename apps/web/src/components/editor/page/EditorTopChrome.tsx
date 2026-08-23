@@ -5,6 +5,7 @@ import { TbMessage2Filled } from 'react-icons/tb';
 import { Tooltip } from '@/components/base';
 import { CollabPresenceBar } from '@/components/editor/collab/CollabRoomProvider';
 import { EditorTopExportButton } from '@/components/editor/panels/ExportSelectionPanel';
+import { getAgentDockWidth } from '@/components/editor/panels/AgentDock';
 import { getInspectDockWidth } from '@/components/editor/panels/DevPropertiesPanel';
 import WalletAccountChip from '@/components/layout/WalletAccountChip';
 import {
@@ -163,7 +164,12 @@ function EditorTopChrome({
       <div
         className="pointer-events-none absolute top-3 z-40 hidden md:block"
         style={{
-          right: workspaceMode === 'dev' && inspectOpen ? getInspectDockWidth() + 16 : 16,
+          right:
+            workspaceMode === 'dev' && inspectOpen
+              ? getInspectDockWidth() + 16
+              : workspaceMode !== 'dev' && agentOpen
+                ? getAgentDockWidth() + 16
+                : 16,
         }}
       >
         <div className="pointer-events-auto flex items-center gap-2">

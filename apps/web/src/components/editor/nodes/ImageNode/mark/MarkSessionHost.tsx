@@ -20,10 +20,10 @@ import {
 } from '@/service/imageTools';
 import MarkRegionOverlay, { type MarkRect, type MarkRegion } from './MarkRegionOverlay';
 import MarkPromptBar from './MarkPromptBar';
-import { commitMarkRegion, stageMarkRegion } from './markCommit';
+import { commitMarkRegion } from './markCommit';
 import { markComposerChipLabel, nextMarkRegionIndex } from './markChipUtils';
 import { markPinsForNode } from './markPinStore';
-import { markPromptFixedStyle, nodeSceneBox } from './markGeometry';
+import { markPromptFixedStyle, listCanvasImageNodes, nodeSceneBox } from './markGeometry';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import store from '@/store';
 
@@ -94,60 +94,93 @@ function MarkSessionHost({
   const imageMarkPins = useSelector(
     (s: any) => (s.editor.imageMarkPins || {}) as Record<string, ImageMarkPin | ImageMarkPin[]>
   );
-  const active = panel?.kind === 'mark' ? panel.nodeId : null;
+  const isQuickEditMark = panel?.kind === 'mark' && panel?.markSink === 'quickEdit';
+  const sessionNodeId = isQuickEditMark ? panel.nodeId : null;
+  const agentMarkNodeId = panel?.kind === 'mark' && !isQuickEditMark ? panel.nodeId : null;
   const markSink = markPanelSink(panel);
-  const node = active ? document?.deltaSetLike?.[active] : null;
-  const box = useMemo(
-    () => (active && node ? nodeSceneBox(document, node) : null),
-    [document, active, node]
+  const agentNode = agentMarkNodeId ? document?.deltaSetLike?.[agentMarkNodeId] : null;
+  const agentBox = useMemo(
+    () => (agentMarkNodeId && agentNode ? nodeSceneBox(document, agentNode) : null),
+    [document, agentMarkNodeId, agentNode]
   );
-  const src = String(node?.attrs?.src || '').trim();
+  const agentSrc = String(agentNode?.attrs?.src || '').trim();
+  const quickEditTargets = useMemo(
+    () => (isQuickEditMark && !hidden ? listCanvasImageNodes(document) : []),
+    [document, isQuickEditMark, hidden]
+  );
 
   const [regions, setRegions] = useState<MarkRegion[]>([]);
   const regionsRef = useRef(regions);
   regionsRef.current = regions;
   const [draft, setDraft] = useState<MarkRect | null>(null);
+  const [draftByNode, setDraftByNode] = useState<Record<string, MarkRect | null>>({});
+  const [regionsByNode, setRegionsByNode] = useState<Record<string, MarkRegion[]>>({});
+  const [activePrompt, setActivePrompt] = useState<{ nodeId: string; regionId: string } | null>(
+    null
+  );
   const [detecting, setDetecting] = useState(false);
   const [promptText, setPromptText] = useState('');
   const [activeRegionId, setActiveRegionId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const detectGenRef = useRef(0);
 
+  const cancelDetect = () => {
+    detectGenRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setDetecting(false);
+  };
+
   const close = () => {
-    if (markSink === 'quickEdit' && active) {
-      dispatch(openImageToolPanel({ nodeId: active, kind: 'quickEdit' }));
+    cancelDetect();
+    if (markSink === 'quickEdit' && panel?.nodeId) {
+      dispatch(openImageToolPanel({ nodeId: panel.nodeId, kind: 'quickEdit' }));
       return;
     }
     dispatch(closeImageToolPanel());
   };
 
   useEffect(() => {
-    if (!active) {
+    if (!agentMarkNodeId && !isQuickEditMark) {
       setPromptText('');
       setActiveRegionId(null);
+      setDraftByNode({});
+      setRegionsByNode({});
+      setActivePrompt(null);
     }
-  }, [active]);
+  }, [agentMarkNodeId, isQuickEditMark]);
 
   useEffect(() => {
-    if (!active) return;
-    if (!node || node.key !== 'image') close();
+    if (!agentMarkNodeId) return;
+    if (!agentNode || agentNode.key !== 'image') close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, node?.key]);
+  }, [agentMarkNodeId, agentNode?.key]);
 
   useEffect(() => {
+    const active = agentMarkNodeId || isQuickEditMark;
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.preventDefault();
+      if (activePrompt) {
+        setActivePrompt(null);
+        setPromptText('');
+        return;
+      }
+      if (activeRegionId) {
+        setActiveRegionId(null);
+        setPromptText('');
+        return;
+      }
       close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [agentMarkNodeId, isQuickEditMark, panel?.nodeId, activePrompt, activeRegionId]);
 
   useEffect(() => {
-    if (!active || !src || !box) return;
+    if (!agentMarkNodeId || !agentSrc || !agentBox) return;
     setRegions([]);
     setDraft(null);
     setDetecting(false);
@@ -165,19 +198,25 @@ function MarkSessionHost({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    const detectTimeout = window.setTimeout(() => {
+      if (gen !== detectGenRef.current) return;
+      ac.abort();
+      setDetecting(false);
+      message.warning(t('editor.imageToolbar.markDetectTimeout'));
+    }, 15_000);
 
     async function runDetect() {
       try {
         const res = await processImageTool(
-          { kind: 'detectRegions', image: src },
+          { kind: 'detectRegions', image: agentSrc },
           { signal: ac.signal }
         );
         if (gen !== detectGenRef.current) return;
-        const nw = Math.max(1, Number(res.width) || box!.width);
-        const nh = Math.max(1, Number(res.height) || box!.height);
-        const pins = active ? markPinsForNode(imageMarkPins, active) : [];
+        const nw = Math.max(1, Number(res.width) || agentBox!.width);
+        const nh = Math.max(1, Number(res.height) || agentBox!.height);
+        const pins = agentMarkNodeId ? markPinsForNode(imageMarkPins, agentMarkNodeId) : [];
         const startIndex = pins.reduce((m, p) => Math.max(m, Number(p.index) || 0), 0);
-        const next = layersToRegions(res.layers || [], nw, nh, box!.width, box!.height, startIndex).map(
+        const next = layersToRegions(res.layers || [], nw, nh, agentBox!.width, agentBox!.height, startIndex).map(
           (r, i) => ({ ...r, index: startIndex + i + 1, selected: i === 0 })
         );
         setRegions(next);
@@ -196,28 +235,155 @@ function MarkSessionHost({
     }
     void runDetect();
     return () => {
+      window.clearTimeout(detectTimeout);
       ac.abort();
       if (gen === detectGenRef.current) setDetecting(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, src, ilpEnabled, markSink]);
+  }, [agentMarkNodeId, agentSrc, ilpEnabled, markSink]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const promptRegion = regions.find((r) => r.id === activeRegionId) || null;
-  const promptStyle = useMemo(() => {
-    if (!box || !promptRegion) return null;
-    return markPromptFixedStyle(camera, box, promptRegion);
-  }, [box, promptRegion, camera]);
+  const agentPromptStyle = useMemo(() => {
+    if (!agentBox || !promptRegion) return null;
+    return markPromptFixedStyle(camera, agentBox, promptRegion);
+  }, [agentBox, promptRegion, camera]);
 
-  if (!active || !box || !node || hidden) return null;
+  const activeQuickEditPrompt = useMemo(() => {
+    if (!activePrompt || !isQuickEditMark) return null;
+    const target = quickEditTargets.find((item) => item.nodeId === activePrompt.nodeId);
+    if (!target) return null;
+    const region = (regionsByNode[activePrompt.nodeId] || []).find(
+      (r) => r.id === activePrompt.regionId
+    );
+    if (!region) return null;
+    return { nodeId: activePrompt.nodeId, box: target.box, region };
+  }, [activePrompt, isQuickEditMark, quickEditTargets, regionsByNode]);
 
-  const onCommitDraft = (rect: MarkRect) => {
-    if (!active || !box) return;
+  const quickEditPromptStyle = useMemo(() => {
+    if (!activeQuickEditPrompt) return null;
+    return markPromptFixedStyle(
+      camera,
+      activeQuickEditPrompt.box,
+      activeQuickEditPrompt.region
+    );
+  }, [activeQuickEditPrompt, camera]);
+
+  if (hidden) return null;
+
+  const onQuickEditCommit = (targetNodeId: string, targetBox: NonNullable<typeof agentBox>, rect: MarkRect) => {
+    if (!sessionNodeId) return;
     const id = nanoid(8);
     const pins = markPinsForNode(
       (store.getState() as any).editor?.imageMarkPins || {},
-      active
+      targetNodeId
+    );
+    const pendingRegions = regionsByNode[targetNodeId] || [];
+    const nextIndex = nextMarkRegionIndex(pins, pendingRegions);
+    const nextRegion: MarkRegion = {
+      id,
+      index: nextIndex,
+      ...rect,
+      kind: 'manual',
+      label: `${nextIndex} 区域`,
+      selected: true,
+    };
+    setRegionsByNode((prev) => ({
+      ...prev,
+      [targetNodeId]: [
+        ...(prev[targetNodeId] || []).map((r) => ({ ...r, selected: false })),
+        nextRegion,
+      ],
+    }));
+    setActivePrompt({ nodeId: targetNodeId, regionId: id });
+    setPromptText('');
+    setDraftByNode((prev) => ({ ...prev, [targetNodeId]: null }));
+  };
+
+  const onSubmitQuickEditPrompt = (text: string) => {
+    if (!sessionNodeId || !activeQuickEditPrompt) return;
+    const { nodeId: targetNodeId, box: targetBox, region } = activeQuickEditPrompt;
+    commitMarkRegion(dispatch, {
+      nodeId: targetNodeId,
+      sessionNodeId,
+      region,
+      box: targetBox,
+      text,
+      sink: 'quickEdit',
+    });
+    setRegionsByNode((prev) => {
+      const next = { ...prev };
+      const list = (next[targetNodeId] || []).filter((r) => r.id !== region.id);
+      if (list.length) next[targetNodeId] = list;
+      else delete next[targetNodeId];
+      return next;
+    });
+    setActivePrompt(null);
+    setPromptText('');
+  };
+
+  if (isQuickEditMark && sessionNodeId && quickEditTargets.length) {
+    return (
+      <>
+        {quickEditTargets.map(({ nodeId, box: targetBox, node: targetNode }) => {
+          const processing = String(targetNode?.attrs?.processStatus || '') === 'running';
+          const processLabel = String(targetNode?.attrs?.processLabel || '').trim();
+          const blocked = processing
+            ? {
+                message:
+                  processLabel || t('editor.imageToolbar.markBlockedProcessing'),
+              }
+            : null;
+          return (
+          <MarkRegionOverlay
+            key={nodeId}
+            imageBox={targetBox}
+            regions={regionsByNode[nodeId] ?? []}
+            draft={draftByNode[nodeId] ?? null}
+            activeRegionId={
+              activePrompt?.nodeId === nodeId ? activePrompt.regionId : null
+            }
+            blocked={blocked}
+            onDraftChange={(next) =>
+              setDraftByNode((prev) => ({ ...prev, [nodeId]: next }))
+            }
+            onCommitDraft={(rect) => onQuickEditCommit(nodeId, targetBox, rect)}
+            onSelectRegion={(id) => {
+              setActivePrompt({ nodeId, regionId: id });
+              setPromptText('');
+            }}
+          />
+          );
+        })}
+        {quickEditPromptStyle && activeQuickEditPrompt
+          ? createPortal(
+              <MarkPromptBar
+                style={quickEditPromptStyle}
+                chipLabel={markComposerChipLabel(activeQuickEditPrompt.region)}
+                value={promptText}
+                onChange={setPromptText}
+                onSubmit={onSubmitQuickEditPrompt}
+                onCancel={() => {
+                  setActivePrompt(null);
+                  setPromptText('');
+                }}
+              />,
+              globalThis.document.body
+            )
+          : null}
+      </>
+    );
+  }
+
+  if (!agentMarkNodeId || !agentBox || !agentNode) return null;
+
+  const onCommitDraft = (rect: MarkRect) => {
+    if (!agentMarkNodeId || !agentBox) return;
+    const id = nanoid(8);
+    const pins = markPinsForNode(
+      (store.getState() as any).editor?.imageMarkPins || {},
+      agentMarkNodeId
     );
     const nextIndex = nextMarkRegionIndex(pins, regionsRef.current);
     const nextRegion: MarkRegion = {
@@ -229,16 +395,6 @@ function MarkSessionHost({
       selected: true,
     };
 
-    if (markSink === 'quickEdit') {
-      stageMarkRegion(dispatch, {
-        nodeId: active,
-        region: nextRegion,
-        box,
-        sink: 'quickEdit',
-      });
-      return;
-    }
-
     setActiveRegionId(id);
     setRegions((prev) => [...prev.map((r) => ({ ...r, selected: false })), nextRegion]);
   };
@@ -249,11 +405,12 @@ function MarkSessionHost({
   };
 
   const onSubmitPrompt = (text: string) => {
-    if (!active || !box || !promptRegion) return;
+    if (!agentMarkNodeId || !agentBox || !promptRegion) return;
     commitMarkRegion(dispatch, {
-      nodeId: active,
+      nodeId: agentMarkNodeId,
+      sessionNodeId: panel?.nodeId,
       region: promptRegion,
-      box,
+      box: agentBox,
       text,
       sink: markSink,
     });
@@ -265,23 +422,31 @@ function MarkSessionHost({
   return (
     <>
       <MarkRegionOverlay
-        imageBox={box}
+        imageBox={agentBox}
         regions={regions}
         draft={draft}
         activeRegionId={activeRegionId}
-        detecting={detecting}
+        blocked={
+          detecting
+            ? {
+                message: t('editor.imageToolbar.markDetecting'),
+                onCancel: close,
+              }
+            : null
+        }
         onDraftChange={setDraft}
         onCommitDraft={onCommitDraft}
         onSelectRegion={onSelectRegion}
       />
-      {markSink !== 'quickEdit' && promptStyle && promptRegion
+      {agentPromptStyle && promptRegion
         ? createPortal(
             <MarkPromptBar
-              style={promptStyle}
+              style={agentPromptStyle}
               chipLabel={markComposerChipLabel(promptRegion)}
               value={promptText}
               onChange={setPromptText}
               onSubmit={onSubmitPrompt}
+              onCancel={close}
             />,
             globalThis.document.body
           )

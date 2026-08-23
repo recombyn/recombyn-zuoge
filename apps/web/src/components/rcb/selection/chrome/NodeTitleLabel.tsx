@@ -66,6 +66,8 @@ type Props = {
   originX?: number;
   originY?: number;
   renameAriaLabel?: string;
+  /** Short badge after the name (e.g. mockup mode indicator). */
+  titleSuffix?: string;
   /**
    * Prefer live host lattice (same as blue control box). When set, overrides
    * `box` left/top/size from Redux so the title does not drift after sticky snap.
@@ -308,6 +310,7 @@ function NodeTitleLabel({
   originX = 0,
   originY = 0,
   renameAriaLabel,
+  titleSuffix,
   nodeId,
 }: Props): ReactNode {
   const [editing, setEditing] = useState(false);
@@ -578,6 +581,9 @@ function NodeTitleLabel({
             ) : (
               <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                 {name}
+                {titleSuffix ? (
+                  <span className="ml-1 opacity-70">· {titleSuffix}</span>
+                ) : null}
               </span>
             )}
             <span className="shrink-0 opacity-80 tabular-nums">{sizeText}</span>

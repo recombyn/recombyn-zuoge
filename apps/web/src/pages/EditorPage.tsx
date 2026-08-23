@@ -16,6 +16,10 @@ import {
   contextsFromBoot,
 } from '@/utils/homeAgentBoot';
 import { withReturnTo } from '@/utils/authReturnTo';
+import {
+  SESSION_CAMERA_EVENT,
+  type SessionCameraDetail,
+} from '@/utils/sessionCamera';
 import { store } from '@/store';
 import { useProjectCloudSync, flushCurrentProjectNow, ProjectRevisionConflictDialog } from '@/components/editor/useProjectCloudSync';
 import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvider';
@@ -602,6 +606,7 @@ function EditorPage() {
   const bootExitTimer = useRef<number | null>(null);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
+  const sessionCameraStackRef = useRef<CanvasCamera[]>([]);
   /** Local session: selection + grid. Camera fits once after stage layout (below). */
   const sessionReadyForIdRef = useRef<string | null>(null);
   const didInitialFitRef = useRef(false);
@@ -1180,11 +1185,43 @@ function EditorPage() {
     return onFitView();
   }, [onFitView]);
 
-  /** Pan/zoom from the canvas 鈥?marks camera as user-owned. */
+  /** Pan/zoom from the canvas — marks camera as user-owned. */
   const onCanvasCameraChange = useCallback((next: CanvasCamera) => {
     cameraUserTouchedRef.current = true;
     setZoomFitActive(false);
     setCamera(next);
+  }, []);
+
+  /** Tool sessions push a fit-to-node camera and pop on exit. */
+  useEffect(() => {
+    const onSessionCamera = (e: Event) => {
+      const detail = (e as CustomEvent<SessionCameraDetail>).detail;
+      if (!detail) return;
+      const el = stageRef.current;
+      if (!el) return;
+      const vw = el.clientWidth;
+      const vh = el.clientHeight;
+      if (vw < 40 || vh < 40) return;
+
+      if (detail.action === 'push') {
+        sessionCameraStackRef.current.push(cameraRef.current);
+        const next = rcbFitCamera(
+          { width: vw, height: vh },
+          detail.bounds,
+          detail.padding ?? 96,
+          detail.maxZoom ?? 4
+        );
+        setZoomFitActive(false);
+        setCamera(next);
+        return;
+      }
+      if (detail.action === 'pop') {
+        const prev = sessionCameraStackRef.current.pop();
+        if (prev) setCamera(prev);
+      }
+    };
+    window.addEventListener(SESSION_CAMERA_EVENT, onSessionCamera);
+    return () => window.removeEventListener(SESSION_CAMERA_EVENT, onSessionCamera);
   }, []);
 
   /**
@@ -1345,6 +1382,73 @@ function EditorPage() {
 
   const zoomPercent = Math.round(camera.zoom * 100);
   const projectName = currentTemplate?.name || t('home.untitled');
+  const agentDock =
+    workspaceMode === 'dev' ? null : (
+      <AgentDock
+        open={agentOpen}
+        openSignal={agentOpenSignal}
+        onClose={() => setAgentOpen(false)}
+        floating={isMobileViewport}
+        allowedInteractionModes={
+          isMobileViewport ? MOBILE_AGENT_INTERACTION_MODES : undefined
+        }
+        draftPrompt={agentDraft}
+        autoSubmitDraft={agentAutoSubmit}
+        holdAutoSubmit={holdHomeAgentSubmit}
+        draftAttachments={agentDraftAttachments}
+        draftContexts={agentDraftContexts}
+        draftModelId={agentDraftModelId}
+        draftInteractionMode={agentDraftInteractionMode}
+        draftImageAspectRatio={agentDraftImageAspect}
+        draftScene={agentDraftScene}
+        onDraftConsumed={clearAgentDraftBoot}
+        attachToChat={attachToChat}
+        onAttachConsumed={clearAttachToChat}
+        dataTour={agentOpen ? 'editor-agent' : undefined}
+        projectName={isMobileViewport ? projectName : undefined}
+        onGoHome={
+          isMobileViewport
+            ? async () => {
+                try {
+                  await flushCurrentProjectNow({ force: true });
+                } catch {
+                  /* ignore */
+                }
+                navigate('/home');
+              }
+            : undefined
+        }
+        canvasUi={{
+          getZoom: () => camera.zoom,
+          zoomIn: onZoomIn,
+          zoomOut: onZoomOut,
+          setZoom: (z) => zoomAtStageCenter(z),
+          fitView: onFitViewManual,
+          getViewportSceneBounds: () => {
+            const w = stageSize.width;
+            const h = stageSize.height;
+            if (!(w > 8 && h > 8)) return null;
+            const b = rcbViewportSceneBounds(camera, { width: w, height: h });
+            return {
+              x: b.x,
+              y: b.y,
+              width: b.width,
+              height: b.height,
+            };
+          },
+          setLayersOpen: toggleLayersOpen,
+          setAssetsOpen: toggleAssetsOpen,
+          setMinimapOpen,
+          getLayersOpen: () => layersOpen,
+          getAssetsOpen: () => assetsOpen,
+          getMinimapOpen: () => minimapOpen,
+          openAccountAgent: () => {
+            const from = `${location.pathname}${location.search}${location.hash}`;
+            navigate(withReturnTo('/account?tab=agent', from));
+          },
+        }}
+      />
+    );
   return (
     <CollabRoomProvider stageEl={stageEl} camera={camera} onCameraChange={setCamera}>
       <ProjectRevisionConflictDialog />
@@ -1355,22 +1459,10 @@ function EditorPage() {
         )}
         style={stageBackground ? { background: stageBackground } : undefined}
       >
-        <div className="relative flex min-h-0 flex-1">
-          {layersOpen && !isMobileViewport ? (
-            <div className="relative z-30 h-full shrink-0">
-              <LayerPanel onClose={closeLayersPanel} />
-            </div>
-          ) : null}
-
-          {assetsOpen && !isMobileViewport ? (
-            <div className="relative z-30 h-full shrink-0">
-              <AssetPanel onClose={() => setAssetsOpen(false)} />
-            </div>
-          ) : null}
-
+        <div className="relative min-h-0 min-w-0 flex-1">
           <main
             className={cn(
-              'relative flex min-w-0 flex-1 flex-col overflow-hidden',
+              'absolute inset-0 flex flex-col overflow-hidden',
               followThemeCanvas && 'bg-[var(--canvas)]'
             )}
             style={stageBackground ? { background: stageBackground } : undefined}
@@ -1496,76 +1588,35 @@ function EditorPage() {
             />
           </main>
 
+          {layersOpen && !isMobileViewport ? (
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-30">
+              <div className="pointer-events-auto h-full">
+                <LayerPanel onClose={closeLayersPanel} />
+              </div>
+            </div>
+          ) : null}
+
+          {assetsOpen && !isMobileViewport ? (
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-30">
+              <div className="pointer-events-auto h-full">
+                <AssetPanel onClose={() => setAssetsOpen(false)} />
+              </div>
+            </div>
+          ) : null}
+
           {workspaceMode === 'dev' ? (
-            inspectOpen ? (
-              <DevPropertiesPanel onClose={() => setInspectOpen(false)} />
+            inspectOpen && !isMobileViewport ? (
+              <div className="pointer-events-none absolute inset-y-0 right-0 z-30">
+                <div className="pointer-events-auto h-full">
+                  <DevPropertiesPanel onClose={() => setInspectOpen(false)} />
+                </div>
+              </div>
             ) : null
-          ) : (
-            <AgentDock
-              open={agentOpen}
-              openSignal={agentOpenSignal}
-              onClose={() => setAgentOpen(false)}
-              floating={isMobileViewport}
-              allowedInteractionModes={
-                isMobileViewport ? MOBILE_AGENT_INTERACTION_MODES : undefined
-              }
-              draftPrompt={agentDraft}
-              autoSubmitDraft={agentAutoSubmit}
-              holdAutoSubmit={holdHomeAgentSubmit}
-              draftAttachments={agentDraftAttachments}
-              draftContexts={agentDraftContexts}
-              draftModelId={agentDraftModelId}
-              draftInteractionMode={agentDraftInteractionMode}
-              draftImageAspectRatio={agentDraftImageAspect}
-              draftScene={agentDraftScene}
-              onDraftConsumed={clearAgentDraftBoot}
-              attachToChat={attachToChat}
-              onAttachConsumed={clearAttachToChat}
-              dataTour={agentOpen ? 'editor-agent' : undefined}
-              projectName={isMobileViewport ? projectName : undefined}
-              onGoHome={
-                isMobileViewport
-                  ? async () => {
-                      try {
-                        await flushCurrentProjectNow({ force: true });
-                      } catch {
-                        /* ignore */
-                      }
-                      navigate('/home');
-                    }
-                  : undefined
-              }
-              canvasUi={{
-                getZoom: () => camera.zoom,
-                zoomIn: onZoomIn,
-                zoomOut: onZoomOut,
-                setZoom: (z) => zoomAtStageCenter(z),
-                fitView: onFitViewManual,
-                getViewportSceneBounds: () => {
-                  const w = stageSize.width;
-                  const h = stageSize.height;
-                  if (!(w > 8 && h > 8)) return null;
-                  const b = rcbViewportSceneBounds(camera, { width: w, height: h });
-                  return {
-                    x: b.x,
-                    y: b.y,
-                    width: b.width,
-                    height: b.height,
-                  };
-                },
-                setLayersOpen: toggleLayersOpen,
-                setAssetsOpen: toggleAssetsOpen,
-                setMinimapOpen,
-                getLayersOpen: () => layersOpen,
-                getAssetsOpen: () => assetsOpen,
-                getMinimapOpen: () => minimapOpen,
-                openAccountAgent: () => {
-                  const from = `${location.pathname}${location.search}${location.hash}`;
-                  navigate(withReturnTo('/account?tab=agent', from));
-                },
-              }}
-            />
-          )}
+          ) : agentOpen && !isMobileViewport ? (
+            <div className="pointer-events-none absolute inset-y-0 right-0 z-30">
+              <div className="pointer-events-auto h-full">{agentDock}</div>
+            </div>
+          ) : null}
         </div>
 
         {isMobileViewport && layersOpen ? (
@@ -1603,6 +1654,8 @@ function EditorPage() {
             </div>
           </>
         ) : null}
+
+        {isMobileViewport && workspaceMode !== 'dev' ? agentDock : null}
 
         {isMobileViewport && agentOpen ? (
           <button

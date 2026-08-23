@@ -16,6 +16,7 @@ import {
   clampShapeSides,
   DEFAULT_SHAPE_SIDES,
   HEAVY_PATH_D_CHARS,
+  ellipseInnerRatioFromAttrs,
   shapeVertexPoints,
   sidesFromAttrs,
   starInnerRatioFromAttrs,
@@ -1327,10 +1328,15 @@ function outlineCircleLocal(node: SceneNodeInput): OutlineResult | null {
     fillColor === 'transparent' ||
     fillColor === 'none' ||
     fillColor === 'rgba(0,0,0,0)';
+  const innerRatio = ellipseInnerRatioFromAttrs(node.attrs);
   return withBakedNodeAngle(node, {
     pathD: d,
     closed: true,
     fillColor: fillNone ? undefined : fillColor,
+    ...(innerRatio > 1e-4 ? { fillRule: 'evenodd' as const } : null),
+    // Donut / arc rings use `A` commands — pair-scan bounds + translatePathD
+    // mis-fit the path and detach the selection box from the ink.
+    bounds: { minX: 0, minY: 0, width: w, height: h },
   });
 }
 
@@ -1635,7 +1641,8 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
 /** Normalize outline into node-local top-left space + tight bounds. */
 function fitOutlineResult(result: OutlineResult): OutlineResult | null {
   if (!result?.pathD) return null;
-  const bounds = result.bounds ?? pathDBounds(result.pathD);
+  const explicit = result.bounds;
+  const bounds = explicit ?? pathDBounds(result.pathD);
   if (!bounds) return result;
   const needShift = Math.abs(bounds.minX) > 0.01 || Math.abs(bounds.minY) > 0.01;
   const shifted = needShift
@@ -1650,6 +1657,17 @@ function fitOutlineResult(result: OutlineResult): OutlineResult | null {
         minY: bounds.minY,
         width: bounds.width,
         height: bounds.height,
+      },
+    };
+  }
+  if (explicit) {
+    return {
+      ...result,
+      bounds: {
+        minX: explicit.minX,
+        minY: explicit.minY,
+        width: explicit.width,
+        height: explicit.height,
       },
     };
   }
