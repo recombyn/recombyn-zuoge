@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
 import { HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
+import { LuCrosshair } from 'react-icons/lu';
 import { generateImage, type ChatModelsResponse, type LlmModel } from '@/service/chat';
 import { apiQuery, getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
@@ -26,6 +27,10 @@ import {
   buildImageGeneratorModelList,
   flyPickIntoImageComposer,
 } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
+import {
+  buildComposerChipPrompt,
+  collectComposerRefImages,
+} from '@/components/editor/panels/agent/agentSendPath';
 import ImageAspectRatioPicker, {
   DEFAULT_IMAGE_COUNT,
   DEFAULT_IMAGE_QUALITY,
@@ -45,11 +50,15 @@ import {
   clearCanvasAttachPick,
   closeImageToolPanel,
   consumePendingCanvasAttach,
+  consumePendingQuickEditMarkContexts,
   finishImageProcess,
+  openImageToolPanel,
   patchDocumentNode,
   pushEditorHistory,
   startCanvasAttachPick,
+  type PendingMarkContextChip,
 } from '@/store/modules/editor';
+import { useImageToolCapabilities } from '@/service/imageTools';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
 import { useWalletSnapshot } from '@/service/wallet';
@@ -60,6 +69,26 @@ import { readFileAsDataUrl } from '@/utils/uploadImage';
 import store from '@/store';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
+
+function insertPendingMarkChips(
+  input: AgentComposerHandle | null,
+  list: PendingMarkContextChip[],
+  focus: boolean
+) {
+  for (const item of list) {
+    input?.insertContextAtCaret({
+      key: item.key,
+      label: item.label,
+      kind: item.kind,
+      payload: item.payload,
+      dataUrl: item.dataUrl,
+      thumbUrl: item.thumbUrl,
+    });
+    const tail = item.appendText?.trim();
+    if (tail) input?.insertPlainAtCaret(tail);
+  }
+  if (focus) input?.focus();
+}
 
 function nextQuickEditImageModelId(
   models: LlmModel[],
@@ -92,18 +121,19 @@ function ratioSummaryLabel(aspectRatio: string, t: (k: string) => string) {
 }
 
 /**
- * Floating quick-edit composer under a selected image (Chat on image toolbar).
- * Prefills `attrs.genPrompt` when the image was prompt-generated; sends the
- * current image as the primary reference for i2i edits.
+ * Floating quick-edit composer under a selected image.
+ * Prefills `attrs.genPrompt`; uses the image as the primary i2i reference.
  */
 function ImageQuickEditComposer({
   document,
   nodeId,
   box,
+  hidden = false,
 }: {
   document: SceneDocument;
   nodeId: string;
   box: SceneBox;
+  hidden?: boolean;
 }): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
@@ -133,6 +163,11 @@ function ImageQuickEditComposer({
 
   const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
+  const { data: imageToolCaps } = useImageToolCapabilities();
+  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
+  const pendingQuickEditMarks = useSelector(
+    (s: any) => (s.editor.pendingQuickEditMarkContexts || []) as PendingMarkContextChip[]
+  );
   const canvasAttachPick = useSelector(
     (s: any) => s.editor?.canvasAttachPick as null | { target: string }
   );
@@ -172,13 +207,14 @@ function ImageQuickEditComposer({
     flyPendingAttach();
   }, [pendingCanvasAttach, pickTarget, document, dispatch]);
 
-  // Auto-focus prompt when the floating chat panel opens.
+  // Auto-focus prompt when the floating chat panel opens or mark session ends.
   useEffect(() => {
+    if (hidden) return;
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [nodeId]);
+  }, [nodeId, hidden]);
 
   const modelsCatalogQuery = useQuery({
     ...apiQuery.chatGetModels.queryOptions(),
@@ -220,6 +256,13 @@ function ImageQuickEditComposer({
       abortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (!pendingQuickEditMarks.length) return;
+    const list = pendingQuickEditMarks.slice();
+    dispatch(consumePendingQuickEditMarkContexts());
+    insertPendingMarkChips(inputRef.current, list, !hidden);
+  }, [pendingQuickEditMarks, dispatch, hidden]);
 
   const attachments = contexts.filter((c) => c.kind === 'attachment');
   const inlineContexts = contexts.filter((c) => c.kind !== 'attachment');
@@ -285,17 +328,13 @@ function ImageQuickEditComposer({
       })
     );
     try {
+      const promptForApi = buildComposerChipPrompt(contexts, text);
       const body: Parameters<typeof generateImage>[0] = {
-        prompt: text,
+        prompt: promptForApi,
         model: canPickModel ? modelId : cloudImageFallbackId() || modelId,
         quality: DEFAULT_IMAGE_QUALITY,
         resolution,
-        images: [
-          src,
-          ...attachments
-            .map((c) => String(c.dataUrl || c.thumbUrl || '').trim())
-            .filter(Boolean),
-        ],
+        images: collectComposerRefImages(contexts, src),
       };
       if (aspectRatio !== 'smart') body.aspect_ratio = aspectRatio;
 
@@ -365,6 +404,14 @@ function ImageQuickEditComposer({
     [nodeId, src, t]
   );
 
+  const onMark = () => {
+    if (!ilpEnabled) {
+      message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
+      return;
+    }
+    dispatch(openImageToolPanel({ nodeId, kind: 'mark', markSink: 'quickEdit' }));
+  };
+
   if (!node || !src) return null;
 
   return (
@@ -376,9 +423,11 @@ function ImageQuickEditComposer({
         className={cn(
           'pointer-events-auto absolute z-[32] flex h-[200px] w-[500px] flex-col overflow-visible',
           'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
+          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]',
+          hidden && 'invisible pointer-events-none'
         )}
         style={composerStyle}
+        aria-hidden={hidden || undefined}
         onPointerDown={(e) => {
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation?.();
@@ -411,12 +460,21 @@ function ImageQuickEditComposer({
               <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
             </button>
           </Tooltip>
+          {ilpEnabled ? (
+            <Tooltip tip={t('editor.imageToolbar.mark')} placement="top">
+              <button
+                type="button"
+                disabled={sending}
+                aria-label={t('editor.imageToolbar.mark')}
+                onClick={onMark}
+                className={composerAttachActionClass()}
+              >
+                <LuCrosshair className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </Tooltip>
+          ) : null}
           <Tooltip
-            tip={
-              pickingFromCanvas
-                ? t('agent.pickFromCanvasCancel')
-                : t('agent.pickFromCanvas')
-            }
+            tip={pickingFromCanvas ? t('agent.pickFromCanvasCancel') : t('agent.pickFromCanvas')}
             placement="top"
           >
             <button

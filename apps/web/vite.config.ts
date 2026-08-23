@@ -110,9 +110,8 @@ export default defineConfig(({ mode }) => {
     },
     assetsInclude: ['**/*.wasm'],
     server: {
-      // Bind IPv4 explicitly so Playwright / k6 / curl on 127.0.0.1 work on Windows
-      // (Vite default `localhost` often resolves to ::1 only).
-      host: '127.0.0.1',
+      // Listen on all local interfaces so both localhost and 127.0.0.1 work on Windows.
+      host: true,
       port: 3000,
       strictPort: true,
       // Browser auto-open only for plain `npm run dev`, not under Tauri.

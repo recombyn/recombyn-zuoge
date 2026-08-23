@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { SoftGlowSurface } from '@/components/base';
 import { useRcbCamera, rcbCameraCssZoom } from '@/components/rcb';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
+import { readScenePaintLocalSize } from '@/components/rcb/scene/paint/sceneToSvg';
 import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const PILL_BOTTOM_PAD_PX = 14;
@@ -22,8 +23,11 @@ export function NodeProcessGlow({
   node: SceneNodeInput;
   paintHost: SVGElement;
 }): ReactNode {
-  const width = Math.max(1, Number(node.width) || 1);
-  const height = Math.max(1, Number(node.height) || 1);
+  const fallback = {
+    width: Math.max(1, Number(node.width) || 1),
+    height: Math.max(1, Number(node.height) || 1),
+  };
+  const { width, height } = readScenePaintLocalSize(paintHost, fallback);
   const radii = radiiFromAttrs(node.attrs || {});
   const borderRadius = `${radii.tl}px ${radii.tr}px ${radii.br}px ${radii.bl}px`;
   const camera = useRcbCamera();

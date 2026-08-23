@@ -29,6 +29,7 @@ import {
   openVideoToolPanel,
   openAudioToolPanel,
   isImageToolSidePanelKind,
+  isQuickEditMarkPanel,
 } from '@/store/modules/editor';
 import FlipRotateToolbar from '@/components/editor/nodes/ImageNode/FlipRotateToolbar';
 import ImageQuickEditComposer from '@/components/editor/nodes/ImageNode/ImageQuickEditComposer';
@@ -56,6 +57,7 @@ import {
   isAudioGeneratorNode,
   isIconImageNode,
   isImageGeneratorNode,
+  isImageProcessRunning,
   isLottieGeneratorNode,
   isVideoGeneratorNode,
   supportsCornerRadius,
@@ -373,6 +375,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     kind,
     ['image', 'video']
   );
+  const quickEditMarkPaused = isQuickEditMarkPanel(imageToolPanel, nodeId, kind);
   const quickEditOpen = isPanelKindOnNode(
     imageToolPanel,
     nodeId,
@@ -380,6 +383,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     kind,
     ['image', 'video', 'audio', 'lottie']
   );
+  const quickEditComposerOpen = quickEditOpen || quickEditMarkPaused;
   const lottieEditOpen = isPanelKindOnNode(
     imageToolPanel,
     nodeId,
@@ -421,7 +425,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [decorationOpen, alignOpen]);
 
   if (!node || !box) return null;
-  // Generator plate uses its own composer overlay — hide photo AI selection chrome.
+  if (isImageProcessRunning(node)) return null;
   if (
     isImageGeneratorNode(node) ||
     isVideoGeneratorNode(node) ||
@@ -537,7 +541,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
       </>
     ) : null;
 
-  if (quickEditOpen || lottieEditOpen) {
+  if (quickEditComposerOpen || lottieEditOpen) {
     if (kind === 'video') {
       return <VideoQuickEditComposer document={document} nodeId={nodeId} box={box} />;
     }
@@ -547,7 +551,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
     if (kind === 'lottie') {
       return <LottieQuickEditComposer document={document} nodeId={nodeId} box={box} />;
     }
-    return <ImageQuickEditComposer document={document} nodeId={nodeId} box={box} />;
+    return (
+      <ImageQuickEditComposer
+        document={document}
+        nodeId={nodeId}
+        box={box}
+        hidden={quickEditMarkPaused}
+      />
+    );
   }
 
   const flipRotateToolbar = (

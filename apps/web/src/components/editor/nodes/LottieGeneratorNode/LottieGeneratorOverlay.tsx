@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
 import {
-  isLottieGeneratorNode
+  isLottieGeneratorNode,
+  shouldShowGeneratorComposer,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import LottieGeneratorCard from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorCard';
@@ -65,7 +66,11 @@ function LottieGeneratorOverlay({
               width,
               height,
             }}
-            showComposer={!hidden && selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId}
+            showComposer={shouldShowGeneratorComposer({
+              node,
+              hidden,
+              selected: selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId,
+            })}
             disabled={readOnly}
           />
         );

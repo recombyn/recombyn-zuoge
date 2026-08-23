@@ -46,4 +46,20 @@ describe('shapeHostPropsEqual', () => {
 
     expect(shapeHostPropsEqual(props(before), props(after))).toBe(false);
   });
+
+  it('ignores geometry-only preview updates while process shimmer is running', () => {
+    const attrs = { processStatus: 'running', processLabel: 'Uploading' };
+    const before = {
+      deltaSetLike: {
+        'brush-a': { id: 'brush-a', key: 'image', x: 0, y: 0, width: 100, height: 100, attrs },
+      },
+    };
+    const after = {
+      deltaSetLike: {
+        'brush-a': { id: 'brush-a', key: 'image', x: 0, y: 0, width: 180, height: 180, attrs },
+      },
+    };
+
+    expect(shapeHostPropsEqual(props(before), props(after))).toBe(true);
+  });
 });

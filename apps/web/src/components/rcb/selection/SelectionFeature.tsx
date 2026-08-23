@@ -20,8 +20,7 @@ import {
   type SmartGuideLine,
 } from './alignGuides';
 import SelectionChrome, {
-  cursorForResize,
-  pickChromeHandleAtClient,
+  clearSelectionChromeCursor,
   pickOverlayHandleAtClient,
   pickSelectionInkAtClient,
   syncOverlayHandleHoverAtClient,
@@ -29,7 +28,10 @@ import SelectionChrome, {
   tryStartOverlayHandleSeat,
   type ChromeHandlePick,
 } from './SelectionChrome';
-import { cursorForRotate } from './rotateCornerCursor';
+import {
+  applyPaintedChromeHover,
+  isSelectionHoverUiTarget,
+} from './selectionHoverChrome';
 import SelectionContextToolbar from './chrome/SelectionContextToolbar';
 import MultiSelectionToolbar from './chrome/MultiSelectionToolbar';
 import NodeTitleLabel from './chrome/NodeTitleLabel';
@@ -155,17 +157,6 @@ import {
 } from './selectionLogic';
 import { frameSelId, parseFrameSelId } from './frameSelectionIds';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-
-const ROTATE_CORNER_ICON_DEG = {
-  nw: 0,
-  ne: 90,
-  se: 180,
-  sw: 270,
-} as const;
-
-function rotateCornerIconDeg(corner: keyof typeof ROTATE_CORNER_ICON_DEG): number {
-  return ROTATE_CORNER_ICON_DEG[corner];
-}
 
 /** One frame of live transform chrome + paint (ADR 0027 — RAF preview). */
 export type TransformPreviewBatch = {
@@ -649,135 +640,64 @@ function SelectionFeature({
     let hoverRaf = 0;
     let pending: PointerEvent | null = null;
 
+    const clearChromeCursor = () => clearSelectionChromeCursor(hitEl);
+
+    const paintedChromeHover = (
+      e: PointerEvent,
+      scene: { x: number; y: number },
+      includeOverlayKnobs: boolean
+    ) =>
+      applyPaintedChromeHover({
+        hitEl,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        target: e.target,
+        scene,
+        sceneDoc: documentRef.current,
+        liveUnion: liveUnionRef.current,
+        liveOrigins: liveOriginsRef.current,
+        liveAngle: liveAngleRef.current || 0,
+        pickOpts: chromePickOptsRef.current,
+        setEndpointHover,
+        includeOverlayKnobs,
+      });
+
     const runHoverHit = (e: PointerEvent) => {
       setEndpointHover(null);
       if (dragRef.current) {
         applyHover(null);
+        clearChromeCursor();
         return;
       }
       const hoverScene = toScene(e.clientX, e.clientY);
       syncOverlayHandleHoverAtClient(e.clientX, e.clientY, e.target, hoverScene);
       const target = e.target as HTMLElement | null;
+
       const variantsHost = target?.closest?.(
         '[data-image-variants-bar]'
       ) as HTMLElement | null;
       if (variantsHost) {
         const pinned = variantsHost.getAttribute('data-image-node-id');
         if (pinned) {
+          clearChromeCursor();
           applyHover(pinned);
           return;
         }
       }
-      if (
-        target?.closest?.(
-          '[data-ctx-menu],[data-sel-toolbar],[data-export-panel],[data-frame-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-dev-props],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-radius-handle],[data-star-handle],[data-poly-handle],[data-circle-handle],[data-rcb-hit-zone]'
-        )
-      ) {
-        // Selection pill often overlaps knobs at high zoom — still show chrome cursor.
-        const pickOptsEarly = chromePickOptsRef.current;
-        if (
-          hitEl &&
-          !pickOptsEarly.suppressChrome &&
-          pickOptsEarly.showHandles &&
-          liveUnionRef.current &&
-          liveOriginsRef.current?.length
-        ) {
-          const painted = resolvePaintedControlChrome(
-            documentRef.current,
-            liveOriginsRef.current,
-            liveUnionRef.current,
-            liveAngleRef.current || 0
-          );
-          const paint = pickChromeHandleAtClient(
-            e.clientX,
-            e.clientY,
-            e.target,
-            {
-              ...pickOptsEarly,
-              box: painted.box,
-              angle: painted.angle,
-              scene: toScene(e.clientX, e.clientY),
-            }
-          );
-          if (paint?.kind === 'endpoint') {
-            setEndpointHover(paint.handle);
-            hitEl.style.cursor = 'default';
-            applyHover(null);
-            return;
-          }
-          if (paint?.kind === 'resize') {
-            hitEl.style.cursor = cursorForResize(paint.handle, painted.angle);
-            applyHover(null);
-            return;
-          }
-          if (paint?.kind === 'rotate') {
-            hitEl.style.cursor = cursorForRotate(
-              rotateCornerIconDeg(paint.corner),
-              painted.angle
-            );
-            applyHover(null);
-            return;
-          }
+
+      if (isSelectionHoverUiTarget(target)) {
+        if (paintedChromeHover(e, hoverScene, false)) {
+          applyHover(null);
+          return;
         }
         applyHover(null);
         return;
       }
 
       const p = toScene(e.clientX, e.clientY);
-      const pickOpts = chromePickOptsRef.current;
-      const liveUnionNow = liveUnionRef.current;
-      const liveOriginsNow = liveOriginsRef.current;
-      const liveAngleNow = liveAngleRef.current;
-      if (
-        hitEl &&
-        !pickOpts.suppressChrome &&
-        pickOpts.showHandles &&
-        liveUnionNow &&
-        liveOriginsNow?.length
-      ) {
-        const painted = resolvePaintedControlChrome(
-          documentRef.current,
-          liveOriginsNow,
-          liveUnionNow,
-          liveAngleNow || 0
-        );
-        const pick = pickChromeHandleAtClient(e.clientX, e.clientY, e.target, {
-          ...pickOpts,
-          box: painted.box,
-          angle: painted.angle,
-          scene: p,
-        });
-        if (pick?.kind === 'endpoint') {
-          setEndpointHover(pick.handle);
-          hitEl.style.cursor = 'default';
-          applyHover(null);
-          return;
-        }
-        if (pick?.kind === 'resize') {
-          hitEl.style.cursor = cursorForResize(pick.handle, painted.angle);
-          applyHover(null);
-          return;
-        }
-        if (pick?.kind === 'rotate') {
-          hitEl.style.cursor = cursorForRotate(
-            rotateCornerIconDeg(pick.corner),
-            painted.angle
-          );
-          applyHover(null);
-          return;
-        }
-        const knob = pickOverlayHandleAtClient(e.clientX, e.clientY, e.target, p);
-        if (knob?.kind === 'radius' || knob?.kind === 'shape') {
-          hitEl.style.cursor = 'pointer';
-          applyHover(null);
-          return;
-        }
-        if (
-          hitEl.style.cursor &&
-          /resize|grab|alias|crosshair|pointer/.test(hitEl.style.cursor)
-        ) {
-          hitEl.style.cursor = '';
-        }
+      if (paintedChromeHover(e, p, true)) {
+        applyHover(null);
+        return;
       }
 
       // Only hit-test when the pointer is over the stage / paper / selection chrome.
@@ -821,6 +741,7 @@ function SelectionFeature({
         cancelAnimationFrame(hoverRaf);
         hoverRaf = 0;
       }
+      clearSelectionChromeCursor(hitEl);
       applyHover(null);
     };
 
@@ -831,6 +752,7 @@ function SelectionFeature({
       if (hoverRaf) cancelAnimationFrame(hoverRaf);
       window.removeEventListener('pointermove', onHoverMove);
       window.removeEventListener('blur', onLeave);
+      clearSelectionChromeCursor(hitEl);
     };
   }, [enabled, hitEl, paperEl, overlayRoot, artboard, hitTest, dispatch, toScene, workspaceMode, readOnly]);
 
@@ -1066,7 +988,7 @@ function SelectionFeature({
       if (target.closest('[data-sel-toolbar],[data-frame-toolbar]')) return;
       if (
         target.closest(
-          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-fill-image-preview],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar]'
+          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-fill-image-preview],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-mockup-session],[data-mockup-toolbar],[data-upscale-toolbar],[data-mark-overlay],[data-mark-prompt]'
         )
       )
         return;
@@ -1482,6 +1404,7 @@ function SelectionFeature({
       setMarquee(null);
       if (!drag) return;
       dragRef.current = null;
+      clearSelectionChromeCursor(hitEl);
       const {
         sceneDoc,
         toScene,
@@ -2303,7 +2226,8 @@ function SelectionFeature({
         />
       ) : null}
 
-      {!inspectDev && chromeUnion && singleNode && !transforming && !suppressToolbars ? (
+      {!inspectDev && chromeUnion && singleNode && !transforming && !suppressToolbars &&
+      String(singleNodeData?.attrs?.processStatus || '') !== 'running' ? (
         <SelectionContextToolbar
           document={document}
           nodeId={selectedNodeIds[0]}

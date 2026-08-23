@@ -1316,52 +1316,23 @@ export async function nodeToSvgElement(
 
     if (processing) {
       const g = appendChild(parent, svgEl('g'));
-      const kind = String(node.attrs?.processKind || '');
-      const previewSrc =
-        kind === 'upload' && src && String(src) !== TRANSPARENT_PIXEL_SRC ? String(src) : '';
-      if (previewSrc) {
-        const img = appendChild(
-          g,
-          svgEl('image', {
-            width: boxW,
-            height: boxH,
-            x: 0,
-            y: 0,
-            // Fill the node box (like rects) — default SVG `meet` letterboxes.
-            preserveAspectRatio: 'none',
-          })
-        );
-        setSvgImageHref(img, previewSrc);
-        if (cssFilter) setStyles(img, { filter: cssFilter });
-        const overlay = appendChild(g, svgEl('path', { d: clipD }));
-        setFill(overlay, 'rgba(185, 203, 218, 0.28)');
-        // Screen hairline — fixed scene 1.5 blows up under camera scale and
-        // reads as "selection larger than the photo" while uploading.
-        setStroke(overlay, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
-        setAttrs(overlay, {
-          'pointer-events': 'none',
-          'data-radius-body': '1',
-          'data-baseline': '1',
-        });
-      } else {
-        const gid = nextClipId('img-load');
-        const defs = ensureDefs(root);
-        const grad = svgEl('linearGradient', {
-          id: gid,
-          x1: '0%',
-          y1: '50%',
-          x2: '100%',
-          y2: '50%',
-        });
-        grad.appendChild(svgEl('stop', { offset: '0', 'stop-color': '#B9CBDA' }));
-        grad.appendChild(svgEl('stop', { offset: '0.55', 'stop-color': '#D5DEE6' }));
-        grad.appendChild(svgEl('stop', { offset: '1', 'stop-color': '#E8ECF0' }));
-        defs.appendChild(grad);
-        const plate = appendChild(g, svgEl('path', { d: clipD }));
-        setFill(plate, urlRef(gid));
-        setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
-        setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
-      }
+      const gid = nextClipId('img-load');
+      const defs = ensureDefs(root);
+      const grad = svgEl('linearGradient', {
+        id: gid,
+        x1: '0%',
+        y1: '50%',
+        x2: '100%',
+        y2: '50%',
+      });
+      grad.appendChild(svgEl('stop', { offset: '0', 'stop-color': '#B9CBDA' }));
+      grad.appendChild(svgEl('stop', { offset: '0.55', 'stop-color': '#D5DEE6' }));
+      grad.appendChild(svgEl('stop', { offset: '1', 'stop-color': '#E8ECF0' }));
+      defs.appendChild(grad);
+      const plate = appendChild(g, svgEl('path', { d: clipD }));
+      setFill(plate, urlRef(gid));
+      setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
+      setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
 
       tagNode(g, nodeId, 'image', undefined, left, top, boxW, boxH);
       // Process shimmer is editor chrome — never bake into export / cover clones.
@@ -2318,6 +2289,32 @@ function previewResizeText(
   });
   reapplySceneTransform(el, box.left, box.top, box.width, box.height);
   return true;
+}
+
+export function readScenePaintLocalSize(
+  el: SVGElement | null | undefined,
+  fallback: { width: number; height: number }
+): { width: number; height: number } {
+  if (!el) return fallback;
+  const anyEl = asHost(el);
+  if (anyEl.__sceneDidResize) {
+    const baseW = Number(anyEl.__sceneDragBaseW);
+    const baseH = Number(anyEl.__sceneDragBaseH);
+    if (baseW > 0 && baseH > 0) {
+      return { width: baseW, height: baseH };
+    }
+  }
+  const geom = readGeom(el);
+  if (geom) {
+    return {
+      width: Math.max(1, geom.width),
+      height: Math.max(1, geom.height),
+    };
+  }
+  return {
+    width: Math.max(1, fallback.width),
+    height: Math.max(1, fallback.height),
+  };
 }
 
 function previewResizeImage(

@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
 import {
-  isAudioGeneratorNode
+  isAudioGeneratorNode,
+  shouldShowGeneratorComposer,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import AudioGeneratorCard from '@/components/editor/nodes/AudioGeneratorNode/AudioGeneratorCard';
@@ -47,9 +48,11 @@ function AudioGeneratorOverlay({
             key={nodeId}
             nodeId={nodeId}
             sceneBox={{ x: left, y: top, width, height }}
-            showComposer={
-              !hidden && selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId
-            }
+            showComposer={shouldShowGeneratorComposer({
+              node,
+              hidden,
+              selected: selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId,
+            })}
             disabled={readOnly}
           />
         );

@@ -1,11 +1,12 @@
 import { useMemo, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
 import {
-  isImageGeneratorNode
+  isImageGeneratorNode,
+  shouldShowGeneratorComposer,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import ImageGeneratorCard from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
-import { EMPTY_ID_LIST } from '@/store/modules/editor';
+import { EMPTY_ID_LIST, isCanvasAttachForNode } from '@/store/modules/editor';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
@@ -56,13 +57,16 @@ function ImageGeneratorOverlay({
             key={nodeId}
             nodeId={nodeId}
             sceneBox={{ x: left, y: top, width, height }}
-            // Title comes from the shared selection label; composer follows it.
-            showComposer={
-              !hidden &&
-              ((selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId) ||
-                canvasAttachPick?.target === `node:${nodeId}` ||
-                pendingCanvasAttach?.target === `node:${nodeId}`)
-            }
+            showComposer={shouldShowGeneratorComposer({
+              node,
+              hidden,
+              selected: selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId,
+              attachPickActive: isCanvasAttachForNode(
+                nodeId,
+                canvasAttachPick,
+                pendingCanvasAttach
+              ),
+            })}
             disabled={readOnly}
           />
         );

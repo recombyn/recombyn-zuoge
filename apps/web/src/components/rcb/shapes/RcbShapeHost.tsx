@@ -43,6 +43,15 @@ type Props = {
   revealOverflow?: boolean;
 };
 
+function sameProcessingPaintNode(prev: unknown, next: unknown): boolean {
+  if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return false;
+  const a = prev as { key?: string; attrs?: { processStatus?: string } };
+  const b = next as { key?: string; attrs?: { processStatus?: string } };
+  if (a.attrs !== b.attrs) return false;
+  if (String(a.attrs?.processStatus || '') !== 'running') return false;
+  return a.key === b.key;
+}
+
 /**
  * A geometry commit creates a new document shell, while every untouched node
  * keeps its object identity. Comparing the whole document here made every
@@ -52,6 +61,9 @@ type Props = {
 export function shapeHostPropsEqual(previous: Props, next: Props): boolean {
   const prevNode = previous.document?.deltaSetLike?.[previous.nodeId];
   const nextNode = next.document?.deltaSetLike?.[next.nodeId];
+  const sameNode =
+    prevNode === nextNode ||
+    (prevNode && nextNode && sameProcessingPaintNode(prevNode, nextNode));
   return (
     previous.nodeId === next.nodeId &&
     previous.zIndex === next.zIndex &&
@@ -59,9 +71,9 @@ export function shapeHostPropsEqual(previous: Props, next: Props): boolean {
     previous.frameClipToken === next.frameClipToken &&
     previous.forceHidden === next.forceHidden &&
     previous.revealOverflow === next.revealOverflow &&
-    prevNode === nextNode &&
-  // clearImageProcessAttrs replaces attrs on the same node record — compare attrs
-  // so upload/AI shimmer unmounts even when geometry commits skip sceneReloadToken.
+    sameNode &&
+    // clearImageProcessAttrs replaces attrs on the same node record — compare attrs
+    // so upload/AI shimmer unmounts even when geometry commits skip sceneReloadToken.
     prevNode?.attrs === nextNode?.attrs
   );
 }
