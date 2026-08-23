@@ -304,9 +304,8 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
       );
       return;
     }
-    const skipHistory =
-      mode === 'preview' || (mode === 'commit' && adjustHistoryPushedRef.current);
-    if (mode === 'commit') adjustHistoryPushedRef.current = false;
+    const skipHistory = adjustHistoryPushedRef.current;
+    adjustHistoryPushedRef.current = false;
     dispatch(
       patchDocumentNode({
         nodeId: panel.nodeId,

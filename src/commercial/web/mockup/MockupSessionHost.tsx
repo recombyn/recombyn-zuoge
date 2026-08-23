@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type ReactNode,
   memo,
 } from 'react';
