@@ -258,6 +258,15 @@ html[data-theme='dark'] .rcb-home-composer-glow::before {
   animation-name: soft-glow-drift;
 }
 
+/** Static fill while scaling/moving — avoids drift bloom exposing canvas below. */
+[data-rcb-selection-transforming='1'] [data-image-process-shimmer].rcb-soft-glow::before,
+.rcb-soft-glow[data-rcb-glow-paused='1']::before {
+  animation: none !important;
+  transform: none !important;
+  inset: 0 !important;
+  opacity: 1;
+}
+
 .rcb-soft-glow > * {
   position: relative;
   z-index: 1;

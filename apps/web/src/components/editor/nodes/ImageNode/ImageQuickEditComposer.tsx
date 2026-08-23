@@ -81,8 +81,6 @@ function insertPendingMarkChips(
       label: item.label,
       kind: item.kind,
       payload: item.payload,
-      dataUrl: item.dataUrl,
-      thumbUrl: item.thumbUrl,
     });
     const tail = item.appendText?.trim();
     if (tail) input?.insertPlainAtCaret(tail);
@@ -258,10 +256,12 @@ function ImageQuickEditComposer({
   }, []);
 
   useEffect(() => {
-    if (!pendingQuickEditMarks.length) return;
+    if (!pendingQuickEditMarks.length || hidden) return;
     const list = pendingQuickEditMarks.slice();
     dispatch(consumePendingQuickEditMarkContexts());
-    insertPendingMarkChips(inputRef.current, list, !hidden);
+    requestAnimationFrame(() => {
+      insertPendingMarkChips(inputRef.current, list, true);
+    });
   }, [pendingQuickEditMarks, dispatch, hidden]);
 
   const attachments = contexts.filter((c) => c.kind === 'attachment');

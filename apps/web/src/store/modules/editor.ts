@@ -106,6 +106,20 @@ export type PendingMarkContextChip = {
   appendText?: string;
 };
 
+/** Single pinned mark region on an image (shown after confirm). */
+export type ImageMarkPin = {
+  nodeId: string;
+  id: string;
+  index: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  kind?: string;
+  label?: string;
+  sink: 'agent' | 'quickEdit';
+};
+
 export function canvasAttachTargetForNode(nodeId: string): string {
   return `node:${nodeId}`;
 }
@@ -381,6 +395,8 @@ const initialState = {
    */
   pendingAgentContexts: [] as PendingMarkContextChip[],
   pendingQuickEditMarkContexts: [] as PendingMarkContextChip[],
+  /** One pinned mark per image node (compact badge after confirm). */
+  imageMarkPins: {} as Record<string, ImageMarkPin>,
   agentOpenNonce: 0,
 };
 
@@ -2279,6 +2295,16 @@ const editorSlice = createSlice({
     consumePendingQuickEditMarkContexts(state) {
       state.pendingQuickEditMarkContexts = [];
     },
+    setImageMarkPin(state, action: PayloadAction<ImageMarkPin>) {
+      const pin = action.payload;
+      if (!pin?.nodeId) return;
+      state.imageMarkPins[pin.nodeId] = pin;
+    },
+    clearImageMarkPin(state, action: PayloadAction<string>) {
+      const nodeId = String(action.payload || '').trim();
+      if (!nodeId) return;
+      delete state.imageMarkPins[nodeId];
+    },
   },
 });
 
@@ -2374,6 +2400,8 @@ export const {
   consumePendingAgentContexts,
   enqueueQuickEditMarkContexts,
   consumePendingQuickEditMarkContexts,
+  setImageMarkPin,
+  clearImageMarkPin,
 } = editorSlice.actions;
 
 export default editorSlice.reducer;

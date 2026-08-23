@@ -12,6 +12,7 @@ import {
   useRcbCamera,
   rcbSceneToScreen,
 } from '@/components/rcb';
+import { markRegionChrome } from './markRegionChrome';
 
 /** Mark rect in image-local coords (origin = image top-left). */
 export type MarkRect = { x: number; y: number; w: number; h: number };
@@ -207,21 +208,7 @@ function MarkRegionOverlay({
     const top = r.y * z;
     const width = Math.max(1, r.w * z);
     const height = Math.max(1, r.h * z);
-    // White strokes vanish on light photos — keep marks in the blue family.
-    const borderColor = isDraft
-      ? 'rgba(37,99,235,0.95)'
-      : selected
-        ? 'rgba(59,130,246,0.95)'
-        : hovered
-          ? 'rgba(96,165,250,0.9)'
-          : 'rgba(59,130,246,0.55)';
-    const fill =
-      isDraft || selected
-        ? 'inset 0 0 0 9999px rgba(59,130,246,0.16)'
-        : hovered
-          ? 'inset 0 0 0 9999px rgba(59,130,246,0.08)'
-          : 'inset 0 0 0 9999px rgba(59,130,246,0.04)';
-    const badgeBg = selected || isDraft ? '#2563eb' : '#60a5fa';
+    const chrome = markRegionChrome({ draft: isDraft, selected, hovered });
 
     return (
       <div
@@ -234,17 +221,15 @@ function MarkRegionOverlay({
           top,
           width,
           height,
-          border: `${isDraft ? 2 : 1.5}px dashed ${borderColor}`,
-          boxShadow: selected
-            ? `0 0 0 1px rgba(59,130,246,0.35), ${fill}`
-            : fill,
+          border: chrome.border,
+          boxShadow: chrome.boxShadow,
           boxSizing: 'border-box',
         }}
       >
         {opts.index != null ? (
           <span
             className="pointer-events-none absolute right-0 top-1/2 flex h-5 min-w-5 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-md px-1 text-[11px] font-semibold text-white shadow-sm"
-            style={{ background: badgeBg }}
+            style={{ background: chrome.badgeBg }}
           >
             {opts.index}
           </span>
