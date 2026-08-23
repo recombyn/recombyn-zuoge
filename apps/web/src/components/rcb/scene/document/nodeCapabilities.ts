@@ -76,12 +76,20 @@ export function isExportableSceneNode(node: SceneNodeRef): boolean {
   return true;
 }
 
-/**
- * Share / public preview: drop generator plates and process-shimmer so viewers
- * only see finished scene content (same filter as export / cover).
- */
 export function isImageProcessRunning(node: SceneNodeRef): boolean {
   return Boolean(node) && String(node?.attrs?.processStatus || '') === 'running';
+}
+
+/** Generator bottom composer — hide while upload / generate / AI shimmer is active. */
+export function shouldShowGeneratorComposer(opts: {
+  node: SceneNodeRef;
+  hidden?: boolean;
+  selected?: boolean;
+  attachPickActive?: boolean;
+}): boolean {
+  if (opts.hidden) return false;
+  if (isImageProcessRunning(opts.node)) return false;
+  return Boolean(opts.selected || opts.attachPickActive);
 }
 
 /**

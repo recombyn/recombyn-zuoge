@@ -184,6 +184,7 @@ import { useWalletSnapshot } from '@/service/wallet';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick } from '@/utils/wallet';
 import {
   buildDesignSceneSnapshot,
+  buildComposerChipPrompt,
   buildImageGenRequestBody,
   buildImageModeControls,
   buildStreamingAssistantSeed,
@@ -1859,26 +1860,7 @@ function AgentDock({
       : t('agent.pickFromCanvas'),
   };
 
-  const buildUserMessage = (text: string) => {
-    // Pass-through only: explicit composer chips + user text. No FE intent routing.
-    const parts: string[] = [];
-    if (contextChips.length) {
-      let attachIdx = 0;
-      parts.push(
-        ...contextChips.map((c) => {
-          if (c.kind === 'attachment') {
-            attachIdx += 1;
-            const payload = String(c.payload || '').trim();
-            if (payload) return `${payload}\nattachment_index: ${attachIdx}`;
-            return `[Attached image ${attachIdx}]\nname: ${c.label}`;
-          }
-          return c.payload;
-        })
-      );
-    }
-    parts.push(`User request:\n${text}`);
-    return parts.join('\n\n');
-  };
+  const buildUserMessage = (text: string) => buildComposerChipPrompt(contextChips, text);
 
   const finishAssistantPatch = (
     m: ChatUiMessage,
@@ -2602,14 +2584,15 @@ function AgentDock({
           Array.from({ length: count }, async (_, i) => {
             if (ac.signal.aborted) return;
             try {
+              const refImages = uniqueVisionUrls([...attachedImages, ...mentionImageSrcs]);
               const imageBody = buildImageGenRequestBody({
-                prompt: text,
+                prompt: contextChips.length ? userMessageForApi : text,
                 canPickModel,
                 model,
                 aspect,
                 resolution,
                 isImageInteraction,
-                attachedImages,
+                attachedImages: refImages,
               });
               const res = await generateImage(imageBody, { signal: ac.signal });
               const url = firstGeneratedImageUrl(res);

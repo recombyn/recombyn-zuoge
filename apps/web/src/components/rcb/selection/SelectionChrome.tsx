@@ -593,6 +593,20 @@ export function cursorForResize(handle: ResizeHandle, angleDeg: number): string 
   return dirs[idx];
 }
 
+/** Cursors set on the stage hit layer while hovering selection chrome handles. */
+export function isSelectionChromeCursor(cursor: string): boolean {
+  const c = String(cursor || '').trim();
+  if (!c) return false;
+  if (c.startsWith('url(')) return true;
+  if (c === 'default') return true;
+  return /resize|grab|alias|crosshair|pointer/.test(c);
+}
+
+export function clearSelectionChromeCursor(el: HTMLElement | null | undefined): void {
+  if (!el) return;
+  if (isSelectionChromeCursor(el.style.cursor)) el.style.cursor = '';
+}
+
 /**
  * Hit range around a painted control center (scene units).
  * Screen radius = half the painted size ? hitScale ??pointer near the point, not a DOM pad.

@@ -73,6 +73,7 @@ function documentFromExternalPayload(raw: unknown): SceneDocument {
 /** Side panel / toolbar kinds for image tools. */
 export type ImageToolPanelKind =
   | 'eraser'
+  | 'removeBg'
   | 'opacity'
   | 'multiAngle'
   | 'expand'
@@ -88,8 +89,60 @@ export type ImageToolPanelKind =
   | 'mockup'
   | 'upscale';
 
+export type ImageToolPanelState = {
+  nodeId: string;
+  kind: ImageToolPanelKind;
+  /** `quickEdit` — mark regions land in the floating composer; default is agent chat. */
+  markSink?: 'agent' | 'quickEdit';
+};
+
+export type PendingMarkContextChip = {
+  key: string;
+  label: string;
+  kind: string;
+  payload: string;
+  dataUrl?: string;
+  thumbUrl?: string;
+  appendText?: string;
+};
+
+export function canvasAttachTargetForNode(nodeId: string): string {
+  return `node:${nodeId}`;
+}
+
+export function isCanvasAttachForNode(
+  nodeId: string,
+  canvasAttachPick: { target: string } | null | undefined,
+  pendingCanvasAttach: { target: string } | null | undefined
+): boolean {
+  const target = canvasAttachTargetForNode(nodeId);
+  return (
+    canvasAttachPick?.target === target || pendingCanvasAttach?.target === target
+  );
+}
+
+export function isQuickEditMarkPanel(
+  panel: ImageToolPanelState | null | undefined,
+  nodeId: string,
+  nodeKey = 'image'
+): boolean {
+  return (
+    nodeKey === 'image' &&
+    panel?.nodeId === nodeId &&
+    panel?.kind === 'mark' &&
+    panel?.markSink === 'quickEdit'
+  );
+}
+
+export function markPanelSink(
+  panel: ImageToolPanelState | null | undefined
+): 'agent' | 'quickEdit' {
+  return panel?.markSink === 'quickEdit' ? 'quickEdit' : 'agent';
+}
+
 const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   eraser: true,
+  removeBg: true,
   opacity: true,
   replaceText: true,
   multiAngle: true,
@@ -97,6 +150,7 @@ const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   effects: true,
   blendMode: true,
   mark: true,
+  mockup: true,
 };
 
 /** Blend / effects dock beside any selected node (not image-only tools). */
@@ -144,10 +198,14 @@ function isTransientNodePatch(patch: unknown): boolean {
   return keys.length > 0 && keys.every((key) => TRANSIENT_NODE_ATTR_KEYS.has(key));
 }
 
-function isTransientFramePatch(patch: unknown): boolean {
-  if (!patch || typeof patch !== 'object') return false;
-  const keys = Object.keys(patch as Record<string, unknown>);
-  return keys.length > 0 && keys.every((key) => TRANSIENT_FRAME_KEYS.has(key));
+export function shouldClearImageToolPanelOnSelect(
+  panel: { nodeId: string; kind: string } | null | undefined,
+  nextNodeId: string | null
+): boolean {
+  if (!panel) return false;
+  // Mockup / mark stay open while picking another image or clicking empty canvas.
+  if (panel.kind === 'mockup' || panel.kind === 'mark') return false;
+  return !nextNodeId || panel.nodeId !== nextNodeId;
 }
 
 export function isImageToolSidePanelKind(kind: string | undefined | null): boolean {
@@ -261,7 +319,7 @@ const initialState = {
   /** Blank loading node while image import runs. */
   pendingImportPlaceholderId: null as string | null,
   /** Interactive image tool panel docked to the right of the source image (figs 2-5). */
-  imageToolPanel: null as null | { nodeId: string; kind: ImageToolPanelKind },
+  imageToolPanel: null as null | ImageToolPanelState,
   videoToolPanel: null as null | {
     nodeId: string;
     kind: VideoToolPanelKind;
@@ -321,14 +379,8 @@ const initialState = {
    * Mark / programmatic chips for the right AgentDock (@ mentions).
    * EditorPage opens the panel when `agentOpenNonce` bumps; dock inserts then clears.
    */
-  pendingAgentContexts: [] as Array<{
-    key: string;
-    label: string;
-    kind: string;
-    payload: string;
-    dataUrl?: string;
-    thumbUrl?: string;
-  }>,
+  pendingAgentContexts: [] as PendingMarkContextChip[],
+  pendingQuickEditMarkContexts: [] as PendingMarkContextChip[],
   agentOpenNonce: 0,
 };
 
@@ -653,7 +705,7 @@ const editorSlice = createSlice({
       state.selectedNodeIds = action.payload ? [action.payload] : [];
       // Selecting a node clears artboard multi-select (single-target click).
       if (action.payload) state.selectedFrameIds = [];
-      if (!action.payload || state.imageToolPanel?.nodeId !== action.payload) {
+      if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, action.payload)) {
         state.imageToolPanel = null;
       }
       if (!action.payload || state.videoToolPanel?.nodeId !== action.payload) {
@@ -677,7 +729,7 @@ const editorSlice = createSlice({
       state.selectedNodeId = ids[0] || null;
       // Do not clear selectedFrameIds here — marquee may select frames + nodes together.
       // Callers that want nodes-only should also dispatch setSelectedFrameIds([]).
-      if (!ids[0] || state.imageToolPanel?.nodeId !== ids[0]) {
+      if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, ids[0] || null)) {
         state.imageToolPanel = null;
       }
       if (!ids[0] || state.videoToolPanel?.nodeId !== ids[0]) {
@@ -779,7 +831,7 @@ const editorSlice = createSlice({
       state.selectedNodeIds = nodeIds;
       state.selectedNodeId = nodeIds[0] || null;
       state.selectedFrameIds = frameIds;
-      if (!nodeIds[0] || state.imageToolPanel?.nodeId !== nodeIds[0]) {
+      if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, nodeIds[0] || null)) {
         state.imageToolPanel = null;
       }
       if (!nodeIds[0] || state.videoToolPanel?.nodeId !== nodeIds[0]) {
@@ -2052,9 +2104,13 @@ const editorSlice = createSlice({
       syncLibraryOnEdit(state);
     },
     openImageToolPanel(state, action) {
-      const { nodeId, kind } = action.payload || {};
+      const { nodeId, kind, markSink } = action.payload || {};
       if (!nodeId || !kind) return;
-      state.imageToolPanel = { nodeId, kind };
+      state.imageToolPanel = {
+        nodeId,
+        kind,
+        ...(markSink === 'quickEdit' && { markSink: 'quickEdit' as const }),
+      };
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.shapeStylePanel = null;
@@ -2202,16 +2258,7 @@ const editorSlice = createSlice({
     },
     enqueueAgentContexts(
       state,
-      action: PayloadAction<
-        Array<{
-          key: string;
-          label: string;
-          kind: string;
-          payload: string;
-          dataUrl?: string;
-          thumbUrl?: string;
-        }>
-      >
+      action: PayloadAction<PendingMarkContextChip[]>
     ) {
       const list = Array.isArray(action.payload) ? action.payload : [];
       if (!list.length) return;
@@ -2220,6 +2267,17 @@ const editorSlice = createSlice({
     },
     consumePendingAgentContexts(state) {
       state.pendingAgentContexts = [];
+    },
+    enqueueQuickEditMarkContexts(
+      state,
+      action: PayloadAction<PendingMarkContextChip[]>
+    ) {
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      if (!list.length) return;
+      state.pendingQuickEditMarkContexts = [...state.pendingQuickEditMarkContexts, ...list];
+    },
+    consumePendingQuickEditMarkContexts(state) {
+      state.pendingQuickEditMarkContexts = [];
     },
   },
 });
@@ -2314,6 +2372,8 @@ export const {
   consumePendingCanvasAttach,
   enqueueAgentContexts,
   consumePendingAgentContexts,
+  enqueueQuickEditMarkContexts,
+  consumePendingQuickEditMarkContexts,
 } = editorSlice.actions;
 
 export default editorSlice.reducer;

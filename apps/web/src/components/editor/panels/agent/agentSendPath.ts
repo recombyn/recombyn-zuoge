@@ -369,6 +369,52 @@ export function buildImageGenRequestBody(opts: {
   return body;
 }
 
+/** Merge mark / mention / attachment refs for image-generation `images[]`. */
+export function collectComposerRefImages(
+  chips: ComposerContext[],
+  primarySrc?: string
+): string[] {
+  const out: string[] = [];
+  const primary = String(primarySrc || '').trim();
+  if (primary) out.push(primary);
+  for (const c of chips) {
+    if (c.kind === 'skill') continue;
+    const src = String(c.dataUrl || c.thumbUrl || '').trim();
+    if (!src) continue;
+    if (
+      c.kind === 'attachment' ||
+      c.kind === 'image' ||
+      src.startsWith('data:image/') ||
+      src.startsWith('http') ||
+      src.startsWith('/')
+    ) {
+      out.push(src);
+    }
+  }
+  return uniqueVisionUrls(out, 8);
+}
+
+/** Agent / quick-edit: inline chip payloads + user text → model prompt. */
+export function buildComposerChipPrompt(chips: ComposerContext[], userText: string): string {
+  const parts: string[] = [];
+  let attachIdx = 0;
+  for (const c of chips) {
+    if (c.kind === 'attachment') {
+      attachIdx += 1;
+      const payload = String(c.payload || '').trim();
+      if (payload) parts.push(`${payload}\nattachment_index: ${attachIdx}`);
+      else parts.push(`[Attached image ${attachIdx}]\nname: ${c.label}`);
+      continue;
+    }
+    if (c.kind === 'skill') continue;
+    const payload = String(c.payload || '').trim();
+    if (payload) parts.push(payload);
+  }
+  const text = String(userText || '').trim();
+  if (text) parts.push(`User request:\n${text}`);
+  return parts.join('\n\n');
+}
+
 export function uniqueVisionUrls(urls: Array<string | null | undefined>, max = 4): string[] {
   return urls
     .filter((u): u is string => Boolean(u))

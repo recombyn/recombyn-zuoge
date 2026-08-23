@@ -1,9 +1,7 @@
 /**
- * Local stack: Vite web (3000) + collab WS (1234).
+ * Local stack: API (8000) + Vite web (3000) + collab WS (1234).
  *
  *   npm run dev:stack
- *
- * Optional API (separate terminal): npm run dev:api
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -33,6 +31,7 @@ function run(name, args) {
   console.log(`[dev:stack] started ${name}`);
 }
 
+run('api', ['run', 'dev:api']);
 run('web', ['run', 'dev', '--workspace=apps/web']);
 run('collab', ['run', 'dev', '--workspace=apps/collab']);
 

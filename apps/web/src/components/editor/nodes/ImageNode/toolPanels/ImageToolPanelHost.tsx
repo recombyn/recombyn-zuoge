@@ -12,7 +12,9 @@ import {
   type ImageToolPanelKind,
   isImageToolExternalSessionKind,
   isNodeLayerToolPanelKind,
+  shouldClearImageToolPanelOnSelect,
 } from '@/store/modules/editor';
+import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import { buildNodeAdjustFilterCss } from '@/components/rcb/scene/document/sceneFill';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { toolbarBoxForSelection } from '@/components/rcb/selection/selectionLogic';
@@ -30,6 +32,13 @@ import {
 } from '@/components/rcb/selection/chrome/BlendModeControl';
 import EraserMaskOverlay, { type EraserMaskOverlayHandle } from './EraserMaskOverlay';
 import EraserToolPanel from './EraserToolPanel';
+import MattingHintOverlay, {
+  type MattingBrushMode,
+  type MattingHintOverlayHandle,
+} from './MattingHintOverlay';
+import RemoveBgToolPanel from './RemoveBgToolPanel';
+import { defaultBrushSize } from './maskBrushUtils';
+import { startRemoveBgFromMasks } from './removeBgSession';
 import OpacityToolPanel from './OpacityToolPanel';
 import MultiAngleToolPanel from './MultiAngleToolPanel';
 import AdjustToolPanel, {
@@ -152,17 +161,23 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
   const [brushSize, setBrushSize] = useState(96);
   const [hasStrokes, setHasStrokes] = useState(false);
   const [eraseBusy, setEraseBusy] = useState(false);
+  const [mattingBrushMode, setMattingBrushMode] = useState<MattingBrushMode>('include');
+  const [mattingBusy, setMattingBusy] = useState(false);
   const maskRef = useRef<EraserMaskOverlayHandle>(null);
+  const mattingMaskRef = useRef<MattingHintOverlayHandle>(null);
   const adjustHistoryPushedRef = useRef(false);
   const adjustBaselineRef = useRef<{ cssFilter: string; adjustValues: unknown } | null>(null);
   const liveHistoryPushedRef = useRef(false);
 
   useEffect(() => {
     if (!panel) return;
-    if (!selectedNodeId || selectedNodeId !== panel.nodeId) {
+    if (shouldClearImageToolPanelOnSelect(panel, selectedNodeId)) {
       dispatch(closeImageToolPanel());
+      return;
     }
-  }, [selectedNodeId, panel, dispatch]);
+    const node = document?.deltaSetLike?.[panel.nodeId];
+    if (isImageProcessRunning(node)) dispatch(closeImageToolPanel());
+  }, [selectedNodeId, panel, document, dispatch]);
 
   useEffect(() => {
     if (!panel) return;
@@ -179,17 +194,25 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
   }, [document, panel, dispatch]);
 
   useEffect(() => {
-    if (panel?.kind !== 'eraser' || !panel.nodeId) return;
+    if (!panel?.nodeId) return;
+    if (panel.kind !== 'eraser' && panel.kind !== 'removeBg') return;
+
     const node = document?.deltaSetLike?.[panel.nodeId];
     const boxNow = nodeBox(document, node);
-    const shortSide = Math.min(boxNow?.width || 0, boxNow?.height || 0);
-    // ~12% of the short side — readable on large plates without maxing the slider.
-    const initial = Math.round(Math.min(280, Math.max(64, shortSide * 0.12 || 96)));
-    setBrushSize(initial);
+    if (!boxNow) return;
+
+    setBrushSize(defaultBrushSize(boxNow));
     setHasStrokes(false);
-    setEraseBusy(false);
-    maskRef.current?.clear();
-    // Only when opening / switching the eraser target.
+
+    if (panel.kind === 'eraser') {
+      setEraseBusy(false);
+      maskRef.current?.clear();
+      return;
+    }
+
+    setMattingBusy(false);
+    setMattingBrushMode('include');
+    mattingMaskRef.current?.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panel?.kind, panel?.nodeId]);
 
@@ -333,8 +356,7 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
           hasStrokes={hasStrokes}
           confirmBusy={eraseBusy}
           onReset={() => {
-            const shortSide = Math.min(box.width, box.height);
-            setBrushSize(Math.round(Math.min(280, Math.max(64, shortSide * 0.12 || 96))));
+            setBrushSize(defaultBrushSize(box));
             maskRef.current?.clear();
             setHasStrokes(false);
           }}
@@ -363,12 +385,55 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
                   (store.getState() as any).editor?.pendingImageProcessId || null,
                 onSpawned: close,
               });
-              message.success('擦除完成（透明 PNG）');
+              message.success('擦除完成');
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : '';
               message.error(msg && msg !== '橡皮失败' ? msg : '橡皮失败');
             } finally {
               setEraseBusy(false);
+            }
+          }}
+        />
+      );
+      break;
+    case 'removeBg':
+      body = (
+        <RemoveBgToolPanel
+          brushSize={brushSize}
+          onBrushSizeChange={setBrushSize}
+          brushMode={mattingBrushMode}
+          onBrushModeChange={setMattingBrushMode}
+          hasStrokes={hasStrokes}
+          confirmBusy={mattingBusy}
+          onReset={() => {
+            setBrushSize(defaultBrushSize(box));
+            mattingMaskRef.current?.clear();
+            setHasStrokes(false);
+          }}
+          onCancel={close}
+          onConfirm={async () => {
+            if (mattingBusy) return;
+            const sourceId = panel.nodeId;
+            const node = document?.deltaSetLike?.[sourceId];
+            const src = String(node?.attrs?.src || '');
+            if (!src) {
+              message.error('未找到图片');
+              return;
+            }
+            setMattingBusy(true);
+            try {
+              await startRemoveBgFromMasks({
+                maskRef: mattingMaskRef.current,
+                sourceId,
+                label: t('editor.imageToolbar.processingRemoveBg'),
+                dispatch,
+                onSpawned: close,
+              });
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : '';
+              message.error(msg || '抠图准备失败');
+            } finally {
+              setMattingBusy(false);
             }
           }}
         />
@@ -501,6 +566,15 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
           ref={maskRef}
           imageBox={box}
           brushSize={brushSize}
+          onDirtyChange={setHasStrokes}
+        />
+      ) : null}
+      {panel.kind === 'removeBg' ? (
+        <MattingHintOverlay
+          ref={mattingMaskRef}
+          imageBox={box}
+          brushSize={brushSize}
+          brushMode={mattingBrushMode}
           onDirtyChange={setHasStrokes}
         />
       ) : null}

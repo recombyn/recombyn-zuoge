@@ -39,15 +39,20 @@ import {
   updateNodesInDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
-  snapBoxToGrid,
-  smartGuideTargetPad,
   smartSnapThreshold,
-  snapTranslateToPeers,
   type SmartGuideLine,
 } from '@/components/rcb/selection/alignGuides';
-import { collectSmartGuideTargets } from '@/components/rcb/selection/selectionLogic';
+import {
+  computeMovedUnion,
+  smartGuideTargetsForDrag,
+} from '@/components/rcb/selection/selectionLogic';
+import { unionOfBoxes } from '@/components/rcb/selection/resizeGeometry';
 import { frameSelId } from '@/components/rcb/selection/frameSelectionIds';
 import SmartGuidesOverlay from '@/components/rcb/selection/chrome/SmartGuidesOverlay';
+import {
+  getNodeBoxFromDoc,
+  listNodeIdsFromDoc,
+} from '@/components/editor/canvas/canvasSession';
 import {
   parseFillGradient,
   serializeFillGradient,
@@ -192,6 +197,29 @@ function frameBox(frame: ArtboardFrame) {
     width: Math.max(1, Number(frame.width) || 1),
     height: Math.max(1, Number(frame.height) || 1),
   };
+}
+
+/** Nodes that visually sit inside moved frames — co-move + exclude from smart guides. */
+function nodeIdsOverlappingFrames(
+  doc: SceneDocument,
+  movedFrames: Array<{ id: string; startX: number; startY: number; width: number; height: number }>
+) {
+  const frameBoxes = movedFrames.map((frame) => ({
+    id: frame.id,
+    box: {
+      x: frame.startX,
+      y: frame.startY,
+      width: frame.width,
+      height: frame.height,
+    },
+  }));
+  const out: string[] = [];
+  for (const [nodeId, node] of Object.entries(doc.deltaSetLike || {})) {
+    if (!node || nodeId === 'ROOT') continue;
+    const box = nodeBox(node);
+    if (frameBoxes.some(({ box: fb }) => boxesIntersect(box, fb))) out.push(nodeId);
+  }
+  return out;
 }
 
 function bindUnownedNodesToFrames(doc: SceneDocument, frameIds: string[]): SceneDocument {
@@ -437,81 +465,89 @@ function EditorStageWorld({
       if (!frame && !dragged) return;
       const baseFrame = frame || frames.find((item) => item.id === dragged?.id);
       if (!baseFrame) return;
-      let moving = {
-        left: x,
-        top: y,
-        width: Math.max(1, Number(baseFrame.width) || 1),
-        height: Math.max(1, Number(baseFrame.height) || 1),
-      };
-      if (!opts?.skipGrid) {
-        if (gridSize > 0) {
-          moving = snapBoxToGrid(moving, gridSize);
-        }
-      }
-      const movedFrameIds = new Set(
-        (dragState?.frames || [{ id }]).map((item) => item.id)
-      );
+
+      const movedFrames =
+        dragState?.frames ||
+        [
+          {
+            id,
+            startX: Number(baseFrame.x) || 0,
+            startY: Number(baseFrame.y) || 0,
+            width: Math.max(1, Number(baseFrame.width) || 1),
+            height: Math.max(1, Number(baseFrame.height) || 1),
+          },
+        ];
+      const primary = dragged ?? movedFrames[0];
+      const baseX = primary.startX;
+      const baseY = primary.startY;
+      const rawDx = x - baseX;
+      const rawDy = y - baseY;
+
+      const movedFrameIds = new Set(movedFrames.map((item) => item.id));
       const threshold = smartSnapThreshold(camera.zoom);
-      const movedChildIds = nodeIdsBoundToFrames(document, [...movedFrameIds]);
+      const movedChildIds = new Set([
+        ...nodeIdsBoundToFrames(document, [...movedFrameIds]),
+        ...(dragState?.childOrigins.map((item) => item.nodeId) ?? []),
+      ]);
       const excludeIds = new Set<string>([
         ...movedChildIds,
         ...[...movedFrameIds, id].flatMap((frameId) => [frameId, frameSelId(frameId)]),
       ]);
-      const nodeIds = Object.keys(document.deltaSetLike || {}).filter(
-        (nodeId) => nodeId !== 'ROOT'
-      );
-      const guideTargets = collectSmartGuideTargets(
-        document,
-        () => nodeIds,
-        (nodeId) => {
-          const node = document.deltaSetLike?.[nodeId];
-          if (!node) return null;
-          const box = nodeBox(node);
-          return {
-            left: box.x,
-            top: box.y,
-            width: box.width,
-            height: box.height,
-          };
+
+      const origins = movedFrames.map((item) => ({
+        nodeId: frameSelId(item.id),
+        box: {
+          left: item.startX,
+          top: item.startY,
+          width: item.width,
+          height: item.height,
         },
-        excludeIds,
-        {
-          nearBox: moving,
-          pad: smartGuideTargetPad(threshold),
+      }));
+      const startUnion =
+        unionOfBoxes(origins.map((item) => item.box)) ?? origins[0].box;
+      const listNodeIds = () => listNodeIdsFromDoc(document);
+      const getNodeBox = (nodeId: string) => getNodeBoxFromDoc(document, nodeId);
+
+      const { sdx, sdy, guides } = computeMovedUnion({
+        union: startUnion,
+        origins,
+        document,
+        dx: rawDx,
+        dy: rawDy,
+        disableSnap: false,
+        gridSize: opts?.skipGrid ? 0 : gridSize,
+        targets: smartGuideTargetsForDrag({
+          document,
+          listNodeIds,
+          getNodeBox,
+          excludeIds,
+          nearBox: {
+            left: startUnion.left + rawDx,
+            top: startUnion.top + rawDy,
+            width: startUnion.width,
+            height: startUnion.height,
+          },
+          threshold,
           queryNodeIdsInRect: (area) =>
-            nodeIds.filter((nodeId) => {
-              const node = document.deltaSetLike?.[nodeId];
-              if (!node) return false;
-              const box = nodeBox(node);
+            listNodeIds().filter((nodeId) => {
+              const box = getNodeBox(nodeId);
+              if (!box) return false;
+              const right = box.left + box.width;
+              const bottom = box.top + box.height;
               return !(
-                box.x + box.width < area.left ||
-                box.x > area.left + area.width ||
-                box.y + box.height < area.top ||
-                box.y > area.top + area.height
+                right < area.left ||
+                box.left > area.left + area.width ||
+                bottom < area.top ||
+                box.top > area.top + area.height
               );
             }),
-        }
-      );
-      const snapped = snapTranslateToPeers(
-        moving,
-        guideTargets,
-        threshold
-      );
-      moving = snapped.box;
-      setFrameSmartGuides(snapped.guides);
-      const nextX = Math.round(moving.left);
-      const nextY = Math.round(moving.top);
-      const baseX = (dragged?.startX ?? Number(baseFrame.x)) || 0;
-      const baseY = (dragged?.startY ?? Number(baseFrame.y)) || 0;
-      const dx = nextX - baseX;
-      const dy = nextY - baseY;
-      const movedFrames = dragState?.frames || [{
-        id,
-        startX: Number(baseFrame.x) || 0,
-        startY: Number(baseFrame.y) || 0,
-        width: moving.width,
-        height: moving.height,
-      }];
+        }),
+        threshold,
+      });
+
+      setFrameSmartGuides(guides);
+      const dx = Math.round(sdx);
+      const dy = Math.round(sdy);
       let childPatches: Array<{
         nodeId: string;
         patch: { x: number; y: number };
@@ -608,7 +644,9 @@ function EditorStageWorld({
         frameMoveDocumentRef.current = document;
         setFrameSmartGuides([]);
         const boundNodeIds = nodeIdsBoundToFrames(document, frameIds);
-        const childOrigins = boundNodeIds
+        const interiorNodeIds = nodeIdsOverlappingFrames(document, movedFrames);
+        const coMoveIds = [...new Set([...boundNodeIds, ...interiorNodeIds])];
+        const childOrigins = coMoveIds
           .map((nodeId) => {
             const node = document.deltaSetLike?.[nodeId];
             if (!node) return null;

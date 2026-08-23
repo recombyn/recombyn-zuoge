@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   nodeToSvgElement,
   previewSvgNodeGeometry,
+  readScenePaintLocalSize,
   videoSvgOwnsPixels,
 } from '../../scene/paint/sceneToSvg';
 
@@ -191,5 +192,35 @@ describe('video move preview geom == HTML plate override', () => {
       width: Number(anyEl.sceneWidth),
       height: Number(anyEl.sceneHeight),
     }).toEqual(moved);
+  });
+});
+
+describe('process glow local size during resize preview', () => {
+  it('readScenePaintLocalSize keeps drag-base dims while preview scales the group', async () => {
+    const { root, layer } = svgRoot({
+      'data-rcb-infinite': '1',
+      'data-rcb-shared-scene-surface': '1',
+    });
+    const node = {
+      key: 'image',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      attrs: {
+        processStatus: 'running',
+        processKind: 'upload',
+        processLabel: 'Uploading',
+      },
+    };
+    const el = await nodeToSvgElement(root, layer, doc, node, 'img-upload');
+    expect(el).toBeTruthy();
+    const nodeEls = new Map<string, SVGElement>([['img-upload', el!]]);
+    expect(previewSvgNodeGeometry(nodeEls, 'img-upload', { left: 0, top: 0, width: 160, height: 160 })).toBe(
+      true
+    );
+    const local = readScenePaintLocalSize(el, { width: 160, height: 160 });
+    expect(local).toEqual({ width: 100, height: 100 });
+    expect(el!.querySelector('image')).toBeNull();
   });
 });
