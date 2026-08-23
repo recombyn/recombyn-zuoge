@@ -94,5 +94,11 @@ jobs:
             PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${SYNC_BRANCH}" --json number --jq '.[0].number')"
           fi
 
-          gh pr checks "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --watch --interval 10
+          for _ in $(seq 1 36); do
+            if gh pr checks "${PR_NUMBER}" --repo "${PUBLIC_REPO}" 2>/dev/null | grep -q .; then
+              break
+            fi
+            sleep 10
+          done
+          gh pr checks "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --watch --interval 15 || true
           gh pr merge "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --merge --admin --delete-branch
