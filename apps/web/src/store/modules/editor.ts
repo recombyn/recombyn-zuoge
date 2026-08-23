@@ -157,8 +157,8 @@ export function markPanelSink(
 
 function pruneQuickEditMarkPins(
   pins: Record<string, ImageMarkPin | ImageMarkPin[]>
-): Record<string, ImageMarkPin | ImageMarkPin[]> {
-  const out: Record<string, ImageMarkPin | ImageMarkPin[]> = {};
+): Record<string, ImageMarkPin[]> {
+  const out: Record<string, ImageMarkPin[]> = {};
   for (const [nodeId, raw] of Object.entries(pins || {})) {
     const list = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(
       (p) => p.sink !== 'quickEdit'
