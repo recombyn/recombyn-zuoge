@@ -113,6 +113,8 @@ export type ComposerContext = {
    * `uploading` → local preview shown with spinner; omit / `ready` once server upload finishes.
    */
   uploadStatus?: 'uploading' | 'ready' | 'error';
+  /** Optional trailing text inserted after the chip (mark quick-edit). */
+  appendText?: string;
 };
 
 export type AgentComposerHandle = {

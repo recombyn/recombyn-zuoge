@@ -19,8 +19,15 @@ def test_subject_pipeline_outputs_three_layers(monkeypatch):
     binary[8:24, 10:30] = 255
 
     monkeypatch.setattr(
-        "image_layer_pipeline.subject_pipeline.segment_foreground_refined",
-        lambda _rgb, **_: (fg.copy(), binary.copy(), [{"source": "opencv-grabcut"}]),
+        "image_layer_pipeline.subject_pipeline.run_matting",
+        lambda _rgb, **_: type(
+            "M",
+            (),
+            {
+                "foreground_rgba": fg.copy(),
+                "binary_mask": binary.copy(),
+            },
+        )(),
     )
 
     bundle = run_subject_layer_pipeline(rgb)

@@ -18,5 +18,5 @@ export function isMarkContextKey(key: string): boolean {
 export function syncMarkPinRemoved(dispatch: Dispatch, key: string): void {
   const parsed = parseMarkChipKey(key);
   if (!parsed) return;
-  dispatch(removeImageMarkPin(parsed));
+  dispatch(removeImageMarkPin({ nodeId: parsed.nodeId, pinId: parsed.regionId }));
 }

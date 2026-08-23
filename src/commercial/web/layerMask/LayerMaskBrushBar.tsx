@@ -4,7 +4,7 @@ import { BiExit } from 'react-icons/bi';
 import { LuLink2, LuRotateCcw } from 'react-icons/lu';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { cn } from '@/utils/classnames';
-import { imageToolBtn, ImageToolSep } from '../imageToolbarShared';
+import { imageToolBtn, ImageToolSep } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import type { LayerMaskBrushSettings, MaskPaintColor } from './layerMaskBrush';
 
 type Props = {

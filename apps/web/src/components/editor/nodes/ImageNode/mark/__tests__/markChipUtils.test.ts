@@ -100,7 +100,15 @@ describe('mark pin round-trip', () => {
 
 describe('mark chip composer integration', () => {
   it('mark chips carry text payload without inline image thumbs', () => {
-    const chip = {
+    const chip: {
+      key: string;
+      label: string;
+      kind: string;
+      payload: string;
+      appendText: string;
+      dataUrl?: string;
+      thumbUrl?: string;
+    } = {
       key: 'mark:img-1:r1:1',
       label: '[1] 区域',
       kind: 'image',

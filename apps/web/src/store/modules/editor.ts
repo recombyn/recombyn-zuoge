@@ -214,6 +214,12 @@ function isTransientNodePatch(patch: unknown): boolean {
   return keys.length > 0 && keys.every((key) => TRANSIENT_NODE_ATTR_KEYS.has(key));
 }
 
+function isTransientFramePatch(patch: unknown): boolean {
+  if (!patch || typeof patch !== 'object') return false;
+  const keys = Object.keys(patch as Record<string, unknown>);
+  return keys.length > 0 && keys.every((key) => TRANSIENT_FRAME_KEYS.has(key));
+}
+
 export function shouldClearImageToolPanelOnSelect(
   panel: { nodeId: string; kind: string } | null | undefined,
   nextNodeId: string | null

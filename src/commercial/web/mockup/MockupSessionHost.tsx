@@ -32,8 +32,8 @@ import {
   patchDocumentNode,
 } from '@/store/modules/editor';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
-import { renderMockup } from '@/private/mockup/mockupTools';
-import MockupDesignLayer from '@/private/mockup/MockupDesignLayer';
+import { renderMockup } from './mockupTools';
+import MockupDesignLayer from './MockupDesignLayer';
 import {
   autoFitMockupPlacement,
   composeMockupDesignSheet,
@@ -41,7 +41,7 @@ import {
   loadImageNaturalSize,
   parseMockupPlacement,
   type MockupPlacement,
-} from '@/private/mockup/mockupPlacement';
+} from './mockupPlacement';
 import {
   readChatImageDragUrl,
   readMediaAssetDragPayload,

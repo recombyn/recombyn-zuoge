@@ -46,6 +46,7 @@ import {
   consumePendingCanvasAttach,
   consumePendingAgentContexts,
   EMPTY_ID_LIST,
+  setAgentBusy,
 } from '@/store/modules/editor';
 import type { RootState } from '@/store';
 import { cloneDocument } from '@/store/modules/editorHistory';

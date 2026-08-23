@@ -12,7 +12,7 @@ import {
 import { uploadImageFromSrcWithLocalFallback } from '@/utils/uploadImage';
 import { getHttpErrorMessage } from '@/service/client';
 import { useImageToolCapabilities } from '@/service/imageTools';
-import { defaultBrushSize } from '../toolPanels/maskBrushUtils';
+import { defaultBrushSize } from '@/components/editor/nodes/ImageNode/toolPanels/maskBrushUtils';
 import LayerMaskBrushBar from './LayerMaskBrushBar';
 import LayerMaskOverlay, {
   DEFAULT_LAYER_MASK_BRUSH,
