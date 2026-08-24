@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   frameIsEmpty,
+  framePlateEdgeBandScene,
   getFrameBox,
+  isPointOnFrameEdge,
   listContentNodeIds,
   resolveFramePlateDragMode,
   resolveFramePlateTarget,
@@ -92,6 +94,43 @@ describe('framePlatePointer', () => {
       width: 300,
       height: 300,
     });
+  });
+
+  it('frameIsEmpty ignores hidden nodes and full-bleed plates', () => {
+    const doc = {
+      pages: [{ id: 'p1', children: ['hidden', 'bg'] }],
+      activePageId: 'p1',
+      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
+      deltaSetLike: {
+        ROOT: { children: [] },
+        hidden: {
+          id: 'hidden',
+          key: 'shape',
+          x: 40,
+          y: 40,
+          width: 80,
+          height: 80,
+          attrs: { hidden: true },
+        },
+        bg: {
+          id: 'bg',
+          key: 'shape',
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 300,
+          attrs: { shapeType: 'rect' },
+        },
+      },
+    } as SceneDocument;
+    expect(frameIsEmpty(doc, 'f1')).toBe(true);
+  });
+
+  it('isPointOnFrameEdge detects border band', () => {
+    const box = { left: 0, top: 0, width: 300, height: 300 };
+    const band = framePlateEdgeBandScene(1);
+    expect(isPointOnFrameEdge({ x: band / 2, y: 150 }, box, 1)).toBe(true);
+    expect(isPointOnFrameEdge({ x: 150, y: 150 }, box, 1)).toBe(false);
   });
 
   it('resolveFramePlateDragMode: empty → frame_move, occupied → pointing_canvas', () => {

@@ -110,6 +110,76 @@ export function writeImageVariantsAttr(attrs: Record<string, unknown>, urls: str
   }
 }
 
+/** Per-variant gen prompts keyed by image URL (multi-gen stack / set-main). */
+export function parseImageVariantPrompts(
+  attrs: SceneNode['attrs'] | Record<string, unknown> | null | undefined
+): Record<string, string> {
+  const raw = attrs?.imageVariantPrompts;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+          const url = String(k || '').trim();
+          const prompt = String(v || '').trim();
+          if (url && prompt) out[url] = prompt;
+        }
+        return out;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return {};
+}
+
+/** Prompt for the currently displayed `src` (falls back to attrs.genPrompt). */
+export function promptForImageSrc(
+  attrs: SceneNode['attrs'] | Record<string, unknown> | null | undefined,
+  src: string
+): string {
+  const url = String(src || '').trim();
+  if (!url) return String(attrs?.genPrompt || '').trim();
+  const mapped = parseImageVariantPrompts(attrs)[url];
+  if (mapped) return mapped;
+  return String(attrs?.genPrompt || '').trim();
+}
+
+export function applyVariantPromptPatch(
+  attrs: Record<string, unknown>,
+  src: string,
+  prompt: string
+): void {
+  const url = String(src || '').trim();
+  if (!url) return;
+  const text = String(prompt || '').trim();
+  const map = parseImageVariantPrompts(attrs);
+  if (text) map[url] = text;
+  else delete map[url];
+  if (Object.keys(map).length) attrs.imageVariantPrompts = JSON.stringify(map);
+  else delete attrs.imageVariantPrompts;
+  if (text) attrs.genPrompt = text;
+  else delete attrs.genPrompt;
+}
+
+/** Seed the same prompt for each URL in a batch (generate / quick-edit stack). */
+export function seedVariantPrompts(
+  attrs: Record<string, unknown>,
+  urls: string[],
+  prompt: string
+): void {
+  const text = String(prompt || '').trim();
+  if (!text) return;
+  const map = parseImageVariantPrompts(attrs);
+  for (const u of urls) {
+    const url = String(u || '').trim();
+    if (url) map[url] = text;
+  }
+  attrs.imageVariantPrompts = JSON.stringify(map);
+  attrs.genPrompt = text;
+}
+
 /**
  * Turn a generator plate into a normal image node (same id / selection).
  * Clears generator + process attrs and applies the result `src` + geometry.
@@ -157,20 +227,31 @@ export function promoteImageGeneratorToImage(
   delete attrs.processTargetWidth;
   delete attrs.processTargetHeight;
   delete attrs.processMeta;
+  delete attrs.processJobIds;
+  delete attrs.processStartedAt;
   attrs.src = src;
   attrs.assetKind = 'image';
   if (name) attrs.name = name;
-  const prompt = String(genPrompt || '').trim();
-  if (prompt) attrs.genPrompt = prompt;
-  else delete attrs.genPrompt;
   const stack = Array.isArray(variants) ? variants : [];
   const withMain = stack.includes(src) ? stack : [src, ...stack];
   writeImageVariantsAttr(attrs, withMain);
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
+  const prompt = String(genPrompt || '').trim();
+  if (prompt) seedVariantPrompts(attrs, withMain, prompt);
+  else {
+    delete attrs.genPrompt;
+    delete attrs.imageVariantPrompts;
+  }
+  next.deltaSetLike = {
+    ...next.deltaSetLike,
+    [nodeId]: {
+      ...node,
+      attrs,
+      ...(width != null ? { width: Math.max(1, Math.round(width)) } : {}),
+      ...(height != null ? { height: Math.max(1, Math.round(height)) } : {}),
+      ...(x != null ? { x: Math.round(x) } : {}),
+      ...(y != null ? { y: Math.round(y) } : {}),
+    },
+  };
   return next;
 }
 
@@ -219,6 +300,8 @@ export function promoteVideoGeneratorToVideo(
   delete attrs.processTargetWidth;
   delete attrs.processTargetHeight;
   delete attrs.processMeta;
+  delete attrs.processJobIds;
+  delete attrs.processStartedAt;
   attrs.src = src;
   if (poster) attrs.poster = poster;
   attrs.assetKind = 'video';
@@ -226,11 +309,17 @@ export function promoteVideoGeneratorToVideo(
   const prompt = String(genPrompt || '').trim();
   if (prompt) attrs.genPrompt = prompt;
   else delete attrs.genPrompt;
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
+  next.deltaSetLike = {
+    ...next.deltaSetLike,
+    [nodeId]: {
+      ...node,
+      attrs,
+      ...(width != null ? { width: Math.max(1, Math.round(width)) } : {}),
+      ...(height != null ? { height: Math.max(1, Math.round(height)) } : {}),
+      ...(x != null ? { x: Math.round(x) } : {}),
+      ...(y != null ? { y: Math.round(y) } : {}),
+    },
+  };
   return next;
 }
 
@@ -343,6 +432,7 @@ export function detachImageVariantToNode(
 
   const width = Math.max(1, Math.round(Number(source.width) || 200));
   const height = Math.max(1, Math.round(Number(source.height) || 200));
+  const detachedPrompt = promptForImageSrc(source.attrs, src);
   const { id, node } = createImageNode({
     x: (Number(source.x) || 0) + width + gap,
     y: Number(source.y) || 0,
@@ -352,6 +442,7 @@ export function detachImageVariantToNode(
     name: name || String(source.attrs?.name || 'Image'),
     assetKind: 'image',
   });
+  if (detachedPrompt) node.attrs.genPrompt = detachedPrompt;
   let document = addNodeToDocument(next, id, node);
 
   const remaining = stack.filter((u) => u !== src);
@@ -441,6 +532,8 @@ export function promoteAudioGeneratorToAudio(
   delete attrs.processTargetWidth;
   delete attrs.processTargetHeight;
   delete attrs.processMeta;
+  delete attrs.processJobIds;
+  delete attrs.processStartedAt;
   attrs.src = src;
   attrs.assetKind = 'audio';
   if (attrs.audioSpeed == null) attrs.audioSpeed = 1;
@@ -453,11 +546,17 @@ export function promoteAudioGeneratorToAudio(
   const prompt = String(genPrompt || '').trim();
   if (prompt) attrs.genPrompt = prompt;
   else delete attrs.genPrompt;
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
+  next.deltaSetLike = {
+    ...next.deltaSetLike,
+    [nodeId]: {
+      ...node,
+      attrs,
+      ...(width != null ? { width: Math.max(1, Math.round(width)) } : {}),
+      ...(height != null ? { height: Math.max(1, Math.round(height)) } : {}),
+      ...(x != null ? { x: Math.round(x) } : {}),
+      ...(y != null ? { y: Math.round(y) } : {}),
+    },
+  };
   return next;
 }
 
@@ -502,6 +601,8 @@ export function promoteLottieGeneratorToLottie(
   delete attrs.processTargetWidth;
   delete attrs.processTargetHeight;
   delete attrs.processMeta;
+  delete attrs.processJobIds;
+  delete attrs.processStartedAt;
   attrs.animationData = json;
   attrs.assetKind = 'lottie';
   // Default readable plate under ink (never leave transparent).
@@ -516,11 +617,17 @@ export function promoteLottieGeneratorToLottie(
   const prompt = String(genPrompt || '').trim();
   if (prompt) attrs.genPrompt = prompt;
   else delete attrs.genPrompt;
-  node.attrs = attrs;
-  if (width != null) node.width = Math.max(1, Math.round(width));
-  if (height != null) node.height = Math.max(1, Math.round(height));
-  if (x != null) node.x = Math.round(x);
-  if (y != null) node.y = Math.round(y);
+  next.deltaSetLike = {
+    ...next.deltaSetLike,
+    [nodeId]: {
+      ...node,
+      attrs,
+      ...(width != null ? { width: Math.max(1, Math.round(width)) } : {}),
+      ...(height != null ? { height: Math.max(1, Math.round(height)) } : {}),
+      ...(x != null ? { x: Math.round(x) } : {}),
+      ...(y != null ? { y: Math.round(y) } : {}),
+    },
+  };
   return next;
 }
 
@@ -743,7 +850,12 @@ export function clearImageProcessAttrs(doc: SceneDocument, nodeId: string) {
   delete attrs.processTargetWidth;
   delete attrs.processTargetHeight;
   delete attrs.processMeta;
-  node.attrs = attrs;
+  delete attrs.processJobIds;
+  delete attrs.processStartedAt;
+  next.deltaSetLike = {
+    ...next.deltaSetLike,
+    [nodeId]: { ...node, attrs },
+  };
   return next;
 }
 

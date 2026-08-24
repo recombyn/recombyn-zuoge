@@ -15,9 +15,10 @@ import {
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineArrowPath } from 'react-icons/hi2';
-import { LuImages, LuPanelLeft } from 'react-icons/lu';
+import { LuPanelLeft } from 'react-icons/lu';
 import Tooltip from '@/components/base/tooltip';
 import { Button, Dialog, message } from '@/components/base';
+import EmptyState from '@/components/home/EmptyState';
 import { InfiniteScrollSection } from '@/components/home/InfiniteScroll';
 import {
   UserAssetCard,
@@ -38,8 +39,9 @@ const ASSET_DOCK_MIN_W = 200;
 const ASSET_DOCK_MAX_W = 420;
 const ASSET_DOCK_DEFAULT_W = 240;
 const PAGE_SIZE = 30;
-/** Plaza-style CSS columns waterfall (natural card heights — not CSS grid rows). */
-const ASSET_DOCK_FLOW = 'w-full columns-2 gap-1.5';
+/** Dock asset grid — auto-fill reflows on panel resize (CSS columns do not rebalance). */
+const ASSET_DOCK_FLOW =
+  'grid w-full grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-1.5 [&_[data-asset-card]]:mb-0';
 
 function clampAssetDockWidth(width: number): number {
   const viewportCap =
@@ -178,7 +180,10 @@ function AssetPanel({
     } catch {
       /* ignore */
     }
-    persistDockWidth(dockWidth);
+    setDockWidth((w) => {
+      persistDockWidth(w);
+      return w;
+    });
   };
 
   const deleteAssetMutation = useMutation(apiQuery.assetsDeleteMyAsset.mutationOptions());
@@ -321,14 +326,7 @@ function AssetPanel({
             assetsQuery.fetchNextPage();
           }}
           isEmpty={items.length === 0}
-          empty={
-            <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
-              <LuImages className="h-8 w-8 text-[var(--muted)]" strokeWidth={1.5} />
-              <p className="text-[12px] leading-relaxed text-[var(--muted)]">
-                {t('editor.assets.empty')}
-              </p>
-            </div>
-          }
+          empty={<EmptyState hint={t('editor.assets.empty')} className="px-1.5 py-2 text-[12px]" />}
           gridClassName={ASSET_DOCK_FLOW}
           skeleton={Array.from({ length: USER_ASSET_SKELETON_COUNT }, (_, i) => (
             <UserAssetCardSkeleton key={i} index={i} dense />

@@ -79,6 +79,7 @@ import {
   polylinePathD,
   simplifyPencilCenterline,
 } from '@/components/rcb/tools/pencilBrushes';
+import { normalizeHex } from '@/components/base/colorPanel';
 
 const IMAGE_PLACEHOLDER =
   "data:image/svg+xml," +

@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineCodeBracket } from 'react-icons/hi2';
-import { getInspectDockWidth } from '@/components/editor/panels/DevPropertiesPanel';
+import { useRightDockInset } from '@/components/editor/page/editorBottomHudLayout';
 import { EditorTopExportButton } from '@/components/editor/panels/ExportSelectionPanel';
 import WalletAccountChip from '@/components/layout/WalletAccountChip';
 import { cn } from '@/utils/classnames';
@@ -23,12 +23,13 @@ function ShareTopChrome({
   onToggleInspect,
 }: Props) {
   const { t } = useTranslation();
+  const rightHudInsetPx = useRightDockInset(false, inspectOpen, 'dev');
 
   return (
     <div
       className="pointer-events-none absolute inset-x-0 top-3 z-40 flex items-center gap-2 pl-4"
       style={{
-        paddingRight: inspectOpen ? getInspectDockWidth() + 16 : 16,
+        paddingRight: rightHudInsetPx,
       }}
     >
       <div className="pointer-events-auto flex min-w-0 flex-1 items-center gap-2">

@@ -41,6 +41,19 @@ celery.conf.update(
 
 
 @worker_process_init.connect
+def _warm_worker_schema(**_kwargs) -> None:
+    """Run Alembic + catalog seed once at worker boot — not mid image job."""
+    import logging
+
+    try:
+        from app.services.db import init_schema
+
+        init_schema()
+    except Exception:
+        logging.getLogger(__name__).exception("worker init_schema failed")
+
+
+@worker_process_init.connect
 def _otel_worker_init(**_kwargs) -> None:
     """Optional OTel in Celery child processes (ADR 0011)."""
     import logging

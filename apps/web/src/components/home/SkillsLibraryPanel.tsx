@@ -16,21 +16,20 @@ import {
   type DesignSkillCard,
   type DesignSkillImportExisting,
 } from '@/service/design';
-import { apiClient, apiQuery } from '@/service/client';
+import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
+import { HOME_SKILL_GRID } from '@/components/home/homeLayout';
 import { cn } from '@/utils/classnames';
 
-/** Skills toolbox — same scale as Me / projects: 2 → 3 → 4 → 5 (2xl). */
-const DEFAULT_SKILL_GRID =
-  'grid w-full grid-cols-2 gap-[10px] md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5';
+const DEFAULT_SKILL_GRID = HOME_SKILL_GRID;
 
 /**
  * Loading placeholders only (same idea as GRID_SKELETON_COUNT on Me / feed).
  * Not the API total — first fetch has no count yet.
  */
-/** ~one row beside the upload tile on the 2xl 5-col grid (upload + 4). */
-const SKILL_SKELETON_MINE = 4;
-/** Official loading placeholders — several rows on the 2xl 5-col grid. */
-const SKILL_SKELETON_OFFICIAL = 5;
+/** ~one row beside the upload tile on the 3-col grid (upload + 2). */
+const SKILL_SKELETON_MINE = 2;
+/** Official loading placeholders — two rows on the 3-col grid. */
+const SKILL_SKELETON_OFFICIAL = 6;
 
 /** Skill card — icon + title/2-line subtitle + switch; 10px pad. */
 const SKILL_CARD_SHELL =
@@ -101,7 +100,7 @@ function SkillCardSkeleton({ seed = 0 }: { seed?: number }): ReactNode {
   );
 }
 
-/** Loading placeholders — fixed count like MePage GRID_SKELETON_COUNT, not API size. */
+/** Loading placeholders — fixed count, not API size. */
 function SkillGroupSkeleton({
   title,
   count,
@@ -257,7 +256,7 @@ function SkillsLibraryPanel(): ReactNode {
 
   useEffect(() => {
     if (!skillsQuery.isError) return;
-    message.error(t('agent.requestFailed'));
+    message.error(t('agent.apiDown'));
   }, [skillsQuery.isError, t, userId]);
 
   const items = ((skillsQuery.data as { items?: DesignSkillCard[] } | undefined)?.items ||
@@ -295,7 +294,7 @@ function SkillsLibraryPanel(): ReactNode {
       await invalidateSkillsPicker();
       message.success(t('agent.skillsImportOk'));
     } catch (err) {
-      message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
+      message.error(getHttpErrorMessage(err, t('agent.requestFailed')));
     } finally {
       setScanning(false);
     }
@@ -349,7 +348,7 @@ function SkillsLibraryPanel(): ReactNode {
       await deleteSkillMutation.mutateAsync(id);
     } catch (err) {
       queryClient.setQueryData(skillsPickerQueryKey, prev);
-      message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
+      message.error(getHttpErrorMessage(err, t('agent.requestFailed')));
     }
   }
 
@@ -364,7 +363,7 @@ function SkillsLibraryPanel(): ReactNode {
       await toggleSkillMutation.mutateAsync({ id, enabled });
     } catch (err) {
       queryClient.setQueryData(skillsPickerQueryKey, prev);
-      message.error(err instanceof Error ? err.message : t('agent.requestFailed'));
+      message.error(getHttpErrorMessage(err, t('agent.requestFailed')));
     }
   }
 
@@ -379,7 +378,7 @@ function SkillsLibraryPanel(): ReactNode {
   return (
     <div className="w-full min-w-0 space-y-5">
       <header className="flex min-w-0 items-center gap-1.5">
-        <h1 className="truncate text-[18px] font-semibold tracking-tight text-[var(--ink)]">
+        <h1 className="truncate text-[24px] font-bold leading-tight tracking-tight text-[var(--ink)]">
           {t('home.skillsTitle')}
         </h1>
         <Tooltip
@@ -390,10 +389,10 @@ function SkillsLibraryPanel(): ReactNode {
         >
           <button
             type="button"
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--canvas)] hover:text-[var(--ink)]"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--canvas)] hover:text-[var(--ink)]"
             aria-label={t('home.skillsHint')}
           >
-            <HiOutlineQuestionMarkCircle className="h-[18px] w-[18px]" strokeWidth={1.5} />
+            <HiOutlineQuestionMarkCircle className="h-5 w-5" strokeWidth={1.5} />
           </button>
         </Tooltip>
         <input

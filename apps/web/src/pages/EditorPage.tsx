@@ -55,6 +55,7 @@ import {
   createEmptyDocument,
   listSceneNodes
 } from '@/components/rcb/scene/document/sceneDocument';
+import { parseAndValidateSceneJson } from '@/components/rcb/sceneNode';
 import {
   getProjectDraft,
   getProjectSession,
@@ -1017,9 +1018,61 @@ function EditorPage() {
   }
   const holdHomeAgentSubmit = bootOpen || holdForEditorTour;
 
-  const goHomeFromEditor = useCallback(() => {
-    void flushAndGoHome(navigate);
+  const goProjectsFromEditor = useCallback(() => {
+    void flushAndGoHome(navigate, '/home?nav=mine');
   }, [navigate]);
+
+  const newProjectFromEditor = useCallback(() => {
+    void flushAndGoHome(navigate, '/editor?createNew=1');
+  }, [navigate]);
+
+  const duplicateProjectFromEditor = useCallback(async () => {
+    try {
+      await flushCurrentProjectNow({ force: true });
+    } catch {
+      /* still duplicate — local draft already holds bytes */
+    }
+    const editor = (store.getState() as any).editor;
+    const doc = editor?.document;
+    if (!doc) return;
+    const current = editor.templates?.find((t: any) => t.id === editor.currentId);
+    const baseName = current?.name || t('home.untitled');
+    dispatch(
+      createTemplate({
+        name: `${baseName} ${t('editor.projectMenu.duplicateSuffix')}`,
+        document: structuredClone(doc),
+        source: 'user',
+      })
+    );
+    const newId = (store.getState() as any).editor?.currentId;
+    if (newId) navigate(`/editor/${encodeURIComponent(newId)}`, { replace: true });
+  }, [dispatch, navigate, t]);
+
+  const importJsonFromEditor = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text();
+        const validation = parseAndValidateSceneJson(text);
+        if (validation.valid === false) {
+          message.error(t('home.importJsonInvalid'));
+          return;
+        }
+        dispatch(
+          importDocument({
+            name: file.name.replace(/\.json$/i, ''),
+            document: validation.data,
+            source: 'import',
+          })
+        );
+        message.success(t('home.importSuccess'));
+        const id = (store.getState() as any).editor?.currentId;
+        if (id) navigate(`/editor/${encodeURIComponent(id)}`, { replace: true });
+      } catch {
+        message.error(t('home.importJsonFailed'));
+      }
+    },
+    [dispatch, navigate, t]
+  );
 
   const renameProjectFromChrome = useCallback(
     (name: string) => {
@@ -1479,7 +1532,10 @@ function EditorPage() {
               agentOpen={agentOpen}
               layersOpen={layersOpen}
               assetsOpen={assetsOpen}
-              onGoHome={goHomeFromEditor}
+              onProjectList={goProjectsFromEditor}
+              onNewProject={newProjectFromEditor}
+              onDuplicateProject={duplicateProjectFromEditor}
+              onImportJson={importJsonFromEditor}
               onRename={renameProjectFromChrome}
               onShare={openShareDialog}
               onOpenAgent={openAgentPanel}

@@ -42,6 +42,7 @@ import VideoJsPlayer, {
 import ImageAspectRatioPicker, {
   AspectRatioGlyph,
 } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
+import { VideoSettingsPanel } from '@/components/editor/panels/agent/shared/VideoSettingsPanel';
 import {
   isCanvasSizeAutoHint,
 } from '@/components/editor/chrome/SizePresetPanel';
@@ -90,131 +91,6 @@ export type VideoModeComposerControls = {
   modelOpen: boolean;
   onModelOpenChange: (open: boolean) => void;
 };
-
-const VIDEO_COMPOSER_ASPECTS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
-const VIDEO_COMPOSER_RESOLUTIONS = ['480p', '720p', '1080p'] as const;
-const VIDEO_COMPOSER_DURATIONS = [4, 5, 6, 7, 8, 10, 12, 15] as const;
-
-function VideoComposerSegmentPill({
-  active,
-  disabled,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}): ReactNode {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      className={cn(
-        'flex min-w-[2.75rem] flex-1 items-center justify-center rounded-lg px-2 py-2 text-[12px] font-medium tabular-nums transition disabled:opacity-40',
-        active
-          ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
-          : 'bg-transparent text-[var(--muted)] hover:text-[var(--ink)]'
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Aspect / resolution / duration — same layout as VideoGeneratorCard settings. */
-function VideoComposerSettingsPanel({
-  aspectRatio,
-  resolution,
-  duration,
-  onAspectRatioChange,
-  onResolutionChange,
-  onDurationChange,
-  disabled,
-}: {
-  aspectRatio: string;
-  resolution: string;
-  duration: number;
-  onAspectRatioChange: (ratio: string) => void;
-  onResolutionChange: (resolution: string) => void;
-  onDurationChange: (duration: number) => void;
-  disabled?: boolean;
-}): ReactNode {
-  const { t } = useTranslation();
-  return (
-    <div className="space-y-4">
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">{t('agent.chooseRatio')}</p>
-        <div className="flex items-start justify-between gap-0.5 rounded-xl bg-[var(--rail)] p-1">
-          {VIDEO_COMPOSER_ASPECTS.map((ratio) => {
-            const active = aspectRatio === ratio;
-            return (
-              <button
-                key={ratio}
-                type="button"
-                disabled={disabled}
-                title={ratio}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAspectRatioChange(ratio);
-                }}
-                className={cn(
-                  'flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg px-0.5 py-1.5 transition-colors disabled:opacity-40',
-                  active
-                    ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
-                    : 'text-[var(--muted)] hover:text-[var(--ink)]'
-                )}
-              >
-                <AspectRatioGlyph ratio={ratio} size={20} />
-                <span className="max-w-full truncate text-[10px] font-medium tabular-nums">
-                  {ratio}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">
-          {t('agent.chooseResolution')}
-        </p>
-        <div className="flex flex-wrap gap-1 rounded-xl bg-[var(--rail)] p-1">
-          {VIDEO_COMPOSER_RESOLUTIONS.map((r) => (
-            <VideoComposerSegmentPill
-              key={r}
-              active={resolution === r}
-              disabled={disabled}
-              onClick={() => onResolutionChange(r)}
-            >
-              {r}
-            </VideoComposerSegmentPill>
-          ))}
-        </div>
-      </div>
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">
-          {t('editor.tools.videoDuration')}
-        </p>
-        <div className="flex flex-wrap gap-1 rounded-xl bg-[var(--rail)] p-1">
-          {VIDEO_COMPOSER_DURATIONS.map((n) => (
-            <VideoComposerSegmentPill
-              key={n}
-              active={duration === n}
-              disabled={disabled}
-              onClick={() => onDurationChange(n)}
-            >
-              {t('editor.tools.videoDurationNs', { n })}
-            </VideoComposerSegmentPill>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Ghost toolbar controls — icon only, no border / fill. */
 const TOOL_ICON_BTN =
@@ -314,7 +190,9 @@ type Props = {
    * Square send fill: home CTA blue vs theme ink.
    * @default 'cta'
    */
-  sendTone?: 'cta' | 'ink';
+  sendTone?: 'cta' | 'ink' | 'warm';
+  /** Home hero: ~90px total height, single-line input. */
+  compact?: boolean;
   /** Extra controls in the right cluster, before attach / send (home design-system CTA). */
   trailingActions?: ReactNode;
   /** Attach control glyph. @default 'plus' */
@@ -1028,6 +906,7 @@ function AgentComposerShell({
   showModelButton = true,
   sendVariant = 'circle',
   sendTone = 'ink',
+  compact = false,
   trailingActions,
   attachIcon = 'plus',
 }: Props): ReactNode {
@@ -1057,7 +936,11 @@ function AgentComposerShell({
   const isGenMediaMode = isImageMode || isVideoMode;
   // Top attach strip (image/video mode always, or agent/ask after upload) must not steal typing height.
   const hasTopAttachRow = isGenMediaMode || attachments.length > 0;
-  const inputMinClass = hasTopAttachRow ? 'min-h-[72px]' : 'min-h-[26px]';
+  const inputMinClass = compact
+    ? 'min-h-[20px] max-h-[32px]'
+    : hasTopAttachRow
+      ? 'min-h-[72px]'
+      : 'min-h-[26px]';
   const showAspectBtn =
     !isGenMediaMode &&
     showDesignSizePicker &&
@@ -1165,7 +1048,9 @@ function AgentComposerShell({
   const sendFill =
     sendTone === 'ink'
       ? 'bg-[var(--ink)] text-[var(--on-brand)]'
-      : 'bg-[var(--home-cta)] text-white';
+      : sendTone === 'warm'
+        ? 'bg-[#ff5c28] text-white'
+        : 'bg-[var(--home-cta)] text-white';
   const squareSendBtn = cn(
     'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-opacity',
     sendFill
@@ -1207,10 +1092,9 @@ function AgentComposerShell({
   return (
     <div
       className={cn(
-        'flex flex-col px-3.5 pb-2 pt-2',
+        compact ? 'flex h-full min-h-0 flex-col px-3 pb-1.5 pt-2' : 'flex flex-col px-3.5 pb-2 pt-2',
         className,
-        // Keep typing room when a top attach row is present (after className so callers can't shrink it).
-        hasTopAttachRow && 'min-h-[180px]'
+        !compact && hasTopAttachRow && 'min-h-[180px]'
       )}
     >
       {isGenMediaMode ? (
@@ -1248,7 +1132,11 @@ function AgentComposerShell({
       )}
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
       <div
-        className={cn('flex flex-1 cursor-text items-start', inputMinClass, 'max-h-[140px] overflow-hidden')}
+        className={cn(
+          'flex flex-1 cursor-text items-start overflow-hidden',
+          inputMinClass,
+          !compact && 'max-h-[140px]'
+        )}
         onClick={(e) => {
           // Clicks inside the contenteditable already place the caret — don't steal it to end.
           if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
@@ -1273,7 +1161,7 @@ function AgentComposerShell({
           className={hasTopAttachRow ? 'min-h-[72px]' : undefined}
         />
       </div>
-      <div className="mt-1 flex w-full items-center gap-1.5">
+      <div className={cn('flex w-full items-center gap-1.5', compact ? 'mt-0 shrink-0' : 'mt-1')}>
         {showInteractionModePicker && interactionMode && onInteractionModeChange ? (
           <ComposerInteractionModePicker
             interactionMode={interactionMode}
@@ -1357,7 +1245,7 @@ function AgentComposerShell({
                 <p className="mb-2.5 text-[13px] font-semibold text-[var(--ink)]">
                   {t('editor.tools.videoSettings')}
                 </p>
-                <VideoComposerSettingsPanel
+                <VideoSettingsPanel
                   aspectRatio={videoModeControls.aspectRatio}
                   resolution={videoModeControls.resolution}
                   duration={videoModeControls.duration}

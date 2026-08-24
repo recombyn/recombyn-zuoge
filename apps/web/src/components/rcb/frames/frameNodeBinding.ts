@@ -1,5 +1,6 @@
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { updateNodesInDocument } from '@/components/rcb/scene/document/sceneDocument';
 
 export type BBox = {
   left: number;
@@ -71,6 +72,42 @@ export function shouldBindUnownedNodeToFrame(
 ): boolean {
   if (String(node.attrs?.frameId || '').trim()) return false;
   return boxesIntersect(nodeBBox(node), frameBBox(frame));
+}
+
+/**
+ * Bind unowned overlapping nodes to the given artboards.
+ * Used on artboard draw-commit and after artboard drag — bind + default clipContent
+ * are one ownership path (clipping requires attrs.frameId).
+ */
+export function bindUnownedNodesToFrames(
+  doc: SceneDocument,
+  frameIds: string[]
+): SceneDocument {
+  const idSet = new Set(frameIds.map((id) => String(id || '').trim()).filter(Boolean));
+  const frames = (doc.frames || []).filter((frame) => idSet.has(String(frame.id)));
+  if (!frames.length) return doc;
+  const patches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
+  const nodes = Object.values(doc.deltaSetLike || {});
+  for (const node of nodes) {
+    if (!node?.id || node.id === 'ROOT') continue;
+    const frame = frames.find((item) => shouldBindUnownedNodeToFrame(node, item));
+    if (!frame) continue;
+    const siblings = nodes
+      .filter((item) => String(item?.attrs?.frameId || '').trim() === String(frame.id))
+      .map((item) => Number(item?.attrs?.frameOrder))
+      .filter(Number.isFinite);
+    patches.push({
+      nodeId: String(node.id),
+      patch: {
+        attrs: {
+          ...(node.attrs || {}),
+          frameId: String(frame.id),
+          frameOrder: siblings.length ? Math.max(...siblings) + 1 : 0,
+        },
+      },
+    });
+  }
+  return patches.length ? updateNodesInDocument(doc, patches) : doc;
 }
 
 /**

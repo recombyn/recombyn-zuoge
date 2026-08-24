@@ -21,6 +21,7 @@ import {
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
+import GeneratorJobRecoveryHost from '@/components/editor/nodes/shared/GeneratorJobRecoveryHost';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
 import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
 import { CommercialEditorHosts } from '@/commercial/editorHosts';
@@ -38,7 +39,6 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
 import {
   stackZIndex,
-  updateNodesInDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
   smartSnapThreshold,
@@ -79,7 +79,7 @@ import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/pain
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 import { syncFrameContentClip } from '@/components/rcb/frames/frameContentClip';
 import {
-  shouldBindUnownedNodeToFrame,
+  bindUnownedNodesToFrames,
   shouldCoMoveNodeWithFrames,
 } from '@/components/rcb/frames/frameNodeBinding';
 import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
@@ -241,33 +241,6 @@ function nodeIdsOverlappingFrames(
   return out;
 }
 
-function bindUnownedNodesToFrames(doc: SceneDocument, frameIds: string[]): SceneDocument {
-  const frames = (doc.frames || []).filter((frame) => frameIds.includes(String(frame.id)));
-  if (!frames.length) return doc;
-  const patches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
-  const nodes = Object.values(doc.deltaSetLike || {});
-  for (const node of nodes) {
-    if (!node?.id || node.id === 'ROOT') continue;
-    const frame = frames.find((item) => shouldBindUnownedNodeToFrame(node, item));
-    if (!frame) continue;
-    const siblings = nodes
-      .filter((item) => String(item?.attrs?.frameId || '').trim() === String(frame.id))
-      .map((item) => Number(item?.attrs?.frameOrder))
-      .filter(Number.isFinite);
-    patches.push({
-      nodeId: String(node.id),
-      patch: {
-        attrs: {
-          ...(node.attrs || {}),
-          frameId: String(frame.id),
-          frameOrder: siblings.length ? Math.max(...siblings) + 1 : 0,
-        },
-      },
-    });
-  }
-  return patches.length ? updateNodesInDocument(doc, patches) : doc;
-}
-
 /** Node highlight / operation label / AI cursor — world overlay, not SceneDocument. */
 function AiOperationNodeChrome({
   box,
@@ -341,7 +314,7 @@ function frameLabelInteractionProps(
       id: string,
       x: number,
       y: number,
-      opts?: { skipGrid?: boolean }
+      opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }
     ) => void;
     onFrameMoveStart: (id: string) => void;
     onFrameMoveEnd: () => void;
@@ -361,7 +334,7 @@ function frameLabelInteractionProps(
     onSelect: () => handlers.onSelectFrame(frameId, { chrome: 'full' }),
     onRename: (name: string, options?: { skipHistory?: boolean }) =>
       handlers.onRenameFrame(frameId, name, options),
-    onMove: (x: number, y: number, opts?: { skipGrid?: boolean }) =>
+    onMove: (x: number, y: number, opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }) =>
       handlers.onMoveFrame(frameId, x, y, opts),
     onMoveStart: () => {
       handlers.onSelectFrame(frameId, { chrome: 'full' });
@@ -486,7 +459,7 @@ function EditorStageWorld({
   );
 
   const onMoveFrame = useCallback(
-    (id: string, x: number, y: number, opts?: { skipGrid?: boolean }) => {
+    (id: string, x: number, y: number, opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }) => {
       const frame = frames.find((f) => f.id === id);
       const dragState = frameDragRef.current;
       const dragged = dragState?.frames.find((item) => item.id === id);
@@ -544,6 +517,7 @@ function EditorStageWorld({
         dy: rawDy,
         disableSnap: false,
         gridSize: opts?.skipGrid ? 0 : gridSize,
+        axisLock: opts?.axisLock,
         targets: smartGuideTargetsForDrag({
           document,
           listNodeIds,
@@ -864,6 +838,7 @@ function EditorStageWorld({
         <SmartGuidesOverlay guides={frameSmartGuides} />
 
         <ImageProcessWatcher />
+        <GeneratorJobRecoveryHost />
         <ImageToolPanelHost document={document} />
         <ShapeStylePanelHost document={document} />
         <CropExpandSessionHost document={document} />

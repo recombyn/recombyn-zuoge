@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
+from app.api.routes.chat_job_sse import streaming_media_job_events
 from app.services.job_store import get_job, normalize_trace_id, save_job
 from worker.tasks import run_chat_image_job
 
@@ -181,3 +182,9 @@ def get_image_job(current_user: CurrentUser, job_id: str):
         error=job.get("error"),
         trace_id=str(job.get("trace_id") or "") or None,
     )
+
+
+@router.get("/jobs/{job_id}/events")
+async def stream_image_job_events(current_user: CurrentUser, job_id: str):
+    """SSE push for job status (progress / done / failed)."""
+    return streaming_media_job_events(current_user, job_id, kind=_KIND)

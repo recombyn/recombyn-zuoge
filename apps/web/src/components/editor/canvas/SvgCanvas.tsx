@@ -20,6 +20,7 @@ import {
 import {
   deletionTargetHasProcessing,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { listProcessingNodeIds } from '@/components/rcb/process/processGlow';
 import {
   nodeIdsBoundToFrames,
   type SceneClipboardPayload,
@@ -71,6 +72,7 @@ import {
   waitForImageReady,
 } from '@/utils/uploadImage';
 import { getHttpErrorMessage } from '@/service/client';
+import { probeAudioDuration } from '@/components/editor/nodes/shared/mediaProbe';
 import store, { type RootState } from '@/store';
 import { message } from '@/components/base';
 import { useTranslation } from 'react-i18next';
@@ -216,7 +218,7 @@ type SvgCanvasProps = {
     frameId: string,
     x: number,
     y: number,
-    opts?: { skipGrid?: boolean }
+    opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }
   ) => void;
   /** Open the editor AI agent dock (selection contextual bar). */
   onOpenAgent?: (opts?: { prompt?: string }) => void;
@@ -803,8 +805,6 @@ function SvgCanvas({
       }
       dispatch(setSelectedNodeIds([]));
       dispatch(setSelectedFrameIds(ids));
-      // Marquee / multi frame pick from canvas stays soft (title / layer → full).
-      dispatch(setFrameChromeMode('soft'));
     },
     [dispatch, completeCanvasAttachPick]
   );
@@ -1599,7 +1599,7 @@ function SvgCanvas({
       }
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
-      dispatch(failImageProcess({}));
+      dispatch(failImageProcess({ nodeId: spawnedId || undefined }));
       message.error(getHttpErrorMessage(err, '图片上传失败'));
     }
   };
@@ -1648,25 +1648,6 @@ function SvgCanvas({
       message.error(getHttpErrorMessage(err, '视频上传失败'));
     }
   };
-
-  const probeAudioDuration = (src: string): Promise<number | null> =>
-    new Promise((resolve) => {
-      // Scene `document` prop shadows the DOM global — use window.document.
-      const audio = window.document.createElement('audio');
-      audio.preload = 'metadata';
-      const done = (value: number | null) => {
-        audio.removeAttribute('src');
-        audio.load();
-        resolve(value);
-      };
-      audio.onloadedmetadata = () => {
-        const d = Number(audio.duration);
-        done(Number.isFinite(d) && d > 0 ? d : null);
-      };
-      audio.onerror = () => done(null);
-      audio.src = src;
-      window.setTimeout(() => done(null), 4000);
-    });
 
   const onAudioFile = async (file: File | null) => {
     if (!file) return;
@@ -1881,21 +1862,26 @@ function SvgCanvas({
 
   const handleCloseCtxMenu = useCallback(() => setCtxMenu(null), [setCtxMenu]);
 
-  const keepVisibleIds = useMemo(() => {
-    const out = [...ids];
-    if (editingTextId) out.push(editingTextId);
-    if (editingPenId) out.push(editingPenId);
-    return out;
-  }, [ids, editingTextId, editingPenId]);
+  const processingNodeIds = useMemo(
+    () => listProcessingNodeIds(document),
+    [document]
+  );
 
-  /** Editors + selection must stay full SVG so SVG DOM preview and hit stay live.
-   * Canvas underlay still consumes TransformPreview for any remaining proxies. */
-  const forceFullIds = useMemo(() => {
-    const out = [...ids];
+  const keepVisibleIds = useMemo(() => {
+    const out = [...ids, ...processingNodeIds];
     if (editingTextId) out.push(editingTextId);
     if (editingPenId) out.push(editingPenId);
     return out;
-  }, [ids, editingTextId, editingPenId]);
+  }, [ids, editingTextId, editingPenId, processingNodeIds]);
+
+  /** Editors + selection + processing plates must stay full SVG so SoftGlow /
+   * transform preview and hit stay live. */
+  const forceFullIds = useMemo(() => {
+    const out = [...ids, ...processingNodeIds];
+    if (editingTextId) out.push(editingTextId);
+    if (editingPenId) out.push(editingPenId);
+    return out;
+  }, [ids, editingTextId, editingPenId, processingNodeIds]);
 
   // Path-edit stays open on empty selection (blank click must not dismiss).
   // Only leave when the user selects a *different* node.
@@ -2075,17 +2061,16 @@ function SvgCanvas({
             <>
               <ImageGeneratorOverlay
                 document={document}
-                hidden={geometryTransforming}
                 readOnly={readOnly}
+                geometryOverrides={videoLiveGeom}
               />
               <VideoGeneratorOverlay
                 document={document}
-                hidden={geometryTransforming}
                 readOnly={readOnly}
+                geometryOverrides={videoLiveGeom}
               />
               <LottieGeneratorOverlay
                 document={document}
-                hidden={geometryTransforming}
                 readOnly={readOnly}
                 geometryOverrides={
                   videoLiveGeom as Record<
@@ -2096,8 +2081,8 @@ function SvgCanvas({
               />
               <AudioGeneratorOverlay
                 document={document}
-                hidden={geometryTransforming}
                 readOnly={readOnly}
+                geometryOverrides={videoLiveGeom}
               />
             </>
           ) : null}

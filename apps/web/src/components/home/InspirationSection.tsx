@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode, memo } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -24,7 +23,7 @@ import {
 import InspirationCasePreview from '@/components/home/InspirationCasePreview';
 import EmptyState from '@/components/home/EmptyState';
 import PlazaCoverThumb from '@/components/home/PlazaCoverThumb';
-import { FlowScrollSection } from '@/components/home/FlowScrollSection';
+import { FlowScrollSection, FlowFeedSkeleton } from '@/components/home/FlowScrollSection';
 import SegmentTabs from '@/components/home/SegmentTabs';
 import { Dropdown, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
@@ -33,6 +32,8 @@ import { cn } from '@/utils/classnames';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { imageSrcToFile } from '@/utils/uploadImage';
 
+import { HOME_INSPIRATION_COLUMNS } from '@/components/home/homeLayout';
+
 type Props = {
   onOpenCase: (meta: OfficialCaseMeta) => void;
   disabled?: boolean;
@@ -40,11 +41,7 @@ type Props = {
 
 const TABS = ['all', 'poster', 'mobile', 'image', 'video'] as const;
 type PlazaTab = (typeof TABS)[number];
-const PAGE_SIZE = 12;
-
-const plazaCategoryParser = parseAsStringLiteral(TABS)
-  .withDefault('all')
-  .withOptions({ history: 'replace', clearOnDefault: true });
+const PAGE_SIZE = 15;
 
 type PlazaFeedItem = {
   id: string;
@@ -362,7 +359,7 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
   const queryClient = useQueryClient();
   const user = useSelector((s: any) => s.auth?.user);
   const userId = user?.id as string | undefined;
-  const [tab, setTab] = useQueryState('category', plazaCategoryParser);
+  const [tab, setTab] = useState<PlazaTab>('all');
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [likeBusyId, setLikeBusyId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -557,7 +554,7 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
 
   const onTabClick = (next: PlazaTab) => {
     if (next === tab) return;
-    void setTab(next);
+    setTab(next);
   };
 
   const onLoadMore = () => {
@@ -565,17 +562,18 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
     feedQuery.fetchNextPage();
   };
 
-  const loading = feedQuery.isPending;
+  const loading = feedQuery.isPending && cases.length === 0;
   const loadingMore = feedQuery.isFetchingNextPage;
   const hasMore = Boolean(feedQuery.hasNextPage);
 
   return (
     <section className="w-full min-w-0">
-      <h2 className="mb-3 text-[18px] font-semibold tracking-tight text-[var(--ink)]">
+      <h2 className="mb-3 truncate text-[24px] font-bold leading-tight tracking-tight text-[var(--ink)]">
         {t('home.cases.title')}
       </h2>
       <SegmentTabs
         className="mb-5"
+        variant="chips"
         size="sm"
         aria-label={t('home.cases.title')}
         tabs={TABS.map((id) => ({ id, label: t(`home.cases.cat.${id}`) }))}
@@ -588,8 +586,10 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
         loadingMore={loadingMore}
         hasMore={hasMore}
         onLoadMore={onLoadMore}
-        isEmpty={cases.length === 0}
+        isEmpty={!loading && cases.length === 0}
         empty={<EmptyState hint={t('home.cases.empty')} />}
+        columnsClassName={HOME_INSPIRATION_COLUMNS}
+        skeleton={<FlowFeedSkeleton count={4} />}
       >
         {cases.map((c) => {
           const meta =

@@ -38,7 +38,6 @@ import {
   createVideoNode
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
-  deletionTargetHasProcessing,
   isEphemeralUploadNode
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
@@ -49,6 +48,7 @@ import {
   type TemplateSource,
 } from '@/utils/templatesStorage';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import { bindUnownedNodesToFrames } from '@/components/rcb/frames/frameNodeBinding';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
@@ -93,8 +93,8 @@ export type ImageToolPanelKind =
 export type ImageToolPanelState = {
   nodeId: string;
   kind: ImageToolPanelKind;
-  /** `quickEdit` — mark regions land in the floating composer; default is agent chat. */
-  markSink?: 'agent' | 'quickEdit';
+  /** `quickEdit` / `imageGen` — mark regions land in the floating composer; default is agent chat. */
+  markSink?: 'agent' | 'quickEdit' | 'imageGen';
 };
 
 export type PendingMarkContextChip = {
@@ -118,7 +118,7 @@ export type ImageMarkPin = {
   h: number;
   kind?: string;
   label?: string;
-  sink: 'agent' | 'quickEdit';
+  sink: 'agent' | 'quickEdit' | 'imageGen';
 };
 
 export function canvasAttachTargetForNode(nodeId: string): string {
@@ -133,6 +133,15 @@ export function isCanvasAttachForNode(
   const target = canvasAttachTargetForNode(nodeId);
   return (
     canvasAttachPick?.target === target || pendingCanvasAttach?.target === target
+  );
+}
+
+export function isMultiImageMarkPanel(
+  panel: ImageToolPanelState | null | undefined
+): boolean {
+  return (
+    panel?.kind === 'mark' &&
+    (panel.markSink === 'quickEdit' || panel.markSink === 'imageGen')
   );
 }
 
@@ -151,21 +160,30 @@ export function isQuickEditMarkPanel(
 
 export function markPanelSink(
   panel: ImageToolPanelState | null | undefined
-): 'agent' | 'quickEdit' {
-  return panel?.markSink === 'quickEdit' ? 'quickEdit' : 'agent';
+): 'agent' | 'quickEdit' | 'imageGen' {
+  if (panel?.markSink === 'quickEdit') return 'quickEdit';
+  if (panel?.markSink === 'imageGen') return 'imageGen';
+  return 'agent';
+}
+
+function pruneMarkPinsBySink(
+  pins: Record<string, ImageMarkPin | ImageMarkPin[]>,
+  sink: 'quickEdit' | 'imageGen'
+): Record<string, ImageMarkPin[]> {
+  const out: Record<string, ImageMarkPin[]> = {};
+  for (const [nodeId, raw] of Object.entries(pins || {})) {
+    const list = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(
+      (p) => p.sink !== sink
+    );
+    if (list.length) out[nodeId] = list;
+  }
+  return out;
 }
 
 function pruneQuickEditMarkPins(
   pins: Record<string, ImageMarkPin | ImageMarkPin[]>
 ): Record<string, ImageMarkPin[]> {
-  const out: Record<string, ImageMarkPin[]> = {};
-  for (const [nodeId, raw] of Object.entries(pins || {})) {
-    const list = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(
-      (p) => p.sink !== 'quickEdit'
-    );
-    if (list.length) out[nodeId] = list;
-  }
-  return out;
+  return pruneMarkPinsBySink(pins, 'quickEdit');
 }
 
 const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
@@ -433,6 +451,7 @@ const initialState = {
    */
   pendingAgentContexts: [] as PendingMarkContextChip[],
   pendingQuickEditMarkContexts: [] as PendingMarkContextChip[],
+  pendingImageGenMarkContexts: [] as PendingMarkContextChip[],
   /** One pinned mark per image node (compact badge after confirm). */
   imageMarkPins: {} as Record<string, ImageMarkPin[]>,
   /** Composer chip hover — highlights the matching canvas mark pin. */
@@ -639,14 +658,6 @@ const editorSlice = createSlice({
         .filter(Boolean);
       const nodeIds = [...new Set([...requestedNodeIds, ...frameNodeIds])];
       if (!nodeIds.length && !frameIds.length) return;
-      if (
-        !frameIds.length &&
-        deletionTargetHasProcessing(state.document, nodeIds, frameIds, {
-          expandFrameChildren: false,
-        })
-      ) {
-        return;
-      }
 
       const ephemeralIds = nodeIds.filter((id: string) =>
         isEphemeralUploadNode(state.document?.deltaSetLike?.[id])
@@ -719,6 +730,17 @@ const editorSlice = createSlice({
       ) {
         state.pendingImageProcessId = null;
       }
+      syncLibraryOnEdit(state);
+    },
+    /** Clear SoftGlow / process attrs and force host remount (no stuck overlay). */
+    clearImageProcess(state, action) {
+      const nodeId = String(action.payload?.nodeId || '').trim();
+      if (!state.document || !nodeId) return;
+      if (!state.document.deltaSetLike?.[nodeId]) return;
+      state.document = clearImageProcessAttrs(state.document, nodeId);
+      state.dirty = true;
+      state.sceneReloadToken += 1;
+      if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
       syncLibraryOnEdit(state);
     },
     patchDocumentNode(state, action) {
@@ -836,14 +858,17 @@ const editorSlice = createSlice({
         next.stackOrder = [...order.slice(0, insertAt), key, ...order.slice(insertAt)];
       }
       reconcileStackOrder(next);
+      // Draw-commit = bind + clip: assign frameId to unowned overlaps so SVG
+      // clip (gated on ownership + default clipContent) applies immediately.
+      const bound = bindUnownedNodesToFrames(next, [frame.id]);
       if (activate !== false) {
-        next.activeFrameId = frame.id;
+        bound.activeFrameId = frame.id;
         state.selectedFrameIds = [frame.id];
         state.selectedNodeId = null;
         state.selectedNodeIds = [];
         state.frameChromeMode = 'full';
       }
-      state.document = next;
+      state.document = bound;
       state.dirty = true;
       state.sceneReloadToken += 1;
       syncLibraryOnEdit(state);
@@ -1497,14 +1522,14 @@ const editorSlice = createSlice({
       }
     },
     renameTemplateById(state, action) {
-      const { id, name } = action.payload || {};
+      const { id, name, skipUpdatedAt } = action.payload || {};
       if (!id) return;
       const item = state.templates.find((t) => t.id === id);
       if (!item) return;
       const next = String(name || item.name || '未命名作品');
       if (item.name === next) return;
       item.name = next;
-      item.updatedAt = Date.now();
+      if (!skipUpdatedAt) item.updatedAt = Date.now();
       if (isSessionTemplate(item)) item.source = 'user';
       if (state.currentId === id) state.dirty = true;
       saveTemplates(state.templates);
@@ -1907,11 +1932,16 @@ const editorSlice = createSlice({
       const nodeId = String(action.payload?.nodeId || '');
       const src = String(action.payload?.src || '').trim();
       if (!state.document || !nodeId || !src) return;
+      // Deleted while generating — do not resurrect via promote.
+      if (!state.document.deltaSetLike?.[nodeId]) {
+        if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
+        return;
+      }
       pushHistory(state);
       const variants = Array.isArray(action.payload?.variants)
         ? action.payload.variants.map((u: unknown) => String(u || '').trim()).filter(Boolean)
         : undefined;
-      state.document = promoteImageGeneratorToImage(state.document, nodeId, {
+      const next = promoteImageGeneratorToImage(state.document, nodeId, {
         src,
         width: action.payload?.width,
         height: action.payload?.height,
@@ -1921,6 +1951,11 @@ const editorSlice = createSlice({
         variants,
         genPrompt: action.payload?.genPrompt,
       });
+      if (next === state.document) {
+        state.historyPast.pop();
+        return;
+      }
+      state.document = next;
       state.dirty = true;
       state.sceneReloadToken += 1;
       state.selectedNodeId = nodeId;
@@ -1933,8 +1968,13 @@ const editorSlice = createSlice({
       const nodeId = String(action.payload?.nodeId || '');
       const src = String(action.payload?.src || '').trim();
       if (!state.document || !nodeId || !src) return;
+      // Deleted while generating — do not resurrect via promote.
+      if (!state.document.deltaSetLike?.[nodeId]) {
+        if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
+        return;
+      }
       pushHistory(state);
-      state.document = promoteVideoGeneratorToVideo(state.document, nodeId, {
+      const next = promoteVideoGeneratorToVideo(state.document, nodeId, {
         src,
         poster: action.payload?.poster,
         width: action.payload?.width,
@@ -1944,6 +1984,11 @@ const editorSlice = createSlice({
         name: action.payload?.name,
         genPrompt: action.payload?.genPrompt,
       });
+      if (next === state.document) {
+        state.historyPast.pop();
+        return;
+      }
+      state.document = next;
       state.dirty = true;
       state.sceneReloadToken += 1;
       state.selectedNodeId = nodeId;
@@ -1956,6 +2001,10 @@ const editorSlice = createSlice({
       const nodeId = String(action.payload?.nodeId || '');
       const animationData = action.payload?.animationData;
       if (!state.document || !nodeId || animationData == null) return;
+      if (!state.document.deltaSetLike?.[nodeId]) {
+        if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
+        return;
+      }
       pushHistory(state);
       const next = promoteLottieGeneratorToLottie(state.document, nodeId, {
         animationData,
@@ -1983,8 +2032,12 @@ const editorSlice = createSlice({
       const nodeId = String(action.payload?.nodeId || '');
       const src = String(action.payload?.src || '').trim();
       if (!state.document || !nodeId || !src) return;
+      if (!state.document.deltaSetLike?.[nodeId]) {
+        if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
+        return;
+      }
       pushHistory(state);
-      state.document = promoteAudioGeneratorToAudio(state.document, nodeId, {
+      const next = promoteAudioGeneratorToAudio(state.document, nodeId, {
         src,
         width: action.payload?.width,
         height: action.payload?.height,
@@ -1995,6 +2048,11 @@ const editorSlice = createSlice({
         duration: action.payload?.duration,
         uploadKey: action.payload?.uploadKey,
       });
+      if (next === state.document) {
+        state.historyPast.pop();
+        return;
+      }
+      state.document = next;
       state.dirty = true;
       state.sceneReloadToken += 1;
       state.selectedNodeId = nodeId;
@@ -2156,6 +2214,9 @@ const editorSlice = createSlice({
             ...(extra.imageVariants != null
               ? { imageVariants: extra.imageVariants }
               : {}),
+            ...(extra.imageVariantPrompts != null
+              ? { imageVariantPrompts: extra.imageVariantPrompts }
+              : {}),
           },
         });
       }
@@ -2184,6 +2245,15 @@ const editorSlice = createSlice({
       }
       syncLibraryOnEdit(state);
     },
+    /** Reattach ImageProcessWatcher after refresh for a still-running AI placeholder. */
+    resumePendingImageProcess(state, action) {
+      const nodeId = String(action.payload?.nodeId || '').trim();
+      if (!nodeId || !state.document?.deltaSetLike?.[nodeId]) return;
+      if (String(state.document.deltaSetLike[nodeId]?.attrs?.processStatus || '') !== 'running') {
+        return;
+      }
+      state.pendingImageProcessId = nodeId;
+    },
     openImageToolPanel(state, action) {
       const { nodeId, kind, markSink } = action.payload || {};
       if (!nodeId || !kind) return;
@@ -2191,6 +2261,7 @@ const editorSlice = createSlice({
         nodeId,
         kind,
         ...(markSink === 'quickEdit' && { markSink: 'quickEdit' as const }),
+        ...(markSink === 'imageGen' && { markSink: 'imageGen' as const }),
       };
       state.videoToolPanel = null;
       state.audioToolPanel = null;
@@ -2205,6 +2276,10 @@ const editorSlice = createSlice({
       ) {
         state.imageMarkPins = pruneQuickEditMarkPins(state.imageMarkPins);
         state.pendingQuickEditMarkContexts = [];
+      }
+      if (panel?.kind === 'mark' && panel.markSink === 'imageGen') {
+        state.imageMarkPins = pruneMarkPinsBySink(state.imageMarkPins, 'imageGen');
+        state.pendingImageGenMarkContexts = [];
       }
     },
     openVideoToolPanel(state, action) {
@@ -2372,6 +2447,17 @@ const editorSlice = createSlice({
     consumePendingQuickEditMarkContexts(state) {
       state.pendingQuickEditMarkContexts = [];
     },
+    enqueueImageGenMarkContexts(
+      state,
+      action: PayloadAction<PendingMarkContextChip[]>
+    ) {
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      if (!list.length) return;
+      state.pendingImageGenMarkContexts = [...state.pendingImageGenMarkContexts, ...list];
+    },
+    consumePendingImageGenMarkContexts(state) {
+      state.pendingImageGenMarkContexts = [];
+    },
     setImageMarkPin(state, action: PayloadAction<ImageMarkPin>) {
       const pin = action.payload;
       if (!pin?.nodeId) return;
@@ -2416,6 +2502,7 @@ export const {
   setDocumentFromCanvas,
   bakeDocumentOrigin,
   removeDocumentNodes,
+  clearImageProcess,
   patchDocumentNode,
   patchDocumentNodes,
   setSelectedNodeId,
@@ -2476,6 +2563,7 @@ export const {
   startImageProcess,
   finishImageProcess,
   failImageProcess,
+  resumePendingImageProcess,
   openImageToolPanel,
   closeImageToolPanel,
   openVideoToolPanel,
@@ -2503,6 +2591,8 @@ export const {
   consumePendingAgentContexts,
   enqueueQuickEditMarkContexts,
   consumePendingQuickEditMarkContexts,
+  enqueueImageGenMarkContexts,
+  consumePendingImageGenMarkContexts,
   setImageMarkPin,
   removeImageMarkPin,
   clearImageMarkPin,

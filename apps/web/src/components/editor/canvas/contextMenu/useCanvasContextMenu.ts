@@ -42,7 +42,7 @@ const OPEN_DEBOUNCE_MS = 400;
 const CHROME_SKIP_SEL =
   '[data-sel-toolbar],[data-frame-toolbar],[data-ctx-menu],[data-export-panel],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-text-inline-editor],[data-video-trim-toolbar],[data-video-playback-bar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar]';
 const SCENE_COMPOSER_SEL =
-  '[data-image-generator],[data-video-generator],[data-image-quick-edit]';
+  '[data-image-generator],[data-video-generator],[data-media-quick-edit]';
 /** Account / settings / any Headless UI dialog — portaled over the canvas. */
 const OVERLAY_UI_SEL =
   '[role="dialog"],[data-headlessui-portal],[data-account-settings],[data-rcb-overlay]';

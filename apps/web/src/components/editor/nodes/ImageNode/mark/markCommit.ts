@@ -1,6 +1,7 @@
 import type { Dispatch } from '@reduxjs/toolkit';
 import {
   enqueueAgentContexts,
+  enqueueImageGenMarkContexts,
   enqueueQuickEditMarkContexts,
   openImageToolPanel,
   setImageMarkPin,
@@ -36,18 +37,19 @@ function reopenMarkPanel(
   opts: {
     markedNodeId: string;
     sessionNodeId?: string;
-    sink: 'agent' | 'quickEdit';
+    sink: 'agent' | 'quickEdit' | 'imageGen';
   }
 ) {
   const anchor =
-    opts.sink === 'quickEdit'
+    opts.sink === 'quickEdit' || opts.sink === 'imageGen'
       ? opts.sessionNodeId || opts.markedNodeId
       : opts.markedNodeId;
   dispatch(
     openImageToolPanel({
       nodeId: anchor,
       kind: 'mark',
-      ...(opts.sink === 'quickEdit' ? { markSink: 'quickEdit' } : {}),
+      ...(opts.sink === 'quickEdit' ? { markSink: 'quickEdit' as const } : {}),
+      ...(opts.sink === 'imageGen' ? { markSink: 'imageGen' as const } : {}),
     })
   );
 }
@@ -60,12 +62,14 @@ export function stageMarkRegion(
     sessionNodeId?: string;
     region: MarkRegion;
     box: SceneBox;
-    sink: 'agent' | 'quickEdit';
+    sink: 'agent' | 'quickEdit' | 'imageGen';
   }
 ) {
   const chip = buildPendingMarkChip(opts.nodeId, opts.region, opts.box);
   if (opts.sink === 'quickEdit') {
     dispatch(enqueueQuickEditMarkContexts([chip]));
+  } else if (opts.sink === 'imageGen') {
+    dispatch(enqueueImageGenMarkContexts([chip]));
   } else {
     dispatch(enqueueAgentContexts([chip]));
   }
@@ -85,7 +89,7 @@ export function commitMarkRegion(
     region: MarkRegion;
     box: SceneBox;
     text: string;
-    sink: 'agent' | 'quickEdit';
+    sink: 'agent' | 'quickEdit' | 'imageGen';
   }
 ) {
   const tail = opts.text.trim();
@@ -103,6 +107,8 @@ export function commitMarkRegion(
   const chip = buildPendingMarkChip(opts.nodeId, opts.region, opts.box, tail);
   if (opts.sink === 'quickEdit') {
     dispatch(enqueueQuickEditMarkContexts([chip]));
+  } else if (opts.sink === 'imageGen') {
+    dispatch(enqueueImageGenMarkContexts([chip]));
   } else {
     dispatch(enqueueAgentContexts([chip]));
   }

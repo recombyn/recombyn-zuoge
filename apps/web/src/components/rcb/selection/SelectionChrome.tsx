@@ -1790,6 +1790,15 @@ const ROTATE_CORNERS: Array<{
   { corner: 'sw', localX: 0, localY: 1, iconDeg: 270, label: 'Rotate' },
 ];
 
+/** World AABB chrome must paint above HostPathChrome silhouettes (boolean / path ink). */
+function keepSelectionChromeOnTop(mount: SVGGElement | null) {
+  if (!mount) return;
+  const chrome = mount.querySelector(':scope > g[data-rcb-sel-chrome="1"]');
+  if (chrome && mount.lastElementChild !== chrome) {
+    mount.appendChild(chrome);
+  }
+}
+
 function SelectionChrome({
   box,
   angle = 0,
@@ -1859,6 +1868,23 @@ function SelectionChrome({
     cornerHandlesOnly,
     edgeHandles,
   });
+
+  useLayoutEffect(() => {
+    keepSelectionChromeOnTop(mount);
+  }, [
+    mount,
+    left,
+    top,
+    w,
+    h,
+    angle,
+    showHandles,
+    showBoxStroke,
+    showRotate,
+    lineMode,
+    cornerHandlesOnly,
+    edgeHandles,
+  ]);
 
   const toScenePoint = (lx: number, ly: number) => {
     const p = rotateLocal(lx, ly, w, h, angle);
@@ -1947,32 +1973,34 @@ function SelectionChrome({
                 })
               : null}
             {showHandles
-              ? visualKnobs.map(([dir, lx, ly]) => (
-                  <g key={`knob-${dir}`} transform={`translate(${lx} ${ly})`}>
-                    <rect
-                      data-rcb-sel-knob={dir}
-                      {...handleAttrProps}
-                      x={-halfVis}
-                      y={-halfVis}
-                      width={handleVis}
-                      height={handleVis}
-                      fill="#ffffff"
-                      stroke="none"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    <rect
-                      data-rcb-sel-knob={dir}
-                      x={-halfVis}
-                      y={-halfVis}
-                      width={handleVis}
-                      height={handleVis}
-                      fill="none"
-                      stroke={chromeColor}
-                      strokeWidth={stroke}
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  </g>
-                ))
+              ? visualKnobs.map(([dir, lx, ly]) => {
+                  const maskPad = stroke * 1.5;
+                  return (
+                    <g key={`knob-${dir}`} transform={`translate(${lx} ${ly})`}>
+                      <rect
+                        x={-halfVis - maskPad}
+                        y={-halfVis - maskPad}
+                        width={handleVis + maskPad * 2}
+                        height={handleVis + maskPad * 2}
+                        fill="#ffffff"
+                        stroke="none"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                      <rect
+                        data-rcb-sel-knob={dir}
+                        {...handleAttrProps}
+                        x={-halfVis}
+                        y={-halfVis}
+                        width={handleVis}
+                        height={handleVis}
+                        fill="#ffffff"
+                        stroke={chromeColor}
+                        strokeWidth={stroke}
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    </g>
+                  );
+                })
               : null}
           </g>
         )}

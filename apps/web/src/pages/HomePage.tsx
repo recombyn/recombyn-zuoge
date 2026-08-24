@@ -174,7 +174,7 @@ function HomePage() {
   const railPad = homeRailWidthPx(railExpanded);
 
   const handleCreate = () => {
-    goEditor({ createNew: true, newWindow: true });
+    goEditor({ createNew: true });
   };
 
   const handleAgentSubmit = (payload: HomeAgentSubmitPayload) => {
@@ -183,7 +183,6 @@ function HomePage() {
     goEditor({
       createNew: true,
       fromHomeAgent: true,
-      newWindow: true,
       homeAgentBoot: {
         prompt,
         autoSubmit: true,
@@ -200,7 +199,6 @@ function HomePage() {
     goEditor({
       createNew: true,
       fromHomeAgent: true,
-      newWindow: true,
       homeAgentBoot: {
         prompt: '',
         autoSubmit: false,

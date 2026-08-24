@@ -39,6 +39,7 @@ import {
   cssPreviewForGradient,
   DEFAULT_FILL_IMAGE_ADJUST,
   defaultGradient,
+  fillImageTileSize,
   FILL_PANEL_TYPES,
   parseFillGradient,
   parseFillImageFit,
@@ -164,6 +165,19 @@ function FillImagePreviewImage({
   const filter = buildImageAdjustFilterCss(adjust);
   const scaleMul = Math.max(0.01, scale / 100);
   const objectFit = fit === 'fit' ? 'contain' : 'cover';
+  const [tileSize, setTileSize] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    if (fit !== 'tile' || !src) {
+      setTileSize(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      setTileSize(fillImageTileSize(img.naturalWidth, img.naturalHeight, scale));
+    };
+    img.src = src;
+  }, [src, fit, scale]);
 
   if (fit === 'tile') {
     return (
@@ -174,7 +188,7 @@ function FillImagePreviewImage({
           ...(filter !== 'none' ? { filter } : {}),
           backgroundImage: `url(${src})`,
           backgroundRepeat: 'repeat',
-          backgroundSize: `${Math.round(33 * scaleMul)}%`,
+          backgroundSize: tileSize ? `${tileSize.w}px ${tileSize.h}px` : undefined,
           backgroundPosition: `${50 + offsetX}% ${50 + offsetY}%`,
         }}
       />

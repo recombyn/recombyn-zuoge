@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, memo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, useImperativeHandle, forwardRef, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
@@ -66,8 +66,7 @@ import {
   readFileAsDataUrl,
   uploadComposerAttachment,
 } from '@/utils/uploadImage';
-import { message, Dropdown } from '@/components/base';
-import AppLogo from '@/components/base/AppLogo';
+import { message } from '@/components/base';
 import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
 
 export type HomeAgentCategory =
@@ -87,66 +86,13 @@ const EXAMPLE_CHIPS_BY_CATEGORY: Record<HomeAgentCategory, readonly string[]> = 
   drawing: ['pencilSketch', 'inkWash', 'markerDraw'],
 };
 
-function exampleChipKeysForCategory(category: HomeAgentCategory): readonly string[] {
+export function exampleChipKeysForCategory(category: HomeAgentCategory): readonly string[] {
   return EXAMPLE_CHIPS_BY_CATEGORY[category] || EXAMPLE_CHIPS_BY_CATEGORY.poster;
 }
 
-/** Pixso-style capability promo 鈥?opens from銆孉I鑳藉仛浠€涔堛€? */
-function HomeAiCapabilityCard(): ReactNode {
-  const { t } = useTranslation();
-  return (
-    <div
-      className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] bg-[var(--surface)] shadow-[0_12px_40px_rgba(15,23,42,0.16)] ring-1 ring-[var(--line)]"
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <div
-        className="relative flex h-[7.5rem] items-center justify-center overflow-hidden"
-        style={{
-          background:
-            'linear-gradient(165deg, #f4f7ff 0%, #e8f0ff 42%, #fff 72%)',
-        }}
-      >
-        <div className="relative z-[1] inline-flex items-center gap-2 text-[#141414]">
-          {/* Header stay light 鈥?always use dark mark + dark type. */}
-          <AppLogo size={28} scheme="dark" />
-          <span
-            className="text-[18px] font-semibold tracking-tight text-[#141414]"
-            style={{ fontFamily: 'var(--font-hero)' }}
-          >
-            {t('app.name')} AI
-          </span>
-        </div>
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-[2.75rem]"
-          style={{
-            background:
-              'linear-gradient(90deg, #1a4fd8 0%, #3370ff 38%, #7aa7ff 62%, #ff7eb3 100%)',
-            clipPath: 'ellipse(75% 100% at 50% 100%)',
-            opacity: 0.92,
-          }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-8 opacity-40"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 20% 40%, rgba(255,255,255,0.9) 0 1px, transparent 1.5px), radial-gradient(circle at 70% 60%, rgba(255,255,255,0.75) 0 1px, transparent 1.5px), radial-gradient(circle at 45% 20%, rgba(255,255,255,0.65) 0 0.8px, transparent 1.2px)',
-            backgroundSize: '48px 24px',
-          }}
-        />
-      </div>
-      <div className="px-4 pb-4 pt-3.5 text-left">
-        <h3 className="text-[15px] font-semibold leading-snug text-[var(--ink)]">
-          {t('home.aiPromoTitle')}
-        </h3>
-        <p className="mt-1.5 text-[12px] leading-[1.55] text-[var(--muted)]">
-          {t('home.aiPromoBody')}
-        </p>
-      </div>
-    </div>
-  );
-}
+export type HomeAgentComposerHandle = {
+  applyExampleChip: (chipKey: string) => void;
+};
 
 export type HomeAgentSubmitPayload = {
   prompt: string;
@@ -304,13 +250,11 @@ function useTypewriterCycle(phrases: string[], enabled = true): string {
   return phrase.slice(0, len);
 }
 
-/** Home-page agent composer 鈥?same shell + model popover as editor AgentDock. */
-function HomeAgentComposer({
-  onSubmit,
-  className,
-  category = 'poster',
-  onCategoryChange,
-}: Props): ReactNode {
+/** Home-page agent composer — same shell + model popover as editor AgentDock. */
+const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function HomeAgentComposer(
+  { onSubmit, className, category = 'poster', onCategoryChange },
+  ref
+) {
   const { t, i18n } = useTranslation();
   const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
@@ -655,52 +599,23 @@ function HomeAgentComposer({
     aspectMenuPlacement: 'bottom-end' as const,
   };
 
-  const exampleChipKeys = exampleChipKeysForCategory(category);
-
-  const applyExampleChip = (chipKey: string) => {
-    const prompt = t(`home.chipPrompts.${chipKey}`);
-    if (!prompt || prompt.startsWith('home.chipPrompts.')) return;
-    setValue(prompt);
-    queueMicrotask(() => {
-      inputRef.current?.focusEnd();
-    });
-  };
-
-  const homeExampleActions = (
-    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto text-[12px] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      <span className="shrink-0 text-[var(--muted)]">{t('home.examplesLabel')}</span>
-      {exampleChipKeys.map((key) => (
-        <button
-          key={`${category}:${key}`}
-          type="button"
-          onClick={() => applyExampleChip(key)}
-          className="shrink-0 text-[12px] font-medium text-[var(--muted)] transition-colors hover:text-[var(--home-cta)]"
-        >
-          {t(`home.chips.${key}`)}
-        </button>
-      ))}
-      <span className="shrink-0 text-[var(--line)]" aria-hidden>
-        |
-      </span>
-      <Dropdown
-        trigger="hover"
-        placement="bottom-start"
-        strategy="fixed"
-        offset={10}
-        items={[]}
-        floatingClassName="z-[80]"
-        referenceClassName="inline-flex shrink-0"
-        popupRender={() => <HomeAiCapabilityCard />}
-      >
-        <button
-          type="button"
-          className="font-medium text-[var(--home-cta)] transition-opacity hover:opacity-80"
-        >
-          {t('home.whatAiCanDo')}
-        </button>
-      </Dropdown>
-    </div>
+  const applyExampleChip = useCallback(
+    (chipKey: string) => {
+      const fromCase = t(`home.casePrompts.${chipKey}`, { defaultValue: '' });
+      const prompt =
+        fromCase && !fromCase.startsWith('home.casePrompts.')
+          ? fromCase
+          : t(`home.chipPrompts.${chipKey}`);
+      if (!prompt || prompt.startsWith('home.chipPrompts.')) return;
+      setValue(prompt);
+      queueMicrotask(() => {
+        inputRef.current?.focusEnd();
+      });
+    },
+    [t]
   );
+
+  useImperativeHandle(ref, () => ({ applyExampleChip }), [applyExampleChip]);
 
   const handleSubmit = () => {
     const prompt = value.trim();
@@ -967,9 +882,7 @@ function HomeAgentComposer({
     <>
       <AgentComposerShell
         className={cn(
-          'min-h-[132px] w-full overflow-hidden rounded-2xl border border-white/80 bg-[var(--surface)]',
-          'shadow-[0_8px_40px_rgba(51,112,255,0.08),0_2px_16px_rgba(0,0,0,0.04)]',
-          'ring-1 ring-black/[0.04]',
+          'h-full min-h-0 w-full overflow-hidden rounded-[18px] border-0 bg-transparent shadow-none',
           className
         )}
         inputRef={inputRef}
@@ -991,8 +904,9 @@ function HomeAgentComposer({
         }
         sendVariant="circle"
         sendTone="ink"
-        showInteractionModePicker={false}
-        leadingActions={homeExampleActions}
+        compact
+        showInteractionModePicker
+        allowedInteractionModes={['agent', 'image', 'video']}
         interactionMode={interactionMode}
         onInteractionModeChange={(mode) => {
           if (mode === 'image') {
@@ -1069,6 +983,6 @@ function HomeAgentComposer({
       ) : null}
     </>
   );
-}
+});
 
-export default memo(HomeAgentComposer);
+export default HomeAgentComposer;

@@ -43,6 +43,7 @@ import {
   parseFillImageAdjust,
   parseFillImageScale,
   parseFillImageOffset,
+  fillImageTileSize,
   buildImageAdjustFilterCss,
   type FillStop,
   type FillGradient,
@@ -709,14 +710,7 @@ const DIFFUSE_BAKE_CACHE_MAX = 24;
 const fillImageCache = new Map<string, CanvasImageSource>();
 const diffuseBakeCache = new Map<string, HTMLCanvasElement>();
 
-function fillImageTileSize(width: number, height: number) {
-  return {
-    w: Math.max(24, Math.round(width / 3)),
-    h: Math.max(24, Math.round(height / 3)),
-  };
-}
-
-function imageSourceSize(img: CanvasImageSource): { iw: number; ih: number } {
+export function imageSourceSize(img: CanvasImageSource): { iw: number; ih: number } {
   if (typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement) {
     return { iw: img.naturalWidth || img.width || 1, ih: img.naturalHeight || img.height || 1 };
   }
@@ -833,8 +827,8 @@ export function drawFillImageInBox(
   const offsetYPct = Number(opts?.offsetYPct ?? 0);
 
   if (fit === 'tile') {
-    const tile = fillImageTileSize(boxW, boxH);
-    const scale = Math.max(tile.w / iw, tile.h / ih) * scaleMul;
+    const tile = fillImageTileSize(iw, ih, opts?.scalePct ?? 100);
+    const scale = Math.max(tile.w / iw, tile.h / ih);
     const dw = iw * scale;
     const dh = ih * scale;
     const ox = (tile.w - dw) / 2 + (offsetXPct / 100) * tile.w;
@@ -907,7 +901,8 @@ function createImageOrDiffusePattern(
   }
 
   if (typeof document === 'undefined') return null;
-  const tile = fit === 'tile' ? fillImageTileSize(w, h) : null;
+  const { iw, ih } = imageSourceSize(source);
+  const tile = fit === 'tile' ? fillImageTileSize(iw, ih, imageScale) : null;
   const pw = tile?.w ?? Math.max(1, Math.round(w));
   const ph = tile?.h ?? Math.max(1, Math.round(h));
   const canvas = document.createElement('canvas');
@@ -925,7 +920,7 @@ function createImageOrDiffusePattern(
   const alpha = Math.max(0, Math.min(100, opacityPct)) / 100;
   tctx.globalAlpha = alpha;
   drawFillImageInBox(tctx, source, pw, ph, fit === 'tile' ? 'crop' : fit, rotate, {
-    scalePct: imageScale,
+    scalePct: fit === 'tile' ? 100 : imageScale,
     offsetXPct: imageOffsetX,
     offsetYPct: imageOffsetY,
   });

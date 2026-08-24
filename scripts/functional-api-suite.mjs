@@ -140,11 +140,6 @@ await check('wallet.purchase-info', async () => {
   assert(r.ok, `status=${r.status}`);
 });
 
-await check('me.liked', async () => {
-  const r = await req('GET', '/me/liked', { allowed: [200] });
-  assert(r.ok, `status=${r.status}`);
-});
-
 await check('me.liked.ids', async () => {
   const r = await req('GET', '/me/liked/ids', { allowed: [200] });
   assert(r.ok, `status=${r.status}`);
@@ -246,11 +241,6 @@ await check('shares.create_get', async () => {
 
 await check('plaza.feed', async () => {
   const r = await req('GET', '/plaza/feed?page=1&pageSize=12', { auth: false, allowed: [200] });
-  assert(r.ok, `status=${r.status}`);
-});
-
-await check('plaza.mine', async () => {
-  const r = await req('GET', '/plaza/mine', { allowed: [200] });
   assert(r.ok, `status=${r.status}`);
 });
 

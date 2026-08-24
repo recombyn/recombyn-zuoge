@@ -209,7 +209,10 @@ function ensureSharedChromeGroup(chromeId: string): SVGGElement | null {
     root.setAttribute(SEL_CHROME_ATTR, chromeId);
     root.setAttribute(HOST_PATH_CHROME_ATTR, '1');
     root.style.pointerEvents = 'none';
-    layer.appendChild(root);
+    // Path silhouette stays under world SelectionChrome (handles must occlude ink).
+    layer.insertBefore(root, layer.firstChild);
+  } else if (root.parentNode === layer && layer.firstChild !== root) {
+    layer.insertBefore(root, layer.firstChild);
   }
   return root;
 }

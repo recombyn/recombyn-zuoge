@@ -1,4 +1,5 @@
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { frameIdAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
   getDocumentGridSize,
@@ -483,7 +484,7 @@ export function nodeHitsMarquee(
   const domBox = sceneBoxFromMountedNode(nodeId, toScene);
   const fullBox = dataBox && domBox ? unionSceneBoxes(dataBox, domBox) : domBox || dataBox;
   if (!fullBox) return false;
-  let box = visibleNodeBoxWithinFrames(doc, node, fullBox);
+  let box = visibleNodeBoxForSelection(doc, node, fullBox);
   if (!box) return false;
   box = ensureMinScreenHitBox(box, zoom);
   const hitMarquee = expandSceneBox(marquee, marqueeHitPadScene(zoom));
@@ -670,11 +671,16 @@ export type DragState = {
   currentShift?: boolean;
   /** Empty artboard interior drag — same pipeline as title label move. */
   frameId?: string;
+  /** Occupied plate soft-click — preserve frame pick on pointerup. */
+  framePlatePick?: boolean;
+  framePlateChrome?: 'soft' | 'full';
   frameStartX?: number;
   frameStartY?: number;
   frameWidth?: number;
   frameHeight?: number;
   frameMoveStarted?: boolean;
+  /** Shift+move: lock to horizontal or vertical after first axis pick. */
+  moveAxisLock?: 'h' | 'v';
 };
 
 /** Shared seed for blank / pointing_canvas / move / resize / rotate drags. */
@@ -841,36 +847,28 @@ export function buildMoveOriginsForHit(opts: {
   };
 }
 
-export function filterMarqueeContentHits(document: SceneDocument, rawHits: string[], frameHitSet: Set<string>) {
+export function filterMarqueeContentHits(
+  document: SceneDocument,
+  rawHits: string[],
+  frameHitSet: Set<string>,
+  marquee?: SceneBox
+) {
   const selectedFrames = (document.frames || []).filter((frame) =>
     frameHitSet.has(String(frame.id))
   );
+  const touchedFrameIds = new Set(frameHitSet);
+  if (marquee) {
+    for (const id of framesIntersectingBox(document, marquee)) {
+      touchedFrameIds.add(id);
+    }
+  }
   return rawHits.filter((id) => {
-    if (selectedFrames.length) {
-      const node = document.deltaSetLike?.[id];
-      if (node) {
-        const ownerId = String(node.attrs?.frameId || '').trim();
-        if (ownerId) return frameHitSet.has(ownerId);
-        const left = Number(node.x) || 0;
-        const top = Number(node.y) || 0;
-        const width = Math.max(1, Number(node.width) || 1);
-        const height = Math.max(1, Number(node.height) || 1);
-        const centerX = left + width / 2;
-        const centerY = top + height / 2;
-        const insideSelectedFrame = selectedFrames.some((frame) => {
-          const frameLeft = Number(frame.x) || 0;
-          const frameTop = Number(frame.y) || 0;
-          const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
-          const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
-          return (
-            centerX >= frameLeft &&
-            centerX <= frameRight &&
-            centerY >= frameTop &&
-            centerY <= frameBottom
-          );
-        });
-        if (!insideSelectedFrame) return false;
-      }
+    const node = document.deltaSetLike?.[id];
+    if (node) {
+      const ownerId = String(node.attrs?.frameId || '').trim();
+    if (ownerId) {
+      if (touchedFrameIds.size) return touchedFrameIds.has(ownerId);
+    }
     }
     const plateFrame = frameForFullBleedPlate(document, id);
     if (!plateFrame) return true;
@@ -917,6 +915,8 @@ export function fallbackVisibleNodeHit(
     const id = String(rawId || '');
     const node = document?.deltaSetLike?.[id];
     if (!id || !node || isNodeHidden(node) || frameForFullBleedPlate(document, id)) continue;
+    const ownerId = String(node.attrs?.frameId || '').trim();
+    if (ownerId && frameIdAtPoint(document, point.x, point.y) !== ownerId) continue;
     const box = getNodeBox(id);
     if (!box || !pointInBox(point.x, point.y, box)) continue;
     const clippingFrames = frames.filter((frame) => {
@@ -972,6 +972,57 @@ function visibleNodeBoxWithinFrames(
   return visibleParts.reduce((acc, part) => unionSceneBoxes(acc, part));
 }
 
+/** Artboards whose bounds overlap a scene rect (marquee brush, not full enclosure). */
+export function framesIntersectingBox(doc: SceneDocument, rect: SceneBox): string[] {
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  const out: string[] = [];
+  for (const frame of frames) {
+    if (!frame || frame.hidden) continue;
+    const fb: SceneBox = {
+      left: Number(frame.x) || 0,
+      top: Number(frame.y) || 0,
+      width: Math.max(1, Number(frame.width) || 1),
+      height: Math.max(1, Number(frame.height) || 1),
+    };
+    if (boxesIntersect(rect, fb)) out.push(String(frame.id));
+  }
+  return out;
+}
+
+/**
+ * Pick/marquee visible bounds — bound nodes clip to their owning artboard only,
+ * so overflow geometry cannot be selected from an adjacent frame.
+ */
+export function visibleNodeBoxForSelection(
+  doc: SceneDocument,
+  node: any,
+  box: SceneBox
+): SceneBox | null {
+  const ownerId = String(node?.attrs?.frameId || '').trim();
+  if (ownerId) {
+    const frame = (doc.frames || []).find((f) => String(f?.id) === ownerId);
+    if (!frame) return null;
+    const fb: SceneBox = {
+      left: Number(frame.x) || 0,
+      top: Number(frame.y) || 0,
+      width: Math.max(1, Number(frame.width) || 1),
+      height: Math.max(1, Number(frame.height) || 1),
+    };
+    const leftEdge = Math.max(box.left, fb.left);
+    const topEdge = Math.max(box.top, fb.top);
+    const rightEdge = Math.min(box.left + box.width, fb.left + fb.width);
+    const bottomEdge = Math.min(box.top + box.height, fb.top + fb.height);
+    if (rightEdge <= leftEdge || bottomEdge <= topEdge) return null;
+    return {
+      left: leftEdge,
+      top: topEdge,
+      width: rightEdge - leftEdge,
+      height: bottomEdge - topEdge,
+    };
+  }
+  return visibleNodeBoxWithinFrames(doc, node, box);
+}
+
 /**
  * Spatial prefilter for marquee. Empty `[]` means miss (stale index), not "no nodes" —
  * `??` would keep [] and skip every hit.
@@ -1011,15 +1062,23 @@ export function commitMarqueeSelection(opts: {
   const uniqueFrameHits = [...new Set(frameHits.filter(Boolean))];
   const selectedContent = contentHits.length ? contentHits : rawHits;
 
-  // A marquee enclosing multiple artboards selects the artboards as units;
-  // their children must not leak into a mixed selection.
+  // Multiple fully enclosed artboards — select as units; canvas-root nodes in
+  // the same brush (outside those frames) can still join the selection.
   if (uniqueFrameHits.length > 1) {
     if (onSelectMixed) {
-      onSelectMixed([], uniqueFrameHits, { additive: shiftKey });
+      onSelectMixed(selectedContent, uniqueFrameHits, { additive: shiftKey });
     } else if (onSelectFrames) {
       onSelectFrames(uniqueFrameHits);
     }
     return;
+  }
+
+  // Frame + scene content in one brush — unified mixed selection.
+  if (uniqueFrameHits.length === 1 && selectedContent.length) {
+    if (onSelectMixed) {
+      onSelectMixed(selectedContent, uniqueFrameHits, { additive: shiftKey });
+      return;
+    }
   }
 
   // A single fully enclosed artboard is selected only when no scene content
@@ -1052,6 +1111,8 @@ export type MoveSnapContext = {
   gridSize: number;
   targets: SmartGuideTarget[];
   threshold: number;
+  /** Shift+drag axis lock — peer/grid snap must not reintroduce cross-axis motion. */
+  axisLock?: 'h' | 'v';
 };
 
 /**
@@ -1106,6 +1167,44 @@ function pathInsetFromVisualOuter(visual: SceneBox, outset: number): SceneBox {
   };
 }
 
+/** Pick dominant drag axis for Shift-constrained move (ties → horizontal). */
+export function resolveMoveAxisLock(
+  dx: number,
+  dy: number,
+  prev?: 'h' | 'v' | null
+): 'h' | 'v' | null {
+  if (prev) return prev;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  if (adx < 1e-9 && ady < 1e-9) return null;
+  return adx >= ady ? 'h' : 'v';
+}
+
+export function constrainMoveDelta(
+  dx: number,
+  dy: number,
+  axis: 'h' | 'v'
+): { dx: number; dy: number } {
+  return axis === 'h' ? { dx, dy: 0 } : { dx: 0, dy };
+}
+
+/** Shift+drag move: constrain to one axis; release Shift to move freely again. */
+export function shiftConstrainedMoveDelta(
+  drag: Pick<DragState, 'moveAxisLock'>,
+  dx: number,
+  dy: number,
+  shiftKey: boolean
+): { dx: number; dy: number } {
+  if (!shiftKey) {
+    drag.moveAxisLock = undefined;
+    return { dx, dy };
+  }
+  const lock = resolveMoveAxisLock(dx, dy, drag.moveAxisLock);
+  if (lock) drag.moveAxisLock = lock;
+  if (!drag.moveAxisLock) return { dx, dy };
+  return constrainMoveDelta(dx, dy, drag.moveAxisLock);
+}
+
 export function computeMovedUnion(ctx: MoveSnapContext): {
   nextUnion: SceneBox;
   sdx: number;
@@ -1152,6 +1251,11 @@ export function computeMovedUnion(ctx: MoveSnapContext): {
       sdy += snapped.nudgeY;
       guides = snapped.guides;
     }
+  }
+  if (ctx.axisLock) {
+    const locked = constrainMoveDelta(sdx, sdy, ctx.axisLock);
+    sdx = locked.dx;
+    sdy = locked.dy;
   }
   return {
     nextUnion: {
@@ -1774,6 +1878,49 @@ export function buildShapeOutlines(opts: {
     }
   }
 
+  // Multi artboard: AABB union chrome (same host-mirrored path as single frame).
+  const multiFrameOnly =
+    opts.selectedFrameIds.length > 1 &&
+    (!opts.selectedNodeIds || opts.selectedNodeIds.length === 0);
+  if (
+    !opts.inspectDev &&
+    (!opts.transforming || multiFrameOnly) &&
+    multiFrameOnly
+  ) {
+    const frames = Array.isArray(opts.document?.frames) ? opts.document.frames : [];
+    const memberBoxes: SceneBox[] = [];
+    for (const fid of opts.selectedFrameIds) {
+      const frame = frames.find((f: any) => f && String(f.id) === String(fid));
+      if (!frame) continue;
+      const live = liveShapeGeomBox(String(fid));
+      memberBoxes.push(
+        live ?? {
+          left: Number(frame.x) || 0,
+          top: Number(frame.y) || 0,
+          width: Math.max(1, Number(frame.width) || 1),
+          height: Math.max(1, Number(frame.height) || 1),
+        }
+      );
+    }
+    const union = unionOfBoxes(memberBoxes);
+    if (union) {
+      out.push({
+        id: '__rcb_frame_union__',
+        mirrorHostId: String(opts.selectedFrameIds[0]),
+        pathD: '',
+        box: union,
+        angle: 0,
+        color: '#3388ff',
+        withHandles: !opts.readOnly,
+        showPath: false,
+        unionChrome: true,
+        cornerHandlesOnly: false,
+        showRotate: false,
+        edgeHandles: 'all',
+      });
+    }
+  }
+
   // Multi path-only: oriented union box + corner handles via host-mirrored chrome
   // (same method as single — world SelectionChrome drifts at high zoom).
   const multiPathOnly =
@@ -1936,7 +2083,20 @@ export function resolveHoverImageVariantsId(opts: {
   hoverNodeId: string | null;
   selectedNodeIds: string[];
   document: SceneDocument;
+  /** Keep overlay mounted while stack is expanded (mouse may be on alt tiles). */
+  pinnedExpandedNodeId?: string | null;
 }): string | null {
+  const pinned = opts.pinnedExpandedNodeId
+    ? resolvePinnedImageVariantsId({
+        nodeId: opts.pinnedExpandedNodeId,
+        selectedNodeIds: opts.selectedNodeIds,
+        document: opts.document,
+        inspectDev: opts.inspectDev,
+        transforming: opts.transforming,
+      })
+    : null;
+  if (pinned) return pinned;
+
   if (opts.inspectDev || opts.transforming || opts.suppressToolbars) return null;
   if (
     !opts.hoverNodeId ||
@@ -1953,6 +2113,27 @@ export function resolveHoverImageVariantsId(opts: {
   if (String(node?.attrs?.processStatus || '') === 'running') return null;
   if (listImageVariantUrls(node).length <= 1) return null;
   return opts.hoverNodeId;
+}
+
+/** Expanded stack on an unselected node — survives hover loss while alt tiles are open. */
+export function resolvePinnedImageVariantsId(opts: {
+  nodeId: string | null | undefined;
+  inspectDev: boolean;
+  transforming: boolean;
+  selectedNodeIds: string[];
+  document: SceneDocument;
+}): string | null {
+  const nodeId = String(opts.nodeId || '').trim();
+  if (!nodeId || opts.inspectDev || opts.transforming) return null;
+  if (opts.selectedNodeIds.includes(nodeId) || parseFrameSelId(nodeId)) return null;
+  const node = opts.document?.deltaSetLike?.[nodeId];
+  if (node?.key !== 'image') return null;
+  if (isImageGeneratorNode(node) || isVideoGeneratorNode(node) || isLottieGeneratorNode(node)) {
+    return null;
+  }
+  if (String(node?.attrs?.processStatus || '') === 'running') return null;
+  if (listImageVariantUrls(node).length <= 1) return null;
+  return nodeId;
 }
 
 /** SelectionChrome edge knobs: generators none; video/text L/R only; else all. */

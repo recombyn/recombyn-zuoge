@@ -12,12 +12,11 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
 import { HiArrowUp, HiOutlinePlus } from 'react-icons/hi2';
-import { generateAudio, type ChatModelsResponse, type LlmModel } from '@/service/chat';
-import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { generateAudio, type LlmModel } from '@/service/chat';
+import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, message, Tooltip } from '@/components/base';
 import {
   RcbOverlayPortal,
@@ -37,71 +36,25 @@ import {
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/models/ModelPickerPanel';
-import { buildByokAwareModelList } from '@/components/editor/panels/agent/llmModelMeta';
-import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
-import {
-  clearImageProcessAttrs
-} from '@/components/rcb/scene/document/mediaLifecycle';
+import { buildAudioGeneratorModelList, nextAudioModelId } from '@/components/editor/nodes/shared/generatorModelLists';
+import { probeAudioDuration, pickAudioUrl } from '@/components/editor/nodes/shared/mediaProbe';
+import { useGeneratorModelsCatalog } from '@/components/editor/panels/agent/composer/useGeneratorModelsCatalog';
+import { MEDIA_QUICK_EDIT_ATTR } from '@/components/editor/panels/agent/composer/composerMentionHelpers';
+import { clearGeneratorProcessOverlay } from '@/components/editor/nodes/shared/clearGeneratorProcess';
 import {
   closeImageToolPanel,
   patchDocumentNode,
   pushEditorHistory,
-  setDocumentFromCanvas,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
+import { estimateAudioCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl, uploadComposerAttachment } from '@/utils/uploadImage';
 import store from '@/store';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
 
 const DEFAULT_AUDIO_MODEL_ID = 'or-gemini-3-1-flash-tts';
-
-function modelIsAudio(model?: Pick<LlmModel, 'kind' | 'id'> | null): boolean {
-  if (!model) return false;
-  if (model.kind === 'audio') return true;
-  return /tts|kokoro|fish-audio|speech|audio/i.test(model.id || '');
-}
-
-function buildAudioModelList(res?: {
-  models?: LlmModel[] | null;
-  audioModels?: LlmModel[] | null;
-}): LlmModel[] {
-  return buildByokAwareModelList({
-    byok: customProvidersAsModels(),
-    catalogs: [res?.models, res?.audioModels],
-    filter: (m) => modelIsAudio(m),
-  });
-}
-
-function pickAudioUrl(r: Awaited<ReturnType<typeof generateAudio>>): string {
-  const fromAudios =
-    Array.isArray(r?.audios) && r.audios.find((u) => String(u || '').trim());
-  if (fromAudios) return String(fromAudios).trim();
-  const fromAssets =
-    Array.isArray(r?.assets) &&
-    r.assets.map((a) => String(a?.url || '').trim()).find(Boolean);
-  return fromAssets ? String(fromAssets).trim() : '';
-}
-
-function probeAudioDuration(src: string): Promise<number | null> {
-  return new Promise((resolve) => {
-    const audio = document.createElement('audio');
-    audio.preload = 'metadata';
-    const done = (value: number | null) => {
-      audio.removeAttribute('src');
-      audio.load();
-      resolve(value);
-    };
-    audio.onloadedmetadata = () => {
-      const d = Number(audio.duration);
-      done(Number.isFinite(d) && d > 0 ? d : null);
-    };
-    audio.onerror = () => done(null);
-    audio.src = src;
-    window.setTimeout(() => done(null), 4000);
-  });
-}
 
 function AudioQuickEditComposer({
   document,
@@ -128,8 +81,15 @@ function AudioQuickEditComposer({
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
   const [sending, setSending] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const [models, setModels] = useState<LlmModel[]>([]);
   const [modelId, setModelId] = useState(DEFAULT_AUDIO_MODEL_ID);
+
+  const { models } = useGeneratorModelsCatalog({
+    buildList: buildAudioGeneratorModelList,
+    modelId,
+    setModelId,
+    resolveModelId: nextAudioModelId,
+    resetKey: nodeId,
+  });
 
   const attachments = useMemo(
     () => contexts.filter((c) => c.kind === 'attachment'),
@@ -159,39 +119,6 @@ function AudioQuickEditComposer({
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [nodeId]);
-
-  const modelsCatalogQuery = useQuery({
-    ...apiQuery.chatGetModels.queryOptions(),
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (modelsCatalogQuery.isPending) return;
-    if (modelsCatalogQuery.isError) {
-      setModels([]);
-      return;
-    }
-    if (!modelsCatalogQuery.isFetched) return;
-    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
-    if (!res) {
-      setModels([]);
-      return;
-    }
-    const list = buildAudioModelList(res);
-    setModels(list);
-    if (list.length && !list.some((m) => m.id === modelId)) {
-      const preferred =
-        (!isDesktopLocal() && list.find((m) => m.id === DEFAULT_AUDIO_MODEL_ID)) || list[0];
-      if (preferred) setModelId(preferred.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    modelsCatalogQuery.data,
-    modelsCatalogQuery.isPending,
-    modelsCatalogQuery.isError,
-    modelsCatalogQuery.isFetched,
-    nodeId,
-  ]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -352,8 +279,9 @@ function AudioQuickEditComposer({
           uploadKey: readyAudioAtt.uploadKey || undefined,
         });
       } catch (err: any) {
-        const doc = (store.getState() as any).editor?.document;
-        if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+        const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
+          ?.document;
+        clearGeneratorProcessOverlay(dispatch, doc, nodeId);
         message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
       } finally {
         setSending(false);
@@ -402,8 +330,9 @@ function AudioQuickEditComposer({
       });
     } catch (err: any) {
       if (ac.signal.aborted) return;
-      const doc = (store.getState() as any).editor?.document;
-      if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+      const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
+        ?.document;
+      clearGeneratorProcessOverlay(dispatch, doc, nodeId);
       message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
@@ -419,7 +348,7 @@ function AudioQuickEditComposer({
     <RcbOverlayPortal>
       <div
         data-audio-quick-edit
-        data-image-quick-edit
+        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
         data-sel-toolbar
         data-scene-node-id={nodeId}
         className={cn(

@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, memo } from 'react';
 import { useDispatch } from 'react-redux';
 import { cn } from '@/utils/classnames';
-import { parseMarkChipKey } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
+import { parseMarkChipKey, isMarkContextKey } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import { setHoveredMarkPin } from '@/store/modules/editor';
 import { parseNodeText } from '@/components/rcb/scene/document/sceneText';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -18,6 +18,7 @@ import {
   buildTextSnippetContext,
   shouldConvertPasteToTextChip,
 } from '@/components/editor/panels/composerTextSnippet';
+import { pickComposerInsertOffset } from '@/components/editor/panels/agent/composerChipInsert';
 
 
 function editorHasComposerChips(el: HTMLElement | null | undefined): boolean {
@@ -130,8 +131,6 @@ export type AgentComposerHandle = {
   focusEnd: () => void;
   /** Insert a context chip at the caret (or last known caret / end). */
   insertContextAtCaret: (ctx: ComposerContext) => void;
-  /** Insert a mark chip before any typed plain text (after existing chips). */
-  insertContextBeforePlainText: (ctx: ComposerContext) => void;
   /** Insert plain text at the caret and sync React value. */
   insertPlainAtCaret: (plain: string) => void;
   /** Plain text with U+FFFC where each context chip sits (DOM order). */
@@ -274,24 +273,21 @@ function getPlainTextCaretOffset(root: HTMLElement): number | null {
   return offset;
 }
 
-/** Where to insert the next chip — live caret when focused, else saved or end. */
+/** Where to insert the next chip — saved/live snapshot, never post-focus() live (resets to 0). */
 function resolveInsertCaretOffset(
   el: HTMLElement,
-  savedCaretRef: { current: number | null }
+  savedCaretRef: { current: number | null },
+  opts?: {
+    wasFocused?: boolean;
+    liveOffsetBeforeFocus?: number | null;
+  }
 ): number {
-  const plainLen = readPlainText(el).length;
-  if (plainLen === 0) return 0;
-
-  if (document.activeElement === el) {
-    const live = getPlainTextCaretOffset(el);
-    if (live != null) return Math.min(live, plainLen);
-  }
-
-  if (savedCaretRef.current != null) {
-    return Math.min(Math.max(0, savedCaretRef.current), plainLen);
-  }
-
-  return plainLen;
+  return pickComposerInsertOffset({
+    plainLen: readPlainText(el).length,
+    wasFocused: Boolean(opts?.wasFocused),
+    liveOffsetBeforeFocus: opts?.liveOffsetBeforeFocus ?? null,
+    savedOffset: savedCaretRef.current,
+  });
 }
 
 function setPlainTextCaretOffset(root: HTMLElement, target: number): Range {
@@ -556,7 +552,6 @@ function withChipInstance(key: string): string {
   return `${key}${CHIP_INSTANCE_SEP}${uid}`;
 }
 
-/** Drop browser `<br>` / empty blocks that create a blank line above chips. */
 function scrubComposerScaffold(el: HTMLElement) {
   const keep = new Set<Node>();
   for (const chip of Array.from(el.querySelectorAll('[data-composer-chip="1"]'))) {
@@ -583,6 +578,18 @@ function scrubComposerScaffold(el: HTMLElement) {
   }
 }
 
+/** Mark chips: pointer cursor + hover sync attrs (contenteditable parent keeps text I-beam otherwise). */
+function patchMarkChipChrome(el: HTMLElement) {
+  for (const node of Array.from(el.querySelectorAll('[data-composer-chip="1"]'))) {
+    const chip = node as HTMLElement;
+    const id = chipBaseKey(chip.dataset.chipId || '');
+    if (!isMarkContextKey(id)) continue;
+    chip.dataset.markChip = '1';
+    chip.style.cursor = 'pointer';
+    chip.classList.add('cursor-pointer', 'select-none');
+  }
+}
+
 function buildChip(
   opts: {
     kind: 'context';
@@ -603,6 +610,11 @@ function buildChip(
   chip.dataset.chipId = opts.id;
   // Keep in sync with CONTEXT_CHIP_PILL_CLASS / ContextChipPill.
   chip.className = cn(CONTEXT_CHIP_PILL_CLASS, 'mr-1');
+  if (isMarkContextKey(opts.id)) {
+    chip.dataset.markChip = '1';
+    chip.classList.add('cursor-pointer', 'select-none');
+    chip.style.cursor = 'pointer';
+  }
 
   const thumb = String(opts.thumbUrl || '').trim();
   const parts: HTMLElement[] = [];
@@ -712,6 +724,9 @@ function insertChipAtSavedCaret(
     savedCaretRef: { current: number | null };
     onRemove: (key: string) => void;
     markHasChips: () => void;
+    /** Prefer snapshot taken before focus() — do not re-read live caret after focus. */
+    wasFocused?: boolean;
+    liveOffsetBeforeFocus?: number | null;
   }
 ): boolean {
   scrubComposerScaffold(el);
@@ -727,9 +742,12 @@ function insertChipAtSavedCaret(
   });
 
   const sel = window.getSelection();
-  let range: Range | null = null;
-  const insertAt = resolveInsertCaretOffset(el, opts.savedCaretRef);
-  range = setPlainTextCaretOffset(el, insertAt);
+  const insertAt = resolveInsertCaretOffset(el, opts.savedCaretRef, {
+    wasFocused: opts.wasFocused,
+    liveOffsetBeforeFocus: opts.liveOffsetBeforeFocus,
+  });
+  opts.savedCaretRef.current = insertAt;
+  let range = setPlainTextCaretOffset(el, insertAt);
   if (!range) {
     range = document.createRange();
     range.selectNodeContents(el);
@@ -821,6 +839,7 @@ function writeComposerDom(
   if (raw.includes('\uFFFC')) {
     writeComposerDomFromMarked(el, nextContexts, raw, opts.onRemove);
     opts.savedCaretRef.current = getPlainTextCaretOffset(el);
+    patchMarkChipChrome(el);
     return;
   }
 
@@ -865,6 +884,7 @@ function writeComposerDom(
     }
     opts.savedCaretRef.current = getPlainTextCaretOffset(el);
   }
+  patchMarkChipChrome(el);
 }
 
 /**
@@ -954,14 +974,17 @@ const AgentComposerInput = forwardRef<
         : null;
     if (!chip || !el.contains(chip)) {
       dispatch(setHoveredMarkPin(null));
+      el.style.removeProperty('cursor');
       return;
     }
     const parsed = parseMarkChipKey(chipBaseKey(chip.dataset.chipId || ''));
     if (!parsed) {
       dispatch(setHoveredMarkPin(null));
+      el.style.removeProperty('cursor');
       return;
     }
     dispatch(setHoveredMarkPin({ nodeId: parsed.nodeId, pinId: parsed.regionId }));
+    el.style.cursor = 'pointer';
   };
 
   const handleComposerMouseOver = (e: ReactMouseEvent<HTMLDivElement>) => {
@@ -970,6 +993,7 @@ const AgentComposerInput = forwardRef<
 
   const handleComposerMouseLeave = () => {
     dispatch(setHoveredMarkPin(null));
+    editorRef.current?.style.removeProperty('cursor');
   };
 
   // Capture caret before canvas/context-menu steals focus (blur selection is already gone).
@@ -1003,27 +1027,33 @@ const AgentComposerInput = forwardRef<
     if (!el) return;
 
     skipSyncRef.current = true;
-    const caretBeforeFocus = savedCaretRef.current;
+    // Snapshot BEFORE focus() — browsers reset the live caret to 0 on focus.
     const wasFocused = document.activeElement === el;
+    const caretBeforeFocus = savedCaretRef.current;
+    const liveBeforeFocus = wasFocused ? getPlainTextCaretOffset(el) : null;
     insertingRef.current = true;
     try {
       const unique: ComposerContext = { ...ctx, key: withChipInstance(ctx.key) };
-      onContextsChangeRef.current([...contextsRef.current, unique]);
+      // Keep contextsRef in sync inside a multi-insert loop (React has not re-rendered yet).
+      const nextContexts = [...contextsRef.current, unique];
+      contextsRef.current = nextContexts;
+      onContextsChangeRef.current(nextContexts);
+
+      const insertAt = pickComposerInsertOffset({
+        plainLen: readPlainText(el).length,
+        wasFocused,
+        liveOffsetBeforeFocus: liveBeforeFocus,
+        savedOffset: caretBeforeFocus,
+      });
+      savedCaretRef.current = insertAt;
 
       el.focus();
-      if (wasFocused) {
-        const live = getPlainTextCaretOffset(el);
-        savedCaretRef.current =
-          live != null ? live : caretBeforeFocus ?? resolveInsertCaretOffset(el, savedCaretRef);
-      } else if (caretBeforeFocus != null) {
-        savedCaretRef.current = caretBeforeFocus;
-      } else {
-        savedCaretRef.current = resolveInsertCaretOffset(el, savedCaretRef);
-      }
       insertChipAtSavedCaret(el, unique, {
         savedCaretRef,
         onRemove: removeContextByKey,
         markHasChips: () => setDomHasChips((prev) => (prev ? prev : true)),
+        wasFocused,
+        liveOffsetBeforeFocus: liveBeforeFocus,
       });
 
       skipSyncRef.current = true;
@@ -1064,33 +1094,6 @@ const AgentComposerInput = forwardRef<
     },
     insertContextAtCaret: (ctx: ComposerContext) => {
       insertContextChip(ctx);
-    },
-    insertContextBeforePlainText: (ctx: ComposerContext) => {
-      const el = editorRef.current;
-      if (!el) return;
-
-      skipSyncRef.current = true;
-      insertingRef.current = true;
-      try {
-        const unique: ComposerContext = { ...ctx, key: withChipInstance(ctx.key) };
-        onContextsChangeRef.current([...contextsRef.current, unique]);
-
-        el.focus();
-        savedCaretRef.current = readPlainText(el).length > 0 ? 0 : null;
-        insertChipAtSavedCaret(el, unique, {
-          savedCaretRef,
-          onRemove: removeContextByKey,
-          markHasChips: () => setDomHasChips((prev) => (prev ? prev : true)),
-        });
-
-        skipSyncRef.current = true;
-        onChangeRef.current(readPlainText(el));
-        queueMicrotask(() => {
-          skipSyncRef.current = true;
-        });
-      } finally {
-        insertingRef.current = false;
-      }
     },
     insertPlainAtCaret: (plain: string) => {
       const el = editorRef.current;
@@ -1363,6 +1366,8 @@ const AgentComposerInput = forwardRef<
         className={cn(
           'h-full w-full min-h-[26px] max-h-[140px] cursor-text overflow-y-auto whitespace-pre-wrap break-words bg-transparent py-0.5 text-[13px] leading-5 text-[var(--ink)] outline-none',
           '[&_[data-composer-chip]]:align-middle',
+          '[&_[data-mark-chip="1"]]:cursor-pointer [&_[data-mark-chip="1"]]:select-none',
+          '[&_[data-mark-chip="1"]:hover]:border-sky-300 [&_[data-mark-chip="1"]:hover]:bg-sky-50/80',
           disabled && 'pointer-events-none cursor-default opacity-50'
         )}
       />

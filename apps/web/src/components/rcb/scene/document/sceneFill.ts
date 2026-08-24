@@ -257,6 +257,19 @@ export function parseFillImageScale(raw: unknown): number {
   return Number.isFinite(n) ? Math.max(1, Math.round(n * 10) / 10) : 100;
 }
 
+/** Repeat cell size for image tile fill — one tile = image natural size × scale %. */
+export function fillImageTileSize(
+  imageWidth: number,
+  imageHeight: number,
+  scalePct = 100
+): { w: number; h: number } {
+  const scaleMul = Math.max(0.01, parseFillImageScale(scalePct) / 100);
+  return {
+    w: Math.max(1, Math.round(Math.max(1, imageWidth) * scaleMul)),
+    h: Math.max(1, Math.round(Math.max(1, imageHeight) * scaleMul)),
+  };
+}
+
 export function parseFillImageOffset(raw: unknown): number {
   const n = Number(raw);
   return Number.isFinite(n) ? Math.round(n * 10) / 10 : 0;

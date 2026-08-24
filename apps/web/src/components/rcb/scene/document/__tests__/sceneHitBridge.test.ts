@@ -121,4 +121,32 @@ describe('hitTestSceneAtPoint', () => {
     expect(hitTestSceneAtPoint({ document: doc, order: ['p'], x: 120, y: 60, zoom: 1, getNodeBox })).toBeNull();
     expect(hitTestSceneAtPoint({ document: doc, order: ['p'], x: 80, y: 60, zoom: 1, getNodeBox })).toBe('p');
   });
+
+  it('does not pick a bound node when clicking an adjacent artboard', () => {
+    const doc = {
+      frames: [
+        { id: 'left', x: 0, y: 0, width: 200, height: 200, clipContent: true },
+        { id: 'right', x: 300, y: 0, width: 200, height: 200, clipContent: true },
+      ],
+      deltaSetLike: {
+        ROOT: { children: ['img'] },
+        img: {
+          id: 'img',
+          key: 'image',
+          x: 50,
+          y: 50,
+          width: 400,
+          height: 400,
+          attrs: { frameId: 'left', src: 'https://example.com/a.png' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const getNodeBox = () => ({ left: 50, top: 50, width: 400, height: 400 });
+    expect(
+      hitTestSceneAtPoint({ document: doc, order: ['img'], x: 350, y: 100, zoom: 1, getNodeBox })
+    ).toBeNull();
+    expect(
+      hitTestSceneAtPoint({ document: doc, order: ['img'], x: 100, y: 100, zoom: 1, getNodeBox })
+    ).toBe('img');
+  });
 });

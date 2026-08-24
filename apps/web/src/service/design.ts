@@ -675,31 +675,8 @@ export const postDesignSceneFeedback = (
     { signal: abortAfter(30_000, signal) }
   ) as Promise<{ ok?: boolean; count?: number; frames?: number }>;
 
-export type GenerateLottieInput = {
-  prompt: string;
-  width?: number;
-  height?: number;
-  duration_sec?: number;
-  model?: string;
-  /** Reference images (data URL / https) — requires a vision-capable model. */
-  images?: string[];
-};
-
-export type GenerateLottieResult = {
-  animationData: Record<string, unknown>;
-  w?: number;
-  h?: number;
-};
-
-/** POST /design/lottie/generate — Bodymovin JSON for the on-canvas Lottie plate. */
-export const generateLottie = (
-  data: GenerateLottieInput,
-  opts?: { signal?: AbortSignal }
-) =>
-  apiClient.designDesignLottieGenerate(
-    { body: data as never },
-    { signal: abortAfter(90_000, opts?.signal) }
-  ) as Promise<GenerateLottieResult>;
+/** Lottie jobs — SSE via @/service/chat (re-export for legacy imports). */
+export { generateLottie, type GenerateLottieInput, type GenerateLottieResult } from '@/service/chat';
 
 export type DesignSkillImportExisting = {
   id: number;

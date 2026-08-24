@@ -4,12 +4,11 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  * Regenerates video in place via POST /chat/video.
  */
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
 import { HiArrowUp, HiOutlineChevronDown, HiOutlinePlus } from 'react-icons/hi2';
-import { generateVideo, type ChatModelsResponse, type LlmModel } from '@/service/chat';
-import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { generateVideo, type LlmModel } from '@/service/chat';
+import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   RcbOverlayPortal,
@@ -27,28 +26,24 @@ import {
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/models/ModelPickerPanel';
-import {
-  buildByokAwareModelList,
-  cloudVideoFallbackId,
-  DEFAULT_CLOUD_VIDEO_MODEL_ID,
-} from '@/components/editor/panels/agent/llmModelMeta';
-import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
+import { buildVideoGeneratorModelList, nextVideoModelId } from '@/components/editor/nodes/shared/generatorModelLists';
+import { pickVideoUrl } from '@/components/editor/nodes/shared/mediaProbe';
+import { useGeneratorModelsCatalog } from '@/components/editor/panels/agent/composer/useGeneratorModelsCatalog';
+import { MEDIA_QUICK_EDIT_ATTR } from '@/components/editor/panels/agent/composer/composerMentionHelpers';
 import {
   captureVideoPosterFrame
 } from '@/components/rcb/scene/document/nodeFactories';
-import {
-  clearImageProcessAttrs
-} from '@/components/rcb/scene/document/mediaLifecycle';
+import { clearGeneratorProcessOverlay } from '@/components/editor/nodes/shared/clearGeneratorProcess';
 import {
   closeImageToolPanel,
   patchDocumentNode,
   pushEditorHistory,
-  setDocumentFromCanvas,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateVideoCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
+import { cloudVideoFallbackId, DEFAULT_CLOUD_VIDEO_MODEL_ID } from '@/components/editor/panels/agent/llmModelMeta';
 import store from '@/store';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
@@ -58,23 +53,6 @@ const VIDEO_DURATIONS = [5, 10] as const;
 const DEFAULT_ASPECT = '16:9';
 const DEFAULT_DURATION = 5;
 const DEFAULT_RESOLUTION = '720p';
-
-function modelIsVideo(model?: Pick<LlmModel, 'kind' | 'id'> | null): boolean {
-  if (!model?.id) return false;
-  if (model.kind === 'video') return true;
-  return /seedance|kling|minimax.*video|sora|runway|luma/i.test(model.id);
-}
-
-function buildVideoModelList(res?: {
-  models?: LlmModel[] | null;
-  videoModels?: LlmModel[] | null;
-}): LlmModel[] {
-  return buildByokAwareModelList({
-    byok: customProvidersAsModels(),
-    catalogs: [res?.models, res?.videoModels],
-    filter: (m) => modelIsVideo(m),
-  });
-}
 
 function VideoQuickEditComposer({
   document,
@@ -103,12 +81,19 @@ function VideoQuickEditComposer({
   const [sending, setSending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const [models, setModels] = useState<LlmModel[]>([]);
   const [modelId, setModelId] = useState(
     () => cloudVideoFallbackId() || DEFAULT_CLOUD_VIDEO_MODEL_ID
   );
   const [aspectRatio, setAspectRatio] = useState(DEFAULT_ASPECT);
   const [duration, setDuration] = useState(DEFAULT_DURATION);
+
+  const { models } = useGeneratorModelsCatalog({
+    buildList: buildVideoGeneratorModelList,
+    modelId,
+    setModelId,
+    resolveModelId: nextVideoModelId,
+    resetKey: nodeId,
+  });
 
   useEffect(() => {
     setPrompt(savedPrompt);
@@ -118,37 +103,6 @@ function VideoQuickEditComposer({
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [nodeId]);
-
-  const modelsCatalogQuery = useQuery({
-    ...apiQuery.chatGetModels.queryOptions(),
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (modelsCatalogQuery.isPending) return;
-    if (modelsCatalogQuery.isError) {
-      setModels([]);
-      return;
-    }
-    if (!modelsCatalogQuery.isFetched) return;
-    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
-    if (!res) {
-      setModels([]);
-      return;
-    }
-    const list = buildVideoModelList(res);
-    setModels(list);
-    if (list.length && !list.some((m) => m.id === modelId)) {
-      setModelId(list[0]!.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    modelsCatalogQuery.data,
-    modelsCatalogQuery.isPending,
-    modelsCatalogQuery.isError,
-    modelsCatalogQuery.isFetched,
-    nodeId,
-  ]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -256,11 +210,7 @@ function VideoQuickEditComposer({
       if (refImages.length) body.images = refImages;
 
       const res = await generateVideo(body, { signal: ac.signal });
-      const nextSrc =
-        (Array.isArray(res?.videos) && res.videos.find((u) => String(u || '').trim())) ||
-        (Array.isArray(res?.assets) &&
-          res.assets.map((a) => String(a?.url || '').trim()).find(Boolean)) ||
-        '';
+      const nextSrc = pickVideoUrl(res);
       if (!String(nextSrc).trim()) throw new Error(t('editor.tools.videoGenEmpty'));
       if (ac.signal.aborted) return;
 
@@ -289,8 +239,9 @@ function VideoQuickEditComposer({
       dispatch(closeImageToolPanel());
     } catch (err: any) {
       if (ac.signal.aborted) return;
-      const doc = (store.getState() as any).editor?.document;
-      if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+      const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
+        ?.document;
+      clearGeneratorProcessOverlay(dispatch, doc, nodeId);
       message.error(getHttpErrorMessage(err, t('editor.tools.videoGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
@@ -304,7 +255,7 @@ function VideoQuickEditComposer({
     <RcbOverlayPortal>
       <div
         data-video-quick-edit
-        data-image-quick-edit
+        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
         data-sel-toolbar
         data-scene-node-id={nodeId}
         className={cn(

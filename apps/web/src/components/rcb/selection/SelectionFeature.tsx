@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import ImageVariantsOverlay from '@/components/editor/nodes/ImageNode/ImageVariantsOverlay';
+import { useImageVariantsExpandedNodeId } from '@/components/editor/nodes/ImageNode/imageVariantsExpand';
 import {
   useRcbCamera,
   useRcbOverlayRoot,
@@ -67,13 +68,13 @@ import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifec
 import { deflateSelectionBox, inflateSelectionBox, strokeOuterClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 import { isEditablePathNode } from '@/components/rcb/scene/paint/outlineToPath';
 import {
-  closeImageToolPanel,
-  openImageToolPanel,
   patchDocumentNode,
   setDevHoverNodeId,
   type ImageToolPanelState,
 } from '@/store/modules/editor';
+import { dismissMarkToolSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
 import type { TextResizeMode } from '@/components/rcb/scene/paint/svgToScene';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import store from '@/store';
 
 /** Soft blank click while an image quick-edit / mark session is pinned. */
@@ -81,16 +82,9 @@ function handlePinnedImageToolBlankClick(
   pin: string,
   dispatch: ReturnType<typeof useDispatch>
 ) {
-  const panel = (store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null } })
-    .editor?.imageToolPanel;
-  if (panel?.kind === 'mark' && panel?.nodeId === pin) {
-    if (panel.markSink === 'quickEdit') {
-      dispatch(openImageToolPanel({ nodeId: pin, kind: 'quickEdit' }));
-    } else {
-      dispatch(closeImageToolPanel());
-    }
-  }
-  // Keep the pinned node selected — never clear selection during these sessions.
+  const editor = (store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null; document?: SceneDocument } })
+    .editor;
+  dismissMarkToolSession(dispatch, editor?.document, editor?.imageToolPanel, pin);
 }
 
 function isImageToolSessionPinned(
@@ -170,6 +164,7 @@ import {
   fallbackVisibleNodeHit,
   visualGuideBoxForNode,
   computeMovedUnion,
+  shiftConstrainedMoveDelta,
   computeResizedUnion,
   resizeDragNearBox,
   collectSmartGuideTargets,
@@ -199,10 +194,10 @@ import {
 import { frameSelId, parseFrameSelId } from './frameSelectionIds';
 import {
   getFrameBox,
+  isPointOnFrameEdge,
   resolveFramePlateDragMode,
   resolveFramePlateTarget,
 } from '@/components/rcb/frames/framePlatePointer';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** One frame of live transform chrome + paint (ADR 0027 — RAF preview). */
 export type TransformPreviewBatch = {
@@ -295,7 +290,7 @@ type SelectionFeatureProps = {
     frameId: string,
     x: number,
     y: number,
-    opts?: { skipGrid?: boolean }
+    opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }
   ) => void;
   /** Marquee / multi artboard selection (frames only). */
   onSelectFrames?: (frameIds: string[]) => void;
@@ -418,6 +413,9 @@ function SelectionFeature({
   );
   /** Radius panel keeps chrome (rounded outline) but hides floating toolbars. */
   const suppressToolbars = suppressChrome || shapeStylePanel?.kind === 'radius';
+  const imageVariantsExpandedId = useImageVariantsExpandedNodeId();
+  const variantsStackOpen = Boolean(imageVariantsExpandedId);
+  const effectiveSuppressToolbars = suppressToolbars || variantsStackOpen;
   /** Share preview / Dev: select↔hover spacing + orange pair chrome. */
   const inspectDev = workspaceMode === 'dev' || readOnly;
   const dragRef = useRef<DragState | null>(null);
@@ -932,6 +930,7 @@ function SelectionFeature({
       const {
         sceneDoc,
         toScene,
+        zoom,
         readOnly,
         attachPickActive,
         hitTest,
@@ -1072,7 +1071,7 @@ function SelectionFeature({
       if (target.closest('[data-sel-toolbar],[data-frame-toolbar]')) return;
       if (
         target.closest(
-          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-image-quick-edit],[data-lottie-edit-composer],[data-video-quick-edit],[data-audio-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-fill-image-preview],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-mockup-session],[data-mockup-toolbar],[data-upscale-toolbar],[data-mark-overlay],[data-mark-prompt]'
+          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-media-quick-edit],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-fill-image-preview],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-mockup-session],[data-mockup-toolbar],[data-upscale-toolbar],[data-mark-overlay],[data-mark-prompt]'
         )
       )
         return;
@@ -1119,13 +1118,23 @@ function SelectionFeature({
           readOnly,
           canMove: Boolean(onFrameMoveRef.current),
         });
-        // Empty interior → full chrome + drag; occupied → soft edge only.
-        const empty = mode === 'frame_move';
-        onSelectFrame?.(frameId, { chrome: empty ? 'full' : 'soft' });
-
         const box = getFrameBox(sceneDoc, frameId);
+        const empty = mode === 'frame_move';
+        const onEdge = box ? isPointOnFrameEdge(p, box, zoom) : false;
+        const reselecting =
+          (liveOriginsNow?.length ?? 0) === 0 &&
+          selectedNodeIds.length === 0 &&
+          selectedFrameIds.length === 0;
+        const chrome: 'soft' | 'full' =
+          empty || onEdge || reselecting ? 'full' : 'soft';
+        onSelectFrame?.(frameId, { chrome });
+
         if (!box || !empty) {
-          dragRef.current = seed('pointing_canvas', e, p);
+          dragRef.current = seed('pointing_canvas', e, p, {
+            frameId,
+            framePlatePick: true,
+            framePlateChrome: chrome,
+          });
           capture(e.pointerId);
           return;
         }
@@ -1268,6 +1277,42 @@ function SelectionFeature({
       e.preventDefault();
       // Sparse path / star ink often misses hit-test inside a large control box.
       // Clicking empty space still inside the selection union should move, not clear.
+      const frameOnlySelection =
+        selectionHasFrame &&
+        Boolean(liveOriginsNow?.length) &&
+        liveOriginsNow.every((o) => parseFrameSelId(o.nodeId));
+      if (
+        !readOnly &&
+        pointInLiveUnion &&
+        frameOnlySelection &&
+        liveOriginsNow?.length === 1 &&
+        onFrameMoveRef.current
+      ) {
+        const frameId = parseFrameSelId(liveOriginsNow[0].nodeId);
+        const box = liveUnionNow;
+        if (frameId && box) {
+          e.preventDefault();
+          e.stopPropagation();
+          const origins = [{ nodeId: frameSelId(frameId), box: { ...box } }];
+          dragRef.current = seed('frame_move', e, p, {
+            origins,
+            union: box,
+            frameId,
+            frameStartX: box.left,
+            frameStartY: box.top,
+            frameWidth: box.width,
+            frameHeight: box.height,
+            frameMoveStarted: true,
+          });
+          onFrameMoveStartRef.current?.(frameId);
+          setLiveOrigins(origins);
+          setLiveUnion(box);
+          setLiveAngle(0);
+          setTransformingNotify(true);
+          capture(e.pointerId);
+          return;
+        }
+      }
       if (
         !readOnly &&
         !selectionHasFrame &&
@@ -1355,14 +1400,16 @@ function SelectionFeature({
           drag.frameMoveStarted = true;
           onFrameMoveStartRef.current?.(drag.frameId);
         }
+        const { dx: cdx, dy: cdy } = shiftConstrainedMoveDelta(drag, dx, dy, e.shiftKey);
         const box = {
-          left: Math.round((drag.frameStartX ?? 0) + dx),
-          top: Math.round((drag.frameStartY ?? 0) + dy),
+          left: Math.round((drag.frameStartX ?? 0) + cdx),
+          top: Math.round((drag.frameStartY ?? 0) + cdy),
           width: drag.frameWidth ?? drag.union.width,
           height: drag.frameHeight ?? drag.union.height,
         };
         onFrameMoveRef.current?.(drag.frameId, box.left, box.top, {
           skipGrid: e.ctrlKey || e.metaKey,
+          axisLock: drag.moveAxisLock,
         });
         const origins = [{ nodeId: frameSelId(drag.frameId), box }];
         liveUnionRef.current = box;
@@ -1417,16 +1464,18 @@ function SelectionFeature({
 
       if (drag.mode === 'move') {
         // Follow the pointer immediately — only grid may quantize (no travel gate).
+        const { dx: cdx, dy: cdy } = shiftConstrainedMoveDelta(drag, dx, dy, e.shiftKey);
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
         const threshold = smartSnapThreshold(zoom);
         const { nextUnion, sdx, sdy, guides } = computeMovedUnion({
           union: drag.union,
           origins: drag.origins,
           document: sceneDoc,
-          dx,
-          dy,
+          dx: cdx,
+          dy: cdy,
           disableSnap: e.ctrlKey || e.metaKey,
           gridSize,
+          axisLock: drag.moveAxisLock,
           targets: smartGuideTargetsForDrag({
             document: sceneDoc,
             listNodeIds,
@@ -1434,8 +1483,8 @@ function SelectionFeature({
             excludeIds: exclude,
             nearBox: {
               ...drag.union,
-              left: drag.union.left + dx,
-              top: drag.union.top + dy,
+              left: drag.union.left + cdx,
+              top: drag.union.top + cdy,
             },
             threshold,
             queryNodeIdsInRect: queryIdsInRect,
@@ -1618,12 +1667,17 @@ function SelectionFeature({
         setMarquee(null);
         lastTextClickRef.current = null;
         const pin = imageToolSessionNodeIdRef.current;
+        const platePick = Boolean(drag.framePlatePick && drag.frameId);
         const frameHit =
           screenDistSq < DRAG_DISTANCE_SQUARED
             ? hitTestFrame?.(p.x, p.y) ?? null
             : null;
         if (pin) {
           handlePinnedImageToolBlankClick(pin, dispatch);
+        } else if (platePick && drag.frameId) {
+          onSelectFrame?.(drag.frameId, {
+            chrome: drag.framePlateChrome === 'full' ? 'full' : 'soft',
+          });
         } else if (frameHit) {
           onSelectFrame?.(frameHit, { chrome: 'soft' });
         } else {
@@ -1669,7 +1723,7 @@ function SelectionFeature({
         );
         const frameHits = framesHittingMarquee(sceneDoc, box).map((f) => f.id);
         // Full-bleed plate: keep when artboard brushed, or other non-plate content hit.
-        const contentHits = filterMarqueeContentHits(sceneDoc, rawHits, new Set(frameHits));
+        const contentHits = filterMarqueeContentHits(sceneDoc, rawHits, new Set(frameHits), box);
         commitMarqueeSelection({
           contentHits,
           frameHits,
@@ -1693,6 +1747,12 @@ function SelectionFeature({
           !attachPickActive &&
           screenDistSq < DRAG_DISTANCE_SQUARED
         ) {
+          const pin = imageToolSessionNodeIdRef.current;
+          if (pin) {
+            handlePinnedImageToolBlankClick(pin, dispatch);
+            endTransform();
+            return;
+          }
           const id = hitTest(p.x, p.y, { clientX, clientY });
           if (id && tryOpenTextEdit(id)) {
             endTransform();
@@ -1751,6 +1811,14 @@ function SelectionFeature({
       if (drag.mode === 'move') {
         // Pure click (no pointer travel): restore + maybe text edit. Any travel commits.
         if (isMotionlessClick(screenDistSq)) {
+          const pin = imageToolSessionNodeIdRef.current;
+          const panel = (store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null } })
+            .editor?.imageToolPanel;
+          if (pin && panel?.kind === 'mark' && panel.nodeId === pin) {
+            handlePinnedImageToolBlankClick(pin, dispatch);
+            endTransform();
+            return;
+          }
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
           if (drag.origins.length === 1 && tryOpenTextEdit(drag.origins[0].nodeId)) {
@@ -1762,14 +1830,16 @@ function SelectionFeature({
         }
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
         const threshold = smartSnapThreshold(zoom);
+        const { dx: cdx, dy: cdy } = shiftConstrainedMoveDelta(drag, dx, dy, shiftKey);
         const { nextUnion, sdx, sdy } = computeMovedUnion({
           union: drag.union,
           origins: drag.origins,
           document: sceneDoc,
-          dx,
-          dy,
+          dx: cdx,
+          dy: cdy,
           disableSnap: e.ctrlKey || e.metaKey,
           gridSize,
+          axisLock: drag.moveAxisLock,
           targets: smartGuideTargetsForDrag({
             document: sceneDoc,
             listNodeIds,
@@ -1777,8 +1847,8 @@ function SelectionFeature({
             excludeIds: exclude,
             nearBox: {
               ...drag.union,
-              left: drag.union.left + dx,
-              top: drag.union.top + dy,
+              left: drag.union.left + cdx,
+              top: drag.union.top + cdy,
             },
             threshold,
             queryNodeIdsInRect: queryIdsInRect,
@@ -2096,10 +2166,6 @@ function SelectionFeature({
   const selectedIsVideo = Boolean(singleNodeData && singleNodeData.key === 'video' && !selectedIsVideoGen);
   const selectedIsMediaGen =
     selectedIsImageGen || selectedIsVideoGen || selectedIsLottieGen || selectedIsAudioGen;
-  const mockupActive =
-    singleNodeData?.key === 'image' &&
-    (singleNodeData?.attrs?.mockupEnabled === true ||
-      singleNodeData?.attrs?.mockupEnabled === 'true');
   const singleShapeType = singleNodeData
     ? String(singleNodeData?.attrs?.shapeType || '')
     : '';
@@ -2271,8 +2337,15 @@ function SelectionFeature({
     hoverNodeId,
     selectedNodeIds,
     document,
+    pinnedExpandedNodeId: imageVariantsExpandedId,
   });
-  const hoverImageVariantsBox = hoverImageVariantsId ? getNodeBox(hoverImageVariantsId) : null;
+  const hoverImageVariantsBox = useMemo(() => {
+    if (!hoverImageVariantsId) return null;
+    const node = document?.deltaSetLike?.[hoverImageVariantsId];
+    const live = liveShapeGeomBox(hoverImageVariantsId);
+    if (live && node) return inflateSelectionBox(live, node);
+    return getNodeBox(hoverImageVariantsId);
+  }, [hoverImageVariantsId, document, getNodeBox]);
 
   // Marquee only — path multi-select uses host silhouettes + world union box.
   // Vector ink uses host path chrome; non-path uses SelectionChrome (handles / box).
@@ -2319,7 +2392,6 @@ function SelectionFeature({
           interactiveBox={frameChromeMode === 'full' && selectedFrameIds.length > 0}
           edgeHandles={edgeHandles}
           strokeOuterScene={strokeOuterScene}
-          strokeColor={mockupActive ? '#e67e22' : undefined}
         />
       ) : null}
 
@@ -2413,7 +2485,7 @@ function SelectionFeature({
         />
       ) : null}
 
-      {!inspectDev && chromeUnion && singleNode && !transforming && !suppressToolbars &&
+      {!inspectDev && chromeUnion && singleNode && !transforming && !effectiveSuppressToolbars &&
       String(singleNodeData?.attrs?.processStatus || '') !== 'running' ? (
         <SelectionContextToolbar
           document={document}
@@ -2500,23 +2572,22 @@ function SelectionFeature({
               isVideo: selectedIsVideo,
             }).renameAriaLabel
           }
-          titleSuffix={mockupActive ? t('editor.imageToolbar.mockupActiveBadge') : undefined}
         />
       ) : null}
 
       {!inspectDev &&
-      liveUnion &&
+      (chromeUnion || liveUnion) &&
       singleNode &&
       singleId &&
       !transforming &&
       !suppressToolbars &&
       singleNodeData?.key === 'image' &&
-      !selectedIsImageGen &&
+      listImageVariantUrls(singleNodeData).length > 1 &&
       String(singleNodeData?.attrs?.processStatus || '') !== 'running' ? (
         <ImageVariantsOverlay
           document={document}
           nodeId={singleId}
-          box={liveUnion}
+          box={chromeUnion || liveUnion!}
           angle={chromeAngle}
           imageHovered={hoverNodeId === singleId}
           readOnly={readOnly}

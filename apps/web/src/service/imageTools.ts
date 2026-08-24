@@ -5,6 +5,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { abortAfter, apiClient } from '@/service/client';
+import { useBillingEnabled } from '@/service/wallet';
 
 export type ImageProcessKindApi =
   | 'upscale'
@@ -14,7 +15,6 @@ export type ImageProcessKindApi =
   | 'expand'
   | 'editText'
   | 'editElements'
-  | 'detectRegions'
   | 'replaceText'
   | 'vector'
   | 'adjust';
@@ -61,6 +61,7 @@ export type ImageProcessResult = {
 };
 
 export type ImageToolCapabilities = {
+  credits?: Partial<Record<ImageProcessKindApi | string, number>>;
   ilp?: {
     enabled?: boolean;
     supports?: string[];
@@ -110,6 +111,25 @@ export function useImageToolCapabilities() {
     queryFn: fetchImageToolCapabilities,
     staleTime: 60_000,
   });
+}
+
+/** Fallback when `/image/tools` has not loaded yet — keep in sync with API `_KIND_CREDIT_COST`. */
+const IMAGE_TOOL_CREDIT_FALLBACK: Partial<Record<ImageProcessKindApi | string, number>> = {
+  multiAngle: 30,
+  expand: 30,
+  replaceText: 30,
+  vector: 20,
+};
+
+/** Server-reported credit cost for a toolbar kind (0 when billing off / no LLM). */
+export function useImageToolCreditCost(kind: ImageProcessKindApi | string): number {
+  const billingEnabled = useBillingEnabled();
+  const caps = useImageToolCapabilities();
+  if (!billingEnabled || !kind) return 0;
+  const fromApi = caps.data?.credits?.[kind];
+  if (typeof fromApi === 'number' && Number.isFinite(fromApi)) return Math.max(0, Math.round(fromApi));
+  const fallback = IMAGE_TOOL_CREDIT_FALLBACK[kind];
+  return typeof fallback === 'number' ? fallback : 0;
 }
 
 /** Run an image toolbar tool on the API (intelligence vision or Seedream i2i). */

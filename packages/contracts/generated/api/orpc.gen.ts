@@ -3,7 +3,7 @@
 import { oc } from '@orpc/contract';
 import { z } from 'zod';
 
-import { zAdminAdminAdjustCreditsBody, zAdminAdminAdjustCreditsPath, zAdminAdminApplyOptimizePatchPath, zAdminAdminDeleteAssetPath, zAdminAdminDeleteDesignDictPath, zAdminAdminDeleteDesignDictQuery, zAdminAdminDeleteDesignDictTypePath, zAdminAdminDeleteDesignSkillPath, zAdminAdminDeleteFontFacePath, zAdminAdminDeleteFontPath, zAdminAdminDeleteKgTriplePath, zAdminAdminDeleteLikeQuery, zAdminAdminDeleteModelPath, zAdminAdminDeleteNoticePath, zAdminAdminDesignContentResyncQuery, zAdminAdminDesignDecisionLogDetailPath, zAdminAdminDesignDecisionLogsQuery, zAdminAdminDesignDictsQuery, zAdminAdminDesignDictTypesQuery, zAdminAdminDesignSkillsQuery, zAdminAdminDesignStageReviewsQuery, zAdminAdminDesignSystemPromptsQuery, zAdminAdminDismissOptimizePatchPath, zAdminAdminFontsUploadBody, zAdminAdminGenerateCardKeysBody, zAdminAdminGetNoticePath, zAdminAdminGetUserPath, zAdminAdminListAssetsQuery, zAdminAdminListCardKeysQuery, zAdminAdminListFontsQuery, zAdminAdminListKgTriplesQuery, zAdminAdminListLikesQuery, zAdminAdminListModelsQuery, zAdminAdminListNoticesQuery, zAdminAdminListOptimizePatchesQuery, zAdminAdminListProjectsQuery, zAdminAdminListUsersQuery, zAdminAdminModelUsageListQuery, zAdminAdminModelUsageSummaryQuery, zAdminAdminPatchUserBody, zAdminAdminPatchUserPath, zAdminAdminPlazaApprovePath, zAdminAdminPlazaCoverBody, zAdminAdminPlazaCoverPath, zAdminAdminPlazaDeletePath, zAdminAdminPlazaDetailPath, zAdminAdminPlazaFeedQuery, zAdminAdminPlazaListQuery, zAdminAdminPlazaPublishedQuery, zAdminAdminPlazaRejectBody, zAdminAdminPlazaRejectPath, zAdminAdminPlazaTitleBody, zAdminAdminPlazaTitlePath, zAdminAdminPlazaVisibilityBody, zAdminAdminPlazaVisibilityPath, zAdminAdminRevokeCardKeysBody, zAdminAdminRunColdArchiveQuery, zAdminAdminSyncModelPricesBody, zAdminAdminUpsertDesignCanvasToolBody, zAdminAdminUpsertDesignDictBody, zAdminAdminUpsertDesignDictTypeBody, zAdminAdminUpsertDesignRuntimeSettingBody, zAdminAdminUpsertDesignSkillBody, zAdminAdminUpsertDesignSystemPromptBody, zAdminAdminUpsertFontBody, zAdminAdminUpsertModelBody, zAdminAdminUpsertNoticeBody, zAdminAdminUserLedgerPath, zAdminAdminUserLedgerQuery, zAssetsDeleteMyAssetPath, zAssetsListMyAssetsQuery, zAssetsRegisterMyAssetBody, zAuthAuthGoogleBody, zAuthAuthPatchProfileBody, zAuthCaptchaVerifyBody, zAuthDesktopLocalLoginBody, zAuthEmailActivateBody, zAuthEmailLoginBody, zAuthEmailSendCodeBody, zAuthEmailVerifyCodeBody, zChatPostAgentTurnBody, zChatPostAudioBody, zChatPostImageBody, zChatPostMessageBody, zChatPostVideoBody, zChatSessionsGetSessionsQuery, zChatSessionsPutSessionBody, zChatSessionsRemoveSessionPath, zCollabCollabRoomTokenBody, zDesignDesignLongMemoryBody, zDesignDesignLottieGenerateBody, zDesignDesignRunBody, zDesignDesignRunCancelPath, zDesignDesignRunPausePath, zDesignDesignRunResumeBody, zDesignDesignRunResumePath, zDesignDesignRunSceneFeedbackBody, zDesignDesignRunSceneFeedbackPath, zDesignDesignRunStatusPath, zDesignDesignSkillsDeletePath, zDesignDesignSkillsImportZipBody, zDesignDesignSkillsPickerQuery, zDesignDesignSkillsSetEnabledBody, zDesignDesignSkillsSetEnabledPath, zDesignDesignSkillsUpsertBody, zDesignHydrateJobsCreateHydrateJobBody, zDesignHydrateJobsGetHydrateJobPath, zFontsListFontsEndpointQuery, zFontsRegisterFontBody, zFontsUploadFontFileBody, zImageToolsPostImageProcessBody, zImportImportImageBody, zImportJobsCreateImportJobBody, zImportJobsGetImportJobPath, zMeMeByokDeletePath, zMeMeByokUpsertBody, zMeMeLikedListQuery, zMeMeLikedSyncBody, zMeMeLikePath, zMeMeUnlikePath, zNoticesNoticesListQuery, zOrgsAcceptInvitePath, zOrgsCreateOrgBody, zOrgsDeclineInvitePath, zOrgsGetOrgPath, zOrgsInviteMemberBody, zOrgsInviteMemberPath, zOrgsListMembersPath, zOrgsListOrgPendingInvitesPath, zOrgsRemoveMemberPath, zOrgsRenameOrgBody, zOrgsRenameOrgPath, zPlazaPlazaAdminApprovePath, zPlazaPlazaAdminListQuery, zPlazaPlazaAdminRejectBody, zPlazaPlazaAdminRejectPath, zPlazaPlazaFeedQuery, zPlazaPlazaItemPath, zPlazaPlazaItemUsePath, zPlazaPlazaSubmitBody, zProjectsBatchRemoveBody, zProjectsExtractCoversBody, zProjectsExtractCoversPath, zProjectsGetOnePath, zProjectsListMyProjectsQuery, zProjectsPatchOneBody, zProjectsPatchOneHeaders, zProjectsPatchOnePath, zProjectsRemovePath, zProjectsSetProjectOrgBody, zProjectsSetProjectOrgPath, zProjectsUpsertBody, zProjectsUpsertHeaders, zSharesSharesCreateBody, zSharesSharesGetPath, zSharesSharesPatchBody, zSharesSharesPatchPath, zSharesSharesUpdateDocumentBody, zSharesSharesUpdateDocumentPath, zUploadsDeleteUploadedFilePath, zUploadsGetUploadContentByUrlQuery, zUploadsGetUploadedFilePath, zUploadsUploadFilesBody, zUsersUsersLookupQuery, zUsersUsersSearchQuery, zWalletWalletLedgerQuery, zWalletWalletRedeemBody } from './zod.gen';
+import { zAdminAdminAdjustCreditsBody, zAdminAdminAdjustCreditsPath, zAdminAdminApplyOptimizePatchPath, zAdminAdminApprovePricingVersionPath, zAdminAdminBillingQuoteBody, zAdminAdminDeleteAssetPath, zAdminAdminDeleteDesignDictPath, zAdminAdminDeleteDesignDictQuery, zAdminAdminDeleteDesignDictTypePath, zAdminAdminDeleteDesignSkillPath, zAdminAdminDeleteFontFacePath, zAdminAdminDeleteFontPath, zAdminAdminDeleteKgTriplePath, zAdminAdminDeleteLikeQuery, zAdminAdminDeleteModelPath, zAdminAdminDeleteNoticePath, zAdminAdminDesignContentResyncQuery, zAdminAdminDesignDecisionLogDetailPath, zAdminAdminDesignDecisionLogsQuery, zAdminAdminDesignDictsQuery, zAdminAdminDesignDictTypesQuery, zAdminAdminDesignSkillsQuery, zAdminAdminDesignStageReviewsQuery, zAdminAdminDesignSystemPromptsQuery, zAdminAdminDiscardExportDlqPath, zAdminAdminDiscardHydrateDlqPath, zAdminAdminDismissOptimizePatchPath, zAdminAdminFontsUploadBody, zAdminAdminGenerateCardKeysBody, zAdminAdminGetNoticePath, zAdminAdminGetPricingVersionPath, zAdminAdminGetUserPath, zAdminAdminListAssetsQuery, zAdminAdminListCardKeysQuery, zAdminAdminListExportDlqQuery, zAdminAdminListFontsQuery, zAdminAdminListHydrateDlqQuery, zAdminAdminListKgTriplesQuery, zAdminAdminListLikesQuery, zAdminAdminListModelsQuery, zAdminAdminListNoticesQuery, zAdminAdminListOptimizePatchesQuery, zAdminAdminListPricingVersionsQuery, zAdminAdminListProjectsQuery, zAdminAdminListUsersQuery, zAdminAdminMarginSummaryQuery, zAdminAdminModelUsageListQuery, zAdminAdminModelUsageSummaryQuery, zAdminAdminPatchUserBody, zAdminAdminPatchUserPath, zAdminAdminPlazaApprovePath, zAdminAdminPlazaCoverBody, zAdminAdminPlazaCoverPath, zAdminAdminPlazaDeletePath, zAdminAdminPlazaDetailPath, zAdminAdminPlazaFeedQuery, zAdminAdminPlazaListQuery, zAdminAdminPlazaPublishedQuery, zAdminAdminPlazaRejectBody, zAdminAdminPlazaRejectPath, zAdminAdminPlazaTitleBody, zAdminAdminPlazaTitlePath, zAdminAdminPlazaVisibilityBody, zAdminAdminPlazaVisibilityPath, zAdminAdminRejectPricingVersionBody, zAdminAdminRejectPricingVersionPath, zAdminAdminReplayExportDlqBody, zAdminAdminReplayHydrateDlqBody, zAdminAdminRevokeCardKeysBody, zAdminAdminRunColdArchiveQuery, zAdminAdminSubmitPricingVersionPath, zAdminAdminSyncModelPricesBody, zAdminAdminUpsertDesignCanvasToolBody, zAdminAdminUpsertDesignDictBody, zAdminAdminUpsertDesignDictTypeBody, zAdminAdminUpsertDesignRuntimeSettingBody, zAdminAdminUpsertDesignSkillBody, zAdminAdminUpsertDesignSystemPromptBody, zAdminAdminUpsertFontBody, zAdminAdminUpsertModelBody, zAdminAdminUpsertNoticeBody, zAdminAdminUpsertPricingVersionBody, zAdminAdminUserLedgerPath, zAdminAdminUserLedgerQuery, zAssetsDeleteMyAssetPath, zAssetsListMyAssetsQuery, zAssetsRegisterMyAssetBody, zAuthAuthGoogleBody, zAuthAuthPatchProfileBody, zAuthCaptchaVerifyBody, zAuthDesktopLocalLoginBody, zAuthEmailActivateBody, zAuthEmailLoginBody, zAuthEmailSendCodeBody, zAuthEmailVerifyCodeBody, zChatAudioJobsCreateAudioJobBody, zChatAudioJobsGetAudioJobPath, zChatAudioJobsStreamAudioJobEventsPath, zChatImageJobsCreateImageJobBody, zChatImageJobsGetImageJobPath, zChatImageJobsStreamImageJobEventsPath, zChatLottieJobsCreateLottieJobBody, zChatLottieJobsGetLottieJobPath, zChatLottieJobsStreamLottieJobEventsPath, zChatPostAgentTurnBody, zChatPostAudioBody, zChatPostImageBody, zChatPostMessageBody, zChatPostVideoBody, zChatSessionsGetSessionsQuery, zChatSessionsPutSessionBody, zChatSessionsRemoveSessionPath, zChatVideoJobsCreateVideoJobBody, zChatVideoJobsGetVideoJobPath, zChatVideoJobsStreamVideoJobEventsPath, zCollabCollabRoomTokenBody, zDesignDesignLongMemoryBody, zDesignDesignLottieGenerateBody, zDesignDesignPluginsInstallBody, zDesignDesignRunBody, zDesignDesignRunCancelPath, zDesignDesignRunCommandsAckBody, zDesignDesignRunCommandsAckPath, zDesignDesignRunCommandsPath, zDesignDesignRunCommandsQuery, zDesignDesignRunEventsPath, zDesignDesignRunEventsQuery, zDesignDesignRunPausePath, zDesignDesignRunResumeBody, zDesignDesignRunResumePath, zDesignDesignRunSceneFeedbackBody, zDesignDesignRunSceneFeedbackPath, zDesignDesignRunStatusPath, zDesignDesignSkillsDeletePath, zDesignDesignSkillsImportZipBody, zDesignDesignSkillsPickerQuery, zDesignDesignSkillsSetEnabledBody, zDesignDesignSkillsSetEnabledPath, zDesignDesignSkillsUpsertBody, zDesignExportJobsCreateExportJobBody, zDesignExportJobsDownloadExportJobPath, zDesignExportJobsGetExportJobPath, zDesignHydrateJobsCreateHydrateJobBody, zDesignHydrateJobsGetHydrateJobPath, zFontsListFontsEndpointQuery, zFontsRegisterFontBody, zFontsUploadFontFileBody, zImageToolsPostImageProcessBody, zImportImportImageBody, zImportJobsCreateImportJobBody, zImportJobsGetImportJobPath, zMeMeByokDeletePath, zMeMeByokUpsertBody, zMeMeLikedListQuery, zMeMeLikedSyncBody, zMeMeLikePath, zMeMeUnlikePath, zMockupPostMockupBatchRenderBody, zMockupPostMockupRenderBody, zNoticesNoticesListQuery, zOrgsAcceptInvitePath, zOrgsCreateOrgBody, zOrgsDeclineInvitePath, zOrgsGetOrgPath, zOrgsInviteMemberBody, zOrgsInviteMemberPath, zOrgsListMembersPath, zOrgsListOrgPendingInvitesPath, zOrgsRemoveMemberPath, zOrgsRenameOrgBody, zOrgsRenameOrgPath, zPlazaPlazaAdminApprovePath, zPlazaPlazaAdminListQuery, zPlazaPlazaAdminRejectBody, zPlazaPlazaAdminRejectPath, zPlazaPlazaFeedQuery, zPlazaPlazaItemPath, zPlazaPlazaItemUsePath, zPlazaPlazaSubmitBody, zProjectsBatchRemoveBody, zProjectsExtractCoversBody, zProjectsExtractCoversPath, zProjectsGetOnePath, zProjectsListMyProjectsQuery, zProjectsPatchOneBody, zProjectsPatchOneHeaders, zProjectsPatchOnePath, zProjectsRemovePath, zProjectsSetProjectOrgBody, zProjectsSetProjectOrgPath, zProjectsUpsertBody, zProjectsUpsertHeaders, zSharesSharesCreateBody, zSharesSharesGetPath, zSharesSharesPatchBody, zSharesSharesPatchPath, zSharesSharesUpdateDocumentBody, zSharesSharesUpdateDocumentPath, zUploadsDeleteUploadedFilePath, zUploadsGetUploadContentByUrlQuery, zUploadsGetUploadedFilePath, zUploadsUploadFilesBody, zUsersUsersLookupQuery, zUsersUsersSearchQuery, zWalletWalletLedgerQuery, zWalletWalletRedeemBody } from './zod.gen';
 
 /**
  * Health
@@ -175,6 +175,21 @@ export const authAuthLogout = oc.route({
     path: '/auth/logout',
     summary: 'Auth Logout',
     tags: ['auth']
+});
+
+/**
+ * Wallet Plans
+ *
+ * Public membership list prices + monthly credit grants (no margin).
+ */
+export const walletWalletPlans = oc.route({
+    description: 'Public membership list prices + monthly credit grants (no margin).',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'wallet-wallet_plans',
+    path: '/wallet/plans',
+    summary: 'Wallet Plans',
+    tags: ['wallet']
 });
 
 /**
@@ -671,6 +686,117 @@ export const adminAdminModelUsageList = oc.route({
 }).input(z.object({ query: zAdminAdminModelUsageListQuery.optional() }).optional());
 
 /**
+ * Admin List Pricing Versions
+ */
+export const adminAdminListPricingVersions = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'admin-admin_list_pricing_versions',
+    path: '/admin/pricing-versions',
+    summary: 'Admin List Pricing Versions',
+    tags: ['admin']
+}).input(z.object({ query: zAdminAdminListPricingVersionsQuery.optional() }).optional());
+
+/**
+ * Admin Upsert Pricing Version
+ */
+export const adminAdminUpsertPricingVersion = oc.route({
+    inputStructure: 'detailed',
+    method: 'PUT',
+    operationId: 'admin-admin_upsert_pricing_version',
+    path: '/admin/pricing-versions',
+    summary: 'Admin Upsert Pricing Version',
+    tags: ['admin']
+}).input(z.object({ body: zAdminAdminUpsertPricingVersionBody }));
+
+/**
+ * Admin Get Pricing Version
+ */
+export const adminAdminGetPricingVersion = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'admin-admin_get_pricing_version',
+    path: '/admin/pricing-versions/{pricing_version_id}',
+    summary: 'Admin Get Pricing Version',
+    tags: ['admin']
+}).input(z.object({ params: zAdminAdminGetPricingVersionPath }));
+
+/**
+ * Admin Submit Pricing Version
+ */
+export const adminAdminSubmitPricingVersion = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'admin-admin_submit_pricing_version',
+    path: '/admin/pricing-versions/{pricing_version_id}/submit',
+    summary: 'Admin Submit Pricing Version',
+    tags: ['admin']
+}).input(z.object({ params: zAdminAdminSubmitPricingVersionPath }));
+
+/**
+ * Admin Approve Pricing Version
+ */
+export const adminAdminApprovePricingVersion = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'admin-admin_approve_pricing_version',
+    path: '/admin/pricing-versions/{pricing_version_id}/approve',
+    summary: 'Admin Approve Pricing Version',
+    tags: ['admin']
+}).input(z.object({ params: zAdminAdminApprovePricingVersionPath }));
+
+/**
+ * Admin Reject Pricing Version
+ */
+export const adminAdminRejectPricingVersion = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'admin-admin_reject_pricing_version',
+    path: '/admin/pricing-versions/{pricing_version_id}/reject',
+    summary: 'Admin Reject Pricing Version',
+    tags: ['admin']
+}).input(z.object({ body: zAdminAdminRejectPricingVersionBody.optional(), params: zAdminAdminRejectPricingVersionPath }));
+
+/**
+ * Admin Margin Summary
+ */
+export const adminAdminMarginSummary = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'admin-admin_margin_summary',
+    path: '/admin/margin/summary',
+    summary: 'Admin Margin Summary',
+    tags: ['admin']
+}).input(z.object({ query: zAdminAdminMarginSummaryQuery.optional() }).optional());
+
+/**
+ * Admin Billing Quote
+ *
+ * Optional remote credit quote (credits only); else OSS TaskPricing authorize.
+ */
+export const adminAdminBillingQuote = oc.route({
+    description: 'Optional remote credit quote (credits only); else OSS TaskPricing authorize.',
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'admin-admin_billing_quote',
+    path: '/admin/billing/quote',
+    summary: 'Admin Billing Quote',
+    tags: ['admin']
+}).input(z.object({ body: zAdminAdminBillingQuoteBody.optional() }).optional());
+
+/**
+ * Admin List Task Pricing
+ */
+export const adminAdminListTaskPricing = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'admin-admin_list_task_pricing',
+    path: '/admin/task-pricing',
+    summary: 'Admin List Task Pricing',
+    tags: ['admin']
+});
+
+/**
  * Admin Design Runtime Settings
  */
 export const adminAdminDesignRuntimeSettings = oc.route({
@@ -826,10 +952,10 @@ export const adminAdminDesignDecisionLogsClear = oc.route({
 /**
  * Admin Design Stage Reviews
  *
- * Historical stage ratings (training runs).
+ * Historical stage ratings.
  */
 export const adminAdminDesignStageReviews = oc.route({
-    description: 'Historical stage ratings (training runs).',
+    description: 'Historical stage ratings.',
     inputStructure: 'detailed',
     method: 'GET',
     operationId: 'admin-admin_design_stage_reviews',
@@ -1116,6 +1242,78 @@ export const adminAdminDeleteFontFace = oc.route({
     summary: 'Admin Delete Font Face',
     tags: ['admin']
 }).input(z.object({ params: zAdminAdminDeleteFontFacePath }));
+
+/**
+ * Admin List Hydrate Dlq
+ */
+export const adminAdminListHydrateDlq = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'admin-admin_list_hydrate_dlq',
+    path: '/admin/ops/hydrate-dlq',
+    summary: 'Admin List Hydrate Dlq',
+    tags: ['admin', 'admin-ops']
+}).input(z.object({ query: zAdminAdminListHydrateDlqQuery.optional() }).optional());
+
+/**
+ * Admin Replay Hydrate Dlq
+ */
+export const adminAdminReplayHydrateDlq = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'admin-admin_replay_hydrate_dlq',
+    path: '/admin/ops/hydrate-dlq/replay',
+    summary: 'Admin Replay Hydrate Dlq',
+    tags: ['admin', 'admin-ops']
+}).input(z.object({ body: zAdminAdminReplayHydrateDlqBody }));
+
+/**
+ * Admin Discard Hydrate Dlq
+ */
+export const adminAdminDiscardHydrateDlq = oc.route({
+    inputStructure: 'detailed',
+    method: 'DELETE',
+    operationId: 'admin-admin_discard_hydrate_dlq',
+    path: '/admin/ops/hydrate-dlq/{job_id}',
+    summary: 'Admin Discard Hydrate Dlq',
+    tags: ['admin', 'admin-ops']
+}).input(z.object({ params: zAdminAdminDiscardHydrateDlqPath }));
+
+/**
+ * Admin List Export Dlq
+ */
+export const adminAdminListExportDlq = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'admin-admin_list_export_dlq',
+    path: '/admin/ops/export-dlq',
+    summary: 'Admin List Export Dlq',
+    tags: ['admin', 'admin-ops']
+}).input(z.object({ query: zAdminAdminListExportDlqQuery.optional() }).optional());
+
+/**
+ * Admin Replay Export Dlq
+ */
+export const adminAdminReplayExportDlq = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'admin-admin_replay_export_dlq',
+    path: '/admin/ops/export-dlq/replay',
+    summary: 'Admin Replay Export Dlq',
+    tags: ['admin', 'admin-ops']
+}).input(z.object({ body: zAdminAdminReplayExportDlqBody }));
+
+/**
+ * Admin Discard Export Dlq
+ */
+export const adminAdminDiscardExportDlq = oc.route({
+    inputStructure: 'detailed',
+    method: 'DELETE',
+    operationId: 'admin-admin_discard_export_dlq',
+    path: '/admin/ops/export-dlq/{job_id}',
+    summary: 'Admin Discard Export Dlq',
+    tags: ['admin', 'admin-ops']
+}).input(z.object({ params: zAdminAdminDiscardExportDlqPath }));
 
 /**
  * Me Liked List
@@ -1842,8 +2040,6 @@ export const chatSessionsRemoveSession = oc.route({
     tags: ['chat-sessions']
 }).input(z.object({ params: zChatSessionsRemoveSessionPath }));
 
-
-
 /**
  * Import Image
  */
@@ -1903,6 +2099,198 @@ export const designHydrateJobsGetHydrateJob = oc.route({
     summary: 'Get Hydrate Job',
     tags: ['design-hydrate-jobs']
 }).input(z.object({ params: zDesignHydrateJobsGetHydrateJobPath }));
+
+/**
+ * Create Export Job
+ */
+export const designExportJobsCreateExportJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'design-export-jobs-create_export_job',
+    path: '/design/export/jobs',
+    summary: 'Create Export Job',
+    tags: ['design-export-jobs']
+}).input(z.object({ body: zDesignExportJobsCreateExportJobBody }));
+
+/**
+ * Get Export Job
+ */
+export const designExportJobsGetExportJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'design-export-jobs-get_export_job',
+    path: '/design/export/jobs/{job_id}',
+    summary: 'Get Export Job',
+    tags: ['design-export-jobs']
+}).input(z.object({ params: zDesignExportJobsGetExportJobPath }));
+
+/**
+ * Download Export Job
+ */
+export const designExportJobsDownloadExportJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'design-export-jobs-download_export_job',
+    path: '/design/export/jobs/{job_id}/file',
+    summary: 'Download Export Job',
+    tags: ['design-export-jobs']
+}).input(z.object({ params: zDesignExportJobsDownloadExportJobPath }));
+
+/**
+ * Create Image Job
+ */
+export const chatImageJobsCreateImageJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'chat-image-jobs-create_image_job',
+    path: '/chat/image/jobs',
+    summary: 'Create Image Job',
+    tags: ['chat-image-jobs']
+}).input(z.object({ body: zChatImageJobsCreateImageJobBody }));
+
+/**
+ * Get Image Job
+ */
+export const chatImageJobsGetImageJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-image-jobs-get_image_job',
+    path: '/chat/image/jobs/{job_id}',
+    summary: 'Get Image Job',
+    tags: ['chat-image-jobs']
+}).input(z.object({ params: zChatImageJobsGetImageJobPath }));
+
+/**
+ * Stream Image Job Events
+ *
+ * SSE push for job status (progress / done / failed).
+ */
+export const chatImageJobsStreamImageJobEvents = oc.route({
+    description: 'SSE push for job status (progress / done / failed).',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-image-jobs-stream_image_job_events',
+    path: '/chat/image/jobs/{job_id}/events',
+    summary: 'Stream Image Job Events',
+    tags: ['chat-image-jobs']
+}).input(z.object({ params: zChatImageJobsStreamImageJobEventsPath }));
+
+/**
+ * Create Video Job
+ */
+export const chatVideoJobsCreateVideoJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'chat-video-jobs-create_video_job',
+    path: '/chat/video/jobs',
+    summary: 'Create Video Job',
+    tags: ['chat-video-jobs']
+}).input(z.object({ body: zChatVideoJobsCreateVideoJobBody }));
+
+/**
+ * Get Video Job
+ */
+export const chatVideoJobsGetVideoJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-video-jobs-get_video_job',
+    path: '/chat/video/jobs/{job_id}',
+    summary: 'Get Video Job',
+    tags: ['chat-video-jobs']
+}).input(z.object({ params: zChatVideoJobsGetVideoJobPath }));
+
+/**
+ * Stream Video Job Events
+ *
+ * SSE push for job status (progress / done / failed).
+ */
+export const chatVideoJobsStreamVideoJobEvents = oc.route({
+    description: 'SSE push for job status (progress / done / failed).',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-video-jobs-stream_video_job_events',
+    path: '/chat/video/jobs/{job_id}/events',
+    summary: 'Stream Video Job Events',
+    tags: ['chat-video-jobs']
+}).input(z.object({ params: zChatVideoJobsStreamVideoJobEventsPath }));
+
+/**
+ * Create Audio Job
+ */
+export const chatAudioJobsCreateAudioJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'chat-audio-jobs-create_audio_job',
+    path: '/chat/audio/jobs',
+    summary: 'Create Audio Job',
+    tags: ['chat-audio-jobs']
+}).input(z.object({ body: zChatAudioJobsCreateAudioJobBody }));
+
+/**
+ * Get Audio Job
+ */
+export const chatAudioJobsGetAudioJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-audio-jobs-get_audio_job',
+    path: '/chat/audio/jobs/{job_id}',
+    summary: 'Get Audio Job',
+    tags: ['chat-audio-jobs']
+}).input(z.object({ params: zChatAudioJobsGetAudioJobPath }));
+
+/**
+ * Stream Audio Job Events
+ *
+ * SSE push for job status (progress / done / failed).
+ */
+export const chatAudioJobsStreamAudioJobEvents = oc.route({
+    description: 'SSE push for job status (progress / done / failed).',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-audio-jobs-stream_audio_job_events',
+    path: '/chat/audio/jobs/{job_id}/events',
+    summary: 'Stream Audio Job Events',
+    tags: ['chat-audio-jobs']
+}).input(z.object({ params: zChatAudioJobsStreamAudioJobEventsPath }));
+
+/**
+ * Create Lottie Job
+ */
+export const chatLottieJobsCreateLottieJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'chat-lottie-jobs-create_lottie_job',
+    path: '/chat/lottie/jobs',
+    summary: 'Create Lottie Job',
+    tags: ['chat-lottie-jobs']
+}).input(z.object({ body: zChatLottieJobsCreateLottieJobBody }));
+
+/**
+ * Get Lottie Job
+ */
+export const chatLottieJobsGetLottieJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-lottie-jobs-get_lottie_job',
+    path: '/chat/lottie/jobs/{job_id}',
+    summary: 'Get Lottie Job',
+    tags: ['chat-lottie-jobs']
+}).input(z.object({ params: zChatLottieJobsGetLottieJobPath }));
+
+/**
+ * Stream Lottie Job Events
+ *
+ * SSE push for job status (progress / done / failed).
+ */
+export const chatLottieJobsStreamLottieJobEvents = oc.route({
+    description: 'SSE push for job status (progress / done / failed).',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'chat-lottie-jobs-stream_lottie_job_events',
+    path: '/chat/lottie/jobs/{job_id}/events',
+    summary: 'Stream Lottie Job Events',
+    tags: ['chat-lottie-jobs']
+}).input(z.object({ params: zChatLottieJobsStreamLottieJobEventsPath }));
 
 /**
  * Get Models
@@ -1972,8 +2360,11 @@ export const chatPostImage = oc.route({
 
 /**
  * Post Video
+ *
+ * Sync convenience. Editor uses POST /chat/video/jobs (ADR 0005).
  */
 export const chatPostVideo = oc.route({
+    description: 'Sync convenience. Editor uses POST /chat/video/jobs (ADR 0005).',
     inputStructure: 'detailed',
     method: 'POST',
     operationId: 'chat-post_video',
@@ -1985,10 +2376,10 @@ export const chatPostVideo = oc.route({
 /**
  * Post Audio
  *
- * OpenRouter TTS — persist mp3 into user assets (same dock as image/video/lottie).
+ * Sync convenience. Editor uses POST /chat/audio/jobs (ADR 0005).
  */
 export const chatPostAudio = oc.route({
-    description: 'OpenRouter TTS — persist mp3 into user assets (same dock as image/video/lottie).',
+    description: 'Sync convenience. Editor uses POST /chat/audio/jobs (ADR 0005).',
     inputStructure: 'detailed',
     method: 'POST',
     operationId: 'chat-post_audio',
@@ -2020,6 +2411,42 @@ export const imageToolsPostImageProcess = oc.route({
     summary: 'Post Image Process',
     tags: ['image-tools']
 }).input(z.object({ body: zImageToolsPostImageProcessBody }));
+
+/**
+ * List Mockup Tools
+ */
+export const mockupListMockupTools = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'mockup-list_mockup_tools',
+    path: '/mockup/tools',
+    summary: 'List Mockup Tools',
+    tags: ['mockup']
+});
+
+/**
+ * Post Mockup Render
+ */
+export const mockupPostMockupRender = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'mockup-post_mockup_render',
+    path: '/mockup/render',
+    summary: 'Post Mockup Render',
+    tags: ['mockup']
+}).input(z.object({ body: zMockupPostMockupRenderBody }));
+
+/**
+ * Post Mockup Batch Render
+ */
+export const mockupPostMockupBatchRender = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'mockup-post_mockup_batch_render',
+    path: '/mockup/render/batch',
+    summary: 'Post Mockup Batch Render',
+    tags: ['mockup']
+}).input(z.object({ body: zMockupPostMockupBatchRenderBody }));
 
 /**
  * Design Catalog
@@ -2078,10 +2505,10 @@ export const designDesignSkillsUpsert = oc.route({
 /**
  * Design Skills Import Zip
  *
- * Upload a skill pack zip — scan, optional overwrite, then save as user skill.
+ * Upload a skill / plugin pack — scan, optional overwrite, then save.
  */
 export const designDesignSkillsImportZip = oc.route({
-    description: 'Upload a skill pack zip — scan, optional overwrite, then save as user skill.',
+    description: 'Upload a skill / plugin pack — scan, optional overwrite, then save.',
     inputStructure: 'detailed',
     method: 'POST',
     operationId: 'design-design_skills_import_zip',
@@ -2089,6 +2516,21 @@ export const designDesignSkillsImportZip = oc.route({
     summary: 'Design Skills Import Zip',
     tags: ['design']
 }).input(z.object({ body: zDesignDesignSkillsImportZipBody }));
+
+/**
+ * Design Plugins Install
+ *
+ * Install a branded ``.recombyn-plugin`` pack (skill → user DB; canvas → disk when enabled).
+ */
+export const designDesignPluginsInstall = oc.route({
+    description: 'Install a branded ``.recombyn-plugin`` pack (skill → user DB; canvas → disk when enabled).',
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'design-design_plugins_install',
+    path: '/design/plugins/install',
+    summary: 'Design Plugins Install',
+    tags: ['design']
+}).input(z.object({ body: zDesignDesignPluginsInstallBody }));
 
 /**
  * Design Skills Set Enabled
@@ -2155,6 +2597,45 @@ export const designDesignRunStatus = oc.route({
     summary: 'Design Run Status',
     tags: ['design']
 }).input(z.object({ params: zDesignDesignRunStatusPath }));
+
+/**
+ * Design Run Events
+ *
+ * Replay the safe product timeline after an SSE reconnect.
+ */
+export const designDesignRunEvents = oc.route({
+    description: 'Replay the safe product timeline after an SSE reconnect.',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'design-design_run_events',
+    path: '/design/run/{task_id}/events',
+    summary: 'Design Run Events',
+    tags: ['design']
+}).input(z.object({ params: zDesignDesignRunEventsPath, query: zDesignDesignRunEventsQuery.optional() }));
+
+/**
+ * Design Run Commands
+ */
+export const designDesignRunCommands = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'design-design_run_commands',
+    path: '/design/run/{task_id}/commands',
+    summary: 'Design Run Commands',
+    tags: ['design']
+}).input(z.object({ params: zDesignDesignRunCommandsPath, query: zDesignDesignRunCommandsQuery.optional() }));
+
+/**
+ * Design Run Commands Ack
+ */
+export const designDesignRunCommandsAck = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'design-design_run_commands_ack',
+    path: '/design/run/{task_id}/commands/ack',
+    summary: 'Design Run Commands Ack',
+    tags: ['design']
+}).input(z.object({ body: zDesignDesignRunCommandsAckBody, params: zDesignDesignRunCommandsAckPath }));
 
 /**
  * Design Run Pause
@@ -2266,6 +2747,7 @@ export const contract = {
     authAuthMe,
     authAuthPatchProfile,
     authAuthLogout,
+    walletWalletPlans,
     walletPurchaseInfo,
     walletWalletMe,
     walletWalletLedger,
@@ -2305,6 +2787,15 @@ export const contract = {
     adminAdminDeleteModel,
     adminAdminModelUsageSummary,
     adminAdminModelUsageList,
+    adminAdminListPricingVersions,
+    adminAdminUpsertPricingVersion,
+    adminAdminGetPricingVersion,
+    adminAdminSubmitPricingVersion,
+    adminAdminApprovePricingVersion,
+    adminAdminRejectPricingVersion,
+    adminAdminMarginSummary,
+    adminAdminBillingQuote,
+    adminAdminListTaskPricing,
     adminAdminDesignRuntimeSettings,
     adminAdminUpsertDesignRuntimeSetting,
     adminAdminDesignSystemPrompts,
@@ -2340,6 +2831,12 @@ export const contract = {
     adminAdminFontsUpload,
     adminAdminDeleteFont,
     adminAdminDeleteFontFace,
+    adminAdminListHydrateDlq,
+    adminAdminReplayHydrateDlq,
+    adminAdminDiscardHydrateDlq,
+    adminAdminListExportDlq,
+    adminAdminReplayExportDlq,
+    adminAdminDiscardExportDlq,
     meMeLikedList,
     meMeLikedIds,
     meMeUnlike,
@@ -2401,6 +2898,21 @@ export const contract = {
     importJobsGetImportJob,
     designHydrateJobsCreateHydrateJob,
     designHydrateJobsGetHydrateJob,
+    designExportJobsCreateExportJob,
+    designExportJobsGetExportJob,
+    designExportJobsDownloadExportJob,
+    chatImageJobsCreateImageJob,
+    chatImageJobsGetImageJob,
+    chatImageJobsStreamImageJobEvents,
+    chatVideoJobsCreateVideoJob,
+    chatVideoJobsGetVideoJob,
+    chatVideoJobsStreamVideoJobEvents,
+    chatAudioJobsCreateAudioJob,
+    chatAudioJobsGetAudioJob,
+    chatAudioJobsStreamAudioJobEvents,
+    chatLottieJobsCreateLottieJob,
+    chatLottieJobsGetLottieJob,
+    chatLottieJobsStreamLottieJobEvents,
     chatGetModels,
     chatPostMessage,
     chatGetAgentTools,
@@ -2410,16 +2922,23 @@ export const contract = {
     chatPostAudio,
     imageToolsListImageTools,
     imageToolsPostImageProcess,
+    mockupListMockupTools,
+    mockupPostMockupRender,
+    mockupPostMockupBatchRender,
     designDesignCatalog,
     designDesignCanvasTools,
     designDesignSkillsPicker,
     designDesignSkillsUpsert,
     designDesignSkillsImportZip,
+    designDesignPluginsInstall,
     designDesignSkillsSetEnabled,
     designDesignSkillsDelete,
     designDesignRun,
     designDesignRunSceneFeedback,
     designDesignRunStatus,
+    designDesignRunEvents,
+    designDesignRunCommands,
+    designDesignRunCommandsAck,
     designDesignRunPause,
     designDesignRunCancel,
     designDesignRunResume,

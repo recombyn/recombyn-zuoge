@@ -58,4 +58,5 @@ html[data-theme='dark'] {
 
   --color-shadow-scrim: rgba(255, 255, 255, 0.04);
   --color-shadow-blanket: rgba(0, 0, 0, 0.28);
+  --color-shadow-overlay: rgba(0, 0, 0, 0.72);
 }

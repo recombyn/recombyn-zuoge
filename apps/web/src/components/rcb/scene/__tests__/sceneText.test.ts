@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   measurePlainTextSize,
+  measureTextNodeBoxAfterStyleChange,
+  normalizeTextFontSize,
   textVisualLines,
   wrapPlainTextLines,
 } from '@/components/rcb/scene/document/sceneText';
@@ -9,6 +11,36 @@ import {
  * jsdom often has no Canvas 2D — measureLineWidth falls back to CJK ≈ fontSize.
  * That keeps wrap math deterministic for regression checks.
  */
+describe('normalizeTextFontSize', () => {
+  it('rounds decimals to integers', () => {
+    expect(normalizeTextFontSize(162.77)).toBe(163);
+    expect(normalizeTextFontSize('14.2')).toBe(14);
+  });
+});
+
+describe('measureTextNodeBoxAfterStyleChange', () => {
+  it('grows height when font size increases in a fixed-width box', () => {
+    const node = {
+      width: 200,
+      height: 40,
+      attrs: {
+        autoSize: 'false',
+        markdown: '可乐',
+        DATA: JSON.stringify([
+          {
+            chars: [{ char: '可', config: { SIZE: 14 } }, { char: '乐', config: { SIZE: 14 } }],
+            config: {},
+          },
+        ]),
+      },
+    };
+    const before = measureTextNodeBoxAfterStyleChange(node, { fontSize: 14 });
+    const after = measureTextNodeBoxAfterStyleChange(node, { fontSize: 48 });
+    expect(after.width).toBe(before.width);
+    expect(after.height).toBeGreaterThan(before.height);
+  });
+});
+
 describe('wrapPlainTextLines', () => {
   it('keeps one CJK line when width equals ink width (no phantom 8px pad)', () => {
     const text = '你好世界';

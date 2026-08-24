@@ -13,7 +13,7 @@ export const FLOW_COLUMNS_CLASS =
 /** Each card in a CSS-columns flow must avoid breaking across columns. */
 export const FLOW_ITEM_CLASS = 'mb-5 break-inside-avoid';
 
-export const FLOW_SKELETON_COUNT = 10;
+export const FLOW_SKELETON_COUNT = 15;
 
 const FLOW_SKELETON_ASPECTS = [
   'aspect-[3/4]',

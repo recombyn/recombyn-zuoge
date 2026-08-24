@@ -9,7 +9,6 @@ import AngleEditorScene, {
   type AngleEditorMode,
 } from './AngleEditorScene';
 import ImageToolPanelShell, {
-  IMAGE_TOOL_CREDIT_COST,
   PanelConfirmCost,
   PanelIconBtn,
   PanelSliderRow,
@@ -230,7 +229,7 @@ function MultiAngleToolPanel({
               <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
             ) : null}
             <span className="truncate">{t('editor.imageToolbar.useNow')}</span>
-            <PanelConfirmCost amount={IMAGE_TOOL_CREDIT_COST.multiAngle} />
+            <PanelConfirmCost kind="multiAngle" />
           </button>
         </div>
       </div>

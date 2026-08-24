@@ -25,6 +25,7 @@ import {
   updateShapeHostElement,
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import NodeTitleLabel from '../selection/chrome/NodeTitleLabel';
+import { ProcessGlowShell } from '@/components/rcb/process/ProcessGlowShell';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
   FRAME_HIGHLIGHT_STROKE,
@@ -177,7 +178,6 @@ function HtmlArtboardFrame({
 }: HtmlArtboardFrameProps): ReactNode {
   const camera = useRcbCamera();
   const z = rcbCameraCssZoom(camera);
-  const inv = 1 / z;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const layerRef = useRef<SVGGElement | null>(null);
   const generating =
@@ -292,8 +292,6 @@ function HtmlArtboardFrame({
     if (!generating) return null;
     const mount = getSceneSelectionChromeMount();
     if (!mount) return null;
-    const pillBottomPad = 14;
-    const maxPillWidth = Math.max(32, frame.width * z - 16);
     return createPortal(
       <g data-artboard-process-layer={frame.id} pointerEvents="none">
         <foreignObject
@@ -304,27 +302,14 @@ function HtmlArtboardFrame({
           pointerEvents="none"
           style={{ overflow: 'hidden' }}
         >
-          <div className="relative h-full w-full overflow-hidden">
-            <div
-              data-artboard-process-shimmer
-              data-frame-id={frame.id}
-              className="rcb-artboard-process-shimmer absolute inset-0"
-              aria-hidden
-            />
-            <div
-              data-artboard-process-label
-              data-frame-id={frame.id}
-              className="absolute left-1/2 z-[1] inline-flex h-7 w-max items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
-              style={{
-                bottom: pillBottomPad * inv,
-                transform: `translateX(-50%) scale(${inv})`,
-                transformOrigin: 'center bottom',
-                maxWidth: maxPillWidth,
-              }}
-            >
-              {processLabel}
-            </div>
-          </div>
+          <ProcessGlowShell
+            seed={frame.id}
+            label={processLabel}
+            width={frame.width}
+            zoom={z}
+            shimmerDataAttr="data-artboard-process-shimmer"
+            labelDataAttr="data-artboard-process-label"
+          />
         </foreignObject>
       </g>,
       mount

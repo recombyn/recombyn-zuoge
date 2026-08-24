@@ -101,19 +101,35 @@ export function shouldShowGeneratorComposer(opts: {
 }
 
 /**
- * In-flight process placeholder (upload / import / AI tools like editElements).
- * User delete is blocked while `processStatus === 'running'`; after completion or
- * via `failImageProcess` / `cancelImportPlaceholder`, removal uses history scrub.
+ * Spawned upload / import / AI-tool clone — used for history scrub on delete
+ * (Ctrl+Z must not resurrect an unfinished placeholder). Never used to block delete.
  */
 export function isEphemeralUploadNode(node: SceneNodeRef): boolean {
-  return isImageProcessRunning(node);
+  if (!isImageProcessRunning(node)) return false;
+  if (isGeneratorNode(node)) return false;
+  const kind = String(node?.attrs?.processKind || '').trim();
+  if (kind === 'generate' || kind === 'quickEdit') return false;
+  return true;
 }
 
 /**
- * True when any node or artboard in a delete target set is still processing.
- * Pass expanded `nodeIds` (frame children already merged) with `expandFrameChildren: false`.
+ * @deprecated Delete is always allowed for processing nodes. Kept for callers;
+ * always returns false for node targets. Frame process no longer blocks delete either.
  */
 export function deletionTargetHasProcessing(
+  _document: SceneDocument | null | undefined,
+  _nodeIds: string[],
+  _frameIds: string[] = [],
+  _opts?: { expandFrameChildren?: boolean }
+): boolean {
+  return false;
+}
+
+/**
+ * True when any selected node / artboard is still showing process SoftGlow.
+ * Blocks copy / duplicate / reorder / hide / lock — not delete.
+ */
+export function selectionHasProcessing(
   document: SceneDocument | null | undefined,
   nodeIds: string[],
   frameIds: string[] = [],

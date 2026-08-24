@@ -48,6 +48,10 @@ import {
   isVideoGeneratorNode
 } from '../document/nodeCapabilities';
 import {
+  PROCESS_PLATE_FILL,
+  PROCESS_PLATE_STROKE,
+} from '@/components/rcb/process/processGlow';
+import {
   resolveThemeSurfaceFill
 } from '../document/nodeFactories';
 import { generatorEmptyIconSize } from '../../core/layout';
@@ -1316,22 +1320,9 @@ export async function nodeToSvgElement(
 
     if (processing) {
       const g = appendChild(parent, svgEl('g'));
-      const gid = nextClipId('img-load');
-      const defs = ensureDefs(root);
-      const grad = svgEl('linearGradient', {
-        id: gid,
-        x1: '0%',
-        y1: '50%',
-        x2: '100%',
-        y2: '50%',
-      });
-      grad.appendChild(svgEl('stop', { offset: '0', 'stop-color': '#B9CBDA' }));
-      grad.appendChild(svgEl('stop', { offset: '0.55', 'stop-color': '#D5DEE6' }));
-      grad.appendChild(svgEl('stop', { offset: '1', 'stop-color': '#E8ECF0' }));
-      defs.appendChild(grad);
       const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, urlRef(gid));
-      setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
+      setFill(plate, PROCESS_PLATE_FILL);
+      setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
 
       tagNode(g, nodeId, 'image', undefined, left, top, boxW, boxH);
@@ -1413,8 +1404,8 @@ export async function nodeToSvgElement(
     // Same process plate as image/video — shimmer chrome overlays this node.
     if (processing) {
       const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, '#B9CBDA');
-      setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
+      setFill(plate, PROCESS_PLATE_FILL);
+      setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
       rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
@@ -1588,8 +1579,8 @@ export async function nodeToSvgElement(
         setSvgImageHref(img, preview);
       } else {
         const plate = appendChild(g, svgEl('path', { d: clipD }));
-        setFill(plate, '#B9CBDA');
-        setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
+        setFill(plate, PROCESS_PLATE_FILL);
+        setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
         setAttrs(plate, { 'data-radius-body': '1' });
       }
       tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
@@ -1684,8 +1675,8 @@ export async function nodeToSvgElement(
 
     if (processing) {
       const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, '#B9CBDA');
-      setStroke(plate, { color: '#A8C5E4', width: editorChromeStrokeSceneWidth(1.5) });
+      setFill(plate, PROCESS_PLATE_FILL);
+      setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
       rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
@@ -2496,6 +2487,37 @@ function reapplySceneTransformScaled(
   syncStrokeUnderlayTransform(el);
 }
 
+/** Image / diffuse / baked-angular fills use userSpaceOnUse patterns — regen `d` alone leaves stale tiles. */
+function baselineFillUsesPattern(el: SVGElement): boolean {
+  const host =
+    el.tagName.toLowerCase() === 'g'
+      ? el
+      : el.parentElement instanceof SVGElement
+        ? el.parentElement
+        : el;
+  const body =
+    host.querySelector(':scope > [data-baseline="1"]') ||
+    host.querySelector(':scope > path:not([data-stroke-under])');
+  const target =
+    body instanceof SVGElement
+      ? body
+      : host.getAttribute('data-baseline') === '1'
+        ? host
+        : null;
+  if (!target) return false;
+  const fill = target.getAttribute('fill') || '';
+  const m = /^url\(#([^)]+)\)$/.exec(fill.trim());
+  if (!m?.[1]) return false;
+  const root = el.ownerSVGElement;
+  if (!root) return false;
+  try {
+    const ref = root.querySelector(`#${CSS.escape(m[1])}`);
+    return ref?.localName === 'pattern';
+  } catch {
+    return false;
+  }
+}
+
 function previewResizeLocalGeometry(el: SVGElement, width: number, height: number): boolean {
   const anyEl = asHost(el);
   const shapeType = String(
@@ -2771,9 +2793,33 @@ export function previewSvgNodeGeometry(
       if (root) panInfiniteSvgViewport(root, dLeft, dTop);
       return true;
     }
-    if (previewResizeLocalGeometry(el, box.width, box.height)) {
+    if (
+      !baselineFillUsesPattern(el) &&
+      previewResizeLocalGeometry(el, box.width, box.height)
+    ) {
       if (!sameSize) anyEl.__sceneDidResize = true;
       reapplySceneTransform(el, box.left, box.top, box.width, box.height);
+      return true;
+    }
+    // Pattern fills: scale the painted group so the bitmap/pattern tracks the box
+    // (same live-resize contract as image plates). Commit remounts at final size.
+    if (baselineFillUsesPattern(el) && (!sameSize || anyEl.__sceneDidResize)) {
+      if (!anyEl.__sceneDragBaseW) {
+        anyEl.__sceneDragBaseW = geom.width;
+        anyEl.__sceneDragBaseH = geom.height;
+      }
+      anyEl.__sceneDidResize = true;
+      const bw = Math.max(1, Number(anyEl.__sceneDragBaseW) || geom.width);
+      const bh = Math.max(1, Number(anyEl.__sceneDragBaseH) || geom.height);
+      reapplySceneTransformScaled(
+        el,
+        box.left,
+        box.top,
+        bw,
+        bh,
+        box.width / bw,
+        box.height / bh
+      );
       return true;
     }
     // Scale-preview shapes (fallback): same min-clamp rule as custom path.
