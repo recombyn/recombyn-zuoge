@@ -289,7 +289,7 @@ export function patchNodeGeometry(
       // Prefer uniform scale when aspect-locked (sx ≈ sy); else follow height.
       const s = Math.abs(sx - sy) < 0.02 ? sx : sy;
       if (Math.abs(s - 1) > 1e-4) {
-        const nextSize = Math.max(1, Math.round(style.fontSize * s * 100) / 100);
+        const nextSize = Math.max(1, Math.round(style.fontSize * s));
         const nextSpacing = Math.round(style.letterSpacing * s * 1000) / 1000;
         style = { ...style, fontSize: nextSize, letterSpacing: nextSpacing };
         attrs = {

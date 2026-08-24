@@ -7,7 +7,7 @@
 import { useMemo, useState, type ReactNode, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineCheck, HiOutlineMegaphone } from 'react-icons/hi2';
+import { HiOutlineCheck } from 'react-icons/hi2';
 import { SegmentedControl } from '@/components/base';
 import LoadingDots from '@/components/base/LoadingDots';
 import { apiQuery } from '@/service/client';
@@ -154,10 +154,7 @@ function AccountNotificationsPanel(): ReactNode {
             className="h-[280px]"
           />
         ) : items.length === 0 ? (
-          <div className="flex h-[280px] flex-col items-center justify-center gap-2 text-[var(--muted)]">
-            <HiOutlineMegaphone className="h-8 w-8 opacity-40" strokeWidth={1.25} />
-            <p className="text-[13px]">{t('account.notices.empty')}</p>
-          </div>
+          <p className="text-left text-[13px] text-[var(--muted)]">{t('account.notices.empty')}</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {items.map((item) => {

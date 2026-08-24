@@ -1,12 +1,10 @@
 import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { SoftGlowSurface } from '@/components/base';
 import { useRcbCamera, rcbCameraCssZoom } from '@/components/rcb';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { readScenePaintLocalSize } from '@/components/rcb/scene/paint/sceneToSvg';
 import type { SceneNodeInput } from '@/components/rcb/sceneNode';
-
-const PILL_BOTTOM_PAD_PX = 14;
+import { ProcessGlowShell } from '@/components/rcb/process/ProcessGlowShell';
 
 /**
  * SoftGlow + status pill for a node whose `attrs.processStatus === 'running'`.
@@ -32,44 +30,14 @@ export function NodeProcessGlow({
   const borderRadius = `${radii.tl}px ${radii.tr}px ${radii.br}px ${radii.bl}px`;
   const camera = useRcbCamera();
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
-  const inv = 1 / z;
   const label = String(node.attrs?.processLabel || '处理中');
-  const maxPillWidth = Math.max(32, width * z - 16);
 
-  const shellStyle = useMemo(
+  const foStyle = useMemo(
     (): CSSProperties => ({
-      position: 'relative',
-      width: '100%',
-      height: '100%',
       overflow: 'hidden',
-      borderRadius,
       pointerEvents: 'none',
-      // Opaque base — semi-transparent SoftGlow must not reveal canvas ink below.
-      background: '#D5DEE6',
     }),
-    [borderRadius]
-  );
-
-  const shimmerStyle = useMemo(
-    (): CSSProperties => ({
-      position: 'absolute',
-      inset: 0,
-      borderRadius,
-    }),
-    [borderRadius]
-  );
-
-  // Counter-scale the pill so typography stays screen-constant under camera zoom.
-  const pillStyle = useMemo(
-    (): CSSProperties => ({
-      position: 'absolute',
-      left: '50%',
-      bottom: PILL_BOTTOM_PAD_PX * inv,
-      transform: `translateX(-50%) scale(${inv})`,
-      transformOrigin: 'center bottom',
-      maxWidth: maxPillWidth,
-    }),
-    [inv, maxPillWidth]
+    []
   );
 
   return createPortal(
@@ -79,25 +47,15 @@ export function NodeProcessGlow({
       height={height}
       x={0}
       y={0}
-      style={{ overflow: 'hidden', pointerEvents: 'none' }}
+      style={foStyle}
     >
-      <div style={shellStyle}>
-        <SoftGlowSurface
-          data-image-process-shimmer
-          tone="random"
-          seed={nodeId}
-          className="absolute inset-0"
-          style={shimmerStyle}
-          aria-hidden
-        />
-        <div
-          data-image-process-label
-          className="absolute z-[1] inline-flex h-7 w-max items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
-          style={pillStyle}
-        >
-          {label}
-        </div>
-      </div>
+      <ProcessGlowShell
+        seed={nodeId}
+        label={label}
+        width={width}
+        zoom={z}
+        borderRadius={borderRadius}
+      />
     </foreignObject>,
     paintHost
   );

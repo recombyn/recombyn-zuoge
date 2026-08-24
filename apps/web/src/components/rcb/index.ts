@@ -158,6 +158,7 @@ export {
   setSharedNodeEls,
   getSharedNodeEls,
   replaceShapePaint,
+  shapeHostRevealsOverflow,
   type ShapeHostHandle,
   type SceneHostEl,
 } from './shapes/shapeHostRegistry';

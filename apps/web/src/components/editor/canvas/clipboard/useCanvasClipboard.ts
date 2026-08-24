@@ -10,6 +10,7 @@ import {
   pasteClipboardIntoDocument,
   parseAndValidateSceneClipboardJson,
   resolveSelectionNodeIds,
+  selectionAfterClipboardPaste,
   snapshotFramesForClipboard,
   snapshotNodesForClipboard,
   clipboardNodesBounds,
@@ -178,7 +179,8 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       if (!newIds.length && !newFrameIds.length) return false;
       documentRef.current = next;
       dispatch(setDocument(next));
-      dispatch(setMixedSelection({ nodeIds: newIds, frameIds: newFrameIds }));
+      const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
+      dispatch(setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds }));
       return true;
     },
     [dispatch, documentRef, readOnly]
@@ -230,7 +232,8 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       if (!newIds.length && !newFrameIds.length) return;
       documentRef.current = next;
       dispatch(setDocument(next));
-      dispatch(setMixedSelection({ nodeIds: newIds, frameIds: newFrameIds }));
+      const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
+      dispatch(setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds }));
     },
     [
       activeFrameIdRef,

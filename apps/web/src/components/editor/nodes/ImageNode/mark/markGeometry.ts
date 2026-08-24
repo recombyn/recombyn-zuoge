@@ -1,9 +1,18 @@
 import { rcbSceneToScreen, type RcbCamera } from '@/components/rcb';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { isImageGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import type { MarkRegion } from './MarkRegionOverlay';
 
 export type SceneBox = { left: number; top: number; width: number; height: number };
+
+export type MarkSessionTarget = {
+  nodeId: string;
+  box: SceneBox;
+  node: SceneNodeInput;
+  /** Non-null → show overlay but block box drawing (processing / not ready). */
+  blocked: { message: string } | null;
+};
 
 export function nodeSceneBox(
   document: SceneDocument,
@@ -22,15 +31,56 @@ export function nodeSceneBox(
 export function listCanvasImageNodes(
   document: SceneDocument
 ): Array<{ nodeId: string; box: SceneBox; node: SceneNodeInput }> {
-  const out: Array<{ nodeId: string; box: SceneBox; node: SceneNodeInput }> = [];
+  return listMarkSessionTargets(document, {
+    processing: '',
+    unavailable: '',
+  })
+    .filter((t) => !t.blocked)
+    .map(({ nodeId, box, node }) => ({ nodeId, box, node }));
+}
+
+/** All image plates in mark mode — markable nodes + blocked overlays (processing / generator). */
+export function listMarkSessionTargets(
+  document: SceneDocument,
+  labels: { processing: string; unavailable: string }
+): MarkSessionTarget[] {
+  const out: MarkSessionTarget[] = [];
   const dsl = document?.deltaSetLike || {};
   for (const nodeId of Object.keys(dsl)) {
     const node = dsl[nodeId];
     if (node?.key !== 'image') continue;
-    if (!String(node.attrs?.src || '').trim()) continue;
     const box = nodeSceneBox(document, node);
     if (!box) continue;
-    out.push({ nodeId, box, node });
+
+    const processing = String(node?.attrs?.processStatus || '') === 'running';
+    const hasSrc = Boolean(String(node?.attrs?.src || '').trim());
+    const processLabel = String(node?.attrs?.processLabel || '').trim();
+
+    if (processing) {
+      out.push({
+        nodeId,
+        box,
+        node,
+        blocked: {
+          message: processLabel || labels.processing,
+        },
+      });
+      continue;
+    }
+
+    if (!hasSrc) {
+      if (isImageGeneratorNode(node)) {
+        out.push({
+          nodeId,
+          box,
+          node,
+          blocked: { message: labels.unavailable },
+        });
+      }
+      continue;
+    }
+
+    out.push({ nodeId, box, node, blocked: null });
   }
   return out;
 }

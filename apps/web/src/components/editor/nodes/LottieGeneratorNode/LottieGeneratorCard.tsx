@@ -6,7 +6,6 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   memo,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,89 +13,83 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import {
-  autoUpdate,
-  flip,
-  FloatingPortal,
-  offset,
-  shift,
-  useDismiss,
-  useFloating,
-  useInteractions,
-} from '@floating-ui/react';
+import { FloatingPortal } from '@floating-ui/react';
 import {
   HiArrowUp,
   HiOutlineBolt,
   HiOutlineChevronDown,
-  HiOutlinePlus,
-  HiOutlineViewfinderCircle,
 } from 'react-icons/hi2';
-import { type ChatModelsResponse, type LlmModel } from '@/service/chat';
-import { apiQuery, getHttpErrorMessage } from '@/service/client';
-import { generateLottie } from '@/service/design';
+import { createLottieJob, waitForLottieJob } from '@/service/chat';
+import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  rcbScreenPxToScene,
-  useRcbCamera,
-} from '@/components/rcb';
-import {
-  SELECTION_TOOLBAR_BELOW_BOX_GAP_PX,
   useChromePointerActivate,
+  useGeneratorComposerPlacement,
   WorldScreenChromeRoot,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
-  buildAttachRefMentionContext,
   chipBaseKey,
-  parseAtMentionQuery,
-  stripTrailingAtQuery,
   upsertLibraryAssetAttachment,
   type AgentComposerHandle,
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
 import {
-  ComposerAttachmentChip,
-  composerAttachActionClass,
-} from '@/components/editor/panels/agent/composer/AgentComposerShell';
+  CanvasMediaComposerShell,
+  ComposerAttachmentStrip,
+  ComposerCanvasPickButton,
+  ComposerFooterActions,
+  ComposerFooterBar,
+  ComposerPromptRegion,
+} from '@/components/editor/panels/agent/composer/CanvasMediaComposerShell';
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/composer/MentionAttachPanel';
+import { useComposerSlashSkills } from '@/components/editor/panels/agent/composer/useComposerSlashSkills';
+import { useComposerMentionPanel } from '@/components/editor/panels/agent/composer/useComposerMentionPanel';
+import { useGeneratorModelsCatalog } from '@/components/editor/panels/agent/composer/useGeneratorModelsCatalog';
+import { insertMentionFromAttachment } from '@/components/editor/panels/agent/composer/composerMentionHelpers';
 import type { UserAsset } from '@/models/assets';
-import { AspectRatioGlyph } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
+import {
+  DEFAULT_LOTTIE_ASPECT,
+  DEFAULT_LOTTIE_DURATION,
+  LottieSettingsPanel,
+} from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
 import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/models/ModelPickerPanel';
-import { buildByokAwareModelList, modelSupportsVisionInput } from '@/components/editor/panels/agent/llmModelMeta';
-import { flyPickIntoImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
+import { readGenAttrString, readGenAttrDuration } from '@/components/editor/nodes/shared/generatorAttrs';
 import {
-  canAttachNodeToChat,
-  canvasAttachPickPayload,
-  clearImageProcessAttrs
-} from '@/components/rcb/scene/document/mediaLifecycle';
+  buildLottieChatModelList,
+  nextLottieChatModelId,
+  pickVisionChatModel,
+} from '@/components/editor/nodes/shared/generatorModelLists';
 import {
-  expandSelectionWithGroups
-} from '@/components/rcb/scene/document/sceneGroups';
+  flyPickIntoComposer,
+  attachSelectionToComposer,
+  pickOrAttachFromCanvas,
+} from '@/components/editor/nodes/shared/composerCanvasAttach';
+import { finishGeneratorGenerateSession } from '@/components/editor/nodes/shared/finishGeneratorGenerate';
+import { modelSupportsVisionInput } from '@/components/editor/panels/agent/llmModelMeta';
+import { registerGeneratorSession } from '@/components/editor/nodes/shared/generatorSessionRegistry';
 import {
   parseLottieAnimationData
 } from '@/components/rcb/scene/document/nodeFactories';
+import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
 import {
   clearCanvasAttachPick,
   consumePendingCanvasAttach,
   EMPTY_ID_LIST,
   finishLottieGenerator,
   patchDocumentNode,
-  setDocumentFromCanvas,
   startCanvasAttachPick,
 } from '@/store/modules/editor';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateLottieCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
-import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import store from '@/store';
 
 type Props = {
@@ -106,59 +99,10 @@ type Props = {
   disabled?: boolean;
 };
 
-const LOTTIE_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
-const DEFAULT_LOTTIE_ASPECT = '1:1';
-/** Seconds 鈥?shorter than video; typical UI / logo loops. */
-const LOTTIE_DURATIONS = [1, 2, 3, 5, 8, 10] as const;
-const DEFAULT_LOTTIE_DURATION = 3;
 const DEFAULT_AGENT_MODEL_ID = '';
 
-function readGenAttrString(attrs: Record<string, unknown> | null | undefined, key: string) {
-  const raw = attrs?.[key];
-  return typeof raw === 'string' && raw.trim() ? raw.trim() : '';
-}
-
-function modelIsAgentChat(model?: Pick<LlmModel, 'kind' | 'id'> | null): boolean {
-  if (!model?.id) return false;
-  if (model.id === 'auto') return false;
-  if (model.kind === 'image' || model.kind === 'video') return false;
-  return !/seedance|seedream|t2i|i2i/i.test(model.id);
-}
-
-/** Local desktop: BYOK only. Cloud/web: platform chat catalog + BYOK. */
-function buildLottieChatModelList(res?: { models?: LlmModel[] | null } | null): LlmModel[] {
-  return buildByokAwareModelList({
-    byok: customProvidersAsModels(),
-    catalogs: [res?.models],
-    filter: (m) => modelIsAgentChat(m),
-  });
-}
-
-function nextLottieChatModelId(models: LlmModel[], currentId: string): string | null {
-  if (!models.length) return null;
-  if (currentId && models.some((m) => m.id === currentId)) return null;
-  return models[0]?.id ?? null;
-}
-
-/** First vision-capable chat model; keep preferred if it already supports vision. */
-function pickVisionChatModel(
-  models: LlmModel[],
-  preferredId?: string
-): LlmModel | undefined {
-  const vision = models.filter((m) => modelSupportsVisionInput(m));
-  if (!vision.length) return undefined;
-  if (preferredId) {
-    const hit = vision.find((m) => m.id === preferredId);
-    if (hit) return hit;
-  }
-  return vision[0];
-}
-
-function readGenAttrDuration(attrs: Record<string, unknown> | null | undefined): number | null {
-  const raw = attrs?.lottieGenDuration;
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.round(n);
+function isImageFile(file: File) {
+  return file.type.startsWith('image/');
 }
 
 function plateSizeForAspect(
@@ -196,133 +140,6 @@ function plateSizeForAspect(
   };
 }
 
-function isImageFile(file: File) {
-  return file.type.startsWith('image/');
-}
-
-async function attachSelectionToLottieComposer(opts: {
-  hostNodeId: string;
-  landId: string;
-  document: SceneDocument;
-  selectedNodeIds: string[];
-  selectedFrameIds: string[];
-  existing: ComposerContext[];
-  setContexts: (
-    next: ComposerContext[] | ((prev: ComposerContext[]) => ComposerContext[])
-  ) => void;
-  insertChip: (ctx: ComposerContext) => void;
-}): Promise<boolean> {
-  const {
-    hostNodeId,
-    landId,
-    document: doc,
-    selectedNodeIds,
-    selectedFrameIds,
-    existing,
-    setContexts,
-    insertChip,
-  } = opts;
-  const seed = expandSelectionWithGroups(
-    doc,
-    (selectedNodeIds || []).filter((id) => id && id !== hostNodeId)
-  );
-  const attachable = seed.filter((id) => canAttachNodeToChat(doc?.deltaSetLike?.[id]));
-  const frameId = (selectedFrameIds || []).find(Boolean) || null;
-  if (!attachable.length && !frameId) return false;
-  const payload = canvasAttachPickPayload(attachable, frameId);
-  await flyPickIntoImageComposer({
-    landId,
-    document: doc,
-    payload,
-    existing,
-    setContexts,
-    insertChip,
-    imagesOnly: true,
-  });
-  return true;
-}
-
-function LottieSettingsPanel({
-  aspectRatio,
-  duration,
-  onAspectRatioChange,
-  onDurationChange,
-  disabled,
-}: {
-  aspectRatio: string;
-  duration: number;
-  onAspectRatioChange: (ratio: string) => void;
-  onDurationChange: (duration: number) => void;
-  disabled?: boolean;
-}): ReactNode {
-  const { t } = useTranslation();
-  return (
-    <div className="space-y-4">
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">{t('agent.chooseRatio')}</p>
-        <div className="flex items-start justify-between gap-0.5 rounded-xl bg-[var(--rail)] p-1">
-          {LOTTIE_ASPECT_RATIOS.map((ratio) => {
-            const active = aspectRatio === ratio;
-            return (
-              <button
-                key={ratio}
-                type="button"
-                disabled={disabled}
-                title={ratio}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAspectRatioChange(ratio);
-                }}
-                className={cn(
-                  'flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg px-0.5 py-1.5 transition-colors disabled:opacity-40',
-                  active
-                    ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
-                    : 'text-[var(--muted)] hover:text-[var(--ink)]'
-                )}
-              >
-                <AspectRatioGlyph ratio={ratio} size={20} />
-                <span className="max-w-full truncate text-[10px] font-medium tabular-nums">
-                  {ratio}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">
-          {t('editor.tools.lottieDuration')}
-        </p>
-        <div className="flex flex-wrap gap-1 rounded-xl bg-[var(--rail)] p-1">
-          {LOTTIE_DURATIONS.map((n) => {
-            const active = duration === n;
-            return (
-              <button
-                key={n}
-                type="button"
-                disabled={disabled}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDurationChange(n);
-                }}
-                className={cn(
-                  'flex min-w-[2.75rem] flex-1 items-center justify-center rounded-lg px-2 py-2 text-[12px] font-medium tabular-nums transition disabled:opacity-40',
-                  active
-                    ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
-                    : 'bg-transparent text-[var(--muted)] hover:text-[var(--ink)]'
-                )}
-              >
-                {t('editor.tools.lottieDurationNs', { n })}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function LottieGeneratorCard({
   nodeId,
   sceneBox,
@@ -331,7 +148,6 @@ function LottieGeneratorCard({
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const { zoom } = useRcbCamera();
   const chromePointer = useChromePointerActivate();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<AgentComposerHandle | null>(null);
@@ -368,8 +184,6 @@ function LottieGeneratorCard({
 
   const [prompt, setPrompt] = useState('');
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
   const [sending, setSending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -377,18 +191,29 @@ function LottieGeneratorCard({
     () => readGenAttrString(genAttrs, 'lottieGenAspect') || DEFAULT_LOTTIE_ASPECT
   );
   const [duration, setDuration] = useState(
-    () => readGenAttrDuration(genAttrs) ?? DEFAULT_LOTTIE_DURATION
+    () => readGenAttrDuration(genAttrs, 'lottieGenDuration', 1, 60) ?? DEFAULT_LOTTIE_DURATION
   );
   const [modelId, setModelId] = useState(() => {
     const saved = readGenAttrString(genAttrs, 'lottieGenModel');
     return saved && saved !== 'auto' ? saved : DEFAULT_AGENT_MODEL_ID;
   });
-  const [models, setModels] = useState<LlmModel[]>([]);
-  const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
-    'idle'
-  );
+  const { models, status: modelsStatus } = useGeneratorModelsCatalog({
+    buildList: buildLottieChatModelList,
+    modelId,
+    setModelId,
+    resolveModelId: nextLottieChatModelId,
+  });
 
   contextsRef.current = contexts;
+
+  const {
+    mentionOpen,
+    mentionQuery,
+    closeMention,
+    openMention,
+    mentionFloating,
+    mentionIx,
+  } = useComposerMentionPanel(inputRef);
 
   useEffect(() => {
     if (!showComposer || disabled) return;
@@ -399,7 +224,7 @@ function LottieGeneratorCard({
   useEffect(() => {
     const nextAspect = readGenAttrString(genAttrs, 'lottieGenAspect');
     if (nextAspect) setAspectRatio(nextAspect);
-    const nextDuration = readGenAttrDuration(genAttrs);
+    const nextDuration = readGenAttrDuration(genAttrs, 'lottieGenDuration', 1, 60);
     if (nextDuration != null) setDuration(nextDuration);
     const nextModel = readGenAttrString(genAttrs, 'lottieGenModel');
     if (nextModel && nextModel !== 'auto') setModelId(nextModel);
@@ -411,7 +236,7 @@ function LottieGeneratorCard({
     dispatch(consumePendingCanvasAttach());
     const doc = editorDocument || (store.getState() as any).editor?.document;
     async function flyPendingAttach() {
-      await flyPickIntoImageComposer({
+      await flyPickIntoComposer({
         landId: pickTarget,
         document: doc,
         payload,
@@ -426,39 +251,6 @@ function LottieGeneratorCard({
     }
     flyPendingAttach();
   }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
-
-  const modelsCatalogQuery = useQuery({
-    ...apiQuery.chatGetModels.queryOptions(),
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (modelsCatalogQuery.isPending) {
-      setModelsStatus('loading');
-      return;
-    }
-    if (modelsCatalogQuery.isError) {
-      setModelsStatus('error');
-      return;
-    }
-    if (!modelsCatalogQuery.isFetched) return;
-    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
-    if (!res) {
-      setModelsStatus('error');
-      return;
-    }
-    const unique = buildLottieChatModelList(res);
-    setModels(unique);
-    setModelsStatus('ready');
-    const nextId = nextLottieChatModelId(unique, modelId);
-    if (nextId) setModelId(nextId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    modelsCatalogQuery.data,
-    modelsCatalogQuery.isPending,
-    modelsCatalogQuery.isError,
-    modelsCatalogQuery.isFetched,
-  ]);
 
   useEffect(() => {
     return () => {
@@ -534,12 +326,21 @@ function LottieGeneratorCard({
     await attachRefFiles(files);
   };
 
-  // `@` opens the attachment mention panel (same as image / video generators).
-  const maybeOpenMentionFromAt = (next: string) => {
-    const parsed = parseAtMentionQuery(next);
-    setMentionQuery(parsed.query);
-    setMentionOpen(parsed.open);
-  };
+  // `/` skills and `@` attachment mentions share the same composer trigger path as Agent.
+  const {
+    skillOpen,
+    skillQuery,
+    skillItems,
+    skillFloating,
+    skillIx,
+    maybeOpenComposerMentions,
+    pickSkill,
+  } = useComposerSlashSkills({
+    inputRef,
+    setPrompt,
+    onCloseAtMention: closeMention,
+    onOpenAtMention: openMention,
+  });
 
   const mentionItems = useMemo(
     (): MentionAttachItem[] =>
@@ -551,26 +352,21 @@ function LottieGeneratorCard({
     [attachments, t]
   );
 
-  const insertMentionFromAttachment = (att: ComposerContext, n: number) => {
-    const ctx = buildAttachRefMentionContext(
-      att,
-      t('agent.mentionAttachImageN', { n }),
-      att.payload || `[User attachment ${n}]`
-    );
-    setPrompt(stripTrailingAtQuery(prompt));
-    setMentionOpen(false);
-    setMentionQuery('');
-    queueMicrotask(() => {
-      inputRef.current?.insertContextAtCaret(ctx);
-      inputRef.current?.focus();
-    });
-  };
-
   const pickMentionAttach = (pickId: string) => {
     const list = contextsRef.current.filter((c) => c.kind === 'attachment');
     const idx = list.findIndex((c) => c.key === pickId);
     if (idx < 0) return;
-    insertMentionFromAttachment(list[idx]!, idx + 1);
+    const att = list[idx]!;
+    insertMentionFromAttachment({
+      att,
+      n: idx + 1,
+      label: t('agent.mentionAttachImageN', { n: idx + 1 }),
+      payload: att.payload || `[User attachment ${idx + 1}]`,
+      prompt,
+      setPrompt,
+      closeMention,
+      inputRef,
+    });
   };
 
   const pickMentionLibraryAsset = (asset: UserAsset) => {
@@ -583,35 +379,17 @@ function LottieGeneratorCard({
     if (!upserted) return;
     setContexts(upserted.contexts);
     contextsRef.current = upserted.contexts;
-    insertMentionFromAttachment(upserted.attachment, upserted.ordinal);
-  };
-
-  const mentionFloating = useFloating({
-    open: mentionOpen,
-    onOpenChange: (open) => {
-      setMentionOpen(open);
-      if (!open) setMentionQuery('');
-    },
-    placement: 'bottom-start',
-    strategy: 'fixed',
-    whileElementsMounted: autoUpdate,
-    middleware: [
-      offset(6),
-      flip({ padding: 12, fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
-      shift({ padding: 12 }),
-    ],
-  });
-  const mentionDismiss = useDismiss(mentionFloating.context);
-  const mentionIx = useInteractions([mentionDismiss]);
-
-  useLayoutEffect(() => {
-    if (!mentionOpen) return;
-    mentionFloating.refs.setPositionReference({
-      getBoundingClientRect: () =>
-        inputRef.current?.getAtMentionAnchorRect?.() ?? new DOMRect(),
+    insertMentionFromAttachment({
+      att: upserted.attachment,
+      n: upserted.ordinal,
+      label: t('agent.mentionAttachImageN', { n: upserted.ordinal }),
+      payload: upserted.attachment.payload || `[User attachment ${upserted.ordinal}]`,
+      prompt,
+      setPrompt,
+      closeMention,
+      inputRef,
     });
-    mentionFloating.update();
-  }, [mentionOpen, mentionQuery, prompt, mentionFloating.refs, mentionFloating.update]);
+  };
 
   const persistGenSettings = (patch: {
     aspect?: string;
@@ -675,6 +453,8 @@ function LottieGeneratorCard({
     const ac = new AbortController();
     abortRef.current = ac;
     setSending(true);
+    registerGeneratorSession(nodeId);
+    let finished = false;
     dispatch(
       patchDocumentNode({
         nodeId,
@@ -683,6 +463,7 @@ function LottieGeneratorCard({
             processStatus: 'running',
             processKind: 'generate',
             processLabel: t('editor.tools.lottieGenerating'),
+            processStartedAt: String(Date.now()),
             lottieGenAspect: aspectRatio,
             lottieGenDuration: duration,
             lottieGenModel: useModelId,
@@ -692,11 +473,9 @@ function LottieGeneratorCard({
       })
     );
     try {
-      if (ac.signal.aborted) return;
-
       const genW = Math.min(512, Math.max(32, Math.round(sceneBox.width)));
       const genH = Math.min(512, Math.max(32, Math.round(sceneBox.height)));
-      const res = await generateLottie(
+      const jobId = await createLottieJob(
         {
           prompt: text,
           width: genW,
@@ -707,9 +486,16 @@ function LottieGeneratorCard({
         },
         { signal: ac.signal }
       );
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          skipHistory: true,
+          patch: { attrs: processJobAttrPatch([jobId]) },
+        })
+      );
+      const res = await waitForLottieJob(jobId, { signal: ac.signal });
       const animationData = parseLottieAnimationData(res?.animationData) || null;
       if (!animationData) throw new Error(t('editor.tools.lottieGenEmpty'));
-      if (ac.signal.aborted) return;
 
       const aw = Math.max(1, Number(animationData.w) || genW);
       const ah = Math.max(1, Number(animationData.h) || genH);
@@ -732,156 +518,121 @@ function LottieGeneratorCard({
           y: outY,
         })
       );
-    } catch (err: any) {
-      if (ac.signal.aborted) return;
-      const doc = (store.getState() as any).editor?.document;
-      if (doc) {
-        dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+      finished = true;
+    } catch (err: unknown) {
+      if (!ac.signal.aborted) {
+        message.error(getHttpErrorMessage(err, t('editor.tools.lottieGenFail')));
       }
-      message.error(getHttpErrorMessage(err, t('editor.tools.lottieGenFail')));
     } finally {
-      if (abortRef.current === ac) abortRef.current = null;
-      setSending(false);
+      finishGeneratorGenerateSession({
+        dispatch,
+        nodeId,
+        finished,
+        abortRef,
+        ac,
+        setSending,
+      });
     }
   };
 
   if (!showComposer) return null;
 
-  const composerLeft = sceneBox.x + sceneBox.width / 2;
-  const composerTop =
-    sceneBox.y +
-    sceneBox.height +
-    rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom);
+  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
+
+  const onCanvasPick = () => {
+    void pickOrAttachFromCanvas({
+      pickingFromCanvas,
+      clearPick: () => dispatch(clearCanvasAttachPick()),
+      attachSelection: async () => {
+        const doc = editorDocument || (store.getState() as any).editor?.document;
+        const insertChip = (ctx: ComposerContext) => {
+          inputRef.current?.insertContextAtCaret(ctx);
+          inputRef.current?.focus();
+        };
+        return attachSelectionToComposer({
+          hostNodeId: nodeId,
+          landId: pickTarget,
+          document: doc,
+          selectedNodeIds,
+          selectedFrameIds,
+          existing: contextsRef.current,
+          setContexts,
+          insertChip,
+          imagesOnly: true,
+        });
+      },
+      startPick: () => {
+        noteCanvasFlyLand(pickTarget);
+        dispatch(startCanvasAttachPick({ target: pickTarget, accept: 'image' }));
+      },
+    });
+  };
 
   return (
     <>
     <WorldScreenChromeRoot
-      left={composerLeft}
-      top={composerTop}
-      anchor="top"
+      left={composerPlacement.left}
+      railWidth={composerPlacement.railWidth}
+      top={composerPlacement.top}
+      anchor={composerPlacement.anchor}
+      edgeGapPx={composerPlacement.edgeGapPx}
       data-lottie-generator
       data-sel-toolbar
       data-scene-node-id={nodeId}
       className="pointer-events-auto z-[32] overflow-visible"
       {...chromePointer}
     >
-      <div
-        className={cn(
-          'flex h-[200px] w-[500px] flex-col overflow-hidden',
-          'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
-          {attachments.map((att) => (
-            <ComposerAttachmentChip
-              key={att.key}
-              attachment={att}
-              disabled={disabled || sending}
-              onRemove={removeContext}
-            />
-          ))}
-          <Tooltip tip={t('editor.tools.lottieGenUpload')} placement="top">
-            <button
-              type="button"
-              disabled={disabled || sending}
-              aria-label={t('editor.tools.lottieGenUpload')}
-              onClick={() => fileRef.current?.click()}
-              className={composerAttachActionClass()}
-            >
-              <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
-            </button>
-          </Tooltip>
-          <Tooltip
-            tip={
-              pickingFromCanvas
-                ? t('agent.pickFromCanvasCancel')
-                : t('agent.pickFromCanvas')
-            }
-            placement="top"
-          >
-            <button
-              type="button"
-              disabled={disabled || sending}
-              aria-label={t('agent.pickFromCanvas')}
-              aria-pressed={pickingFromCanvas}
-              onClick={() => {
-                if (pickingFromCanvas) {
-                  dispatch(clearCanvasAttachPick());
-                  return;
-                }
-                const doc =
-                  editorDocument || (store.getState() as any).editor?.document;
-                const insertChip = (ctx: ComposerContext) => {
-                  inputRef.current?.insertContextAtCaret(ctx);
-                  inputRef.current?.focus();
-                };
-                async function pickOrAttach() {
-                  const attached = await attachSelectionToLottieComposer({
-                    hostNodeId: nodeId,
-                    landId: pickTarget,
-                    document: doc,
-                    selectedNodeIds,
-                    selectedFrameIds,
-                    existing: contextsRef.current,
-                    setContexts,
-                    insertChip,
-                  });
-                  if (!attached) {
-                    noteCanvasFlyLand(pickTarget);
-                    dispatch(
-                      startCanvasAttachPick({ target: pickTarget, accept: 'image' })
-                    );
-                  }
-                }
-                pickOrAttach();
-              }}
-              className={composerAttachActionClass(pickingFromCanvas)}
-            >
-              <HiOutlineViewfinderCircle className="h-4 w-4" strokeWidth={2} />
-            </button>
-          </Tooltip>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => onPickRef(e)}
-          />
-        </div>
-
-        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
-        <div
-          className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
-          onClick={(e) => {
-            if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
-            inputRef.current?.focus();
-          }}
-        >
-          <AgentComposerInput
-            ref={inputRef}
-            contexts={inlineContexts}
-            onContextsChange={(next) => {
-              setContexts([...attachments, ...next]);
-            }}
-            value={prompt}
-            onChange={(next) => {
-              setPrompt(next);
-              maybeOpenMentionFromAt(next);
-            }}
-            onSubmit={() => onGenerate()}
+      <CanvasMediaComposerShell
+        panelOverflow="visible"
+        attachment={
+          <ComposerAttachmentStrip
+            attachments={attachments}
             disabled={disabled || sending}
-            placeholder={t('editor.tools.lottieGenPlaceholder')}
-            flyLandId={pickTarget}
-            className="min-h-full w-full text-[13px]"
-            onPasteImages={(files) => {
-              attachRefFiles(files);
+            onRemove={removeContext}
+            attachTooltip={t('editor.tools.lottieGenUpload')}
+            attachAriaLabel={t('editor.tools.lottieGenUpload')}
+            onAttachClick={() => fileRef.current?.click()}
+            fileInput={{
+              ref: fileRef,
+              accept: 'image/*',
+              multiple: true,
+              onChange: onPickRef,
             }}
+            extraActions={
+              <ComposerCanvasPickButton
+                pickingFromCanvas={pickingFromCanvas}
+                disabled={disabled || sending}
+                onClick={onCanvasPick}
+              />
+            }
           />
-        </div>
-
-        <div className="mt-1 flex items-center gap-1.5 px-2.5 pb-2">
+        }
+        prompt={
+          <ComposerPromptRegion onFocusInput={() => inputRef.current?.focus()}>
+            <AgentComposerInput
+              ref={inputRef}
+              contexts={inlineContexts}
+              onContextsChange={(next) => {
+                setContexts([...attachments, ...next]);
+              }}
+              value={prompt}
+              onChange={(next) => {
+                setPrompt(next);
+                maybeOpenComposerMentions(next);
+              }}
+              onSubmit={() => onGenerate()}
+              disabled={disabled || sending}
+              placeholder={t('editor.tools.lottieGenPlaceholder')}
+              flyLandId={pickTarget}
+              className="min-h-full w-full text-[13px]"
+              onPasteImages={(files) => {
+                attachRefFiles(files);
+              }}
+            />
+          </ComposerPromptRegion>
+        }
+        footer={
+          <ComposerFooterBar>
           <Dropdown
             trigger="click"
             placement="top-start"
@@ -933,7 +684,7 @@ function LottieGeneratorCard({
             </button>
           </Dropdown>
 
-          <div className="ml-auto flex items-center gap-1">
+          <ComposerFooterActions>
             <Dropdown
               trigger="click"
               placement="top-end"
@@ -1010,9 +761,10 @@ function LottieGeneratorCard({
                 )}
               </button>
             </Tooltip>
-          </div>
-        </div>
-      </div>
+          </ComposerFooterActions>
+          </ComposerFooterBar>
+        }
+      />
     </WorldScreenChromeRoot>
 
     {showComposer && mentionOpen ? (
@@ -1030,6 +782,25 @@ function LottieGeneratorCard({
             onPick={pickMentionAttach}
             onPickLibraryAsset={pickMentionLibraryAsset}
             assetKinds={['image']}
+          />
+        </div>
+      </FloatingPortal>
+    ) : null}
+
+    {showComposer && skillOpen ? (
+      <FloatingPortal>
+        <div
+          ref={skillFloating.refs.setFloating}
+          style={skillFloating.floatingStyles as CSSProperties}
+          className="z-[95]"
+          {...skillIx.getFloatingProps()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <MentionAttachPanel
+            variant="skill"
+            items={skillItems}
+            query={skillQuery}
+            onPick={pickSkill}
           />
         </div>
       </FloatingPortal>

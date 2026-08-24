@@ -422,17 +422,28 @@ export function liveHostPaintOrigin(
   return null;
 }
 
-/** Local chrome transform under the canonical scene camera group. */
+/** Local chrome transform under the canonical scene camera group.
+ * Order matches host ink (`reapplySceneTransform`): translate → rotate → flip about center.
+ */
 export function sceneChromeBodyTransform(
   box: { left: number; top: number; width: number; height: number },
-  angleDeg: number
+  angleDeg: number,
+  flipX = false,
+  flipY = false
 ): string {
+  const w = Math.max(1, Number(box.width) || 1);
+  const h = Math.max(1, Number(box.height) || 1);
+  const cx = w / 2;
+  const cy = h / 2;
+  const parts = [`translate(${box.left} ${box.top})`];
   const angle = Number(angleDeg) || 0;
-  const base = `translate(${box.left} ${box.top})`;
-  if (Math.abs(angle) > 0.01) {
-    return `${base} rotate(${angle} ${Math.max(1, box.width) / 2} ${Math.max(1, box.height) / 2})`;
+  if (Math.abs(angle) > 0.01) parts.push(`rotate(${angle} ${cx} ${cy})`);
+  if (flipX || flipY) {
+    const sx = flipX ? -1 : 1;
+    const sy = flipY ? -1 : 1;
+    parts.push(`translate(${cx} ${cy}) scale(${sx} ${sy}) translate(${-cx} ${-cy})`);
   }
-  return base;
+  return parts.join(' ');
 }
 
 /**
@@ -1779,6 +1790,15 @@ const ROTATE_CORNERS: Array<{
   { corner: 'sw', localX: 0, localY: 1, iconDeg: 270, label: 'Rotate' },
 ];
 
+/** World AABB chrome must paint above HostPathChrome silhouettes (boolean / path ink). */
+function keepSelectionChromeOnTop(mount: SVGGElement | null) {
+  if (!mount) return;
+  const chrome = mount.querySelector(':scope > g[data-rcb-sel-chrome="1"]');
+  if (chrome && mount.lastElementChild !== chrome) {
+    mount.appendChild(chrome);
+  }
+}
+
 function SelectionChrome({
   box,
   angle = 0,
@@ -1848,6 +1868,23 @@ function SelectionChrome({
     cornerHandlesOnly,
     edgeHandles,
   });
+
+  useLayoutEffect(() => {
+    keepSelectionChromeOnTop(mount);
+  }, [
+    mount,
+    left,
+    top,
+    w,
+    h,
+    angle,
+    showHandles,
+    showBoxStroke,
+    showRotate,
+    lineMode,
+    cornerHandlesOnly,
+    edgeHandles,
+  ]);
 
   const toScenePoint = (lx: number, ly: number) => {
     const p = rotateLocal(lx, ly, w, h, angle);
@@ -1936,32 +1973,34 @@ function SelectionChrome({
                 })
               : null}
             {showHandles
-              ? visualKnobs.map(([dir, lx, ly]) => (
-                  <g key={`knob-${dir}`} transform={`translate(${lx} ${ly})`}>
-                    <rect
-                      data-rcb-sel-knob={dir}
-                      {...handleAttrProps}
-                      x={-halfVis}
-                      y={-halfVis}
-                      width={handleVis}
-                      height={handleVis}
-                      fill="#ffffff"
-                      stroke="none"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    <rect
-                      data-rcb-sel-knob={dir}
-                      x={-halfVis}
-                      y={-halfVis}
-                      width={handleVis}
-                      height={handleVis}
-                      fill="none"
-                      stroke={chromeColor}
-                      strokeWidth={stroke}
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  </g>
-                ))
+              ? visualKnobs.map(([dir, lx, ly]) => {
+                  const maskPad = stroke * 1.5;
+                  return (
+                    <g key={`knob-${dir}`} transform={`translate(${lx} ${ly})`}>
+                      <rect
+                        x={-halfVis - maskPad}
+                        y={-halfVis - maskPad}
+                        width={handleVis + maskPad * 2}
+                        height={handleVis + maskPad * 2}
+                        fill="#ffffff"
+                        stroke="none"
+                        style={{ pointerEvents: 'none' }}
+                      />
+                      <rect
+                        data-rcb-sel-knob={dir}
+                        {...handleAttrProps}
+                        x={-halfVis}
+                        y={-halfVis}
+                        width={handleVis}
+                        height={handleVis}
+                        fill="#ffffff"
+                        stroke={chromeColor}
+                        strokeWidth={stroke}
+                        style={{ pointerEvents: 'none' }}
+                      />
+                    </g>
+                  );
+                })
               : null}
           </g>
         )}

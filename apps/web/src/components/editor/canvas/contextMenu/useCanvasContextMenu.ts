@@ -10,6 +10,8 @@ import { rcbResolveViewportEl, useRcbScreenToScene } from '@/components/rcb';
 import type { ContextMenuState } from '@/components/rcb/selection/chrome/CanvasContextMenu';
 import {
   setActiveFrameId,
+  setFrameChromeMode,
+  setMixedSelection,
   setSelectedNodeId,
   setSelectedNodeIds,
 } from '@/store/modules/editor';
@@ -38,12 +40,15 @@ const CANCEL_OPEN_MIN_MS = 400;
 const OPEN_DEBOUNCE_MS = 400;
 
 const CHROME_SKIP_SEL =
-  '[data-sel-toolbar],[data-frame-toolbar],[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-text-inline-editor],[data-video-trim-toolbar],[data-video-playback-bar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar]';
+  '[data-sel-toolbar],[data-frame-toolbar],[data-ctx-menu],[data-export-panel],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-text-inline-editor],[data-video-trim-toolbar],[data-video-playback-bar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar]';
 const SCENE_COMPOSER_SEL =
-  '[data-image-generator],[data-video-generator],[data-image-quick-edit]';
+  '[data-image-generator],[data-video-generator],[data-media-quick-edit]';
 /** Account / settings / any Headless UI dialog — portaled over the canvas. */
 const OVERLAY_UI_SEL =
   '[role="dialog"],[data-headlessui-portal],[data-account-settings],[data-rcb-overlay]';
+/** Frame / media titles — portaled under overlay but must open the canvas menu. */
+const NODE_TITLE_SEL =
+  '[data-rcb-node-title],[data-frame-label],[data-image-label]';
 
 type LongPress = {
   pointerId: number;
@@ -88,6 +93,13 @@ function isOverlayUiTarget(target: EventTarget | null) {
   return Boolean(el.closest(OVERLAY_UI_SEL));
 }
 
+/** Frame / image / media title row (HTML chrome above the control box). */
+export function isNodeTitleTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el?.closest) return false;
+  return Boolean(el.closest(NODE_TITLE_SEL));
+}
+
 /** Fallback when geometry hit misses but the pointer landed on an SVG host. */
 function nodeIdFromEventTarget(target: EventTarget | null): string | null {
   const el = target as Element | null;
@@ -99,6 +111,14 @@ function nodeIdFromEventTarget(target: EventTarget | null): string | null {
     host.getAttribute('data-scene-node-id') ||
     null
   );
+}
+
+export function frameIdFromEventTarget(target: EventTarget | null): string | null {
+  const el = target as Element | null;
+  if (!el?.closest) return null;
+  const label = el.closest('[data-frame-label],[data-frame-id]');
+  if (!label) return null;
+  return label.getAttribute('data-frame-id');
 }
 
 function clientInElement(el: HTMLElement, clientX: number, clientY: number) {
@@ -118,10 +138,16 @@ function stageContainsTarget(stage: HTMLElement, target: EventTarget | null) {
 }
 
 /**
- * Canvas menu only for presses that actually hit the stage tree.
+ * Canvas menu only for presses that actually hit the stage tree
+ * (or portaled node titles above it).
  * Coords alone are wrong when a portaled dialog sits over the board.
  */
-function isCanvasGestureTarget(hitEl: HTMLElement, target: EventTarget | null) {
+export function isCanvasGestureTarget(
+  hitEl: HTMLElement,
+  target: EventTarget | null
+): boolean {
+  // Titles live under [data-rcb-overlay] via RcbOverlayPortal — still canvas chrome.
+  if (isNodeTitleTarget(target)) return true;
   if (isOverlayUiTarget(target) || isChromeTarget(target)) return false;
   return stageContainsTarget(hitEl, target);
 }
@@ -144,6 +170,76 @@ function findFrameIdAtScene(
     }
   }
   return null;
+}
+
+function selectFrameOnly(
+  dispatch: ReturnType<typeof useDispatch>,
+  frameId: string
+) {
+  dispatch(setActiveFrameId(frameId));
+  dispatch(setFrameChromeMode('full'));
+  dispatch(setSelectedNodeIds([]));
+  dispatch(setSelectedNodeId(null));
+}
+
+function selectNodeOnly(
+  dispatch: ReturnType<typeof useDispatch>,
+  nodeId: string
+) {
+  // Clears selectedFrameIds so soft frame highlight is not a mutation target.
+  dispatch(setMixedSelection({ nodeIds: [nodeId], frameIds: [] }));
+}
+
+type MenuHit = {
+  nodeId: string | null;
+  frameId: string | null;
+};
+
+export function resolveContextMenuHit(opts: {
+  sceneX: number;
+  sceneY: number;
+  target: EventTarget | null;
+  hitTest: (
+    x: number,
+    y: number,
+    opts?: { clientX?: number; clientY?: number }
+  ) => string | null;
+  clientX: number;
+  clientY: number;
+  frames: any[] | undefined;
+  selectedIds: string[];
+  activeFrameId: string | null;
+}): MenuHit {
+  const titleFrameId = frameIdFromEventTarget(opts.target);
+  const hitNode =
+    opts.hitTest(opts.sceneX, opts.sceneY, {
+      clientX: opts.clientX,
+      clientY: opts.clientY,
+    }) || nodeIdFromEventTarget(opts.target);
+
+  if (hitNode) {
+    // Soft activeFrameId is highlight context only — never treat it as a
+    // frame mutation target when the menu is opened on a scene node.
+    return { nodeId: hitNode, frameId: titleFrameId };
+  }
+  if (titleFrameId) {
+    return { nodeId: null, frameId: titleFrameId };
+  }
+  const sceneFrameId = findFrameIdAtScene(opts.frames, opts.sceneX, opts.sceneY);
+  if (sceneFrameId) {
+    return { nodeId: null, frameId: sceneFrameId };
+  }
+  // Empty canvas: keep a single selected node, or fall back to soft-focused frame.
+  if (opts.selectedIds.length === 1) {
+    return { nodeId: opts.selectedIds[0], frameId: null };
+  }
+  if (opts.selectedIds.length > 1) {
+    return { nodeId: null, frameId: null };
+  }
+  return {
+    nodeId: null,
+    frameId: opts.activeFrameId,
+  };
 }
 
 /**
@@ -195,35 +291,37 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
 
     const openMenuAt = (clientX: number, clientY: number, target: EventTarget | null) => {
       const p = toSceneRef.current(clientX, clientY);
-      let id = hitTestRef.current(p.x, p.y, { clientX, clientY });
-      if (!id) id = nodeIdFromEventTarget(target);
       const selected = selectedIdsRef.current;
-      if (id && !selected.includes(id)) {
-        dispatch(setSelectedNodeIds([id]));
-        dispatch(setSelectedNodeId(id));
+      const selectedFrames = selectedFrameIdsRef.current;
+      const hit = resolveContextMenuHit({
+        sceneX: p.x,
+        sceneY: p.y,
+        target,
+        hitTest: hitTestRef.current,
+        clientX,
+        clientY,
+        frames: documentRef.current?.frames,
+        selectedIds: selected,
+        activeFrameId: activeFrameIdRef.current,
+      });
+
+      if (hit.nodeId && !selected.includes(hit.nodeId)) {
+        selectNodeOnly(dispatch, hit.nodeId);
+      } else if (
+        !hit.nodeId &&
+        hit.frameId &&
+        !selectedFrames.includes(hit.frameId)
+      ) {
+        selectFrameOnly(dispatch, hit.frameId);
       }
 
-      let frameId: string | null = activeFrameIdRef.current;
-      if (!id) {
-        const hitFrameId = findFrameIdAtScene(documentRef.current?.frames, p.x, p.y);
-        if (hitFrameId) {
-          frameId = hitFrameId;
-          if (!selected.length && !selectedFrameIdsRef.current.includes(hitFrameId)) {
-            dispatch(setActiveFrameId(hitFrameId));
-            dispatch(setSelectedNodeIds([]));
-            dispatch(setSelectedNodeId(null));
-          }
-        }
-      }
-
-      const nodeId = id || (selected.length === 1 ? selected[0] : null);
       setCtxMenu({
         clientX,
         clientY,
         sceneX: p.x,
         sceneY: p.y,
-        nodeId,
-        frameId,
+        nodeId: hit.nodeId,
+        frameId: hit.frameId,
       });
     };
 
@@ -260,7 +358,6 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      // Dialog / dock / chrome — never steal right-click from overlay UI.
       if (!isCanvasGestureTarget(hitEl, e.target)) {
         clearLongPress();
         return;
@@ -278,8 +375,9 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
         return;
       }
 
-      if (e.button !== 0 || !isTouchLikePointer(e, coarse)) return;
-      startLongPress(e.pointerId, e.clientX, e.clientY, e.target);
+      if (e.button === 0 && isTouchLikePointer(e, coarse)) {
+        startLongPress(e.pointerId, e.clientX, e.clientY, e.target);
+      }
     };
 
     /** Some hybrid drivers skip PointerEvent button=2 but still fire MouseEvent. */
@@ -309,9 +407,12 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
       tryOpen(lp.x, lp.y, lp.target);
     };
 
-    /** Suppress native menu only on the stage / canvas chrome — not on settings dialogs. */
     const onContextMenu = (e: MouseEvent) => {
-      if (!stageContainsTarget(hitEl, e.target) && !isChromeTarget(e.target)) return;
+      const allow =
+        stageContainsTarget(hitEl, e.target) ||
+        isChromeTarget(e.target) ||
+        isNodeTitleTarget(e.target);
+      if (!allow) return;
       e.preventDefault();
       e.stopPropagation();
     };

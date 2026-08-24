@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -10,57 +10,66 @@ import {
   isImageGeneratorNode
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  listImageVariantUrls
+  listImageVariantUrls,
+  promptForImageSrc,
+  applyVariantPromptPatch,
 } from '@/components/rcb/scene/document/mediaLifecycle';
 import { detachImageVariant, patchDocumentNode } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import {
+  setImageVariantsExpanded,
+  useImageVariantsExpandedNodeId,
+} from '@/components/editor/nodes/ImageNode/imageVariantsExpand';
 const EDGE_PAD = 10;
 const EXPAND_GAP = 12;
-const CORNER_BTN = 20;
+/** Two action pills side-by-side at 1× — used to fit within the tile width. */
+const ACTION_ROW_REF_W = 168;
+/** Shrink badge / action chrome when the on-screen tile is smaller than this. */
+const UI_SCALE_REF_PX = 128;
 
 type SceneBox = { left: number; top: number; width: number; height: number };
 
-/**
- * Full-size alt tiles — prefer left of main, then above, then right
- * (so results stay on-canvas instead of clipping off the right edge).
- */
-function expandedAltLayout(
+function variantStackUiScale(stageW: number, stageH: number): number {
+  const w = Math.max(1, stageW);
+  const h = Math.max(1, stageH);
+  const minSide = Math.min(w, h);
+  const bySide =
+    minSide >= UI_SCALE_REF_PX ? 1 : Math.max(0.28, minSide / UI_SCALE_REF_PX);
+  const innerW = Math.max(1, w - EDGE_PAD * 2);
+  const byWidth = Math.min(1, innerW / ACTION_ROW_REF_W);
+  return Math.min(bySide, byWidth);
+}
+
+function variantActionLayout(uiScale: number): {
+  pad: number;
+  btnH: number;
+  fontPx: number;
+  px: number;
+  stack: boolean;
+} {
+  const pad = Math.max(4, Math.round(8 * uiScale));
+  const btnH = Math.max(18, Math.round(28 * uiScale));
+  const fontPx = Math.max(9, Math.round(11 * uiScale));
+  const px = Math.max(4, Math.round(8 * uiScale));
+  return { pad, btnH, fontPx, px, stack: uiScale < 0.55 };
+}
+
+/** Full-size alt tiles — 2×2 grid around main (main = bottom-left cell). */
+function surroundAltLayout(
   main: { left: number; top: number; width: number; height: number },
-  count: number
+  count: number,
+  gap = EXPAND_GAP
 ) {
   if (count <= 0) return [];
   const w = main.width;
   const h = main.height;
-  const gap = EXPAND_GAP;
-  const need = count * w + (count - 1) * gap;
-  const preferLeft = main.left >= need + gap + 16;
-  const preferAbove = !preferLeft && main.top >= h + gap + 40;
-
-  return Array.from({ length: count }, (_, i) => {
-    if (preferLeft) {
-      return {
-        left: main.left - (i + 1) * (w + gap),
-        top: main.top,
-        width: w,
-        height: h,
-      };
-    }
-    if (preferAbove) {
-      return {
-        left: main.left + main.width - (i + 1) * w - i * gap,
-        top: main.top - h - gap,
-        width: w,
-        height: h,
-      };
-    }
-    return {
-      left: main.left + w + gap + i * (w + gap),
-      top: main.top,
-      width: w,
-      height: h,
-    };
-  });
+  const slots = [
+    { left: main.left, top: main.top - h - gap, width: w, height: h },
+    { left: main.left + w + gap, top: main.top - h - gap, width: w, height: h },
+    { left: main.left + w + gap, top: main.top, width: w, height: h },
+  ];
+  return slots.slice(0, count);
 }
 
 /**
@@ -88,10 +97,15 @@ function ImageVariantsOverlay({
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const camera = useRcbCamera();
-  const [expanded, setExpanded] = useState(false);
   const [barHovered, setBarHovered] = useState(false);
+  const expandedNodeId = useImageVariantsExpandedNodeId();
+  const expanded = expandedNodeId === nodeId;
 
-  const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;
+  const nodeFromStore = useSelector(
+    (state: { editor?: { document?: SceneDocument } }) =>
+      nodeId ? state.editor?.document?.deltaSetLike?.[nodeId] : null
+  );
+  const node = nodeFromStore || (nodeId ? document?.deltaSetLike?.[nodeId] : null);
   const urls = useMemo(() => (node ? listImageVariantUrls(node) : []), [node]);
   const mainSrc = String(node?.attrs?.src || '').trim();
   const alts = useMemo(() => urls.filter((u) => u !== mainSrc), [urls, mainSrc]);
@@ -101,34 +115,33 @@ function ImageVariantsOverlay({
     Boolean(node) &&
     Boolean(nodeId) &&
     node?.key === 'image' &&
-    !isImageGeneratorNode(node) &&
+    (!isImageGeneratorNode(node) || Boolean(mainSrc)) &&
     urls.length > 1 &&
     String(node?.attrs?.processStatus || '') !== 'running';
 
   useEffect(() => {
-    setExpanded(false);
-  }, [nodeId]);
-
-  useEffect(() => {
+    if (expandedNodeId && expandedNodeId !== nodeId) return;
     if (!expanded) return undefined;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setExpanded(false);
+      if (e.key === 'Escape') setImageVariantsExpanded(null);
     };
+    window.addEventListener('keydown', onKey);
     let removePointer: (() => void) | undefined;
     const timer = window.setTimeout(() => {
       const onPointer = (e: PointerEvent) => {
         const el = e.target as HTMLElement | null;
         if (el?.closest?.('[data-image-variants]')) return;
-        setExpanded(false);
+        setImageVariantsExpanded(null);
       };
       window.addEventListener('pointerdown', onPointer, true);
       removePointer = () => window.removeEventListener('pointerdown', onPointer, true);
     }, 0);
     return () => {
+      window.removeEventListener('keydown', onKey);
       window.clearTimeout(timer);
       removePointer?.();
     };
-  }, [expanded]);
+  }, [expanded, expandedNodeId, nodeId]);
 
   if (!canShow || !node || !nodeId) return null;
 
@@ -141,8 +154,12 @@ function ImageVariantsOverlay({
     height: Math.abs(br.y - tl.y),
   };
   const count = urls.length;
-  const altLayout = expandedAltLayout(stageBox, alts.length);
-  const visible = imageHovered || barHovered || expanded;
+  const uiScale = variantStackUiScale(stageBox.width, stageBox.height);
+  const edgePad = EDGE_PAD * uiScale;
+  const gapScene = EXPAND_GAP * uiScale;
+  const actions = variantActionLayout(uiScale);
+  const altLayout = surroundAltLayout(stageBox, alts.length, gapScene);
+  const visible = urls.length > 1 || imageHovered || barHovered || expanded;
 
   const frameStyle: CSSProperties = {
     position: 'absolute',
@@ -156,10 +173,14 @@ function ImageVariantsOverlay({
 
   const setMain = (url: string) => {
     if (!nodeId || url === mainSrc) return;
+    const attrs = { ...(node.attrs || {}) } as Record<string, unknown>;
+    attrs.src = url;
+    const prompt = promptForImageSrc(node.attrs, url);
+    applyVariantPromptPatch(attrs, url, prompt);
     dispatch(
       patchDocumentNode({
         nodeId,
-        patch: { attrs: { src: url } },
+        patch: { attrs },
       })
     );
   };
@@ -173,7 +194,11 @@ function ImageVariantsOverlay({
         name: t('editor.tools.imageDetachedName'),
       })
     );
-    setExpanded(false);
+    setImageVariantsExpanded(null);
+  };
+
+  const toggleExpanded = () => {
+    setImageVariantsExpanded(expanded ? null : nodeId);
   };
 
   return (
@@ -195,7 +220,10 @@ function ImageVariantsOverlay({
                 ? 'pointer-events-auto opacity-100'
                 : 'pointer-events-none opacity-0'
             )}
-            style={{ right: EDGE_PAD, top: EDGE_PAD }}
+            style={{
+              right: edgePad,
+              top: edgePad,
+            }}
             onPointerDown={(e) => e.stopPropagation()}
             onPointerEnter={() => setBarHovered(true)}
             onPointerLeave={() => setBarHovered(false)}
@@ -208,12 +236,20 @@ function ImageVariantsOverlay({
                   ? t('editor.tools.imageStackCollapse')
                   : t('editor.tools.imageStackExpand', { count })
               }
-              onClick={() => setExpanded((v) => !v)}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpanded();
+              }}
               className={cn(
-                'inline-flex h-5 min-w-[20px] items-center justify-center whitespace-nowrap rounded-[3px] px-1.5 text-[11px] font-semibold leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.2)] transition',
+                'inline-flex items-center justify-center whitespace-nowrap rounded-[3px] font-semibold leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.2)] transition',
                 expanded ? 'bg-[var(--ink)]' : 'bg-[#1a1a1a] hover:bg-[#2a2a2a]'
               )}
-              style={{ minHeight: CORNER_BTN }}
+              style={{
+                height: Math.max(16, Math.round(20 * uiScale)),
+                minWidth: Math.max(16, Math.round(20 * uiScale)),
+                paddingInline: Math.max(4, Math.round(6 * uiScale)),
+                fontSize: Math.max(9, Math.round(11 * uiScale)),
+              }}
             >
               {t('editor.tools.imageStackCount', { count })}
             </button>
@@ -223,7 +259,7 @@ function ImageVariantsOverlay({
         {expanded
           ? alts.map((url, i) => {
               const pos = altLayout[i] || {
-                left: stageBox.left - stageBox.width - EXPAND_GAP,
+                left: stageBox.left - stageBox.width - gapScene,
                 top: stageBox.top,
                 width: stageBox.width,
                 height: stageBox.height,
@@ -245,18 +281,38 @@ function ImageVariantsOverlay({
                   onPointerDown={(e) => e.stopPropagation()}
                 >
                   <img src={url} alt="" className="h-full w-full object-cover" draggable={false} />
-                  <div className="absolute right-2 top-2 flex items-center gap-1">
+                  <div
+                    className={cn(
+                      'absolute flex max-w-[calc(100%-8px)] items-center gap-0.5',
+                      actions.stack ? 'flex-col items-end' : 'flex-row'
+                    )}
+                    style={{
+                      right: actions.pad,
+                      top: actions.pad,
+                      maxWidth: `calc(100% - ${actions.pad * 2}px)`,
+                    }}
+                  >
                     <button
                       type="button"
                       onClick={() => setMain(url)}
-                      className="inline-flex h-7 items-center whitespace-nowrap rounded-md bg-black/65 px-2 text-[11px] font-medium text-white transition hover:bg-black/80"
+                      className="inline-flex max-w-full items-center justify-center truncate rounded-md bg-black/65 font-medium text-white transition hover:bg-black/80"
+                      style={{
+                        height: actions.btnH,
+                        paddingInline: actions.px,
+                        fontSize: actions.fontPx,
+                      }}
                     >
                       {t('editor.tools.imageStackSetMain')}
                     </button>
                     <button
                       type="button"
                       onClick={() => detach(url)}
-                      className="inline-flex h-7 items-center whitespace-nowrap rounded-md bg-black/65 px-2 text-[11px] font-medium text-white transition hover:bg-black/80"
+                      className="inline-flex max-w-full items-center justify-center truncate rounded-md bg-black/65 font-medium text-white transition hover:bg-black/80"
+                      style={{
+                        height: actions.btnH,
+                        paddingInline: actions.px,
+                        fontSize: actions.fontPx,
+                      }}
                     >
                       {t('editor.tools.imageStackDetach')}
                     </button>

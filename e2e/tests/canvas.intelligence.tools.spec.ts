@@ -77,7 +77,7 @@ test.describe('intelligence image tools', () => {
     await uploadPngAndSelect(page);
     await openQuickEdit(page);
 
-    const composer = page.locator('[data-image-quick-edit]').first();
+    const composer = page.locator('[data-media-quick-edit]').first();
     await composer.getByRole('button', { name: IMAGE_TOOL_LABELS.mark }).click({ force: true });
     await sleep(400);
 

@@ -181,7 +181,7 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       boxes.push({ id, box: null, hit: false });
       continue;
     }
-    if (!isPointVisibleForFrameClip(doc, node, x, y)) {
+    if (!isNodePickableAtPoint(doc, node, x, y)) {
       boxes.push({ id, box: null, hit: false });
       continue;
     }
@@ -210,6 +210,44 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
   }
   lastHitDebug = { x, y, orderLen: order.length, orderHead: [...order].slice(0, 8), boxes };
   return null;
+}
+
+/** Topmost artboard under a scene point (matches canvasSession.hitTestFrameInDoc). */
+export function frameIdAtPoint(
+  doc: SceneDocument | null | undefined,
+  x: number,
+  y: number
+): string | null {
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  for (let i = frames.length - 1; i >= 0; i -= 1) {
+    const frame = frames[i];
+    if (!frame || frame.locked || frame.hidden) continue;
+    const fx = Number(frame.x) || 0;
+    const fy = Number(frame.y) || 0;
+    const fw = Math.max(1, Number(frame.width) || 1);
+    const fh = Math.max(1, Number(frame.height) || 1);
+    if (x >= fx && x <= fx + fw && y >= fy && y <= fy + fh) {
+      return String(frame.id);
+    }
+  }
+  return null;
+}
+
+/**
+ * Bound nodes (`attrs.frameId`) only pick inside their owning artboard —
+ * prevents adjacent frames from stealing clicks through overflow geometry.
+ */
+export function isNodePickableAtPoint(
+  doc: SceneDocument,
+  node: SceneNode,
+  x: number,
+  y: number
+): boolean {
+  const ownerId = String(node.attrs?.frameId || '').trim();
+  if (ownerId) {
+    return frameIdAtPoint(doc, x, y) === ownerId;
+  }
+  return isPointVisibleForFrameClip(doc, node, x, y);
 }
 
 /** Artboards clip intersecting content by default; hidden overflow must not be pickable. */

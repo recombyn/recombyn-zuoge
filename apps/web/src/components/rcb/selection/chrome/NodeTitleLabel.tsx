@@ -26,6 +26,7 @@ import {
   NODE_TITLE_LABEL_LINE_PX,
 } from './SelectionToolbarShell';
 import { liveShapeGeomBox } from '../HostPathChrome';
+import { shiftConstrainedMoveDelta } from '../selectionLogic';
 import { cn } from '@/utils/classnames';
 
 type NodeTitleLabelBox = {
@@ -60,7 +61,11 @@ type Props = {
   hidden?: boolean;
   onSelect?: () => void;
   onRename?: (name: string, options?: { skipHistory?: boolean }) => void;
-  onMove?: (x: number, y: number, opts?: { skipGrid?: boolean }) => void;
+  onMove?: (
+    x: number,
+    y: number,
+    opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }
+  ) => void;
   onMoveStart?: () => void;
   onMoveEnd?: () => void;
   originX?: number;
@@ -326,6 +331,7 @@ function NodeTitleLabel({
     clientX0: number;
     clientY0: number;
     started: boolean;
+    moveAxisLock?: 'h' | 'v';
   } | null>(null);
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
@@ -408,6 +414,8 @@ function NodeTitleLabel({
       : { 'data-image-label': true as const };
 
   const onLabelPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
+    // Right-click opens the canvas context menu (window capture). Do not steal it.
+    if (e.button === 2) return;
     e.stopPropagation();
     if (editing) return;
     onSelect?.();
@@ -425,6 +433,7 @@ function NodeTitleLabel({
       clientX0: e.clientX,
       clientY0: e.clientY,
       started: false,
+      moveAxisLock: undefined,
     };
     const onMoveWin = (ev: PointerEvent) => {
       const drag = labelDragRef.current;
@@ -437,8 +446,15 @@ function NodeTitleLabel({
         setLabelDragging(true);
         onMoveStart?.();
       }
-      onMove(Math.round(drag.originX + dx), Math.round(drag.originY + dy), {
+      const { dx: cdx, dy: cdy } = shiftConstrainedMoveDelta(
+        drag,
+        dx,
+        dy,
+        ev.shiftKey
+      );
+      onMove(Math.round(drag.originX + cdx), Math.round(drag.originY + cdy), {
         skipGrid: ev.ctrlKey || ev.metaKey,
+        axisLock: drag.moveAxisLock,
       });
     };
     const onUpWin = () => {

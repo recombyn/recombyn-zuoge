@@ -136,7 +136,7 @@ function FontFamilyPicker({ value, onChange, className }: Props): ReactNode {
 
             <div className="max-h-[280px] overflow-y-auto px-1 py-0.5">
               {filtered.length === 0 ? (
-                <p className="px-2 py-6 text-center text-[12px] text-[var(--muted)]">无匹配字体</p>
+                <p className="px-2 py-4 text-left text-[12px] text-[var(--muted)]">无匹配字体</p>
               ) : (
                 filtered.map((font) => {
                   const selected = font.family === base;

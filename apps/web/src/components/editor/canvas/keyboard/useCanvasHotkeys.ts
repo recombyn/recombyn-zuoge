@@ -86,7 +86,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
     const isComposerTarget = (t: HTMLElement | null) =>
       Boolean(
         t?.closest?.(
-          '[data-agent-composer], [data-image-generator], [data-video-generator], [data-image-quick-edit]'
+          '[data-agent-composer], [data-image-generator], [data-video-generator], [data-media-quick-edit]'
         )
       );
 
@@ -94,7 +94,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       const el =
         (t?.closest?.('[data-agent-composer]') as HTMLElement | null) ||
         (t
-          ?.closest?.('[data-image-generator], [data-video-generator], [data-image-quick-edit]')
+          ?.closest?.('[data-image-generator], [data-video-generator], [data-media-quick-edit]')
           ?.querySelector?.('[data-agent-composer]') as HTMLElement | null);
       return (el?.innerText || '').replace(/\u200b/g, '').trim();
     };

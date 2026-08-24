@@ -25,15 +25,20 @@ import {
   updateShapeHostElement,
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import NodeTitleLabel from '../selection/chrome/NodeTitleLabel';
+import { ProcessGlowShell } from '@/components/rcb/process/ProcessGlowShell';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
+  FRAME_HIGHLIGHT_STROKE,
   FRAME_PLATE_STROKE,
   framePlateStrokeSceneWidth,
 } from '@/components/rcb/frames/types';
 
 type HtmlArtboardFrameProps = {
   frame: ArtboardFrame;
+  /** Full chrome selected — plate stroke off (SelectionChrome owns the box). */
   selected?: boolean;
+  /** Soft context focus — blue edge only (interior click / working inside). */
+  highlighted?: boolean;
   onSelect?: () => void;
   onRename?: (name: string) => void;
   /** Drag the label to move the artboard. */
@@ -86,6 +91,7 @@ function paintFramePlate(
   layer: SVGGElement,
   frame: ArtboardFrame,
   selected: boolean,
+  highlighted: boolean,
   generating: boolean,
   zoom: number
 ): SVGGElement {
@@ -134,19 +140,22 @@ function paintFramePlate(
   append(g, plate);
   setFill(plate, bg);
   setAttrs(plate, { 'fill-opacity': backgroundOpacity });
-  // Idle: ~1 CSS px hairline after CSS camera scale (not non-scaling-stroke —
-  // that still thickens under parent `scale(zoom)` and AA-fringes off-grid).
-  // Selected: host chrome owns the blue box.
   plate.removeAttribute('vector-effect');
   if (selected) {
+    // Full chrome owns the blue box — no plate stroke.
     setStroke(plate, 'none');
     plate.removeAttribute('shape-rendering');
+  } else if (highlighted) {
+    setStroke(plate, {
+      color: FRAME_HIGHLIGHT_STROKE,
+      width: framePlateStrokeSceneWidth(zoom),
+    });
+    setAttrs(plate, { 'shape-rendering': 'crispEdges' });
   } else {
     setStroke(plate, {
       color: FRAME_PLATE_STROKE,
       width: framePlateStrokeSceneWidth(zoom),
     });
-    // Prefer hard plate edges vs geometricPrecision soft fringe on deselected.
     setAttrs(plate, { 'shape-rendering': 'crispEdges' });
   }
   return g;
@@ -155,6 +164,7 @@ function paintFramePlate(
 function HtmlArtboardFrame({
   frame,
   selected = false,
+  highlighted = false,
   onSelect,
   onRename,
   onMove,
@@ -168,7 +178,6 @@ function HtmlArtboardFrame({
 }: HtmlArtboardFrameProps): ReactNode {
   const camera = useRcbCamera();
   const z = rcbCameraCssZoom(camera);
-  const inv = 1 / z;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const layerRef = useRef<SVGGElement | null>(null);
   const generating =
@@ -209,7 +218,7 @@ function HtmlArtboardFrame({
     sceneLayer.removeAttribute('data-rcb-shape-layer');
     sceneLayer.setAttribute('data-rcb-frame-layer', frame.id);
     sceneLayer.setAttribute('data-z', String(zIndex));
-    const el = paintFramePlate(sceneLayer, frame, selected, generating, z);
+    const el = paintFramePlate(sceneLayer, frame, selected, highlighted, generating, z);
     registerShapeHost({ nodeId: frame.id, root, layer: sceneLayer, el, kind: 'svg' });
     updateShapeHostElement(frame.id, el);
 
@@ -234,9 +243,9 @@ function HtmlArtboardFrame({
     if (layer !== 'body') return;
     const sceneLayer = layerRef.current;
     if (!sceneLayer) return;
-    const el = paintFramePlate(sceneLayer, frame, selected, generating, z);
+    const el = paintFramePlate(sceneLayer, frame, selected, highlighted, generating, z);
     updateShapeHostElement(frame.id, el);
-  }, [layer, selected, generating, z, frame]);
+  }, [layer, selected, highlighted, generating, z, frame]);
 
   // Same as RcbShapeHost: update data-z + reorder without remounting the plate.
   useLayoutEffect(() => {
@@ -283,8 +292,6 @@ function HtmlArtboardFrame({
     if (!generating) return null;
     const mount = getSceneSelectionChromeMount();
     if (!mount) return null;
-    const pillBottomPad = 14;
-    const maxPillWidth = Math.max(32, frame.width * z - 16);
     return createPortal(
       <g data-artboard-process-layer={frame.id} pointerEvents="none">
         <foreignObject
@@ -295,27 +302,14 @@ function HtmlArtboardFrame({
           pointerEvents="none"
           style={{ overflow: 'hidden' }}
         >
-          <div className="relative h-full w-full overflow-hidden">
-            <div
-              data-artboard-process-shimmer
-              data-frame-id={frame.id}
-              className="rcb-artboard-process-shimmer absolute inset-0"
-              aria-hidden
-            />
-            <div
-              data-artboard-process-label
-              data-frame-id={frame.id}
-              className="absolute left-1/2 z-[1] inline-flex h-7 w-max items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap rounded-full bg-[rgba(55,55,55,0.72)] px-2.5 text-[11px] font-medium leading-none text-white shadow-[0_2px_8px_rgba(15,23,42,0.18)]"
-              style={{
-                bottom: pillBottomPad * inv,
-                transform: `translateX(-50%) scale(${inv})`,
-                transformOrigin: 'center bottom',
-                maxWidth: maxPillWidth,
-              }}
-            >
-              {processLabel}
-            </div>
-          </div>
+          <ProcessGlowShell
+            seed={frame.id}
+            label={processLabel}
+            width={frame.width}
+            zoom={z}
+            shimmerDataAttr="data-artboard-process-shimmer"
+            labelDataAttr="data-artboard-process-label"
+          />
         </foreignObject>
       </g>,
       mount

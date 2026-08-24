@@ -96,6 +96,47 @@ export function toggleTextDecoration(
 /** Default text-box width when placing / typing (wrap instead of growing sideways). */
 export const DEFAULT_TEXT_BOX_WIDTH = 240;
 
+/** Toolbar / attrs font size — always a positive integer (no 162.77 in UI). */
+export function normalizeTextFontSize(raw: unknown, fallback = DEFAULT_TEXT_STYLE.fontSize): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return Math.max(1, Math.round(fallback));
+  return Math.max(1, Math.min(400, Math.round(n)));
+}
+
+/** Recompute node box after font/style edits so selection chrome hugs the glyphs. */
+export function measureTextNodeBoxAfterStyleChange(
+  node: { width?: number; height?: number; attrs?: Record<string, unknown> },
+  style: Partial<TextStyle> = {}
+): { width: number; height: number } {
+  const merged: TextStyle = {
+    ...parseNodeTextStyle(node.attrs || {}),
+    ...style,
+    fontSize: normalizeTextFontSize(
+      style.fontSize ?? parseNodeTextStyle(node.attrs || {}).fontSize
+    ),
+  };
+  const plain = parseNodeText(node.attrs || {}) || ' ';
+  const autoSize = String(node.attrs?.autoSize ?? 'true') !== 'false';
+  const currentW = Math.max(1, Number(node.width) || DEFAULT_TEXT_BOX_WIDTH);
+
+  if (autoSize) {
+    const measured = measurePlainTextSize(plain, merged);
+    return {
+      width: Math.max(8, Math.round(measured.width)),
+      height: Math.max(8, Math.round(measured.height)),
+    };
+  }
+
+  const wrapped = measureWrappedTextSize(plain, merged, currentW);
+  return {
+    width: Math.max(8, Math.round(wrapped.width)),
+    height: Math.max(
+      8,
+      Math.round(Math.max(wrapped.height, merged.fontSize * merged.lineHeight))
+    ),
+  };
+}
+
 function measureLineWidth(
   ctx: CanvasRenderingContext2D | null,
   line: string,
@@ -417,6 +458,7 @@ export function parseNodeTextStyle(attrs: Record<string, unknown> = {}): TextSty
   if (opacityRaw != null && Number.isFinite(Number(opacityRaw))) {
     style.fillOpacity = Math.max(0, Math.min(100, Math.round(Number(opacityRaw))));
   }
+  style.fontSize = normalizeTextFontSize(style.fontSize);
   return style;
 }
 
@@ -425,6 +467,7 @@ export function buildTextAttrs(text: string, style: Partial<TextStyle> = {}) {
     ...DEFAULT_TEXT_STYLE,
     ...style,
     fontFamily: toFabricFontFamily(style.fontFamily ?? DEFAULT_TEXT_STYLE.fontFamily),
+    fontSize: normalizeTextFontSize(style.fontSize),
   };
   const chars = String(text || '')
     .split('')

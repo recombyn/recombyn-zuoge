@@ -1,54 +1,29 @@
 import type { ReactNode } from 'react';
 import { useMemo, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HiChevronDown } from 'react-icons/hi2';
-import { Dropdown, DropdownPanel, DropdownPanelItem } from '@/components/base';
 import HomeAgentComposer, {
   type HomeAgentCategory,
+  type HomeAgentComposerHandle,
   type HomeAgentSubmitPayload,
+  exampleChipKeysForCategory,
 } from '@/components/home/HomeAgentComposer';
-import { cn } from '@/utils/classnames';
 
 type Props = {
   onSubmit: (payload: HomeAgentSubmitPayload) => void;
 };
 
-const CATEGORIES: Array<{
-  id: HomeAgentCategory;
-  labelKey: string;
-}> = [
-  { id: 'poster', labelKey: 'homeCategories.poster' },
-  { id: 'mobile', labelKey: 'homeCategories.mobile' },
-  { id: 'image', labelKey: 'homeCategories.image' },
-  { id: 'video', labelKey: 'homeCategories.video' },
-];
-
-function resolveHeroLang(langRaw: string) {
-  const lang = langRaw || '';
-  const isZh = lang === 'zh-CN' || lang === 'zh-TW' || lang.startsWith('zh');
-  const isJa = lang === 'ja' || lang.startsWith('ja');
-  return { isZh, isJa };
+function caseCategoryFor(category: HomeAgentCategory): HomeAgentCategory {
+  if (category === 'image' || category === 'video') return category;
+  return 'poster';
 }
 
-/**
- * Home hero — category dropdown + tagline, soft-glow composer.
- */
+/** Home hero — centered prompt, composer with mode picker, case cards. */
 function HomeHero({ onSubmit }: Props): ReactNode {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const composerRef = useRef<HomeAgentComposerHandle | null>(null);
   const [category, setCategory] = useState<HomeAgentCategory>('poster');
-  const [categoryOpen, setCategoryOpen] = useState(false);
   const lastDesignCategoryRef = useRef<HomeAgentCategory>('poster');
-  const { isZh, isJa } = resolveHeroLang(
-    i18n.resolvedLanguage || i18n.language || ''
-  );
 
-  const setCategorySafe = (next: HomeAgentCategory) => {
-    if (next !== 'image' && next !== 'video') lastDesignCategoryRef.current = next;
-    setCategory(next);
-    setCategoryOpen(false);
-  };
-
-  /** Composer Image / Video mode ↔ hero category. */
   const onComposerCategoryChange = (next: HomeAgentCategory) => {
     if (next === 'image' || next === 'video') {
       setCategory(next);
@@ -57,92 +32,49 @@ function HomeHero({ onSubmit }: Props): ReactNode {
     setCategorySafe(lastDesignCategoryRef.current || 'poster');
   };
 
-  const activeCategory = useMemo(
-    () => CATEGORIES.find((c) => c.id === category) || CATEGORIES[0]!,
+  const setCategorySafe = (next: HomeAgentCategory) => {
+    if (next !== 'image' && next !== 'video') lastDesignCategoryRef.current = next;
+    setCategory(next);
+  };
+
+  const caseKeys = useMemo(
+    () => exampleChipKeysForCategory(caseCategoryFor(category)),
     [category]
   );
-  const categoryLabel = t(activeCategory.labelKey);
+
+  const casePrompt = (chipKey: string) => {
+    const long = t(`home.casePrompts.${chipKey}`, { defaultValue: '' });
+    if (long && !long.startsWith('home.casePrompts.')) return long;
+    return t(`home.chipPrompts.${chipKey}`);
+  };
 
   return (
-    <section className="relative mx-auto mb-8 flex w-full max-w-[820px] shrink-0 flex-col items-center self-center px-1 pb-2 pt-[160px] text-center sm:mb-12 md:mb-[65px] md:pt-[190px]">
-      <div className="mb-8 flex w-full flex-col items-center">
-        <h1
-          className={cn(
-            'inline-flex flex-wrap items-center justify-center gap-x-[0.35em] gap-y-2 font-semibold text-[var(--ink)]',
-            'text-[26px] leading-[1.35] tracking-[-0.01em] sm:text-[30px]',
-            (isZh || isJa) && 'tracking-[0.02em]'
-          )}
-          style={{ fontFamily: 'var(--font-hero)' }}
-        >
-          <span className="inline-flex flex-wrap items-center justify-center gap-x-[0.2em]">
-            <span>{t('home.heroGeneratePrefix')}</span>
-            <Dropdown
-              trigger="click"
-              placement="bottom"
-              strategy="fixed"
-              open={categoryOpen}
-              onOpenChange={setCategoryOpen}
-              items={[]}
-              floatingClassName="z-[70]"
-              referenceClassName="inline-flex"
-              popupRender={() => (
-                <DropdownPanel className="min-w-[9.5rem] p-1.5">
-                  {CATEGORIES.map(({ id, labelKey }) => (
-                    <DropdownPanelItem
-                      key={id}
-                      selected={category === id}
-                      onClick={() => setCategorySafe(id)}
-                    >
-                      {t(labelKey)}
-                    </DropdownPanelItem>
-                  ))}
-                </DropdownPanel>
-              )}
-            >
-              <button
-                type="button"
-                aria-expanded={categoryOpen}
-                aria-haspopup="listbox"
-                aria-label={t('home.heroCategoryAria', { category: categoryLabel })}
-                className={cn(
-                  'inline-flex items-center gap-0.5 rounded-lg px-1 py-0.5 text-[var(--home-cta)] transition-colors',
-                  'hover:bg-[color-mix(in_srgb,var(--home-cta)_10%,transparent)]',
-                  categoryOpen && 'bg-[color-mix(in_srgb,var(--home-cta)_12%,transparent)]'
-                )}
-              >
-                <span>{categoryLabel}</span>
-                <HiChevronDown
-                  className={cn(
-                    'h-[0.7em] w-[0.7em] shrink-0 transition-transform',
-                    categoryOpen && 'rotate-180'
-                  )}
-                  strokeWidth={2.25}
-                  aria-hidden
-                />
-              </button>
-            </Dropdown>
-          </span>
-          <span>{t('home.heroGenerateSuffix')}</span>
-        </h1>
-        <p
-          className={cn(
-            'mt-3 max-w-[36rem] text-[14px] leading-[1.55] text-[var(--muted)] sm:text-[15px]',
-            (isZh || isJa) && 'tracking-[0.02em]'
-          )}
-          data-home-hero-subtitle=""
-        >
-          {t('home.heroSubtitle')}
-        </p>
+    <section className="home-hero-chat relative mx-auto flex w-full max-w-[820px] flex-col items-center">
+      <h1 className="mb-8 text-center text-[clamp(1.5rem,4vw,1.875rem)] font-normal tracking-[-0.02em] text-[var(--ink)]">
+        {t('home.heroStartTitle')}
+      </h1>
+
+      <div className="home-hero-chat__composer w-full">
+        <HomeAgentComposer
+          ref={composerRef}
+          category={category}
+          onCategoryChange={onComposerCategoryChange}
+          onSubmit={onSubmit}
+          className="rounded-[18px] !ring-0 focus-within:!ring-0"
+        />
       </div>
 
-      <div className="rcb-home-composer-glow relative mx-auto w-full max-w-[760px]">
-        <div className="relative z-[1] text-left">
-          <HomeAgentComposer
-            category={category}
-            onCategoryChange={onComposerCategoryChange}
-            onSubmit={onSubmit}
-          />
-        </div>
+      <div className="mt-5 grid w-full grid-cols-3 gap-2.5">
+        {caseKeys.map((chipKey) => (
+          <button
+            key={`${category}:${chipKey}`}
+            type="button"
+            onClick={() => composerRef.current?.applyExampleChip(chipKey)}
+            className="home-hero-chat__case"
+          >
+            <span className="line-clamp-[8]">{casePrompt(chipKey)}</span>
+          </button>
+        ))}
       </div>
     </section>
   );

@@ -527,6 +527,12 @@ def _ensure_seed_models(session: Any) -> None:
         limits_json = _serialize_image_limits(seed_limits)
         if row:
             # Existing row is Admin-owned: only fill empty icon / description / limits.
+            seed_api = str(m.get('api_model') or '').strip()
+            cur_api = (row.api_model or '').strip()
+            if seed_api and cur_api != seed_api and (not cur_api or cur_api == row.id):
+                row.api_model = seed_api
+                row.updated_at = now
+                session.add(row)
             cur_icon = (row.icon_key or '').strip()
             if not cur_icon and m.get('icon_key'):
                 row.icon_key = m['icon_key']
@@ -666,6 +672,38 @@ def get_model(model_id: str) -> dict[str, Any] | None:
     with Session(engine) as session:
         row = crud.get_llm_model(session=session, model_id=mid)
     return _pub(row) if row else None
+
+
+def _seed_api_model(catalog_id: str) -> str | None:
+    """Official seed ``api_model`` for a catalog id (None when unknown)."""
+    mid = (catalog_id or '').strip()
+    if not mid:
+        return None
+    for m in _SEED:
+        if m.get('id') == mid:
+            api = str(m.get('api_model') or '').strip()
+            return api or None
+    return None
+
+
+def resolve_catalog_api_model(catalog_id: str) -> str:
+    """Map catalog id → provider endpoint id (unfiltered by BYOK unlock).
+
+    ``list_*_models`` may hide rows when a provider key is missing; generation
+    must still resolve ``doubao-seedream-5-0-lite`` → ``doubao-seedream-5-0-260128``.
+    """
+    mid = (catalog_id or '').strip()
+    if not mid:
+        return ''
+    seed_api = _seed_api_model(mid)
+    row = get_model(mid)
+    if row:
+        api = str(row.get('apiModel') or '').strip()
+        if api and api != mid:
+            return api
+    if seed_api:
+        return seed_api
+    return mid
 
 
 def upsert_model(payload: dict[str, Any]) -> dict[str, Any]:

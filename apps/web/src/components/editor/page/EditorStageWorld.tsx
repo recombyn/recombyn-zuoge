@@ -15,11 +15,13 @@ import {
   FrameMoveFeature,
   HtmlArtboardFrame,
   getSharedNodeEls,
+  shapeHostRevealsOverflow,
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
+import GeneratorJobRecoveryHost from '@/components/editor/nodes/shared/GeneratorJobRecoveryHost';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
 import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
 import { CommercialEditorHosts } from '@/commercial/editorHosts';
@@ -37,7 +39,6 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
 import {
   stackZIndex,
-  updateNodesInDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
   smartSnapThreshold,
@@ -63,6 +64,7 @@ import {
   addArtboardFrame,
   renameArtboardFrame,
   setActiveFrameId,
+  setFrameChromeMode,
   setActiveTool,
   setCanvasMeta,
   setSelectedNodeIds,
@@ -75,7 +77,11 @@ import { canvasFillToDocumentMeta } from './EditorBottomHud';
 import type { RootState } from '@/store';
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
-import { applyFrameContentClip } from '@/components/rcb/frames/frameContentClip';
+import { syncFrameContentClip } from '@/components/rcb/frames/frameContentClip';
+import {
+  bindUnownedNodesToFrames,
+  shouldCoMoveNodeWithFrames,
+} from '@/components/rcb/frames/frameNodeBinding';
 import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 
 const EDITOR_PAN_BLOCK_SELECTOR = [
@@ -207,6 +213,7 @@ function nodeIdsOverlappingFrames(
   doc: SceneDocument,
   movedFrames: Array<{ id: string; startX: number; startY: number; width: number; height: number }>
 ) {
+  const movedFrameIds = new Set(movedFrames.map((frame) => frame.id));
   const frameBoxes = movedFrames.map((frame) => ({
     id: frame.id,
     box: {
@@ -220,36 +227,18 @@ function nodeIdsOverlappingFrames(
   for (const [nodeId, node] of Object.entries(doc.deltaSetLike || {})) {
     if (!node || nodeId === 'ROOT') continue;
     const box = nodeBox(node);
-    if (frameBoxes.some(({ box: fb }) => boxesIntersect(box, fb))) out.push(nodeId);
+    const nodeRect = { left: box.x, top: box.y, width: box.width, height: box.height };
+    const matched = frameBoxes.some(({ box: fb }) =>
+      shouldCoMoveNodeWithFrames(node, nodeRect, movedFrameIds, {
+        left: fb.x,
+        top: fb.y,
+        width: fb.width,
+        height: fb.height,
+      })
+    );
+    if (matched) out.push(nodeId);
   }
   return out;
-}
-
-function bindUnownedNodesToFrames(doc: SceneDocument, frameIds: string[]): SceneDocument {
-  const frames = (doc.frames || []).filter((frame) => frameIds.includes(String(frame.id)));
-  if (!frames.length) return doc;
-  const patches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
-  const nodes = Object.values(doc.deltaSetLike || {});
-  for (const node of nodes) {
-    if (!node?.id || node.id === 'ROOT' || String(node.attrs?.frameId || '').trim()) continue;
-    const frame = frames.find((item) => boxesIntersect(nodeBox(node), frameBox(item)));
-    if (!frame) continue;
-    const siblings = nodes
-      .filter((item) => String(item?.attrs?.frameId || '').trim() === String(frame.id))
-      .map((item) => Number(item?.attrs?.frameOrder))
-      .filter(Number.isFinite);
-    patches.push({
-      nodeId: String(node.id),
-      patch: {
-        attrs: {
-          ...(node.attrs || {}),
-          frameId: String(frame.id),
-          frameOrder: siblings.length ? Math.max(...siblings) + 1 : 0,
-        },
-      },
-    });
-  }
-  return patches.length ? updateNodesInDocument(doc, patches) : doc;
 }
 
 /** Node highlight / operation label / AI cursor — world overlay, not SceneDocument. */
@@ -318,15 +307,14 @@ function canvasDiffuseMeshGradient(
 function frameLabelInteractionProps(
   frameId: string,
   isDevMode: boolean,
-  selectedFrameIds: string[],
   handlers: {
-    onSelectFrame: (id: string) => void;
+    onSelectFrame: (id: string, opts?: { chrome?: 'soft' | 'full' }) => void;
     onRenameFrame: (id: string, name: string, options?: { skipHistory?: boolean }) => void;
     onMoveFrame: (
       id: string,
       x: number,
       y: number,
-      opts?: { skipGrid?: boolean }
+      opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }
     ) => void;
     onFrameMoveStart: (id: string) => void;
     onFrameMoveEnd: () => void;
@@ -342,14 +330,16 @@ function frameLabelInteractionProps(
     };
   }
   return {
-    onSelect: () => {
-      if (!selectedFrameIds.includes(frameId)) handlers.onSelectFrame(frameId);
-    },
+    // Title click always promotes to full chrome (toolbar + handles + drag).
+    onSelect: () => handlers.onSelectFrame(frameId, { chrome: 'full' }),
     onRename: (name: string, options?: { skipHistory?: boolean }) =>
       handlers.onRenameFrame(frameId, name, options),
-    onMove: (x: number, y: number, opts?: { skipGrid?: boolean }) =>
+    onMove: (x: number, y: number, opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }) =>
       handlers.onMoveFrame(frameId, x, y, opts),
-    onMoveStart: () => handlers.onFrameMoveStart(frameId),
+    onMoveStart: () => {
+      handlers.onSelectFrame(frameId, { chrome: 'full' });
+      handlers.onFrameMoveStart(frameId);
+    },
     onMoveEnd: handlers.onFrameMoveEnd,
   };
 }
@@ -375,6 +365,7 @@ type Props = {
   sceneReloadToken: number;
   documentPatchToken: number;
   lastPatchedNodeIds: string[];
+  lastPatchTransformOnly: boolean;
   selectedNodeId: string | null;
   selectedNodeIds: string[];
   selectedFrameIds: string[];
@@ -415,6 +406,7 @@ function EditorStageWorld({
   sceneReloadToken,
   documentPatchToken,
   lastPatchedNodeIds,
+  lastPatchTransformOnly,
   selectedNodeId,
   selectedNodeIds,
   selectedFrameIds,
@@ -435,6 +427,12 @@ function EditorStageWorld({
   const dispatch = useDispatch();
   const aiOperationState = useSelector(
     (state: RootState) => state.editor.aiOperationState
+  );
+  const frameChromeMode = useSelector(
+    (state: RootState) => state.editor.frameChromeMode as 'soft' | 'full'
+  );
+  const activeFrameId = useSelector(
+    (state: RootState) => state.editor.document?.activeFrameId as string | null
   );
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
   const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
@@ -461,7 +459,7 @@ function EditorStageWorld({
   );
 
   const onMoveFrame = useCallback(
-    (id: string, x: number, y: number, opts?: { skipGrid?: boolean }) => {
+    (id: string, x: number, y: number, opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }) => {
       const frame = frames.find((f) => f.id === id);
       const dragState = frameDragRef.current;
       const dragged = dragState?.frames.find((item) => item.id === id);
@@ -519,6 +517,7 @@ function EditorStageWorld({
         dy: rawDy,
         disableSnap: false,
         gridSize: opts?.skipGrid ? 0 : gridSize,
+        axisLock: opts?.axisLock,
         targets: smartGuideTargetsForDrag({
           document,
           listNodeIds,
@@ -585,8 +584,9 @@ function EditorStageWorld({
           });
           const previewNode = { ...node, x: left, y: top };
           if (el.ownerSVGElement) {
-            applyFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
+            syncFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
               zoom: camera.zoom,
+              revealOverflow: shapeHostRevealsOverflow(origin.nodeId),
             });
           }
         }
@@ -597,8 +597,9 @@ function EditorStageWorld({
           if (!node || !el.ownerSVGElement) continue;
           const moved = childPatches.find((patch) => patch.nodeId === nodeId)?.patch;
           const previewNode = moved ? { ...node, ...moved } : node;
-          applyFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
+          syncFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
             zoom: camera.zoom,
+            revealOverflow: shapeHostRevealsOverflow(nodeId),
           });
         }
         for (const moved of movedFrames) {
@@ -695,8 +696,9 @@ function EditorStageWorld({
   }, [dispatch, document]);
 
   const onSelectFrame = useCallback(
-    (id: string) => {
+    (id: string, opts?: { chrome?: 'soft' | 'full' }) => {
       dispatch(setActiveFrameId(id));
+      dispatch(setFrameChromeMode(opts?.chrome === 'soft' ? 'soft' : 'full'));
     },
     [dispatch]
   );
@@ -735,6 +737,7 @@ function EditorStageWorld({
     canvasBgOpen && canvasFillValue.fillType === 'diffuse';
   const showFrameToolbar =
     !isDevMode &&
+    frameChromeMode === 'full' &&
     selectedFrames.length >= 1 &&
     selectedNodeIds.length === 0 &&
     Boolean(selectedFrameBox) &&
@@ -771,7 +774,16 @@ function EditorStageWorld({
               key={`body-${frame.id}`}
               frame={frame}
               zIndex={stackZIndex(document, 'frame', frame.id)}
-              selected={!isDevMode && selectedFrameIds.includes(frame.id)}
+              selected={
+                !isDevMode &&
+                frameChromeMode === 'full' &&
+                selectedFrameIds.includes(frame.id)
+              }
+              highlighted={
+                !isDevMode &&
+                frameChromeMode === 'soft' &&
+                (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))
+              }
               layer="body"
               aiGenerating={frameShowsAiOverlay(frame, aiOperationState)}
             />
@@ -783,12 +795,16 @@ function EditorStageWorld({
           reloadToken={sceneReloadToken}
           documentPatchToken={documentPatchToken}
           lastPatchedNodeIds={lastPatchedNodeIds}
+          lastPatchTransformOnly={lastPatchTransformOnly}
           selectedNodeId={selectedNodeId}
           selectedNodeIds={selectedNodeIds}
           onZoomIn={onZoomIn}
           onZoomOut={onZoomOut}
           onReady={onCanvasReady}
           onTransformingChange={setSelectionTransforming}
+          onFrameMoveStart={onFrameMoveStart}
+          onFrameMoveEnd={onFrameMoveEnd}
+          onFrameMove={onMoveFrame}
           embedded
           stageEl={stageEl}
           onOpenAgent={onOpenAgent}
@@ -822,6 +838,7 @@ function EditorStageWorld({
         <SmartGuidesOverlay guides={frameSmartGuides} />
 
         <ImageProcessWatcher />
+        <GeneratorJobRecoveryHost />
         <ImageToolPanelHost document={document} />
         <ShapeStylePanelHost document={document} />
         <CropExpandSessionHost document={document} />
@@ -854,13 +871,24 @@ function EditorStageWorld({
             <HtmlArtboardFrame
               key={`label-${frame.id}`}
               frame={frame}
-              selected={!isDevMode && selectedFrameIds.includes(frame.id)}
+              selected={
+                !isDevMode &&
+                frameChromeMode === 'full' &&
+                selectedFrameIds.includes(frame.id)
+              }
+              highlighted={
+                !isDevMode &&
+                frameChromeMode === 'soft' &&
+                (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))
+              }
               hideTitle={
                 isDevMode ||
                 movingFrameId === frame.id ||
-                (selectionTransforming && selectedFrameIds.includes(frame.id))
+                (selectionTransforming &&
+                  frameChromeMode === 'full' &&
+                  selectedFrameIds.includes(frame.id))
               }
-              {...frameLabelInteractionProps(frame.id, isDevMode, selectedFrameIds, {
+              {...frameLabelInteractionProps(frame.id, isDevMode, {
                 onSelectFrame,
                 onRenameFrame,
                 onMoveFrame,

@@ -112,7 +112,7 @@ export default defineConfig(({ mode }) => {
         'nuqs',
         'nuqs/adapters/react-router/v6',
       ],
-      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', '@ffmpeg/core', '@orpc/server'],
+      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util', '@ffmpeg/core', '@orpc/server', '@recombyn/contracts'],
     },
     assetsInclude: ['**/*.wasm'],
     server: {

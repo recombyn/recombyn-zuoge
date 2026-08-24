@@ -21,6 +21,9 @@ import {
   nodeHitsMarquee,
   resolveMarqueeCandidates,
   makeDragSeed,
+  shiftConstrainedMoveDelta,
+  resolveMoveAxisLock,
+  constrainMoveDelta,
   visualGuideBoxForNode,
 } from '../selectionLogic';
 import { segmentIntersectsAabb } from '@/components/rcb/scene/document/sceneShapes';
@@ -115,6 +118,107 @@ describe('selectionLogic marquee helpers', () => {
     );
   });
 
+  it('nodeHitsMarquee ignores frame-clipped overflow for filled path like rect', () => {
+    // Frame 0..200; path geom overflows to x=400. Marquee sits entirely outside the frame.
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 800,
+      frames: [{ id: 'f1', x: 0, y: 0, width: 200, height: 400, clipContent: true }],
+      deltaSetLike: {
+        clippedPath: {
+          id: 'clippedPath',
+          key: 'shape',
+          x: 50,
+          y: 50,
+          width: 350,
+          height: 200,
+          attrs: {
+            shapeType: 'path',
+            closed: 'true',
+            path: 'M 0 0 L 350 0 L 350 200 L 0 200 Z',
+            frameId: 'f1',
+          },
+          children: [],
+        },
+        clippedRect: {
+          id: 'clippedRect',
+          key: 'shape',
+          x: 50,
+          y: 50,
+          width: 350,
+          height: 200,
+          attrs: { shapeType: 'rect', frameId: 'f1' },
+          children: [],
+        },
+      },
+    } as SceneDocument;
+    const getNodeBox = (id: string) => {
+      const n = doc.deltaSetLike?.[id];
+      if (!n) return null;
+      return {
+        left: Number(n.x) || 0,
+        top: Number(n.y) || 0,
+        width: Math.max(1, Number(n.width) || 1),
+        height: Math.max(1, Number(n.height) || 1),
+      };
+    };
+    const outsideMarquee = { left: 250, top: 80, width: 40, height: 120 };
+    const toScene = () => ({ x: 0, y: 0 });
+    expect(nodeHitsMarquee(doc, 'clippedRect', outsideMarquee, getNodeBox, toScene, 1)).toBe(
+      false
+    );
+    expect(nodeHitsMarquee(doc, 'clippedPath', outsideMarquee, getNodeBox, toScene, 1)).toBe(
+      false
+    );
+    // Brushing the still-visible remnant inside the frame still selects both.
+    const insideMarquee = { left: 60, top: 60, width: 80, height: 80 };
+    expect(nodeHitsMarquee(doc, 'clippedRect', insideMarquee, getNodeBox, toScene, 1)).toBe(true);
+    expect(nodeHitsMarquee(doc, 'clippedPath', insideMarquee, getNodeBox, toScene, 1)).toBe(true);
+  });
+
+  it('nodeHitsMarquee ignores bound nodes from an adjacent artboard', () => {
+    const doc = {
+      frames: [
+        { id: 'left', x: 0, y: 0, width: 200, height: 200, clipContent: true },
+        { id: 'right', x: 300, y: 0, width: 200, height: 200, clipContent: true },
+      ],
+      deltaSetLike: {
+        img: {
+          id: 'img',
+          key: 'image',
+          x: 50,
+          y: 50,
+          width: 400,
+          height: 400,
+          attrs: { frameId: 'left', src: 'https://example.com/a.png' },
+          children: [],
+        },
+      },
+    } satisfies Partial<SceneDocument> as SceneDocument;
+    const getNodeBox = (id: string) => {
+      const n = doc.deltaSetLike?.[id];
+      if (!n) return null;
+      return {
+        left: Number(n.x) || 0,
+        top: Number(n.y) || 0,
+        width: Math.max(1, Number(n.width) || 1),
+        height: Math.max(1, Number(n.height) || 1),
+      };
+    };
+    const rightMarquee = { left: 320, top: 20, width: 160, height: 160 };
+    expect(nodeHitsMarquee(doc, 'img', rightMarquee, getNodeBox, () => ({ x: 0, y: 0 }), 1)).toBe(
+      false
+    );
+    const leftMarquee = { left: 20, top: 20, width: 160, height: 160 };
+    expect(nodeHitsMarquee(doc, 'img', leftMarquee, getNodeBox, () => ({ x: 0, y: 0 }), 1)).toBe(
+      true
+    );
+    const filtered = filterMarqueeContentHits(doc, ['img'], new Set(), rightMarquee);
+    expect(filtered).toEqual([]);
+  });
+
   it('nodeHitsMarquee skips locked nodes of every kind (框选)', () => {
     const kinds = [
       { id: 'rect1', key: 'shape', attrs: { shapeType: 'rect', locked: 'true' } },
@@ -204,7 +308,7 @@ describe('selectionLogic marquee helpers', () => {
 
     const filtered = filterMarqueeContentHits(doc, ['n1', 'n2', 'n3', 'n4'], new Set(['f1']));
     expect(filtered).toContain('n1');
-    expect(filtered).not.toContain('n3');
+    expect(filtered).toContain('n3');
     expect(filtered).toContain('n4');
     expect(Array.isArray(filtered)).toBe(true);
 
@@ -225,7 +329,7 @@ describe('selectionLogic marquee helpers', () => {
         selected.frames = frames;
       },
     });
-    expect(selected.frames).toEqual([]);
+    expect(selected.frames).toEqual(['f1']);
     expect(selected.nodes).toContain('n1');
 
     const emptyFrameSelection: { nodes: string[]; frames: string[] } = {
@@ -271,8 +375,77 @@ describe('selectionLogic marquee helpers', () => {
         multipleFrameSelection.frames = frames;
       },
     });
-    expect(multipleFrameSelection.nodes).toEqual([]);
+    expect(multipleFrameSelection.nodes).toEqual(['n1', 'n2']);
     expect(multipleFrameSelection.frames).toEqual(['f1', 'f2']);
+
+    const mixedFrameAndCanvas: { nodes: string[]; frames: string[] } = {
+      nodes: [],
+      frames: [],
+    };
+    commitMarqueeSelection({
+      contentHits: ['n3'],
+      frameHits: ['f1'],
+      rawHits: ['n1', 'n3', 'n4'],
+      shiftKey: false,
+      onSelectMixed: (nodes, frames) => {
+        mixedFrameAndCanvas.nodes = nodes;
+        mixedFrameAndCanvas.frames = frames;
+      },
+      onSelect: (nodes) => {
+        mixedFrameAndCanvas.nodes = nodes;
+      },
+      onSelectFrames: (frames) => {
+        mixedFrameAndCanvas.frames = frames;
+      },
+    });
+    expect(mixedFrameAndCanvas.nodes).toEqual(['n3']);
+    expect(mixedFrameAndCanvas.frames).toEqual(['f1']);
+
+    const framesPlusOutside: { nodes: string[]; frames: string[] } = {
+      nodes: [],
+      frames: [],
+    };
+    commitMarqueeSelection({
+      contentHits: ['n3'],
+      frameHits: ['f1', 'f2'],
+      rawHits: ['n3'],
+      shiftKey: false,
+      onSelectMixed: (nodes, frames) => {
+        framesPlusOutside.nodes = nodes;
+        framesPlusOutside.frames = frames;
+      },
+      onSelect: (nodes) => {
+        framesPlusOutside.nodes = nodes;
+      },
+      onSelectFrames: (frames) => {
+        framesPlusOutside.frames = frames;
+      },
+    });
+    expect(framesPlusOutside.nodes).toEqual(['n3']);
+    expect(framesPlusOutside.frames).toEqual(['f1', 'f2']);
+  });
+});
+
+describe('selectionLogic shift axis move', () => {
+  it('resolveMoveAxisLock picks dominant axis and keeps lock', () => {
+    expect(resolveMoveAxisLock(12, 3)).toBe('h');
+    expect(resolveMoveAxisLock(3, 12)).toBe('v');
+    expect(resolveMoveAxisLock(5, 5)).toBe('h');
+    expect(resolveMoveAxisLock(0, 0, 'v')).toBe('v');
+  });
+
+  it('constrainMoveDelta zeroes the cross axis', () => {
+    expect(constrainMoveDelta(10, 4, 'h')).toEqual({ dx: 10, dy: 0 });
+    expect(constrainMoveDelta(10, 4, 'v')).toEqual({ dx: 0, dy: 4 });
+  });
+
+  it('shiftConstrainedMoveDelta locks axis while Shift held', () => {
+    const drag: { moveAxisLock?: 'h' | 'v' } = {};
+    expect(shiftConstrainedMoveDelta(drag, 20, 5, true)).toEqual({ dx: 20, dy: 0 });
+    expect(drag.moveAxisLock).toBe('h');
+    expect(shiftConstrainedMoveDelta(drag, 20, 80, true)).toEqual({ dx: 20, dy: 0 });
+    expect(shiftConstrainedMoveDelta(drag, 20, 80, false)).toEqual({ dx: 20, dy: 80 });
+    expect(drag.moveAxisLock).toBeUndefined();
   });
 });
 
@@ -542,6 +715,33 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
     expect(Number.isInteger(visual.left)).toBe(true);
     expect(sdx).toBe(nextUnion.left - chrome.left);
     expect(Math.abs(sdx - 2.3)).toBeLessThan(0.6);
+  });
+
+  it('re-applies axis lock after smart snap nudge', () => {
+    const moving = { left: 0, top: 0, width: 40, height: 40 };
+    const { sdx, sdy } = computeMovedUnion({
+      union: moving,
+      origins: [{ nodeId: 'm', box: moving }],
+      document: {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        deltaSetLike: {
+          m: { id: 'm', key: 'rect', x: 0, y: 0, width: 40, height: 40, attrs: {}, children: [] },
+          s: { id: 's', key: 'rect', x: 200, y: 0, width: 100, height: 80, attrs: {}, children: [] },
+        },
+      } as SceneDocument,
+      dx: 50,
+      dy: 8,
+      disableSnap: false,
+      gridSize: 1,
+      axisLock: 'h',
+      targets: [{ left: 200, top: 0, width: 100, height: 80 }],
+      threshold: smartSnapThreshold(1),
+    });
+    expect(sdy).toBe(0);
+    expect(Math.abs(sdx)).toBeGreaterThan(0);
   });
 });
 

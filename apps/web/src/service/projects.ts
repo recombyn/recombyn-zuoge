@@ -133,6 +133,30 @@ export async function invalidateProjectsListCache() {
   });
 }
 
+/** Rename in sidebar — patch list cache only; do not refetch (avoids reordering 最近). */
+export function patchProjectNameInListCache(projectId: string, name: string) {
+  const id = String(projectId || '').trim();
+  if (!id) return;
+  const nextName = String(name || '').trim() || 'Untitled';
+  queryClient.setQueriesData(
+    { queryKey: apiQuery.projectsListMyProjects.key() },
+    (old: unknown) => {
+      if (!old || typeof old !== 'object') return old;
+      const data = old as { pages?: PaginatedProjects[]; pageParams?: unknown[] };
+      if (!Array.isArray(data.pages)) return old;
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          projects: (page.projects || []).map((p) =>
+            p.id === id ? { ...p, name: nextName } : p
+          ),
+        })),
+      };
+    }
+  );
+}
+
 /** Drop cached list on logout / 401 (avoid leaking another account's pages). */
 export function clearProjectsListCache() {
   queryClient.removeQueries({

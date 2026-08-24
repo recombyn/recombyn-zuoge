@@ -102,7 +102,7 @@ Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/s
 2. Fill triggers + `preferred_tools`  
 3. Restart / re-ensure seeds — Decide can attach it
 
-Private packs can also live under [`plugins/skills/`](plugins/skills/) (Compose-mounted). See [docs/skill-extensions.md](docs/skill-extensions.md).
+Extra skill packs can also live under [`plugins/skills/`](plugins/skills/) (Compose-mounted). See [docs/skill-extensions.md](docs/skill-extensions.md).
 
 Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models: [docs/self-hosting.md](docs/self-hosting.md).
 
@@ -199,8 +199,6 @@ npm run dev:collab           # Yjs WS on :1234 (optional; Vite DEV defaults coll
 npm run dev:web
 ```
 
-Commercial image capabilities (background removal, layer split, region marking, mockups, etc.): contact **702680355@qq.com**.
-
 Canvas Live / WSS setup: **[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
 
 ### Desktop (Tauri)
@@ -228,14 +226,14 @@ apps/web/          React canvas + Agent UI + Yjs client
   src-tauri/       Tauri v2 desktop shell (Recombyn)
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket server (y-websocket)
-plugins/           Private extensions (skills + canvas) — Compose-mounted
+plugins/           Extensions (skills + canvas) — Compose-mounted
 packages/          Shared builders & schemas
 docs/              self-hosting, agent-profile, plugins, desktop, canvas
 deploy/            Dockerfiles / Nginx
 e2e/               Playwright
 ```
 
-User-facing help **source** is private; CI publishes only the built static site to this repo’s `gh-pages` branch → [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/).
+User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) (published from this repo’s `gh-pages`).
 
 ## Documentation
 

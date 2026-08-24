@@ -10,7 +10,7 @@ export function parseMarkPinFromChip(
   payload: string,
   nodeW: number,
   nodeH: number,
-  sink: 'agent' | 'quickEdit' = 'agent'
+  sink: 'agent' | 'quickEdit' | 'imageGen' = 'agent'
 ): ImageMarkPin | null {
   const parts = String(chipKey || '').split(':');
   if (parts[0] !== 'mark' || parts.length < 3) return null;
@@ -96,7 +96,7 @@ export function buildMarkChipPayload(
 export function regionToMarkPin(
   nodeId: string,
   region: MarkRegion,
-  sink: 'agent' | 'quickEdit'
+  sink: 'agent' | 'quickEdit' | 'imageGen'
 ): ImageMarkPin {
   return {
     nodeId,

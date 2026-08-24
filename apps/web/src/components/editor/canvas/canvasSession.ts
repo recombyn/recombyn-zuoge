@@ -52,7 +52,7 @@ import {
 } from '@/components/rcb/scene/paint/sceneToSvg';
 import { patchNodesGeometry, sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import type { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
-import { getShapeHost, replaceShapePaint, type SvgBoardHandle } from '@/components/rcb';
+import { getShapeHost, replaceShapePaint, shapeHostRevealsOverflow, type SvgBoardHandle } from '@/components/rcb';
 import {
   rcbCenterOnPoint,
   rcbDefaultPlaceFontSize,
@@ -63,7 +63,8 @@ import {
   snapCoordToGrid,
 } from '@/components/rcb';
 import { parseFrameSelId } from '@/components/rcb/selection/frameSelectionIds';
-import { applyFrameContentClip } from '@/components/rcb/frames/frameContentClip';
+import { syncFrameContentClip } from '@/components/rcb/frames/frameContentClip';
+import { frameForNodeIntersectPlacement } from '@/components/rcb/frames/frameNodeBinding';
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 import type { createDragWriteCoalescer } from './dragWriteCoalescer';
 import type { ArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
@@ -248,13 +249,7 @@ function frameForNodePlacement(
   doc: SceneDocument,
   rect: { left: number; top: number; width: number; height: number }
 ) {
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  for (let index = frames.length - 1; index >= 0; index -= 1) {
-    const frame = frames[index];
-    if (!frame || frame.hidden || !rectIntersectsFrame(rect, frame)) continue;
-    return String(frame.id);
-  }
-  return null;
+  return frameForNodeIntersectPlacement(doc, rect);
 }
 
 /** Maintain one explicit artboard binding through node moves and resizes. */
@@ -887,8 +882,9 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           width: box.width,
           height: box.height,
         };
-        applyFrameContentClip(board.root, el, previewDocument, previewNode, {
+        syncFrameContentClip(board.root, el, previewDocument, previewNode, {
           zoom: deps.getZoom(),
+          revealOverflow: shapeHostRevealsOverflow(p.nodeId),
         });
       }
     });
@@ -912,7 +908,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         });
         const el = board.nodeEls.get(nodeId);
         if (el && board.root) {
-          applyFrameContentClip(board.root, el, previewDocument, after, { zoom: deps.getZoom() });
+          syncFrameContentClip(board.root, el, previewDocument, after, {
+            zoom: deps.getZoom(),
+            revealOverflow: shapeHostRevealsOverflow(nodeId),
+          });
         }
       }
     }

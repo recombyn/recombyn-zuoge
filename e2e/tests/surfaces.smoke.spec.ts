@@ -46,16 +46,10 @@ async function dismissBlockingDialogs(page: Page) {
 }
 
 test.describe('surfaces smoke (unauthed)', () => {
-  test('auth login shell opens from Me / account', async ({ page }) => {
-    await page.goto('/home', { waitUntil: 'domcontentloaded' });
+  test('auth login shell opens from home login entry', async ({ page }) => {
+    // Guest login is routed via ?login=1 (sidebar footer navigates here too).
+    await page.goto('/home?login=1', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(/\/home/);
-    await expect(page.locator('body')).toBeVisible();
-    // Guest home may paint without a modal — open account to force auth shell.
-    const me = page.getByRole('button', { name: /^Me$|^我的$|Account|账户|账号/i }).first();
-    if (await me.isVisible({ timeout: 8_000 }).catch(() => false)) {
-      await me.click({ force: true });
-      await sleep(400);
-    }
     const loginHeading = page.getByRole('heading', { name: /Log in|登录|Sign up|注册/i }).first();
     const getCode = page.getByRole('button', { name: /Get code|获取验证码|发送验证码/i }).first();
     const emailPh = page.getByPlaceholder(/Email|邮箱/i).first();
@@ -79,7 +73,7 @@ test.describe('surfaces smoke (authed)', () => {
     await page.waitForURL(/\/home/, { timeout: 60_000 });
     await dismissBlockingDialogs(page);
     await expect(
-      page.getByRole('heading', { name: /Recent projects|最近/i }).first()
+      page.getByRole('heading', { name: /Recent|最近/i }).first()
     ).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: /New project|新建/i }).first()).toBeVisible({
       timeout: 15_000,
@@ -99,7 +93,7 @@ test.describe('surfaces smoke (authed)', () => {
     }
   });
 
-  test('nav: projects + me shells paint', async ({ page }) => {
+  test('nav: home rail tabs paint', async ({ page }) => {
     await page.goto('/home', { waitUntil: 'domcontentloaded' });
     await dismissBlockingDialogs(page);
 
@@ -109,9 +103,9 @@ test.describe('surfaces smoke (authed)', () => {
     await sleep(600);
     await expect(page.locator('body')).toBeVisible();
 
-    const meNav = page.getByRole('button', { name: /^Me$|^我的$/i }).first();
-    await expect(meNav).toBeVisible({ timeout: 15_000 });
-    await meNav.click({ force: true });
+    const skillsNav = page.getByRole('button', { name: /^Skills$|^技能/i }).first();
+    await expect(skillsNav).toBeVisible({ timeout: 15_000 });
+    await skillsNav.click({ force: true });
     await sleep(600);
     await expect(page.locator('body')).toBeVisible();
   });

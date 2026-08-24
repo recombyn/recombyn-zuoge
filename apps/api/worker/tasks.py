@@ -18,6 +18,7 @@ _EXPORT_KIND = "export"
 _IMAGE_KIND = "image"
 _VIDEO_KIND = "video"
 _AUDIO_KIND = "audio"
+_LOTTIE_KIND = "lottie"
 _DESIGN_AGENT_KIND = "design_agent"
 _JOB_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 
@@ -569,6 +570,35 @@ def run_chat_audio_job(self, job_id: str) -> dict:
         )
 
     return _run_chat_media_job(self, job_id, kind=_AUDIO_KIND, execute=_execute)
+
+
+@celery.task(
+    name="worker.tasks.run_chat_lottie_job",
+    bind=True,
+    autoretry_for=_JOB_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_chat_lottie_job(self, job_id: str) -> dict:
+    """Fill POST /chat/lottie/jobs via lottie LLM hydrate (ADR 0005)."""
+
+    async def _execute(job: dict) -> dict:
+        from app.api.routes.chat_lottie_jobs import execute_lottie_generate
+
+        return await execute_lottie_generate(
+            str(job.get("user_id") or ""),
+            prompt=str(job.get("prompt") or ""),
+            width=int(job.get("width") or 200),
+            height=int(job.get("height") or 200),
+            duration_sec=float(job.get("duration_sec") or 3.0),
+            model_id=job.get("model"),
+            images=job.get("images") if isinstance(job.get("images"), list) else None,
+            credits_charged=int(job.get("credits_charged") or 0),
+        )
+
+    return _run_chat_media_job(self, job_id, kind=_LOTTIE_KIND, execute=_execute)
 
 
 @celery.task(name="worker.tasks.run_db_backup_job")

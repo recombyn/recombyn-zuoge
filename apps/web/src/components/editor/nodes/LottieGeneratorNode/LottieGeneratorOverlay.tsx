@@ -24,13 +24,10 @@ export type LottieGenGeomOverride = {
  */
 function LottieGeneratorOverlay({
   document,
-  hidden,
   readOnly,
   geometryOverrides = null,
 }: {
   document: SceneDocument;
-  /** Hide while move / resize / rotate is in progress. */
-  hidden?: boolean;
   readOnly?: boolean;
   geometryOverrides?: Record<string, LottieGenGeomOverride> | null;
 }): ReactNode {
@@ -45,10 +42,7 @@ function LottieGeneratorOverlay({
   if (!ids.length) return null;
 
   return (
-    <div
-      className={hidden ? 'pointer-events-none invisible' : undefined}
-      aria-hidden={hidden || undefined}
-    >
+    <div>
       {ids.map((nodeId) => {
         const node = document?.deltaSetLike?.[nodeId];
         if (!node) return null;
@@ -68,7 +62,6 @@ function LottieGeneratorOverlay({
             }}
             showComposer={shouldShowGeneratorComposer({
               node,
-              hidden,
               selected: selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId,
             })}
             disabled={readOnly}

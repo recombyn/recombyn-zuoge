@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { RcbOverlayPortal, useRcbCamera, rcbSceneToScreen } from '@/components/rcb';
 import type { ImageMarkPin, ImageToolPanelState } from '@/store/modules/editor';
+import { setHoveredMarkPin } from '@/store/modules/editor';
 import type { RootState } from '@/store';
 import store from '@/store';
 import MarkPromptBar from './MarkPromptBar';
@@ -23,11 +24,12 @@ function MarkPinOverlay({
   const dispatch = useDispatch();
   const camera = useRcbCamera();
   const hoveredMarkPin = useSelector((s: RootState) => s.editor.hoveredMarkPin);
-  const isChipHovered =
-    hoveredMarkPin?.nodeId === nodeId && hoveredMarkPin?.pinId === pin.id;
-  const z = Math.max(0.05, camera.zoom || 1);
   const [expanded, setExpanded] = useState(false);
   const [promptText, setPromptText] = useState('');
+  const isChipHovered =
+    hoveredMarkPin?.nodeId === nodeId && hoveredMarkPin?.pinId === pin.id;
+  const showRegionEcho = isChipHovered && !expanded;
+  const z = Math.max(0.05, camera.zoom || 1);
 
   useEffect(() => {
     setExpanded(false);
@@ -49,9 +51,10 @@ function MarkPinOverlay({
   const stageW = Math.max(1, imageBox.width * z);
   const stageH = Math.max(1, imageBox.height * z);
   const chrome = markRegionChrome({
-    pinned: !expanded,
+    pinned: !expanded && !showRegionEcho,
     expanded,
-    badgeOnly: !expanded && !isChipHovered,
+    hovered: showRegionEcho,
+    badgeOnly: !expanded && !showRegionEcho,
   });
   const promptStyle = useMemo(
     () => markPromptFixedStyle(camera, imageBox, pin),
@@ -111,6 +114,19 @@ function MarkPinOverlay({
           onPointerDown={(e) => {
             e.stopPropagation();
             e.nativeEvent.stopImmediatePropagation?.();
+          }}
+          onPointerEnter={() => {
+            dispatch(setHoveredMarkPin({ nodeId, pinId: pin.id }));
+          }}
+          onPointerLeave={(e) => {
+            const next = e.relatedTarget;
+            if (
+              next instanceof Element &&
+              next.closest('[data-mark-chip="1"], [data-mark-pin-overlay]')
+            ) {
+              return;
+            }
+            dispatch(setHoveredMarkPin(null));
           }}
           onClick={(e) => {
             e.stopPropagation();

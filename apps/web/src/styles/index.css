@@ -19,6 +19,7 @@
     --on-brand: #ffffff;
     --switch-on: #141414;
     --home-cta: #3370ff;
+    --color-shadow-overlay: rgba(0, 0, 0, 0.55);
     --font-sans: 'Alibaba PuHuiTi', '阿里巴巴普惠体', 'PingFang SC', 'Microsoft YaHei',
       'Noto Sans SC', system-ui, sans-serif;
     /* Hero — clean UI sans (Lovart-style); EN + CJK share one stack */
@@ -119,37 +120,85 @@ html.rcb-theme-switching *::after {
   background: var(--surface);
 }
 
-/* Home — solid fill; soft pastel glow lives on `.rcb-home-composer-glow`. */
+/* Home — unified #FCFCFC canvas */
 .rcb-home-hero-canvas {
-  --home-cta: #3370ff;
-  background-color: #ffffff;
+  --home-cta: #2563eb;
+  --home-hero-border: rgba(15, 23, 42, 0.07);
+  --home-hero-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 20px 50px -24px rgba(15, 23, 42, 0.14);
+  background-color: #fcfcfc;
   background-image: none;
+}
+
+.rcb-home-hero-canvas main {
+  background-color: #fcfcfc;
 }
 
 html[data-theme='dark'] .rcb-home-hero-canvas {
   --home-cta: #5b8cff;
+  --home-hero-border: color-mix(in srgb, var(--ink) 12%, var(--line));
+  --home-hero-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.45);
   background-color: var(--canvas);
 }
 
-/* Soft multi-hue bloom behind the home chat card (MasterGo-style). */
-.rcb-home-composer-glow::before {
-  content: '';
-  position: absolute;
-  inset: -28% -18% -18%;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 55% 70% at 18% 55%, rgba(255, 176, 196, 0.45), transparent 70%),
-    radial-gradient(ellipse 50% 65% at 82% 40%, rgba(170, 200, 255, 0.5), transparent 68%),
-    radial-gradient(ellipse 45% 55% at 55% 90%, rgba(255, 210, 160, 0.35), transparent 70%);
-  filter: blur(28px);
+.home-hero-chat__composer {
+  height: 90px;
+  min-height: 90px;
+  max-height: 90px;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--home-hero-shadow);
+  outline: 1px solid var(--home-hero-border);
+  overflow: hidden;
 }
 
-html[data-theme='dark'] .rcb-home-composer-glow::before {
-  background:
-    radial-gradient(ellipse 55% 70% at 18% 55%, rgba(255, 120, 160, 0.18), transparent 70%),
-    radial-gradient(ellipse 50% 65% at 82% 40%, rgba(80, 130, 255, 0.22), transparent 68%),
-    radial-gradient(ellipse 45% 55% at 55% 90%, rgba(255, 170, 90, 0.12), transparent 70%);
+.home-hero-chat__case {
+  display: flex;
+  min-height: 132px;
+  flex-direction: column;
+  border-radius: 16px;
+  border: none;
+  background: color-mix(in srgb, var(--ink) 4%, var(--rail));
+  padding: 1rem 1.125rem;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.65;
+  color: color-mix(in srgb, var(--ink) 75%, var(--muted));
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.home-hero-chat__case:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--rail));
+  color: var(--ink);
+}
+
+.rcb-home-composer-glow::before {
+  display: none;
+}
+
+/* Home sidebar — edge-aligned scrollbar, always visible. */
+.rail-sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 18%, var(--rail)) transparent;
+}
+
+.rail-sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.rail-sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rail-sidebar-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--ink) 16%, var(--rail));
+}
+
+.rail-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ink) 24%, var(--rail));
 }
 
 .rcb-panel-tip {
@@ -260,6 +309,7 @@ html[data-theme='dark'] .rcb-home-composer-glow::before {
 
 /** Static fill while scaling/moving — avoids drift bloom exposing canvas below. */
 [data-rcb-selection-transforming='1'] [data-image-process-shimmer].rcb-soft-glow::before,
+[data-rcb-selection-transforming='1'] [data-artboard-process-shimmer].rcb-soft-glow::before,
 .rcb-soft-glow[data-rcb-glow-paused='1']::before {
   animation: none !important;
   transform: none !important;
@@ -348,57 +398,6 @@ html[data-theme='dark'] .rcb-soft-glow[data-glow='canvas'] {
   border-radius: 4px;
   background-color: #e8eaef;
   background-image: none;
-}
-
-/** Image process loading plate — soft drifting wash over content underneath. */
-.rcb-image-process-shimmer {
-  position: relative;
-  overflow: hidden;
-  background-color: transparent;
-}
-
-.rcb-image-process-shimmer::before {
-  content: '';
-  position: absolute;
-  inset: -45%;
-  pointer-events: none;
-  background-image:
-    radial-gradient(ellipse 42% 48% at 58% 38%, rgba(255, 255, 255, 0.22), transparent 70%),
-    radial-gradient(ellipse 38% 42% at 32% 68%, rgba(200, 220, 255, 0.16), transparent 72%);
-  animation: soft-glow-drift 7.5s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-/**
- * Artboard generating plate — fixed soft-glow (canvas) + drifting bloom.
- * Used in screen-space overlay so zoom does not enlarge the animation.
- */
-.rcb-artboard-process-shimmer {
-  position: relative;
-  overflow: hidden;
-  background-color: #eef2f7;
-}
-
-.rcb-artboard-process-shimmer::before {
-  content: '';
-  position: absolute;
-  inset: -45%;
-  pointer-events: none;
-  background-image:
-    radial-gradient(ellipse 42% 48% at 58% 38%, rgba(175, 200, 230, 0.55), transparent 70%),
-    radial-gradient(ellipse 38% 42% at 32% 68%, rgba(210, 225, 240, 0.35), transparent 72%);
-  animation: soft-glow-drift 7.5s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-html[data-theme='dark'] .rcb-artboard-process-shimmer {
-  background-color: #1a1e26;
-}
-
-html[data-theme='dark'] .rcb-artboard-process-shimmer::before {
-  background-image:
-    radial-gradient(ellipse 42% 48% at 58% 38%, rgba(120, 160, 210, 0.28), transparent 70%),
-    radial-gradient(ellipse 38% 42% at 32% 68%, rgba(150, 180, 220, 0.14), transparent 72%);
 }
 
 /** Legacy chat class — prefer SoftGlowSurface; keep drift if still referenced. */

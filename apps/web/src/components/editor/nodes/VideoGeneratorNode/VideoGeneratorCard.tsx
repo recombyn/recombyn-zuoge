@@ -1,82 +1,80 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
-import {
-  autoUpdate,
-  flip,
-  FloatingPortal,
-  offset,
-  shift,
-  useDismiss,
-  useFloating,
-  useInteractions,
-} from '@floating-ui/react';
-import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
-import { generateVideo, type ChatModelsResponse, type LlmModel } from '@/service/chat';
-import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { FloatingPortal } from '@floating-ui/react';
+import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown } from 'react-icons/hi2';
+import { generateVideo, createVideoJob, waitForVideoJob } from '@/service/chat';
+import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  rcbScreenPxToScene,
-  useRcbCamera,
-} from '@/components/rcb';
-import {
-  SELECTION_TOOLBAR_BELOW_BOX_GAP_PX,
   useChromePointerActivate,
+  useGeneratorComposerPlacement,
   WorldScreenChromeRoot,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
-  buildAttachRefMentionContext,
   chipBaseKey,
   composerAttachmentMediaKind,
-  parseAtMentionQuery,
-  stripTrailingAtQuery,
   upsertLibraryAssetAttachment,
   type AgentComposerHandle,
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
 import {
-  ComposerAttachmentChip,
-  composerAttachActionClass,
-} from '@/components/editor/panels/agent/composer/AgentComposerShell';
+  CanvasMediaComposerShell,
+  ComposerAttachmentStrip,
+  ComposerCanvasPickButton,
+  ComposerFooterActions,
+  ComposerFooterBar,
+  ComposerPromptRegion,
+} from '@/components/editor/panels/agent/composer/CanvasMediaComposerShell';
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/composer/MentionAttachPanel';
+import { useComposerSlashSkills } from '@/components/editor/panels/agent/composer/useComposerSlashSkills';
+import { useComposerMentionPanel } from '@/components/editor/panels/agent/composer/useComposerMentionPanel';
+import { useGeneratorModelsCatalog } from '@/components/editor/panels/agent/composer/useGeneratorModelsCatalog';
+import { insertMentionFromAttachment } from '@/components/editor/panels/agent/composer/composerMentionHelpers';
 import type { UserAsset } from '@/models/assets';
-import { AspectRatioGlyph } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
+import {
+  DEFAULT_VIDEO_ASPECT_RATIO,
+  DEFAULT_VIDEO_DURATION,
+  DEFAULT_VIDEO_RESOLUTION,
+  VideoSettingsPanel,
+} from '@/components/editor/panels/agent/shared/VideoSettingsPanel';
 import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/models/ModelPickerPanel';
-import { flyPickIntoImageComposer } from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import {
-  canAttachNodeToChat,
-  canvasAttachPickPayload,
-  clearImageProcessAttrs
-} from '@/components/rcb/scene/document/mediaLifecycle';
+  flyPickIntoComposer,
+  attachSelectionToComposer,
+  pickOrAttachFromCanvas,
+} from '@/components/editor/nodes/shared/composerCanvasAttach';
+import { readGenAttrString, readGenAttrDuration } from '@/components/editor/nodes/shared/generatorAttrs';
+import {
+  buildVideoGeneratorModelList,
+  nextVideoModelId,
+} from '@/components/editor/nodes/shared/generatorModelLists';
+import { finishGeneratorGenerateSession } from '@/components/editor/nodes/shared/finishGeneratorGenerate';
+import { pickVideoUrl } from '@/components/editor/nodes/shared/mediaProbe';
+import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
+import { registerGeneratorSession } from '@/components/editor/nodes/shared/generatorSessionRegistry';
 import {
   captureVideoPosterFrame
 } from '@/components/rcb/scene/document/nodeFactories';
-import {
-  expandSelectionWithGroups
-} from '@/components/rcb/scene/document/sceneGroups';
 import {
   clearCanvasAttachPick,
   consumePendingCanvasAttach,
   finishVideoGenerator,
   patchDocumentNode,
-  setDocumentFromCanvas,
   startCanvasAttachPick,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateVideoCredits } from '@/utils/imageCredits';
 import { uploadComposerAttachment, readFileAsDataUrl } from '@/utils/uploadImage';
-import { buildByokAwareModelList, DEFAULT_CLOUD_VIDEO_MODEL_ID, cloudVideoFallbackId } from '@/components/editor/panels/agent/llmModelMeta';
-import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
+import { cloudVideoFallbackId } from '@/components/editor/panels/agent/llmModelMeta';
 import store from '@/store';
 
 type Props = {
@@ -87,54 +85,6 @@ type Props = {
   showComposer?: boolean;
   disabled?: boolean;
 };
-
-const VIDEO_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
-const DEFAULT_VIDEO_ASPECT_RATIO: string = '16:9';
-
-const VIDEO_RESOLUTIONS = ['480p', '720p', '1080p'] as const;
-const DEFAULT_VIDEO_RESOLUTION: string = '720p';
-
-const VIDEO_DURATIONS = [4, 5, 6, 7, 8, 10, 12, 15] as const;
-const DEFAULT_VIDEO_DURATION = 5;
-
-function modelIsVideoGenerator(model?: Pick<LlmModel, 'kind' | 'id'> | null): boolean {
-  if (!model) return false;
-  if (model.kind === 'video') return true;
-  return /seedance/i.test(model.id || '');
-}
-
-/** Local desktop: BYOK only. Cloud/web: platform video catalog + BYOK. */
-function buildVideoGeneratorModelList(res?: {
-  models?: LlmModel[] | null;
-  videoModels?: LlmModel[] | null;
-} | null): LlmModel[] {
-  return buildByokAwareModelList({
-    byok: customProvidersAsModels(),
-    catalogs: [res?.models, res?.videoModels],
-    filter: (m) => modelIsVideoGenerator(m),
-  });
-}
-
-function nextVideoModelId(models: LlmModel[], currentId: string): string | null {
-  if (!models.length || models.some((m) => m.id === currentId)) return null;
-  if (!isDesktopLocal()) {
-    const preferred = models.find((m) => m.id === DEFAULT_CLOUD_VIDEO_MODEL_ID);
-    if (preferred) return preferred.id;
-  }
-  return models[0]?.id ?? null;
-}
-
-function readGenAttrString(attrs: Record<string, unknown> | null | undefined, key: string) {
-  const raw = attrs?.[key];
-  return typeof raw === 'string' && raw.trim() ? raw.trim() : '';
-}
-
-function readGenAttrDuration(attrs: Record<string, unknown> | null | undefined) {
-  const raw = attrs?.videoGenDuration;
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n)) return null;
-  return Math.max(4, Math.min(15, Math.round(n)));
-}
 
 /** Keep plate area; apply new aspect ratio; return size centered on current box. */
 function plateSizeForVideoAspect(
@@ -173,177 +123,6 @@ function plateSizeForVideoAspect(
   };
 }
 
-/** Attach currently selected canvas nodes/frames into the video composer (excl. host). */
-async function attachSelectionToVideoComposer(opts: {
-  hostNodeId: string;
-  landId: string;
-  document: SceneDocument;
-  selectedNodeIds: string[];
-  selectedFrameIds: string[];
-  existing: ComposerContext[];
-  setContexts: (
-    next: ComposerContext[] | ((prev: ComposerContext[]) => ComposerContext[])
-  ) => void;
-  insertChip: (ctx: ComposerContext) => void;
-}): Promise<boolean> {
-  const {
-    hostNodeId,
-    landId,
-    document: doc,
-    selectedNodeIds,
-    selectedFrameIds,
-    existing,
-    setContexts,
-    insertChip,
-  } = opts;
-  const seed = expandSelectionWithGroups(
-    doc,
-    (selectedNodeIds || []).filter((id) => id && id !== hostNodeId)
-  );
-  const attachable = seed.filter((id) => canAttachNodeToChat(doc?.deltaSetLike?.[id]));
-  const frameId = (selectedFrameIds || []).find(Boolean) || null;
-  if (!attachable.length && !frameId) return false;
-  const payload = canvasAttachPickPayload(attachable, frameId);
-  await flyPickIntoImageComposer({
-    landId,
-    document: doc,
-    payload,
-    existing,
-    setContexts,
-    insertChip,
-    imagesOnly: false,
-  });
-  return true;
-}
-
-/** Pill track shared by the resolution / duration rows. */
-function VideoSegmentedTrack({ children }: { children: ReactNode }): ReactNode {
-  return <div className="flex flex-wrap gap-1 rounded-xl bg-[var(--rail)] p-1">{children}</div>;
-}
-
-function VideoSegmentPill({
-  active,
-  disabled,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}): ReactNode {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      className={cn(
-        'flex min-w-[2.75rem] flex-1 items-center justify-center rounded-lg px-2 py-2 text-[12px] font-medium tabular-nums transition disabled:opacity-40',
-        active
-          ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
-          : 'bg-transparent text-[var(--muted)] hover:text-[var(--ink)]'
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Aspect chips + resolution + duration 鈥?video's answer to ImageAspectRatioPicker. */
-function VideoSettingsPanel({
-  aspectRatio,
-  resolution,
-  duration,
-  onAspectRatioChange,
-  onResolutionChange,
-  onDurationChange,
-  disabled,
-}: {
-  aspectRatio: string;
-  resolution: string;
-  duration: number;
-  onAspectRatioChange: (ratio: string) => void;
-  onResolutionChange: (resolution: string) => void;
-  onDurationChange: (duration: number) => void;
-  disabled?: boolean;
-}): ReactNode {
-  const { t } = useTranslation();
-  return (
-    <div className="space-y-4">
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">{t('agent.chooseRatio')}</p>
-        <div className="flex items-start justify-between gap-0.5 rounded-xl bg-[var(--rail)] p-1">
-          {VIDEO_ASPECT_RATIOS.map((ratio) => {
-            const active = aspectRatio === ratio;
-            return (
-              <button
-                key={ratio}
-                type="button"
-                disabled={disabled}
-                title={ratio}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAspectRatioChange(ratio);
-                }}
-                className={cn(
-                  'flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg px-0.5 py-1.5 transition-colors disabled:opacity-40',
-                  active
-                    ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
-                    : 'text-[var(--muted)] hover:text-[var(--ink)]'
-                )}
-              >
-                <AspectRatioGlyph ratio={ratio} size={20} />
-                <span className="max-w-full truncate text-[10px] font-medium tabular-nums">
-                  {ratio}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">
-          {t('agent.chooseResolution')}
-        </p>
-        <VideoSegmentedTrack>
-          {VIDEO_RESOLUTIONS.map((r) => (
-            <VideoSegmentPill
-              key={r}
-              active={resolution === r}
-              disabled={disabled}
-              onClick={() => onResolutionChange(r)}
-            >
-              {r}
-            </VideoSegmentPill>
-          ))}
-        </VideoSegmentedTrack>
-      </div>
-
-      <div>
-        <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">
-          {t('editor.tools.videoDuration', { defaultValue: '鏃堕暱' })}
-        </p>
-        <VideoSegmentedTrack>
-          {VIDEO_DURATIONS.map((n) => (
-            <VideoSegmentPill
-              key={n}
-              active={duration === n}
-              disabled={disabled}
-              onClick={() => onDurationChange(n)}
-            >
-              {t('editor.tools.videoDurationNs', { n })}
-            </VideoSegmentPill>
-          ))}
-        </VideoSegmentedTrack>
-      </div>
-    </div>
-  );
-}
-
 function VideoGeneratorCard({
   nodeId,
   sceneBox,
@@ -352,7 +131,6 @@ function VideoGeneratorCard({
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const { zoom } = useRcbCamera();
   const chromePointer = useChromePointerActivate();
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -394,20 +172,29 @@ function VideoGeneratorCard({
     return readGenAttrString(genAttrs, 'videoGenAspect') || DEFAULT_VIDEO_ASPECT_RATIO;
   });
   const [duration, setDuration] = useState<number>(() => {
-    return readGenAttrDuration(genAttrs) ?? DEFAULT_VIDEO_DURATION;
+    return readGenAttrDuration(genAttrs, 'videoGenDuration', 4, 15) ?? DEFAULT_VIDEO_DURATION;
   });
-  const [models, setModels] = useState<LlmModel[]>([]);
-  const [modelsStatus, setModelsStatus] = useState<
-    'idle' | 'loading' | 'ready' | 'error'
-  >('idle');
   const [modelId, setModelId] = useState(() => {
     return readGenAttrString(genAttrs, 'videoGenModel') || cloudVideoFallbackId();
   });
+  const { models, status: modelsStatus } = useGeneratorModelsCatalog({
+    buildList: buildVideoGeneratorModelList,
+    modelId,
+    setModelId,
+    resolveModelId: nextVideoModelId,
+  });
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
   const contextsRef = useRef<ComposerContext[]>([]);
   contextsRef.current = contexts;
+
+  const {
+    mentionOpen,
+    mentionQuery,
+    closeMention,
+    openMention,
+    mentionFloating,
+    mentionIx,
+  } = useComposerMentionPanel(inputRef);
 
   useEffect(() => {
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
@@ -415,7 +202,7 @@ function VideoGeneratorCard({
     dispatch(consumePendingCanvasAttach());
     const doc = editorDocument || (store.getState() as any).editor?.document;
     async function flyPendingAttach() {
-      await flyPickIntoImageComposer({
+      await flyPickIntoComposer({
         landId: pickTarget,
         document: doc,
         payload,
@@ -437,7 +224,7 @@ function VideoGeneratorCard({
     if (nextAspect) setAspectRatio(nextAspect);
     const nextRes = readGenAttrString(genAttrs, 'videoGenResolution');
     if (nextRes) setResolution(nextRes);
-    const nextDuration = readGenAttrDuration(genAttrs);
+    const nextDuration = readGenAttrDuration(genAttrs, 'videoGenDuration', 4, 15);
     if (nextDuration != null) setDuration(nextDuration);
     const nextModel = readGenAttrString(genAttrs, 'videoGenModel');
     if (nextModel) setModelId(nextModel);
@@ -457,39 +244,6 @@ function VideoGeneratorCard({
     });
     return () => cancelAnimationFrame(id);
   }, [showComposer, nodeId, disabled]);
-
-  const modelsCatalogQuery = useQuery({
-    ...apiQuery.chatGetModels.queryOptions(),
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (modelsCatalogQuery.isPending) {
-      setModelsStatus('loading');
-      return;
-    }
-    if (modelsCatalogQuery.isError) {
-      setModelsStatus('error');
-      return;
-    }
-    if (!modelsCatalogQuery.isFetched) return;
-    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
-    if (!res) {
-      setModelsStatus('error');
-      return;
-    }
-    const unique = buildVideoGeneratorModelList(res);
-    setModels(unique);
-    setModelsStatus('ready');
-    const nextId = nextVideoModelId(unique, modelId);
-    if (nextId) setModelId(nextId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    modelsCatalogQuery.data,
-    modelsCatalogQuery.isPending,
-    modelsCatalogQuery.isError,
-    modelsCatalogQuery.isFetched,
-  ]);
 
   useEffect(() => {
     return () => {
@@ -619,12 +373,20 @@ function VideoGeneratorCard({
     );
   };
 
-  // `@` opens the attachment mention panel, mirroring the chat composer.
-  const maybeOpenMentionFromAt = (next: string) => {
-    const parsed = parseAtMentionQuery(next);
-    setMentionQuery(parsed.query);
-    setMentionOpen(parsed.open);
-  };
+  const {
+    skillOpen,
+    skillQuery,
+    skillItems,
+    skillFloating,
+    skillIx,
+    maybeOpenComposerMentions,
+    pickSkill,
+  } = useComposerSlashSkills({
+    inputRef,
+    setPrompt,
+    onCloseAtMention: closeMention,
+    onOpenAtMention: openMention,
+  });
 
   const mentionItems = useMemo((): MentionAttachItem[] => {
     return attachments.map((c, i) => {
@@ -642,29 +404,25 @@ function VideoGeneratorCard({
     });
   }, [attachments, t]);
 
-  const insertMentionFromAttachment = (att: ComposerContext, n: number) => {
-    const kind = composerAttachmentMediaKind(att);
-    const ctx = buildAttachRefMentionContext(
-      att,
-      kind === 'video'
-        ? t('agent.mentionAttachVideoN', { n })
-        : t('agent.mentionAttachImageN', { n }),
-      att.payload || `[User attachment ${n}]`
-    );
-    setPrompt(stripTrailingAtQuery(prompt));
-    setMentionOpen(false);
-    setMentionQuery('');
-    queueMicrotask(() => {
-      inputRef.current?.insertContextAtCaret(ctx);
-      inputRef.current?.focus();
-    });
-  };
-
   const pickMentionAttach = (pickId: string) => {
     const list = contextsRef.current.filter((c) => c.kind === 'attachment');
     const idx = list.findIndex((c) => c.key === pickId);
     if (idx < 0) return;
-    insertMentionFromAttachment(list[idx]!, idx + 1);
+    const att = list[idx]!;
+    const kind = composerAttachmentMediaKind(att);
+    insertMentionFromAttachment({
+      att,
+      n: idx + 1,
+      label:
+        kind === 'video'
+          ? t('agent.mentionAttachVideoN', { n: idx + 1 })
+          : t('agent.mentionAttachImageN', { n: idx + 1 }),
+      payload: att.payload || `[User attachment ${idx + 1}]`,
+      prompt,
+      setPrompt,
+      closeMention,
+      inputRef,
+    });
   };
 
   const pickMentionLibraryAsset = (asset: UserAsset) => {
@@ -677,35 +435,21 @@ function VideoGeneratorCard({
     if (!upserted) return;
     setContexts(upserted.contexts);
     contextsRef.current = upserted.contexts;
-    insertMentionFromAttachment(upserted.attachment, upserted.ordinal);
-  };
-
-  const mentionFloating = useFloating({
-    open: mentionOpen,
-    onOpenChange: (open) => {
-      setMentionOpen(open);
-      if (!open) setMentionQuery('');
-    },
-    placement: 'bottom-start',
-    strategy: 'fixed',
-    whileElementsMounted: autoUpdate,
-    middleware: [
-      offset(6),
-      flip({ padding: 12, fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
-      shift({ padding: 12 }),
-    ],
-  });
-  const mentionDismiss = useDismiss(mentionFloating.context);
-  const mentionIx = useInteractions([mentionDismiss]);
-
-  useLayoutEffect(() => {
-    if (!mentionOpen) return;
-    mentionFloating.refs.setPositionReference({
-      getBoundingClientRect: () =>
-        inputRef.current?.getAtMentionAnchorRect?.() ?? new DOMRect(),
+    const kind = composerAttachmentMediaKind(upserted.attachment);
+    insertMentionFromAttachment({
+      att: upserted.attachment,
+      n: upserted.ordinal,
+      label:
+        kind === 'video'
+          ? t('agent.mentionAttachVideoN', { n: upserted.ordinal })
+          : t('agent.mentionAttachImageN', { n: upserted.ordinal }),
+      payload: upserted.attachment.payload || `[User attachment ${upserted.ordinal}]`,
+      prompt,
+      setPrompt,
+      closeMention,
+      inputRef,
     });
-    mentionFloating.update();
-  }, [mentionOpen, mentionQuery, prompt, mentionFloating.refs, mentionFloating.update]);
+  };
 
   const onGenerate = async () => {
     const text = prompt.trim();
@@ -714,6 +458,8 @@ function VideoGeneratorCard({
     const ac = new AbortController();
     abortRef.current = ac;
     setSending(true);
+    registerGeneratorSession(nodeId);
+    let finished = false;
     dispatch(
       patchDocumentNode({
         nodeId,
@@ -722,6 +468,7 @@ function VideoGeneratorCard({
             processStatus: 'running',
             processKind: 'generate',
             processLabel: t('editor.tools.videoGenerating'),
+            processStartedAt: String(Date.now()),
             genPrompt: text,
           },
         },
@@ -743,17 +490,16 @@ function VideoGeneratorCard({
         .filter((u) => Boolean(u) && !u.startsWith('data:video/'));
       if (refImages.length) body.images = refImages;
 
-      const res = await generateVideo(body, { signal: ac.signal });
-      const pickUrl = (r: Awaited<ReturnType<typeof generateVideo>>) => {
-        const fromVideos =
-          Array.isArray(r?.videos) && r.videos.find((u) => String(u || '').trim());
-        if (fromVideos) return String(fromVideos).trim();
-        const fromAssets =
-          Array.isArray(r?.assets) &&
-          r.assets.map((a) => String(a?.url || '').trim()).find(Boolean);
-        return fromAssets ? String(fromAssets).trim() : '';
-      };
-      const src = pickUrl(res);
+      const jobId = await createVideoJob(body, { signal: ac.signal });
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          skipHistory: true,
+          patch: { attrs: processJobAttrPatch([jobId]) },
+        })
+      );
+      const res = await waitForVideoJob(jobId, { signal: ac.signal });
+      const src = pickVideoUrl(res);
       if (!src) throw new Error(t('editor.tools.videoGenEmpty'));
 
       let poster = '';
@@ -773,16 +519,20 @@ function VideoGeneratorCard({
           genPrompt: text,
         })
       );
-    } catch (err: any) {
-      if (ac.signal.aborted) return;
-      const doc = (store.getState() as any).editor?.document;
-      if (doc) {
-        dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+      finished = true;
+    } catch (err: unknown) {
+      if (!ac.signal.aborted) {
+        message.error(getHttpErrorMessage(err, t('editor.tools.videoGenFail')));
       }
-      message.error(getHttpErrorMessage(err, t('editor.tools.videoGenFail')));
     } finally {
-      if (abortRef.current === ac) abortRef.current = null;
-      setSending(false);
+      finishGeneratorGenerateSession({
+        dispatch,
+        nodeId,
+        finished,
+        abortRef,
+        ac,
+        setSending,
+      });
     }
   };
 
@@ -834,140 +584,102 @@ function VideoGeneratorCard({
   };
 
   // Same placement contract as selection toolbars: world-layer under the box.
-  const composerLeft = sceneBox.x + sceneBox.width / 2;
-  const composerTop =
-    sceneBox.y +
-    sceneBox.height +
-    rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom);
+  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
+
+  const onCanvasPick = () => {
+    void pickOrAttachFromCanvas({
+      pickingFromCanvas,
+      clearPick: () => dispatch(clearCanvasAttachPick()),
+      attachSelection: async () => {
+        const doc = editorDocument || (store.getState() as any).editor?.document;
+        const insertChip = (ctx: ComposerContext) => {
+          inputRef.current?.insertContextAtCaret(ctx);
+          inputRef.current?.focus();
+        };
+        return attachSelectionToComposer({
+          hostNodeId: nodeId,
+          landId: pickTarget,
+          document: doc,
+          selectedNodeIds,
+          selectedFrameIds,
+          existing: contextsRef.current,
+          setContexts,
+          insertChip,
+          imagesOnly: false,
+        });
+      },
+      startPick: () => {
+        noteCanvasFlyLand(pickTarget);
+        dispatch(startCanvasAttachPick({ target: pickTarget }));
+      },
+    });
+  };
 
   return (
     <>
       {showComposer ? (
         <WorldScreenChromeRoot
-          left={composerLeft}
-          top={composerTop}
-          anchor="top"
+          left={composerPlacement.left}
+          railWidth={composerPlacement.railWidth}
+          top={composerPlacement.top}
+          anchor={composerPlacement.anchor}
+          edgeGapPx={composerPlacement.edgeGapPx}
           data-video-generator
           data-sel-toolbar
           data-scene-node-id={nodeId}
           className="pointer-events-auto z-[32] overflow-visible"
           {...chromePointer}
         >
-          <div
-            className={cn(
-              'flex h-[200px] w-[500px] flex-col overflow-visible',
-              'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-              'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
-            )}
-          >
-          {/* Reference images occupy their own row, using the chat attachment chip. */}
-          <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
-            {attachments.map((att) => (
-              <ComposerAttachmentChip
-                key={att.key}
-                attachment={att}
+          <CanvasMediaComposerShell
+            panelOverflow="visible"
+            attachment={
+              <ComposerAttachmentStrip
+                attachments={attachments}
                 disabled={disabled || sending}
                 onRemove={removeContext}
-              />
-            ))}
-            <Tooltip tip={t('editor.tools.videoGenRef')} placement="top">
-              <button
-                type="button"
-                disabled={disabled || sending}
-                aria-label={t('editor.tools.videoGenRef')}
-                onClick={() => fileRef.current?.click()}
-                className={composerAttachActionClass()}
-              >
-                <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
-              </button>
-            </Tooltip>
-            <Tooltip
-              tip={
-                pickingFromCanvas
-                  ? t('agent.pickFromCanvasCancel')
-                  : t('agent.pickFromCanvas')
-              }
-              placement="top"
-            >
-              <button
-                type="button"
-                disabled={disabled || sending}
-                aria-label={t('agent.pickFromCanvas')}
-                aria-pressed={pickingFromCanvas}
-                onClick={() => {
-                  if (pickingFromCanvas) {
-                    dispatch(clearCanvasAttachPick());
-                    return;
-                  }
-                  const doc =
-                    editorDocument || (store.getState() as any).editor?.document;
-                  const insertChip = (ctx: ComposerContext) => {
-                    inputRef.current?.insertContextAtCaret(ctx);
-                    inputRef.current?.focus();
-                  };
-                  async function pickOrAttach() {
-                    const attached = await attachSelectionToVideoComposer({
-                      hostNodeId: nodeId,
-                      landId: pickTarget,
-                      document: doc,
-                      selectedNodeIds,
-                      selectedFrameIds,
-                      existing: contextsRef.current,
-                      setContexts,
-                      insertChip,
-                    });
-                    if (!attached) {
-                      noteCanvasFlyLand(pickTarget);
-                      dispatch(startCanvasAttachPick({ target: pickTarget }));
-                    }
-                  }
-                  pickOrAttach();
+                attachTooltip={t('editor.tools.videoGenRef')}
+                onAttachClick={() => fileRef.current?.click()}
+                fileInput={{
+                  ref: fileRef,
+                  accept: 'image/*,video/*',
+                  multiple: true,
+                  onChange: onPickRef,
                 }}
-                className={composerAttachActionClass(pickingFromCanvas)}
-              >
-                <HiOutlineViewfinderCircle className="h-4 w-4" strokeWidth={2} />
-              </button>
-            </Tooltip>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              className="hidden"
-              onChange={onPickRef}
-            />
-          </div>
-          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
-          <div
-            className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
-            onClick={(e) => {
-              if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
-              inputRef.current?.focus();
-            }}
-          >
-            <AgentComposerInput
-              ref={inputRef}
-              contexts={inlineContexts}
-              onContextsChange={(next) => {
-                setContexts([...attachments, ...next]);
-              }}
-              value={prompt}
-              onChange={(next) => {
-                setPrompt(next);
-                maybeOpenMentionFromAt(next);
-              }}
-              onSubmit={() => onGenerate()}
-              disabled={disabled || sending}
-              placeholder={t('editor.tools.videoGenPlaceholder')}
-              flyLandId={pickTarget}
-              className="min-h-full w-full text-[13px]"
-              onPasteImages={(files) => {
-                attachRefFiles(files);
-              }}
-            />
-          </div>
-
-          <div className="mt-1 flex items-center gap-1.5 px-2.5 pb-2">
+                extraActions={
+                  <ComposerCanvasPickButton
+                    pickingFromCanvas={pickingFromCanvas}
+                    disabled={disabled || sending}
+                    onClick={onCanvasPick}
+                  />
+                }
+              />
+            }
+            prompt={
+              <ComposerPromptRegion onFocusInput={() => inputRef.current?.focus()}>
+                <AgentComposerInput
+                  ref={inputRef}
+                  contexts={inlineContexts}
+                  onContextsChange={(next) => {
+                    setContexts([...attachments, ...next]);
+                  }}
+                  value={prompt}
+                  onChange={(next) => {
+                    setPrompt(next);
+                    maybeOpenComposerMentions(next);
+                  }}
+                  onSubmit={() => onGenerate()}
+                  disabled={disabled || sending}
+                  placeholder={t('editor.tools.videoGenPlaceholder')}
+                  flyLandId={pickTarget}
+                  className="min-h-full w-full text-[13px]"
+                  onPasteImages={(files) => {
+                    attachRefFiles(files);
+                  }}
+                />
+              </ComposerPromptRegion>
+            }
+            footer={
+              <ComposerFooterBar>
             <Dropdown
               trigger="click"
               placement="top-start"
@@ -1024,7 +736,7 @@ function VideoGeneratorCard({
               </button>
             </Dropdown>
 
-            <div className="ml-auto flex items-center gap-1">
+            <ComposerFooterActions>
               <Dropdown
                 trigger="click"
                 placement="top-end"
@@ -1101,9 +813,10 @@ function VideoGeneratorCard({
                   )}
                 </button>
               </Tooltip>
-            </div>
-          </div>
-          </div>
+            </ComposerFooterActions>
+              </ComposerFooterBar>
+            }
+          />
         </WorldScreenChromeRoot>
       ) : null}
 
@@ -1122,6 +835,25 @@ function VideoGeneratorCard({
               onPick={pickMentionAttach}
               onPickLibraryAsset={pickMentionLibraryAsset}
               assetKinds={['image', 'video']}
+            />
+          </div>
+        </FloatingPortal>
+      ) : null}
+
+      {showComposer && skillOpen ? (
+        <FloatingPortal>
+          <div
+            ref={skillFloating.refs.setFloating}
+            style={skillFloating.floatingStyles as CSSProperties}
+            className="z-[95]"
+            {...skillIx.getFloatingProps()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <MentionAttachPanel
+              variant="skill"
+              items={skillItems}
+              query={skillQuery}
+              onPick={pickSkill}
             />
           </div>
         </FloatingPortal>

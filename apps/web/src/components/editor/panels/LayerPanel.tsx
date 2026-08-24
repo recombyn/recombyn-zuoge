@@ -43,6 +43,7 @@ import { cn } from '@/utils/classnames';
 import {
   patchDocumentNode,
   setActiveFrameId,
+  setFrameChromeMode,
   setSelectedNodeId,
   updateArtboardFrame,
   EMPTY_ID_LIST,
@@ -367,7 +368,10 @@ function LayerStackRowView({
           type="button"
           onClick={() => {
             if (onSelectFrame) onSelectFrame(row.id);
-            else dispatch(setActiveFrameId(row.id));
+            else {
+              dispatch(setActiveFrameId(row.id));
+              dispatch(setFrameChromeMode('full'));
+            }
           }}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left',
@@ -775,10 +779,9 @@ function LayerPanel({
                 ))}
               </ul>
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--muted)]">
-                <HiOutlinePhoto className="h-8 w-8 opacity-40" />
-                <p className="text-[12px]">{t('editor.noHistory')}</p>
-              </div>
+              <p className="px-2 py-2 text-left text-[12px] text-[var(--muted)]">
+                {t('editor.noHistory')}
+              </p>
             )}
           </div>
         ) : null}
@@ -793,7 +796,7 @@ function LayerPanel({
         getItemKey={(row) => `${row.kind}-${row.id}`}
         className="py-1"
         empty={
-          <p className="px-3 py-8 text-center text-[12px] text-[var(--muted)]">
+          <p className="px-3 py-2 text-left text-[12px] text-[var(--muted)]">
             {t('editor.noLayers')}
           </p>
         }

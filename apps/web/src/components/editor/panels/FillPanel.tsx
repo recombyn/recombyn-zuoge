@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   autoUpdate,
   flip,
@@ -38,6 +39,7 @@ import {
   cssPreviewForGradient,
   DEFAULT_FILL_IMAGE_ADJUST,
   defaultGradient,
+  fillImageTileSize,
   FILL_PANEL_TYPES,
   parseFillGradient,
   parseFillImageFit,
@@ -67,20 +69,20 @@ export type FillPanelValue = {
   fillImageAdjust?: FillImageAdjust;
 };
 
-const IMAGE_FIT_OPTIONS: Array<{ value: FillImageFit; label: string }> = [
-  { value: 'fill', label: '填充' },
-  { value: 'fit', label: '适应' },
-  { value: 'crop', label: '裁剪' },
-  { value: 'tile', label: '平铺' },
+const IMAGE_FIT_OPTION_KEYS: Array<{ value: FillImageFit; labelKey: string }> = [
+  { value: 'fill', labelKey: 'editor.fillImageFitFill' },
+  { value: 'fit', labelKey: 'editor.fillImageFitFit' },
+  { value: 'crop', labelKey: 'editor.fillImageFitCrop' },
+  { value: 'tile', labelKey: 'editor.fillImageFitTile' },
 ];
 
-const FILL_TYPE_TIP: Record<FillType, string> = {
-  solid: '纯色',
-  linear: '线性渐变',
-  radial: '径向渐变',
-  angular: '角度渐变',
-  diffuse: '弥散渐变',
-  image: '图片填充',
+const FILL_TYPE_TIP_KEYS: Record<FillType, string> = {
+  solid: 'editor.fillTypeSolid',
+  linear: 'editor.fillTypeLinear',
+  radial: 'editor.fillTypeRadial',
+  angular: 'editor.fillTypeAngular',
+  diffuse: 'editor.fillTypeDiffuse',
+  image: 'editor.fillTypeImage',
 };
 
 const FILL_TYPE_ICON: Record<FillType, string> = {
@@ -97,15 +99,15 @@ function fillPanelWidth(type: FillType): number {
   return type === 'image' || type === 'diffuse' ? WIDE_STYLE_PANEL_WIDTH : COLOR_PANEL_WIDTH;
 }
 
-const IMAGE_ADJUST_ROWS: Array<{ key: keyof FillImageAdjust; label: string }> = [
-  { key: 'exposure', label: '曝光' },
-  { key: 'contrast', label: '对比度' },
-  { key: 'saturation', label: '饱和度' },
-  { key: 'temperature', label: '色温' },
-  { key: 'tint', label: '色调' },
-  { key: 'hue', label: '色相' },
-  { key: 'highlights', label: '高光' },
-  { key: 'shadows', label: '阴影' },
+const IMAGE_ADJUST_ROW_KEYS: Array<{ key: keyof FillImageAdjust; labelKey: string }> = [
+  { key: 'exposure', labelKey: 'editor.fillAdjustExposure' },
+  { key: 'contrast', labelKey: 'editor.fillAdjustContrast' },
+  { key: 'saturation', labelKey: 'editor.fillAdjustSaturation' },
+  { key: 'temperature', labelKey: 'editor.fillAdjustTemperature' },
+  { key: 'tint', labelKey: 'editor.fillAdjustTint' },
+  { key: 'hue', labelKey: 'editor.fillAdjustHue' },
+  { key: 'highlights', labelKey: 'editor.fillAdjustHighlights' },
+  { key: 'shadows', labelKey: 'editor.fillAdjustShadows' },
 ];
 
 function resolveFillTypePatch(
@@ -163,6 +165,19 @@ function FillImagePreviewImage({
   const filter = buildImageAdjustFilterCss(adjust);
   const scaleMul = Math.max(0.01, scale / 100);
   const objectFit = fit === 'fit' ? 'contain' : 'cover';
+  const [tileSize, setTileSize] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    if (fit !== 'tile' || !src) {
+      setTileSize(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      setTileSize(fillImageTileSize(img.naturalWidth, img.naturalHeight, scale));
+    };
+    img.src = src;
+  }, [src, fit, scale]);
 
   if (fit === 'tile') {
     return (
@@ -173,7 +188,7 @@ function FillImagePreviewImage({
           ...(filter !== 'none' ? { filter } : {}),
           backgroundImage: `url(${src})`,
           backgroundRepeat: 'repeat',
-          backgroundSize: `${Math.round(33 * scaleMul)}%`,
+          backgroundSize: tileSize ? `${tileSize.w}px ${tileSize.h}px` : undefined,
           backgroundPosition: `${50 + offsetX}% ${50 + offsetY}%`,
         }}
       />
@@ -229,6 +244,7 @@ function FillImagePreviewStrip({
   onOffsetChange: (x: number, y: number) => void;
   onPickFile: (file: File | null) => void;
 }) {
+  const { t } = useTranslation();
   const fileRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<null | {
@@ -292,13 +308,19 @@ function FillImagePreviewStrip({
           e.target.value = '';
         }}
       />
-      <Tooltip tip={src ? '拖动调整显示区域' : '点击上传图片'} placement="top" triggerClassName="w-full">
+      <Tooltip
+        tip={src ? t('editor.fillDragAdjustArea') : t('editor.fillClickUpload')}
+        placement="top"
+        triggerClassName="w-full"
+      >
         <div
           ref={previewRef}
           data-fill-image-preview
           role="button"
           tabIndex={0}
-          aria-label={src ? '拖动调整图片显示区域' : '点击上传图片'}
+          aria-label={
+            src ? t('editor.fillDragAdjustPreview') : t('editor.fillClickUpload')
+          }
           className={cn(
             'relative flex h-[72px] w-full items-center justify-center overflow-hidden rounded',
             src ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
@@ -345,20 +367,20 @@ function FillImagePreviewStrip({
           {!src ? (
             <span className="relative z-[1] inline-flex flex-col items-center gap-1 text-[12px] text-[var(--muted)]">
               <HiOutlinePhoto className="h-6 w-6" />
-              上传图片
+              {t('editor.fillUploadImage')}
             </span>
           ) : (
             <span className="pointer-events-none absolute bottom-1 left-1.5 rounded bg-black/45 px-1.5 py-0.5 text-[10px] text-white/90">
-              拖动调整
+              {t('editor.fillDragAdjust')}
             </span>
           )}
         </div>
       </Tooltip>
       {src ? (
-        <Tooltip tip="替换图片" placement="top">
+        <Tooltip tip={t('editor.fillReplaceImage')} placement="top">
           <button
             type="button"
-            aria-label="替换图片"
+            aria-label={t('editor.fillReplaceImage')}
             className="absolute right-1.5 top-1.5 z-[2] inline-flex h-6 w-6 items-center justify-center rounded bg-black/45 text-white/90 hover:bg-black/60"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -418,6 +440,7 @@ function FitModeSelect({
   value: FillImageFit;
   onChange: (v: FillImageFit) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -429,7 +452,8 @@ function FitModeSelect({
   });
   const dismiss = useDismiss(context);
   const { getReferenceProps, getFloatingProps } = useInteractions([dismiss]);
-  const current = IMAGE_FIT_OPTIONS.find((o) => o.value === value) ?? IMAGE_FIT_OPTIONS[0];
+  const current =
+    IMAGE_FIT_OPTION_KEYS.find((o) => o.value === value) ?? IMAGE_FIT_OPTION_KEYS[0];
 
   return (
     <>
@@ -441,7 +465,7 @@ function FitModeSelect({
           onClick: () => setOpen((v) => !v),
         })}
       >
-        <span className="truncate">{current.label}</span>
+        <span className="truncate">{t(current.labelKey)}</span>
         <HiOutlineChevronDown
           className={cn('h-3.5 w-3.5 shrink-0 text-[var(--muted)] transition-transform', open && 'rotate-180')}
         />
@@ -456,7 +480,7 @@ function FitModeSelect({
             {...getFloatingProps()}
           >
             <DropdownPanel className="min-w-[112px]">
-              {IMAGE_FIT_OPTIONS.map((opt) => {
+              {IMAGE_FIT_OPTION_KEYS.map((opt) => {
                 const active = opt.value === value;
                 return (
                   <DropdownPanelItem
@@ -467,7 +491,7 @@ function FitModeSelect({
                       setOpen(false);
                     }}
                   >
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </DropdownPanelItem>
                 );
               })}
@@ -534,6 +558,7 @@ function GradientStopsBar({
   onActiveStopChange: (index: number) => void;
   onStopsChange: (stops: FillStop[], activeIndex: number) => void;
 }) {
+  const { t } = useTranslation();
   const trackRef = useRef<HTMLDivElement>(null);
   const dragIndexRef = useRef<number | null>(null);
   const stopsRef = useRef(gradient.colorStops);
@@ -620,7 +645,7 @@ function GradientStopsBar({
 
   return (
     <Tooltip
-      tip="选中色标后按 Delete 删除（至少保留 2 个）"
+      tip={t('editor.fillDeleteStopHint')}
       placement="top"
       triggerClassName="min-w-0 flex-1"
     >
@@ -685,7 +710,7 @@ export function fillPanelPreview(value: FillPanelValue): string {
 function FillPanel({
   value,
   onChange,
-  title = '颜色',
+  title,
   onClose,
   className,
   meshSelectedIndex,
@@ -717,6 +742,8 @@ function FillPanel({
   /** Optional header reset (e.g. canvas bg → clear saved color / follow theme). */
   onReset?: () => void;
 }) {
+  const { t } = useTranslation();
+  const panelTitle = title ?? t('editor.selectionToolbar.color');
   const fillType = parseFillType(value.fillType);
   const panelType = (FILL_PANEL_TYPES.includes(fillType) ? fillType : 'solid') as FillType;
   const solid = normalizeHex(value.fillColor || '#FFFFFF', '#FFFFFF');
@@ -859,13 +886,13 @@ function FillPanel({
   const resetTip =
     panelType === 'image'
       ? onReset
-        ? '恢复默认'
-        : '重置图片调节'
+        ? t('editor.fillResetDefault')
+        : t('editor.fillResetImageAdjust')
       : panelType === 'diffuse'
-        ? '重置弥散渐变'
+        ? t('editor.fillResetDiffuse')
         : isGradient
-          ? '重置渐变'
-          : '恢复默认';
+          ? t('editor.fillResetGradient')
+          : t('editor.fillResetDefault');
 
   const handleReset = () => {
     if (panelType === 'image') {
@@ -887,7 +914,7 @@ function FillPanel({
 
   return (
     <StylePanelShell
-      title={title}
+      title={panelTitle}
       onClose={onClose}
       width={fillPanelWidth(panelType)}
       dataAttr="data-fill-panel"
@@ -895,8 +922,8 @@ function FillPanel({
       bodyClassName="max-h-[min(70vh,560px)] space-y-3 overflow-y-auto"
       layerVisible={layerVisible}
       onLayerVisibleChange={onLayerVisibleChange}
-      layerVisibleTipShow="显示填充"
-      layerVisibleTipHide="隐藏填充"
+      layerVisibleTipShow={t('editor.selectionToolbar.showFill')}
+      layerVisibleTipHide={t('editor.selectionToolbar.hideFill')}
       headerActions={
         <Tooltip tip={resetTip} placement="bottom">
           <button
@@ -915,10 +942,10 @@ function FillPanel({
           fullWidth
           value={panelType}
           onChange={(next) => setType(next)}
-          options={FILL_PANEL_TYPES.map((t) => ({
-            value: t,
-            title: FILL_TYPE_TIP[t],
-            label: <TypeIcon type={t} active={panelType === t} />,
+          options={FILL_PANEL_TYPES.map((type) => ({
+            value: type,
+            title: t(FILL_TYPE_TIP_KEYS[type]),
+            label: <TypeIcon type={type} active={panelType === type} />,
           }))}
         />
 
@@ -931,10 +958,10 @@ function FillPanel({
                 onActiveStopChange={setActiveStop}
                 onStopsChange={applyStops}
               />
-              <Tooltip tip="反转" placement="top">
+              <Tooltip tip={t('editor.fillReverseStops')} placement="top">
                 <button
                   type="button"
-                  aria-label="反转"
+                  aria-label={t('editor.fillReverseStops')}
                   onClick={reverseStops}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
                 >
@@ -1012,10 +1039,10 @@ function FillPanel({
                 />
                 %
               </label>
-              <Tooltip tip="旋转 90°" placement="top">
+              <Tooltip tip={t('editor.fillRotate90')} placement="top">
                 <button
                   type="button"
-                  aria-label="旋转 90°"
+                  aria-label={t('editor.fillRotate90')}
                   onClick={cycleRotate}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[var(--accent-soft)] text-[var(--muted)] hover:text-[var(--ink)]"
                 >
@@ -1026,16 +1053,16 @@ function FillPanel({
 
             <div className="space-y-1.5">
               <ImageAdjustRow
-                label="不透明度"
+                label={t('editor.fillOpacity')}
                 value={Math.round(imageOpacity)}
                 onChange={(n) =>
                   emit({ fillOpacity: Math.max(0, Math.min(100, Math.round(n) || 0)) })
                 }
               />
-              {IMAGE_ADJUST_ROWS.map(({ key, label }) => (
+              {IMAGE_ADJUST_ROW_KEYS.map(({ key, labelKey }) => (
                 <ImageAdjustRow
                   key={key}
-                  label={label}
+                  label={t(labelKey)}
                   value={imageAdjust[key]}
                   onChange={(n) => updateImageAdjust(key, n)}
                 />
@@ -1087,7 +1114,7 @@ export type FillPanelPopoverProps = {
 function FillPanelPopover({
   value,
   onChange,
-  title = '颜色',
+  title,
   placement = 'bottom-start',
   offset: offsetDistance = 10,
   shiftMainAxis = true,
@@ -1104,6 +1131,8 @@ function FillPanelPopover({
   onMeshShowGuidesChange,
   onReset,
 }: FillPanelPopoverProps) {
+  const { t } = useTranslation();
+  const panelTitle = title ?? t('editor.selectionToolbar.color');
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
   const setOpen = useCallback(
@@ -1160,12 +1189,12 @@ function FillPanelPopover({
 
   return (
     <>
-      <Tooltip tip={title} placement="top" disabled={open || !title}>
+      <Tooltip tip={panelTitle} placement="top" disabled={open || !panelTitle}>
         <button
           type="button"
           ref={refs.setReference}
           disabled={disabled}
-          aria-label={title}
+          aria-label={panelTitle}
           aria-expanded={open}
           className={cn(
             'inline-flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-40',
@@ -1192,7 +1221,7 @@ function FillPanelPopover({
             <FillPanel
               value={value}
               onChange={onChange}
-              title={title}
+              title={panelTitle}
               onClose={() => setOpen(false)}
               onReset={onReset}
               meshSelectedIndex={meshSelectedIndex}

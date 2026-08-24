@@ -6,16 +6,16 @@ import {
   HiOutlineBars3,
   HiOutlineBriefcase,
   HiOutlineFolder,
-  HiOutlineHome,
+  HiOutlineLightBulb,
 } from 'react-icons/hi2';
-import { LuUserRound } from 'react-icons/lu';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
-import AuthHeader from '@/components/layout/AuthHeader';
-import { useIsDesktopShell } from '@/components/layout/DesktopTitlebar';
 import { refreshHomeNavPanel, refreshHomeProjectsList } from '@/components/layout/HomeBody';
-import { buildLoginUrl } from '@/utils/authReturnTo';
-import { cn } from '@/utils/classnames';
+import {
+  isHomeNavKey,
+  runHomeGoNav,
+  type HomeNavKey,
+} from '@/components/layout/homeNav';
 import { getToken } from '@/utils/token';
 
 type Props = {
@@ -23,102 +23,57 @@ type Props = {
   nav?: string;
 };
 
-type HomeNavKey = 'home' | 'mine' | 'account' | 'skills';
+const MOBILE_NAV_ITEMS: { key: HomeNavKey; labelKey: string; Icon: typeof HiOutlineBriefcase }[] = [
+  { key: 'home', labelKey: 'home.navHome', Icon: HiOutlineBriefcase },
+  { key: 'inspiration', labelKey: 'home.railInspiration', Icon: HiOutlineLightBulb },
+  { key: 'mine', labelKey: 'home.mine', Icon: HiOutlineFolder },
+  { key: 'skills', labelKey: 'home.railSkills', Icon: HiOutlineBriefcase },
+];
 
-function isHomeNavKey(key: string): key is HomeNavKey {
-  return key === 'home' || key === 'mine' || key === 'account' || key === 'skills';
-}
-
-/** Floating top-right — account chip; mobile also has nav menu after avatar. */
-function HomeTopBar({ setNav, nav }: Props) {
+/** Mobile-only nav menu — desktop account/credits live in the sidebar footer. */
+function HomeTopBar({ setNav, nav = 'home' }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const desktop = useIsDesktopShell();
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
   const authed = Boolean(userId && getToken());
 
   const goNav = (id: HomeNavKey) => {
-    if ((id === 'mine' || id === 'account' || id === 'skills') && !authed) {
-      navigate(buildLoginUrl(`/home?nav=${id}`));
-      return;
-    }
-    if ((id === 'home' || id === 'mine') && nav === id) {
-      refreshHomeProjectsList();
-      return;
-    }
-    if ((id === 'account' || id === 'skills') && nav === id) {
-      refreshHomeNavPanel(id);
-      return;
-    }
-    setNav(id);
-  };
-
-  const onMobileNavClick = (key: string) => {
-    if (isHomeNavKey(key)) goNav(key);
+    runHomeGoNav(id, {
+      nav,
+      authed,
+      navigate,
+      setNav,
+      refreshProjects: refreshHomeProjectsList,
+      refreshSkills: refreshHomeNavPanel,
+    });
   };
 
   const mobileNavItems: MenuItemType[] = useMemo(
-    () => [
-      {
-        key: 'home',
+    () =>
+      MOBILE_NAV_ITEMS.map(({ key, labelKey, Icon }) => ({
+        key,
         label: (
           <span className="inline-flex items-center gap-2">
-            <HiOutlineHome className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.5} />
-            {t('home.navHome')}
+            <Icon className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.5} />
+            {t(labelKey)}
           </span>
         ),
-      },
-      {
-        key: 'mine',
-        label: (
-          <span className="inline-flex items-center gap-2">
-            <HiOutlineFolder className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.5} />
-            {t('home.mine')}
-          </span>
-        ),
-      },
-      {
-        key: 'skills',
-        label: (
-          <span className="inline-flex items-center gap-2">
-            <HiOutlineBriefcase className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.5} />
-            {t('home.railSkills')}
-          </span>
-        ),
-      },
-      {
-        key: 'account',
-        label: (
-          <span className="inline-flex items-center gap-2">
-            <LuUserRound className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.5} />
-            {t('home.account')}
-          </span>
-        ),
-      },
-    ],
+      })),
     [t]
   );
 
-  // Web mobile: fixed to viewport. Tauri: never fixed — content sits under the custom
-  // titlebar, so fixed top-0 would park the avatar on the chrome controls.
   return (
-    <div
-      className={cn(
-        'pointer-events-none z-40 flex items-center justify-end',
-        desktop
-          ? 'absolute right-0 top-0 h-auto p-4 md:p-5'
-          : 'fixed right-0 top-0 h-14 px-4 md:absolute md:z-10 md:h-auto md:p-5'
-      )}
-    >
+    <div className="pointer-events-none fixed right-0 top-0 z-40 flex h-14 items-center justify-end px-4 md:hidden">
       <div className="pointer-events-auto flex items-center gap-1.5">
-        <AuthHeader />
         <Dropdown
           trigger="click"
           placement="bottom-end"
           strategy="fixed"
           offset={8}
           items={mobileNavItems}
-          onClick={onMobileNavClick}
+          onClick={(key) => {
+            if (isHomeNavKey(key)) goNav(key);
+          }}
           floatingClassName="z-[600]"
           popupClassName="min-w-[10rem] rounded-xl !bg-[var(--surface)] p-1.5 shadow-[0_8px_28px_rgba(15,23,42,0.14)] ring-1 ring-[var(--line)]"
         >
