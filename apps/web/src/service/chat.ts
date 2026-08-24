@@ -165,7 +165,7 @@ function handleMediaJobPayload<TResult>(
   opts: WaitForMediaJobOpts<TResult>,
   queuedSince: { at: number | null },
   queuedStallMessage: string,
-): TResult | 'pending' | 'failed' {
+): TResult | 'pending' {
   opts.onProgress?.(job.progress ?? 0, job.status);
   if (job.status === 'done') {
     if (!opts.isValidResult(job.result)) {

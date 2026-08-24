@@ -183,7 +183,10 @@ const link = new OpenAPILink(apiRouterContract, {
         data: body,
       });
     }
-    const statusText = response.statusText?.trim();
+    const statusText =
+      'statusText' in response && typeof response.statusText === 'string'
+        ? response.statusText.trim()
+        : '';
     const message =
       statusText && !/^ok$/i.test(statusText) ? statusText : `HTTP ${response.status}`;
     return new ORPCError('BAD_REQUEST', {

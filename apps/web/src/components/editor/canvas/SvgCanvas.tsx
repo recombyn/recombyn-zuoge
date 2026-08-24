@@ -1562,6 +1562,7 @@ function SvgCanvas({
     if (!file) return;
     const at = imagePlaceAtRef.current;
     imagePlaceAtRef.current = null;
+    let spawnedId = '';
     try {
       const preview = await readFileAsDataUrl(file);
       const natural = await measureImageNaturalSize(preview);
@@ -1579,7 +1580,7 @@ function SvgCanvas({
         })
       );
       finishToSelect();
-      const spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
+      spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
       const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
       try {
         const uploaded = await uploadImageFile(file, { signal });
