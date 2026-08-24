@@ -589,7 +589,7 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
         isEmpty={!loading && cases.length === 0}
         empty={<EmptyState hint={t('home.cases.empty')} />}
         columnsClassName={HOME_INSPIRATION_COLUMNS}
-        skeleton={<FlowFeedSkeleton count={4} />}
+        skeleton={<FlowFeedSkeleton />}
       >
         {cases.map((c) => {
           const meta =

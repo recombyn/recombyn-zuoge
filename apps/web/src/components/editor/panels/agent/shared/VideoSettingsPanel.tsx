@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AspectRatioGlyph } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
+import { SETTINGS_SEGMENT_TRACK_CLASS } from '@/components/editor/panels/agent/shared/settingsSegmentTrack';
 import { cn } from '@/utils/classnames';
 
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
@@ -12,8 +13,10 @@ export const DEFAULT_VIDEO_RESOLUTION = '720p';
 export const VIDEO_DURATIONS = [4, 5, 6, 7, 8, 10, 12, 15] as const;
 export const DEFAULT_VIDEO_DURATION = 5;
 
+const VIDEO_SETTINGS_TRACK = SETTINGS_SEGMENT_TRACK_CLASS;
+
 function VideoSegmentedTrack({ children }: { children: ReactNode }): ReactNode {
-  return <div className="flex flex-wrap gap-1 rounded-xl bg-[var(--rail)] p-1">{children}</div>;
+  return <div className={cn('flex flex-wrap gap-1', VIDEO_SETTINGS_TRACK)}>{children}</div>;
 }
 
 function VideoSegmentPill({
@@ -70,7 +73,7 @@ export function VideoSettingsPanel({
     <div className="space-y-4">
       <div>
         <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">{t('agent.chooseRatio')}</p>
-        <div className="flex items-start justify-between gap-0.5 rounded-xl bg-[var(--rail)] p-1">
+        <div className={cn('flex items-start justify-between gap-0.5', VIDEO_SETTINGS_TRACK)}>
           {VIDEO_ASPECT_RATIOS.map((ratio) => {
             const active = aspectRatio === ratio;
             return (
