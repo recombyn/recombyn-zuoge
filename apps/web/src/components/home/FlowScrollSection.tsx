@@ -110,13 +110,6 @@ function FlowFeedSkeleton({ count = FLOW_SKELETON_COUNT }: { count?: number }) {
             )}
             aria-hidden
           />
-          <div className="mt-2.5 flex items-center gap-2">
-            <div className="rcb-skeleton-bone !rounded-full h-8 w-8 shrink-0" />
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <div className="rcb-skeleton-bone h-3 w-3/4" />
-              <div className="rcb-skeleton-bone h-2.5 w-1/2" />
-            </div>
-          </div>
         </div>
       ))}
     </>

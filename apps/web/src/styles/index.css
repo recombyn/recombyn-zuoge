@@ -133,6 +133,10 @@ html.rcb-theme-switching *::after {
   background-color: #fcfcfc;
 }
 
+html[data-theme='dark'] .rcb-home-hero-canvas main {
+  background-color: var(--canvas);
+}
+
 html[data-theme='dark'] .rcb-home-hero-canvas {
   --home-cta: #5b8cff;
   --home-hero-border: color-mix(in srgb, var(--ink) 12%, var(--line));
@@ -141,9 +145,10 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
 }
 
 .home-hero-chat__composer {
-  height: 90px;
-  min-height: 90px;
-  max-height: 90px;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 180px;
+  max-height: 200px;
   border-radius: 20px;
   background: var(--surface);
   box-shadow: var(--home-hero-shadow);
@@ -151,26 +156,88 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
   overflow: hidden;
 }
 
+/* Home compact composer — tall input (agent/image/video), expands attach row when needed. */
+.rcb-home-composer-compact {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 28px;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  padding: 12px;
+}
+
+.rcb-home-composer-compact--expanded {
+  grid-template-rows: auto minmax(0, 1fr) 28px;
+}
+
+.rcb-home-composer-compact__attach {
+  margin: 0;
+  min-width: 0;
+}
+
+.rcb-home-composer-compact__attach > div {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.rcb-home-composer-compact__input {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rcb-home-composer-compact--expanded .rcb-home-composer-compact__input {
+  min-height: 26px;
+}
+
+.rcb-home-composer-compact__footer {
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+}
+
+.rcb-home-composer-compact [data-agent-composer] {
+  min-height: 26px !important;
+  max-height: 72px;
+  overflow-y: auto;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 20px;
+}
+
 .home-hero-chat__case {
   display: flex;
-  min-height: 132px;
   flex-direction: column;
   border-radius: 16px;
-  border: none;
-  background: color-mix(in srgb, var(--ink) 4%, var(--rail));
-  padding: 1rem 1.125rem;
+  border: 1px solid var(--home-hero-border);
+  background: color-mix(in srgb, var(--ink) 3%, var(--rail));
+  padding: 16px;
   text-align: left;
   font-size: 13px;
-  line-height: 1.65;
-  color: color-mix(in srgb, var(--ink) 75%, var(--muted));
+  line-height: 1.55;
+  color: var(--muted);
   transition:
     background 0.15s ease,
+    border-color 0.15s ease,
     color 0.15s ease;
 }
 
 .home-hero-chat__case:hover {
-  background: color-mix(in srgb, var(--ink) 6%, var(--rail));
-  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 5%, var(--rail));
+  border-color: color-mix(in srgb, var(--ink) 12%, var(--line));
+  color: color-mix(in srgb, var(--muted) 55%, var(--ink));
+}
+
+html[data-theme='dark'] .home-hero-chat__case {
+  background: color-mix(in srgb, var(--ink) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--ink) 22%, var(--line));
+  color: color-mix(in srgb, var(--muted) 70%, var(--ink));
+}
+
+html[data-theme='dark'] .home-hero-chat__case:hover {
+  background: color-mix(in srgb, var(--ink) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--ink) 30%, var(--line));
+  color: color-mix(in srgb, var(--muted) 35%, var(--ink));
 }
 
 .rcb-home-composer-glow::before {

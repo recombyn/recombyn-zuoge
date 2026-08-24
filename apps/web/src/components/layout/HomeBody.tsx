@@ -1175,7 +1175,7 @@ function HomeTemplateList({
           <div
             className={cn(
               HOME_MAIN_INSET,
-              'flex h-full min-h-[min(100%,calc(100dvh-5rem))] w-full flex-1 flex-col items-center justify-center py-4 sm:py-6'
+              'flex h-full min-h-[min(100%,calc(100dvh-5rem))] w-full flex-1 flex-col items-center justify-start pt-[calc(14vh+50px)] sm:pt-[calc(16vh+50px)]'
             )}
           >
             <HomeHero onSubmit={onAgentSubmit} />
