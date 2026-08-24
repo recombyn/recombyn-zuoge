@@ -30,6 +30,7 @@ import {
   pickPreferredImageModelId,
   pickPreferredVideoModelId,
 } from '@/components/editor/panels/agent/llmModelMeta';
+import { composerSendDisabledReason } from '@/components/editor/panels/agent/composer/composerModelsGate';
 import {
   peekHomeAgentBoot,
   clearHomeAgentBoot,
@@ -154,6 +155,7 @@ import AgentComposerShell, {
   type ImageModeComposerControls,
   type VideoModeComposerControls,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import { insertPendingComposerChips } from '@/components/editor/panels/agent/composerChipInsert';
 import { normalizeCanvasSizeChip } from '@/components/editor/chrome/SizePresetPanel';
 import {
   customProvidersAsModels,
@@ -198,6 +200,7 @@ import {
   collectSendChipContext,
   firstGeneratedImageUrl,
   firstGeneratedVideoUrl,
+  formatChatMediaError,
   mergeLongSuggestions,
   resolveAskChoiceSend,
   resolveImageGenFinishKind,
@@ -599,21 +602,6 @@ function modelButtonLabel(
   t: (key: string) => string
 ): string {
   return modelId === 'auto' ? t('agent.autoToggle') : selected?.label || fallbackLabel;
-}
-
-function composerSendDisabledReason(opts: {
-  t: (key: string) => string;
-  attachmentsUploading: boolean;
-  hasContent: boolean;
-  available: boolean | null;
-  modelsStatus: string;
-}): string | undefined {
-  const { t, attachmentsUploading, hasContent, available, modelsStatus } = opts;
-  if (attachmentsUploading) return t('agent.attachWaitUpload');
-  if (!hasContent) return t('agent.sendNeedContent');
-  if (available !== false) return undefined;
-  if (modelsStatus === 'error') return t('agent.modelsLoadFailed');
-  return t('agent.modelsUnavailable');
 }
 
 type SavedComposerChip = {
@@ -1268,16 +1256,11 @@ function AgentDock({
     pendingAgentContextsLockRef.current = token;
     const list = pendingAgentContexts.slice();
     dispatch(consumePendingAgentContexts());
-    queueMicrotask(() => {
-      for (const ctx of list) {
-        pinnedContextKeysRef.current.add(ctx.key);
-        contextDismissedKeyRef.current = null;
-        inputRef.current?.insertContextAtCaret(ctx);
-        const tail = ctx.appendText?.trim();
-        if (tail) inputRef.current?.insertPlainAtCaret(tail);
-      }
-      inputRef.current?.focusEnd();
-    });
+    for (const ctx of list) {
+      pinnedContextKeysRef.current.add(ctx.key);
+      contextDismissedKeyRef.current = null;
+    }
+    insertPendingComposerChips(() => inputRef.current, list, { focus: 'caret' });
   }, [open, pendingAgentContexts, dispatch]);
 
   useEffect(() => {
@@ -2209,7 +2192,7 @@ function AgentDock({
           t,
           attachmentsUploading: false,
           hasContent: true,
-          available,
+          apiAvailable: available,
           modelsStatus,
         }) || t('agent.modelsUnavailable')
       );
@@ -2392,7 +2375,7 @@ function AgentDock({
           (m) => m.id === assistantId,
           (m) =>
             finishAssistantPatch(m, {
-              content: humanizeDesignError(t, 'internal_error'),
+              content: formatChatMediaError(t, err),
               videoPendingCount: undefined,
               steps: [],
             })
@@ -2550,7 +2533,11 @@ function AgentDock({
       ) => {
         setMessages((prev) => prev.map((m) => (pred(m) ? patch(m) : m)));
       };
-      const finishImageGen = (kind: ImageGenFinishKind, urls: string[]) => {
+      const finishImageGen = (
+        kind: ImageGenFinishKind,
+        urls: string[],
+        errorMessage?: string
+      ) => {
         switch (kind) {
           case 'aborted':
             patchAssistant(
@@ -2570,7 +2557,7 @@ function AgentDock({
               (m) => m.id === assistantId,
               (m) =>
                 finishAssistantPatch(m, {
-                  content: t('agent.requestFailed'),
+                  content: errorMessage || t('agent.requestFailed'),
                   imagePendingCount: undefined,
                   imageAspectRatio: aspect,
                   steps: [],
@@ -2608,6 +2595,7 @@ function AgentDock({
         // Parallel per-slot gens (Seedream `n` is unreliable). Each ready card unlocks
         // immediately — no more 「第 2 张一直扫光」while waiting on a serial queue.
         const slotUrls = Array.from({ length: count }, () => '');
+        const slotErrors: unknown[] = [];
         const publishSlots = () => {
           patchAssistant(
             (m) => m.id === assistantId,
@@ -2630,7 +2618,7 @@ function AgentDock({
                 model,
                 aspect,
                 resolution,
-                isImageInteraction,
+                isImageInteraction: isImageModelSelected,
                 attachedImages: refImages,
               });
               const res = await generateImage(imageBody, { signal: ac.signal });
@@ -2638,15 +2626,20 @@ function AgentDock({
               if (!url) return;
               slotUrls[i] = url;
               publishSlots();
-            } catch {
-              // Leave this slot as shimmer until the batch settles.
+            } catch (err) {
+              slotErrors.push(err);
             }
           })
         );
         const urls = slotUrls.filter(Boolean);
+        const failMessage =
+          !urls.length && slotErrors.length
+            ? formatChatMediaError(t, slotErrors[0])
+            : undefined;
         finishImageGen(
           resolveImageGenFinishKind({ aborted: ac.signal.aborted, urls }),
-          urls
+          urls,
+          failMessage
         );
       } catch (err) {
         if (ac.signal.aborted) return;
@@ -3460,6 +3453,7 @@ function AgentDock({
   return (
     <aside
       data-tour={dataTour}
+      data-editor-right-dock={floating ? undefined : ''}
       style={floating ? undefined : { width: dockWidth }}
       className={cn(
         floating
@@ -3555,7 +3549,7 @@ function AgentDock({
                 t,
                 attachmentsUploading,
                 hasContent: Boolean(input.trim() || contextChips.length),
-                available,
+                apiAvailable: available,
                 modelsStatus,
               })}
               sendVariant="circle"

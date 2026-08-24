@@ -70,27 +70,51 @@ export async function sse(config: SseConfig): Promise<void> {
   const decoder = new TextDecoder();
   let buffer = '';
 
+  const dispatchFrame = (event: string, data: string) => {
+    if (data) config.onmessage?.({ event: event || 'message', data });
+  };
+
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       while (true) {
-        const idx = buffer.indexOf('\n');
-        if (idx === -1) break;
-        const line = buffer.slice(0, idx).replace(/\r$/, '');
-        buffer = buffer.slice(idx + 1);
-        if (!line || line.startsWith(':')) continue;
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trimStart();
-        if (data) config.onmessage?.({ event: 'message', data });
+        const frameEnd = buffer.indexOf('\n\n');
+        if (frameEnd === -1) break;
+        const frame = buffer.slice(0, frameEnd);
+        buffer = buffer.slice(frameEnd + 2);
+        let event = 'message';
+        const dataParts: string[] = [];
+        for (const rawLine of frame.split('\n')) {
+          const line = rawLine.replace(/\r$/, '');
+          if (!line || line.startsWith(':')) continue;
+          if (line.startsWith('event:')) {
+            event = line.slice(6).trimStart() || 'message';
+            continue;
+          }
+          if (line.startsWith('data:')) {
+            dataParts.push(line.slice(5).trimStart());
+          }
+        }
+        if (dataParts.length) dispatchFrame(event, dataParts.join('\n'));
       }
     }
-    if (buffer.trim().startsWith('data:')) {
-      config.onmessage?.({
-        event: 'message',
-        data: buffer.trim().slice(5).trimStart(),
-      });
+    if (buffer.trim()) {
+      let event = 'message';
+      const dataParts: string[] = [];
+      for (const rawLine of buffer.split('\n')) {
+        const line = rawLine.replace(/\r$/, '');
+        if (!line || line.startsWith(':')) continue;
+        if (line.startsWith('event:')) {
+          event = line.slice(6).trimStart() || 'message';
+          continue;
+        }
+        if (line.startsWith('data:')) {
+          dataParts.push(line.slice(5).trimStart());
+        }
+      }
+      if (dataParts.length) dispatchFrame(event, dataParts.join('\n'));
     }
   } catch (err: unknown) {
     if (config.signal?.aborted) return;

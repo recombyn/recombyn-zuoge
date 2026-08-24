@@ -7,14 +7,12 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { useTranslation } from 'react-i18next';
-import { HiOutlineXMark } from 'react-icons/hi2';
+import { markRegionChrome } from './markRegionChrome';
 import {
   RcbOverlayPortal,
   useRcbCamera,
   rcbSceneToScreen,
 } from '@/components/rcb';
-import { markRegionChrome } from './markRegionChrome';
 
 /** Mark rect in image-local coords (origin = image top-left). */
 export type MarkRect = { x: number; y: number; w: number; h: number };
@@ -93,11 +91,13 @@ type Props = {
   regions: MarkRegion[];
   draft: MarkRect | null;
   activeRegionId: string | null;
-  /** Block drag-to-box (auto-detect or image still processing). */
-  blocked?: { message: string; onCancel?: () => void } | null;
+  /** Block drag-to-box while image is still processing. */
+  blocked?: { message: string } | null;
   onDraftChange: (rect: MarkRect | null) => void;
   onCommitDraft: (rect: MarkRect) => void;
   onSelectRegion: (id: string, additive: boolean) => void;
+  /** Soft click on empty image area — dismiss mark session (canvas blank uses selection). */
+  onSoftBlankClick?: () => void;
 };
 
 /**
@@ -112,8 +112,8 @@ function MarkRegionOverlay({
   onDraftChange,
   onCommitDraft,
   onSelectRegion,
+  onSoftBlankClick,
 }: Props): ReactNode {
-  const { t } = useTranslation();
   const interactionLocked = Boolean(blocked);
   const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
@@ -129,9 +129,11 @@ function MarkRegionOverlay({
   const onDraftChangeRef = useRef(onDraftChange);
   const onCommitDraftRef = useRef(onCommitDraft);
   const onSelectRegionRef = useRef(onSelectRegion);
+  const onSoftBlankClickRef = useRef(onSoftBlankClick);
   onDraftChangeRef.current = onDraftChange;
   onCommitDraftRef.current = onCommitDraft;
   onSelectRegionRef.current = onSelectRegion;
+  onSoftBlankClickRef.current = onSoftBlankClick;
 
   const origin = rcbSceneToScreen(camera, imageBox.left, imageBox.top);
   const stageW = Math.max(1, imageBox.width * z);
@@ -166,7 +168,13 @@ function MarkRegionOverlay({
       }
       const box = normalizeDragBox(drag.x0, drag.y0, p.x, p.y, cw, ch);
       onDraftChangeRef.current(null);
-      if (box) onCommitDraftRef.current(box);
+      if (box) {
+        onCommitDraftRef.current(box);
+        return;
+      }
+      if (!drag.moved) {
+        onSoftBlankClickRef.current?.();
+      }
     },
     [localFromClient, cw, ch]
   );
@@ -206,8 +214,9 @@ function MarkRegionOverlay({
     width: stageW,
     height: stageH,
     zIndex: 34,
-    cursor: interactionLocked ? 'wait' : 'crosshair',
+    cursor: interactionLocked ? 'not-allowed' : 'crosshair',
     touchAction: 'none',
+    overflow: interactionLocked ? 'hidden' : undefined,
   };
 
   const renderBox = (
@@ -351,25 +360,11 @@ function MarkRegionOverlay({
         }}
       >
         {blocked ? (
-          <div className="pointer-events-auto absolute inset-0 flex items-center justify-center bg-black/20">
-            <div className="flex max-w-[min(92vw,360px)] items-center gap-2 rounded-full bg-white/95 py-1.5 pl-3 pr-1.5 shadow-sm">
-              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--ink)]">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 p-2">
+            <div className="w-full min-w-0 max-w-full rounded-full bg-white/95 px-2 py-1 shadow-sm">
+              <span className="block truncate text-center text-[11px] font-medium leading-tight text-[var(--ink)]">
                 {blocked.message}
               </span>
-              {blocked.onCancel ? (
-                <button
-                  type="button"
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-                  aria-label={t('editor.imageToolbar.markExit')}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    blocked.onCancel?.();
-                  }}
-                >
-                  <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
-                </button>
-              ) : null}
             </div>
           </div>
         ) : null}

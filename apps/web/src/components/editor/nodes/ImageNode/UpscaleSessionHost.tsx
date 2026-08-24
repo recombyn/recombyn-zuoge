@@ -176,7 +176,7 @@ function UpscaleSessionHost({ document }: { document: SceneDocument }): ReactNod
                   <DropdownPanelItem
                     key={p.key}
                     selected={p.key === selected?.key}
-                    className="flex-col items-start gap-0.5 px-3 py-2"
+                    className="h-auto flex-col items-start gap-0.5 px-3 py-2"
                     onClick={() => {
                       setSelectedKey(p.key);
                       setMenuOpen(false);

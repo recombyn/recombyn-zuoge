@@ -115,6 +115,26 @@ export function detachSceneNodeEl(el: Element | null | undefined) {
 }
 
 /**
+ * Clip a shape host to its owning clipContent frame, or clear clip when the
+ * host is selection-revealed (ink must match unclipped selection chrome).
+ */
+export function syncFrameContentClip(
+  root: SVGSVGElement | null | undefined,
+  el: SVGElement | null | undefined,
+  document: { frames?: ArtboardFrame[]; x?: number; y?: number } | null | undefined,
+  node: Record<string, unknown> | null | undefined,
+  opts?: { zoom?: number; revealOverflow?: boolean }
+): void {
+  if (!el) return;
+  if (opts?.revealOverflow) {
+    clearFrameContentClip(el);
+    return;
+  }
+  if (!root) return;
+  applyFrameContentClip(root, el, document, node, opts);
+}
+
+/**
  * Clip a shape host to its owning clipContent frame.
  *
  * Clip sits on the **untransformed paint layer** (same lattice as

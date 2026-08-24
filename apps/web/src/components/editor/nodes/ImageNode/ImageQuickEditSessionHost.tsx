@@ -32,12 +32,14 @@ function ImageQuickEditSessionHost({
     return isQuickEditMarkPanel(panel, nodeId, kind);
   }, [panel, nodeId, kind]);
 
+  const nodeProcessing = String(node?.attrs?.processStatus || '') === 'running';
+
   const box = useMemo(
     () => (open && node ? nodeSceneBox(document, node) : null),
     [document, node, open]
   );
 
-  if (!open || !nodeId || !box || hidden) return null;
+  if (!open || !nodeId || !box || hidden || nodeProcessing) return null;
 
   return (
     <ImageQuickEditComposer document={document} nodeId={nodeId} box={box} />

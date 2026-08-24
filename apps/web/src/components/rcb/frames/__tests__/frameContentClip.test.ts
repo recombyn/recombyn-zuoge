@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyFrameContentClip } from '../frameContentClip';
+import { applyFrameContentClip, syncFrameContentClip } from '../frameContentClip';
 
 describe('frame content clipping', () => {
   it('clips the untransformed paint layer and clears when the node leaves the frame', () => {
@@ -98,5 +98,39 @@ describe('frame content clipping', () => {
     expect(node.parentElement).toBe(layer);
     expect(root.querySelector('[data-frame-clip-wrap="1"]')).toBeNull();
     expect(layer.getAttribute('clip-path') || '').toContain('url(');
+  });
+
+  it('syncFrameContentClip clears clip when selection reveals overflow', () => {
+    const root = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    layer.setAttribute('data-rcb-shape-id', 'n1');
+    const node = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    root.append(layer);
+    layer.append(node);
+
+    const frame = {
+      id: 'frame-1',
+      name: 'Frame',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      clipContent: true,
+      hidden: false,
+      backgroundColor: '#fff',
+    };
+    const sceneNode = {
+      x: 80,
+      y: 40,
+      width: 40,
+      height: 40,
+      attrs: { frameId: 'frame-1' },
+    };
+
+    syncFrameContentClip(root, node, { frames: [frame] }, sceneNode, { revealOverflow: false });
+    expect(layer.getAttribute('clip-path') || '').toContain('url(');
+
+    syncFrameContentClip(root, node, { frames: [frame] }, sceneNode, { revealOverflow: true });
+    expect(layer.hasAttribute('clip-path')).toBe(false);
   });
 });

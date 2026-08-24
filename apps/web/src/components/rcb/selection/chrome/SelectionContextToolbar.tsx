@@ -18,7 +18,7 @@ import {
   MdFormatOverline,
 } from 'react-icons/md';
 import AppLogo from '@/components/base/AppLogo';
-import { ColorPanelPopover } from '@/components/base/colorPanel';
+import { ColorPanelPopover, INPUT_NO_SPIN } from '@/components/base/colorPanel';
 import { DropdownPanel, DropdownPanelItem } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
 import {
@@ -48,6 +48,8 @@ import {
   isTextStrike,
   isTextUnderline,
   measurePlainTextSize,
+  measureTextNodeBoxAfterStyleChange,
+  normalizeTextFontSize,
   parseNodeMarkdown,
   parseNodeTextStyle,
   toggleTextDecoration,
@@ -68,6 +70,7 @@ import { BlendModeIcon, OpacityControl } from './BlendModeControl';
 import {
   SEL_ICON_BTN,
   SEL_ICON_BTN_ACTIVE,
+  SEL_SIZE_INPUT,
   SEL_TOOL_BTN,
 } from './ToolbarValueSlider';
 import FontFamilyPicker from '@/components/editor/nodes/TextNode/FontFamilyPicker';
@@ -107,15 +110,11 @@ import {
   toggleCatalogTextBold,
   weightOptionsForFamily,
 } from '@/components/rcb/scene/document/fontCatalog';
+import { MdOutlineFlip } from 'react-icons/md';
 import { TbDroplet, TbVectorBezier } from 'react-icons/tb';
 import { message } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
-
-const SIZE_OPTIONS = [12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72, 80, 96, 108].map((n) => ({
-  value: String(n),
-  label: String(n),
-}));
 
 type SceneBox = { left: number; top: number; width: number; height: number };
 
@@ -127,6 +126,8 @@ type Props = {
   valueBox?: SceneBox;
   /** Scene pad beyond chrome for outer stroke ink (center stroke half-width). */
   edgePadScene?: number;
+  /** Live control-box angle — toolbar tracks oriented top edge after rotate. */
+  angle?: number;
   onOpenAgent?: (opts?: { prompt?: string }) => void;
 };
 
@@ -287,22 +288,31 @@ function openImageMoreTool(
     const active =
       node?.attrs?.mockupEnabled === true || node?.attrs?.mockupEnabled === 'true';
     const src = String(node?.attrs?.src || '').trim();
+    if (!active) {
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          patch: {
+            attrs: {
+              mockupEnabled: 'true',
+              mockupTemplateId: 'demo-cylinder',
+              ...(src && !node?.attrs?.mockupBaseSrc ? { mockupBaseSrc: src } : {}),
+            },
+          },
+        })
+      );
+      return;
+    }
+    // Already in mockup mode — enter adjust / re-process, never toggle off.
     dispatch(
       patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
-            mockupEnabled: active ? 'false' : 'true',
-            ...(!active
-              ? {
-                  mockupTemplateId: 'demo-cylinder',
-                  ...(src && !node?.attrs?.mockupBaseSrc
-                    ? { mockupBaseSrc: src }
-                    : {}),
-                }
-              : {}),
+            mockupAdjust: String(Date.now()),
           },
         },
+        skipHostReload: true,
       })
     );
     return;
@@ -365,7 +375,7 @@ async function outlineSelectedNode(opts: {
 }
 
 function SelectionContextToolbar(props: Props): ReactNode {
-  const { document, nodeId, box, valueBox, edgePadScene = 0 } = props;
+  const { document, nodeId, box, valueBox, edgePadScene = 0, angle: angleProp } = props;
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const [decorationOpen, setDecorationOpen] = useState(false);
@@ -394,12 +404,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [mockupIntelEnabled]);
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
+  const isVectorKind =
+    kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path' || kind === 'svg';
   const flipRotateOpen = isPanelKindOnNode(
     imageToolPanel,
     nodeId,
     'flipRotate',
     kind,
-    ['image', 'video']
+    ['image', 'video', 'shape', 'rect', 'ellipse', 'path', 'svg']
   );
   const quickEditMarkPaused = isQuickEditMarkPanel(imageToolPanel, nodeId, kind);
   const quickEditOpen = isPanelKindOnNode(
@@ -452,6 +464,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
 
   if (!node || !box) return null;
 
+  const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
+
   if (quickEditComposerOpen || lottieEditOpen) {
     if (kind === 'image') return null;
     if (kind === 'video') {
@@ -477,12 +491,28 @@ function SelectionContextToolbar(props: Props): ReactNode {
   if (imageSidePanelOpen) return null;
 
   const patchTextStyle = (partial: Record<string, unknown>) => {
-    const next = buildTextAttrsPreservingMarkdown(node.attrs || {}, {
+    const mergedStyle = {
       ...parseNodeTextStyle(node.attrs || {}),
       ...partial,
-    } as any);
-    dispatch(patchDocumentNode({ nodeId, patch: { attrs: next } }));
+    };
+    if (partial.fontSize != null) {
+      mergedStyle.fontSize = normalizeTextFontSize(partial.fontSize);
+    }
+    const nextAttrs = buildTextAttrsPreservingMarkdown(node.attrs || {}, mergedStyle);
+    const { width, height } = measureTextNodeBoxAfterStyleChange(node, mergedStyle);
+    dispatch(
+      patchDocumentNode({
+        nodeId,
+        patch: {
+          attrs: nextAttrs,
+          width,
+          height,
+        },
+      })
+    );
   };
+
+  const fontSizePx = normalizeTextFontSize(style?.fontSize);
 
   const textAlign = String(style?.textAlign || 'left');
   const fontFamily = String(style?.fontFamily || 'Alibaba PuHuiTi');
@@ -536,6 +566,13 @@ function SelectionContextToolbar(props: Props): ReactNode {
       label: t('editor.imageToolbar.outline'),
     });
   }
+  if (isVectorKind) {
+    elementMoreItems.push({
+      key: 'flipRotate',
+      icon: <MdOutlineFlip className="h-4 w-4" />,
+      label: t('editor.imageToolbar.flipRotate'),
+    });
+  }
   if (showLayerChrome) {
     elementMoreItems.push({
       key: 'blendMode',
@@ -558,14 +595,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
         node,
         nodeId,
         dispatch,
-        loadingLabel: '轮廓化中…',
-        failLabel: '轮廓化失败',
-        okLabel: '已轮廓化',
+        loadingLabel: t('editor.imageToolbar.outlining'),
+        failLabel: t('editor.imageToolbar.outlineFailed'),
+        okLabel: t('editor.imageToolbar.outlineDone'),
         enterPathEdit: isShapeKind,
       });
       return;
     }
-    if (key === 'blendMode' || key === 'effects') {
+    if (key === 'flipRotate' || key === 'blendMode' || key === 'effects') {
       dispatch(openImageToolPanel({ nodeId, kind: key }));
     }
   };
@@ -611,7 +648,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <button
             type="button"
             className={imageToolBtn}
-            data-image-quick-edit-trigger
+            data-media-quick-edit-trigger
             aria-label={t('editor.imageToolbar.chat')}
             onClick={() => dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))}
           >
@@ -800,6 +837,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     <>
       <SelectionToolbarShell
         box={box}
+        angle={placementAngle}
         edgePadScene={edgePadScene}
         hasTitleLabel={
           kind === 'image' || kind === 'video' || kind === 'lottie' || kind === 'audio'
@@ -838,15 +876,36 @@ function SelectionContextToolbar(props: Props): ReactNode {
                   displayLabel={weightDisplayLabel}
                 />
               ) : null}
-              <ToolbarMenuSelect
-                value={String(style.fontSize)}
-                options={SIZE_OPTIONS}
-                onChange={(v) => patchTextStyle({ fontSize: Number(v) })}
-                displayLabel={String(style.fontSize)}
-                editable
-                inputMin={1}
-                inputMax={400}
-              />
+              <label className="inline-flex h-8 items-center rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  aria-label={t('editor.fontSize')}
+                  className={cn(SEL_SIZE_INPUT, INPUT_NO_SPIN, 'w-10')}
+                  defaultValue={fontSizePx}
+                  key={`text-fs-${fontSizePx}`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  onFocus={(e) => e.target.select()}
+                  onBlur={(e) => {
+                    const next = normalizeTextFontSize(e.target.value, fontSizePx);
+                    e.target.value = String(next);
+                    if (next !== fontSizePx) patchTextStyle({ fontSize: next });
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).value = String(fontSizePx);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                />
+              </label>
               {showBoldToggle ? (
                 <Tooltip tip={t('editor.imageToolbar.bold')} placement="top">
                   <button
@@ -998,30 +1057,38 @@ function SelectionContextToolbar(props: Props): ReactNode {
           ) : null}
 
           {kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path' ? (
-            <>
-              <ShapeSelectionToolbar
-                nodeId={nodeId}
-                node={node}
-                box={box}
-                valueBox={valueBox}
-                document={document}
-                hideExport
-              />
-              {elementLayerChrome}
-              <Sep />
-              <ExportSelectionPopover nodeIds={[nodeId]} />
-            </>
+            flipRotateOpen ? (
+              flipRotateToolbar
+            ) : (
+              <>
+                <ShapeSelectionToolbar
+                  nodeId={nodeId}
+                  node={node}
+                  box={box}
+                  valueBox={valueBox}
+                  document={document}
+                  hideExport
+                />
+                {elementLayerChrome}
+                <Sep />
+                <ExportSelectionPopover nodeIds={[nodeId]} />
+              </>
+            )
           ) : null}
           {kind === 'svg' ? (
-            <>
-              {elementLayerChrome ? (
-                <>
-                  {elementLayerChrome}
-                  <Sep />
-                </>
-              ) : null}
-              <ExportSelectionPopover nodeIds={[nodeId]} />
-            </>
+            flipRotateOpen ? (
+              flipRotateToolbar
+            ) : (
+              <>
+                {elementLayerChrome ? (
+                  <>
+                    {elementLayerChrome}
+                    <Sep />
+                  </>
+                ) : null}
+                <ExportSelectionPopover nodeIds={[nodeId]} />
+              </>
+            )
           ) : null}
       </SelectionToolbarShell>
 

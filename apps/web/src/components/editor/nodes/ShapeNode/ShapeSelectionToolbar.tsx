@@ -153,8 +153,14 @@ function ShapeSelectionToolbar({
   const showAspectPresets = supportsAspectPresets(node);
   const showSides = supportsShapeSides(node);
   const shapeType = String(node?.attrs?.shapeType || '');
-  const sidesLabel = shapeType === 'star' ? '角数' : '边数';
-  const sidesPrefix = shapeType === 'star' ? '角' : '边';
+  const sidesLabel =
+    shapeType === 'star'
+      ? t('editor.selectionToolbar.pointCount')
+      : t('editor.selectionToolbar.sideCount');
+  const sidesPrefix =
+    shapeType === 'star'
+      ? t('editor.selectionToolbar.pointPrefix')
+      : t('editor.selectionToolbar.sidePrefix');
   const sides = sidesFromAttrs(node?.attrs);
   const showStarInnerRadius = shapeType === 'star';
   const starInnerRadiusPct = Math.round(starInnerRatioFromAttrs(node?.attrs) * 100);
@@ -436,10 +442,10 @@ function ShapeSelectionToolbar({
   return (
     <>
       {canFill ? (
-        <Tooltip tip={'颜色'} placement="top">
+        <Tooltip tip={t('editor.selectionToolbar.color')} placement="top">
           <button
             type="button"
-            aria-label={'颜色'}
+            aria-label={t('editor.selectionToolbar.color')}
             className={cn(SEL_ICON_BTN, !fillVisible && 'opacity-55')}
             onClick={() => openStyle('fill')}
           >
@@ -449,10 +455,10 @@ function ShapeSelectionToolbar({
       ) : null}
 
       {canStroke ? (
-        <Tooltip tip={'描边'} placement="top">
+        <Tooltip tip={t('editor.selectionToolbar.stroke')} placement="top">
           <button
             type="button"
-            aria-label={'描边'}
+            aria-label={t('editor.selectionToolbar.stroke')}
             className={cn(SEL_ICON_BTN, !strokeVisible && 'opacity-55')}
             onClick={() => openStyle('stroke')}
           >
@@ -467,10 +473,10 @@ function ShapeSelectionToolbar({
         />
       ) : null}
       {cornerRadius ? (
-        <Tooltip tip={'圆角'} placement="top">
+        <Tooltip tip={t('editor.selectionToolbar.cornerRadius')} placement="top">
           <button
             type="button"
-            aria-label={'圆角'}
+            aria-label={t('editor.selectionToolbar.cornerRadius')}
             className={SEL_TOOL_BTN}
             onClick={() => openStyle('radius')}
           >
@@ -600,7 +606,14 @@ function ShapeSelectionToolbar({
         </Tooltip>
       ) : null}
       {showSizeControls ? (
-        <Tooltip tip={isOpenStroke ? '描边宽度' : '高度'} placement="top">
+        <Tooltip
+          tip={
+            isOpenStroke
+              ? t('editor.selectionToolbar.strokeWidth')
+              : t('editor.selectionToolbar.height')
+          }
+          placement="top"
+        >
           <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
             <span className="text-[var(--muted)]">H</span>
             <input

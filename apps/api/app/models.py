@@ -250,16 +250,6 @@ class PlazaLike(SQLModel, table=True):
     created_at: float = Field(default=0.0)
 
 
-class UserFollow(SQLModel, table=True):
-    __tablename__ = "user_follows"
-
-    user_id: str = Field(primary_key=True, max_length=64)
-    followee_id: str = Field(primary_key=True, max_length=64)
-    followee_name: str = Field(default="", max_length=255)
-    followee_avatar: Optional[str] = Field(default=None)
-    created_at: float = Field(default=0.0)
-
-
 class EmailCode(SQLModel, table=True):
     __tablename__ = "email_codes"
 

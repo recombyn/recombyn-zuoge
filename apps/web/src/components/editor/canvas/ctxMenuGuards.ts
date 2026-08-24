@@ -1,4 +1,4 @@
-import { deletionTargetHasProcessing } from '@/components/rcb/scene/document/nodeCapabilities';
+import { selectionHasProcessing } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   nodeIdsBoundToFrames,
   resolveSelectionNodeIds,
@@ -49,12 +49,12 @@ export function selectionMutationBlocked(
   if (!nodeIds.length && !frameIds.length) return false;
   const bound = frameIds.length ? nodeIdsBoundToFrames(document, frameIds) : [];
   const allNodes = [...new Set([...nodeIds, ...bound])];
-  return deletionTargetHasProcessing(document, allNodes, frameIds, {
+  return selectionHasProcessing(document, allNodes, frameIds, {
     expandFrameChildren: false,
   });
 }
 
-/** Delete is allowed for artboards even while children are processing (user discards the frame). */
+/** Delete is always allowed — including in-flight SoftGlow nodes. */
 export function canDeleteCtxMenuTargets(opts: {
   document: SceneDocument | null | undefined;
   ids: string[];
@@ -64,7 +64,5 @@ export function canDeleteCtxMenuTargets(opts: {
   activeFrameId?: string | null;
 }): boolean {
   const { nodeIds, frameIds } = resolveCtxMenuTargets(opts);
-  if (!nodeIds.length && !frameIds.length) return false;
-  if (frameIds.length > 0) return true;
-  return !selectionMutationBlocked(opts.document, nodeIds, frameIds);
+  return nodeIds.length > 0 || frameIds.length > 0;
 }

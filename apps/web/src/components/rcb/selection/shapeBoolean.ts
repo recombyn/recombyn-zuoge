@@ -24,6 +24,7 @@ import {
   sidesFromAttrs,
   starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
+import { boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
 
 export type ShapeBox = {
   left: number;
@@ -195,6 +196,18 @@ function rotateRing(ring: Ring, cx: number, cy: number, angleDeg: number): Ring 
     const dy = y - cy;
     return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos] as [number, number];
   });
+}
+
+/** Mirror local ring about box center — matches host ink: flip → rotate → translate. */
+function mirrorRing(ring: Ring, cx: number, cy: number, flipX: boolean, flipY: boolean): Ring {
+  if (!flipX && !flipY) return ring;
+  return ring.map(
+    ([x, y]) =>
+      [
+        flipX ? cx + (cx - x) : x,
+        flipY ? cy + (cy - y) : y,
+      ] as [number, number]
+  );
 }
 
 function translateRing(ring: Ring, dx: number, dy: number): Ring {
@@ -608,11 +621,17 @@ function sampleLocalPathToRings(d: string, stepPx = SAMPLE_STEP_PX): Ring[] {
  * Uses painted baseline geometry so rounded corners / arcs are preserved.
  */
 function shapeToPolygon(b: ShapeBox): Polygon | null {
-  const cx = b.left + b.width / 2;
-  const cy = b.top + b.height / 2;
   const angle = b.angle || 0;
-  const toWorld = (ring: Ring): Ring =>
-    rotateRing(translateRing(ring, b.left, b.top), cx, cy, angle);
+  const flipX = boolEffectAttr(b.attrs?.flipX, false);
+  const flipY = boolEffectAttr(b.attrs?.flipY, false);
+  const lcx = b.width / 2;
+  const lcy = b.height / 2;
+  const toWorld = (ring: Ring): Ring => {
+    let local = ring;
+    if (flipX || flipY) local = mirrorRing(local, lcx, lcy, flipX, flipY);
+    if (angle) local = rotateRing(local, lcx, lcy, angle);
+    return translateRing(local, b.left, b.top);
+  };
 
   // Circles / ellipses: dense parametric rings (incl. donut holes).
   // Pie / annular sector still need painted baseline arcs.
@@ -670,7 +689,14 @@ function shapeToPolygon(b: ShapeBox): Polygon | null {
   }
 
   // DOM-less / empty baseline fallback (sharp AABB).
-  const ring = rotateRing(rectRing(b), cx, cy, angle);
+  const localAabb = rectRing({
+    left: 0,
+    top: 0,
+    width: b.width,
+    height: b.height,
+    shapeType: b.shapeType,
+  } as ShapeBox);
+  const ring = toWorld(localAabb);
   return ring.length >= 4 ? [ring] : null;
 }
 

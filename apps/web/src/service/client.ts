@@ -56,6 +56,11 @@ export function getHttpErrorDetail(err: unknown): unknown {
 
 /** User-facing message from oRPC / ky / axios-family errors. */
 export function getHttpErrorMessage(err: unknown, fallback = ''): string {
+  const status = getHttpStatus(err);
+  if (status === 502 || status === 503 || status === 504) {
+    if (fallback.trim()) return fallback;
+  }
+
   const detail = getHttpErrorDetail(err);
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (Array.isArray(detail) && detail.length) {
@@ -70,7 +75,13 @@ export function getHttpErrorMessage(err: unknown, fallback = ''): string {
     const msg = (detail as { message?: unknown }).message;
     if (typeof msg === 'string' && msg.trim()) return msg;
   }
-  if (err instanceof Error && err.message.trim()) return err.message;
+  if (err instanceof Error && err.message.trim()) {
+    const raw = err.message.trim();
+    if (/^(bad gateway|gateway timeout|service unavailable)$/i.test(raw) && fallback.trim()) {
+      return fallback;
+    }
+    return raw;
+  }
   return fallback;
 }
 
@@ -163,13 +174,21 @@ const link = new OpenAPILink(apiRouterContract, {
   },
   customErrorResponseBodyDecoder: (body, response) => {
     if (response.status < 400) return null;
-    if (body == null || typeof body !== 'object') return null;
-    const detail = (body as { detail?: unknown }).detail;
-    const message = detailToText(detail) || `HTTP ${response.status}`;
+    if (body != null && typeof body === 'object') {
+      const detail = (body as { detail?: unknown }).detail;
+      const message = detailToText(detail) || `HTTP ${response.status}`;
+      return new ORPCError('BAD_REQUEST', {
+        status: response.status,
+        message: message || `HTTP ${response.status}`,
+        data: body,
+      });
+    }
+    const statusText = response.statusText?.trim();
+    const message =
+      statusText && !/^ok$/i.test(statusText) ? statusText : `HTTP ${response.status}`;
     return new ORPCError('BAD_REQUEST', {
       status: response.status,
-      message: message || `HTTP ${response.status}`,
-      data: body,
+      message,
     });
   },
   interceptors: [

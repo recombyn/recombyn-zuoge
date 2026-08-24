@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiQuery, queryClient } from '@/service/client';
 import type { WalletDto } from '@/models/wallet';
 import { normalizePlanId, PLAN_CATALOG, type PlanDef, type PlanId } from '@/utils/wallet';
-import { getApiBaseUrl, isDesktopLocal, isLocalDevHost } from '@/utils/apiBase';
+import { getApiBaseUrl, isDesktopLocal } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
 export type WalletSnapshot = {
@@ -158,10 +158,11 @@ export function useBillingEnabled(): boolean {
   return Boolean((configQuery.data as { billingEnabled?: boolean } | undefined)?.billingEnabled);
 }
 
-/** Show per-action credit costs (tool CTAs, send bolt) — off for local desktop and loopback dev. */
+/** Show per-action credit costs when platform billing is on (incl. local dev against cloud wallet). */
 export function useShowCreditCosts(): boolean {
   const billingEnabled = useBillingEnabled();
-  return billingEnabled && !isDesktopLocal() && !isLocalDevHost();
+  // Desktop local = BYOK / no cloud wallet — never show platform credit chips.
+  return billingEnabled && !isDesktopLocal();
 }
 
 /** Convenience snapshot for chips / plans / ledger header. */

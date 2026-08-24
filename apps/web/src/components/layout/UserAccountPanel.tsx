@@ -22,11 +22,15 @@ import {
 } from '@floating-ui/react';
 import {
   HiOutlineArrowRightOnRectangle,
+  HiOutlineBell,
   HiOutlineBolt,
+  HiOutlineBookOpen,
+  HiOutlineChatBubbleLeftRight,
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
   HiOutlineGlobeAlt,
   HiOutlineInformationCircle,
+  HiOutlineLifebuoy,
   HiOutlineUserCircle,
 } from 'react-icons/hi2';
 import { TbShirt } from 'react-icons/tb';
@@ -49,6 +53,11 @@ import { buildLocaleSwitchUrl, normalizeI18nLang, writeStoredI18nLang } from '@/
 import { applyTheme, getStoredThemeMode, type ThemeMode } from '@/theme';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
+import {
+  railHelpItemKeys,
+  runRailHelpAction,
+  type RailHelpItemKey,
+} from '@/components/layout/railHelp';
 
 const NARROW_MQ = '(max-width: 767px)';
 
@@ -168,7 +177,7 @@ type Props = {
   children: React.ReactNode;
 };
 
-type FlyoutKind = 'lang' | 'theme' | null;
+type FlyoutKind = 'lang' | 'theme' | 'help' | null;
 
 const MENU_ICON = 'h-[18px] w-[18px] shrink-0';
 const MENU_STROKE = 1.6;
@@ -444,6 +453,32 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
     setPlansOpen(true);
   };
 
+  const helpKeys = railHelpItemKeys(desktopLocal);
+
+  const helpItemLabel = (key: RailHelpItemKey) => {
+    if (key === 'guide') return t('home.railHelpGuide');
+    if (key === 'contact') return t('home.railHelpContact');
+    return t('home.railHelpUpdates');
+  };
+
+  const helpItemIcon = (key: RailHelpItemKey) => {
+    if (key === 'guide') {
+      return <HiOutlineBookOpen className={MENU_ICON} strokeWidth={MENU_STROKE} aria-hidden />;
+    }
+    if (key === 'contact') {
+      return (
+        <HiOutlineChatBubbleLeftRight className={MENU_ICON} strokeWidth={MENU_STROKE} aria-hidden />
+      );
+    }
+    return <HiOutlineBell className={MENU_ICON} strokeWidth={MENU_STROKE} aria-hidden />;
+  };
+
+  const onHelpPick = (key: RailHelpItemKey) => {
+    runRailHelpAction(key);
+    setFlyout(null);
+    close();
+  };
+
 
   return (
     <>
@@ -521,7 +556,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
               <div
                 className={cn(
                   'border-t border-[var(--line)]',
-                  narrow && (flyout === 'lang' || flyout === 'theme')
+                  narrow && (flyout === 'lang' || flyout === 'theme' || flyout === 'help')
                     ? 'px-2 py-2'
                     : 'px-1.5 py-1.5'
                 )}
@@ -547,6 +582,17 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
                         label={label}
                         active={themeMode === mode}
                         onClick={() => changeTheme(mode)}
+                      />
+                    ))}
+                  </>
+                ) : narrow && flyout === 'help' ? (
+                  <>
+                    <DrillBackRow label={t('common.back')} onClick={() => setFlyout(null)} />
+                    {helpKeys.map((key) => (
+                      <DrillListRow
+                        key={key}
+                        label={helpItemLabel(key)}
+                        onClick={() => onHelpPick(key)}
                       />
                     ))}
                   </>
@@ -664,9 +710,52 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
                 )}
               </div>
 
-              {/* Logout — hide while narrow drill-in */}
+              {/* Help + logout — hide footer while narrow drill-in */}
               {!(narrow && flyout) ? (
                 <div className="border-t border-[var(--line)] px-1.5 py-1.5">
+                  <div
+                    className="relative"
+                    onMouseEnter={() => {
+                      if (!narrow) setFlyout('help');
+                    }}
+                    onMouseLeave={() => {
+                      if (!narrow) setFlyout((v) => (v === 'help' ? null : v));
+                    }}
+                  >
+                    <MenuRow
+                      icon={
+                        <HiOutlineLifebuoy
+                          className={MENU_ICON}
+                          strokeWidth={MENU_STROKE}
+                          aria-hidden
+                        />
+                      }
+                      label={t('home.railHelp')}
+                      active={flyout === 'help'}
+                      onClick={() => {
+                        if (narrow) setFlyout('help');
+                        else setFlyout((v) => (v === 'help' ? null : 'help'));
+                      }}
+                      trailing={
+                        <HiOutlineChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+                      }
+                    />
+                    {!narrow && flyout === 'help' ? (
+                      <SideFlyout>
+                        {helpKeys.map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => onHelpPick(key)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-[var(--ink)] transition hover:bg-[var(--accent-soft)]"
+                          >
+                            {helpItemIcon(key)}
+                            {helpItemLabel(key)}
+                          </button>
+                        ))}
+                      </SideFlyout>
+                    ) : null}
+                  </div>
                   <MenuRow
                     icon={
                       <HiOutlineArrowRightOnRectangle

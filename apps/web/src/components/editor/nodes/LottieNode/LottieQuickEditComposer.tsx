@@ -11,7 +11,6 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
 import {
@@ -19,9 +18,8 @@ import {
   HiOutlineChevronDown,
   HiOutlinePlus,
 } from 'react-icons/hi2';
-import { type ChatModelsResponse, type LlmModel } from '@/service/chat';
-import { apiQuery, getHttpErrorMessage } from '@/service/client';
-import { generateLottie } from '@/service/design';
+import { createLottieJob, waitForLottieJob, type LlmModel } from '@/service/chat';
+import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   RcbOverlayPortal,
@@ -41,11 +39,14 @@ import {
 import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/models/ModelPickerPanel';
-import { buildByokAwareModelList } from '@/components/editor/panels/agent/llmModelMeta';
-import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
 import {
-  clearImageProcessAttrs
-} from '@/components/rcb/scene/document/mediaLifecycle';
+  DEFAULT_LOTTIE_DURATION,
+  LottieSettingsPanel,
+} from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
+import { buildLottieChatModelList, nextLottieChatModelId } from '@/components/editor/nodes/shared/generatorModelLists';
+import { useGeneratorModelsCatalog } from '@/components/editor/panels/agent/composer/useGeneratorModelsCatalog';
+import { MEDIA_QUICK_EDIT_ATTR } from '@/components/editor/panels/agent/composer/composerMentionHelpers';
+import { clearGeneratorProcessOverlay } from '@/components/editor/nodes/shared/clearGeneratorProcess';
 import {
   parseLottieAnimationData,
   serializeLottieAnimationData
@@ -54,7 +55,6 @@ import {
   closeImageToolPanel,
   patchDocumentNode,
   pushEditorHistory,
-  setDocumentFromCanvas,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import { isDesktopLocal } from '@/utils/apiBase';
@@ -62,23 +62,6 @@ import { readFileAsDataUrl } from '@/utils/uploadImage';
 import store from '@/store';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
-
-const LOTTIE_DURATIONS = [1, 2, 3, 5, 8] as const;
-const DEFAULT_DURATION = 3;
-
-function modelIsAgentChat(model?: Pick<LlmModel, 'kind' | 'id'> | null): boolean {
-  if (!model?.id || model.id === 'auto') return false;
-  if (model.kind === 'image' || model.kind === 'video') return false;
-  return !/seedance|seedream|t2i|i2i/i.test(model.id);
-}
-
-function buildLottieChatModelList(res?: { models?: LlmModel[] | null } | null): LlmModel[] {
-  return buildByokAwareModelList({
-    byok: customProvidersAsModels(),
-    catalogs: [res?.models],
-    filter: (m) => modelIsAgentChat(m),
-  });
-}
 
 function LottieQuickEditComposer({
   document,
@@ -105,9 +88,16 @@ function LottieQuickEditComposer({
   const [sending, setSending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const [models, setModels] = useState<LlmModel[]>([]);
   const [modelId, setModelId] = useState('');
-  const [duration, setDuration] = useState(DEFAULT_DURATION);
+  const [duration, setDuration] = useState(DEFAULT_LOTTIE_DURATION);
+
+  const { models } = useGeneratorModelsCatalog({
+    buildList: buildLottieChatModelList,
+    modelId,
+    setModelId,
+    resolveModelId: nextLottieChatModelId,
+    resetKey: nodeId,
+  });
 
   useEffect(() => {
     setPrompt(savedPrompt);
@@ -117,37 +107,6 @@ function LottieQuickEditComposer({
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [nodeId]);
-
-  const modelsCatalogQuery = useQuery({
-    ...apiQuery.chatGetModels.queryOptions(),
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (modelsCatalogQuery.isPending) return;
-    if (modelsCatalogQuery.isError) {
-      setModels([]);
-      return;
-    }
-    if (!modelsCatalogQuery.isFetched) return;
-    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
-    if (!res) {
-      setModels([]);
-      return;
-    }
-    const list = buildLottieChatModelList(res);
-    setModels(list);
-    if (list.length && !list.some((m) => m.id === modelId)) {
-      setModelId(list[0]!.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    modelsCatalogQuery.data,
-    modelsCatalogQuery.isPending,
-    modelsCatalogQuery.isError,
-    modelsCatalogQuery.isFetched,
-    nodeId,
-  ]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -218,7 +177,7 @@ function LottieQuickEditComposer({
         .filter(Boolean);
       const genW = Math.min(512, Math.max(32, Math.round(box.width)));
       const genH = Math.min(512, Math.max(32, Math.round(box.height)));
-      const res = await generateLottie(
+      const jobId = await createLottieJob(
         {
           prompt: text,
           width: genW,
@@ -229,6 +188,7 @@ function LottieQuickEditComposer({
         },
         { signal: ac.signal }
       );
+      const res = await waitForLottieJob(jobId, { signal: ac.signal });
       const animationData = parseLottieAnimationData(res?.animationData) || null;
       const json = serializeLottieAnimationData(animationData);
       if (!animationData || !json) throw new Error(t('editor.tools.lottieGenEmpty'));
@@ -259,8 +219,9 @@ function LottieQuickEditComposer({
       dispatch(closeImageToolPanel());
     } catch (err: any) {
       if (ac.signal.aborted) return;
-      const doc = (store.getState() as any).editor?.document;
-      if (doc) dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+      const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
+        ?.document;
+      clearGeneratorProcessOverlay(dispatch, doc, nodeId);
       message.error(getHttpErrorMessage(err, t('editor.tools.lottieGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
@@ -274,7 +235,7 @@ function LottieQuickEditComposer({
     <RcbOverlayPortal>
       <div
         data-lottie-edit-composer
-        data-image-quick-edit
+        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
         data-sel-toolbar
         data-scene-node-id={nodeId}
         className={cn(
@@ -354,26 +315,13 @@ function LottieQuickEditComposer({
             referenceClassName="inline-flex min-w-0"
             popupRender={() => (
               <DropdownPanel className="w-[min(16rem,calc(100vw-2rem))] p-3">
-                <p className="mb-2 text-[12px] font-medium text-[var(--ink)]">
-                  {t('editor.tools.lottieGenDuration', { defaultValue: '时长' })}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {LOTTIE_DURATIONS.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      className={cn(
-                        'h-7 rounded-lg px-2.5 text-[12px] tabular-nums',
-                        duration === d
-                          ? 'bg-[var(--ink)] text-[var(--on-brand)]'
-                          : 'bg-[var(--accent-soft)] text-[var(--ink)]'
-                      )}
-                      onClick={() => setDuration(d)}
-                    >
-                      {d}s
-                    </button>
-                  ))}
-                </div>
+                <LottieSettingsPanel
+                  aspectRatio="1:1"
+                  duration={duration}
+                  onAspectRatioChange={() => {}}
+                  onDurationChange={setDuration}
+                  showAspect={false}
+                />
               </DropdownPanel>
             )}
           >

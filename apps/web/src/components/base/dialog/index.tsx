@@ -64,7 +64,7 @@ const Dialog = ({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-[var(--color-shadow-overlay)] backdrop-blur-[6px]" />
+          <div className="fixed inset-0 bg-[var(--color-shadow-overlay)] backdrop-blur-[10px]" />
         </TransitionChild>
 
         <div className="fixed inset-0 overflow-y-auto">

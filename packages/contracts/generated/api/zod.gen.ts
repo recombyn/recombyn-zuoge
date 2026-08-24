@@ -59,6 +59,39 @@ export const zAudioGenerateIn = z.object({
 });
 
 /**
+ * AudioJobCreateRequest
+ */
+export const zAudioJobCreateRequest = z.object({
+    prompt: z.string().min(1),
+    model: z.string().nullish(),
+    voice: z.string().nullish(),
+    response_format: z.string().nullish(),
+    speed: z.number().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * AudioJobCreateResponse
+ */
+export const zAudioJobCreateResponse = z.object({
+    job_id: z.string(),
+    status: z.string().optional().default('queued'),
+    trace_id: z.string().optional().default('')
+});
+
+/**
+ * AudioJobStatusResponse
+ */
+export const zAudioJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
  * AuthConfigOut
  */
 export const zAuthConfigOut = z.object({
@@ -97,6 +130,14 @@ export const zBodyAdminAdminFontsUpload = z.object({
 });
 
 /**
+ * Body_design-design_plugins_install
+ */
+export const zBodyDesignDesignPluginsInstall = z.object({
+    file: z.string(),
+    overwrite: z.boolean().optional().default(false)
+});
+
+/**
  * Body_design-design_skills_import_zip
  */
 export const zBodyDesignDesignSkillsImportZip = z.object({
@@ -114,7 +155,6 @@ export const zBodyFontsUploadFontFile = z.object({
     weight: z.number().int().optional().default(400)
 });
 
-
 /**
  * Body_import-import_image
  */
@@ -122,15 +162,12 @@ export const zBodyImportImportImage = z.object({
     file: z.string()
 });
 
-
 /**
  * Body_import-jobs-create_import_job
  */
 export const zBodyImportJobsCreateImportJob = z.object({
     file: z.string(),
-    source_type: z.enum([
-        'image'
-    ])
+    source_type: z.literal('image')
 });
 
 /**
@@ -151,6 +188,13 @@ export const zByokProviderIn = z.object({
     apiModel: z.string().optional().default(''),
     modelKind: z.string().optional().default('text'),
     apiKey: z.string().nullish()
+});
+
+/**
+ * CanvasCommandAckIn
+ */
+export const zCanvasCommandAckIn = z.object({
+    seq: z.number().int().gte(0)
 });
 
 /**
@@ -255,7 +299,9 @@ export const zDesignRunIn = z.object({
     proposal_task_id: z.string().max(64).nullish(),
     interaction_mode: z.string().nullish(),
     paint_mode: z.string().nullish(),
-    skill_refs: z.array(z.string()).nullish()
+    skill_refs: z.array(z.string()).nullish(),
+    locale: z.string().max(16).nullish(),
+    design_intensity: z.string().max(16).nullish()
 });
 
 /**
@@ -320,6 +366,13 @@ export const zDesktopLocalLoginIn = z.object({
 });
 
 /**
+ * DlqReplayIn
+ */
+export const zDlqReplayIn = z.object({
+    jobId: z.string().min(1).max(64)
+});
+
+/**
  * EmailActivateIn
  */
 export const zEmailActivateIn = z.object({
@@ -350,6 +403,37 @@ export const zEmailVerifyCodeIn = z.object({
     email: z.string().min(3).max(254),
     code: z.string().min(4).max(8),
     captchaToken: z.string().max(128).nullish()
+});
+
+/**
+ * ExportJobCreateRequest
+ */
+export const zExportJobCreateRequest = z.object({
+    projectId: z.string().min(1).max(64),
+    format: z.literal('png').optional().default('png'),
+    frameId: z.string().max(64).nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * ExportJobCreateResponse
+ */
+export const zExportJobCreateResponse = z.object({
+    job_id: z.string(),
+    status: z.string().optional().default('queued'),
+    trace_id: z.string().optional().default('')
+});
+
+/**
+ * ExportJobStatusResponse
+ */
+export const zExportJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    trace_id: z.string().nullish()
 });
 
 /**
@@ -462,6 +546,41 @@ export const zImageGenerateIn = z.object({
 });
 
 /**
+ * ImageJobCreateRequest
+ */
+export const zImageJobCreateRequest = z.object({
+    prompt: z.string().min(1),
+    model: z.string().nullish(),
+    aspect_ratio: z.string().nullish(),
+    quality: z.string().nullish(),
+    resolution: z.string().nullish(),
+    n: z.number().int().nullish(),
+    images: z.array(z.string()).nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * ImageJobCreateResponse
+ */
+export const zImageJobCreateResponse = z.object({
+    job_id: z.string(),
+    status: z.string().optional().default('queued'),
+    trace_id: z.string().optional().default('')
+});
+
+/**
+ * ImageJobStatusResponse
+ */
+export const zImageJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
  * ImageProcessIn
  */
 export const zImageProcessIn = z.object({
@@ -478,9 +597,7 @@ export const zImageProcessIn = z.object({
  * ImportMeta
  */
 export const zImportMeta = z.object({
-    source_type: z.enum([
-        'image'
-    ]),
+    source_type: z.literal('image'),
     page_count: z.number().int().optional().default(1),
     page_images: z.array(z.string()).optional(),
     object_keys: z.array(z.string()).optional(),
@@ -577,10 +694,68 @@ export const zLottieGenerateIn = z.object({
 });
 
 /**
+ * LottieJobCreateRequest
+ */
+export const zLottieJobCreateRequest = z.object({
+    prompt: z.string().min(1).max(2000),
+    width: z.number().int().gte(32).lte(2048).optional().default(200),
+    height: z.number().int().gte(32).lte(2048).optional().default(200),
+    duration_sec: z.number().gte(0.5).lte(30).optional().default(3),
+    model: z.string().nullish(),
+    images: z.array(z.string()).max(8).nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * LottieJobCreateResponse
+ */
+export const zLottieJobCreateResponse = z.object({
+    job_id: z.string(),
+    status: z.string().optional().default('queued'),
+    trace_id: z.string().optional().default('')
+});
+
+/**
+ * LottieJobStatusResponse
+ */
+export const zLottieJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
  * Message
  */
 export const zMessage = z.object({
     message: z.string()
+});
+
+/**
+ * MockupBatchItemIn
+ */
+export const zMockupBatchItemIn = z.object({
+    image: z.string().min(1),
+    template_id: z.string().min(1).optional().default('demo-cylinder'),
+    name: z.string().optional().default('')
+});
+
+/**
+ * MockupBatchIn
+ */
+export const zMockupBatchIn = z.object({
+    items: z.array(zMockupBatchItemIn).min(1).max(64)
+});
+
+/**
+ * MockupRenderIn
+ */
+export const zMockupRenderIn = z.object({
+    image: z.string().min(1),
+    template_id: z.string().min(1).optional().default('demo-cylinder')
 });
 
 /**
@@ -607,7 +782,8 @@ export const zModelUpsertIn = z.object({
     sortOrder: z.number().int().gte(0).lte(100000).optional().default(100),
     imageLimits: z.record(z.unknown()).nullish(),
     imageLimitPreset: z.string().max(64).nullish(),
-    priceMeta: z.record(z.unknown()).nullish()
+    priceMeta: z.record(z.unknown()).nullish(),
+    pricingId: z.string().max(128).nullish()
 });
 
 /**
@@ -671,6 +847,23 @@ export const zPlazaVisibilityIn = z.object({
 });
 
 /**
+ * PricingVersionIn
+ */
+export const zPricingVersionIn = z.object({
+    pricingVersionId: z.string().nullish(),
+    pricingId: z.string().nullish(),
+    provider: z.string().nullish(),
+    modelId: z.string().nullish(),
+    currency: z.string().optional().default('USD'),
+    rates: z.array(z.record(z.unknown())).optional(),
+    status: z.string().nullish().default('draft'),
+    effectiveFrom: z.number().nullish(),
+    effectiveTo: z.number().nullish(),
+    source: z.string().nullish(),
+    notes: z.string().nullish()
+});
+
+/**
  * ProfileIn
  */
 export const zProfileIn = z.object({
@@ -722,13 +915,6 @@ export const zRegisterAssetIn = z.object({
 });
 
 /**
- * RejectIn
- */
-export const zRejectIn = z.object({
-    reason: z.string().max(500).nullish()
-});
-
-/**
  * RenameOrgIn
  */
 export const zRenameOrgIn = z.object({
@@ -768,7 +954,10 @@ export const zSceneFeedbackIn = z.object({
     scene_frames: z.array(z.record(z.unknown())).optional(),
     spatial_summary: z.record(z.unknown()).nullish(),
     op_results: z.array(z.record(z.unknown())).nullish(),
-    round: z.number().int().nullish()
+    round: z.number().int().nullish(),
+    transaction_id: z.string().nullish(),
+    transaction_status: z.string().nullish(),
+    base_revision: z.number().int().nullish()
 });
 
 /**
@@ -912,7 +1101,7 @@ export const zUserSkillIn = z.object({
     promptPositive: z.string().min(1).max(120000),
     promptNegative: z.string().max(40000).nullish(),
     skillKey: z.string().max(64).nullish(),
-    logo: z.string().max(512).nullish(),
+    logo: z.string().max(80000).nullish(),
     category: z.string().max(64).nullish(),
     enabled: z.boolean().optional().default(true)
 });
@@ -945,6 +1134,54 @@ export const zVideoGenerateIn = z.object({
     resolution: z.string().nullish(),
     duration: z.number().int().nullish(),
     images: z.array(z.string()).nullish()
+});
+
+/**
+ * VideoJobCreateRequest
+ */
+export const zVideoJobCreateRequest = z.object({
+    prompt: z.string().min(1),
+    model: z.string().nullish(),
+    aspect_ratio: z.string().nullish(),
+    resolution: z.string().nullish(),
+    duration: z.number().int().nullish(),
+    images: z.array(z.string()).nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * VideoJobCreateResponse
+ */
+export const zVideoJobCreateResponse = z.object({
+    job_id: z.string(),
+    status: z.string().optional().default('queued'),
+    trace_id: z.string().optional().default('')
+});
+
+/**
+ * VideoJobStatusResponse
+ */
+export const zVideoJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * RejectIn
+ */
+export const zAppApiRoutesAdminBillingRejectIn = z.object({
+    notes: z.string().optional().default('')
+});
+
+/**
+ * RejectIn
+ */
+export const zAppApiRoutesAdminCommonRejectIn = z.object({
+    reason: z.string().max(500).nullish()
 });
 
 /**
@@ -982,6 +1219,13 @@ export const zUpsertSessionIn = z.object({
     title: z.string().max(255).optional().default(''),
     messages: z.array(zAppApiRoutesChatSessionsChatMessageIn).optional(),
     taskState: z.record(z.unknown()).nullish()
+});
+
+/**
+ * RejectIn
+ */
+export const zAppApiRoutesPlazaRejectIn = z.object({
+    reason: z.string().max(500).nullish()
 });
 
 /**
@@ -1067,6 +1311,13 @@ export const zAuthAuthPatchProfileResponse = z.record(z.unknown());
  * Successful Response
  */
 export const zAuthAuthLogoutResponse = zMessage;
+
+/**
+ * Response Wallet-Wallet Plans
+ *
+ * Successful Response
+ */
+export const zWalletWalletPlansResponse = z.record(z.unknown());
 
 /**
  * Response Wallet-Purchase Info
@@ -1277,7 +1528,7 @@ export const zAdminAdminPlazaApproveResponse = z.record(z.unknown());
 /**
  * Body
  */
-export const zAdminAdminPlazaRejectBody = zRejectIn.nullable();
+export const zAdminAdminPlazaRejectBody = zAppApiRoutesAdminCommonRejectIn.nullable();
 
 export const zAdminAdminPlazaRejectPath = z.object({
     submission_id: z.string()
@@ -1521,6 +1772,110 @@ export const zAdminAdminModelUsageListQuery = z.object({
  * Successful Response
  */
 export const zAdminAdminModelUsageListResponse = z.record(z.unknown());
+
+export const zAdminAdminListPricingVersionsQuery = z.object({
+    status: z.string().nullish(),
+    pricingId: z.string().nullish(),
+    modelId: z.string().nullish(),
+    provider: z.string().nullish(),
+    limit: z.number().int().gte(1).lte(500).optional().default(200)
+});
+
+/**
+ * Response Admin-Admin List Pricing Versions
+ *
+ * Successful Response
+ */
+export const zAdminAdminListPricingVersionsResponse = z.record(z.unknown());
+
+export const zAdminAdminUpsertPricingVersionBody = zPricingVersionIn;
+
+/**
+ * Response Admin-Admin Upsert Pricing Version
+ *
+ * Successful Response
+ */
+export const zAdminAdminUpsertPricingVersionResponse = z.record(z.unknown());
+
+export const zAdminAdminGetPricingVersionPath = z.object({
+    pricing_version_id: z.string()
+});
+
+/**
+ * Response Admin-Admin Get Pricing Version
+ *
+ * Successful Response
+ */
+export const zAdminAdminGetPricingVersionResponse = z.record(z.unknown());
+
+export const zAdminAdminSubmitPricingVersionPath = z.object({
+    pricing_version_id: z.string()
+});
+
+/**
+ * Response Admin-Admin Submit Pricing Version
+ *
+ * Successful Response
+ */
+export const zAdminAdminSubmitPricingVersionResponse = z.record(z.unknown());
+
+export const zAdminAdminApprovePricingVersionPath = z.object({
+    pricing_version_id: z.string()
+});
+
+/**
+ * Response Admin-Admin Approve Pricing Version
+ *
+ * Successful Response
+ */
+export const zAdminAdminApprovePricingVersionResponse = z.record(z.unknown());
+
+/**
+ * Body
+ */
+export const zAdminAdminRejectPricingVersionBody = zAppApiRoutesAdminBillingRejectIn.nullable();
+
+export const zAdminAdminRejectPricingVersionPath = z.object({
+    pricing_version_id: z.string()
+});
+
+/**
+ * Response Admin-Admin Reject Pricing Version
+ *
+ * Successful Response
+ */
+export const zAdminAdminRejectPricingVersionResponse = z.record(z.unknown());
+
+export const zAdminAdminMarginSummaryQuery = z.object({
+    fromTs: z.number().nullish(),
+    toTs: z.number().nullish()
+});
+
+/**
+ * Response Admin-Admin Margin Summary
+ *
+ * Successful Response
+ */
+export const zAdminAdminMarginSummaryResponse = z.record(z.unknown());
+
+/**
+ * Body
+ */
+export const zAdminAdminBillingQuoteBody = z.record(z.unknown()).nullable();
+
+/**
+ * Response Admin-Admin Billing Quote
+ *
+ * Successful Response
+ */
+export const zAdminAdminBillingQuoteResponse = z.record(z.unknown());
+
+/**
+ * Response Admin-Admin List Task Pricing
+ *
+ * Successful Response
+ */
+export const zAdminAdminListTaskPricingResponse = z.record(z.unknown());
 
 /**
  * Response Admin-Admin Design Runtime Settings
@@ -1886,6 +2241,68 @@ export const zAdminAdminDeleteFontFacePath = z.object({
  */
 export const zAdminAdminDeleteFontFaceResponse = z.record(z.unknown());
 
+export const zAdminAdminListHydrateDlqQuery = z.object({
+    limit: z.number().int().gte(1).lte(200).optional().default(50)
+});
+
+/**
+ * Response Admin-Admin List Hydrate Dlq
+ *
+ * Successful Response
+ */
+export const zAdminAdminListHydrateDlqResponse = z.record(z.unknown());
+
+export const zAdminAdminReplayHydrateDlqBody = zDlqReplayIn;
+
+/**
+ * Response Admin-Admin Replay Hydrate Dlq
+ *
+ * Successful Response
+ */
+export const zAdminAdminReplayHydrateDlqResponse = z.record(z.unknown());
+
+export const zAdminAdminDiscardHydrateDlqPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Response Admin-Admin Discard Hydrate Dlq
+ *
+ * Successful Response
+ */
+export const zAdminAdminDiscardHydrateDlqResponse = z.record(z.unknown());
+
+export const zAdminAdminListExportDlqQuery = z.object({
+    limit: z.number().int().gte(1).lte(200).optional().default(50)
+});
+
+/**
+ * Response Admin-Admin List Export Dlq
+ *
+ * Successful Response
+ */
+export const zAdminAdminListExportDlqResponse = z.record(z.unknown());
+
+export const zAdminAdminReplayExportDlqBody = zDlqReplayIn;
+
+/**
+ * Response Admin-Admin Replay Export Dlq
+ *
+ * Successful Response
+ */
+export const zAdminAdminReplayExportDlqResponse = z.record(z.unknown());
+
+export const zAdminAdminDiscardExportDlqPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Response Admin-Admin Discard Export Dlq
+ *
+ * Successful Response
+ */
+export const zAdminAdminDiscardExportDlqResponse = z.record(z.unknown());
+
 export const zMeMeLikedListQuery = z.object({
     page: z.number().int().optional().default(1),
     pageSize: z.number().int().optional().default(24)
@@ -2184,7 +2601,7 @@ export const zPlazaPlazaAdminApproveResponse = z.record(z.unknown());
 /**
  * Body
  */
-export const zPlazaPlazaAdminRejectBody = zRejectIn.nullable();
+export const zPlazaPlazaAdminRejectBody = zAppApiRoutesPlazaRejectIn.nullable();
 
 export const zPlazaPlazaAdminRejectPath = z.object({
     submission_id: z.string()
@@ -2500,6 +2917,106 @@ export const zDesignHydrateJobsGetHydrateJobPath = z.object({
  */
 export const zDesignHydrateJobsGetHydrateJobResponse = zHydrateJobStatusResponse;
 
+export const zDesignExportJobsCreateExportJobBody = zExportJobCreateRequest;
+
+/**
+ * Successful Response
+ */
+export const zDesignExportJobsCreateExportJobResponse = zExportJobCreateResponse;
+
+export const zDesignExportJobsGetExportJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zDesignExportJobsGetExportJobResponse = zExportJobStatusResponse;
+
+export const zDesignExportJobsDownloadExportJobPath = z.object({
+    job_id: z.string()
+});
+
+export const zChatImageJobsCreateImageJobBody = zImageJobCreateRequest;
+
+/**
+ * Successful Response
+ */
+export const zChatImageJobsCreateImageJobResponse = zImageJobCreateResponse;
+
+export const zChatImageJobsGetImageJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zChatImageJobsGetImageJobResponse = zImageJobStatusResponse;
+
+export const zChatImageJobsStreamImageJobEventsPath = z.object({
+    job_id: z.string()
+});
+
+export const zChatVideoJobsCreateVideoJobBody = zVideoJobCreateRequest;
+
+/**
+ * Successful Response
+ */
+export const zChatVideoJobsCreateVideoJobResponse = zVideoJobCreateResponse;
+
+export const zChatVideoJobsGetVideoJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zChatVideoJobsGetVideoJobResponse = zVideoJobStatusResponse;
+
+export const zChatVideoJobsStreamVideoJobEventsPath = z.object({
+    job_id: z.string()
+});
+
+export const zChatAudioJobsCreateAudioJobBody = zAudioJobCreateRequest;
+
+/**
+ * Successful Response
+ */
+export const zChatAudioJobsCreateAudioJobResponse = zAudioJobCreateResponse;
+
+export const zChatAudioJobsGetAudioJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zChatAudioJobsGetAudioJobResponse = zAudioJobStatusResponse;
+
+export const zChatAudioJobsStreamAudioJobEventsPath = z.object({
+    job_id: z.string()
+});
+
+export const zChatLottieJobsCreateLottieJobBody = zLottieJobCreateRequest;
+
+/**
+ * Successful Response
+ */
+export const zChatLottieJobsCreateLottieJobResponse = zLottieJobCreateResponse;
+
+export const zChatLottieJobsGetLottieJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zChatLottieJobsGetLottieJobResponse = zLottieJobStatusResponse;
+
+export const zChatLottieJobsStreamLottieJobEventsPath = z.object({
+    job_id: z.string()
+});
+
 /**
  * Response Chat-Get Models
  *
@@ -2562,6 +3079,31 @@ export const zImageToolsPostImageProcessBody = zImageProcessIn;
 export const zImageToolsPostImageProcessResponse = z.record(z.unknown());
 
 /**
+ * Response Mockup-List Mockup Tools
+ *
+ * Successful Response
+ */
+export const zMockupListMockupToolsResponse = z.record(z.unknown());
+
+export const zMockupPostMockupRenderBody = zMockupRenderIn;
+
+/**
+ * Response Mockup-Post Mockup Render
+ *
+ * Successful Response
+ */
+export const zMockupPostMockupRenderResponse = z.record(z.unknown());
+
+export const zMockupPostMockupBatchRenderBody = zMockupBatchIn;
+
+/**
+ * Response Mockup-Post Mockup Batch Render
+ *
+ * Successful Response
+ */
+export const zMockupPostMockupBatchRenderResponse = z.record(z.unknown());
+
+/**
  * Response Design-Design Catalog
  *
  * Successful Response
@@ -2605,6 +3147,15 @@ export const zDesignDesignSkillsImportZipBody = zBodyDesignDesignSkillsImportZip
  * Successful Response
  */
 export const zDesignDesignSkillsImportZipResponse = z.record(z.unknown());
+
+export const zDesignDesignPluginsInstallBody = zBodyDesignDesignPluginsInstall;
+
+/**
+ * Response Design-Design Plugins Install
+ *
+ * Successful Response
+ */
+export const zDesignDesignPluginsInstallResponse = z.record(z.unknown());
 
 export const zDesignDesignSkillsSetEnabledBody = zUserSkillEnabledIn;
 
@@ -2655,6 +3206,50 @@ export const zDesignDesignRunStatusPath = z.object({
  * Successful Response
  */
 export const zDesignDesignRunStatusResponse = z.record(z.unknown());
+
+export const zDesignDesignRunEventsPath = z.object({
+    task_id: z.string()
+});
+
+export const zDesignDesignRunEventsQuery = z.object({
+    after_seq: z.number().int().gte(0).optional().default(0),
+    limit: z.number().int().gte(1).lte(96).optional().default(96)
+});
+
+/**
+ * Response Design-Design Run Events
+ *
+ * Successful Response
+ */
+export const zDesignDesignRunEventsResponse = z.record(z.unknown());
+
+export const zDesignDesignRunCommandsPath = z.object({
+    task_id: z.string()
+});
+
+export const zDesignDesignRunCommandsQuery = z.object({
+    after_seq: z.number().int().gte(0).optional().default(0)
+});
+
+/**
+ * Response Design-Design Run Commands
+ *
+ * Successful Response
+ */
+export const zDesignDesignRunCommandsResponse = z.record(z.unknown());
+
+export const zDesignDesignRunCommandsAckBody = zCanvasCommandAckIn;
+
+export const zDesignDesignRunCommandsAckPath = z.object({
+    task_id: z.string()
+});
+
+/**
+ * Response Design-Design Run Commands Ack
+ *
+ * Successful Response
+ */
+export const zDesignDesignRunCommandsAckResponse = z.record(z.unknown());
 
 export const zDesignDesignRunPausePath = z.object({
     task_id: z.string()

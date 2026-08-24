@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
 import {
   closeShapeStylePanel,
   patchDocumentNode,
@@ -243,6 +244,7 @@ function readStrokeValue(attrs: Record<string, unknown> | undefined): StrokePane
  */
 function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNode {
   const dispatch = useDispatch();
+  const { t } = useTranslation();
   const camera = useRcbCamera();
   const panel = useSelector(
     (s: any) =>
@@ -595,7 +597,7 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
             <FillPanel
               value={fillValue}
               onChange={applyFill}
-              title={'颜色'}
+              title={t('editor.selectionToolbar.color')}
               onClose={close}
               meshSelectedIndex={meshSelectedIndex}
               onMeshSelectedIndexChange={setMeshSelectedIndex}
@@ -613,7 +615,7 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
                 firstNode ? cornerVertexCount(firstNode) : 4
               )}
               onChange={applyRadius}
-              title={'圆角'}
+              title={t('editor.selectionToolbar.cornerRadius')}
               onClose={close}
               max={cornerMax}
               vertexCount={firstNode ? cornerVertexCount(firstNode) : 4}
@@ -622,7 +624,7 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
             <StrokePanel
               value={readStrokeValue(firstAttrs)}
               onChange={applyStroke}
-              title={'描边'}
+              title={t('editor.selectionToolbar.stroke')}
               onClose={close}
               showLinecap={showLinecap}
               showAlign={showAlign}

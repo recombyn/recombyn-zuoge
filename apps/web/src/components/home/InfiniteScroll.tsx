@@ -164,8 +164,8 @@ function SkeletonGrid({ count, className, children }: SkeletonGridProps) {
   );
 }
 
-/** Default skeleton card count �?~2 rows on a 5-column home grid. */
-export const GRID_SKELETON_COUNT = 10;
+/** Default skeleton card count — ~3 rows on a 5-column home grid. */
+export const GRID_SKELETON_COUNT = 15;
 
 const MemoizedScrollLoadFooter = memo(ScrollLoadFooter);
 export { MemoizedScrollLoadFooter as ScrollLoadFooter };

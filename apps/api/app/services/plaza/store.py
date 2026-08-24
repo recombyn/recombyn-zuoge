@@ -818,21 +818,6 @@ def submit_to_plaza(
         return _row_to_meta(row.model_dump())
 
 
-def list_mine(user_id: str) -> list[dict[str, Any]]:
-    """Latest submission per project for the current user (for status badges)."""
-    from sqlmodel import Session
-
-    from app import crud
-    from app.core.db import engine
-
-    init_plaza_db()
-    with Session(engine) as session:
-        rows = crud.list_plaza_mine(session=session, user_id=user_id)
-    return [
-        _row_to_meta(row.model_dump(), allow_cover_side_effects=False) for row in rows
-    ]
-
-
 def list_feed(
     limit: int | None = None,
     *,

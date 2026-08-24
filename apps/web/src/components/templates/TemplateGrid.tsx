@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, memo } from 'react';
+import { useEffect, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
@@ -168,7 +168,6 @@ const DEFAULT_PROJECTS_GRID =
 
 /**
  * Projects grid (侧栏「项目」). Data = GET /projects only.
- * Do NOT call GET /plaza/mine here — that is Me → 已发布 only.
  */
 function TemplateGrid({
   templates,
@@ -208,6 +207,8 @@ function TemplateGrid({
   const [selected, setSelected] = useState<string[]>([]);
   const [renameTarget, setRenameTarget] = useState<any | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const handleLoadMore = onLoadMore ?? (() => undefined);
@@ -255,6 +256,25 @@ function TemplateGrid({
       invalidateProjectsListCache();
       message.destructive(t('home.batchDeleted', { count }));
       exitSelectMode();
+      setBatchDeleteOpen(false);
+    } catch {
+      message.error(t('home.batchDeleteFailed'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmSingleDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    const id = deleteTarget.id;
+    setDeleting(true);
+    try {
+      await removeProjectFromCloud(id);
+      dispatch(deleteTemplate(id));
+      invalidateProjectsListCache();
+      setSelected((prev) => prev.filter((x) => x !== id));
+      message.destructive(t('common.delete'));
+      setDeleteTarget(null);
     } catch {
       message.error(t('home.batchDeleteFailed'));
     } finally {
@@ -341,7 +361,8 @@ function TemplateGrid({
               onToggleSelectAll={selectAll}
               onClearSelection={() => setSelected([])}
               onDelete={() => {
-                batchDelete();
+                if (!selected.length) return;
+                setBatchDeleteOpen(true);
               }}
               onCancel={exitSelectMode}
             />
@@ -400,18 +421,7 @@ function TemplateGrid({
                 message.error(t('home.orgMoveFailed'));
               }
             }}
-            onDelete={async () => {
-              const id = item.id;
-              try {
-                await removeProjectFromCloud(id);
-                dispatch(deleteTemplate(id));
-                invalidateProjectsListCache();
-                setSelected((prev) => prev.filter((x) => x !== id));
-                message.destructive(t('common.delete'));
-              } catch {
-                message.error(t('home.batchDeleteFailed'));
-              }
-            }}
+            onDelete={() => setDeleteTarget(item)}
           />
         ))}
       </InfiniteScrollSection>
@@ -449,6 +459,82 @@ function TemplateGrid({
         />
       </Dialog>
 
+      <Dialog
+        show={Boolean(deleteTarget)}
+        onClose={() => {
+          if (deleting) return;
+          setDeleteTarget(null);
+        }}
+        width={400}
+        title={t('home.deleteProjectConfirmTitle')}
+        titleClassName="!text-[16px] !font-semibold !pb-2"
+        className="!bg-[var(--surface)] !p-5"
+        footer={
+          <>
+            <Button
+              size="small"
+              type="default"
+              disabled={deleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              destructive
+              disabled={deleting}
+              onClick={() => void confirmSingleDelete()}
+            >
+              {t('common.delete')}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13px] leading-relaxed text-[var(--muted)]">
+          {t('home.deleteProjectConfirmBody', {
+            name: deleteTarget?.name?.trim() || t('home.untitled'),
+          })}
+        </p>
+      </Dialog>
+
+      <Dialog
+        show={batchDeleteOpen}
+        onClose={() => {
+          if (deleting) return;
+          setBatchDeleteOpen(false);
+        }}
+        width={400}
+        title={t('home.batchDeleteConfirmTitle')}
+        titleClassName="!text-[16px] !font-semibold !pb-2"
+        className="!bg-[var(--surface)] !p-5"
+        footer={
+          <>
+            <Button
+              size="small"
+              type="default"
+              disabled={deleting}
+              onClick={() => setBatchDeleteOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              destructive
+              disabled={deleting}
+              onClick={() => void batchDelete()}
+            >
+              {t('common.delete')}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[13px] leading-relaxed text-[var(--muted)]">
+          {t('home.batchDeleteConfirmBody', { count: selected.length })}
+        </p>
+      </Dialog>
+
       {selectMode && templates.length > 0 ? (
         <>
           <div className="h-16 lg:hidden" aria-hidden />
@@ -460,7 +546,8 @@ function TemplateGrid({
             onToggleSelectAll={selectAll}
             onClearSelection={() => setSelected([])}
             onDelete={() => {
-              batchDelete();
+              if (!selected.length) return;
+              setBatchDeleteOpen(true);
             }}
             onCancel={exitSelectMode}
           />

@@ -1,5 +1,5 @@
-import { type CSSProperties, type ReactNode, memo } from 'react';
-import { HiOutlineCheck, HiOutlineXMark } from 'react-icons/hi2';
+import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
+import { HiOutlineCheck } from 'react-icons/hi2';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/classnames';
 
@@ -12,14 +12,12 @@ function MarkPromptBar({
   value,
   onChange,
   onSubmit,
-  onCancel,
 }: {
   style: CSSProperties;
   chipLabel: string;
   value: string;
   onChange: (next: string) => void;
   onSubmit: (text: string) => void;
-  onCancel?: () => void;
 }): ReactNode {
   const { t } = useTranslation();
   const trimmed = value.trim();
@@ -63,16 +61,6 @@ function MarkPromptBar({
       >
         <HiOutlineCheck className="h-4 w-4" strokeWidth={2.5} />
       </button>
-      {onCancel ? (
-        <button
-          type="button"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-          aria-label={t('editor.imageToolbar.markExit')}
-          onClick={onCancel}
-        >
-          <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
-        </button>
-      ) : null}
     </div>
   );
 }

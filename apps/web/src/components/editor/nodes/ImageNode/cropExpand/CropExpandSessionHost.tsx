@@ -9,7 +9,7 @@ import { BiExit } from 'react-icons/bi';
 import { nanoid } from 'nanoid';
 import { message, DropdownPanel, DropdownPanelItem } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
-import { PanelConfirmCost, IMAGE_TOOL_CREDIT_COST } from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelShell';
+import { PanelConfirmCost } from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelShell';
 import {
   RcbOverlayPortal,
   rcbScreenPxToScene,
@@ -474,9 +474,7 @@ function CropExpandSessionHost({ document }: { document: SceneDocument }): React
               ) : (
                 <>
                   <span>确认</span>
-                  {mode === 'expand' ? (
-                    <PanelConfirmCost amount={IMAGE_TOOL_CREDIT_COST.expand} />
-                  ) : null}
+                  {mode === 'expand' ? <PanelConfirmCost kind="expand" /> : null}
                 </>
               )}
             </button>

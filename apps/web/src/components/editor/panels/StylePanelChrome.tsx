@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BiExit } from 'react-icons/bi';
 import Tooltip from '@/components/base/tooltip';
 import {
@@ -168,8 +169,8 @@ function StylePanelShell({
   /** Layer visibility (eye) — fill / stroke hide toggles live in the panel header. */
   layerVisible,
   onLayerVisibleChange,
-  layerVisibleTipShow = '显示',
-  layerVisibleTipHide = '隐藏',
+  layerVisibleTipShow,
+  layerVisibleTipHide,
 }: {
   title: string;
   onClose?: () => void;
@@ -185,6 +186,10 @@ function StylePanelShell({
   layerVisibleTipShow?: string;
   layerVisibleTipHide?: string;
 }) {
+  const { t } = useTranslation();
+  const exitLabel = t('editor.exit');
+  const showTip = layerVisibleTipShow ?? t('editor.contextMenu.show');
+  const hideTip = layerVisibleTipHide ?? t('editor.contextMenu.hide');
   const attrs = dataAttr ? { [dataAttr]: true } : {};
   const showLayerToggle = typeof layerVisible === 'boolean' && Boolean(onLayerVisibleChange);
   return (
@@ -202,13 +207,10 @@ function StylePanelShell({
         <div className="flex items-center gap-0.5">
           {headerActions}
           {showLayerToggle ? (
-            <Tooltip
-              tip={layerVisible ? layerVisibleTipHide : layerVisibleTipShow}
-              placement="bottom"
-            >
+            <Tooltip tip={layerVisible ? hideTip : showTip} placement="bottom">
               <button
                 type="button"
-                aria-label={layerVisible ? layerVisibleTipHide : layerVisibleTipShow}
+                aria-label={layerVisible ? hideTip : showTip}
                 aria-pressed={layerVisible}
                 onClick={() => onLayerVisibleChange?.(!layerVisible)}
                 className="inline-flex h-8 w-8 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
@@ -218,10 +220,10 @@ function StylePanelShell({
             </Tooltip>
           ) : null}
           {onClose ? (
-            <Tooltip tip={'退出'} placement="bottom">
+            <Tooltip tip={exitLabel} placement="bottom">
               <button
                 type="button"
-                aria-label={'退出'}
+                aria-label={exitLabel}
                 onClick={onClose}
                 className="inline-flex h-8 w-8 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
               >
