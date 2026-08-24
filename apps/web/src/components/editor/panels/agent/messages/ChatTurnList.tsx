@@ -2173,11 +2173,9 @@ const ChatTurnList = forwardRef(function ChatTurnList(
       className={cn('px-4 py-2', className)}
       contentClassName="py-2"
       empty={
-        <div className="flex flex-1 flex-col items-center justify-center px-4">
-          <p className="text-center text-[14px] text-[var(--muted)]">
-            {t('agent.emptyHint')}
-          </p>
-        </div>
+        <p className="px-1 text-left text-[14px] text-[var(--muted)]">
+          {t('agent.emptyHint')}
+        </p>
       }
     >
       {({ user: m, assistant }) => {

@@ -114,10 +114,18 @@ def resolve_image_model(model: str | None = None) -> str:
 
 def _api_model_id(catalog_id: str) -> str:
     """Catalog id may differ from the Ark model / endpoint id."""
+    from app.services.llm.catalog_store import resolve_catalog_api_model
+
+    cid = (catalog_id or "").strip()
+    if not cid:
+        cid = (_admin_image_default() or settings.image_default_model or _DEFAULT_IMAGE_MODEL).strip()
+    resolved = resolve_catalog_api_model(cid)
+    if resolved:
+        return resolved
     for m in list_image_models():
-        if m["id"] == catalog_id:
+        if m["id"] == cid:
             return str(m.get("apiModel") or m["id"])
-    return catalog_id or (_admin_image_default() or settings.image_default_model or _DEFAULT_IMAGE_MODEL).strip()
+    return cid
 
 
 def _round_dim(n: float) -> int:

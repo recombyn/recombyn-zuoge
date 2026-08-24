@@ -3,10 +3,10 @@
  * Prompt → OpenRouter TTS (`POST /chat/audio`); optional local upload shortcut.
  * Attachments use the same strip + `@` mention chips as image/video generators.
  */
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   memo,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,65 +14,60 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import {
-  autoUpdate,
-  flip,
-  FloatingPortal,
-  offset,
-  shift,
-  useDismiss,
-  useFloating,
-  useInteractions,
-} from '@floating-ui/react';
-import { HiArrowUp, HiOutlineBolt, HiOutlinePlus } from 'react-icons/hi2';
-import { generateAudio, type ChatModelsResponse, type LlmModel } from '@/service/chat';
-import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { FloatingPortal } from '@floating-ui/react';
+import { HiArrowUp, HiOutlineBolt } from 'react-icons/hi2';
+import { createAudioJob, waitForAudioJob } from '@/service/chat';
+import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, message, Tooltip } from '@/components/base';
-import { rcbScreenPxToScene, useRcbCamera } from '@/components/rcb';
 import {
-  SELECTION_TOOLBAR_BELOW_BOX_GAP_PX,
   useChromePointerActivate,
+  useGeneratorComposerPlacement,
   WorldScreenChromeRoot,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
-  buildAttachRefMentionContext,
   chipBaseKey,
   composerAttachmentMediaKind,
-  parseAtMentionQuery,
-  stripTrailingAtQuery,
   upsertLibraryAssetAttachment,
   type AgentComposerHandle,
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
 import {
-  ComposerAttachmentChip,
-  composerAttachActionClass,
-} from '@/components/editor/panels/agent/composer/AgentComposerShell';
+  CanvasMediaComposerShell,
+  ComposerAttachmentStrip,
+  ComposerFooterBar,
+  ComposerPromptRegion,
+} from '@/components/editor/panels/agent/composer/CanvasMediaComposerShell';
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/composer/MentionAttachPanel';
+import { useComposerSlashSkills } from '@/components/editor/panels/agent/composer/useComposerSlashSkills';
+import { useComposerMentionPanel } from '@/components/editor/panels/agent/composer/useComposerMentionPanel';
+import { useGeneratorModelsCatalog } from '@/components/editor/panels/agent/composer/useGeneratorModelsCatalog';
+import { insertMentionFromAttachment } from '@/components/editor/panels/agent/composer/composerMentionHelpers';
 import type { UserAsset } from '@/models/assets';
 import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import {
-  clearImageProcessAttrs
-} from '@/components/rcb/scene/document/mediaLifecycle';
+  buildAudioGeneratorModelList,
+  nextAudioModelId,
+} from '@/components/editor/nodes/shared/generatorModelLists';
+import { finishGeneratorGenerateSession } from '@/components/editor/nodes/shared/finishGeneratorGenerate';
+import { probeAudioDuration, pickAudioUrl } from '@/components/editor/nodes/shared/mediaProbe';
+import { clearGeneratorProcessOverlay } from '@/components/editor/nodes/shared/clearGeneratorProcess';
+import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
+import { registerGeneratorSession } from '@/components/editor/nodes/shared/generatorSessionRegistry';
 import {
   finishAudioGenerator,
   patchDocumentNode,
-  setDocumentFromCanvas,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateAudioCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl, uploadComposerAttachment } from '@/utils/uploadImage';
-import { buildByokAwareModelList, cloudOnlyModelId } from '@/components/editor/panels/agent/llmModelMeta';
-import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
+import { cloudOnlyModelId } from '@/components/editor/panels/agent/llmModelMeta';
 import store from '@/store';
 
 type Props = {
@@ -84,62 +79,6 @@ type Props = {
 
 const DEFAULT_AUDIO_MODEL_ID = 'or-gemini-3-1-flash-tts';
 
-function modelIsAudioGenerator(model?: Pick<LlmModel, 'kind' | 'id'> | null): boolean {
-  if (!model) return false;
-  if (model.kind === 'audio') return true;
-  return /tts|kokoro|fish-audio|speech|audio/i.test(model.id || '');
-}
-
-/** Local desktop: BYOK only. Cloud/web: platform audio catalog + BYOK. */
-function buildAudioGeneratorModelList(res?: {
-  models?: LlmModel[] | null;
-  audioModels?: LlmModel[] | null;
-} | null): LlmModel[] {
-  return buildByokAwareModelList({
-    byok: customProvidersAsModels(),
-    catalogs: [res?.models, res?.audioModels],
-    filter: (m) => modelIsAudioGenerator(m),
-  });
-}
-
-function nextAudioModelId(models: LlmModel[], currentId: string): string | null {
-  if (!models.length || models.some((m) => m.id === currentId)) return null;
-  if (!isDesktopLocal()) {
-    const preferred = models.find((m) => m.id === DEFAULT_AUDIO_MODEL_ID);
-    if (preferred) return preferred.id;
-  }
-  return models[0]?.id ?? null;
-}
-
-function probeAudioDuration(src: string): Promise<number | null> {
-  return new Promise((resolve) => {
-    const audio = document.createElement('audio');
-    audio.preload = 'metadata';
-    const done = (value: number | null) => {
-      audio.removeAttribute('src');
-      audio.load();
-      resolve(value);
-    };
-    audio.onloadedmetadata = () => {
-      const d = Number(audio.duration);
-      done(Number.isFinite(d) && d > 0 ? d : null);
-    };
-    audio.onerror = () => done(null);
-    audio.src = src;
-    window.setTimeout(() => done(null), 4000);
-  });
-}
-
-function pickAudioUrl(r: Awaited<ReturnType<typeof generateAudio>>): string {
-  const fromAudios =
-    Array.isArray(r?.audios) && r.audios.find((u) => String(u || '').trim());
-  if (fromAudios) return String(fromAudios).trim();
-  const fromAssets =
-    Array.isArray(r?.assets) &&
-    r.assets.map((a) => String(a?.url || '').trim()).find(Boolean);
-  return fromAssets ? String(fromAssets).trim() : '';
-}
-
 function AudioGeneratorCard({
   nodeId,
   sceneBox,
@@ -148,7 +87,6 @@ function AudioGeneratorCard({
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const { zoom } = useRcbCamera();
   const chromePointer = useChromePointerActivate();
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -156,16 +94,25 @@ function AudioGeneratorCard({
   const [prompt, setPrompt] = useState('');
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
   const [sending, setSending] = useState(false);
-  const [models, setModels] = useState<LlmModel[]>([]);
-  const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
-    'idle'
-  );
   const [modelId, setModelId] = useState(() => cloudOnlyModelId(DEFAULT_AUDIO_MODEL_ID));
+  const { models, status: modelsStatus } = useGeneratorModelsCatalog({
+    buildList: buildAudioGeneratorModelList,
+    modelId,
+    setModelId,
+    resolveModelId: nextAudioModelId,
+  });
   const [modelOpen, setModelOpen] = useState(false);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
   const contextsRef = useRef<ComposerContext[]>([]);
   contextsRef.current = contexts;
+
+  const {
+    mentionOpen,
+    mentionQuery,
+    closeMention,
+    openMention,
+    mentionFloating,
+    mentionIx,
+  } = useComposerMentionPanel(inputRef);
 
   const attachments = useMemo(
     () => contexts.filter((c) => c.kind === 'attachment'),
@@ -194,39 +141,6 @@ function AudioGeneratorCard({
     });
     return () => cancelAnimationFrame(id);
   }, [showComposer, nodeId, disabled]);
-
-  const modelsCatalogQuery = useQuery({
-    ...apiQuery.chatGetModels.queryOptions(),
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (modelsCatalogQuery.isPending) {
-      setModelsStatus('loading');
-      return;
-    }
-    if (modelsCatalogQuery.isError) {
-      setModelsStatus('error');
-      return;
-    }
-    if (!modelsCatalogQuery.isFetched) return;
-    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
-    if (!res) {
-      setModelsStatus('error');
-      return;
-    }
-    const unique = buildAudioGeneratorModelList(res);
-    setModels(unique);
-    setModelsStatus('ready');
-    const nextId = nextAudioModelId(unique, modelId);
-    if (nextId) setModelId(nextId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    modelsCatalogQuery.data,
-    modelsCatalogQuery.isPending,
-    modelsCatalogQuery.isError,
-    modelsCatalogQuery.isFetched,
-  ]);
 
   useEffect(() => {
     return () => {
@@ -325,11 +239,20 @@ function AudioGeneratorCard({
     await attachAudioFiles(files);
   };
 
-  const maybeOpenMentionFromAt = (next: string) => {
-    const parsed = parseAtMentionQuery(next);
-    setMentionQuery(parsed.query);
-    setMentionOpen(parsed.open);
-  };
+  const {
+    skillOpen,
+    skillQuery,
+    skillItems,
+    skillFloating,
+    skillIx,
+    maybeOpenComposerMentions,
+    pickSkill,
+  } = useComposerSlashSkills({
+    inputRef,
+    setPrompt,
+    onCloseAtMention: closeMention,
+    onOpenAtMention: openMention,
+  });
 
   const mentionItems = useMemo((): MentionAttachItem[] => {
     return attachments.map((c, i) => ({
@@ -339,26 +262,21 @@ function AudioGeneratorCard({
     }));
   }, [attachments, t]);
 
-  const insertMentionFromAttachment = (att: ComposerContext, n: number) => {
-    const ctx = buildAttachRefMentionContext(
-      att,
-      t('agent.mentionAttachAudioN', { n }),
-      att.payload || `[User attachment ${n}]`
-    );
-    setPrompt(stripTrailingAtQuery(prompt));
-    setMentionOpen(false);
-    setMentionQuery('');
-    queueMicrotask(() => {
-      inputRef.current?.insertContextAtCaret(ctx);
-      inputRef.current?.focus();
-    });
-  };
-
   const pickMentionAttach = (pickId: string) => {
     const list = contextsRef.current.filter((c) => c.kind === 'attachment');
     const idx = list.findIndex((c) => c.key === pickId);
     if (idx < 0) return;
-    insertMentionFromAttachment(list[idx]!, idx + 1);
+    const att = list[idx]!;
+    insertMentionFromAttachment({
+      att,
+      n: idx + 1,
+      label: t('agent.mentionAttachAudioN', { n: idx + 1 }),
+      payload: att.payload || `[User attachment ${idx + 1}]`,
+      prompt,
+      setPrompt,
+      closeMention,
+      inputRef,
+    });
   };
 
   const pickMentionLibraryAsset = (asset: UserAsset) => {
@@ -371,35 +289,17 @@ function AudioGeneratorCard({
     if (!upserted) return;
     setContexts(upserted.contexts);
     contextsRef.current = upserted.contexts;
-    insertMentionFromAttachment(upserted.attachment, upserted.ordinal);
-  };
-
-  const mentionFloating = useFloating({
-    open: mentionOpen,
-    onOpenChange: (open) => {
-      setMentionOpen(open);
-      if (!open) setMentionQuery('');
-    },
-    placement: 'bottom-start',
-    strategy: 'fixed',
-    whileElementsMounted: autoUpdate,
-    middleware: [
-      offset(6),
-      flip({ padding: 12, fallbackPlacements: ['top-start', 'bottom-end', 'top-end'] }),
-      shift({ padding: 12 }),
-    ],
-  });
-  const mentionDismiss = useDismiss(mentionFloating.context);
-  const mentionIx = useInteractions([mentionDismiss]);
-
-  useLayoutEffect(() => {
-    if (!mentionOpen) return;
-    mentionFloating.refs.setPositionReference({
-      getBoundingClientRect: () =>
-        inputRef.current?.getAtMentionAnchorRect?.() ?? new DOMRect(),
+    insertMentionFromAttachment({
+      att: upserted.attachment,
+      n: upserted.ordinal,
+      label: t('agent.mentionAttachAudioN', { n: upserted.ordinal }),
+      payload: upserted.attachment.payload || `[User attachment ${upserted.ordinal}]`,
+      prompt,
+      setPrompt,
+      closeMention,
+      inputRef,
     });
-    mentionFloating.update();
-  }, [mentionOpen, mentionQuery, prompt, mentionFloating.refs, mentionFloating.update]);
+  };
 
   const promoteAudio = async (opts: {
     src: string;
@@ -428,6 +328,7 @@ function AudioGeneratorCard({
     // Local upload shortcut — promote ready attachment (no TTS).
     if (readyAudioAtt) {
       setSending(true);
+      let finished = false;
       const src = String(readyAudioAtt.dataUrl || '').trim();
       const text =
         prompt.trim() ||
@@ -454,13 +355,15 @@ function AudioGeneratorCard({
           previewForDuration: src,
           uploadKey: readyAudioAtt.uploadKey || undefined,
         });
-      } catch (err: any) {
-        const doc = (store.getState() as any).editor?.document;
-        if (doc) {
-          dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
-        }
+        finished = true;
+      } catch (err: unknown) {
         message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
       } finally {
+        if (!finished) {
+          const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
+            ?.document;
+          clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+        }
         setSending(false);
       }
       return;
@@ -480,6 +383,8 @@ function AudioGeneratorCard({
     const ac = new AbortController();
     abortRef.current = ac;
     setSending(true);
+    registerGeneratorSession(nodeId);
+    let finished = false;
     dispatch(
       patchDocumentNode({
         nodeId,
@@ -488,6 +393,7 @@ function AudioGeneratorCard({
             processStatus: 'running',
             processKind: 'generate',
             processLabel: t('editor.tools.audioGenerating'),
+            processStartedAt: String(Date.now()),
             genPrompt: text,
             audioGenModel: modelId,
           },
@@ -495,10 +401,15 @@ function AudioGeneratorCard({
       })
     );
     try {
-      const res = await generateAudio(
-        { prompt: text, model: modelId },
-        { signal: ac.signal }
+      const jobId = await createAudioJob({ prompt: text, model: modelId }, { signal: ac.signal });
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          skipHistory: true,
+          patch: { attrs: processJobAttrPatch([jobId]) },
+        })
       );
+      const res = await waitForAudioJob(jobId, { signal: ac.signal });
       const src = pickAudioUrl(res);
       if (!src) throw new Error(t('editor.tools.audioGenEmpty'));
       await promoteAudio({
@@ -506,94 +417,81 @@ function AudioGeneratorCard({
         name: text.slice(0, 48) || t('editor.tools.audioGenerator'),
         genPrompt: text,
       });
-    } catch (err: any) {
-      if (ac.signal.aborted) return;
-      const doc = (store.getState() as any).editor?.document;
-      if (doc) {
-        dispatch(setDocumentFromCanvas(clearImageProcessAttrs(doc, nodeId)));
+      finished = true;
+    } catch (err: unknown) {
+      if (!ac.signal.aborted) {
+        message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
       }
-      message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
     } finally {
-      if (abortRef.current === ac) abortRef.current = null;
-      setSending(false);
+      finishGeneratorGenerateSession({
+        dispatch,
+        nodeId,
+        finished,
+        abortRef,
+        ac,
+        setSending,
+      });
     }
   };
 
   if (!showComposer) return null;
 
-  const composerLeft = sceneBox.x + sceneBox.width / 2;
-  const composerTop =
-    sceneBox.y +
-    sceneBox.height +
-    rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom);
+  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
   const canSubmit = Boolean(readyAudioAtt || prompt.trim()) && !attachmentsUploading;
 
   return (
     <>
       <WorldScreenChromeRoot
-        left={composerLeft}
-        top={composerTop}
-        anchor="top"
+        left={composerPlacement.left}
+        railWidth={composerPlacement.railWidth}
+        top={composerPlacement.top}
+        anchor={composerPlacement.anchor}
+        edgeGapPx={composerPlacement.edgeGapPx}
         data-audio-generator
         data-sel-toolbar
         data-scene-node-id={nodeId}
         className="pointer-events-auto z-[32] overflow-visible"
         {...chromePointer}
       >
-        <div
-          className={cn(
-            'flex h-[160px] w-[420px] flex-col overflow-hidden',
-            'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-            'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
-          )}
-        >
-          <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
-            {attachments.map((att) => (
-              <ComposerAttachmentChip
-                key={att.key}
-                attachment={att}
-                disabled={disabled || sending}
-                onRemove={removeContext}
-              />
-            ))}
-            <Tooltip tip={t('editor.tools.audioGenUpload')} placement="top">
-              <button
-                type="button"
-                disabled={disabled || sending}
-                aria-label={t('editor.tools.audioGenUpload')}
-                onClick={() => fileRef.current?.click()}
-                className={composerAttachActionClass()}
-              >
-                <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
-              </button>
-            </Tooltip>
-          </div>
-          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
-          <div
-            className="min-h-0 flex-1 cursor-text px-3 pt-2"
-            onClick={(e) => {
-              if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
-              inputRef.current?.focus();
-            }}
-          >
-            <AgentComposerInput
-              ref={inputRef}
-              contexts={inlineContexts}
-              onContextsChange={(next) => {
-                setContexts([...attachments, ...next]);
-              }}
-              value={prompt}
-              onChange={(next) => {
-                setPrompt(next);
-                maybeOpenMentionFromAt(next);
-              }}
+        <CanvasMediaComposerShell
+          panelSize="compact"
+          attachment={
+            <ComposerAttachmentStrip
+              attachments={attachments}
               disabled={disabled || sending}
-              placeholder={t('editor.tools.audioGenPlaceholder')}
-              onSubmit={() => onGenerate()}
-              className="min-h-full w-full text-[13px]"
+              onRemove={removeContext}
+              attachTooltip={t('editor.tools.audioGenUpload')}
+              attachAriaLabel={t('editor.tools.audioGenUpload')}
+              onAttachClick={() => fileRef.current?.click()}
+              fileInput={{
+                ref: fileRef,
+                accept: 'audio/*',
+                onChange: onPickFile,
+              }}
             />
-          </div>
-          <div className="flex items-center justify-end gap-1.5 px-3 pb-2.5 pt-1">
+          }
+          prompt={
+            <ComposerPromptRegion onFocusInput={() => inputRef.current?.focus()}>
+              <AgentComposerInput
+                ref={inputRef}
+                contexts={inlineContexts}
+                onContextsChange={(next) => {
+                  setContexts([...attachments, ...next]);
+                }}
+                value={prompt}
+                onChange={(next) => {
+                  setPrompt(next);
+                  maybeOpenComposerMentions(next);
+                }}
+                disabled={disabled || sending}
+                placeholder={t('editor.tools.audioGenPlaceholder')}
+                onSubmit={() => onGenerate()}
+                className="min-h-full w-full text-[13px]"
+              />
+            </ComposerPromptRegion>
+          }
+          footer={
+            <ComposerFooterBar align="end">
             {!readyAudioAtt ? (
               <Dropdown
                 trigger="click"
@@ -680,15 +578,9 @@ function AudioGeneratorCard({
                 )}
               </button>
             </Tooltip>
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="audio/*"
-            className="hidden"
-            onChange={(e) => onPickFile(e)}
-          />
-        </div>
+            </ComposerFooterBar>
+          }
+        />
       </WorldScreenChromeRoot>
 
       {mentionOpen ? (
@@ -706,6 +598,25 @@ function AudioGeneratorCard({
               onPick={pickMentionAttach}
               onPickLibraryAsset={pickMentionLibraryAsset}
               assetKinds={['audio']}
+            />
+          </div>
+        </FloatingPortal>
+      ) : null}
+
+      {skillOpen ? (
+        <FloatingPortal>
+          <div
+            ref={skillFloating.refs.setFloating}
+            style={skillFloating.floatingStyles as CSSProperties}
+            className="z-[95]"
+            {...skillIx.getFloatingProps()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <MentionAttachPanel
+              variant="skill"
+              items={skillItems}
+              query={skillQuery}
+              onPick={pickSkill}
             />
           </div>
         </FloatingPortal>

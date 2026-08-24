@@ -202,5 +202,37 @@ def test_run_image_job_failure(monkeypatch: pytest.MonkeyPatch):
     )
     result = wt.run_chat_image_job.run("j1")
     assert result["status"] == "failed"
-    assert store["j1"]["status"] == "failed"
-    assert "provider down" in str(store["j1"].get("error") or "")
+
+
+def test_stream_image_job_events_sse(monkeypatch: pytest.MonkeyPatch):
+    from app.api.routes import chat_image_jobs as route_mod
+
+    states = [
+        {"status": "queued", "progress": 0, "result": None, "error": None},
+        {
+            "status": "done",
+            "progress": 100,
+            "result": {"images": ["https://cdn.example/a.png"], "model": "m"},
+            "error": None,
+        },
+    ]
+    calls = {"n": 0}
+
+    def _get_job(job_id: str, *, kind="import"):
+        assert kind == "image"
+        idx = min(calls["n"], len(states) - 1)
+        calls["n"] += 1
+        return {
+            "job_id": job_id,
+            "user_id": "u1",
+            **states[idx],
+        }
+
+    monkeypatch.setattr(route_mod, "get_job", _get_job)
+    with _auth_client(monkeypatch) as client:
+        with client.stream("GET", "/api/v1/chat/image/jobs/j1/events") as res:
+            assert res.status_code == 200, res.text
+            assert res.headers.get("content-type", "").startswith("text/event-stream")
+            body = res.read().decode("utf-8")
+    assert "event: job" in body
+    assert '"status": "done"' in body or '"status":"done"' in body

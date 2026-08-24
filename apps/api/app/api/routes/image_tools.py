@@ -143,3 +143,4 @@ async def post_image_process(
     if isinstance(result, dict):
         result = {**result, "credits": cost}
     return result
+

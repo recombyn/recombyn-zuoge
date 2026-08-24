@@ -1,14 +1,14 @@
-import { memo, useLayoutEffect, useRef, type RefObject } from 'react';
+import { memo, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HiOutlineHome, HiOutlineShare } from 'react-icons/hi2';
+import { HiOutlineShare } from 'react-icons/hi2';
 import { TbMessage2Filled } from 'react-icons/tb';
 import { Tooltip } from '@/components/base';
 import { CollabPresenceBar } from '@/components/editor/collab/CollabRoomProvider';
+import EditorProjectMenu from '@/components/editor/chrome/EditorProjectMenu';
+import EditorProjectTitle from '@/components/editor/chrome/EditorProjectTitle';
 import { EditorTopExportButton } from '@/components/editor/panels/ExportSelectionPanel';
-import { getAgentDockWidth } from '@/components/editor/panels/AgentDock';
 import { getInspectDockWidth } from '@/components/editor/panels/DevPropertiesPanel';
-import { useLeftDockInset } from '@/components/editor/page/editorBottomHudLayout';
-import WalletAccountChip from '@/components/layout/WalletAccountChip';
+import { useLeftDockInset, useRightDockInset } from '@/components/editor/page/editorBottomHudLayout';
 import {
   useIsDesktopShell,
   useSetDesktopTitlebarLeading,
@@ -23,80 +23,16 @@ type Props = {
   agentOpen: boolean;
   layersOpen?: boolean;
   assetsOpen?: boolean;
-  onGoHome: () => void;
   onRename: (name: string) => void;
+  onProjectList: () => void;
+  onNewProject: () => void;
+  onDuplicateProject: () => void;
+  onImportJson: (file: File) => void;
   onShare: () => void;
   onOpenAgent: () => void;
 };
 
-type HomeTitleProps = {
-  projectName: string;
-  onGoHome: () => void;
-  onRename: (name: string) => void;
-  titleInputRef: RefObject<HTMLInputElement | null>;
-  /** titlebar = compact chrome in desktop custom titlebar; float = canvas overlay */
-  variant: 'float' | 'titlebar';
-};
-
-function EditorHomeTitleCluster({
-  projectName,
-  onGoHome,
-  onRename,
-  titleInputRef,
-  variant,
-}: HomeTitleProps) {
-  const { t } = useTranslation();
-  const titlebar = variant === 'titlebar';
-
-  return (
-    <div className={cn('flex items-center', titlebar ? 'gap-1.5' : 'gap-2')}>
-      <Tooltip tip={t('editor.home', { defaultValue: '首页' })} placement="bottom">
-        <button
-          type="button"
-          aria-label={t('editor.home', { defaultValue: '首页' })}
-          onClick={onGoHome}
-          className={cn(
-            'inline-flex shrink-0 items-center justify-center text-[var(--ink)] transition',
-            titlebar
-              ? 'h-7 w-7 rounded-md hover:bg-[color-mix(in_srgb,var(--ink)_8%,transparent)]'
-              : 'h-8 w-8 rounded-xl bg-[var(--accent-soft)] shadow-sm ring-1 ring-[var(--line)] hover:bg-[var(--line)]'
-          )}
-        >
-          <HiOutlineHome className="h-4 w-4" strokeWidth={1.75} />
-        </button>
-      </Tooltip>
-      <span
-        className={cn(
-          'inline-grid min-w-0 items-center overflow-hidden',
-          titlebar ? 'max-w-[min(18rem,40vw)]' : 'max-w-[min(16rem,calc(100vw-18rem))]'
-        )}
-      >
-        <span
-          className={cn(
-            'invisible col-start-1 row-start-1 max-w-full truncate whitespace-pre px-1 font-medium',
-            titlebar ? 'text-[13px]' : 'text-[14px]'
-          )}
-          aria-hidden
-        >
-          {projectName || ' '}
-        </span>
-        <input
-          ref={titleInputRef}
-          value={projectName}
-          onChange={(e) => onRename(e.target.value)}
-          aria-label={t('home.untitled')}
-          title={projectName}
-          className={cn(
-            'col-start-1 row-start-1 w-full min-w-0 truncate border-0 bg-transparent px-1 font-medium text-[var(--ink)] outline-none placeholder:text-[var(--muted)]',
-            titlebar ? 'h-7 text-[13px]' : 'h-8 text-[14px]'
-          )}
-        />
-      </span>
-    </div>
-  );
-}
-
-function bindTitleInputBlurOnOutsidePointer(titleInputRef: RefObject<HTMLInputElement | null>) {
+function bindTitleInputBlurOnOutsidePointer(titleInputRef: React.RefObject<HTMLInputElement | null>) {
   const onPointerDownCapture = (e: PointerEvent) => {
     const el = titleInputRef.current;
     if (!el || document.activeElement !== el) return;
@@ -108,7 +44,7 @@ function bindTitleInputBlurOnOutsidePointer(titleInputRef: RefObject<HTMLInputEl
   return () => document.removeEventListener('pointerdown', onPointerDownCapture, true);
 }
 
-/** Top-left home/title + top-right export/share/account/chat. */
+/** Top-left project menu + top-right export/share/chat. */
 function EditorTopChrome({
   projectName,
   workspaceMode,
@@ -116,37 +52,51 @@ function EditorTopChrome({
   agentOpen,
   layersOpen = false,
   assetsOpen = false,
-  onGoHome,
   onRename,
+  onProjectList,
+  onNewProject,
+  onDuplicateProject,
+  onImportJson,
   onShare,
   onOpenAgent,
 }: Props) {
   const { t } = useTranslation();
   const desktop = useIsDesktopShell();
   const leftTitleInsetPx = useLeftDockInset(layersOpen, assetsOpen);
+  const rightHudInsetPx = useRightDockInset(agentOpen, inspectOpen, workspaceMode);
   const setTitlebarLeading = useSetDesktopTitlebarLeading();
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const onGoHomeRef = useRef(onGoHome);
   const onRenameRef = useRef(onRename);
-  onGoHomeRef.current = onGoHome;
+  const onProjectListRef = useRef(onProjectList);
+  const onNewProjectRef = useRef(onNewProject);
+  const onDuplicateProjectRef = useRef(onDuplicateProject);
+  const onImportJsonRef = useRef(onImportJson);
   onRenameRef.current = onRename;
+  onProjectListRef.current = onProjectList;
+  onNewProjectRef.current = onNewProject;
+  onDuplicateProjectRef.current = onDuplicateProject;
+  onImportJsonRef.current = onImportJson;
 
-  // SVG canvas pointer handlers stopPropagation, so blank-canvas clicks never
-  // blur this chrome input via the normal focus model — capture + blur like AgentComposerInput.
   useLayoutEffect(() => bindTitleInputBlurOnOutsidePointer(titleInputRef), []);
 
-  // Desktop: home + filename live in the custom titlebar (no logo there).
-  // Callbacks via refs so parent inline handlers do not re-stamp the titlebar every render.
   useLayoutEffect(() => {
     if (!desktop || !setTitlebarLeading) return;
     setTitlebarLeading(
-      <EditorHomeTitleCluster
-        projectName={projectName}
-        onGoHome={() => onGoHomeRef.current()}
-        onRename={(name) => onRenameRef.current(name)}
-        titleInputRef={titleInputRef}
-        variant="titlebar"
-      />
+      <div className="flex min-w-0 max-w-full items-center gap-2">
+        <EditorProjectMenu
+          onProjectList={() => onProjectListRef.current()}
+          onNewProject={() => onNewProjectRef.current()}
+          onDuplicateProject={() => onDuplicateProjectRef.current()}
+          onImportJson={(file) => onImportJsonRef.current(file)}
+          variant="titlebar"
+        />
+        <EditorProjectTitle
+          projectName={projectName}
+          onRename={(name) => onRenameRef.current(name)}
+          inputRef={titleInputRef}
+          variant="titlebar"
+        />
+      </div>
     );
     return () => setTitlebarLeading(null);
   }, [desktop, setTitlebarLeading, projectName]);
@@ -158,12 +108,18 @@ function EditorTopChrome({
           className="pointer-events-none absolute top-3 z-20 hidden md:block"
           style={{ left: leftTitleInsetPx }}
         >
-          <div className="pointer-events-auto">
-            <EditorHomeTitleCluster
+          <div className="pointer-events-auto flex min-w-0 max-w-full items-center gap-2">
+            <EditorProjectMenu
+              onProjectList={onProjectList}
+              onNewProject={onNewProject}
+              onDuplicateProject={onDuplicateProject}
+              onImportJson={onImportJson}
+              variant="float"
+            />
+            <EditorProjectTitle
               projectName={projectName}
-              onGoHome={onGoHome}
               onRename={onRename}
-              titleInputRef={titleInputRef}
+              inputRef={titleInputRef}
               variant="float"
             />
           </div>
@@ -172,14 +128,7 @@ function EditorTopChrome({
 
       <div
         className="pointer-events-none absolute top-3 z-40 hidden md:block"
-        style={{
-          right:
-            workspaceMode === 'dev' && inspectOpen
-              ? getInspectDockWidth() + 16
-              : workspaceMode !== 'dev' && agentOpen
-                ? getAgentDockWidth() + 16
-                : 16,
-        }}
+        style={{ right: rightHudInsetPx }}
       >
         <div className="pointer-events-auto flex items-center gap-2">
           <EditorTopExportButton />
@@ -194,10 +143,7 @@ function EditorTopChrome({
               {t('editor.share')}
             </button>
           </Tooltip>
-          <div className="inline-flex items-center gap-1">
-            <CollabPresenceBar />
-            <WalletAccountChip />
-          </div>
+          <CollabPresenceBar />
           {!agentOpen ? (
             <button
               type="button"
@@ -214,9 +160,8 @@ function EditorTopChrome({
   );
 }
 
-export async function flushAndGoHome(navigate: (path: string) => void) {
+export async function flushAndGoHome(navigate: (path: string) => void, path = '/home') {
   try {
-    // Cover flush can hang on large multi-artboard projects — don't block leaving.
     await Promise.race([
       flushCurrentProjectNow({ force: true }),
       new Promise<void>((_, reject) => {
@@ -226,7 +171,7 @@ export async function flushAndGoHome(navigate: (path: string) => void) {
   } catch {
     /* still navigate — local draft already holds bytes */
   }
-  navigate('/home');
+  navigate(path);
 }
 
 export default memo(EditorTopChrome);

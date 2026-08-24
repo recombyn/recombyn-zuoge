@@ -547,6 +547,7 @@ function DevPropertiesPanel({
   return (
     <aside
       data-dev-props
+      data-editor-right-dock=""
       style={{ width: dockWidth }}
       className={cn(
         'relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-[var(--line)] bg-[var(--surface)]',
@@ -587,7 +588,7 @@ function DevPropertiesPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!model || !nodeId ? (
-          <div className="px-3 py-8 text-center text-[12px] leading-relaxed text-[var(--muted)]">
+          <div className="px-3 py-4 text-left text-[12px] leading-relaxed text-[var(--muted)]">
             {!hoverNodeId && selectedNodeIds.length > 1
               ? t('editor.devMultiHint')
               : t('editor.devNoSelection')}

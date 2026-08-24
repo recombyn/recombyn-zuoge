@@ -1,6 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAskChoiceSend } from '@/components/editor/panels/agent/agentSendPath';
+import {
+  formatChatMediaError,
+  resolveAskChoiceSend,
+} from '@/components/editor/panels/agent/agentSendPath';
 import type { ChatUiMessage } from '@/components/editor/panels/agent/messages/ChatTurnList';
+
+const t = (key: string) => key;
+
+describe('formatChatMediaError', () => {
+  it('maps free daily quota exhaustion', () => {
+    expect(formatChatMediaError(t, new Error('free_daily_exhausted'))).toBe(
+      'agent.freeDailyExhausted'
+    );
+  });
+
+  it('maps insufficient credits', () => {
+    expect(formatChatMediaError(t, new Error('Insufficient credits'))).toBe(
+      'agent.insufficientCredits'
+    );
+  });
+
+  it('surfaces provider error text', () => {
+    const err = new Error('Image generation failed: model not found');
+    expect(formatChatMediaError(t, err)).toBe('Image generation failed: model not found');
+  });
+});
 
 describe('resolveAskChoiceSend', () => {
   it('binds a structured target choice without exposing its id as message text', () => {

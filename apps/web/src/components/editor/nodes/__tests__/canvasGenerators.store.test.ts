@@ -3,18 +3,21 @@
  */
 import { describe, expect, it } from 'vitest';
 import reducer, {
+  clearImageProcess,
   createTemplate,
   finishAudioGenerator,
   finishImageGenerator,
   finishLottieGenerator,
   finishVideoGenerator,
   patchDocumentNode,
+  removeDocumentNodes,
   spawnAudioGenerator,
   spawnImageGenerator,
   spawnLottieGenerator,
   spawnVideoGenerator,
 } from '@/store/modules/editor';
-import { createEmptyDocument } from '@/components/rcb/scene/document/sceneDocument';
+import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import { clearImageProcessAttrs } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   createImageGeneratorNode,
   createVideoGeneratorNode,
@@ -146,5 +149,121 @@ describe('canvas generators (store)', () => {
     );
     expect(state.document!.deltaSetLike[id].attrs?.lottieGenerator).toBeFalsy();
     expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('lot-prompt');
+  });
+
+  it('allows deleting image generator while processStatus is running', () => {
+    let state = seed();
+    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    const id = String(state.selectedNodeId);
+    state = reducer(
+      state,
+      patchDocumentNode({
+        nodeId: id,
+        patch: {
+          attrs: {
+            processStatus: 'running',
+            processKind: 'generate',
+            processLabel: 'Generating',
+          },
+        },
+      })
+    );
+    expect(state.document!.deltaSetLike[id].attrs?.processStatus).toBe('running');
+
+    const deleted = reducer(state, removeDocumentNodes({ nodeIds: [id] }));
+    expect(deleted.document!.deltaSetLike[id]).toBeUndefined();
+  });
+
+  it('clearImageProcessAttrs removes process and job attrs from generator plate', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    const { id, node } = createImageGeneratorNode({ x: 0, y: 0 });
+    node.attrs = {
+      ...(node.attrs || {}),
+      processStatus: 'running',
+      processKind: 'generate',
+      processJobIds: '["job-1"]',
+      processStartedAt: String(Date.now()),
+    };
+    doc = addNodeToDocument(doc, id, node);
+
+    const cleared = clearImageProcessAttrs(doc, id);
+    const attrs = cleared.deltaSetLike[id].attrs || {};
+    expect(attrs.processStatus).toBeUndefined();
+    expect(attrs.processKind).toBeUndefined();
+    expect(attrs.processJobIds).toBeUndefined();
+    expect(attrs.processStartedAt).toBeUndefined();
+    expect(attrs.imageGenerator).toBeTruthy();
+  });
+
+  it('clearImageProcess reducer clears SoftGlow and bumps sceneReloadToken', () => {
+    let state = seed();
+    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    const id = String(state.selectedNodeId);
+    state = reducer(
+      state,
+      patchDocumentNode({
+        nodeId: id,
+        patch: {
+          attrs: {
+            processStatus: 'running',
+            processKind: 'generate',
+            processJobIds: '["job-1"]',
+          },
+        },
+      })
+    );
+    const token = state.sceneReloadToken;
+    const next = reducer(state, clearImageProcess({ nodeId: id }));
+    expect(next.document!.deltaSetLike[id].attrs?.processStatus).toBeUndefined();
+    expect(next.sceneReloadToken).toBe(token + 1);
+  });
+
+  it('finishImageGenerator stores multi-gen stack on attrs.imageVariants', () => {
+    let state = seed();
+    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    const id = String(state.selectedNodeId);
+    state = reducer(
+      state,
+      finishImageGenerator({
+        nodeId: id,
+        src: 'https://cdn.example.com/a.png',
+        variants: ['https://cdn.example.com/a.png', 'https://cdn.example.com/b.png'],
+        name: 'Image Generator',
+        genPrompt: 'puppy in grass',
+      })
+    );
+    const attrs = state.document!.deltaSetLike[id].attrs || {};
+    expect(attrs.imageGenerator).toBeFalsy();
+    expect(attrs.src).toBe('https://cdn.example.com/a.png');
+    expect(attrs.genPrompt).toBe('puppy in grass');
+    const raw = attrs.imageVariants;
+    const parsed =
+      typeof raw === 'string'
+        ? JSON.parse(raw)
+        : Array.isArray(raw)
+          ? raw
+          : [];
+    expect(parsed).toEqual([
+      'https://cdn.example.com/a.png',
+      'https://cdn.example.com/b.png',
+    ]);
+    const prompts = JSON.parse(String(attrs.imageVariantPrompts || '{}'));
+    expect(prompts['https://cdn.example.com/a.png']).toBe('puppy in grass');
+    expect(prompts['https://cdn.example.com/b.png']).toBe('puppy in grass');
+  });
+
+  it('finishImageGenerator does not resurrect a deleted plate', () => {
+    let state = seed();
+    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    const id = String(state.selectedNodeId);
+    state = reducer(state, removeDocumentNodes({ nodeIds: [id] }));
+    const after = reducer(
+      state,
+      finishImageGenerator({
+        nodeId: id,
+        src: 'https://cdn/ghost.png',
+      })
+    );
+    expect(after.document!.deltaSetLike[id]).toBeUndefined();
   });
 });

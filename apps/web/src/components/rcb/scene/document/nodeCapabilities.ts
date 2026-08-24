@@ -101,19 +101,35 @@ export function shouldShowGeneratorComposer(opts: {
 }
 
 /**
- * In-flight process placeholder (upload / import / AI tools like editElements).
- * User delete is blocked while `processStatus === 'running'`; after completion or
- * via `failImageProcess` / `cancelImportPlaceholder`, removal uses history scrub.
+ * Spawned upload / import / AI-tool clone — used for history scrub on delete
+ * (Ctrl+Z must not resurrect an unfinished placeholder). Never used to block delete.
  */
 export function isEphemeralUploadNode(node: SceneNodeRef): boolean {
-  return isImageProcessRunning(node);
+  if (!isImageProcessRunning(node)) return false;
+  if (isGeneratorNode(node)) return false;
+  const kind = String(node?.attrs?.processKind || '').trim();
+  if (kind === 'generate' || kind === 'quickEdit') return false;
+  return true;
 }
 
 /**
- * True when any node or artboard in a delete target set is still processing.
- * Pass expanded `nodeIds` (frame children already merged) with `expandFrameChildren: false`.
+ * @deprecated Delete is always allowed for processing nodes. Kept for callers;
+ * always returns false for node targets. Frame process no longer blocks delete either.
  */
 export function deletionTargetHasProcessing(
+  _document: SceneDocument | null | undefined,
+  _nodeIds: string[],
+  _frameIds: string[] = [],
+  _opts?: { expandFrameChildren?: boolean }
+): boolean {
+  return false;
+}
+
+/**
+ * True when any selected node / artboard is still showing process SoftGlow.
+ * Blocks copy / duplicate / reorder / hide / lock — not delete.
+ */
+export function selectionHasProcessing(
   document: SceneDocument | null | undefined,
   nodeIds: string[],
   frameIds: string[] = [],
@@ -176,14 +192,21 @@ export function supportsSideStroke(node: SceneNodeRef) {
   return false;
 }
 
-/** Closed path / boolean result — fillets sharp verts via `radiusVertices` (sceneToSvg). */
-function isClosedFilletPath(node: SceneNodeRef): boolean {
+/**
+ * Closed path / boolean result — fillets sharp verts via `radiusVertices` (sceneToSvg).
+ */
+function isClosedPathNode(node: SceneNodeRef): boolean {
   if (!node?.attrs) return false;
   const closed = node.attrs.closed;
   if (closed === false || closed === 'false' || closed === 0 || closed === '0') return false;
   if (closed === true || closed === 'true' || closed === 1 || closed === '1') return true;
   const d = String(node.attrs.path || '').trim();
   return /z\s*$/i.test(d);
+}
+
+/** @deprecated internal alias */
+function isClosedFilletPath(node: SceneNodeRef): boolean {
+  return isClosedPathNode(node);
 }
 
 /**
@@ -291,15 +314,7 @@ export function supportsFill(node: SceneNodeRef) {
   if (node.key !== 'shape') return false;
   const t = String(node.attrs?.shapeType || 'rect');
   if (t === 'line' || t === 'arrow' || t === 'pencil') return false;
-  if (t === 'pen' || t === 'path') {
-    const d = String(node.attrs?.path || '');
-    if (node.attrs?.closed === false || node.attrs?.closed === 'false') return false;
-    return (
-      node.attrs?.closed === true ||
-      node.attrs?.closed === 'true' ||
-      /\sZ\s*$/i.test(d.trim())
-    );
-  }
+  if (t === 'pen' || t === 'path') return isClosedPathNode(node);
   return true;
 }
 
@@ -327,7 +342,12 @@ export function supportsStroke(node: SceneNodeRef) {
  * Excludes open strokes and non-shape nodes (image, text, …).
  */
 export function supportsBooleanOp(node: SceneNodeRef) {
-  if (!node || node.key !== 'shape') return false;
+  if (!node) return false;
+  const key = String(node.key || '');
+  if (key === 'path') return isClosedPathNode(node);
+  if (key !== 'shape') return false;
   const t = String(node.attrs?.shapeType || 'rect');
-  return !['line', 'arrow', 'pen', 'pencil'].includes(t);
+  if (t === 'line' || t === 'arrow' || t === 'pencil') return false;
+  if (t === 'pen' || t === 'path') return isClosedPathNode(node);
+  return true;
 }

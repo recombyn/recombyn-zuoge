@@ -9,6 +9,7 @@ import {
   sortIdsByRank,
 } from '../core/spatialIndex';
 import {
+  isImageProcessRunning,
   isNodeHidden
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
@@ -26,6 +27,18 @@ import {
 import RcbShapeHost from './RcbShapeHost';
 
 export { canvasIdleIsStrokeOnly, canIdlePaintOnCanvas };
+
+/**
+ * Whether a full SVG host should drop artboard clip.
+ * Processing SoftGlow hosts are forceFull for live paint, but must stay clipped
+ * when bound (`attrs.frameId`) — follow the frame without spilling past it.
+ */
+export function shouldRevealShapeOverflow(
+  forceFull: boolean,
+  node: SceneNodeInput | null | undefined
+): boolean {
+  return forceFull && !isImageProcessRunning(node);
+}
 
 type Props = {
   document: SceneDocument;
@@ -367,7 +380,8 @@ function RcbShapesLayer({
             reloadToken={patched.has(id) ? `${reloadToken}:${documentPatchToken}` : reloadToken}
             frameClipToken={frameClipToken}
             forceHidden={hiddenNodeId === id || layerHidden}
-            revealOverflow={forceFullSet.has(id)}
+            // SoftGlow plates stay forceFull (live SVG) but keep frame clip.
+            revealOverflow={shouldRevealShapeOverflow(forceFullSet.has(id), node)}
           />
         );
       })}

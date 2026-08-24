@@ -80,11 +80,7 @@ const AgentMessageList = forwardRef(function AgentMessageList(
             className
           )}
         >
-          <div className="flex flex-1 flex-col items-center justify-center px-1">
-            <p className="text-center text-[13px] text-[var(--muted)]">
-              {t('agent.noHistory')}
-            </p>
-          </div>
+          <p className="text-left text-[13px] text-[var(--muted)]">{t('agent.noHistory')}</p>
         </div>
       );
     }

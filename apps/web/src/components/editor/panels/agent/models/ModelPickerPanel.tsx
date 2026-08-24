@@ -1,4 +1,4 @@
-﻿import { memo, type ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineBookOpen } from 'react-icons/hi2';
 import type { LlmModel } from '@/service/chat';
@@ -572,7 +572,7 @@ function ModelPickerPanel({
   const list = (
     <div className={cn('min-w-0', listClassForChrome(chrome, title))}>
       {status === 'error' && models.length === 0 ? (
-        <div className="px-2 py-4 text-center text-[12px] text-[var(--muted)]">
+        <div className="px-2 py-4 text-left text-[12px] text-[var(--muted)]">
           <p>{t('agent.apiDown')}</p>
           <p className="mt-1">{t('agent.apiDownHint')}</p>
         </div>
@@ -582,9 +582,9 @@ function ModelPickerPanel({
           className="px-2 py-8"
         />
       ) : !filtered.length ? (
-        <div className="px-2 py-6 text-center text-[12px] text-[var(--muted)]">
+        <p className="px-2 py-2 text-left text-[12px] text-[var(--muted)]">
           {t('agent.emptyModels')}
-        </div>
+        </p>
       ) : (
         filtered.map((m) => {
           const selected = m.id === selectedId;

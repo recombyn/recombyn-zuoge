@@ -3,8 +3,7 @@ import { NodeProcessGlow } from '@/components/editor/nodes/ImageNode/ImageProces
 import { useRcbCamera } from '@/components/rcb/camera/context';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 import {
-  applyFrameContentClip,
-  clearFrameContentClip,
+  syncFrameContentClip,
 } from '@/components/rcb/frames/frameContentClip';
 import {
   createSvgBoard,
@@ -19,8 +18,11 @@ import {
   getSceneShapesMount,
   getSceneWorldEpoch,
   getSceneWorldRoot,
+  getShapeHost,
   getSharedNodeEls,
   registerShapeHost,
+  setShapeHostRevealOverflow,
+  subscribeShapeHost,
   subscribeShapeHosts,
   syncSharedMountPaintOrder,
   unregisterShapeHost,
@@ -130,6 +132,8 @@ function RcbShapeHost({
   const bootRef = useRef(0);
   const forceHiddenRef = useRef(forceHidden);
   forceHiddenRef.current = forceHidden;
+  const revealOverflowRef = useRef(revealOverflow);
+  revealOverflowRef.current = revealOverflow;
   const [worldEpoch, setWorldEpoch] = useState(() => getSceneWorldEpoch());
   useEffect(
     () =>
@@ -182,9 +186,8 @@ function RcbShapeHost({
     node?.attrs?.autoSize,
     node?.attrs?.path,
     node?.attrs?.shapeType,
-    // Remount when rotation commits — chrome knobs mirror host transform; without
-    // this, translate-only lag after angle commit leaves radius dots "跑路".
-    node?.attrs?.angle,
+    // Angle / flip are transform-only — previewSvgNodeTransform updates the host
+    // without remounting (full rebuild corrupts boolean / outlined compound paths).
     node?.attrs?.brushStyle,
     node?.attrs?.pathPressure,
     // All effects share the SVG paint path. Include their complete input so a
@@ -222,6 +225,24 @@ function RcbShapeHost({
 
   const processing = String(node?.attrs?.processStatus || '') === 'running';
   const [paintEl, setPaintEl] = useState<SVGElement | null>(null);
+  const paintElRef = useRef<SVGElement | null>(null);
+  paintElRef.current = paintEl;
+
+  const resolvePaintEl = (): SVGElement | null => {
+    const fromHost = getShapeHost(nodeId)?.el;
+    if (fromHost instanceof SVGElement) return fromHost;
+    return resolveHostPaintEl(nodeId, layerRef.current);
+  };
+
+  const syncOwnedFrameClip = () => {
+    const el = resolvePaintEl();
+    const root = getSceneWorldRoot();
+    setShapeHostRevealOverflow(nodeId, revealOverflow);
+    syncFrameContentClip(root, el, document, node as Record<string, unknown> | null, {
+      zoom: camera.zoom,
+      revealOverflow,
+    });
+  };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -246,7 +267,7 @@ function RcbShapeHost({
     layer.style.removeProperty('mix-blend-mode');
 
     const nodeEls = getSharedNodeEls() || new Map();
-    registerShapeHost({ nodeId, root, layer, el: null, kind: 'svg' });
+    registerShapeHost({ nodeId, root, layer, el: null, kind: 'svg', revealOverflow });
     setPaintEl(null);
 
     async function mountShape() {
@@ -265,8 +286,12 @@ function RcbShapeHost({
           el.style.opacity = '1';
           el.setAttribute('opacity', '1');
           if (forceHiddenRef.current) setHostPaintOpacity(el, true);
-          if (revealOverflow) clearFrameContentClip(el);
-          else applyFrameContentClip(root, el, document, n, { zoom: camera.zoom });
+          const reveal = revealOverflowRef.current;
+          setShapeHostRevealOverflow(nodeId, reveal);
+          syncFrameContentClip(root, el, document, n as Record<string, unknown> | null, {
+            zoom: camera.zoom,
+            revealOverflow: reveal,
+          });
           const sharedMap = getSharedNodeEls();
           if (sharedMap) sharedMap.set(nodeId, el);
           else nodeEls.set(nodeId, el);
@@ -294,12 +319,22 @@ function RcbShapeHost({
   }, [nodeId, reloadToken, paintToken, worldEpoch]);
 
   useEffect(() => {
-    const el = resolveHostPaintEl(nodeId, layerRef.current);
-    const root = getSceneWorldRoot();
-    if (!el || !root) return;
-    if (revealOverflow) clearFrameContentClip(el);
-    else applyFrameContentClip(root, el, document, node, { zoom: camera.zoom });
+    syncOwnedFrameClip();
   }, [camera.zoom, clipGeometryToken, document, frameClipToken, node, nodeId, revealOverflow, worldEpoch]);
+
+  // replaceShapePaint swaps `el` without remounting — re-own clip and rebind SoftGlow.
+  useEffect(
+    () =>
+      subscribeShapeHost(nodeId, () => {
+        syncOwnedFrameClip();
+        const el = resolvePaintEl();
+        if (el && el !== paintElRef.current) {
+          paintElRef.current = el;
+          setPaintEl(el);
+        }
+      }),
+    [camera.zoom, document, node, nodeId, revealOverflow]
+  );
 
   useEffect(() => {
     const el = resolveHostPaintEl(nodeId, layerRef.current);

@@ -41,6 +41,7 @@ import type { SceneDocument } from '../sceneNode';
 import { setInfiniteSvgPaintCamera } from '../scene/paint/sceneToSvg';
 import { notifyShapeHostGeometry, setSceneWorldRoot } from '../shapes/shapeHostRegistry';
 import { DEFAULT_GRID_SIZE, shouldShowPixelGrid } from '../selection/alignGuides';
+import { wheelShouldStayLocal } from './wheelScrollOwners';
 
 const EMPTY_SCENE_DOC: SceneDocument = {
   deltaSetLike: {
@@ -329,10 +330,9 @@ function RcbCanvas({
 
     const onWheel = (e: WheelEvent) => {
       const target = e.target as Element | null;
-      // Overlay HTML (tool panels, menus) owns its own scroll — do not pan/zoom
-      // the camera or preventDefault, or the list cannot scroll and the node
-      // appears to drag because the panel is camera-anchored to it.
-      if (target?.closest?.('[data-rcb-overlay="1"]')) return;
+      // Scrollable panels/menus own wheel — do not pan/zoom or preventDefault.
+      // Do not blanket-block `[data-rcb-overlay]`; mockup, variants, selection chrome must zoom.
+      if (wheelShouldStayLocal(target, e)) return;
       e.preventDefault();
       const local = rcbClientToStageLocal(el, e.clientX, e.clientY);
       const cam = cameraRef.current;

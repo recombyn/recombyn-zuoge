@@ -12,6 +12,11 @@ export type ShapeHostHandle = {
   layer: SVGGElement | null;
   el: SceneHostEl | null;
   kind: 'svg';
+  /**
+   * Selected: host owns frame clip and keeps ink past the artboard edge.
+   * Preview / replaceSvgNode must read this instead of re-applying clip blindly.
+   */
+  revealOverflow?: boolean;
 };
 
 const hosts = new Map<string, ShapeHostHandle>();
@@ -110,6 +115,18 @@ export function updateShapeHostElement(nodeId: string, el: SceneHostEl | null) {
   // Paint remount → drop Path2D binding so the next hit rebuilds from current `d`.
   invalidateNodePath2D(nodeId);
   bumpHostEpoch(nodeId);
+}
+
+/** Selection-owned frame clip: preview/replace must not fight this flag. */
+export function setShapeHostRevealOverflow(nodeId: string, reveal: boolean) {
+  const h = hosts.get(nodeId);
+  if (!h) return;
+  if (h.revealOverflow === reveal) return;
+  h.revealOverflow = reveal;
+}
+
+export function shapeHostRevealsOverflow(nodeId: string): boolean {
+  return Boolean(hosts.get(nodeId)?.revealOverflow);
 }
 
 export function unregisterShapeHost(nodeId: string) {
@@ -290,7 +307,9 @@ export async function replaceShapePaint(
       host.layer,
       document,
       nodeEls as Map<string, SVGElement>,
-      nodeId
+      nodeId,
+      // Host owns frame clip via revealOverflow — do not re-clip here.
+      { applyFrameClip: false }
     );
     const el = (nodeEls.get(nodeId) as SVGElement | undefined) ?? null;
     if (el) {

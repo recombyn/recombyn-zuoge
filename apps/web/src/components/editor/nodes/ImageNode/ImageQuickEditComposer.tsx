@@ -1,12 +1,18 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type RefObject, memo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDispatch, useSelector } from 'react-redux';
-import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle, HiOutlineXMark } from 'react-icons/hi2';
+import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
+import { BiExit } from 'react-icons/bi';
 import { PiSelectionPlus } from 'react-icons/pi';
-import { generateImage, type ChatModelsResponse, type LlmModel } from '@/service/chat';
-import { apiQuery, getHttpErrorMessage } from '@/service/client';
+import { generateImage, type LlmModel } from '@/service/chat';
+import { generateImageBatch } from '@/service/generateImageBatch';
+import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
+import {
+  registerGeneratorSession,
+  unregisterGeneratorSession,
+} from '@/components/editor/nodes/shared/generatorSessionRegistry';
+import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   RcbOverlayPortal,
@@ -24,9 +30,17 @@ import {
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import {
+  composerCanSend,
+  composerSendDisabledReason,
+} from '@/components/editor/panels/agent/composer/composerModelsGate';
+import { clearGeneratorProcessOverlay } from '@/components/editor/nodes/shared/clearGeneratorProcess';
+import {
   buildImageGeneratorModelList,
-  flyPickIntoImageComposer,
-} from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
+} from '@/components/editor/nodes/shared/generatorModelLists';
+import { ratioSummaryLabel } from '@/components/editor/nodes/shared/generatorAttrs';
+import { flyPickIntoComposer } from '@/components/editor/nodes/shared/composerCanvasAttach';
+import { MEDIA_QUICK_EDIT_ATTR } from '@/components/editor/panels/agent/composer/composerMentionHelpers';
+import { useGeneratorModelsCatalog } from '@/components/editor/panels/agent/composer/useGeneratorModelsCatalog';
 import {
   buildComposerChipPrompt,
   collectComposerRefImages,
@@ -44,6 +58,8 @@ import ModelPickerPanel, {
 import { cloudImageFallbackId } from '@/components/editor/panels/agent/llmModelMeta';
 import {
   listImageVariantUrls,
+  promptForImageSrc,
+  applyVariantPromptPatch,
   writeImageVariantsAttr,
 } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
@@ -57,6 +73,7 @@ import {
   pushEditorHistory,
   startCanvasAttachPick,
   setHoveredMarkPin,
+  setSelectedNodeIds,
   type PendingMarkContextChip,
 } from '@/store/modules/editor';
 import { useImageToolCapabilities } from '@/service/imageTools';
@@ -68,39 +85,11 @@ import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateImageCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
 import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
+import { clearQuickEditMarkSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
+import { insertPendingComposerChips } from '@/components/editor/panels/agent/composerChipInsert';
 import store from '@/store';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
-
-function applyPendingMarkChips(
-  list: PendingMarkContextChip[],
-  inputRef: RefObject<AgentComposerHandle | null>
-) {
-  if (!list.length) return;
-  const run = () => {
-    const el = inputRef.current;
-    if (!el) return false;
-    for (const item of list) {
-      el.insertContextAtCaret({
-        key: item.key,
-        label: item.label,
-        kind: item.kind,
-        payload: item.payload,
-      });
-      const tail = item.appendText?.trim();
-      if (tail) el.insertPlainAtCaret(tail);
-    }
-    el.focusEnd();
-    return true;
-  };
-  queueMicrotask(() => {
-    if (run()) return;
-    requestAnimationFrame(() => {
-      if (run()) return;
-      requestAnimationFrame(() => run());
-    });
-  });
-}
 
 function nextQuickEditImageModelId(
   models: LlmModel[],
@@ -120,16 +109,6 @@ function nextQuickEditImageModelId(
     if (preferred) return preferred.id;
   }
   return models[0]?.id ?? null;
-}
-
-function ratioSummaryLabel(aspectRatio: string, t: (k: string) => string) {
-  const raw = String(aspectRatio || '').trim();
-  if (raw === 'smart') return t('agent.ratioSmart');
-  if (/^\d+x\d+$/i.test(raw)) {
-    const [a, b] = raw.toLowerCase().split('x');
-    return `${a}脳${b}`;
-  }
-  return raw || '1:1';
 }
 
 /**
@@ -155,17 +134,13 @@ function ImageQuickEditComposer({
 
   const node = document?.deltaSetLike?.[nodeId];
   const src = String(node?.attrs?.src || '').trim();
-  const savedPrompt = String(node?.attrs?.genPrompt || '').trim();
+  const savedPrompt = promptForImageSrc(node?.attrs, src);
 
   const [prompt, setPrompt] = useState(savedPrompt);
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
   const [sending, setSending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const [models, setModels] = useState<LlmModel[]>([]);
-  const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
-    'idle'
-  );
   const [modelId, setModelId] = useState(() => cloudImageFallbackId());
   const [resolution, setResolution] = useState<string>(DEFAULT_IMAGE_RESOLUTION);
   const [aspectRatio, setAspectRatio] = useState<string>(DEFAULT_IMAGE_ASPECT_RATIO);
@@ -174,6 +149,18 @@ function ImageQuickEditComposer({
   const { planId } = useWalletSnapshot();
   const showCreditCosts = useShowCreditCosts();
   const canPickModel = planAllowsModelPick(planId);
+  const resolveQuickEditModelId = useCallback(
+    (list: LlmModel[], currentId: string) =>
+      nextQuickEditImageModelId(list, currentId, canPickModel),
+    [canPickModel]
+  );
+  const { models, status: modelsStatus, catalogAvailable: apiAvailable } = useGeneratorModelsCatalog({
+    buildList: buildImageGeneratorModelList,
+    modelId,
+    setModelId,
+    resolveModelId: resolveQuickEditModelId,
+    resetKey: `${nodeId}:${canPickModel ? '1' : '0'}`,
+  });
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const pendingQuickEditMarks = useSelector(
@@ -202,18 +189,37 @@ function ImageQuickEditComposer({
   const contextsRef = useRef(contexts);
   contextsRef.current = contexts;
   const pendingMarksLockRef = useRef<string | null>(null);
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
+  const prevSrcRef = useRef(src);
 
   useEffect(() => {
-    setPrompt(savedPrompt);
+    const prevSrc = prevSrcRef.current;
+    if (prevSrc && prevSrc !== src) {
+      const draft = promptRef.current.trim();
+      if (draft && nodeId) {
+        const attrs = { ...(node?.attrs || {}) } as Record<string, unknown>;
+        applyVariantPromptPatch(attrs, prevSrc, draft);
+        dispatch(
+          patchDocumentNode({
+            nodeId,
+            skipHistory: true,
+            patch: { attrs },
+          })
+        );
+      }
+    }
+    prevSrcRef.current = src;
+    setPrompt(promptForImageSrc(node?.attrs, src));
     pendingMarksLockRef.current = null;
-  }, [nodeId, savedPrompt]);
+  }, [nodeId, src, savedPrompt, node?.attrs?.imageVariantPrompts, dispatch, node?.attrs]);
 
   useEffect(() => {
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
     dispatch(consumePendingCanvasAttach());
     async function flyPendingAttach() {
-      await flyPickIntoImageComposer({
+      await flyPickIntoComposer({
         landId: pickTarget,
         document,
         payload,
@@ -236,41 +242,6 @@ function ImageQuickEditComposer({
     return () => cancelAnimationFrame(id);
   }, [nodeId]);
 
-  const modelsCatalogQuery = useQuery({
-    ...apiQuery.chatGetModels.queryOptions(),
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (modelsCatalogQuery.isPending) {
-      setModelsStatus('loading');
-      return;
-    }
-    if (modelsCatalogQuery.isError) {
-      setModelsStatus('error');
-      return;
-    }
-    if (!modelsCatalogQuery.isFetched) return;
-    const res = modelsCatalogQuery.data as ChatModelsResponse | undefined;
-    if (!res) {
-      setModelsStatus('error');
-      return;
-    }
-    const imgs = buildImageGeneratorModelList(res);
-    setModels(imgs);
-    setModelsStatus('ready');
-    const nextId = nextQuickEditImageModelId(imgs, modelId, canPickModel);
-    if (nextId) setModelId(nextId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per open
-  }, [
-    modelsCatalogQuery.data,
-    modelsCatalogQuery.isPending,
-    modelsCatalogQuery.isError,
-    modelsCatalogQuery.isFetched,
-    nodeId,
-    canPickModel,
-  ]);
-
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -289,13 +260,27 @@ function ImageQuickEditComposer({
     pendingMarksLockRef.current = token;
     const list = pendingQuickEditMarks.slice();
     dispatch(consumePendingQuickEditMarkContexts());
-    applyPendingMarkChips(list, inputRef);
+    // Same caret path as Add from canvas — never force chips before typed text.
+    insertPendingComposerChips(() => inputRef.current, list, { focus: 'caret' });
   }, [pendingQuickEditMarks, dispatch]);
 
   const attachments = contexts.filter((c) => c.kind === 'attachment');
   const inlineContexts = contexts.filter((c) => c.kind !== 'attachment');
   const canSendComposer =
     Boolean(prompt.trim()) || inlineContexts.length > 0;
+  const canSendGen = composerCanSend({
+    hasContent: canSendComposer,
+    sending,
+    apiAvailable,
+    modelsStatus,
+  });
+  const sendDisabledReason = composerSendDisabledReason({
+    t,
+    hasContent: canSendComposer,
+    apiAvailable,
+    modelsStatus,
+    blockWhileModelsLoading: true,
+  });
   const selectedModel = models.find((m) => m.id === modelId);
   const creditCost = estimateImageCredits(selectedModel, imageCount, resolution);
   const settingsSummary = `${resolution} · ${ratioSummaryLabel(aspectRatio, t)} · ${imageCount}`;
@@ -348,13 +333,26 @@ function ImageQuickEditComposer({
     setContexts((prev) => [...prev, ...next]);
   };
 
+  const dismissComposerAfterSend = () => {
+    dispatch(clearCanvasAttachPick());
+    dispatch(setHoveredMarkPin(null));
+    for (const c of contextsRef.current) {
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+    }
+    dispatch(closeImageToolPanel());
+  };
+
   const onGenerate = async () => {
     const text = prompt.trim();
-    if (!canSendComposer || sending || !src) return;
+    if (!canSendGen || !src) return;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    dismissComposerAfterSend();
+    dispatch(setSelectedNodeIds([]));
+    registerGeneratorSession(nodeId);
     setSending(true);
+    let finished = false;
     dispatch(pushEditorHistory());
     dispatch(
       patchDocumentNode({
@@ -365,6 +363,8 @@ function ImageQuickEditComposer({
             processStatus: 'running',
             processKind: 'quickEdit',
             processLabel: t('editor.imageToolbar.processingQuickEdit'),
+            processStartedAt: String(Date.now()),
+            genPrompt: text,
           },
         },
       })
@@ -381,27 +381,19 @@ function ImageQuickEditComposer({
       if (aspectRatio !== 'smart') body.aspect_ratio = aspectRatio;
 
       const count = Math.max(1, Math.min(4, Math.round(imageCount) || 1));
-      const pickUrl = (res: Awaited<ReturnType<typeof generateImage>>) => {
-        const fromImages =
-          Array.isArray(res?.images) && res.images.find((u) => String(u || '').trim());
-        if (fromImages) return String(fromImages).trim();
-        const fromAssets =
-          Array.isArray(res?.assets) &&
-          res.assets.map((a) => String(a?.url || '').trim()).find(Boolean);
-        return fromAssets ? String(fromAssets).trim() : '';
-      };
-      const slotUrls = await Promise.all(
-        Array.from({ length: count }, async () => {
-          if (ac.signal.aborted) return '';
-          try {
-            const res = await generateImage(body, { signal: ac.signal });
-            return pickUrl(res);
-          } catch {
-            return '';
-          }
-        })
-      );
-      const urls = slotUrls.filter(Boolean);
+      const urls = await generateImageBatch(body, count, {
+        signal: ac.signal,
+        emptyMessage: t('editor.tools.imageGenEmpty'),
+        onJobsCreated: (jobIds) => {
+          dispatch(
+            patchDocumentNode({
+              nodeId,
+              skipHistory: true,
+              patch: { attrs: processJobAttrPatch(jobIds) },
+            })
+          );
+        },
+      });
       const nextSrc = urls[0] || '';
       if (!nextSrc) throw new Error(t('editor.tools.imageGenEmpty'));
 
@@ -409,13 +401,14 @@ function ImageQuickEditComposer({
       const stack = [...new Set([nextSrc, ...urls, ...prev.filter((u) => u !== nextSrc)])];
       const variantAttrs: Record<string, unknown> = {};
       writeImageVariantsAttr(variantAttrs, stack);
+      applyVariantPromptPatch(variantAttrs, nextSrc, text);
+      for (const u of urls) applyVariantPromptPatch(variantAttrs, u, text);
 
       dispatch(
         finishImageProcess({
           nodeId,
           src: nextSrc,
           attrs: {
-            genPrompt: text,
             ...variantAttrs,
           },
         })
@@ -424,11 +417,18 @@ function ImageQuickEditComposer({
         if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
       }
       dispatch(closeImageToolPanel());
-    } catch (err: any) {
-      if (ac.signal.aborted) return;
-      dispatch(finishImageProcess({ nodeId }));
-      message.error(getHttpErrorMessage(err, t('editor.tools.imageGenFail')));
+      finished = true;
+    } catch (err: unknown) {
+      if (!ac.signal.aborted) {
+        message.error(getHttpErrorMessage(err, t('editor.tools.imageGenFail')));
+      }
     } finally {
+      unregisterGeneratorSession(nodeId);
+      const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
+        ?.document;
+      if (!finished) {
+        clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+      }
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);
     }
@@ -456,15 +456,11 @@ function ImageQuickEditComposer({
     }
     if (nodeProcessing) return;
     if (markActive) {
+      clearQuickEditMarkSession(dispatch, document);
       dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }));
       return;
     }
     dispatch(openImageToolPanel({ nodeId, kind: 'mark', markSink: 'quickEdit' }));
-  };
-
-  const onExitMark = () => {
-    if (!markActive) return;
-    dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }));
   };
 
   const onCloseQuickEdit = () => {
@@ -479,11 +475,14 @@ function ImageQuickEditComposer({
 
   if (!node) return null;
 
+  // Send → exit immediately; loading uses the node glow badge only (no bottom bar).
+  if (sending || nodeProcessing) return null;
+
   if (!src) {
     return (
       <RcbOverlayPortal>
         <div
-          data-image-quick-edit
+          {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
           data-sel-toolbar
           data-scene-node-id={nodeId}
           className={cn(
@@ -502,11 +501,11 @@ function ImageQuickEditComposer({
   return (
     <RcbOverlayPortal>
       <div
-        data-image-quick-edit
+        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
         data-sel-toolbar
         data-scene-node-id={nodeId}
         className={cn(
-          'pointer-events-auto absolute z-[32] flex h-[200px] w-[500px] flex-col overflow-visible',
+          'pointer-events-auto absolute z-[32] flex h-[200px] w-[500px] flex-col overflow-hidden',
           'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
           'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
         )}
@@ -516,8 +515,8 @@ function ImageQuickEditComposer({
           e.nativeEvent.stopImmediatePropagation?.();
         }}
       >
-        <div className="flex items-center gap-1.5 px-3 pt-2.5">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+        <div className="flex min-h-0 shrink-0 items-start justify-between gap-2 px-3 pt-2.5">
+          <div className="flex max-h-[72px] min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-y-auto">
           {subjectChip ? (
             <ComposerAttachmentChip
               attachment={subjectChip}
@@ -596,27 +595,21 @@ function ImageQuickEditComposer({
             onChange={onPickRef}
           />
           </div>
-          <Tooltip
-            tip={markActive ? t('editor.imageToolbar.markExit') : t('editor.imageToolbar.chatClose')}
-            placement="top"
-          >
+          <Tooltip tip={t('editor.exit')} placement="top">
             <button
               type="button"
-              disabled={sending}
-              aria-label={
-                markActive ? t('editor.imageToolbar.markExit') : t('editor.imageToolbar.chatClose')
-              }
-              onClick={markActive ? onExitMark : onCloseQuickEdit}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-40"
+              aria-label={t('editor.exit')}
+              onClick={onCloseQuickEdit}
+              className={composerAttachActionClass()}
             >
-              <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
+              <BiExit className="h-4 w-4" />
             </button>
           </Tooltip>
         </div>
 
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
         <div
-          className="min-h-[72px] min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
+          className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
           onClick={(e) => {
             if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
             inputRef.current?.focus();
@@ -628,8 +621,10 @@ function ImageQuickEditComposer({
             onContextsChange={onInlineContextsChange}
             value={prompt}
             onChange={setPrompt}
-            onSubmit={() => void onGenerate()}
-            disabled={sending}
+            onSubmit={() => {
+              if (canSendGen) void onGenerate();
+            }}
+            disabled={sending || !canSendGen}
             placeholder={t('editor.tools.imageGenPlaceholder')}
             flyLandId={pickTarget}
             className="min-h-full w-full text-[13px]"
@@ -743,15 +738,16 @@ function ImageQuickEditComposer({
 
             <Tooltip
               tip={
-                showCreditCosts
+                sendDisabledReason ||
+                (showCreditCosts
                   ? t('wallet.creditCostTip', { count: creditCost })
-                  : t('agent.send')
+                  : t('agent.send'))
               }
               placement="top"
             >
               <button
                 type="button"
-                disabled={sending || !canSendComposer}
+                disabled={!canSendGen}
                 onClick={() => void onGenerate()}
                 className={cn(
                   'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition',

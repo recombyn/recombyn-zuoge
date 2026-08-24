@@ -502,22 +502,6 @@ def list_wallet_ledger(
     return rows, total
 
 
-def list_plaza_mine(*, session: Session, user_id: str) -> list[PlazaSubmission]:
-    """Latest submission per project for a user (in-Python dedupe by updated_at desc)."""
-    rows = list(
-        session.exec(
-            select(PlazaSubmission)
-            .where(PlazaSubmission.user_id == user_id)
-            .order_by(col(PlazaSubmission.updated_at).desc())
-        ).all()
-    )
-    best: dict[str, PlazaSubmission] = {}
-    for row in rows:
-        if row.project_id not in best:
-            best[row.project_id] = row
-    return list(best.values())
-
-
 def get_plaza_submission(*, session: Session, submission_id: str) -> PlazaSubmission | None:
     sid = (submission_id or "").strip()
     if not sid:
@@ -756,34 +740,6 @@ def _liked_visible_approved_where(user_id: str) -> list[Any]:
         PlazaSubmission.status == "approved",
         func.coalesce(PlazaSubmission.is_visible, 1) == 1,
     ]
-
-
-def list_plaza_liked_page(
-    *,
-    session: Session,
-    user_id: str,
-    offset: int = 0,
-    limit: int = 24,
-) -> tuple[list[tuple[PlazaSubmission, float]], int]:
-    where = _liked_visible_approved_where(user_id)
-    count_stmt = (
-        select(func.count())
-        .select_from(PlazaLike)
-        .join(PlazaSubmission, PlazaSubmission.id == PlazaLike.submission_id)
-        .where(*where)
-    )
-    total = int(session.exec(count_stmt).one() or 0)
-    rows = list(
-        session.exec(
-            select(PlazaSubmission, PlazaLike.created_at)
-            .join(PlazaLike, PlazaLike.submission_id == PlazaSubmission.id)
-            .where(*where)
-            .order_by(col(PlazaLike.created_at).desc())
-            .offset(max(0, offset))
-            .limit(max(1, limit))
-        ).all()
-    )
-    return rows, total
 
 
 def list_plaza_liked_ids(*, session: Session, user_id: str) -> list[str]:

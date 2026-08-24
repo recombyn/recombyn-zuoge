@@ -6,7 +6,9 @@ import { HiOutlineBolt } from 'react-icons/hi2';
 import Slider from '@/components/base/slider';
 import Tooltip from '@/components/base/tooltip';
 import { useShowCreditCosts } from '@/service/wallet';
+import { useImageToolCreditCost, type ImageProcessKindApi } from '@/service/imageTools';
 import { cn } from '@/utils/classnames';
+import { imageToolExitBtn } from '../imageToolbarShared';
 import './imageToolPanel.css';
 
 /** Panel actions — soft rect (xl), same family as default SegmentedControl. */
@@ -26,7 +28,6 @@ export const IMAGE_TOOL_CREDIT_COST = {
   expand: 30,
   editText: 0,
   editElements: 0,
-  detectRegions: 0,
   replaceText: 30,
   vector: 20,
   adjust: 0,
@@ -82,7 +83,7 @@ function ImageToolPanelShell({
                 type="button"
                 aria-label={'退出'}
                 onClick={onClose}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+                className={imageToolExitBtn}
               >
                 <BiExit className="h-[18px] w-[18px]" />
               </button>
@@ -126,12 +127,21 @@ function PanelIconBtn({
 /** Cost chip for primary CTAs: amount + bolt after the label; inherits text color. */
 function PanelConfirmCost({
   amount,
+  kind,
 }: {
-  amount: number;
+  /** Static fallback when `kind` is omitted. */
+  amount?: number;
+  /** Prefer server `/image/tools` credits for this kind. */
+  kind?: ImageProcessKindApi | string;
 }) {
   const { t } = useTranslation();
   const showCreditCosts = useShowCreditCosts();
-  const n = Number.isFinite(amount) ? Math.round(amount) : 0;
+  const apiCost = useImageToolCreditCost(kind ?? '');
+  const n = kind
+    ? apiCost
+    : Number.isFinite(amount)
+      ? Math.round(amount!)
+      : 0;
   // Free tools, local desktop, loopback dev, or wallet billing off — no credit chip.
   if (n <= 0 || !showCreditCosts) return null;
   const display = String(n);
@@ -153,6 +163,7 @@ function PanelFooterActions({
   confirmDisabled,
   confirmBusy,
   confirmCost,
+  confirmCostKind,
   confirmExtra,
 }: {
   onCancel: () => void;
@@ -160,8 +171,10 @@ function PanelFooterActions({
   confirmLabel: string;
   confirmDisabled?: boolean;
   confirmBusy?: boolean;
-  /** When set, shows cost + bolt after the label (inherits button text color). */
+  /** Static fallback when `confirmCostKind` is omitted. */
   confirmCost?: number;
+  /** Prefer server `/image/tools` credits for this kind. */
+  confirmCostKind?: ImageProcessKindApi | string;
   confirmExtra?: ReactNode;
 }) {
   return (
@@ -186,7 +199,11 @@ function PanelFooterActions({
           <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
         ) : null}
         <span className="truncate">{confirmLabel}</span>
-        {typeof confirmCost === 'number' ? <PanelConfirmCost amount={confirmCost} /> : null}
+        {confirmCostKind ? (
+          <PanelConfirmCost kind={confirmCostKind} />
+        ) : typeof confirmCost === 'number' ? (
+          <PanelConfirmCost amount={confirmCost} />
+        ) : null}
         {confirmExtra}
       </button>
     </>

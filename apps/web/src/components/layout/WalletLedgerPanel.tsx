@@ -413,7 +413,7 @@ function WalletLedgerPanel({
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-5 py-12 text-center text-[13px] text-[var(--muted)]"
+                      className="px-5 py-4 text-left text-[13px] text-[var(--muted)]"
                     >
                       {t('wallet.billingEmpty')}
                     </td>

@@ -200,8 +200,7 @@ function ProjectCard({
 
   const openEditor = () => {
     if (disabled) return;
-    // New tab loads /editor/:id and hydrates itself 鈥?no need to preload here.
-    goEditor({ projectId: item.id, newWindow: true });
+    goEditor({ projectId: item.id });
   };
 
   const menuItems: MenuItemType[] = [

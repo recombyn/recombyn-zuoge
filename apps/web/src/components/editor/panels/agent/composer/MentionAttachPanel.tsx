@@ -284,9 +284,7 @@ function MentionAttachPanel({
           />
         ) : null}
         {showEmpty ? (
-          <div className="px-2 py-4 text-center text-[12px] text-[var(--muted)]">
-            {t(emptyKey)}
-          </div>
+          <p className="px-2 py-2 text-left text-[12px] text-[var(--muted)]">{t(emptyKey)}</p>
         ) : null}
         {showList
           ? filtered.map((it) => {

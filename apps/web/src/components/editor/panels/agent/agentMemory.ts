@@ -1,9 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-/**
- * Agent memory — task state, short-term turns, patches (M1–M3 client contract).
- */
+import { frameIsEmpty } from '@/components/rcb/frames/framePlatePointer';
 
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+export { frameIsEmpty };
 
 export type ShortTermTurn = {
   role: 'user' | 'assistant';
@@ -102,30 +100,6 @@ export function emptyTaskState(params: {
     last_run: null,
     referents: {},
   };
-}
-
-export function frameIsEmpty(doc: SceneDocument, frameId: string): boolean {
-  if (!doc || !frameId) return true;
-  const ids = doc?.deltaSetLike?.ROOT?.children;
-  if (!Array.isArray(ids) || !ids.length) return true;
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  const frame = frames.find((f: any) => f?.id === frameId);
-  if (!frame) return true;
-  const fx = Number(frame.x) || 0;
-  const fy = Number(frame.y) || 0;
-  const fw = Math.max(1, Number(frame.width) || 1);
-  const fh = Math.max(1, Number(frame.height) || 1);
-  for (const id of ids) {
-    const node = doc?.deltaSetLike?.[id];
-    if (!node) continue;
-    const { left, top } = nodeLeftTop(doc, node);
-    const nw = Math.max(1, Number(node.width) || 1);
-    const nh = Math.max(1, Number(node.height) || 1);
-    const ow = Math.max(0, Math.min(left + nw, fx + fw) - Math.max(left, fx));
-    const oh = Math.max(0, Math.min(top + nh, fy + fh) - Math.max(top, fy));
-    if (ow * oh >= nw * nh * 0.2) return false;
-  }
-  return true;
 }
 
 export function buildTaskStateFromDocument(params: {

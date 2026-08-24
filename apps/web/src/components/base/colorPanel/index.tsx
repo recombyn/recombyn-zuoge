@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   autoUpdate,
   flip,
@@ -172,7 +173,7 @@ function ColorPanel({
   opacity = 100,
   onOpacityChange,
   showAlpha = false,
-  title = '颜色',
+  title,
   onClose,
   presets,
   showHeader = true,
@@ -180,6 +181,11 @@ function ColorPanel({
   showColorPreview = true,
   className,
 }: ColorPanelProps) {
+  const { t } = useTranslation();
+  const panelTitle = title ?? t('editor.selectionToolbar.color');
+  const exitLabel = t('editor.exit');
+  const pickColorLabel = t('editor.pickColor');
+  const transparentLabel = t('editor.transparent');
   // One swatch set everywhere — 2×9 solids. Alpha lives on the slider, not an extra chip.
   const presetList = presets ?? FILL_SOLID_PRESETS;
   const hex = normalizeHex(value, '#333333');
@@ -230,13 +236,13 @@ function ColorPanel({
     >
       {showHeader ? (
         <div className="flex h-11 items-center justify-between px-3">
-          <span className="text-[13px] font-medium text-[var(--ink)]">{title}</span>
+          <span className="text-[13px] font-medium text-[var(--ink)]">{panelTitle}</span>
           <div className="flex items-center gap-0.5">
             {onClose ? (
-              <Tooltip tip={'退出'} placement="bottom">
+              <Tooltip tip={exitLabel} placement="bottom">
                 <button
                   type="button"
-                  aria-label={'退出'}
+                  aria-label={exitLabel}
                   onClick={onClose}
                   className="inline-flex h-8 w-8 items-center justify-center rounded text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
                 >
@@ -282,7 +288,7 @@ function ColorPanel({
                 <button
                   key={String(c)}
                   type="button"
-                  aria-label={isTransparent ? '透明' : p}
+                  aria-label={isTransparent ? transparentLabel : p}
                   onClick={() => {
                     if (isTransparent) {
                       onChange(solidHex);
@@ -319,10 +325,10 @@ function ColorPanel({
         ) : null}
 
         <div className="flex items-center gap-2">
-          <Tooltip tip={'取色'} placement="top">
+          <Tooltip tip={pickColorLabel} placement="top">
             <button
               type="button"
-              aria-label={'取色'}
+              aria-label={pickColorLabel}
               onClick={() => {
                 async function pickColor() {
                   const picked = await pickScreenColor();
@@ -422,7 +428,7 @@ function ColorPanelPopover({
   opacity = 100,
   onOpacityChange,
   showAlpha = false,
-  title = '颜色',
+  title,
   presets,
   placement = 'bottom-start',
   offset: offsetDistance = 10,

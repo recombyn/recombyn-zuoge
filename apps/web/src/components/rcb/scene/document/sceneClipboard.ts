@@ -65,6 +65,26 @@ export function nodeIdsBoundToFrames(
 }
 
 /**
+ * Post paste/duplicate selection: artboards are units (click / multi-frame marquee).
+ * Keep free nodes selected; do not co-select children bound to the new frames —
+ * their unclipped overflow would inflate the control box past the plate.
+ */
+export function selectionAfterClipboardPaste(
+  doc: SceneDocument | null | undefined,
+  newIds: string[],
+  newFrameIds: string[]
+): { nodeIds: string[]; frameIds: string[] } {
+  const frameIds = (newFrameIds || []).filter(Boolean);
+  const ids = (newIds || []).filter(Boolean);
+  if (!frameIds.length) return { nodeIds: ids, frameIds: [] };
+  const inside = new Set(nodeIdsBoundToFrames(doc, frameIds));
+  return {
+    nodeIds: ids.filter((id) => !inside.has(id)),
+    frameIds,
+  };
+}
+
+/**
  * Nodes to operate on for a canvas selection: explicit node ids plus content
  * inside selected artboards (same expansion delete / copy already use).
  */
@@ -159,7 +179,14 @@ export function clipboardNodesBounds(clipboard: SceneClipboardPayload | null | u
   let maxX = -Infinity;
   let maxY = -Infinity;
   let any = false;
+  // When artboards are in the clip, their plates own clipped content — skip
+  // bound nodes so overflowing geom does not inflate duplicate offset / paste anchor.
+  const clippedFrameIds = new Set(
+    (clipboard.frames || []).map(({ id }) => String(id || '').trim()).filter(Boolean)
+  );
   (clipboard.nodes || []).forEach(({ node }) => {
+    const frameId = String(node?.attrs?.frameId || '').trim();
+    if (frameId && clippedFrameIds.has(frameId)) return;
     const x = Number(node.x) || 0;
     const y = Number(node.y) || 0;
     const w = Math.max(0, Number(node.width) || 0);

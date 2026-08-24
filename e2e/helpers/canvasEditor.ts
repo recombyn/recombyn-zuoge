@@ -126,14 +126,14 @@ export async function openLayers(page: Page) {
 }
 
 export async function openQuickEdit(page: Page) {
-  const chat = page.locator('[data-image-quick-edit-trigger]').first();
+  const chat = page.locator('[data-media-quick-edit-trigger]').first();
   await expect(chat).toBeVisible({ timeout: 12_000 });
   const box = await chat.boundingBox();
   if (!box) throw new Error('quick-edit trigger missing bounding box');
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(page.locator('[data-image-quick-edit]').first()).toBeAttached({ timeout: 12_000 });
+  await expect(page.locator('[data-media-quick-edit]').first()).toBeAttached({ timeout: 12_000 });
   // Wait until upload finished and composer is interactive (mark button or prompt).
-  const composer = page.locator('[data-image-quick-edit]').first();
+  const composer = page.locator('[data-media-quick-edit]').first();
   await expect
     .poll(
       async () => {
@@ -183,36 +183,6 @@ export async function mockIntelligenceCapabilities(page: Page, opts?: { mockup?:
 
 export async function mockImageProcessOk(page: Page) {
   await page.route('**/api/v1/image/process**', async (route) => {
-    const req = route.request();
-    let kind = '';
-    try {
-      const body = req.postDataJSON() as { kind?: string };
-      kind = String(body?.kind || '');
-    } catch {
-      kind = '';
-    }
-    if (kind === 'detectRegions') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          layers: [
-            {
-              type: 'image',
-              name: '区域',
-              x: 40,
-              y: 40,
-              width: 120,
-              height: 90,
-            },
-          ],
-          width: 320,
-          height: 240,
-          warnings: [],
-        }),
-      });
-      return;
-    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

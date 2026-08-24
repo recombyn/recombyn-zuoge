@@ -5,7 +5,11 @@ const doc = {
   deltaSetLike: {
     'img-running': {
       key: 'image',
-      attrs: { processStatus: 'running', processLabel: 'Uploading' },
+      attrs: { processStatus: 'running', processLabel: 'Uploading', processKind: 'upload' },
+    },
+    'img-multi': {
+      key: 'image',
+      attrs: { processStatus: 'running', processKind: 'multiAngle' },
     },
     'img-done': {
       key: 'image',
@@ -18,6 +22,7 @@ const doc = {
 describe('ctxMenuGuards', () => {
   it('blocks mutations while a node is processing', () => {
     expect(selectionMutationBlocked(doc, ['img-running'], [])).toBe(true);
+    expect(selectionMutationBlocked(doc, ['img-multi'], [])).toBe(true);
     expect(
       ctxMenuTargetHasProcessing({
         document: doc,
@@ -42,7 +47,7 @@ describe('ctxMenuGuards', () => {
     expect(selectionMutationBlocked(doc, [], ['frame-running'])).toBe(true);
   });
 
-  it('still allows deleting artboards while processing', () => {
+  it('allows deleting any processing target', () => {
     expect(
       canDeleteCtxMenuTargets({
         document: doc,
@@ -56,6 +61,13 @@ describe('ctxMenuGuards', () => {
         ids: ['img-running'],
         selectedFrameIds: [],
       })
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      canDeleteCtxMenuTargets({
+        document: doc,
+        ids: ['img-multi'],
+        selectedFrameIds: [],
+      })
+    ).toBe(true);
   });
 });

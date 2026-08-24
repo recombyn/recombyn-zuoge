@@ -20,7 +20,8 @@ export function listVisibleMarkPins(
   const out: VisibleMarkPin[] = [];
   const showAllPins =
     panel?.kind === 'quickEdit' ||
-    (panel?.kind === 'mark' && panel.markSink === 'quickEdit');
+    (panel?.kind === 'mark' &&
+      (panel.markSink === 'quickEdit' || panel.markSink === 'imageGen'));
   const nodeIds = showAllPins ? Object.keys(pins) : selectedIds;
   for (const nodeId of nodeIds) {
     const list = markPinsForNode(pins, nodeId);

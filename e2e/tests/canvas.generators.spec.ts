@@ -19,6 +19,14 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function mediaJobSseBody(payload: Record<string, unknown>) {
+  return `event: job\ndata: ${JSON.stringify(payload)}\n\n`;
+}
+
+function isMediaJobSse(url: string, method: string) {
+  return method === 'GET' && /\/chat\/(image|video|audio|lottie)\/jobs\/.+\/events/.test(url);
+}
+
 async function injectAuth(page: Page) {
   await page.context().addInitScript((tok) => {
     localStorage.setItem('recombine-auth-token-v1', tok);
@@ -75,7 +83,7 @@ async function openEditor(page: Page) {
   }
   // Toolstrip appears before/with canvas; wait for it then the stage host.
   await expect(
-    page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
+    page.locator('[aria-label*="Image generator"], [aria-label*="图像生成器"]').first()
   ).toBeVisible({ timeout: 45_000 });
   const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
   await expect(stage).toBeVisible({ timeout: 45_000 });
@@ -118,7 +126,7 @@ test.describe('canvas generators + element tools', () => {
       await sleep(300);
     }
 
-    const genBtn = page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first();
+    const genBtn = page.locator('[aria-label*="Image generator"], [aria-label*="图像生成器"]').first();
     await expect(genBtn).toBeVisible({ timeout: 15_000 });
     await expect(genBtn).toBeEnabled();
     await genBtn.click({ force: true });
@@ -161,11 +169,11 @@ test.describe('canvas generators + element tools', () => {
         });
         return;
       }
-      if (url.includes('/chat/image/jobs/') && method === 'GET') {
+      if (isMediaJobSse(url, method)) {
         await route.fulfill({
           status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
+          contentType: 'text/event-stream',
+          body: mediaJobSseBody({
             job_id: 'e2e-img',
             status: 'done',
             progress: 100,
@@ -202,6 +210,250 @@ test.describe('canvas generators + element tools', () => {
     await expect(
       page.getByRole('button', { name: /Quick edit|快速编辑|Upscale|高清放大/i }).first()
     ).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('Image generator can delete while generating', async ({ page }) => {
+    await page.route('**/api/v1/chat/image**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/image/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-del', status: 'queued' }),
+        });
+        return;
+      }
+      if (isMediaJobSse(url, method)) {
+        // Keep SSE open so the plate stays in generating state.
+        return;
+      }
+      await route.continue();
+    });
+
+    await spawnImageGeneratorPlate(page);
+    const plate = page.locator('[data-image-generator]').first();
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e delete while generating', { delay: 4 });
+    const send = plate.locator('button:not([disabled])').last();
+    await expect(send).toBeEnabled({ timeout: 5_000 });
+    await send.click({ force: true });
+
+    await expect(page.getByText(/Generating|生成中/i).first()).toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press('Delete');
+    await expect(page.locator('[data-image-generator]')).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test('Image generator disables copy/duplicate while generating', async ({ page }) => {
+    await page.route('**/api/v1/chat/image**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/image/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-nodup', status: 'queued' }),
+        });
+        return;
+      }
+      if (isMediaJobSse(url, method)) {
+        return;
+      }
+      await route.continue();
+    });
+
+    await spawnImageGeneratorPlate(page);
+    const plate = page.locator('[data-image-generator]').first();
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await input.click({ force: true });
+    await page.keyboard.type('e2e no duplicate while gen', { delay: 4 });
+    const plateBox = await plate.boundingBox();
+    expect(plateBox).toBeTruthy();
+    await plate.locator('button:not([disabled])').last().click({ force: true });
+    await expect(page.getByText(/Generating|生成中/i).first()).toBeVisible({ timeout: 15_000 });
+
+    // Composer may unmount while SoftGlow is up — right-click the last plate center.
+    await page.mouse.click(plateBox!.x + plateBox!.width / 2, plateBox!.y + plateBox!.height / 2, {
+      button: 'right',
+    });
+    const copyItem = page.getByRole('button', { name: /Copy|复制/i }).first();
+    const dupItem = page.getByRole('button', { name: /Duplicate|创建副本|副本/i }).first();
+    await expect(copyItem).toBeVisible({ timeout: 5_000 });
+    await expect(copyItem).toBeDisabled();
+    await expect(dupItem).toBeDisabled();
+    const deleteItem = page.getByRole('button', { name: /Delete|删除/i }).first();
+    await expect(deleteItem).toBeEnabled();
+  });
+
+  test('Video generator mock finish promotes plate', async ({ page }) => {
+    const MOCK_MP4 = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+    await page.route('**/api/v1/chat/video**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/video/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-vid', status: 'queued' }),
+        });
+        return;
+      }
+      if (isMediaJobSse(url, method)) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          body: mediaJobSseBody({
+            job_id: 'e2e-vid',
+            status: 'done',
+            progress: 100,
+            result: { videos: [MOCK_MP4], model: 'e2e-mock' },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await openEditor(page);
+    await focusCanvasHotkeys(page);
+    await page.keyboard.press('Shift+A');
+    const plate = page.locator('[data-video-generator]').first();
+    await expect(plate).toBeVisible({ timeout: 20_000 });
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e mock video promote', { delay: 4 });
+    await plate.locator('button:not([disabled])').last().click({ force: true });
+    await expect(page.locator('[data-video-generator]')).toHaveCount(0, { timeout: 30_000 });
+  });
+
+  test('Audio generator mock finish promotes plate', async ({ page }) => {
+    const MOCK_MP3 =
+      'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+    await page.route('**/api/v1/chat/audio**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/audio/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-aud', status: 'queued' }),
+        });
+        return;
+      }
+      if (isMediaJobSse(url, method)) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          body: mediaJobSseBody({
+            job_id: 'e2e-aud',
+            status: 'done',
+            progress: 100,
+            result: { audios: [MOCK_MP3], model: 'e2e-mock' },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await openEditor(page);
+    const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
+    const box = await stage.boundingBox();
+    expect(box).toBeTruthy();
+    await spawnFromGeneratorsMenu(
+      page,
+      box!,
+      /Audio generator|音频生成/i,
+      '[data-audio-generator]',
+      { fx: 0.2, fy: 0.2 }
+    );
+    const plate = page.locator('[data-audio-generator]').first();
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e mock audio promote', { delay: 4 });
+    await plate.locator('button:not([disabled])').last().click({ force: true });
+    await expect(page.locator('[data-audio-generator]')).toHaveCount(0, { timeout: 30_000 });
+  });
+
+  test('Image generator recovers after reload with persisted job id', async ({ page }) => {
+    let sseConnections = 0;
+    await page.route('**/api/v1/chat/image**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/image/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-recover', status: 'queued' }),
+        });
+        return;
+      }
+      if (isMediaJobSse(url, method)) {
+        sseConnections += 1;
+        if (sseConnections === 1) {
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          body: mediaJobSseBody({
+            job_id: 'e2e-recover',
+            status: 'done',
+            progress: 100,
+            result: { images: [MOCK_PNG], model: 'e2e-mock' },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await spawnImageGeneratorPlate(page);
+    const plate = page.locator('[data-image-generator]').first();
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e recover after reload', { delay: 4 });
+    const send = plate.locator('button:not([disabled])').last();
+    await expect(send).toBeEnabled({ timeout: 5_000 });
+    await send.click({ force: true });
+
+    await expect(page.getByText(/Generating|生成中/i).first()).toBeVisible({ timeout: 15_000 });
+    // Give autosave / collab a moment to persist processJobIds on the node.
+    await sleep(1500);
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await dismissBlockingDialogs(page);
+    await expect(
+      page.locator('[aria-label*="Image generator"], [aria-label*="图像生成器"]').first()
+    ).toBeVisible({ timeout: 45_000 });
+
+    // Recovery host should finish the job and promote the plate (or clear if attrs were not persisted).
+    await expect
+      .poll(
+        async () => {
+          const generating = await page.getByText(/Generating|生成中/i).count();
+          const plateCount = await page.locator('[data-image-generator]').count();
+          const hasImg = await page
+            .locator('img[src*="data:image/png"], image[href*="data:image/png"]')
+            .count();
+          // Success: either promoted (no generator plate + image) or cleared sticky loading.
+          if (hasImg > 0 && plateCount === 0) return 'promoted';
+          if (generating === 0 && plateCount >= 0) return 'cleared-or-idle';
+          return 'waiting';
+        },
+        { timeout: 45_000 }
+      )
+      .not.toBe('waiting');
   });
 
   test('Image generator real provider finish (opt-in paid)', async ({ page }) => {

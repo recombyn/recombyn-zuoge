@@ -12,9 +12,11 @@ import {
   urlRef,
   XLINK_NS,
 } from './svgDom';
+import { getFillImageReady, imageSourceSize } from '@/components/rcb/render/sceneRenderer';
 import {
   resolveLinearCoords,
   stopsWithOpacity,
+  fillImageTileSize,
   type FillImageFit,
   type SvgPaint,
 } from '../document/sceneFill';
@@ -38,15 +40,8 @@ function nextPaintId(prefix: string) {
 
 function preserveAspectForFit(fit: FillImageFit) {
   if (fit === 'fit') return 'xMidYMid meet';
-  if (fit === 'crop' || fit === 'fill') return 'xMidYMid slice';
+  if (fit === 'crop' || fit === 'fill' || fit === 'tile') return 'xMidYMid slice';
   return 'none';
-}
-
-function tileSize(width: number, height: number) {
-  return {
-    w: Math.max(24, Math.round(width / 3)),
-    h: Math.max(24, Math.round(height / 3)),
-  };
 }
 
 /** Apply fill paint (solid / gradient / image pattern) onto an SVG element. */
@@ -76,9 +71,15 @@ export function applySvgFill(
     const offsetY = Number(paint.imageOffsetY ?? 0);
     const filter = paint.imageFilter;
     const opacityPct = paint.opacityPct ?? 100;
-    const tile = fit === 'tile' ? tileSize(paint.width, paint.height) : null;
-    const patternW = tile?.w ?? paint.width;
-    const patternH = tile?.h ?? paint.height;
+    let patternW = paint.width;
+    let patternH = paint.height;
+    if (fit === 'tile') {
+      const ready = getFillImageReady(paint.dataUrl);
+      const { iw, ih } = ready ? imageSourceSize(ready) : { iw: 1, ih: 1 };
+      const tile = fillImageTileSize(iw, ih, scalePct);
+      patternW = tile.w;
+      patternH = tile.h;
+    }
 
     const pattern = svgEl('pattern', {
       id,
@@ -98,7 +99,9 @@ export function applySvgFill(
     const cy = patternH / 2;
     const transforms: string[] = [];
     if (rotate) transforms.push(`rotate(${rotate} ${cx} ${cy})`);
-    if (scalePct !== 100) transforms.push(`translate(${cx} ${cy}) scale(${scalePct / 100}) translate(${-cx} ${-cy})`);
+    if (scalePct !== 100 && fit !== 'tile') {
+      transforms.push(`translate(${cx} ${cy}) scale(${scalePct / 100}) translate(${-cx} ${-cy})`);
+    }
     if (offsetX || offsetY) {
       transforms.push(`translate(${(offsetX / 100) * patternW} ${(offsetY / 100) * patternH})`);
     }

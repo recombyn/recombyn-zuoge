@@ -72,11 +72,34 @@ function nodeUsesPathChrome(node: SceneNodeInput): boolean {
   return Boolean(node.attrs?.shapeType);
 }
 
+/**
+ * Ink silhouette differs from the AABB (triangle corners, freehand path, etc.).
+ * Keep the blue path stroke while selected so clipped overflow outside a frame
+ * still reads like a rectangle's selection box (chrome is not frame-clipped).
+ */
+function shapeNeedsSelectedPathSilhouette(node: SceneNodeInput): boolean {
+  if (!node) return false;
+  const key = String(node.key || '');
+  if (key === 'path') return true;
+  const shapeType = String(node.attrs?.shapeType || (key === 'shape' ? 'rect' : ''));
+  return (
+    shapeType === 'triangle' ||
+    shapeType === 'star' ||
+    shapeType === 'polygon' ||
+    shapeType === 'pen' ||
+    shapeType === 'pencil' ||
+    shapeType === 'path'
+  );
+}
+
 export type ShapeOutlineItem = {
   id: string;
   pathD: string;
   box: SceneBox;
   angle: number;
+  /** Mirror host ink flip (center scale) on the silhouette body transform. */
+  flipX?: boolean;
+  flipY?: boolean;
   color?: string;
   /** Selected: inject resize (and rotate) hits into the host with the outline. */
   withHandles?: boolean;
@@ -186,7 +209,10 @@ function ensureSharedChromeGroup(chromeId: string): SVGGElement | null {
     root.setAttribute(SEL_CHROME_ATTR, chromeId);
     root.setAttribute(HOST_PATH_CHROME_ATTR, '1');
     root.style.pointerEvents = 'none';
-    layer.appendChild(root);
+    // Path silhouette stays under world SelectionChrome (handles must occlude ink).
+    layer.insertBefore(root, layer.firstChild);
+  } else if (root.parentNode === layer && layer.firstChild !== root) {
+    layer.insertBefore(root, layer.firstChild);
   }
   return root;
 }
@@ -220,6 +246,8 @@ function hostSelHandlesKey(
     width.toFixed(4),
     height.toFixed(4),
     (Number(o.angle) || 0).toFixed(3),
+    o.flipX ? 1 : 0,
+    o.flipY ? 1 : 0,
     Number(o.chromeOutset) || 0,
     Number(o.strokeOuterScene) || 0,
     outlineD.length,
@@ -313,7 +341,10 @@ function silhouettePathD(d: string): string {
 
 /** Path chrome `d` — prefer live host baseline, else attrs path; single contour. */
 function readHostOutlinePathD(baseline: SVGElement | null, o: ShapeOutlineItem): string {
-  return silhouettePathD(readBaselinePathD(baseline, o.pathD));
+  const d = readBaselinePathD(baseline, o.pathD);
+  const subpaths = String(d || '').trim().match(/[Mm][^Mm]*/g);
+  if (subpaths && subpaths.length > 1) return d;
+  return silhouettePathD(d);
 }
 
 function pathLocalEndpoints(
@@ -546,7 +577,7 @@ function syncHostSelUnionChrome(
   const paintBox = liveFrame || o.box;
   chrome.setAttribute(
     'transform',
-    sceneChromeBodyTransform(paintBox, angle)
+    sceneChromeBodyTransform(paintBox, angle, Boolean(o.flipX), Boolean(o.flipY))
   );
   syncHostSelHandlesIfNeeded(chrome, { ...o, box: paintBox }, stroke, inv, '', camera, dpr);
   return true;
@@ -613,7 +644,7 @@ function syncHostSelOutline(
   const paintBox = liveShapeGeomBox(o.id) || o.box;
   chrome.setAttribute(
     'transform',
-    sceneChromeBodyTransform(paintBox, angle)
+    sceneChromeBodyTransform(paintBox, angle, Boolean(o.flipX), Boolean(o.flipY))
   );
 
   let outline = chrome.querySelector(
@@ -665,7 +696,7 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
       const tf = hostEl?.getAttribute?.('transform') || '';
       const anyEl = hostEl as { __sceneLeft?: number; __sceneTop?: number } | null | undefined;
       const origin = `${Number(anyEl?.__sceneLeft) || o.box.left},${Number(anyEl?.__sceneTop) || o.box.top}`;
-      return `${o.id}:${o.unionChrome ? 1 : 0}:${o.mirrorHostId || ''}:${liveD.length}:${liveD.slice(0, 24)}:${liveD.slice(-24)}:${o.box.left.toFixed(1)},${o.box.top.toFixed(1)},${o.box.width}x${o.box.height}:${o.angle.toFixed(2)}:${o.withHandles ? 1 : 0}:${o.showPath === false ? 0 : 1}:${o.lineMode ? 1 : 0}:${o.shaftEndpoints ? 1 : 0}:${o.showRotate ? 1 : 0}:${o.cornerHandlesOnly ? 1 : 0}:${o.edgeHandles || 'all'}:${o.color || ''}:${tf}:${origin}`;
+      return `${o.id}:${o.unionChrome ? 1 : 0}:${o.mirrorHostId || ''}:${liveD.length}:${liveD.slice(0, 24)}:${liveD.slice(-24)}:${o.box.left.toFixed(1)},${o.box.top.toFixed(1)},${o.box.width}x${o.box.height}:${o.angle.toFixed(2)}:${o.flipX ? 1 : 0}:${o.flipY ? 1 : 0}:${o.withHandles ? 1 : 0}:${o.showPath === false ? 0 : 1}:${o.lineMode ? 1 : 0}:${o.shaftEndpoints ? 1 : 0}:${o.showRotate ? 1 : 0}:${o.cornerHandlesOnly ? 1 : 0}:${o.edgeHandles || 'all'}:${o.color || ''}:${tf}:${origin}`;
     })
     .join('|');
   const outlinesRef = useRef(outlines);
@@ -741,6 +772,7 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
 export {
   liveShapeGeomBox,
   nodeUsesPathChrome,
+  shapeNeedsSelectedPathSilhouette,
   nodeUsesOpenStrokeEndpoints,
   pathLocalEndpoints,
   localPointToWorld,

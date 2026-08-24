@@ -38,6 +38,7 @@ import {
   supportsStroke,
   supportsBooleanOp,
   isOutlinedPath,
+  isGeneratorNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   openShapeStylePanel,
@@ -70,6 +71,7 @@ import {
   applyBooleanResultPaint,
   type BoolMode,
 } from '../shapeBoolean';
+import { tidyLayoutPatches } from '../tidyLayout';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const ASPECT_ORIG_W = 'aspect-original-width';
@@ -103,6 +105,10 @@ type Props = {
   /** Co-selected artboards — group/ungroup expand to content inside them. */
   frameIds?: string[];
   box: SceneBox;
+  /** Control-box rotation — dock to visual AABB; toolbar stays upright. */
+  angle?: number;
+  /** Extra screen px beyond chrome for outer stroke ink. */
+  edgePadScene?: number;
 };
 
 const btn = SEL_TOOL_BTN;
@@ -165,20 +171,40 @@ function readBoxes(document: SceneDocument, nodeIds: string[]): NodeBox[] {
 }
 
 /** `assets/svg/editor/*.svg` → `<Icon name="editor-…" />` */
-const ALIGN_ITEMS: Array<{ mode: AlignMode; tip: string; icon: string }> = [
-  { mode: 'left', tip: '左对齐', icon: 'editor-align-left' },
-  { mode: 'centerX', tip: '水平居中', icon: 'editor-align-center-x' },
-  { mode: 'right', tip: '右对齐', icon: 'editor-align-right' },
-  { mode: 'top', tip: '顶部对齐', icon: 'editor-align-top' },
-  { mode: 'middle', tip: '垂直居中', icon: 'editor-align-middle' },
-  { mode: 'bottom', tip: '底部对齐', icon: 'editor-align-bottom' },
+const ALIGN_ITEMS: Array<{ mode: AlignMode; tipKey: string; icon: string }> = [
+  { mode: 'left', tipKey: 'editor.selectionToolbar.alignLeft', icon: 'editor-align-left' },
+  { mode: 'centerX', tipKey: 'editor.selectionToolbar.alignCenterX', icon: 'editor-align-center-x' },
+  { mode: 'right', tipKey: 'editor.selectionToolbar.alignRight', icon: 'editor-align-right' },
+  { mode: 'top', tipKey: 'editor.selectionToolbar.alignTop', icon: 'editor-align-top' },
+  { mode: 'middle', tipKey: 'editor.selectionToolbar.alignMiddle', icon: 'editor-align-middle' },
+  { mode: 'bottom', tipKey: 'editor.selectionToolbar.alignBottom', icon: 'editor-align-bottom' },
 ];
 
-const BOOL_ITEMS: Array<{ mode: BoolMode; tip: string; icon: string }> = [
-  { mode: 'union', tip: '并集 (Ctrl + Alt + U)', icon: 'editor-bool-union' },
-  { mode: 'subtract', tip: '减去', icon: 'editor-bool-subtract' },
-  { mode: 'intersect', tip: '相交', icon: 'editor-bool-intersect' },
-  { mode: 'exclude', tip: '排除', icon: 'editor-bool-exclude' },
+const BOOL_ITEMS: Array<{ mode: BoolMode; tipKey: string; labelKey: string; icon: string }> = [
+  {
+    mode: 'union',
+    tipKey: 'editor.selectionToolbar.boolUnionShortcut',
+    labelKey: 'editor.selectionToolbar.boolUnion',
+    icon: 'editor-bool-union',
+  },
+  {
+    mode: 'subtract',
+    tipKey: 'editor.selectionToolbar.boolSubtract',
+    labelKey: 'editor.selectionToolbar.boolSubtract',
+    icon: 'editor-bool-subtract',
+  },
+  {
+    mode: 'intersect',
+    tipKey: 'editor.selectionToolbar.boolIntersect',
+    labelKey: 'editor.selectionToolbar.boolIntersect',
+    icon: 'editor-bool-intersect',
+  },
+  {
+    mode: 'exclude',
+    tipKey: 'editor.selectionToolbar.boolExclude',
+    labelKey: 'editor.selectionToolbar.boolExclude',
+    icon: 'editor-bool-exclude',
+  },
 ];
 
 const STYLE_SUPPORT = {
@@ -313,6 +339,8 @@ function MultiSelectionToolbar({
   nodeIds,
   frameIds = [],
   box,
+  angle = 0,
+  edgePadScene = 0,
 }: Props): ReactNode {
   const dispatch = useDispatch();
   const { t } = useTranslation();
@@ -353,7 +381,15 @@ function MultiSelectionToolbar({
     opNodeIds.every((id) => !isOutlinedPath(document?.deltaSetLike?.[id]));
   const showAspectPresets = allSupport(supportsAspectPresets);
   const canAlign = boxes.length >= 2;
+  const canTidy = boxes.length >= 2;
   const canDistribute = boxes.length >= 3;
+  /** Generator plates: align/tidy only — no style / size / blend / group / export. */
+  const allGenerators =
+    opNodeIds.length > 0 &&
+    opNodeIds.every((id) => isGeneratorNode(document?.deltaSetLike?.[id]));
+  const showStyleChrome = !allGenerators && (showFill || showStroke || showCornerRadius);
+  const showGeometryChrome = !allGenerators;
+  const showActionChrome = !allGenerators;
 
   const activeRatioId = useMemo(
     () => matchAspectPresetKey(box.width, box.height, ELEMENT_ASPECT_PRESETS),
@@ -371,16 +407,25 @@ function MultiSelectionToolbar({
 
   const distribute = (axis: 'h' | 'v') => {
     if (boxes.length < 3) {
-      message.warning('至少选中 3 个元素才能分布');
+      message.warning(t('editor.selectionToolbar.distributeNeed3'));
       return;
     }
     applyPatches(distributePatches(boxes, axis));
     setDistributeOpen(false);
   };
 
+  const tidy = () => {
+    if (boxes.length < 2) {
+      message.warning(t('editor.selectionToolbar.tidyNeed2'));
+      return;
+    }
+    applyPatches(tidyLayoutPatches(boxes));
+    setDistributeOpen(false);
+  };
+
   const runBoolean = (mode: BoolMode) => {
     if (shapeBoxes.length < 2) {
-      message.warning('布尔运算需至少 2 个形状');
+      message.warning(t('editor.selectionToolbar.boolNeed2'));
       return;
     }
 
@@ -389,17 +434,17 @@ function MultiSelectionToolbar({
 
     if (!result) {
       if (mode === 'intersect') {
-        message.warning('没有重叠区域');
+        message.warning(t('editor.selectionToolbar.boolNoOverlap'));
       } else if (mode === 'subtract') {
-        message.warning('相减后没有剩余图形');
+        message.warning(t('editor.selectionToolbar.boolSubtractEmpty'));
       } else {
-        message.warning('布尔运算失败');
+        message.warning(t('editor.selectionToolbar.boolFailed'));
       }
       return;
     }
 
     if (usedFallback && hasNonRect) {
-      message.warning('已使用包围盒近似；部分形状轮廓未能精确计算');
+      message.warning(t('editor.selectionToolbar.boolApprox'));
     }
 
     const sample = shapeBoxes[0];
@@ -615,14 +660,19 @@ function MultiSelectionToolbar({
     );
   };
 
-  // Selected group: 解除编组 | export
+  // Selected group: ungroup | export
   if (groupId) {
     return (
-      <SelectionToolbarShell box={box}>
-        <Tooltip tip="解除编组" placement="top">
-          <button type="button" className={btn} aria-label="解除编组" onClick={ungroup}>
+      <SelectionToolbarShell box={box} angle={angle} edgePadScene={edgePadScene}>
+        <Tooltip tip={t('editor.selectionToolbar.ungroup')} placement="top">
+          <button
+            type="button"
+            className={btn}
+            aria-label={t('editor.selectionToolbar.ungroup')}
+            onClick={ungroup}
+          >
             <Icon name="editor-ungroup" width={14} height={14} />
-            <span>解除编组</span>
+            <span>{t('editor.selectionToolbar.ungroup')}</span>
           </button>
         </Tooltip>
         <Sep />
@@ -632,15 +682,17 @@ function MultiSelectionToolbar({
   }
 
   const styleItems = [
-    showFill &&
-      toolbarIconBtn('填充', {
+    showStyleChrome &&
+      showFill &&
+      toolbarIconBtn(t('editor.selectionToolbar.fill'), {
         key: 'fill',
         onClick: () => openStyle('fill'),
         className: !fillVisible ? 'opacity-55' : undefined,
         children: <FillColorSwatch color={fillPreview} />,
       }),
-    showStroke &&
-      toolbarIconBtn('描边', {
+    showStyleChrome &&
+      showStroke &&
+      toolbarIconBtn(t('editor.selectionToolbar.stroke'), {
         key: 'stroke',
         onClick: () => openStyle('stroke'),
         className: !strokeVisible ? 'opacity-55' : undefined,
@@ -648,11 +700,12 @@ function MultiSelectionToolbar({
           <StrokeColorSwatch color={strokeVisible ? strokeColor : 'var(--line)'} />
         ),
       }),
-    showCornerRadius && (
-      <Tooltip key="radius" tip="圆角" placement="top">
+    showStyleChrome &&
+      showCornerRadius && (
+      <Tooltip key="radius" tip={t('editor.selectionToolbar.cornerRadius')} placement="top">
         <button
           type="button"
-          aria-label="圆角"
+          aria-label={t('editor.selectionToolbar.cornerRadius')}
           className={SEL_TOOL_BTN}
           onClick={() => openStyle('radius')}
         >
@@ -664,25 +717,34 @@ function MultiSelectionToolbar({
   ].filter(Boolean);
 
   const layoutItems = [
-    canAlign && (
+    (canTidy || canAlign) && (
       <div
         key="align"
         className="flex flex-nowrap items-center gap-0.5"
         role="group"
-        aria-label="对齐"
+        aria-label={t('editor.selectionToolbar.align')}
       >
-        {ALIGN_ITEMS.map(({ mode, tip, icon }) =>
-          toolbarIconBtn(tip, {
-            key: mode,
-            onClick: () => align(mode),
-            children: <Icon name={icon} width={16} height={16} />,
-          })
-        )}
+        {canTidy
+          ? toolbarIconBtn(t('editor.selectionToolbar.tidy'), {
+              key: 'tidy',
+              onClick: tidy,
+              children: <Icon name="editor-tidy-up" width={16} height={16} />,
+            })
+          : null}
+        {canAlign
+          ? ALIGN_ITEMS.map(({ mode, tipKey, icon }) =>
+              toolbarIconBtn(t(tipKey), {
+                key: mode,
+                onClick: () => align(mode),
+                children: <Icon name={icon} width={16} height={16} />,
+              })
+            )
+          : null}
       </div>
     ),
     canDistribute && (
       <div key="distribute" className="relative" data-multi-toolbar-menu>
-        {toolbarIconBtn('分布', {
+        {toolbarIconBtn(t('editor.selectionToolbar.distribute'), {
           key: 'distribute-btn',
           active: distributeOpen,
           onClick: () => {
@@ -693,8 +755,12 @@ function MultiSelectionToolbar({
         })}
         {distributeOpen && (
           <DropdownPanel className="absolute left-0 top-[calc(100%+6px)] z-40 min-w-[9rem]">
-            <DropdownPanelItem onClick={() => distribute('h')}>水平分布</DropdownPanelItem>
-            <DropdownPanelItem onClick={() => distribute('v')}>垂直分布</DropdownPanelItem>
+            <DropdownPanelItem onClick={() => distribute('h')}>
+              {t('editor.selectionToolbar.distributeH')}
+            </DropdownPanelItem>
+            <DropdownPanelItem onClick={() => distribute('v')}>
+              {t('editor.selectionToolbar.distributeV')}
+            </DropdownPanelItem>
           </DropdownPanel>
         )}
       </div>
@@ -703,7 +769,7 @@ function MultiSelectionToolbar({
 
   const booleanMenu = showBoolean && (
     <div className="relative" data-multi-toolbar-menu>
-      {toolbarIconBtn('布尔运算', {
+      {toolbarIconBtn(t('editor.selectionToolbar.boolean'), {
         active: booleanOpen,
         expanded: booleanOpen,
         onClick: () => {
@@ -714,10 +780,15 @@ function MultiSelectionToolbar({
       })}
       {booleanOpen && (
         <DropdownPanel className="absolute left-0 top-[calc(100%+6px)] z-40 min-w-[10.5rem]">
-          {BOOL_ITEMS.map(({ mode, tip, icon }) => (
-            <DropdownPanelItem key={mode} onClick={() => runBoolean(mode)} className="gap-2">
+          {BOOL_ITEMS.map(({ mode, tipKey, labelKey, icon }) => (
+            <DropdownPanelItem
+              key={mode}
+              onClick={() => runBoolean(mode)}
+              className="gap-2"
+              title={t(tipKey)}
+            >
               <Icon name={icon} width={16} height={16} className="text-[var(--ink)]" />
-              <span>{tip.replace(/\s*\(.*\)$/, '')}</span>
+              <span>{t(labelKey)}</span>
             </DropdownPanelItem>
           ))}
         </DropdownPanel>
@@ -741,7 +812,7 @@ function MultiSelectionToolbar({
     </label>
   );
 
-  const geometryCluster = (
+  const geometryCluster = showGeometryChrome ? (
     <>
       {showAspectPresets && (
         <AspectRatioPresetMenu
@@ -800,24 +871,29 @@ function MultiSelectionToolbar({
         }}
       />
     </>
-  );
+  ) : null;
 
-  const actionCluster = (
+  const actionCluster = showActionChrome ? (
     <>
       {opNodeIds.length >= 2 && (
-        <Tooltip tip="创建编组" placement="top">
-          <button type="button" className={btn} aria-label="创建编组" onClick={createGroup}>
+        <Tooltip tip={t('editor.selectionToolbar.createGroup')} placement="top">
+          <button
+            type="button"
+            className={btn}
+            aria-label={t('editor.selectionToolbar.createGroup')}
+            onClick={createGroup}
+          >
             <Icon name="editor-group" width={14} height={14} />
-            <span>创建编组</span>
+            <span>{t('editor.selectionToolbar.createGroup')}</span>
           </button>
         </Tooltip>
       )}
       <ExportSelectionPopover nodeIds={opNodeIds} />
     </>
-  );
+  ) : null;
 
   return (
-    <SelectionToolbarShell box={box}>
+    <SelectionToolbarShell box={box} angle={angle} edgePadScene={edgePadScene}>
       {joinToolbarSections([
         styleItems.length ? <>{styleItems}</> : null,
         layoutItems.length ? (

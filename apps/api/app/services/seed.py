@@ -9,9 +9,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app import crud
+from app.models import PlazaSubmission
 from app.core.db import engine
 from app.services.db import init_schema
 from app.services.plaza.cover import cover_json_dumps
@@ -58,8 +59,12 @@ def seed_plaza_showcases() -> int:
     now = time.time()
     with Session(engine) as session:
         existing = {
-            str(r.project_id or "")
-            for r in crud.list_plaza_mine(session=session, user_id=_OFFICIAL_USER_ID)
+            str(r or "")
+            for r in session.exec(
+                select(PlazaSubmission.project_id).where(
+                    PlazaSubmission.user_id == _OFFICIAL_USER_ID
+                )
+            ).all()
         }
         # Also skip if any user already published that projectId
         for path in files:
