@@ -30,7 +30,7 @@ describe('useGeneratorModelsCatalog', () => {
       isFetched: true,
       data: {
         available: true,
-        models: [{ id: 'video-a', label: 'Video A', kind: 'video' } satisfies LlmModel],
+        models: [{ id: 'video-a', label: 'Video A', provider: 'test', kind: 'video' } satisfies LlmModel],
       },
     });
 

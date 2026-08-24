@@ -100,7 +100,7 @@ describe('selectionLogic marquee helpers', () => {
           children: [],
         },
       },
-    } satisfies Partial<SceneDocument> as SceneDocument;
+    } as unknown as SceneDocument;
     const getNodeBox = (id: string) => {
       const n = doc.deltaSetLike?.[id];
       if (!n) return null;
@@ -153,7 +153,7 @@ describe('selectionLogic marquee helpers', () => {
           children: [],
         },
       },
-    } as SceneDocument;
+    } as unknown as SceneDocument;
     const getNodeBox = (id: string) => {
       const n = doc.deltaSetLike?.[id];
       if (!n) return null;
@@ -196,7 +196,7 @@ describe('selectionLogic marquee helpers', () => {
           children: [],
         },
       },
-    } satisfies Partial<SceneDocument> as SceneDocument;
+    } as unknown as SceneDocument;
     const getNodeBox = (id: string) => {
       const n = doc.deltaSetLike?.[id];
       if (!n) return null;
@@ -258,7 +258,7 @@ describe('selectionLogic marquee helpers', () => {
       width: 400,
       height: 400,
       deltaSetLike,
-    } as SceneDocument;
+    } as unknown as SceneDocument;
     const getNodeBox = (id: string) => {
       const n = doc.deltaSetLike?.[id];
       if (!n) return null;
@@ -299,7 +299,7 @@ describe('selectionLogic marquee helpers', () => {
         n3: { id: 'n3', key: 'rect', x: 120, y: 10, width: 20, height: 20, attrs: {}, children: [] },
         n4: { id: 'n4', key: 'rect', x: 80, y: 10, width: 50, height: 20, attrs: { frameId: 'f1' }, children: [] },
       },
-    } satisfies Partial<SceneDocument> as SceneDocument;
+    } as unknown as SceneDocument;
     const hits = framesHittingMarquee(doc, { left: 0, top: 0, width: 120, height: 120 });
     expect(hits.map((h) => h.id)).toEqual(['f1']);
 
@@ -464,7 +464,7 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
           m: { id: 'm', key: 'rect', x: 98.4, y: 2.2, width: 40, height: 40, attrs: {}, children: [] },
           s: { id: 's', key: 'rect', x: 0, y: 0, width: 100, height: 80, attrs: {}, children: [] },
         },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       dx: 2,
       dy: -2,
       disableSnap: false,
@@ -517,7 +517,7 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
       width: 400,
       height: 400,
       deltaSetLike: { m: centerStroke, s: sibling },
-    } as SceneDocument;
+    } as unknown as SceneDocument;
     const moverPath = visualGuideBoxForNode('m', doc, chrome);
     const targetPath = visualGuideBoxForNode('s', doc, {
       left: 10,
@@ -579,7 +579,7 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
             children: [],
           },
         },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       dx: 0,
       dy: 0,
       disableSnap: false,
@@ -620,7 +620,7 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
             children: [],
           },
         },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       dx: 0,
       dy: 0,
       disableSnap: false,
@@ -662,7 +662,7 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
             children: [],
           },
         },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       dx: 0,
       dy: 0,
       disableSnap: false,
@@ -703,7 +703,7 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
         width: 400,
         height: 400,
         deltaSetLike: { m: node },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       dx: 2.3,
       dy: 0,
       disableSnap: false,
@@ -731,7 +731,7 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
           m: { id: 'm', key: 'rect', x: 0, y: 0, width: 40, height: 40, attrs: {}, children: [] },
           s: { id: 's', key: 'rect', x: 200, y: 0, width: 100, height: 80, attrs: {}, children: [] },
         },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       dx: 50,
       dy: 8,
       disableSnap: false,
@@ -778,7 +778,7 @@ describe('selectionLogic computeResizedUnion', () => {
             children: [],
           },
         },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       drag,
       dx: 0,
       dy: 20,
@@ -816,7 +816,7 @@ describe('selectionLogic computeResizedUnion', () => {
         deltaSetLike: {
           r: { id: 'r', key: 'rect', x: 10, y: 20, width: 100, height: 50, attrs: {}, children: [] },
         },
-      } as SceneDocument,
+      } as unknown as SceneDocument,
       drag,
       dx: 20,
       dy: 10,

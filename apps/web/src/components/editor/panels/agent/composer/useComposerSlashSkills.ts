@@ -180,7 +180,11 @@ export function useComposerSlashSkills(opts: SlashSkillsOpts) {
         inputRef.current?.getSlashMentionAnchorRect?.() ??
         inputRef.current?.getAtMentionAnchorRect?.() ??
         null;
-      if (rect) setPositionReference.current(rect);
+      if (rect) {
+        setPositionReference.current({
+          getBoundingClientRect: () => rect,
+        });
+      }
     };
     sync();
     const id = window.setInterval(sync, 120);
