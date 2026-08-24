@@ -60,7 +60,7 @@ function HomeHero({ onSubmit }: Props): ReactNode {
           category={category}
           onCategoryChange={onComposerCategoryChange}
           onSubmit={onSubmit}
-          className="rounded-[18px] !ring-0 focus-within:!ring-0"
+          className="!ring-0 focus-within:!ring-0"
         />
       </div>
 
@@ -72,7 +72,7 @@ function HomeHero({ onSubmit }: Props): ReactNode {
             onClick={() => composerRef.current?.applyExampleChip(chipKey)}
             className="home-hero-chat__case"
           >
-            <span className="line-clamp-[8]">{casePrompt(chipKey)}</span>
+            <span className="line-clamp-2">{casePrompt(chipKey)}</span>
           </button>
         ))}
       </div>

@@ -936,8 +936,9 @@ function AgentComposerShell({
   const isGenMediaMode = isImageMode || isVideoMode;
   // Top attach strip (image/video mode always, or agent/ask after upload) must not steal typing height.
   const hasTopAttachRow = isGenMediaMode || attachments.length > 0;
+  const compactExpanded = compact && hasTopAttachRow;
   const inputMinClass = compact
-    ? 'min-h-[20px] max-h-[32px]'
+    ? ''
     : hasTopAttachRow
       ? 'min-h-[72px]'
       : 'min-h-[26px]';
@@ -1092,14 +1093,23 @@ function AgentComposerShell({
   return (
     <div
       className={cn(
-        compact ? 'flex h-full min-h-0 flex-col px-3 pb-1.5 pt-2' : 'flex flex-col px-3.5 pb-2 pt-2',
+        compact
+          ? cn(
+              'rcb-home-composer-compact box-border h-full min-h-0',
+              compactExpanded && 'rcb-home-composer-compact--expanded'
+            )
+          : 'flex flex-col px-3.5 pb-2 pt-2',
         className,
         !compact && hasTopAttachRow && 'min-h-[180px]'
       )}
     >
       {isGenMediaMode ? (
-        // Same top attach row as the canvas Image / Video Generator card.
-        <div className="mb-1.5 flex flex-wrap items-center gap-1.5 pb-0.5">
+        <div
+          className={cn(
+            'flex flex-wrap items-center gap-1.5',
+            compact ? 'rcb-home-composer-compact__attach shrink-0' : 'mb-1.5 pb-0.5'
+          )}
+        >
           {attachments.map((a) => (
             <ComposerAttachmentChip
               key={a.key}
@@ -1123,18 +1133,23 @@ function AgentComposerShell({
             </Tooltip>
           ) : null}
         </div>
-      ) : (
-        <AttachmentStrip
-          attachments={attachments}
-          disabled={disabled}
-          onRemove={removeAttachment}
-        />
-      )}
+      ) : attachments.length > 0 ? (
+        <div
+          className={cn(compact && 'rcb-home-composer-compact__attach shrink-0')}
+        >
+          <AttachmentStrip
+            attachments={attachments}
+            disabled={disabled}
+            onRemove={removeAttachment}
+          />
+        </div>
+      ) : null}
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
       <div
         className={cn(
-          'flex flex-1 cursor-text items-start overflow-hidden',
-          inputMinClass,
+          'flex cursor-text overflow-hidden',
+          compact ? 'rcb-home-composer-compact__input min-h-0 flex-1 items-start' : 'flex-1 items-start',
+          !compact && inputMinClass,
           !compact && 'max-h-[140px]'
         )}
         onClick={(e) => {
@@ -1158,10 +1173,15 @@ function AgentComposerShell({
           placeholder={placeholder}
           flyLandId={flyLandId}
           onPasteImages={onAttachFiles ? onPasteImages : undefined}
-          className={hasTopAttachRow ? 'min-h-[72px]' : undefined}
+          className={hasTopAttachRow && !compact ? 'min-h-[72px]' : undefined}
         />
       </div>
-      <div className={cn('flex w-full items-center gap-1.5', compact ? 'mt-0 shrink-0' : 'mt-1')}>
+      <div
+        className={cn(
+          'flex w-full items-center gap-1.5',
+          compact ? 'rcb-home-composer-compact__footer shrink-0' : 'mt-1'
+        )}
+      >
         {showInteractionModePicker && interactionMode && onInteractionModeChange ? (
           <ComposerInteractionModePicker
             interactionMode={interactionMode}
@@ -1185,11 +1205,11 @@ function AgentComposerShell({
             open={imageSettingsOpen}
             onOpenChange={setImageSettingsOpen}
             items={[]}
-            floatingClassName="z-[90]"
+            floatingClassName="z-[120]"
             referenceClassName="inline-flex min-w-0"
             popupRender={() => (
               <DropdownPanel
-                className="w-[min(26rem,calc(100vw-2rem))] p-3"
+                className="w-[min(26rem,calc(100vw-2rem))] p-3 shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-[color-mix(in_srgb,var(--ink)_10%,var(--line))]"
                 onPointerDown={(e) => e.stopPropagation()}
               >
                 <p className="mb-2.5 text-[13px] font-semibold text-[var(--ink)]">
@@ -1235,11 +1255,11 @@ function AgentComposerShell({
             open={videoSettingsOpen}
             onOpenChange={setVideoSettingsOpen}
             items={[]}
-            floatingClassName="z-[90]"
+            floatingClassName="z-[120]"
             referenceClassName="inline-flex min-w-0"
             popupRender={() => (
               <DropdownPanel
-                className="w-[min(26rem,calc(100vw-2rem))] p-3"
+                className="w-[min(26rem,calc(100vw-2rem))] p-3 shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-[color-mix(in_srgb,var(--ink)_10%,var(--line))]"
                 onPointerDown={(e) => e.stopPropagation()}
               >
                 <p className="mb-2.5 text-[13px] font-semibold text-[var(--ink)]">

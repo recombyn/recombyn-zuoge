@@ -8,6 +8,10 @@ import {
   isCanvasSizeAutoHint,
 } from '@/components/editor/chrome/SizePresetPanel';
 import type { ImageLimits } from '@/service/chat';
+import {
+  SETTINGS_SEGMENT_FIELD_CLASS,
+  SETTINGS_SEGMENT_TRACK_CLASS,
+} from '@/components/editor/panels/agent/shared/settingsSegmentTrack';
 import { cn } from '@/utils/classnames';
 
 /**
@@ -535,7 +539,7 @@ function SegmentedTrack({
   className?: string;
 }) {
   return (
-    <div className={cn('flex rounded-xl bg-[var(--rail)] p-1', className)}>
+    <div className={cn('flex', SETTINGS_SEGMENT_TRACK_CLASS, className)}>
       {children}
     </div>
   );
@@ -591,7 +595,8 @@ function DimField({
   return (
     <label
       className={cn(
-        'flex min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-[var(--rail)] px-2.5 py-2',
+        'flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-2',
+        SETTINGS_SEGMENT_FIELD_CLASS,
         disabled && 'opacity-40'
       )}
     >
@@ -749,7 +754,7 @@ function ImageAspectRatioPicker({
         <p className="mb-2 text-[12px] font-medium text-[var(--muted)]">
           {t('agent.chooseRatio')}
         </p>
-        <div className="flex items-start justify-between gap-0.5 rounded-xl bg-[var(--rail)] p-1">
+        <div className={cn('flex items-start justify-between gap-0.5', SETTINGS_SEGMENT_TRACK_CLASS)}>
           {IMAGE_ASPECT_RATIOS.map((ratio) => {
             const active =
               ratio === 'smart'
