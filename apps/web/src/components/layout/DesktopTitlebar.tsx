@@ -13,6 +13,10 @@ import { useLocation } from 'react-router-dom';
 import { VscChromeClose, VscChromeMaximize, VscChromeMinimize, VscChromeRestore } from 'react-icons/vsc';
 import AppLogo from '@/components/base/AppLogo';
 import { cn } from '@/utils/classnames';
+import {
+  homeRailWidthPx,
+  useHomeRailExpanded,
+} from '@/components/layout/useHomeRailExpanded';
 
 function isEditorRoute(pathname: string): boolean {
   return pathname === '/editor' || pathname.startsWith('/editor/');
@@ -89,6 +93,9 @@ function DesktopTitlebar() {
   const { pathname } = useLocation();
   const leading = useDesktopTitlebarLeading();
   const hideBrand = Boolean(leading) || isEditorRoute(pathname);
+  const onHome = pathname === '/home' || pathname.startsWith('/home');
+  const [railExpanded] = useHomeRailExpanded();
+  const homeBrandW = onHome ? homeRailWidthPx(railExpanded) : 64;
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -154,24 +161,27 @@ function DesktopTitlebar() {
         </>
       ) : (
         <>
-          {/* Aligns with 64px home rail — brand mark lives here on desktop. */}
+          {/* Aligns with home rail width. On /home the rail owns the logo+toggle. */}
           <div
-            className="flex w-16 shrink-0 items-center justify-center"
+            className="flex shrink-0 items-center justify-center transition-[width] duration-200 ease-out"
+            style={{ width: homeBrandW }}
             data-tauri-drag-region
           >
-            <AppLogo size={22} />
+            {onHome ? null : <AppLogo size={22} />}
           </div>
 
           <div
             className="flex min-w-0 flex-1 items-center gap-2 pl-0.5"
             data-tauri-drag-region
           >
-            <span
-              className="truncate text-[13px] font-medium tracking-tight text-[var(--ink)]/90"
-              data-tauri-drag-region
-            >
-              {t('app.name')}
-            </span>
+            {onHome ? null : (
+              <span
+                className="truncate text-[13px] font-medium tracking-tight text-[var(--ink)]/90"
+                data-tauri-drag-region
+              >
+                {t('app.name')}
+              </span>
+            )}
           </div>
         </>
       )}

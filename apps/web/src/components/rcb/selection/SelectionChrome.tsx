@@ -422,17 +422,28 @@ export function liveHostPaintOrigin(
   return null;
 }
 
-/** Local chrome transform under the canonical scene camera group. */
+/** Local chrome transform under the canonical scene camera group.
+ * Order matches host ink (`reapplySceneTransform`): translate → rotate → flip about center.
+ */
 export function sceneChromeBodyTransform(
   box: { left: number; top: number; width: number; height: number },
-  angleDeg: number
+  angleDeg: number,
+  flipX = false,
+  flipY = false
 ): string {
+  const w = Math.max(1, Number(box.width) || 1);
+  const h = Math.max(1, Number(box.height) || 1);
+  const cx = w / 2;
+  const cy = h / 2;
+  const parts = [`translate(${box.left} ${box.top})`];
   const angle = Number(angleDeg) || 0;
-  const base = `translate(${box.left} ${box.top})`;
-  if (Math.abs(angle) > 0.01) {
-    return `${base} rotate(${angle} ${Math.max(1, box.width) / 2} ${Math.max(1, box.height) / 2})`;
+  if (Math.abs(angle) > 0.01) parts.push(`rotate(${angle} ${cx} ${cy})`);
+  if (flipX || flipY) {
+    const sx = flipX ? -1 : 1;
+    const sy = flipY ? -1 : 1;
+    parts.push(`translate(${cx} ${cy}) scale(${sx} ${sy}) translate(${-cx} ${-cy})`);
   }
-  return base;
+  return parts.join(' ');
 }
 
 /**

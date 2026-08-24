@@ -101,7 +101,7 @@
 2. 填触发条件与 `preferred_tools`  
 3. 重启 / 重新 ensure seeds 后，Decide 即可按触发挂上
 
-私有扩展也可以扔进 [`plugins/skills/`](plugins/skills/)（Compose 已挂载）。写法见 [docs/skill-extensions.md](docs/skill-extensions.md)。
+额外 Skill 包也可以放在 [`plugins/skills/`](plugins/skills/)（Compose 已挂载）。写法见 [docs/skill-extensions.md](docs/skill-extensions.md)。
 
 环境开关（Review、超时等）：[docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)。种子总览：[`apps/api/seeds/README.md`](apps/api/seeds/README.md)。模型密钥：[docs/self-hosting.md](docs/self-hosting.md)。
 
@@ -169,8 +169,6 @@ npm run dev:collab           # Yjs WS :1234（可选；Vite DEV 默认开协作�
 npm run dev:web
 ```
 
-商业版图像能力（抠图、分层、标记、样机等）请联系 **702680355@qq.com**。
-
 Canvas Live / WSS：**[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
 
 ### 桌面端（Tauri）
@@ -198,14 +196,14 @@ apps/web/          React 画布 + Agent UI + Yjs 客户端
   src-tauri/       Tauri v2 桌面壳（Recombyn）
 apps/api/          FastAPI（含 collab room-token）
 apps/collab/       Yjs WebSocket 服务（y-websocket）
-plugins/           私有扩展（skills + canvas）— Compose 已挂载
+plugins/           扩展（skills + canvas）— Compose 已挂载
 packages/          共享协议
 docs/              自托管、Agent、插件、桌面端、画布
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
 
-面向用户的帮助文档源码在私有仓维护；CI 只把打包后的静态站推到本仓库 `gh-pages`，见 [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/)。
+用户文档：[recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/)（由本仓库 `gh-pages` 发布）。
 
 ## 文档与社区
 

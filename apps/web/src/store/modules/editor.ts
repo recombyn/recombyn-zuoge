@@ -223,6 +223,18 @@ function isTransientNodePatch(patch: unknown): boolean {
   return keys.length > 0 && keys.every((key) => TRANSIENT_NODE_ATTR_KEYS.has(key));
 }
 
+/** Flip / rotate toolbar — transform host only, do not rebuild path ink. */
+function isTransformOnlyAttrsPatch(patch: unknown): boolean {
+  if (!patch || typeof patch !== 'object') return false;
+  const attrs = (patch as { attrs?: unknown }).attrs;
+  if (!attrs || typeof attrs !== 'object') return false;
+  const keys = Object.keys(attrs as Record<string, unknown>);
+  return (
+    keys.length > 0 &&
+    keys.every((key) => key === 'angle' || key === 'flipX' || key === 'flipY')
+  );
+}
+
 function isTransientFramePatch(patch: unknown): boolean {
   if (!patch || typeof patch !== 'object') return false;
   const keys = Object.keys(patch as Record<string, unknown>);
@@ -327,6 +339,12 @@ const initialState = {
   selectedNodeIds: [] as string[],
   /** Multi artboard selection (UI); document.activeFrameId is the primary. */
   selectedFrameIds: [] as string[],
+  /**
+   * Artboard chrome level:
+   * - soft: edge highlight only (interior click / working inside)
+   * - full: toolbar + resize handles + title drag (title click)
+   */
+  frameChromeMode: 'soft' as 'soft' | 'full',
   dirty: false,
   /**
    * Monotonic local scene version. Human edits bump it; AI transactions hold
@@ -339,6 +357,8 @@ const initialState = {
   documentPatchToken: 0,
   /** Node ids last touched by `patchDocumentNode` — SvgCanvas refreshes these even with no selection. */
   lastPatchedNodeIds: [] as string[],
+  /** Latest patch only changed angle / flip — SvgCanvas updates transform, not path `d`. */
+  lastPatchTransformOnly: false,
   historyPast: [] as HistoryEntry[],
   historyFuture: [] as HistoryEntry[],
   activeTool: 'select' as string,
@@ -717,6 +737,8 @@ const editorSlice = createSlice({
       // document token still updates selection/chrome, but this id skips a host
       // teardown that would briefly repaint the old centre-anchored box.
       state.lastPatchedNodeIds = skipHostReload ? [] : [id];
+      state.lastPatchTransformOnly =
+        !skipHostReload && isTransformOnlyAttrsPatch(patch);
       syncLibraryOnEdit(state);
     },
     /** Apply many node patches in one Redux write (align / distribute / flip). */
@@ -742,6 +764,7 @@ const editorSlice = createSlice({
       state.dirty = true;
       state.documentPatchToken += 1;
       state.lastPatchedNodeIds = applied;
+      state.lastPatchTransformOnly = false;
       syncLibraryOnEdit(state);
     },
     setSelectedNodeId(state, action) {
@@ -818,6 +841,7 @@ const editorSlice = createSlice({
         state.selectedFrameIds = [frame.id];
         state.selectedNodeId = null;
         state.selectedNodeIds = [];
+        state.frameChromeMode = 'full';
       }
       state.document = next;
       state.dirty = true;
@@ -831,12 +855,16 @@ const editorSlice = createSlice({
       next.activeFrameId = id;
       state.document = next;
       state.selectedFrameIds = id ? [id] : [];
-      // Soft-click / title click selects one artboard like a rect — clear nodes.
       if (id) {
         state.selectedNodeId = null;
         state.selectedNodeIds = [];
+      } else {
+        state.frameChromeMode = 'soft';
       }
       state.dirty = true;
+    },
+    setFrameChromeMode(state, action: PayloadAction<'soft' | 'full'>) {
+      state.frameChromeMode = action.payload === 'full' ? 'full' : 'soft';
     },
     setSelectedFrameIds(state, action) {
       if (!state.document) return;
@@ -851,8 +879,7 @@ const editorSlice = createSlice({
       next.activeFrameId = filtered[0] || null;
       state.document = next;
       state.selectedFrameIds = filtered;
-      // Do not clear nodes — mixed marquee selection is allowed.
-      // Callers that want frames-only should also dispatch setSelectedNodeIds([]).
+      if (filtered.length) state.frameChromeMode = 'full';
       state.dirty = true;
     },
     /** Set node + artboard selection together (marquee / unified control box). */
@@ -870,11 +897,21 @@ const editorSlice = createSlice({
           .filter(Boolean)
       );
       const frameIds = Array.from(new Set(frameIdsRaw.filter((id) => valid.has(id))));
-      next.activeFrameId = frameIds[0] || null;
+      let active = frameIds[0] || null;
+      if (!active && nodeIds.length) {
+        const bound = String(next.deltaSetLike?.[nodeIds[0]]?.attrs?.frameId || '').trim();
+        if (bound && valid.has(bound)) active = bound;
+        else if (next.activeFrameId && valid.has(String(next.activeFrameId))) {
+          active = String(next.activeFrameId);
+        }
+      }
+      next.activeFrameId = active;
       state.document = next;
       state.selectedNodeIds = nodeIds;
       state.selectedNodeId = nodeIds[0] || null;
       state.selectedFrameIds = frameIds;
+      // Marquee / interior work stays soft — title / layer panel set full explicitly.
+      state.frameChromeMode = 'soft';
       if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, nodeIds[0] || null)) {
         state.imageToolPanel = null;
       }
@@ -2385,6 +2422,7 @@ export const {
   setSelectedNodeIds,
   addArtboardFrame,
   setActiveFrameId,
+  setFrameChromeMode,
   setSelectedFrameIds,
   setMixedSelection,
   removeArtboardFrames,

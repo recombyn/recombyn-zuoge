@@ -70,6 +70,7 @@ import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   liveShapeGeomBox,
   nodeUsesPathChrome,
+  shapeNeedsSelectedPathSilhouette,
   nodeUsesOpenStrokeEndpoints,
   pathLocalEndpoints,
   localPointToWorld,
@@ -257,6 +258,16 @@ export function boxesIntersect(a: SceneBox, b: SceneBox) {
     a.top + a.height < b.top ||
     b.top + b.height < a.top
   );
+}
+
+/** Overlap of two AABBs, or null when they do not intersect. */
+export function intersectSceneBoxes(a: SceneBox, b: SceneBox): SceneBox | null {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  if (right <= left || bottom <= top) return null;
+  return { left, top, width: right - left, height: bottom - top };
 }
 
 export function unionSceneBoxes(a: SceneBox, b: SceneBox): SceneBox {
@@ -447,10 +458,11 @@ export function pointInBox(x: number, y: number, box: SceneBox, pad = 0) {
 }
 
 /**
- * Marquee hit — match click semantics per type:
- * - rect / geo / text / image: AABB (same as click)
- * - pen / pencil / path: stroke/path sampling (click uses ink, not empty AABB gaps)
- * - line / arrow: shaft endpoints / mid
+ * Marquee hit — match click semantics per type, using **visible** (frame-clipped)
+ * geometry so overflow ink outside a clipping artboard cannot be brushed:
+ * - rect / geo / text / image / filled path: clipped AABB
+ * - open pen / pencil / path stroke: ink samples, but only inside the clipped box
+ * - line / arrow: shaft endpoints / mid within the clipped box
  *
  * Uses union(data, DOM) + screen-constant pad so small nodes / tight brushes
  * don't miss when ink is slightly outside the stored geom box.
@@ -469,9 +481,9 @@ export function nodeHitsMarquee(
   if (!node || isNodeHidden(node) || isNodeLocked(node)) return false;
   const dataBox = getNodeBox(nodeId);
   const domBox = sceneBoxFromMountedNode(nodeId, toScene);
-  let box = dataBox && domBox ? unionSceneBoxes(dataBox, domBox) : domBox || dataBox;
-  if (!box) return false;
-  box = visibleNodeBoxWithinFrames(doc, node, box);
+  const fullBox = dataBox && domBox ? unionSceneBoxes(dataBox, domBox) : domBox || dataBox;
+  if (!fullBox) return false;
+  let box = visibleNodeBoxWithinFrames(doc, node, fullBox);
   if (!box) return false;
   box = ensureMinScreenHitBox(box, zoom);
   const hitMarquee = expandSceneBox(marquee, marqueeHitPadScene(zoom));
@@ -493,17 +505,26 @@ export function nodeHitsMarquee(
 
   if (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'path') {
     const d = String(node.attrs?.path || '');
-    // Filled closed path (incl. closed pen): AABB is fine (same spirit as click fill hit).
-    if (supportsFill(node) && boxesIntersect(hitMarquee, box)) {
-      return true;
+    // Filled closed path: clipped AABB only — same as rect (no overflow stroke fallthrough).
+    if (supportsFill(node)) {
+      return boxesIntersect(hitMarquee, box);
     }
+    // Open stroke: sample against full geom, but only count ink still visible in-frame.
     if (d) {
-      return pathStrokeHitsSceneBox(d, box, Number(node.attrs?.angle) || 0, hitMarquee, strokePad);
+      const visibleHit = intersectSceneBoxes(hitMarquee, expandSceneBox(box, strokePad));
+      if (!visibleHit) return false;
+      return pathStrokeHitsSceneBox(
+        d,
+        fullBox,
+        Number(node.attrs?.angle) || 0,
+        visibleHit,
+        strokePad
+      );
     }
     return boxesIntersect(hitMarquee, box);
   }
 
-  // rect / ellipse / text / image / other geo — AABB like click.
+  // rect / ellipse / text / image / other geo — clipped AABB like click.
   return boxesIntersect(hitMarquee, box);
 }
 
@@ -531,6 +552,31 @@ export function toolbarBoxForSelection(
     top: minY,
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY),
+  };
+}
+
+/**
+ * Unified dock inputs for all floating selection toolbars (single / multi / frame).
+ * Always prefer {@link resolveChromeUnion} for `chromeUnion` — `liveUnion` lags one
+ * effect tick after marquee / selection changes.
+ */
+export function selectionToolbarDock(
+  chromeUnion: SceneBox | null | undefined,
+  opts?: {
+    angle?: number;
+    edgePadScene?: number;
+    lineChrome?: boolean;
+    node?: any;
+  }
+): { box: SceneBox | null; angle: number; edgePadScene: number } {
+  const angle = Number(opts?.angle) || 0;
+  const edgePadScene = Math.max(0, Number(opts?.edgePadScene) || 0);
+  if (!chromeUnion) return { box: null, angle, edgePadScene };
+  if (!opts?.lineChrome) return { box: chromeUnion, angle, edgePadScene };
+  return {
+    box: toolbarBoxForSelection(chromeUnion, { lineChrome: true, node: opts.node }),
+    angle,
+    edgePadScene,
   };
 }
 
@@ -589,7 +635,7 @@ export function brushScreenPx(pointerType: string): number {
 
 export type DragState = {
   /** pointing_canvas: empty press; marquee only after brush gate. */
-  mode: 'move' | 'resize' | 'rotate' | 'marquee' | 'pointing_canvas' | 'blank';
+  mode: 'move' | 'resize' | 'rotate' | 'marquee' | 'pointing_canvas' | 'blank' | 'frame_move';
   startX: number;
   startY: number;
   sceneX0: number;
@@ -622,6 +668,13 @@ export type DragState = {
   currentClientX: number;
   currentClientY: number;
   currentShift?: boolean;
+  /** Empty artboard interior drag — same pipeline as title label move. */
+  frameId?: string;
+  frameStartX?: number;
+  frameStartY?: number;
+  frameWidth?: number;
+  frameHeight?: number;
+  frameMoveStarted?: boolean;
 };
 
 /** Shared seed for blank / pointing_canvas / move / resize / rotate drags. */
@@ -1659,12 +1712,16 @@ export function buildShapeOutlines(opts: {
       pathD,
       box: geomBox,
       angle,
+      flipX: node?.attrs?.flipX === true || node?.attrs?.flipX === 'true',
+      flipY: node?.attrs?.flipY === true || node?.attrs?.flipY === 'true',
       color: isMeasurePair ? SMART_GUIDE_COLOR : '#3388ff',
       withHandles,
-      // Selected with handles: control box only (no blue path silhouette).
-      // Hover / inspect / generator (box via handles+edge none) still show path when no knobs path.
-      // Generators: withHandles + edge none → blue AABB box on host (no knobs).
-      showPath: !withHandles && !opts.transforming,
+      // Rect / ellipse: AABB matches ink — box stroke is enough when selected.
+      // Triangle / path / pen: keep blue silhouette so clipped overflow outside a
+      // frame still shows (chrome mounts outside frame clip), matching rect UX.
+      showPath:
+        !opts.transforming &&
+        (!withHandles || shapeNeedsSelectedPathSilhouette(node)),
       lineMode,
       shaftEndpoints,
       edgeHandles,
@@ -1683,11 +1740,13 @@ export function buildShapeOutlines(opts: {
 
   // Single artboard frame: AABB chrome from live plate host (same lattice as ink).
   // Redux frame.x alone drifts vs `__sceneLeft` / sticky transform at high zoom.
+  const singleFrameOnly =
+    opts.selectedFrameIds.length === 1 &&
+    (!opts.selectedNodeIds || opts.selectedNodeIds.length === 0);
   if (
     !opts.inspectDev &&
-    !opts.transforming &&
-    opts.selectedFrameIds.length === 1 &&
-    opts.selectedNodeIds.length === 0
+    (!opts.transforming || singleFrameOnly) &&
+    singleFrameOnly
   ) {
     const fid = opts.selectedFrameIds[0];
     const frames = Array.isArray(opts.document?.frames) ? opts.document.frames : [];

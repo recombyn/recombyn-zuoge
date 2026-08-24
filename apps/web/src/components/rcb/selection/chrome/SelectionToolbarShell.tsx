@@ -316,6 +316,57 @@ export function WorldScreenChromeRoot({
   );
 }
 
+/** Scene axis-aligned bounds of a rotated control box (toolbar stays screen-upright). */
+export function orientedBoxAabb(
+  box: SelectionToolbarBox,
+  angleDeg: number
+): SelectionToolbarBox {
+  const angle = Number(angleDeg) || 0;
+  if (Math.abs(angle) < 0.001) {
+    return { left: box.left, top: box.top, width: box.width, height: box.height };
+  }
+  const cx = box.left + box.width / 2;
+  const cy = box.top + box.height / 2;
+  const hw = box.width / 2;
+  const hh = box.height / 2;
+  const rad = (angle * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const corners = [
+    [-hw, -hh],
+    [hw, -hh],
+    [hw, hh],
+    [-hw, hh],
+  ];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [dx, dy] of corners) {
+    const x = cx + dx * cos - dy * sin;
+    const y = cy + dx * sin + dy * cos;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  return {
+    left: minX,
+    top: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
+/** Scene Y extents of a rotated control box (for above/below dock choice). */
+export function orientedBoxVerticalExtents(
+  box: SelectionToolbarBox,
+  angleDeg: number
+): { top: number; bottom: number } {
+  const aabb = orientedBoxAabb(box, angleDeg);
+  return { top: aabb.top, bottom: aabb.top + aabb.height };
+}
+
 /**
  * Scene-edge placement for selection / frame floating toolbars.
  * `top` is the selection edge; {@link WorldScreenChromeRoot} applies `edgeGapPx`
@@ -328,6 +379,8 @@ export function useSelectionToolbarPlacement(opts: {
   hasTitleLabel?: boolean;
   /** Extra **screen** px beyond the usual gap (not scene stroke). */
   edgePadScene?: number;
+  /** Control-box rotation (degrees) — dock to visual AABB, toolbar stays upright. */
+  angle?: number;
 }): {
   preferAbove: boolean;
   left: number;
@@ -338,9 +391,9 @@ export function useSelectionToolbarPlacement(opts: {
 } {
   const camera = useRcbCamera();
   const zoom = rcbCameraCssZoom(camera);
-  const hasTitle = Boolean(opts.hasTitleLabel);
   const extraPx = Math.max(0, Number(opts.edgePadScene) || 0);
-  const aboveScreen = hasTitle
+  const angle = Number(opts.angle) || 0;
+  const aboveScreen = opts.hasTitleLabel
     ? toolbarAboveClearancePx(true) + extraPx
     : chromeUiOutsideScreenPx(zoom, toolbarAboveClearancePx(false), extraPx);
   const belowScreen = chromeUiOutsideScreenPx(
@@ -348,22 +401,26 @@ export function useSelectionToolbarPlacement(opts: {
     SELECTION_TOOLBAR_BELOW_BOX_GAP_PX,
     extraPx
   );
-  const aboveGapScene = aboveScreen / Math.max(0.05, zoom);
-  const box = opts.box;
-  const preferAbove = Boolean(box) && box.top >= aboveGapScene;
-  const left = box ? box.left : 0;
-  const railWidth = box ? Math.max(0, box.width) : 0;
-  let top = 0;
-  if (box) {
-    top = preferAbove ? box.top : box.top + box.height;
+  const dockBox = opts.box ? orientedBoxAabb(opts.box, angle) : null;
+  if (!dockBox) {
+    return {
+      preferAbove: false,
+      left: 0,
+      railWidth: 0,
+      top: 0,
+      anchor: 'top',
+      edgeGapPx: belowScreen,
+    };
   }
 
+  const aboveGapScene = aboveScreen / Math.max(0.05, zoom);
+  const preferAbove = dockBox.top >= aboveGapScene;
   return {
     preferAbove,
-    left,
-    railWidth,
-    top,
-    anchor: (preferAbove ? 'bottom' : 'top') as 'bottom' | 'top',
+    left: dockBox.left,
+    railWidth: Math.max(0, dockBox.width),
+    top: preferAbove ? dockBox.top : dockBox.top + dockBox.height,
+    anchor: preferAbove ? 'bottom' : 'top',
     edgeGapPx: preferAbove ? aboveScreen : belowScreen,
   };
 }
@@ -373,6 +430,8 @@ type ShellProps = {
   hasTitleLabel?: boolean;
   /** Scene pad beyond chrome for outer stroke ink. */
   edgePadScene?: number;
+  /** Control-box rotation — dock to visual AABB; toolbar stays screen-upright. */
+  angle?: number;
   children: ReactNode;
   className?: string;
   isFrameToolbar?: boolean;
@@ -385,6 +444,7 @@ function SelectionToolbarShell({
   box,
   hasTitleLabel = false,
   edgePadScene = 0,
+  angle = 0,
   children,
   className,
   isFrameToolbar = false,
@@ -395,6 +455,7 @@ function SelectionToolbarShell({
     box,
     hasTitleLabel,
     edgePadScene,
+    angle,
   });
   const chromePointer = useChromePointerActivate();
   if (!box) return null;

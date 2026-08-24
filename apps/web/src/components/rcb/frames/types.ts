@@ -6,6 +6,8 @@
  * still thickens under zoom. Paint stroke in **scene** units = CSS_px / zoom.
  */
 export const FRAME_PLATE_STROKE = 'color-mix(in srgb, var(--ink) 28%, transparent)';
+/** Soft interior / context focus — same blue as selection chrome edge. */
+export const FRAME_HIGHLIGHT_STROKE = '#3388ff';
 /** Target hairline in CSS px after camera scale. */
 export const FRAME_PLATE_STROKE_WIDTH = 1;
 

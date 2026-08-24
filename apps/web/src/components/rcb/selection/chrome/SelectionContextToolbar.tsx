@@ -107,6 +107,7 @@ import {
   toggleCatalogTextBold,
   weightOptionsForFamily,
 } from '@/components/rcb/scene/document/fontCatalog';
+import { MdOutlineFlip } from 'react-icons/md';
 import { TbDroplet, TbVectorBezier } from 'react-icons/tb';
 import { message } from '@/components/base';
 import { cn } from '@/utils/classnames';
@@ -127,6 +128,8 @@ type Props = {
   valueBox?: SceneBox;
   /** Scene pad beyond chrome for outer stroke ink (center stroke half-width). */
   edgePadScene?: number;
+  /** Live control-box angle — toolbar tracks oriented top edge after rotate. */
+  angle?: number;
   onOpenAgent?: (opts?: { prompt?: string }) => void;
 };
 
@@ -365,7 +368,7 @@ async function outlineSelectedNode(opts: {
 }
 
 function SelectionContextToolbar(props: Props): ReactNode {
-  const { document, nodeId, box, valueBox, edgePadScene = 0 } = props;
+  const { document, nodeId, box, valueBox, edgePadScene = 0, angle: angleProp } = props;
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const [decorationOpen, setDecorationOpen] = useState(false);
@@ -394,12 +397,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [mockupIntelEnabled]);
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
+  const isVectorKind =
+    kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path' || kind === 'svg';
   const flipRotateOpen = isPanelKindOnNode(
     imageToolPanel,
     nodeId,
     'flipRotate',
     kind,
-    ['image', 'video']
+    ['image', 'video', 'shape', 'rect', 'ellipse', 'path', 'svg']
   );
   const quickEditMarkPaused = isQuickEditMarkPanel(imageToolPanel, nodeId, kind);
   const quickEditOpen = isPanelKindOnNode(
@@ -451,6 +456,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [decorationOpen, alignOpen]);
 
   if (!node || !box) return null;
+
+  const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
 
   if (quickEditComposerOpen || lottieEditOpen) {
     if (kind === 'image') return null;
@@ -536,6 +543,13 @@ function SelectionContextToolbar(props: Props): ReactNode {
       label: t('editor.imageToolbar.outline'),
     });
   }
+  if (isVectorKind) {
+    elementMoreItems.push({
+      key: 'flipRotate',
+      icon: <MdOutlineFlip className="h-4 w-4" />,
+      label: t('editor.imageToolbar.flipRotate'),
+    });
+  }
   if (showLayerChrome) {
     elementMoreItems.push({
       key: 'blendMode',
@@ -558,14 +572,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
         node,
         nodeId,
         dispatch,
-        loadingLabel: '轮廓化中…',
-        failLabel: '轮廓化失败',
-        okLabel: '已轮廓化',
+        loadingLabel: t('editor.imageToolbar.outlining'),
+        failLabel: t('editor.imageToolbar.outlineFailed'),
+        okLabel: t('editor.imageToolbar.outlineDone'),
         enterPathEdit: isShapeKind,
       });
       return;
     }
-    if (key === 'blendMode' || key === 'effects') {
+    if (key === 'flipRotate' || key === 'blendMode' || key === 'effects') {
       dispatch(openImageToolPanel({ nodeId, kind: key }));
     }
   };
@@ -800,6 +814,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     <>
       <SelectionToolbarShell
         box={box}
+        angle={placementAngle}
         edgePadScene={edgePadScene}
         hasTitleLabel={
           kind === 'image' || kind === 'video' || kind === 'lottie' || kind === 'audio'
@@ -998,30 +1013,38 @@ function SelectionContextToolbar(props: Props): ReactNode {
           ) : null}
 
           {kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path' ? (
-            <>
-              <ShapeSelectionToolbar
-                nodeId={nodeId}
-                node={node}
-                box={box}
-                valueBox={valueBox}
-                document={document}
-                hideExport
-              />
-              {elementLayerChrome}
-              <Sep />
-              <ExportSelectionPopover nodeIds={[nodeId]} />
-            </>
+            flipRotateOpen ? (
+              flipRotateToolbar
+            ) : (
+              <>
+                <ShapeSelectionToolbar
+                  nodeId={nodeId}
+                  node={node}
+                  box={box}
+                  valueBox={valueBox}
+                  document={document}
+                  hideExport
+                />
+                {elementLayerChrome}
+                <Sep />
+                <ExportSelectionPopover nodeIds={[nodeId]} />
+              </>
+            )
           ) : null}
           {kind === 'svg' ? (
-            <>
-              {elementLayerChrome ? (
-                <>
-                  {elementLayerChrome}
-                  <Sep />
-                </>
-              ) : null}
-              <ExportSelectionPopover nodeIds={[nodeId]} />
-            </>
+            flipRotateOpen ? (
+              flipRotateToolbar
+            ) : (
+              <>
+                {elementLayerChrome ? (
+                  <>
+                    {elementLayerChrome}
+                    <Sep />
+                  </>
+                ) : null}
+                <ExportSelectionPopover nodeIds={[nodeId]} />
+              </>
+            )
           ) : null}
       </SelectionToolbarShell>
 

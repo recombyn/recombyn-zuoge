@@ -5,6 +5,7 @@ import { apiClient, apiQuery } from '@/service/client';
 import type { TaskState } from '@/components/editor/panels/agent/agentMemory';
 import type { ChatUiMessage } from '@/components/editor/panels/agent/messages/ChatTurnList';
 import { getToken } from '@/utils/token';
+import i18n from '@/i18n';
 
 export type ChatSessionMessage = {
   id: string;
@@ -50,7 +51,7 @@ type SessionsListPayload = { sessions?: RemoteSessionDto[] };
 
 function titleFromMessages(messages: ChatSessionMessage[]): string {
   const first = messages.find((m) => m.role === 'user' && m.content.trim());
-  if (!first) return '新对话';
+  if (!first) return i18n.t('agent.newChat');
   const t = first.content.trim().replace(/\s+/g, ' ');
   return t.length > 28 ? `${t.slice(0, 28)}…` : t;
 }
@@ -212,7 +213,7 @@ function pickOptionalMessageFields(m: {
 function dtoToSession(dto: RemoteSessionDto): ChatSession {
   return {
     id: dto.id,
-    title: dto.title || '新对话',
+    title: dto.title || i18n.t('agent.newChat'),
     updatedAt: dto.updatedAt || Date.now(),
     taskState: dto.taskState || null,
     messages: (dto.messages || []).map((m, i) => ({
@@ -579,7 +580,7 @@ export function useChatSessions(documentId: string | null | undefined) {
     await refetchSessionsRef.current();
   }, [flushPendingSync, apiEnabled]);
 
-  const chatTitle = messages.length === 0 ? '新对话' : titleFromMessages(messages as ChatSessionMessage[]);
+  const chatTitle = messages.length === 0 ? i18n.t('agent.newChat') : titleFromMessages(messages as ChatSessionMessage[]);
 
   return {
     sessions,

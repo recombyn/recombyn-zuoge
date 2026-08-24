@@ -98,11 +98,11 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
 
   const hitNodeId = ctxMenu?.nodeId ?? null;
   const menuFrameId = ctxMenu?.frameId || activeFrameIdRef.current;
-  // Only expand via artboards that are actually in the selection (or the
-  // frame under the context-menu cursor). Do not use activeFrameId alone —
-  // that would pull unrelated board content into group / lock / export.
+  // Artboards for mutations: only real selection. Soft activeFrameId must not
+  // ride in via ctxMenu.frameId when nodes are the action target (duplicate
+  // would otherwise snapshot the whole board).
   let frameIdsForAction = selectedFrameIdsRef.current;
-  if (!frameIdsForAction.length && ctxMenu?.frameId) {
+  if (!frameIdsForAction.length && !ids.length && ctxMenu?.frameId) {
     frameIdsForAction = [String(ctxMenu.frameId)];
   }
   const selectionBusy = ctxMenuTargetHasProcessing({

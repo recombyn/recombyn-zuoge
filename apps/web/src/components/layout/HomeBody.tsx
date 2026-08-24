@@ -13,7 +13,7 @@ import {
   HiOutlinePlusCircle,
 } from 'react-icons/hi2';
 import { RiPuzzleLine } from 'react-icons/ri';
-import { LuUserRound } from 'react-icons/lu';
+import { LuPanelLeftClose, LuPanelLeftOpen, LuUserRound } from 'react-icons/lu';
 import { Dropdown, Tooltip } from '@/components/base';
 import AppLogo from '@/components/base/AppLogo';
 import { Icon } from '@/components/base/icon';
@@ -38,6 +38,10 @@ import { getToken } from '@/utils/token';
 import { docsUrl, openExternalUrl } from '@/utils/docsUrl';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { useIsDesktopShell } from '@/components/layout/DesktopTitlebar';
+import {
+  homeRailWidthPx,
+  useHomeRailExpanded,
+} from '@/components/layout/useHomeRailExpanded';
 import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
@@ -160,49 +164,121 @@ function RailItem({
   disabled,
   onClick,
   icon,
+  expanded,
 }: {
   label: string;
   active?: boolean;
   disabled?: boolean;
   onClick?: () => void;
   icon: ReactNode;
+  expanded: boolean;
 }) {
+  const button = (
+    <button
+      type="button"
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'group flex h-10 shrink-0 items-center rounded-xl transition-colors disabled:opacity-50',
+        expanded
+          ? 'w-full gap-3 px-2.5'
+          : 'mx-auto w-10 justify-center rounded-full',
+        active
+          ? 'bg-[color-mix(in_srgb,var(--ink)_6%,var(--rail))] text-[var(--ink)]'
+          : 'text-[var(--ink)]/55 hover:bg-[color-mix(in_srgb,var(--ink)_3%,var(--rail))] hover:text-[var(--ink)]'
+      )}
+    >
+      <RailGlyph>{icon}</RailGlyph>
+      {expanded ? (
+        <span className="min-w-0 truncate text-[13px] font-medium leading-none tracking-tight">
+          {label}
+        </span>
+      ) : null}
+    </button>
+  );
+
+  if (expanded) return button;
   return (
     <Tooltip tip={label} placement="right" offset={10}>
-      <button
-        type="button"
-        aria-label={label}
-        aria-current={active ? 'page' : undefined}
-        disabled={disabled}
-        onClick={onClick}
-        className={cn(
-          'group mx-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50',
-          active
-            ? 'bg-[color-mix(in_srgb,var(--ink)_4%,var(--rail))] text-[var(--ink)]'
-            : 'text-[var(--ink)]/55 hover:bg-[color-mix(in_srgb,var(--ink)_2%,var(--rail))] hover:text-[var(--ink)]'
-        )}
-      >
-        <RailGlyph>{icon}</RailGlyph>
-      </button>
+      {button}
     </Tooltip>
   );
 }
 
-function RailLogo() {
+/** Collapsed: logo → hover reveals expand icon (fig.2). Expanded: brand + collapse (fig.1). */
+function RailBrandHeader({
+  expanded,
+  onExpand,
+  onCollapse,
+}: {
+  expanded: boolean;
+  onExpand: () => void;
+  onCollapse: () => void;
+}) {
+  const { t } = useTranslation();
+
+  if (expanded) {
+    return (
+      <div className="mb-3 flex h-10 shrink-0 items-center gap-2 px-1">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <AppLogo size={26} />
+          <span
+            className="truncate text-[15px] font-semibold leading-none tracking-tight text-[var(--ink)] [font-family:var(--font-hero)]"
+            aria-hidden
+          >
+            {t('app.name')}
+          </span>
+        </div>
+        <Tooltip tip={t('home.railCollapse')} placement="bottom" offset={6}>
+          <button
+            type="button"
+            aria-label={t('home.railCollapse')}
+            onClick={onCollapse}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--ink)]/55 transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_4%,var(--rail))] hover:text-[var(--ink)]"
+          >
+            <LuPanelLeftClose className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />
+          </button>
+        </Tooltip>
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden>
-      <AppLogo size={26} />
+    <div className="mb-3 flex shrink-0 justify-center">
+      <Tooltip tip={t('home.railExpand')} placement="right" offset={10}>
+        <button
+          type="button"
+          aria-label={t('home.railExpand')}
+          onClick={onExpand}
+          className="group relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_4%,var(--rail))]"
+        >
+          <span className="flex items-center justify-center transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
+            <AppLogo size={26} />
+          </span>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[var(--ink)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+            <LuPanelLeftOpen className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />
+          </span>
+        </button>
+      </Tooltip>
     </div>
   );
 }
 
-function RailDivider() {
+function RailDivider({ expanded }: { expanded?: boolean }) {
   return (
-    <div className="mx-auto my-1 h-px w-6 bg-[var(--line)]" aria-hidden />
+    <div
+      className={cn(
+        'my-1 h-px bg-[var(--line)]',
+        expanded ? 'mx-2.5' : 'mx-auto w-6'
+      )}
+      aria-hidden
+    />
   );
 }
 
-function RailHelpMenu() {
+function RailHelpMenu({ expanded }: { expanded: boolean }) {
   const { t } = useTranslation();
   const desktopLocal = isDesktopLocal();
 
@@ -243,6 +319,26 @@ function RailHelpMenu() {
     [t, desktopLocal]
   );
 
+  const trigger = (
+    <button
+      type="button"
+      aria-label={t('home.railHelp')}
+      className={cn(
+        'flex h-10 items-center rounded-xl text-[var(--ink)]/55 transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_3%,var(--rail))] hover:text-[var(--ink)]',
+        expanded ? 'w-full gap-3 px-2.5' : 'mx-auto w-10 justify-center'
+      )}
+    >
+      <span className={RAIL_ICON_BOX}>
+        <Icon name="home-help-circle" className="h-6 w-6" />
+      </span>
+      {expanded ? (
+        <span className="min-w-0 truncate text-[13px] font-medium leading-none tracking-tight">
+          {t('home.railHelp')}
+        </span>
+      ) : null}
+    </button>
+  );
+
   return (
     <Dropdown
       trigger="hover"
@@ -252,13 +348,13 @@ function RailHelpMenu() {
       items={items}
       onClick={handleRailHelpClick}
     >
-      <button
-        type="button"
-        aria-label={t('home.railHelp')}
-        className="mx-auto flex h-10 w-10 items-center justify-center text-[var(--ink)]/55 transition-colors hover:text-[var(--ink)]"
-      >
-        <Icon name="home-help-circle" className="h-6 w-6" />
-      </button>
+      {expanded ? (
+        trigger
+      ) : (
+        <Tooltip tip={t('home.railHelp')} placement="right" offset={10}>
+          {trigger}
+        </Tooltip>
+      )}
     </Dropdown>
   );
 }
@@ -294,6 +390,8 @@ function HomeSidebar({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const desktop = useIsDesktopShell();
+  const [expanded, setExpanded] = useHomeRailExpanded();
+  const railW = homeRailWidthPx(expanded);
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
   const authed = Boolean(userId && getToken());
 
@@ -331,25 +429,30 @@ function HomeSidebar({
         </div>
       ) : null}
 
-      {/* Desktop rail — top-packed icons; ? help pinned to bottom.
-          On Tauri the brand mark lives in the custom titlebar (same --rail). */}
+      {/* Desktop rail — expandable; logo hover reveals expand control when collapsed. */}
       <aside
-        className="pointer-events-none absolute inset-y-0 left-0 z-30 hidden w-[64px] flex-col overflow-visible border-r border-[var(--line)] md:flex"
+        className="pointer-events-none absolute inset-y-0 left-0 z-30 hidden flex-col overflow-visible border-r border-[var(--line)] transition-[width] duration-200 ease-out md:flex"
+        style={{ width: railW }}
         aria-label={t('app.name')}
+        data-expanded={expanded ? 'true' : 'false'}
       >
-        <div className="pointer-events-auto flex h-full flex-col items-stretch overflow-visible bg-[var(--rail)] px-2 pb-5 pt-4">
-          {!desktop ? (
-            <div className="flex shrink-0 justify-center pb-4">
-              <RailLogo />
-            </div>
-          ) : (
-            <div className="shrink-0 pb-2" aria-hidden />
+        <div
+          className={cn(
+            'pointer-events-auto flex h-full flex-col items-stretch overflow-hidden bg-[var(--rail)] pb-5 pt-4',
+            expanded ? 'px-3' : 'px-2'
           )}
+        >
+          <RailBrandHeader
+            expanded={expanded}
+            onExpand={() => setExpanded(true)}
+            onCollapse={() => setExpanded(false)}
+          />
           <nav
-            className="flex min-h-0 flex-1 flex-col items-stretch gap-1.5"
+            className="flex min-h-0 flex-1 flex-col items-stretch gap-1.5 overflow-y-auto overflow-x-hidden"
             aria-label={t('app.name')}
           >
             <RailItem
+              expanded={expanded}
               label={t('home.railAdd')}
               disabled={importing}
               onClick={onCreate}
@@ -362,6 +465,7 @@ function HomeSidebar({
               }
             />
             <RailItem
+              expanded={expanded}
               label={t('home.navHome')}
               active={nav === 'home'}
               onClick={() => goNav('home')}
@@ -370,6 +474,7 @@ function HomeSidebar({
               }
             />
             <RailItem
+              expanded={expanded}
               label={t('home.mine')}
               active={nav === 'mine'}
               onClick={() => goNav('mine')}
@@ -382,6 +487,7 @@ function HomeSidebar({
               }
             />
             <RailItem
+              expanded={expanded}
               label={t('home.railSkills')}
               active={nav === 'skills'}
               onClick={() => goNav('skills')}
@@ -397,8 +503,9 @@ function HomeSidebar({
                 />
               }
             />
-            <RailDivider />
+            <RailDivider expanded={expanded} />
             <RailItem
+              expanded={expanded}
               label={t('home.account')}
               active={nav === 'account'}
               onClick={() => goNav('account')}
@@ -407,8 +514,8 @@ function HomeSidebar({
               }
             />
           </nav>
-          <div className="mt-auto flex shrink-0 justify-center pt-3">
-            <RailHelpMenu />
+          <div className={cn('mt-auto flex shrink-0 pt-3', expanded ? 'justify-stretch' : 'justify-center')}>
+            <RailHelpMenu expanded={expanded} />
           </div>
         </div>
       </aside>

@@ -408,6 +408,8 @@ function NodeTitleLabel({
       : { 'data-image-label': true as const };
 
   const onLabelPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
+    // Right-click opens the canvas context menu (window capture). Do not steal it.
+    if (e.button === 2) return;
     e.stopPropagation();
     if (editing) return;
     onSelect?.();

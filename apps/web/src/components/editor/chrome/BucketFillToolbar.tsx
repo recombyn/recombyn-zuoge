@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
 import Tooltip from '@/components/base/tooltip';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import {
@@ -30,6 +31,7 @@ function bucketFillToPanelValue(raw: any): FillPanelValue {
  * Paint-bucket options: same FillPanel as shape fill (solid / gradient / image).
  */
 function BucketFillToolbar({ className }: { className?: string }) {
+  const { t } = useTranslation();
   const dispatch = useDispatch();
   const bucketFill = useSelector((s: any) => s.editor.bucketFill);
   const value = useMemo(() => bucketFillToPanelValue(bucketFill), [bucketFill]);
@@ -41,14 +43,14 @@ function BucketFillToolbar({ className }: { className?: string }) {
         <FillPanelPopover
           value={value}
           onChange={(next) => dispatch(setBucketFill(next))}
-          title="颜色"
+          title={t('editor.selectionToolbar.color')}
           placement="bottom"
           offset={10}
           shiftMainAxis={false}
           className="inline-flex"
         >
           {({ open }) => (
-            <Tooltip tip="填充颜色" placement="bottom" disabled={open}>
+            <Tooltip tip={t('editor.selectionToolbar.fillColor')} placement="bottom" disabled={open}>
               <span
                 className={cn(
                   'inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors',

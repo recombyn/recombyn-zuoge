@@ -149,7 +149,7 @@ import {
   sceneBoxFromMountedNode,
   pointInBox,
   nodeHitsMarquee,
-  toolbarBoxForSelection,
+  selectionToolbarDock,
   patchesAsOrigins,
   multiMembersKey,
   DRAG_DISTANCE_SQUARED,
@@ -197,6 +197,11 @@ import {
   type ResizeSnapContext,
 } from './selectionLogic';
 import { frameSelId, parseFrameSelId } from './frameSelectionIds';
+import {
+  getFrameBox,
+  resolveFramePlateDragMode,
+  resolveFramePlateTarget,
+} from '@/components/rcb/frames/framePlatePointer';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** One frame of live transform chrome + paint (ADR 0027 — RAF preview). */
@@ -282,7 +287,16 @@ type SelectionFeatureProps = {
   onSelect: (ids: string[], opts?: { additive?: boolean }) => void;
   /** Hit-test artboard frames in scene coords. */
   hitTestFrame?: (x: number, y: number) => string | null;
-  onSelectFrame?: (frameId: string | null) => void;
+  onSelectFrame?: (frameId: string | null, opts?: { chrome?: 'soft' | 'full' }) => void;
+  /** Same artboard move pipeline as the title label (hide title, co-move children). */
+  onFrameMoveStart?: (frameId: string) => void;
+  onFrameMoveEnd?: () => void;
+  onFrameMove?: (
+    frameId: string,
+    x: number,
+    y: number,
+    opts?: { skipGrid?: boolean }
+  ) => void;
   /** Marquee / multi artboard selection (frames only). */
   onSelectFrames?: (frameIds: string[]) => void;
   /** Marquee selecting nodes and/or frames together. */
@@ -360,6 +374,9 @@ function SelectionFeature({
   onSelect,
   hitTestFrame,
   onSelectFrame,
+  onFrameMoveStart,
+  onFrameMoveEnd,
+  onFrameMove,
   onSelectFrames,
   onSelectMixed,
   onGeometryCommit,
@@ -391,6 +408,10 @@ function SelectionFeature({
   /** Prefer live context viewport ??prop stageEl can go stale after resize remounts. */
   const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
   const dispatch = useDispatch();
+  const frameChromeMode = useSelector(
+    (s: { editor?: { frameChromeMode?: 'soft' | 'full' } }) =>
+      s.editor?.frameChromeMode === 'full' ? 'full' : 'soft'
+  );
   const { t } = useTranslation();
   const shapeStylePanel = useSelector(
     (s: any) => s.editor.shapeStylePanel as null | { kind: string }
@@ -441,6 +462,9 @@ function SelectionFeature({
   const hitTestFrameRef = useRef(hitTestFrame);
   const onSelectRef = useRef(onSelect);
   const onSelectFrameRef = useRef(onSelectFrame);
+  const onFrameMoveStartRef = useRef(onFrameMoveStart);
+  const onFrameMoveEndRef = useRef(onFrameMoveEnd);
+  const onFrameMoveRef = useRef(onFrameMove);
   const onSelectMixedRef = useRef(onSelectMixed);
   const onSelectFramesRef = useRef(onSelectFrames);
   const toSceneRef = useRef(toScene);
@@ -475,6 +499,9 @@ function SelectionFeature({
   hitTestFrameRef.current = hitTestFrame;
   onSelectRef.current = onSelect;
   onSelectFrameRef.current = onSelectFrame;
+  onFrameMoveStartRef.current = onFrameMoveStart;
+  onFrameMoveEndRef.current = onFrameMoveEnd;
+  onFrameMoveRef.current = onFrameMove;
   onSelectMixedRef.current = onSelectMixed;
   onSelectFramesRef.current = onSelectFrames;
   toSceneRef.current = toScene;
@@ -532,7 +559,11 @@ function SelectionFeature({
     // Derive ids from keys so a new array reference does not recreate origins
     // every render (that caused Maximum update depth loops).
     const ids = idsKey ? idsKey.split('|').filter(Boolean) : [];
-    const fids = frameIdsKey ? frameIdsKey.split('|').filter(Boolean) : [];
+    // Soft frame focus uses plate edge highlight only — never feed frames into control chrome.
+    const fids =
+      frameChromeMode === 'full' && frameIdsKey
+        ? frameIdsKey.split('|').filter(Boolean)
+        : [];
     const nodeOrigins = ids
       .map((id) => {
         const box = getNodeBox(id);
@@ -570,7 +601,7 @@ function SelectionFeature({
       })
       .filter(Boolean) as Array<{ nodeId: string; box: SceneBox }>;
     return [...nodeOrigins, ...frameOrigins];
-  }, [document, idsKey, frameIdsKey, getNodeBox]);
+  }, [document, idsKey, frameIdsKey, frameChromeMode, getNodeBox]);
 
   const selectionSharedRotation = useMemo(() => {
     if (selectedNodeIds.length <= 1) return 0;
@@ -611,44 +642,50 @@ function SelectionFeature({
       setLiveAngle(readNodeAngle(document, onlyNodeId));
       return;
     }
-    if (!selectionUnion || !idsKey) {
+    if (!selectionUnion) {
       multiChromeRef.current = null;
-      setLiveUnion(selectionUnion);
+      setLiveUnion(null);
+      setLiveAngle(0);
+      return;
+    }
+    // Frame-only or multi without shared rotation — use current union.
+    if (!idsKey || Math.abs(selectionSharedRotation) < 0.01) {
+      const prev = multiChromeRef.current;
+      const selKey = `${idsKey}#${frameIdsKey}`;
+      const membersKey = multiMembersKey(baseOrigins);
+      if (
+        prev?.selKey === selKey &&
+        Math.abs(prev.angle) > 0.01 &&
+        prev.membersKey === membersKey
+      ) {
+        setLiveUnion(prev.box);
+        setLiveAngle(prev.angle);
+        return;
+      }
+      multiChromeRef.current = {
+        selKey,
+        box: { ...selectionUnion },
+        angle: 0,
+        membersKey,
+      };
+      if (!idsKey && origins[0]?.box) {
+        setLiveUnion(origins[0].box);
+      } else {
+        setLiveUnion(selectionUnion);
+      }
       setLiveAngle(0);
       return;
     }
     const selKey = `${idsKey}#${frameIdsKey}`;
     const membersKey = multiMembersKey(baseOrigins);
-    const shared = selectionSharedRotation;
-    if (Math.abs(shared) > 0.01) {
-      multiChromeRef.current = {
-        selKey,
-        box: { ...selectionUnion },
-        angle: shared,
-        membersKey,
-      };
-      setLiveUnion(selectionUnion);
-      setLiveAngle(shared);
-      return;
-    }
-    const prev = multiChromeRef.current;
-    if (
-      prev?.selKey === selKey &&
-      Math.abs(prev.angle) > 0.01 &&
-      prev.membersKey === membersKey
-    ) {
-      setLiveUnion(prev.box);
-      setLiveAngle(prev.angle);
-      return;
-    }
     multiChromeRef.current = {
       selKey,
       box: { ...selectionUnion },
-      angle: 0,
+      angle: selectionSharedRotation,
       membersKey,
     };
     setLiveUnion(selectionUnion);
-    setLiveAngle(0);
+    setLiveAngle(selectionSharedRotation);
   }, [
     baseOrigins,
     document,
@@ -1064,32 +1101,68 @@ function SelectionFeature({
       );
 
       // Hit-test scene nodes (selection chrome is non-blocking so empty clicks pass through).
+      const frameAtPoint = hitTestFrame?.(p.x, p.y) ?? null;
       let hitId = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
       const selectedIds = liveOriginsNow?.map((o) => o.nodeId) ?? [];
-      if (!hitId && selectedIds.some((id) => parseFrameSelId(id))) {
+      // Bbox fallback only outside artboard interior — frame plate owns its blank area.
+      if (!hitId && !frameAtPoint && selectedIds.some((id) => parseFrameSelId(id))) {
         hitId = fallbackVisibleNodeHit(sceneDoc, p, listNodeIds(), getNodeBox);
       }
       const plateFrameId = hitId ? frameForFullBleedPlate(sceneDoc, hitId) : null;
+      const framePlateId = resolveFramePlateTarget(sceneDoc, p, hitId, hitTestFrame);
+
+      const beginFramePlateGesture = (frameId: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const mode = resolveFramePlateDragMode(sceneDoc, frameId, {
+          readOnly,
+          canMove: Boolean(onFrameMoveRef.current),
+        });
+        // Empty interior → full chrome + drag; occupied → soft edge only.
+        const empty = mode === 'frame_move';
+        onSelectFrame?.(frameId, { chrome: empty ? 'full' : 'soft' });
+
+        const box = getFrameBox(sceneDoc, frameId);
+        if (!box || !empty) {
+          dragRef.current = seed('pointing_canvas', e, p);
+          capture(e.pointerId);
+          return;
+        }
+
+        const origins = [{ nodeId: frameSelId(frameId), box }];
+        setLiveOrigins(origins);
+        setLiveUnion(box);
+        setLiveAngle(0);
+        dragRef.current = seed('frame_move', e, p, {
+          origins,
+          union: box,
+          frameId,
+          frameStartX: box.left,
+          frameStartY: box.top,
+          frameWidth: box.width,
+          frameHeight: box.height,
+          frameMoveStarted: false,
+        });
+        capture(e.pointerId);
+      };
 
       // Composer pick: attach node or artboard; never move / never treat frame as blank cancel.
       if (attachPickActive) {
         e.preventDefault();
         e.stopPropagation();
-        const frameUnder =
-          plateFrameId ||
-          (!hitId ? hitTestFrame?.(p.x, p.y) : null) ||
-          (selectionHasFrame && pointInLiveUnion
-            ? liveOriginsNow
-                ?.map((o) => parseFrameSelId(o.nodeId))
-                .find((fid): fid is string => Boolean(fid))
-            : null);
+        let frameUnder = plateFrameId || (!hitId ? hitTestFrame?.(p.x, p.y) : null);
+        if (!frameUnder && selectionHasFrame && pointInLiveUnion) {
+          frameUnder =
+            liveOriginsNow
+              ?.map((o) => parseFrameSelId(o.nodeId))
+              .find((fid): fid is string => Boolean(fid)) || null;
+        }
         if (hitId && !plateFrameId) {
-          // Do NOT call onSelectFrame(null) here ??during pick that clears pick mode.
           onSelect(expandSelectionWithGroups(sceneDoc, [hitId]));
         } else if (frameUnder) {
           onSelectFrame?.(frameUnder);
         } else {
-          // Truly empty canvas ??exit pick mode.
           onSelect([]);
         }
         dragRef.current = seed('blank', e, p, { skipSelectOnUp: true });
@@ -1097,7 +1170,12 @@ function SelectionFeature({
         return;
       }
 
-      // Full-bleed background plate looks empty — start marquee, don't drag the plate.
+      if (framePlateId) {
+        beginFramePlateGesture(framePlateId);
+        return;
+      }
+
+      // Full-bleed background plate outside frame match — marquee only.
       if (hitId && plateFrameId) {
         e.preventDefault();
         if (!e.shiftKey && !readOnly) {
@@ -1118,7 +1196,6 @@ function SelectionFeature({
 
         if (readOnly) {
           // Preview / Dev inspect: select only (no move).
-          onSelectFrame?.(null);
           onSelect(expandedHit, { additive });
           dragRef.current = seed('blank', e, p);
           capture(e.pointerId);
@@ -1130,7 +1207,6 @@ function SelectionFeature({
           // Do not open text edit on pointerdown ??a single click's up would
           // otherwise count as a second tap and enter edit immediately.
           lastTextClickRef.current = null;
-          onSelectFrame?.(null);
           onSelect(expandedHit, { additive });
         }
         // Shift-add only: wait for pointer-up; don't start a translate.
@@ -1188,9 +1264,7 @@ function SelectionFeature({
         return;
       }
 
-      // Empty canvas / artboard interior — PointingCanvas → marquee after brush gate.
-      // Artboard body clicks are ordinary canvas clicks. Frame movement is via
-      // the title label only.
+      // Shape under pointer ??select (if needed) then move. Never start a marquee on a shape.
       e.preventDefault();
       // Sparse path / star ink often misses hit-test inside a large control box.
       // Clicking empty space still inside the selection union should move, not clear.
@@ -1201,6 +1275,10 @@ function SelectionFeature({
         (liveOriginsNow?.length ?? 0) > 0 &&
         beginMoveSelection()
       ) {
+        return;
+      }
+      if (!hitId && frameAtPoint) {
+        beginFramePlateGesture(frameAtPoint);
         return;
       }
       if (!e.shiftKey) {
@@ -1267,6 +1345,30 @@ function SelectionFeature({
 
       if (drag.mode === 'marquee') {
         queuePreview({ marquee: normalizeBox(drag.sceneX0, drag.sceneY0, p.x, p.y) });
+        return;
+      }
+
+      if (drag.mode === 'frame_move' && drag.frameId) {
+        if (readOnly) return;
+        if (!drag.frameMoveStarted) {
+          if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
+          drag.frameMoveStarted = true;
+          onFrameMoveStartRef.current?.(drag.frameId);
+        }
+        const box = {
+          left: Math.round((drag.frameStartX ?? 0) + dx),
+          top: Math.round((drag.frameStartY ?? 0) + dy),
+          width: drag.frameWidth ?? drag.union.width,
+          height: drag.frameHeight ?? drag.union.height,
+        };
+        onFrameMoveRef.current?.(drag.frameId, box.left, box.top, {
+          skipGrid: e.ctrlKey || e.metaKey,
+        });
+        const origins = [{ nodeId: frameSelId(drag.frameId), box }];
+        liveUnionRef.current = box;
+        liveOriginsRef.current = origins;
+        setLiveUnion(box);
+        setLiveOrigins(origins);
         return;
       }
 
@@ -1501,16 +1603,30 @@ function SelectionFeature({
 
       const endTransform = () => setTransformingNotify(false);
 
+      if (drag.mode === 'frame_move') {
+        if (drag.frameMoveStarted) onFrameMoveEndRef.current?.();
+        const box = drag.frameId ? getFrameBox(sceneDoc, drag.frameId) : null;
+        if (box && drag.frameId) {
+          setLiveUnion(box);
+          setLiveOrigins([{ nodeId: frameSelId(drag.frameId), box }]);
+        }
+        return;
+      }
+
       // Soft click on empty stage (never entered Brushing).
       if (drag.mode === 'pointing_canvas') {
         setMarquee(null);
         lastTextClickRef.current = null;
         const pin = imageToolSessionNodeIdRef.current;
+        const frameHit =
+          screenDistSq < DRAG_DISTANCE_SQUARED
+            ? hitTestFrame?.(p.x, p.y) ?? null
+            : null;
         if (pin) {
           handlePinnedImageToolBlankClick(pin, dispatch);
+        } else if (frameHit) {
+          onSelectFrame?.(frameHit, { chrome: 'soft' });
         } else {
-          // Artboard bodies are ordinary canvas space. Only the title selects or
-          // moves an artboard; an empty body click clears the current selection.
           onSelectFrame?.(null);
           onSelect([]);
         }
@@ -2143,6 +2259,10 @@ function SelectionFeature({
     hostInjectedSelection && !lineChrome ? chromeGeomBox || chromeUnion : chromeUnion;
   const hideMultiMoveChrome =
     !single && transforming && dragRef.current?.mode === 'move';
+  const singleFrameOnly =
+    frameChromeMode === 'full' &&
+    selectedFrameIds.length === 1 &&
+    selectedNodeIds.length === 0;
 
   const hoverImageVariantsId = resolveHoverImageVariantsId({
     inspectDev,
@@ -2179,7 +2299,7 @@ function SelectionFeature({
       selectionCount > 0 &&
       !skipWorldSelectionChrome &&
       !hideMultiMoveChrome &&
-      (!transforming || !single) ? (
+      (!transforming || !single || singleFrameOnly) ? (
         <SelectionChrome
           box={selectionChromeBox}
           angle={chromeAngle}
@@ -2196,7 +2316,7 @@ function SelectionFeature({
             selectedFrameIds.length === 0
           }
           showBoxStroke={!lineChrome}
-          interactiveBox={selectedFrameIds.length > 0}
+          interactiveBox={frameChromeMode === 'full' && selectedFrameIds.length > 0}
           edgeHandles={edgeHandles}
           strokeOuterScene={strokeOuterScene}
           strokeColor={mockupActive ? '#e67e22' : undefined}
@@ -2298,7 +2418,9 @@ function SelectionFeature({
         <SelectionContextToolbar
           document={document}
           nodeId={selectedNodeIds[0]}
-          box={toolbarBoxForSelection(chromeUnion, {
+          {...selectionToolbarDock(chromeUnion, {
+            angle: chromeAngle,
+            edgePadScene: strokeUiPadScreen,
             lineChrome,
             node: singleNodeData,
           })}
@@ -2312,7 +2434,6 @@ function SelectionFeature({
                 }
               : undefined
           }
-          edgePadScene={strokeUiPadScreen}
           onOpenAgent={onOpenAgent}
         />
       ) : null}
@@ -2420,7 +2541,7 @@ function SelectionFeature({
       {/* Multi-select bar: show whenever the union has 2+ items and at least one
           scene node. Do not hide just because an artboard is co-selected. */}
       {!inspectDev &&
-      liveUnion &&
+      chromeUnion &&
       !single &&
       selectedNodeIds.length >= 1 &&
       !transforming &&
@@ -2429,7 +2550,10 @@ function SelectionFeature({
           document={document}
           nodeIds={selectedNodeIds}
           frameIds={selectedFrameIds}
-          box={liveUnion}
+          {...selectionToolbarDock(chromeUnion, {
+            angle: chromeAngle,
+            edgePadScene: strokeUiPadScreen,
+          })}
         />
       ) : null}
     </>

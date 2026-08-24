@@ -60,6 +60,7 @@ import {
   type SvgBoardHandle,
 } from '@/components/rcb';
 import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { previewSvgNodeTransform } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   abortNodeUpload,
   beginNodeUpload,
@@ -84,6 +85,7 @@ import { cssSolidWithOpacity } from '@/components/base/colorPanel';
 import {
   patchDocumentNode,
   setActiveFrameId,
+  setFrameChromeMode,
   setSelectedFrameIds,
   setMixedSelection,
   setActiveTool,
@@ -200,12 +202,22 @@ type SvgCanvasProps = {
   documentPatchToken?: number;
   /** Nodes patched via Redux — refresh SVG even when selection is empty (e.g. agent busy). */
   lastPatchedNodeIds?: string[];
+  lastPatchTransformOnly?: boolean;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onLoadStart?: () => void;
   onReady?: () => void;
   /** Notify the parent world while selection move / resize / rotate is active. */
   onTransformingChange?: (transforming: boolean) => void;
+  /** Artboard drag — same handlers as title label move (hide title, co-move children). */
+  onFrameMoveStart?: (frameId: string) => void;
+  onFrameMoveEnd?: () => void;
+  onFrameMove?: (
+    frameId: string,
+    x: number,
+    y: number,
+    opts?: { skipGrid?: boolean }
+  ) => void;
   /** Open the editor AI agent dock (selection contextual bar). */
   onOpenAgent?: (opts?: { prompt?: string }) => void;
   /** Right-click 銆屾坊鍔犲埌 Chat銆嶁€?one node id, `frame:id`, or multiple selected ids as one group. */
@@ -233,10 +245,14 @@ function SvgCanvas({
   selectedNodeIds = [],
   documentPatchToken = 0,
   lastPatchedNodeIds = [],
+  lastPatchTransformOnly = false,
   onZoomIn,
   onZoomOut,
   onReady,
   onTransformingChange,
+  onFrameMoveStart,
+  onFrameMoveEnd,
+  onFrameMove,
   onOpenAgent,
   onAddToChat,
   embedded = false,
@@ -510,9 +526,13 @@ function SvgCanvas({
     // alone (re-setting a video poster flashes the first frame under the live <video>).
     lastPatchedNodeIds.forEach((id) => {
       if (!id) return;
+      if (lastPatchTransformOnly) {
+        const node = doc.deltaSetLike?.[id];
+        if (previewSvgNodeTransform(board.nodeEls, id, node)) return;
+      }
       void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
     });
-  }, [documentPatchToken, lastPatchedNodeIds, geometryTransforming, boardRef]);
+  }, [documentPatchToken, lastPatchTransformOnly, lastPatchedNodeIds, geometryTransforming, boardRef]);
 
   const cameraZoomRef = useRef(camera.zoom);
   cameraZoomRef.current = camera.zoom;
@@ -742,7 +762,7 @@ function SvgCanvas({
   }, [canvasAttachPick, stageEl, dispatch, camera]);
 
   const onSelectFrame = useCallback(
-    (frameId: string | null) => {
+    (frameId: string | null, opts?: { chrome?: 'soft' | 'full' }) => {
       const pick = canvasAttachPickRef.current;
       if (pick?.target) {
         if (!frameId) {
@@ -756,9 +776,11 @@ function SvgCanvas({
         dispatch(setActiveFrameId(null));
         return;
       }
+      const chrome = opts?.chrome === 'soft' ? 'soft' : 'full';
       dispatch(setSelectedNodeIds([]));
       dispatch(setSelectedNodeId(null));
       dispatch(setActiveFrameId(frameId));
+      dispatch(setFrameChromeMode(chrome));
     },
     [dispatch, completeCanvasAttachPick]
   );
@@ -781,6 +803,8 @@ function SvgCanvas({
       }
       dispatch(setSelectedNodeIds([]));
       dispatch(setSelectedFrameIds(ids));
+      // Marquee / multi frame pick from canvas stays soft (title / layer → full).
+      dispatch(setFrameChromeMode('soft'));
     },
     [dispatch, completeCanvasAttachPick]
   );
@@ -868,6 +892,7 @@ function SvgCanvas({
         if (plateFrame) {
           dispatch(setSelectedNodeIds([]));
           dispatch(setActiveFrameId(plateFrame.id));
+          dispatch(setFrameChromeMode('soft'));
           return;
         }
       }
@@ -2042,6 +2067,9 @@ function SvgCanvas({
               (shapeStylePanelOpen && shapeStylePanel?.kind !== 'radius')
             }
             onTransformingChange={onGeometryTransformingChange}
+            onFrameMoveStart={onFrameMoveStart}
+            onFrameMoveEnd={onFrameMoveEnd}
+            onFrameMove={onFrameMove}
           />
           {!omitNonExportable ? (
             <>

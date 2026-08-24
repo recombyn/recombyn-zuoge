@@ -67,6 +67,7 @@ import {
   openTemplate,
   renameTemplate,
   setActiveFrameId,
+  setFrameChromeMode,
   setMixedSelection,
   setGridMode,
   setSelectedNodeId,
@@ -626,6 +627,9 @@ function EditorPage() {
   const lastPatchedNodeIds = useSelector(
     (state: any) => (state.editor.lastPatchedNodeIds as string[]) ?? EMPTY_ID_LIST
   );
+  const lastPatchTransformOnly = useSelector(
+    (state: any) => Boolean(state.editor.lastPatchTransformOnly)
+  );
   const selectedNodeId = useSelector((state: any) => state.editor.selectedNodeId);
   const selectedNodeIds = useSelector(
     (state: any) => (state.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
@@ -1046,6 +1050,7 @@ function EditorPage() {
   const selectFrameOnMobile = useCallback(
     (frameId: string) => {
       dispatch(setActiveFrameId(frameId));
+      dispatch(setFrameChromeMode('full'));
       setLayersOpen(false);
     },
     [dispatch]
@@ -1510,6 +1515,7 @@ function EditorPage() {
               sceneReloadToken={sceneReloadToken}
               documentPatchToken={documentPatchToken}
               lastPatchedNodeIds={lastPatchedNodeIds}
+              lastPatchTransformOnly={lastPatchTransformOnly}
               selectedNodeId={selectedNodeId}
               selectedNodeIds={selectedNodeIds}
               selectedFrameIds={selectedFrameIds}

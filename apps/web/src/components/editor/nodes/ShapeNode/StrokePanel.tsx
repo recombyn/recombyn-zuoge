@@ -185,7 +185,7 @@ function StrokeStyleField({
 function StrokePanel({
   value,
   onChange,
-  title = '描边',
+  title,
   onClose,
   className,
   showLinecap = true,
@@ -210,6 +210,7 @@ function StrokePanel({
   onLayerVisibleChange?: (visible: boolean) => void;
 }) {
   const { t } = useTranslation();
+  const panelTitle = title ?? t('editor.selectionToolbar.stroke');
   const patch = (partial: Partial<StrokePanelValue>) => onChange({ ...value, ...partial });
   const width = Math.max(0, Math.round(Number(value.width) || 0));
   const align: StrokeAlign =
@@ -222,15 +223,15 @@ function StrokePanel({
 
   return (
     <StylePanelShell
-      title={title}
+      title={panelTitle}
       onClose={onClose}
       width={STROKE_PANEL_WIDTH}
       dataAttr="data-stroke-panel"
       className={className}
       layerVisible={layerVisible}
       onLayerVisibleChange={onLayerVisibleChange}
-      layerVisibleTipShow="显示描边"
-      layerVisibleTipHide="隐藏描边"
+      layerVisibleTipShow={t('editor.selectionToolbar.showStroke')}
+      layerVisibleTipHide={t('editor.selectionToolbar.hideStroke')}
     >
       <div className="flex w-full items-center justify-between gap-1.5">
         <label className="inline-flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-[4px] bg-[var(--accent-soft)] px-2 text-[12px] text-[var(--ink)]">
@@ -343,12 +344,14 @@ export type StrokePanelPopoverProps = {
 function StrokePanelPopover({
   value,
   onChange,
-  title = '描边',
+  title,
   placement = 'bottom-start',
   disabled = false,
   className,
   children,
 }: StrokePanelPopoverProps) {
+  const { t } = useTranslation();
+  const panelTitle = title ?? t('editor.selectionToolbar.stroke');
   const [open, setOpen] = useState(false);
 
   const { refs, floatingStyles, context } = useFloating({
@@ -409,12 +412,12 @@ function StrokePanelPopover({
 
   return (
     <>
-      <Tooltip tip={title} placement="top" disabled={open || !title}>
+      <Tooltip tip={panelTitle} placement="top" disabled={open || !panelTitle}>
         <button
           type="button"
           ref={refs.setReference}
           disabled={disabled}
-          aria-label={title}
+          aria-label={panelTitle}
           aria-expanded={open}
           className={cn(SEL_ICON_BTN, open && SEL_ICON_BTN_ACTIVE, className)}
           {...getReferenceProps({
@@ -436,7 +439,7 @@ function StrokePanelPopover({
             <StrokePanel
               value={value}
               onChange={onChange}
-              title={title}
+              title={panelTitle}
               onClose={() => setOpen(false)}
             />
           </div>

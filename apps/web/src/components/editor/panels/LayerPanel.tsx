@@ -43,6 +43,7 @@ import { cn } from '@/utils/classnames';
 import {
   patchDocumentNode,
   setActiveFrameId,
+  setFrameChromeMode,
   setSelectedNodeId,
   updateArtboardFrame,
   EMPTY_ID_LIST,
@@ -367,7 +368,10 @@ function LayerStackRowView({
           type="button"
           onClick={() => {
             if (onSelectFrame) onSelectFrame(row.id);
-            else dispatch(setActiveFrameId(row.id));
+            else {
+              dispatch(setActiveFrameId(row.id));
+              dispatch(setFrameChromeMode('full'));
+            }
           }}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left',

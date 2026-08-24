@@ -2411,17 +2411,33 @@ export function previewSvgNodeAngle(
 ): boolean {
   const el = nodeEls.get(nodeId);
   if (!el) return false;
+  asHost(el).__sceneAngle = angleDeg;
+  return previewSvgNodeTransform(nodeEls, nodeId);
+}
+
+/** Live-update angle / flip on an existing paint host — no path rebuild. */
+export function previewSvgNodeTransform(
+  nodeEls: Map<string, SVGElement>,
+  nodeId: string,
+  node?: SceneNodeInput | null
+): boolean {
+  const el = nodeEls.get(nodeId);
+  if (!el) return false;
   const geom = readGeom(el);
   if (!geom) return false;
 
   const anyEl = asHost(el);
-  anyEl.__sceneAngle = angleDeg;
+  if (node) {
+    const meta = objectMeta(node);
+    anyEl.__sceneAngle = meta.angle;
+    anyEl.__sceneFlipX = meta.flipX;
+    anyEl.__sceneFlipY = meta.flipY;
+  }
   const baseW = Number(anyEl.__sceneDragBaseW);
   const baseH = Number(anyEl.__sceneDragBaseH);
   const shapeType = String(
     anyEl.sceneShapeType || el.getAttribute('data-scene-shape-type') || ''
   );
-  // Path live-resize already baked sx/sy into `d` — do not CSS-scale again (stroke thickens).
   const pathDScaled =
     isCustomPathShape(shapeType) &&
     el.tagName.toLowerCase() === 'path' &&
@@ -2978,7 +2994,8 @@ export async function replaceSvgNode(
   layer: SVGElement,
   document: SceneDocument,
   nodeEls: Map<string, SVGElement>,
-  nodeId: string
+  nodeId: string,
+  opts?: { /** When false, caller (RcbShapeHost) owns frame clip. Default true. */ applyFrameClip?: boolean }
 ) {
   let gens = replaceGenByMap.get(nodeEls);
   if (!gens) {
@@ -3003,7 +3020,9 @@ export async function replaceSvgNode(
   }
   if (!el) return;
   dedupeSceneNode(layer, nodeId, el);
-  applyFrameContentClip(root, el, document, node);
+  if (opts?.applyFrameClip !== false) {
+    applyFrameContentClip(root, el, document, node);
+  }
   nodeEls.set(nodeId, el);
   try {
     fitInfiniteSvgToContent(root, layer);

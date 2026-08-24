@@ -1,4 +1,4 @@
-﻿import { useRef, useState, memo } from 'react';
+import { useRef, useState, memo } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,6 +18,10 @@ import ImportFileDialog, {
 import type { HomeAgentSubmitPayload } from '@/components/home/HomeAgentComposer';
 import HomeTopBar from '@/components/layout/HomeTopBar';
 import { HomeSidebar, HomeTemplateList, useHomeNav } from '@/components/layout/HomeBody';
+import {
+  homeRailWidthPx,
+  useHomeRailExpanded,
+} from '@/components/layout/useHomeRailExpanded';
 import { store } from '@/store';
 import { importDocument } from '@/store/modules/editor';
 import { parseAndValidateSceneJson } from '@/components/rcb/sceneNode';
@@ -166,6 +170,8 @@ function HomePage() {
   const [importOpen, setImportOpen] = useState(false);
   const { nav, setNav, query, importing, setImporting, importingName, setImportingName } =
     useHomeNav();
+  const [railExpanded] = useHomeRailExpanded();
+  const railPad = homeRailWidthPx(railExpanded);
 
   const handleCreate = () => {
     goEditor({ createNew: true, newWindow: true });
@@ -306,7 +312,10 @@ function HomePage() {
         importing={importing}
         onCreate={handleCreate}
       />
-      <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden md:pl-[64px]">
+      <div
+        className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden transition-[padding] duration-200 ease-out md:pl-[var(--home-rail-w)]"
+        style={{ ['--home-rail-w' as string]: `${railPad}px` }}
+      >
         <HomeTopBar nav={nav} setNav={setNav} />
         <HomeTemplateList
           nav={nav}

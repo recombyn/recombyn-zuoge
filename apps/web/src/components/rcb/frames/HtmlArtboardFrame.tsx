@@ -27,13 +27,17 @@ import {
 import NodeTitleLabel from '../selection/chrome/NodeTitleLabel';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
+  FRAME_HIGHLIGHT_STROKE,
   FRAME_PLATE_STROKE,
   framePlateStrokeSceneWidth,
 } from '@/components/rcb/frames/types';
 
 type HtmlArtboardFrameProps = {
   frame: ArtboardFrame;
+  /** Full chrome selected — plate stroke off (SelectionChrome owns the box). */
   selected?: boolean;
+  /** Soft context focus — blue edge only (interior click / working inside). */
+  highlighted?: boolean;
   onSelect?: () => void;
   onRename?: (name: string) => void;
   /** Drag the label to move the artboard. */
@@ -86,6 +90,7 @@ function paintFramePlate(
   layer: SVGGElement,
   frame: ArtboardFrame,
   selected: boolean,
+  highlighted: boolean,
   generating: boolean,
   zoom: number
 ): SVGGElement {
@@ -134,19 +139,22 @@ function paintFramePlate(
   append(g, plate);
   setFill(plate, bg);
   setAttrs(plate, { 'fill-opacity': backgroundOpacity });
-  // Idle: ~1 CSS px hairline after CSS camera scale (not non-scaling-stroke —
-  // that still thickens under parent `scale(zoom)` and AA-fringes off-grid).
-  // Selected: host chrome owns the blue box.
   plate.removeAttribute('vector-effect');
   if (selected) {
+    // Full chrome owns the blue box — no plate stroke.
     setStroke(plate, 'none');
     plate.removeAttribute('shape-rendering');
+  } else if (highlighted) {
+    setStroke(plate, {
+      color: FRAME_HIGHLIGHT_STROKE,
+      width: framePlateStrokeSceneWidth(zoom),
+    });
+    setAttrs(plate, { 'shape-rendering': 'crispEdges' });
   } else {
     setStroke(plate, {
       color: FRAME_PLATE_STROKE,
       width: framePlateStrokeSceneWidth(zoom),
     });
-    // Prefer hard plate edges vs geometricPrecision soft fringe on deselected.
     setAttrs(plate, { 'shape-rendering': 'crispEdges' });
   }
   return g;
@@ -155,6 +163,7 @@ function paintFramePlate(
 function HtmlArtboardFrame({
   frame,
   selected = false,
+  highlighted = false,
   onSelect,
   onRename,
   onMove,
@@ -209,7 +218,7 @@ function HtmlArtboardFrame({
     sceneLayer.removeAttribute('data-rcb-shape-layer');
     sceneLayer.setAttribute('data-rcb-frame-layer', frame.id);
     sceneLayer.setAttribute('data-z', String(zIndex));
-    const el = paintFramePlate(sceneLayer, frame, selected, generating, z);
+    const el = paintFramePlate(sceneLayer, frame, selected, highlighted, generating, z);
     registerShapeHost({ nodeId: frame.id, root, layer: sceneLayer, el, kind: 'svg' });
     updateShapeHostElement(frame.id, el);
 
@@ -234,9 +243,9 @@ function HtmlArtboardFrame({
     if (layer !== 'body') return;
     const sceneLayer = layerRef.current;
     if (!sceneLayer) return;
-    const el = paintFramePlate(sceneLayer, frame, selected, generating, z);
+    const el = paintFramePlate(sceneLayer, frame, selected, highlighted, generating, z);
     updateShapeHostElement(frame.id, el);
-  }, [layer, selected, generating, z, frame]);
+  }, [layer, selected, highlighted, generating, z, frame]);
 
   // Same as RcbShapeHost: update data-z + reorder without remounting the plate.
   useLayoutEffect(() => {

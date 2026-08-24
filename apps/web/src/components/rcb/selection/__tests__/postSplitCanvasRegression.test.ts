@@ -115,6 +115,66 @@ describe('selectionLogic marquee helpers', () => {
     );
   });
 
+  it('nodeHitsMarquee ignores frame-clipped overflow for filled path like rect', () => {
+    // Frame 0..200; path geom overflows to x=400. Marquee sits entirely outside the frame.
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 800,
+      frames: [{ id: 'f1', x: 0, y: 0, width: 200, height: 400, clipContent: true }],
+      deltaSetLike: {
+        clippedPath: {
+          id: 'clippedPath',
+          key: 'shape',
+          x: 50,
+          y: 50,
+          width: 350,
+          height: 200,
+          attrs: {
+            shapeType: 'path',
+            closed: 'true',
+            path: 'M 0 0 L 350 0 L 350 200 L 0 200 Z',
+            frameId: 'f1',
+          },
+          children: [],
+        },
+        clippedRect: {
+          id: 'clippedRect',
+          key: 'shape',
+          x: 50,
+          y: 50,
+          width: 350,
+          height: 200,
+          attrs: { shapeType: 'rect', frameId: 'f1' },
+          children: [],
+        },
+      },
+    } as SceneDocument;
+    const getNodeBox = (id: string) => {
+      const n = doc.deltaSetLike?.[id];
+      if (!n) return null;
+      return {
+        left: Number(n.x) || 0,
+        top: Number(n.y) || 0,
+        width: Math.max(1, Number(n.width) || 1),
+        height: Math.max(1, Number(n.height) || 1),
+      };
+    };
+    const outsideMarquee = { left: 250, top: 80, width: 40, height: 120 };
+    const toScene = () => ({ x: 0, y: 0 });
+    expect(nodeHitsMarquee(doc, 'clippedRect', outsideMarquee, getNodeBox, toScene, 1)).toBe(
+      false
+    );
+    expect(nodeHitsMarquee(doc, 'clippedPath', outsideMarquee, getNodeBox, toScene, 1)).toBe(
+      false
+    );
+    // Brushing the still-visible remnant inside the frame still selects both.
+    const insideMarquee = { left: 60, top: 60, width: 80, height: 80 };
+    expect(nodeHitsMarquee(doc, 'clippedRect', insideMarquee, getNodeBox, toScene, 1)).toBe(true);
+    expect(nodeHitsMarquee(doc, 'clippedPath', insideMarquee, getNodeBox, toScene, 1)).toBe(true);
+  });
+
   it('nodeHitsMarquee skips locked nodes of every kind (框选)', () => {
     const kinds = [
       { id: 'rect1', key: 'shape', attrs: { shapeType: 'rect', locked: 'true' } },

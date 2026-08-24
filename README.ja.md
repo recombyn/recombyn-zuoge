@@ -102,7 +102,7 @@
 2. トリガーと `preferred_tools` を記入  
 3. 再起動 / seed ensure 後、Decide がアタッチできる
 
-プライベート拡張は [`plugins/skills/`](plugins/skills/) にも置けます（Compose マウント済み）。[docs/skill-extensions.md](docs/skill-extensions.md)
+追加の Skill パックは [`plugins/skills/`](plugins/skills/) にも置けます（Compose マウント済み）。[docs/skill-extensions.md](docs/skill-extensions.md)
 
 Env： [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)。Seeds： [`apps/api/seeds/README.md`](apps/api/seeds/README.md)。モデル： [docs/self-hosting.md](docs/self-hosting.md)。
 
@@ -195,14 +195,14 @@ apps/web/          React キャンバス + Agent UI + Yjs クライアント
   src-tauri/       Tauri v2 デスクトップシェル（Recombyn）
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket サーバー（y-websocket）
-plugins/           プライベート拡張（skills + canvas）— Compose マウント
+plugins/           拡張（skills + canvas）— Compose マウント
 packages/          共有ビルダー & スキーマ
 docs/              セルフホスト、Agent、プラグイン、デスクトップ、キャンバス
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
 
-ユーザー向けヘルプのソースはプライベート管理。CI がビルド成果物だけを本リポジトリの `gh-pages` に載せ、[recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) で公開します。
+ユーザー向けドキュメント：[recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/)（本リポジトリの `gh-pages` から公開）。
 
 ## ドキュメント / コミュニティ
 

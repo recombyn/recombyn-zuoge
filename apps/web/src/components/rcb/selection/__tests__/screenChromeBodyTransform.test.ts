@@ -13,4 +13,14 @@ describe('sceneChromeBodyTransform', () => {
       'translate(10 20) rotate(15 20 15)'
     );
   });
+
+  it('mirrors host flip about the box center after rotate', () => {
+    const box = { left: 10, top: 20, width: 40, height: 30 };
+    expect(sceneChromeBodyTransform(box, 0, true, false)).toBe(
+      'translate(10 20) translate(20 15) scale(-1 1) translate(-20 -15)'
+    );
+    expect(sceneChromeBodyTransform(box, 15, false, true)).toBe(
+      'translate(10 20) rotate(15 20 15) translate(20 15) scale(1 -1) translate(-20 -15)'
+    );
+  });
 });
