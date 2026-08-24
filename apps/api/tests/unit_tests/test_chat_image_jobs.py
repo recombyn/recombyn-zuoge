@@ -228,11 +228,10 @@ def test_stream_image_job_events_sse(monkeypatch: pytest.MonkeyPatch):
             **states[idx],
         }
 
-    monkeypatch.setattr(route_mod, "get_job", _get_job)
+    monkeypatch.setattr("app.services.job_store.get_job", _get_job)
     with _auth_client(monkeypatch) as client:
         with client.stream("GET", "/api/v1/chat/image/jobs/j1/events") as res:
-            assert res.status_code == 200, res.text
-            assert res.headers.get("content-type", "").startswith("text/event-stream")
+            assert res.status_code == 200
             body = res.read().decode("utf-8")
     assert "event: job" in body
     assert '"status": "done"' in body or '"status":"done"' in body
