@@ -240,12 +240,12 @@ def test_turn_from_structured_keeps_design_brief():
 def test_chat_fallback_fills_persona():
     class _RT:
         chat_fallback_tmpl = "你好，{persona}。可以说说你想改画布的什么。"
-        persona = "Recombyn Auto 设计助手"
+        persona = "zuoge 设计助手"
         prompt = "你好"
 
     text = _chat_fallback_text(_RT())
     assert "{persona}" not in text
-    assert "Recombyn Auto 设计助手" in text
+    assert "zuoge 设计助手" in text
 
 
 def test_heuristic_user_intent_gate():

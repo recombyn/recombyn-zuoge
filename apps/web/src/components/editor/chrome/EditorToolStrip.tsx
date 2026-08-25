@@ -26,13 +26,11 @@ import { Dropdown, Tooltip, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import {
-  uploadImageFile,
   readFileAsDataUrl,
-  beginNodeUpload,
-  finishNodeUpload,
   isUploadAbortError,
-  waitForImageReady,
+  uploadImageFile,
 } from '@/utils/uploadImage';
+import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import store from '@/store';
 import {
   setActiveTool,
@@ -690,22 +688,7 @@ function EditorToolStrip({
       const spawnedId = String(
         (store.getState() as any).editor?.pendingImageProcessId || ''
       );
-      const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
-      try {
-        const uploaded = await uploadImageFile(file, { signal });
-        if (signal?.aborted) return;
-        const remoteReady = await waitForImageReady(uploaded.url, { signal });
-        if (signal?.aborted) return;
-        dispatch(
-          finishImageProcess({
-            nodeId: spawnedId || undefined,
-            ...(remoteReady ? { src: uploaded.url } : {}),
-            attrs: uploaded.key ? { uploadKey: uploaded.key } : undefined,
-          })
-        );
-      } finally {
-        finishNodeUpload(spawnedId);
-      }
+      await uploadCanvasPlaceholderFile({ dispatch, nodeId: spawnedId, file });
     } catch (err: any) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({}));
@@ -736,20 +719,22 @@ function EditorToolStrip({
           duration: prepared.duration,
         })
       );
-      const uploaded = await uploadImageFile(file);
-      dispatch(
-        finishImageProcess({
-          src: uploaded.url,
-          attrs: {
-            ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-            ...(prepared.poster ? { poster: prepared.poster } : {}),
-            ...(Number.isFinite(prepared.duration) && prepared.duration > 0
-              ? { duration: prepared.duration }
-              : {}),
-            assetKind: 'video',
-          },
-        })
+      const spawnedId = String(
+        (store.getState() as any).editor?.pendingImageProcessId || ''
       );
+      await uploadCanvasPlaceholderFile({
+        dispatch,
+        nodeId: spawnedId,
+        file,
+        waitDecode: false,
+        extraAttrs: {
+          ...(prepared.poster ? { poster: prepared.poster } : {}),
+          ...(Number.isFinite(prepared.duration) && prepared.duration > 0
+            ? { duration: prepared.duration }
+            : {}),
+          assetKind: 'video',
+        },
+      });
     } catch (err: any) {
       dispatch(failImageProcess({}));
       message.error(getHttpErrorMessage(err, L.uploadFail));

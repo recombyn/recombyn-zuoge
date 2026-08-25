@@ -7,13 +7,10 @@ import {
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import { rcbCenterOnPoint, type RcbCamera } from '@/components/rcb';
 import {
-  beginNodeUpload,
-  finishNodeUpload,
   isUploadAbortError,
   toDisplayMediaUrl,
-  uploadImageFromSrc,
-  waitForImageReady,
 } from '@/utils/uploadImage';
+import { uploadCanvasPlaceholderSrc } from '@/utils/canvasUploadFlow';
 import {
   dataTransferHasChatImage,
   dataTransferHasMediaAsset,
@@ -22,12 +19,11 @@ import {
   clearMediaAssetDragData,
   type MediaAssetDragPayload,
 } from '@/utils/chatImageDrag';
-import { message } from '@/components/base';
 import { getHttpErrorMessage } from '@/service/client';
+import { message } from '@/components/base';
 import store from '@/store';
 import {
   failImageProcess,
-  finishImageProcess,
   placeMediaAsset,
   startImageUploadPlaceholder,
 } from '@/store/modules/editor';
@@ -224,22 +220,12 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
       const spawnedId = String(
         (store.getState() as any).editor?.pendingImageProcessId || ''
       );
-      const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
-      try {
-        const uploaded = await uploadImageFromSrc(url, 'chat-image.png', { signal });
-        if (signal?.aborted) return;
-        const remoteReady = await waitForImageReady(uploaded.url, { signal });
-        if (signal?.aborted) return;
-        dispatch(
-          finishImageProcess({
-            nodeId: spawnedId || undefined,
-            ...(remoteReady ? { src: uploaded.url } : {}),
-            attrs: uploaded.key ? { uploadKey: uploaded.key } : undefined,
-          })
-        );
-      } finally {
-        finishNodeUpload(spawnedId);
-      }
+      await uploadCanvasPlaceholderSrc({
+        dispatch,
+        nodeId: spawnedId,
+        src: url,
+        filename: 'chat-image.png',
+      });
     };
 
     const onDrop = async (e: DragEvent) => {

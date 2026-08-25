@@ -64,17 +64,14 @@ import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboa
 import { previewSvgNodeTransform } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   abortNodeUpload,
-  beginNodeUpload,
-  finishNodeUpload,
   isUploadAbortError,
-  uploadImageFile,
   readFileAsDataUrl,
-  waitForImageReady,
 } from '@/utils/uploadImage';
-import { getHttpErrorMessage } from '@/service/client';
+import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import { probeAudioDuration } from '@/components/editor/nodes/shared/mediaProbe';
 import store, { type RootState } from '@/store';
 import { message } from '@/components/base';
+import { getHttpErrorMessage } from '@/service/client';
 import { useTranslation } from 'react-i18next';
 import {
   cssPreviewForGradient,
@@ -1582,23 +1579,7 @@ function SvgCanvas({
       );
       finishToSelect();
       spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
-      const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
-      try {
-        const uploaded = await uploadImageFile(file, { signal });
-        if (signal?.aborted) return;
-        const remoteReady = await waitForImageReady(uploaded.url, { signal });
-        if (signal?.aborted) return;
-        dispatch(
-          finishImageProcess({
-            nodeId: spawnedId || undefined,
-            // Keep local preview until the remote URL is fully decoded.
-            ...(remoteReady ? { src: uploaded.url } : {}),
-            attrs: uploaded.key ? { uploadKey: uploaded.key } : undefined,
-          })
-        );
-      } finally {
-        finishNodeUpload(spawnedId);
-      }
+      await uploadCanvasPlaceholderFile({ dispatch, nodeId: spawnedId, file });
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({ nodeId: spawnedId || undefined }));
@@ -1631,20 +1612,20 @@ function SvgCanvas({
         })
       );
       finishToSelect();
-      const uploaded = await uploadImageFile(file);
-      dispatch(
-        finishImageProcess({
-          src: uploaded.url,
-          attrs: {
-            ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-            ...(prepared.poster ? { poster: prepared.poster } : {}),
-            ...(Number.isFinite(prepared.duration) && prepared.duration > 0
-              ? { duration: prepared.duration }
-              : {}),
-            assetKind: 'video',
-          },
-        })
-      );
+      const spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
+      await uploadCanvasPlaceholderFile({
+        dispatch,
+        nodeId: spawnedId,
+        file,
+        waitDecode: false,
+        extraAttrs: {
+          ...(prepared.poster ? { poster: prepared.poster } : {}),
+          ...(Number.isFinite(prepared.duration) && prepared.duration > 0
+            ? { duration: prepared.duration }
+            : {}),
+          assetKind: 'video',
+        },
+      });
     } catch (err: unknown) {
       dispatch(failImageProcess({}));
       message.error(getHttpErrorMessage(err, '视频上传失败'));
@@ -1681,17 +1662,17 @@ function SvgCanvas({
         })
       );
       finishToSelect();
-      const uploaded = await uploadImageFile(file);
-      dispatch(
-        finishImageProcess({
-          src: uploaded.url,
-          attrs: {
-            ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-            ...(duration ? { duration } : {}),
-            assetKind: 'audio',
-          },
-        })
-      );
+      const spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
+      await uploadCanvasPlaceholderFile({
+        dispatch,
+        nodeId: spawnedId,
+        file,
+        waitDecode: false,
+        extraAttrs: {
+          ...(duration ? { duration } : {}),
+          assetKind: 'audio',
+        },
+      });
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({}));

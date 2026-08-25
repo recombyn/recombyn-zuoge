@@ -24,7 +24,7 @@
   <p><strong>做个，设计从未如此简单</strong></p>
 </div>
 
-**左格**（拼音 / 拉丁品牌名 **zuoge**，口语意思就是「**做个**」）是一个开源的 AI 设计工作台，提供可编辑的无限矢量画布与 Design Agent。产品口号是：**做个，设计从未如此简单**——用自然语言创建和修改图形、文字、布局与样式，也可以在画布中继续精细编辑，并通过 Docker Compose 自托管。
+**左格**是一个开源的 AI 设计工作台，提供可编辑的无限矢量画布与 Design Agent。产品口号是：**做个，设计从未如此简单**——用自然语言创建和修改图形、文字、布局与样式，也可以在画布中继续精细编辑，并通过 Docker Compose 自托管。
 
 内置 Design Agent（LangGraph）：自然语言就能建图层、画图形、改样式、排版布局。自带多套 Skill，也可自定义 Skill / AgentProfile（YAML）/ 提示词包，扩展海报、仪表盘、落地页等品类；做完后仍可在矢量画布上精细改。
 
@@ -34,7 +34,7 @@
 
 ## 帮忙点个 ⭐ Star
 
-开源不易，如果觉得左格（zuoge）对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
+开源不易，如果觉得左格对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
 
 → [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 

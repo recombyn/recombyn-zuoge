@@ -21,6 +21,7 @@ import {
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
+import UploadJobWatcher from '@/components/editor/nodes/shared/UploadJobWatcher';
 import GeneratorJobRecoveryHost from '@/components/editor/nodes/shared/GeneratorJobRecoveryHost';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
 import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
@@ -838,6 +839,7 @@ function EditorStageWorld({
         <SmartGuidesOverlay guides={frameSmartGuides} />
 
         <ImageProcessWatcher />
+        <UploadJobWatcher />
         <GeneratorJobRecoveryHost />
         <ImageToolPanelHost document={document} />
         <ShapeStylePanelHost document={document} />

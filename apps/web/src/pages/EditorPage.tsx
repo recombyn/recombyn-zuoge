@@ -17,11 +17,19 @@ import {
 } from '@/utils/homeAgentBoot';
 import { withReturnTo } from '@/utils/authReturnTo';
 import {
+  buildEditorProjectPath,
+  clearEditorProjectNavigationLock,
+  lockEditorProjectNavigation,
+  publishEditorProjectLocally,
+  readEditorProjectNavigationLock,
+  shouldSyncEditorRoute,
+} from '@/utils/editorProjectNavigation';
+import {
   SESSION_CAMERA_EVENT,
   type SessionCameraDetail,
 } from '@/utils/sessionCamera';
 import { store } from '@/store';
-import { useProjectCloudSync, flushCurrentProjectNow, ProjectRevisionConflictDialog } from '@/components/editor/useProjectCloudSync';
+import { useProjectCloudSync, flushCurrentProjectNow, ProjectRevisionConflictDialog, renameProjectOnCloud } from '@/components/editor/useProjectCloudSync';
 import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvider';
 import { isCollabActive } from '@/components/editor/collab/collabRuntime';
 import type { ComposerContext } from '@/components/editor/panels/AgentComposerInput';
@@ -60,6 +68,7 @@ import {
   getProjectDraft,
   getProjectSession,
   putProjectDraft,
+  writeUnsyncedProjectDraft,
   putProjectSession,
 } from '@/components/editor/projectDraftStore';
 import {
@@ -349,15 +358,7 @@ function persistUnsyncedDraft(
   draft: NonNullable<EditorProjectDraft>,
   name: string
 ) {
-  void putProjectDraft({
-    projectId: targetId,
-    name,
-    document: draft.document,
-    updatedAt: draft.updatedAt || Date.now(),
-    syncedAt: null,
-    cloudRevision: null,
-    baseDocument: null,
-  });
+  writeUnsyncedProjectDraft(targetId, name, draft.document);
 }
 
 /** Keep /editor/:id when cloud has no row yet 鈥?never mint a second nanoid. */
@@ -376,15 +377,7 @@ function seedLocalProjectForUrl(
       dirty: true,
     })
   );
-  void putProjectDraft({
-    projectId: targetId,
-    name,
-    document,
-    updatedAt: Date.now(),
-    syncedAt: null,
-    cloudRevision: null,
-    baseDocument: null,
-  });
+  writeUnsyncedProjectDraft(targetId, name, document);
 }
 
 async function hydrateShareTarget(
@@ -648,6 +641,7 @@ function EditorPage() {
   // Persist share-edit sessions back to the shares API (not projects).
   // When a Yjs room is active, CollabRoomProvider owns the debounced write.
   const shareSaveTimer = useRef<number | null>(null);
+  const renameCloudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!currentId?.startsWith('share_') || !document) return undefined;
     if (isCollabActive()) return undefined;
@@ -785,6 +779,9 @@ function EditorPage() {
   // Home "New project" / URL projectId / post-login ?from= intent (URL query).
   useEffect(() => {
     let cancelled = false;
+    const cleanup = () => {
+      cancelled = true;
+    };
     const params = new URLSearchParams(location.search);
     const createNew = params.get('createNew') === '1';
     const fromHomeAgent = params.get('fromHomeAgent') === '1';
@@ -798,68 +795,53 @@ function EditorPage() {
         templates?: { id: string; name?: string }[];
       };
       const id = String(ed?.currentId || '');
-      // Persist before first edit so refresh / hydrate won't GET a missing cloud row.
       if (id && ed.document) {
         const name =
           ed.templates?.find((x) => x.id === id)?.name || t('home.untitled');
-        void putProjectDraft({
-          projectId: id,
-          name,
-          document: ed.document,
-          updatedAt: Date.now(),
-          syncedAt: null,
-          cloudRevision: null,
-          baseDocument: null,
-        });
+        writeUnsyncedProjectDraft(id, name, ed.document);
       }
-      // Jump straight to /editor/:id so we never rely on a second remounting route.
       if (id) {
-        navigate(
-          fromHomeAgent
-            ? `/editor/${encodeURIComponent(id)}?fromHomeAgent=1`
-            : `/editor/${encodeURIComponent(id)}`,
-          { replace: true }
-        );
+        lockEditorProjectNavigation(id);
+        navigate(buildEditorProjectPath(id, fromHomeAgent ? '?fromHomeAgent=1' : ''), {
+          replace: true,
+        });
       } else {
         navigate(fromHomeAgent ? '/editor?fromHomeAgent=1' : '/editor', { replace: true });
       }
-      return () => {
-        cancelled = true;
-      };
+      return cleanup;
     }
 
     if (targetId) {
-      if (currentId === targetId && document) {
-        return () => {
-          cancelled = true;
-        };
+      const navLockId = readEditorProjectNavigationLock();
+      if (navLockId && currentId === navLockId) {
+        if (document) {
+          clearEditorProjectNavigationLock();
+          if (targetId !== navLockId) {
+            navigate(buildEditorProjectPath(navLockId, location.search), { replace: true });
+          }
+        }
+        return cleanup;
       }
+
+      if (currentId === targetId && document) return cleanup;
+
       const local = templates.find((x) => x.id === targetId);
       if (local?.document) {
         dispatch(openTemplate(targetId));
-        return () => {
-          cancelled = true;
-        };
+        return cleanup;
       }
 
-      // Shared document edit 鈥?same EditorPage chrome; persist via shares API.
       if (targetId.startsWith('share_')) {
         void hydrateShareTarget(targetId, dispatch, navigate, t, () => cancelled);
-        return () => {
-          cancelled = true;
-        };
+        return cleanup;
       }
 
       void hydrateCloudProject(targetId, dispatch, t, () => cancelled);
-      return () => {
-        cancelled = true;
-      };
+      return cleanup;
     }
 
     if (!document) dispatch(createTemplate({ emptyWorld: true }));
-    return () => {
-      cancelled = true;
-    };
+    return cleanup;
     // Only re-run when route / nav intent changes 鈥?not on every doc edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, routeProjectId, location.search, navigate, t]);
@@ -970,18 +952,8 @@ function EditorPage() {
   useEffect(() => {
     if (!currentId) return;
     const pathId = decodeURIComponent((routeProjectId || '').trim());
-    if (pathId === currentId) return;
-    const params = new URLSearchParams(location.search);
-    const q = new URLSearchParams();
-    if (params.get('fromHomeAgent') === '1') q.set('fromHomeAgent', '1');
-    const search = q.toString();
-    navigate(
-      {
-        pathname: `/editor/${encodeURIComponent(currentId)}`,
-        search: search ? `?${search}` : '',
-      },
-      { replace: true }
-    );
+    if (!shouldSyncEditorRoute(pathId, currentId)) return;
+    navigate(buildEditorProjectPath(currentId, location.search), { replace: true });
   }, [currentId, routeProjectId, navigate, location.search]);
 
   const openAgentPanel = useCallback((opts?: { prompt?: string }) => {
@@ -1037,16 +1009,26 @@ function EditorPage() {
     if (!doc) return;
     const current = editor.templates?.find((t: any) => t.id === editor.currentId);
     const baseName = current?.name || t('home.untitled');
+    const newName = `${baseName} ${t('editor.projectMenu.duplicateSuffix')}`;
     dispatch(
       createTemplate({
-        name: `${baseName} ${t('editor.projectMenu.duplicateSuffix')}`,
+        name: newName,
         document: structuredClone(doc),
         source: 'user',
+        dirty: true,
       })
     );
     const newId = (store.getState() as any).editor?.currentId;
-    if (newId) navigate(`/editor/${encodeURIComponent(newId)}`, { replace: true });
-  }, [dispatch, navigate, t]);
+    const newDoc = (store.getState() as any).editor?.document;
+    if (!newId || !newDoc) return;
+    await publishEditorProjectLocally({
+      projectId: newId,
+      name: newName,
+      document: newDoc,
+      navigate,
+      locationSearch: location.search,
+    });
+  }, [dispatch, location.search, navigate, t]);
 
   const importJsonFromEditor = useCallback(
     async (file: File) => {
@@ -1058,21 +1040,31 @@ function EditorPage() {
           message.error(t('home.importJsonInvalid'));
           return;
         }
+        const importedName = file.name.replace(/\.json$/i, '');
         dispatch(
           importDocument({
-            name: file.name.replace(/\.json$/i, ''),
+            name: importedName,
             document: validation.data,
             source: 'import',
+            dirty: true,
           })
         );
         message.success(t('home.importSuccess'));
         const id = (store.getState() as any).editor?.currentId;
-        if (id) navigate(`/editor/${encodeURIComponent(id)}`, { replace: true });
+        const importedDoc = (store.getState() as any).editor?.document;
+        if (!id || !importedDoc) return;
+        await publishEditorProjectLocally({
+          projectId: id,
+          name: importedName,
+          document: importedDoc,
+          navigate,
+          locationSearch: location.search,
+        });
       } catch {
         message.error(t('home.importJsonFailed'));
       }
     },
-    [dispatch, navigate, t]
+    [dispatch, location.search, navigate, t]
   );
 
   const renameProjectFromChrome = useCallback(
@@ -1080,10 +1072,22 @@ function EditorPage() {
       dispatch(renameTemplate(name));
       const id = String((store.getState() as any).editor?.currentId || '').trim();
       if (!id) return;
-      // Keep Home / 最近 list in sync — rename alone only updates Redux + dirty flush.
-      patchProjectNameInListCache(id, String(name || '').trim() || 'Untitled');
+      const nextName = String(name || '').trim() || 'Untitled';
+      patchProjectNameInListCache(id, nextName);
+      if (renameCloudTimer.current) clearTimeout(renameCloudTimer.current);
+      renameCloudTimer.current = setTimeout(() => {
+        renameCloudTimer.current = null;
+        void renameProjectOnCloud(id, nextName);
+      }, 400);
     },
     [dispatch]
+  );
+
+  useEffect(
+    () => () => {
+      if (renameCloudTimer.current) clearTimeout(renameCloudTimer.current);
+    },
+    []
   );
 
   const agentOpenNonce = useSelector((s: any) => Number(s.editor.agentOpenNonce) || 0);

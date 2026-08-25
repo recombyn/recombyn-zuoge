@@ -489,24 +489,58 @@ def _cov_pick_nodes(document: dict[str, Any]) -> list[dict[str, Any]]:
     delta = document.get("deltaSetLike")
     if not isinstance(delta, dict):
         return []
+    start_ids = _cov_page_child_ids(document, delta)
+    ranked: list[tuple[int, float, int, dict[str, Any]]] = []
+    _cov_collect_visual_nodes(delta, start_ids, ranked, z_offset=0)
+    ranked.sort(key=lambda t: (t[0], -t[1], -t[2]))
+    return [t[3] for t in ranked[:_MAX_COVER_TILES]]
+
+
+def _cov_page_child_ids(document: dict[str, Any], delta: dict[str, Any]) -> list[str]:
+    pages = document.get("pages")
+    if isinstance(pages, list) and pages:
+        page0 = pages[0]
+        if isinstance(page0, dict) and isinstance(page0.get("children"), list):
+            kids = [str(c).strip() for c in page0["children"] if str(c or "").strip()]
+            if kids:
+                return kids
+    raw = document.get("pageChildren")
+    if isinstance(raw, list) and raw:
+        return [str(c).strip() for c in raw if str(c or "").strip()]
     root = delta.get("ROOT")
     children = root.get("children") if isinstance(root, dict) else None
-    if not isinstance(children, list):
-        children = []
-    ranked: list[tuple[int, float, int, dict[str, Any]]] = []
-    for z, nid in enumerate(children):
+    if isinstance(children, list):
+        return [str(c).strip() for c in children if str(c or "").strip()]
+    return []
+
+
+def _cov_collect_visual_nodes(
+    delta: dict[str, Any],
+    node_ids: list[str],
+    ranked: list[tuple[int, float, int, dict[str, Any]]],
+    *,
+    z_offset: int,
+) -> None:
+    for z, nid in enumerate(node_ids):
         node = delta.get(str(nid))
-        if not isinstance(node, dict) or not _cov_has_visual(node):
+        if not isinstance(node, dict):
+            continue
+        key = str(node.get("key") or "")
+        if key == "frame":
+            kids = node.get("children")
+            if isinstance(kids, list) and kids:
+                child_ids = [str(c).strip() for c in kids if str(c or "").strip()]
+                _cov_collect_visual_nodes(
+                    delta, child_ids, ranked, z_offset=z_offset + z + 1
+                )
+            continue
+        if not _cov_has_visual(node):
             continue
         w = max(1.0, _cov_num(node.get("width"), 1))
         h = max(1.0, _cov_num(node.get("height"), 1))
         if min(w, h) < _MIN_COVER_EDGE and w * h < _MIN_COVER_EDGE * _MIN_COVER_EDGE:
             continue
-        key = str(node.get("key") or "")
-        ranked.append((_cov_type_rank(key), w * h, z, {**node, "id": str(nid)}))
-    # Prefer media, then larger, then later z (newer / on top).
-    ranked.sort(key=lambda t: (t[0], -t[1], -t[2]))
-    return [t[3] for t in ranked[:_MAX_COVER_TILES]]
+        ranked.append((_cov_type_rank(key), w * h, z_offset + z, {**node, "id": str(nid)}))
 
 
 def _cov_media_src(node: dict[str, Any]) -> str | None:
@@ -558,8 +592,10 @@ def _cov_raster_shape(node: dict[str, Any]) -> bytes | None:
     canvas_w = out_w + pad * 2
     canvas_h = out_h + pad * 2
 
-    fill = _cov_parse_rgba(attrs.get("fill-color"))
-    stroke = _cov_parse_rgba(attrs.get("border-color"))
+    fill = _cov_parse_rgba(
+        attrs.get("fill-color") or attrs.get("fill") or node.get("fill")
+    )
+    stroke = _cov_parse_rgba(attrs.get("border-color") or node.get("stroke"))
     sw_raw = attrs.get("border-width")
     stroke_w = max(0.0, _cov_num(sw_raw, 0)) * scale
     if stroke is None and stroke_w <= 0:

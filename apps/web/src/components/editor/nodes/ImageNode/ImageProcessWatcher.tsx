@@ -1,23 +1,25 @@
 import { useEffect, useRef, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { message } from '@/components/base';
-import { processImageTool, useImageToolCapabilities } from '@/service/imageTools';
+import {
+  processJobAttrPatch,
+  readProcessJobIds,
+  stripProcessProgressLabel,
+} from '@/components/rcb/scene/document/processJobAttrs';
+import {
+  AI_IMAGE_PROCESS_KINDS,
+  processImageToolAsync,
+  useImageToolCapabilities,
+  type ImageProcessResult,
+} from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
 import { apiQuery, getHttpErrorMessage, getHttpStatus, queryClient } from '@/service/client';
-import { failImageProcess, finishImageProcess } from '@/store/modules/editor';
-import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
-
-const AI_KINDS = new Set([
-  'upscale',
-  'removeBg',
-  'eraser',
-  'multiAngle',
-  'expand',
-  'editText',
-  'editElements',
-  'replaceText',
-  'adjust',
-]);
+import {
+  failImageProcess,
+  finishImageProcess,
+  patchDocumentNode,
+} from '@/store/modules/editor';
+import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const DECOMPOSE_KINDS = new Set(['editText', 'editElements']);
 
@@ -66,7 +68,6 @@ async function persistProcessedSrc(src: string, filename: string): Promise<strin
 
 async function refreshWallet() {
   try {
-    // Force refresh after spend — share cache key with App / AccountSettings.
     await queryClient.fetchQuery({
       ...apiQuery.walletWalletMe.queryOptions(),
       staleTime: 0,
@@ -109,10 +110,56 @@ function buildFinishAttrsForKind(
   return undefined;
 }
 
+async function finishDecomposeResult(
+  dispatch: ReturnType<typeof useDispatch>,
+  pendingId: string,
+  kind: string,
+  res: ImageProcessResult,
+  cancelled: () => boolean
+) {
+  const layers = Array.isArray(res?.layers) ? res.layers : [];
+  if (!layers.length || !DECOMPOSE_KINDS.has(kind)) return false;
+
+  const persisted = await Promise.all(
+    layers.map(async (layer: any, i: number) => {
+      const src = String(layer?.src || '').trim();
+      if (!src || String(layer?.type) === 'text' || /^https?:\/\//i.test(src)) return layer;
+      return { ...layer, src: await persistProcessedSrc(src, `${kind}-layer-${i + 1}.png`) };
+    })
+  );
+  if (cancelled()) return true;
+
+  dispatch(
+    finishImageProcess({
+      nodeId: pendingId,
+      layers: persisted,
+      sourceWidth: Number(res.width) || undefined,
+      sourceHeight: Number(res.height) || undefined,
+    })
+  );
+  const warn = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
+  if (warn.length) {
+    message.warning(warn.slice(0, 3).join('；'));
+  } else {
+    const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
+    const rasterCount = layers.filter((l: any) => l?.letteringText).length;
+    if (kind === 'editElements') {
+      message.success('图片分层完成（可单独改主体/文字）');
+    } else if (rasterCount > 0 && textCount > 0) {
+      message.success(`文字识别完成（${textCount} 处可编辑，${rasterCount} 处艺术字保留为图片）`);
+    } else if (textCount > 0) {
+      message.success(`文字识别完成（${textCount} 处可编辑）`);
+    } else {
+      message.success('文字识别完成');
+    }
+  }
+  await refreshWallet();
+  return true;
+}
+
 /**
- * Completes spawned image process jobs via backend AI (`POST /api/v1/image/process`).
- * Results are uploaded to our file server so the canvas / export use our URLs.
- * Import / upload placeholders are finished by their own flows.
+ * Completes spawned image process jobs via async backend jobs + SSE progress.
+ * Results are uploaded to our file server when still inline data URLs.
  */
 function ImageProcessWatcher() {
   const dispatch = useDispatch();
@@ -127,11 +174,11 @@ function ImageProcessWatcher() {
     const doc = documentRef.current;
     const node = doc?.deltaSetLike?.[pendingId];
     const kind = String(node?.attrs?.processKind || '');
-    // Local import/upload finish in their own flows.
     if (kind === 'import' || kind === 'upload') return undefined;
 
     let cancelled = false;
     const ac = new AbortController();
+    const isCancelled = () => cancelled;
 
     const fail = (msg: string) => {
       if (cancelled) return;
@@ -140,8 +187,7 @@ function ImageProcessWatcher() {
     };
 
     const run = async () => {
-      if (!AI_KINDS.has(kind)) {
-        // Local-only kinds (eraser etc.) should not land here.
+      if (!AI_IMAGE_PROCESS_KINDS.has(kind)) {
         await new Promise((r) => window.setTimeout(r, 400));
         if (!cancelled) dispatch(finishImageProcess({ nodeId: pendingId }));
         return;
@@ -160,6 +206,7 @@ function ImageProcessWatcher() {
       const w = Number(liveNode?.width) || Number(sourceNode?.width) || 1024;
       const h = Number(liveNode?.height) || Number(sourceNode?.height) || 1024;
       const meta = parseMeta(liveNode?.attrs?.processMeta);
+      const labelBase = stripProcessProgressLabel(String(liveNode?.attrs?.processLabel || ''));
 
       try {
         const processBody: {
@@ -179,47 +226,39 @@ function ImageProcessWatcher() {
         if (aspect) processBody.aspect_ratio = aspect;
         const resolution = resolutionFor(kind, liveNode);
         if (resolution) processBody.resolution = resolution;
-        const res = await processImageTool(processBody, { signal: ac.signal });
-        if (cancelled) return;
 
-        const layers = Array.isArray(res?.layers) ? res.layers : [];
-        if (layers.length > 0 && DECOMPOSE_KINDS.has(kind)) {
-          const persisted = await Promise.all(
-            layers.map(async (layer: any, i: number) => {
-              const src = String(layer?.src || '').trim();
-              if (!src || String(layer?.type) === 'text') return layer;
-              const url = await persistProcessedSrc(src, `${kind}-layer-${i + 1}.png`);
-              return { ...layer, src: url };
-            })
-          );
+        const existingJobIds = readProcessJobIds(liveNode);
+        const onProgress = (pct: number) => {
           if (cancelled) return;
           dispatch(
-            finishImageProcess({
+            patchDocumentNode({
               nodeId: pendingId,
-              layers: persisted,
-              sourceWidth: Number(res.width) || undefined,
-              sourceHeight: Number(res.height) || undefined,
+              skipHistory: true,
+              patch: {
+                attrs: { processLabel: `${labelBase} ${Math.round(pct)}%` },
+              },
             })
           );
-          const warn = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
-          if (warn.length) {
-            message.warning(warn.slice(0, 3).join('；'));
-          } else {
-            const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
-            const rasterCount = layers.filter((l: any) => l?.letteringText).length;
-            if (kind === 'editElements') {
-              message.success('图片分层完成（可单独改主体/文字）');
-            } else if (rasterCount > 0 && textCount > 0) {
-              message.success(`文字识别完成（${textCount} 处可编辑，${rasterCount} 处艺术字保留为图片）`);
-            } else if (textCount > 0) {
-              message.success(`文字识别完成（${textCount} 处可编辑）`);
-            } else {
-              message.success('文字识别完成');
-            }
-          }
-          await refreshWallet();
-          return;
-        }
+        };
+
+        const res = await processImageToolAsync(processBody, {
+          signal: ac.signal,
+          jobId: existingJobIds[0],
+          onProgress,
+          onJobCreated: (jobId) => {
+            if (cancelled) return;
+            dispatch(
+              patchDocumentNode({
+                nodeId: pendingId,
+                skipHistory: true,
+                patch: { attrs: processJobAttrPatch([jobId]) },
+              })
+            );
+          },
+        });
+        if (cancelled) return;
+
+        if (await finishDecomposeResult(dispatch, pendingId, kind, res, isCancelled)) return;
 
         if (!res?.image) {
           fail('图片处理未返回结果');
@@ -265,7 +304,6 @@ function ImageProcessWatcher() {
       cancelled = true;
       ac.abort();
     };
-    // Only re-run when a new job id is pending — not on every document edit.
   }, [pendingId, dispatch]);
 
   return null;

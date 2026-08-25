@@ -10,6 +10,7 @@ import {
   isVideoGeneratorNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { readProcessJobIds, isStaleProcessJob } from '@/components/rcb/scene/document/processJobAttrs';
+import { AI_IMAGE_PROCESS_KINDS } from '@/service/imageTools';
 import {
   captureVideoPosterFrame,
   parseLottieAnimationData,
@@ -33,19 +34,6 @@ import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const RECOVERABLE_KINDS = new Set(['generate', 'quickEdit']);
 
-/** AI tool clones finished by ImageProcessWatcher (not chat media jobs). */
-export const AI_PROCESS_RESUME_KINDS = new Set([
-  'upscale',
-  'removeBg',
-  'eraser',
-  'multiAngle',
-  'expand',
-  'editText',
-  'editElements',
-  'replaceText',
-  'adjust',
-]);
-
 import {
   pickAudioUrl,
   pickVideoUrl,
@@ -66,6 +54,19 @@ export function listRecoverableGeneratorNodes(
   return out;
 }
 
+/** First upload placeholder that UploadJobWatcher should resume after refresh. */
+export function findResumableUploadNodeId(
+  document: SceneDocument | null | undefined
+): string | null {
+  if (!document?.deltaSetLike) return null;
+  for (const [nodeId, node] of Object.entries(document.deltaSetLike)) {
+    if (!node || String(node.attrs?.processStatus || '') !== 'running') continue;
+    if (String(node.attrs?.processKind || '').trim() !== 'upload') continue;
+    return nodeId;
+  }
+  return null;
+}
+
 /** First AI-tool process placeholder that ImageProcessWatcher should resume. */
 export function findResumableAiProcessNodeId(
   document: SceneDocument | null | undefined
@@ -74,7 +75,7 @@ export function findResumableAiProcessNodeId(
   for (const [nodeId, node] of Object.entries(document.deltaSetLike)) {
     if (!node || String(node.attrs?.processStatus || '') !== 'running') continue;
     const kind = String(node.attrs?.processKind || '').trim();
-    if (AI_PROCESS_RESUME_KINDS.has(kind)) return nodeId;
+    if (AI_IMAGE_PROCESS_KINDS.has(kind)) return nodeId;
   }
   return null;
 }

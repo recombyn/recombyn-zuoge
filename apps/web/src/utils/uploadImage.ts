@@ -8,6 +8,7 @@ import {
   uploadFiles,
   type UploadedFileItem,
 } from '@/service/upload';
+import { uploadFileViaJob, dispatchUploadJobCreated, uploadTimeoutForMime } from '@/service/uploadJobs';
 import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
@@ -44,6 +45,11 @@ export function finishNodeUpload(nodeId: string | null | undefined): void {
   nodeUploadAborts.delete(id);
 }
 
+export function hasActiveNodeUpload(nodeId: string | null | undefined): boolean {
+  const id = String(nodeId || '').trim();
+  return id ? nodeUploadAborts.has(id) : false;
+}
+
 export function isUploadAbortError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { name?: string; code?: string; message?: string };
@@ -58,19 +64,45 @@ export function isUploadAbortError(err: unknown): boolean {
 /** Upload a single image/video and return its public/display URL. */
 export async function uploadImageFile(
   file: File,
-  opts?: { signal?: AbortSignal }
+  opts?: {
+    signal?: AbortSignal;
+    onJobCreated?: (jobId: string) => void;
+    jobId?: string;
+    dispatch?: (action: unknown) => unknown;
+    nodeId?: string;
+  }
 ): Promise<UploadedFileItem> {
-  const form = new FormData();
-  form.append('files', file, file.name);
-  const kind = String(file.type || '');
-  const isHeavy = kind.startsWith('video/') || kind.startsWith('audio/');
-  const res = await uploadFiles(form, {
-    timeout: isHeavy ? 600000 : 120000,
-    signal: opts?.signal,
-  });
-  const item = res?.items?.[0];
-  if (!item?.url) throw new Error('upload returned no url');
-  return item;
+  const nodeId = String(opts?.nodeId || '').trim();
+  const onJobCreated =
+    opts?.onJobCreated ??
+    (opts?.dispatch && nodeId
+      ? (jobId: string) => dispatchUploadJobCreated(opts.dispatch!, nodeId, jobId)
+      : undefined);
+
+  try {
+    return await uploadFileViaJob(file, {
+      signal: opts?.signal,
+      jobId: opts?.jobId,
+      onJobCreated,
+    });
+  } catch (err) {
+    if (isUploadAbortError(err)) throw err;
+    // Worker/Redis down — fall back to direct upload (no refresh recovery).
+    const form = new FormData();
+    form.append('files', file, file.name);
+    const timeout = uploadTimeoutForMime(file.type);
+    const res = await uploadFiles(form, {
+      timeout,
+      signal: opts?.signal,
+    });
+    const item = res?.items?.[0];
+    if (!item?.url) {
+      const uploadErr = new Error('upload returned no url') as Error & { cause?: unknown };
+      uploadErr.cause = err;
+      throw uploadErr;
+    }
+    return item;
+  }
 }
 
 /** Delete a previously uploaded object by storage key (no-op when logged out / empty). */
@@ -328,7 +360,14 @@ export async function imageSrcToFile(
 export async function uploadImageFromSrc(
   src: string,
   filename = 'processed.png',
-  opts?: { signal?: AbortSignal; uploadKey?: string | null }
+  opts?: {
+    signal?: AbortSignal;
+    uploadKey?: string | null;
+    onJobCreated?: (jobId: string) => void;
+    jobId?: string;
+    dispatch?: (action: unknown) => unknown;
+    nodeId?: string;
+  }
 ): Promise<UploadedFileItem> {
   const s = (src || '').trim();
   if (!s) throw new Error('empty image src');
@@ -336,7 +375,13 @@ export async function uploadImageFromSrc(
   if (isOurStoredImageUrl(s) && !opts?.uploadKey) return { url: s };
   const file = await imageSrcToFile(s, filename, { uploadKey: opts?.uploadKey });
   if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  return uploadImageFile(file, { signal: opts?.signal });
+  return uploadImageFile(file, {
+    signal: opts?.signal,
+    jobId: opts?.jobId,
+    onJobCreated: opts?.onJobCreated,
+    dispatch: opts?.dispatch,
+    nodeId: opts?.nodeId,
+  });
 }
 
 /** Upload when possible; keep data:/blob: locally if the API is unreachable (local dev). */

@@ -1746,7 +1746,7 @@ function AssistantTurn({
           <HiOutlineComputerDesktop className="h-3.5 w-3.5 opacity-70" aria-hidden />
           <span>
             {t('agent.taskCompleteNamed', {
-              name: t('app.name', { defaultValue: 'Recombyn' }),
+              name: t('app.name', { defaultValue: 'zuoge' }),
               defaultValue: '{{name}} 已完成任务',
             })}
           </span>

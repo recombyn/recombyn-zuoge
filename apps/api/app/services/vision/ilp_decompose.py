@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+from collections.abc import Callable
 from typing import Any, Literal
 
 from PIL import Image
@@ -15,6 +16,7 @@ from app.services.vision.ilp_client import (
     ilp_enabled,
     wait_for_job,
 )
+from app.services.vision.rehost import rehost_image_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,13 @@ def _size_from_bytes(content: bytes) -> tuple[int, int]:
         return int(img.width), int(img.height)
 
 
-async def decompose_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any]:
+async def decompose_via_ilp(
+    *,
+    kind: EditMode,
+    image: str,
+    user_id: str | None = None,
+    on_progress: Callable[[int, str], None] | None = None,
+) -> dict[str, Any]:
     """Run closed-source subject pipeline; returns BFF layer payload.
 
     Returns ``{ image, layers, kind, width, height, engines, warnings }``.
@@ -54,7 +62,7 @@ async def decompose_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any]:
 
     job_id = await create_job(image)
     logger.info("ILP job created: %s", job_id)
-    job = await wait_for_job(job_id)
+    job = await wait_for_job(job_id, on_progress=on_progress)
     status = str(job.get("status") or "")
     if status == "failed":
         raise RuntimeError(str(job.get("error") or "ILP job failed"))
@@ -73,10 +81,16 @@ async def decompose_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any]:
         content, ctype = await fetch_file_bytes(str(rel))
         if w <= 0 or h <= 0:
             w, h = _size_from_bytes(content)
+        src = rehost_image_bytes(
+            user_id,
+            content,
+            filename=f"editElements-{key}.png",
+            content_type=ctype or "image/png",
+        ) or bytes_to_data_url(content, ctype)
         layers.append(
             {
                 "type": "image",
-                "src": bytes_to_data_url(content, ctype),
+                "src": src,
                 "x": 0.0,
                 "y": 0.0,
                 "width": float(w),

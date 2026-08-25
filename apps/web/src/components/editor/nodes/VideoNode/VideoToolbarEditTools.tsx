@@ -23,11 +23,9 @@ import {
   finishImageProcess,
   startImageUploadPlaceholder,
 } from '@/store/modules/editor';
+import { uploadCanvasPlaceholderSrc } from '@/utils/canvasUploadFlow';
 import {
-  beginNodeUpload,
-  finishNodeUpload,
   isUploadAbortError,
-  uploadImageFromSrc,
   imageSrcToFile,
 } from '@/utils/uploadImage';
 import store from '@/store';
@@ -306,26 +304,12 @@ function ExtractFrameMenu({ nodeId }: { nodeId: string }) {
         const spawnedId = String(
           (store.getState() as any).editor?.pendingImageProcessId || ''
         );
-        const signal = spawnedId ? beginNodeUpload(spawnedId) : undefined;
-        try {
-          const uploaded = await uploadImageFromSrc(dataUrl, 'video-frame.jpg', { signal });
-          if (signal?.aborted) return;
-          if (!uploaded?.url) throw new Error('upload returned no url');
-          dispatch(
-            finishImageProcess({
-              nodeId: spawnedId || undefined,
-              src: uploaded.url,
-              attrs: uploaded.key ? { uploadKey: uploaded.key } : undefined,
-            })
-          );
-        } catch (uploadErr) {
-          if (isUploadAbortError(uploadErr)) return;
-          // Keep local preview; clear "上传中" chrome.
-          dispatch(finishImageProcess({ nodeId: spawnedId || undefined }));
-          message.warning(t('editor.uploadFail'));
-        } finally {
-          finishNodeUpload(spawnedId);
-        }
+        await uploadCanvasPlaceholderSrc({
+          dispatch,
+          nodeId: spawnedId,
+          src: dataUrl,
+          filename: 'video-frame.jpg',
+        });
       } catch (err) {
         if (isUploadAbortError(err)) return;
         console.warn('[video] extract frame failed', err);
