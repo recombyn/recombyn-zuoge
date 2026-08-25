@@ -1031,6 +1031,23 @@ def apply_document_patch(base: dict[str, Any] | None, patch: dict[str, Any]) -> 
     return doc
 
 
+def _patch_touches_document(patch: dict[str, Any] | None) -> bool:
+    """True when the patch mutates canvas/document (not rename-only)."""
+    if not patch:
+        return False
+    if patch.get("upsertNodes") or patch.get("removeNodeIds"):
+        return True
+    if patch.get("pageChildren") is not None:
+        return True
+    if patch.get("frames") is not None:
+        return True
+    if "activeFrameId" in patch:
+        return True
+    if patch.get("canvas") is not None:
+        return True
+    return False
+
+
 def patch_project(
     user_id: str,
     project_id: str,
@@ -1089,8 +1106,8 @@ def patch_project(
             if name is not None and str(name).strip()
             else str(existing.name or "Untitled")
         )
-        # Rebuild covers from merged document on every PATCH (same as full upsert).
-        # Cover rebuild must not block document save (COS / URL collage) — match upsert.
+        # Rebuild covers only when the patch changes document content.
+        touch_doc = _patch_touches_document(patch or {})
         try:
             thumb_key, thumb_custom = _next_thumbnail(
                 owner_id,
@@ -1101,7 +1118,7 @@ def patch_project(
                 mark_custom=thumbnail_custom,
                 thumbnail_data_urls=thumbnail_data_urls,
                 thumbnail_urls=thumbnail_urls,
-                document=merged,
+                document=merged if touch_doc else None,
             )
         except Exception as exc:
             print(
