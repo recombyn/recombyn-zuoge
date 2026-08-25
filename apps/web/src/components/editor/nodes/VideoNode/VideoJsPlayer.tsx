@@ -10,12 +10,19 @@ import {
 import { cn } from '@/utils/classnames';
 import { toDisplayMediaUrl } from '@/utils/uploadImage';
 import VideoPlaybackBar, {
+  VIDEO_PLAYBACK_BAR_H,
   videoChromeLayout,
   videoMediaFromElement,
   videoPlaybackBarScale,
   type VideoMediaControl,
 } from '@/components/editor/nodes/VideoNode/VideoPlaybackBar';
 import './VideoJsPlayer.css';
+
+type ChromeFit = {
+  layoutW: number;
+  fit: number;
+  visible: boolean;
+};
 
 function resolveAbsoluteHref(href: string): string {
   try {
@@ -124,7 +131,11 @@ function VideoJsPlayer({
   const mediaRef = useRef<VideoMediaControl | null>(null);
   const [media, setMedia] = useState<VideoMediaControl | null>(null);
   const [shellHovered, setShellHovered] = useState(false);
-  const [barScale, setBarScale] = useState(1);
+  const [chromeFit, setChromeFit] = useState<ChromeFit>({
+    layoutW: 240,
+    fit: 1,
+    visible: true,
+  });
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const onMediaSizeRef = useRef(onMediaSize);
@@ -141,7 +152,7 @@ function VideoJsPlayer({
   const barVisible =
     controlsMode === 'always' ||
     (controlsMode === 'hover' && (controlsVisible || shellHovered));
-  const showBar = controlsMode !== 'none' && barScale > 0;
+  const showBar = controlsMode !== 'none' && chromeFit.visible;
   const fit = hasCrop ? 'fill' : objectFit;
 
   // Bind media once per element mount — do not recreate on selection re-renders.
@@ -263,7 +274,12 @@ function VideoJsPlayer({
     const sync = () => {
       const rect = el.getBoundingClientRect();
       const chrome = videoChromeLayout(rect.width, rect.height);
-      setBarScale(chrome.visible ? videoPlaybackBarScale(rect.width) * chrome.fit : 0);
+      const grow = videoPlaybackBarScale(rect.width);
+      setChromeFit({
+        layoutW: chrome.layoutW,
+        fit: chrome.visible ? chrome.fit * grow : 0,
+        visible: chrome.visible,
+      });
     };
     sync();
     const ro = new ResizeObserver(sync);
@@ -350,15 +366,27 @@ function VideoJsPlayer({
         <div className="absolute inset-0 z-[1]" aria-hidden />
       ) : null}
       {showBar ? (
-        <VideoPlaybackBar
-          media={media}
-          visible={barVisible}
-          trimStart={trimStart}
-          trimEnd={trimEnd}
-          knownDuration={knownDuration}
-          scale={barScale}
-          className="absolute inset-x-0 bottom-0 z-[2]"
-        />
+        <div className="pointer-events-none absolute inset-0 z-[2] overflow-visible">
+          <div
+            className="pointer-events-none absolute bottom-0 left-0 overflow-visible"
+            style={{
+              width: chromeFit.layoutW,
+              height: VIDEO_PLAYBACK_BAR_H,
+              transform: `scale(${chromeFit.fit})`,
+              transformOrigin: '0 100%',
+            }}
+          >
+            <VideoPlaybackBar
+              media={media}
+              visible={barVisible}
+              trimStart={trimStart}
+              trimEnd={trimEnd}
+              knownDuration={knownDuration}
+              scale={1}
+              className="pointer-events-auto absolute inset-x-0 bottom-0"
+            />
+          </div>
+        </div>
       ) : null}
     </div>
   );

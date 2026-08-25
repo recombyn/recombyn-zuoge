@@ -333,7 +333,7 @@ function RailRecentList({
               size="small"
               type="primary"
               destructive
-              disabled={deleting}
+              loading={deleting}
               onClick={() => void confirmDelete()}
             >
               {t('common.delete')}

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     )
     upload_dir: str = "storage/uploads"
     result_dir: str = "storage/results"
-    max_upload_mb: int = 20
+    max_upload_mb: int = 50
     max_video_upload_mb: int = 100
     # Reject uploads whose magic bytes disagree with claimed image/video/audio type.
     upload_require_magic_match: bool = True

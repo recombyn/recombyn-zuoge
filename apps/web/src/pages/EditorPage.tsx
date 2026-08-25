@@ -50,7 +50,7 @@ import EditorToolStrip from '@/components/editor/chrome/EditorToolStrip';
 import type { PathEditSubtool } from '@/components/editor/chrome/PathEditToolbar';
 import { getDocumentGridSize } from '@/components/rcb/selection/alignGuides';
 import { cn } from '@/utils/classnames';
-import { fetchProject } from '@/service/projects';
+import { fetchProject, patchProjectNameInListCache } from '@/service/projects';
 import {
   createEmptyDocument,
   listSceneNodes
@@ -1054,6 +1054,7 @@ function EditorPage() {
         const text = await file.text();
         const validation = parseAndValidateSceneJson(text);
         if (validation.valid === false) {
+          console.error('Import JSON validation error:', validation.error);
           message.error(t('home.importJsonInvalid'));
           return;
         }
@@ -1077,6 +1078,10 @@ function EditorPage() {
   const renameProjectFromChrome = useCallback(
     (name: string) => {
       dispatch(renameTemplate(name));
+      const id = String((store.getState() as any).editor?.currentId || '').trim();
+      if (!id) return;
+      // Keep Home / 最近 list in sync — rename alone only updates Redux + dirty flush.
+      patchProjectNameInListCache(id, String(name || '').trim() || 'Untitled');
     },
     [dispatch]
   );

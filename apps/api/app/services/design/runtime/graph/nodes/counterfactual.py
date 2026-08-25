@@ -378,7 +378,7 @@ async def run_design_counterfactual(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "design-counterfactual",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_COUNTERFACTUAL: virtual what-if (no canvas writes)",
+            "code": "design_counterfactual_running", "summary": "DESIGN_COUNTERFACTUAL: virtual what-if (no canvas writes)",
         }
     )
     try:
@@ -454,7 +454,7 @@ async def run_design_counterfactual(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "design-counterfactual",
                 "kind": "explored",
                 "status": "done",
-                "summary": "DESIGN_COUNTERFACTUAL: skipped (failed)",
+                "code": "design_counterfactual_skipped", "summary": "DESIGN_COUNTERFACTUAL: skipped (failed)",
             }
         )
         return None
