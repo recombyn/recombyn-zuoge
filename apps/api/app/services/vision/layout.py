@@ -139,7 +139,15 @@ def layout_or_ocr(path: Path, page_index: int = 0, lang: str = "ch") -> tuple[li
                     )
             if blocks:
                 return blocks, "ppstructure"
-        except Exception:
-            pass
+            raise RuntimeError("PPStructure returned no layout blocks")
+        except Exception as err:
+            raise RuntimeError(f"PPStructure layout failed: {err}") from err
 
-    return ocr_image(path, page_index=page_index, lang=lang), "paddleocr"
+    from app.services.vision.ocr import available as ocr_available
+
+    if not ocr_available():
+        raise RuntimeError("layout analysis unavailable (install paddleocr: pip install -e '.[ocr]')")
+    blocks = ocr_image(path, page_index=page_index, lang=lang)
+    if not blocks:
+        raise RuntimeError("OCR produced no text blocks")
+    return blocks, "paddleocr"

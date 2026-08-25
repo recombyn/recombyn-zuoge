@@ -4,20 +4,19 @@ import {
   type GenerateImageInput,
   type GenerateImageResult,
 } from '@/service/chat';
-import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
+import { apiQuery, queryClient } from '@/service/client';
 
-/** All image URLs from a single generation result (images[] preferred, then assets[]). */
+/** Bust home assets dock + editor asset panel after AI image jobs finish. */
+export function invalidateUserAssetsCache(): void {
+  void queryClient.invalidateQueries({ queryKey: apiQuery.assetsListMyAssets.key() });
+}
+
+/** Canonical stored URLs from a generation result (`images[]` after backend rehost). */
 export function listGenerateImageUrls(res: GenerateImageResult): string[] {
   const out: string[] = [];
   if (Array.isArray(res?.images)) {
     for (const u of res.images) {
       const url = String(u || '').trim();
-      if (url) out.push(url);
-    }
-  }
-  if (Array.isArray(res?.assets)) {
-    for (const a of res.assets) {
-      const url = String(a?.url || '').trim();
       if (url) out.push(url);
     }
   }
@@ -29,15 +28,8 @@ export function pickGenerateImageUrl(res: GenerateImageResult): string {
   return urls[0] || '';
 }
 
-function isBillingOrAuthError(err: unknown): boolean {
-  const status = getHttpStatus(err);
-  if (status === 401 || status === 402 || status === 403) return true;
-  const msg = getHttpErrorMessage(err, '').toLowerCase();
-  return /credit|积分|balance|insufficient|quota|billing|wallet/.test(msg);
-}
-
 /**
- * Parallel image gens (1–4). Surfaces credit/auth errors instead of silent empty slots.
+ * Parallel image gens (1–4). All slots must succeed or the batch throws.
  * `onJobsCreated` fires after job ids are known so callers can persist them for refresh recovery.
  */
 export async function generateImageBatch(
@@ -55,32 +47,25 @@ export async function generateImageBatch(
   );
   opts?.onJobsCreated?.(jobIds);
 
-  const results = await Promise.allSettled(
+  const results = await Promise.all(
     jobIds.map((jobId) => waitForImageJob(jobId, { signal: opts?.signal }))
   );
 
   const urls: string[] = [];
-  let firstError: unknown = null;
-  let billingError: unknown = null;
-
   for (const result of results) {
-    if (result.status === 'fulfilled') {
-      for (const url of listGenerateImageUrls(result.value)) {
-        if (url) urls.push(url);
-      }
-      continue;
+    for (const url of listGenerateImageUrls(result)) {
+      if (url) urls.push(url);
     }
-    const err = result.reason;
-    if (!firstError) firstError = err;
-    if (isBillingOrAuthError(err)) billingError = err;
   }
 
   const unique = [...new Set(urls)];
-  if (billingError && !unique.length) throw billingError;
-  if (!unique.length) {
-    if (firstError instanceof Error) throw firstError;
-    throw new Error(opts?.emptyMessage || 'image generation returned no results');
+  if (unique.length < slots) {
+    throw new Error(
+      opts?.emptyMessage ||
+        `image generation returned ${unique.length}/${slots} results`
+    );
   }
+  invalidateUserAssetsCache();
   return unique;
 }
 
@@ -90,29 +75,31 @@ export async function waitForImageBatchJobs(
   opts?: { signal?: AbortSignal; emptyMessage?: string }
 ): Promise<string[]> {
   const ids = jobIds.map((id) => String(id || '').trim()).filter(Boolean);
-  if (!ids.length) return [];
+  if (!ids.length) {
+    throw new Error(opts?.emptyMessage || 'no image jobs to recover');
+  }
 
-  const results = await Promise.allSettled(
+  const results = await Promise.all(
     ids.map((jobId) => waitForImageJob(jobId, { signal: opts?.signal }))
   );
 
   const urls: string[] = [];
-  let firstError: unknown = null;
-
   for (const result of results) {
-    if (result.status === 'fulfilled') {
-      for (const url of listGenerateImageUrls(result.value)) {
-        if (url) urls.push(url);
-      }
-      continue;
+    for (const url of listGenerateImageUrls(result)) {
+      if (url) urls.push(url);
     }
-    if (!firstError) firstError = result.reason;
   }
 
   const unique = [...new Set(urls)];
   if (!unique.length) {
-    if (firstError instanceof Error) throw firstError;
     throw new Error(opts?.emptyMessage || 'image generation returned no results');
   }
+  if (unique.length < ids.length) {
+    throw new Error(
+      opts?.emptyMessage ||
+        `image generation returned ${unique.length}/${ids.length} results`
+    );
+  }
+  invalidateUserAssetsCache();
   return unique;
 }

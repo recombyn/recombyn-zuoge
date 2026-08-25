@@ -69,28 +69,27 @@ async def execute_lottie_generate(
         model=model_id,
         images=images,
     )
-    asset: dict[str, Any] | None = None
-    try:
-        raw = json.dumps(animation, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        asset = create_asset_from_bytes(
-            user_id,
-            raw,
-            kind="lottie",
-            mime="application/json",
-            source="ai_lottie",
-            prompt=prompt.strip()[:500] or None,
-            filename_ext="json",
-            width=int(animation.get("w") or width or 0) or None,
-            height=int(animation.get("h") or height or 0) or None,
-        )
-    except Exception as err:  # noqa: BLE001
-        _log.warning("lottie asset persist failed (%s): %s", type(err).__name__, err)
-        asset = None
+    raw = json.dumps(animation, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    asset = create_asset_from_bytes(
+        user_id,
+        raw,
+        kind="lottie",
+        mime="application/json",
+        source="ai_lottie",
+        prompt=prompt.strip()[:500] or None,
+        filename_ext="json",
+        width=int(animation.get("w") or width or 0) or None,
+        height=int(animation.get("h") or height or 0) or None,
+    )
+    stored_url = str(asset.get("url") or "").strip()
+    if not stored_url:
+        raise RuntimeError("lottie asset storage incomplete")
     return {
         "animationData": animation,
         "w": animation.get("w"),
         "h": animation.get("h"),
-        **({"asset": asset} if asset else {}),
+        "asset": asset,
+        "assets": [asset],
     }
 
 

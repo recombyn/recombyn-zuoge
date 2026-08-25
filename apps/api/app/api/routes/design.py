@@ -665,34 +665,33 @@ async def design_lottie_generate(
         model=body.model,
         images=body.images,
     )
-    asset: dict[str, Any] | None = None
-    try:
-        import json as _json
+    import json as _json
 
-        from app.services.assets import create_asset_from_bytes
+    from app.services.assets import create_asset_from_bytes
 
-        raw = _json.dumps(animation, ensure_ascii=False, separators=(",", ":")).encode(
-            "utf-8"
-        )
-        asset = create_asset_from_bytes(
-            current_user.id,
-            raw,
-            kind="lottie",
-            mime="application/json",
-            source="ai_lottie",
-            prompt=prompt[:500] or None,
-            filename_ext="json",
-            width=int(animation.get("w") or body.width or 0) or None,
-            height=int(animation.get("h") or body.height or 0) or None,
-        )
-    except Exception:
-        # Generation still succeeds if asset persistence fails.
-        asset = None
+    raw = _json.dumps(animation, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    asset = create_asset_from_bytes(
+        current_user.id,
+        raw,
+        kind="lottie",
+        mime="application/json",
+        source="ai_lottie",
+        prompt=prompt[:500] or None,
+        filename_ext="json",
+        width=int(animation.get("w") or body.width or 0) or None,
+        height=int(animation.get("h") or body.height or 0) or None,
+    )
+    stored_url = str(asset.get("url") or "").strip()
+    if not stored_url:
+        raise HTTPException(status_code=500, detail="lottie asset storage incomplete")
     return {
         "animationData": animation,
         "w": animation.get("w"),
         "h": animation.get("h"),
-        **({"asset": asset} if asset else {}),
+        "asset": asset,
+        "assets": [asset],
     }
 
 

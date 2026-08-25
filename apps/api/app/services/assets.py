@@ -10,7 +10,6 @@ import time
 import uuid
 from typing import Any
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from sqlmodel import Session
 
@@ -195,6 +194,13 @@ def _ensure_lottie_animation_on_item(
 
 
 _ASSET_KINDS = ("image", "video", "audio", "font", "lottie")
+
+
+def _normalize_asset_kind(kind: str | None, *, default: str) -> str:
+    kind_n = (kind or default).strip().lower()
+    if kind_n not in _ASSET_KINDS:
+        raise ValueError(f"unsupported asset kind: {kind!r}")
+    return kind_n
 # Assets dock is AI-generated media only — user canvas uploads must not appear.
 _AI_ASSET_SOURCES = ("ai_image", "ai_video", "ai_audio", "ai_lottie")
 
@@ -288,18 +294,59 @@ def _decode_data_url(data_url: str) -> tuple[bytes, str | None]:
     return unquote_to_bytes(payload), mime
 
 
+def _object_key_from_ref(ref: str) -> str | None:
+    """Map /api/v1/uploads/files/… or storage path → object key."""
+    s = (ref or "").strip()
+    if not s or s.startswith("data:") or s.startswith("blob:"):
+        return None
+    try:
+        from urllib.parse import unquote, urlparse
+
+        if s.startswith("/"):
+            path = s.split("?", 1)[0]
+        else:
+            path = urlparse(s).path or ""
+        path = unquote(path)
+        api_prefix = "/api/v1/uploads/files/"
+        if path.startswith(api_prefix):
+            key = path[len(api_prefix) :].lstrip("/")
+            return key or None
+        for marker in ("/uploads/", "/assets/", "/font-tasks/", "/projects/"):
+            idx = path.find(marker)
+            if idx >= 0:
+                key = path[idx + 1 :].lstrip("/")
+                if key.startswith(("uploads/", "assets/", "font-tasks/", "projects/")):
+                    return key
+        if path.startswith(("uploads/", "assets/", "font-tasks/", "projects/")):
+            return path.lstrip("/")
+    except Exception:
+        return None
+    return None
+
+
 def _fetch_bytes(url: str) -> tuple[bytes, str | None]:
     url = (url or "").strip()
     if not url:
         raise ValueError("empty url")
     if url.startswith("data:"):
         return _decode_data_url(url)
-    req = Request(url, headers={"User-Agent": "recombyn-assets/1.0"})
-    with urlopen(req, timeout=60) as resp:  # noqa: S310 — controlled AI/CDN urls
-        ctype = resp.headers.get("Content-Type")
-        data = resp.read()
+    key = _object_key_from_ref(url)
+    if key:
+        data = get_bytes(key)
+        if data:
+            return data, None
+        raise ValueError(f"storage object missing for key: {key}")
+    if url.startswith("/"):
+        raise ValueError(f"unresolved local media path: {url[:160]}")
+    import httpx
+
+    with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+        resp = client.get(url, headers={"User-Agent": "recombyn-assets/1.0"})
+        resp.raise_for_status()
+        data = resp.content
     if not data:
         raise ValueError("empty body")
+    ctype = resp.headers.get("Content-Type")
     return data, ctype
 
 
@@ -313,49 +360,6 @@ def _probe_image_size(data: bytes) -> tuple[int | None, int | None]:
             return int(im.width), int(im.height)
     except Exception:
         return None, None
-
-
-def create_asset_from_remote_url(
-    user_id: str,
-    url: str,
-    *,
-    kind: str = "video",
-    source: str = "ai_video",
-    prompt: str | None = None,
-    mime: str | None = None,
-    width: int | None = None,
-    height: int | None = None,
-) -> dict[str, Any]:
-    """Register a public CDN/http URL without re-downloading (video rehost fallback)."""
-    init_schema()
-    kind_n = (kind or "video").strip().lower()
-    if kind_n not in _ASSET_KINDS:
-        kind_n = "video"
-    src = (url or "").strip()
-    if not src.startswith(("http://", "https://", "data:")):
-        raise ValueError("remote url required")
-    ext, guessed = _guess_ext_mime(src, mime)
-    mime_n = (mime or guessed or "application/octet-stream").split(";")[0].strip()
-    asset_id = f"asset_{uuid.uuid4().hex[:16]}"
-    # No local blob — keep a stable key for deletes / bookkeeping.
-    object_key = f"assets/{user_id}/{asset_id}.{ext or 'bin'}"
-    now = time.time()
-    with Session(engine) as session:
-        row = crud.create_asset(
-            session=session,
-            asset_id=asset_id,
-            user_id=user_id,
-            kind=kind_n,
-            object_key=object_key,
-            url=src,
-            mime=mime_n,
-            width=width,
-            height=height,
-            source=(source or "ai_video")[:32],
-            prompt=(prompt or None),
-            created_at=now,
-        )
-    return _row_to_asset(row)
 
 
 def create_asset_from_stored(
@@ -375,9 +379,7 @@ def create_asset_from_stored(
     source_n = (source or "").strip().lower()
     if not source_n.startswith("ai_"):
         raise ValueError("assets are AI-generated only; user uploads are not registered")
-    kind_n = (kind or "image").strip().lower()
-    if kind_n not in _ASSET_KINDS:
-        kind_n = "image"
+    kind_n = _normalize_asset_kind(kind, default="image")
     src = (url or "").strip()
     key = (object_key or "").replace("\\", "/").lstrip("/")
     if not src and not key:
@@ -429,9 +431,7 @@ def create_asset_from_url(
     prompt: str | None = None,
 ) -> dict[str, Any]:
     init_schema()
-    kind_n = (kind or "image").strip().lower()
-    if kind_n not in _ASSET_KINDS:
-        kind_n = "image"
+    kind_n = _normalize_asset_kind(kind, default="image")
     data, ctype = _fetch_bytes(url)
     ext, mime = _guess_ext_mime(url, ctype)
     if kind_n == "lottie" and ext in ("png", "bin"):
@@ -492,9 +492,7 @@ def create_asset_from_bytes(
 ) -> dict[str, Any]:
     """Persist raw bytes (e.g. OpenRouter TTS / Lottie JSON) without a round-trip URL fetch."""
     init_schema()
-    kind_n = (kind or "audio").strip().lower()
-    if kind_n not in _ASSET_KINDS:
-        kind_n = "audio"
+    kind_n = _normalize_asset_kind(kind, default="audio")
     raw = bytes(data or b"")
     if not raw:
         raise ValueError("empty body")

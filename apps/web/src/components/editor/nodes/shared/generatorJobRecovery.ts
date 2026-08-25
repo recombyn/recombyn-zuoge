@@ -97,16 +97,16 @@ export async function recoverGeneratorNode(
   const kind = String(node.attrs?.processKind || '').trim();
   const jobIds = readProcessJobIds(node);
 
-  // No persisted job ids (refresh mid-create / stale SoftGlow) — clear loading mask.
+  // No persisted job ids (refresh mid-create) — stop loading and surface failure.
   if (!jobIds.length) {
     dispatch(clearImageProcess({ nodeId }));
-    return 'cleared';
+    return 'failed';
   }
 
-  // Job ids present but started too long ago — do not poll for another 3 minutes.
+  // Job ids present but started too long ago — do not poll silently.
   if (isStaleProcessJob(node)) {
     dispatch(clearImageProcess({ nodeId }));
-    return 'cleared';
+    return 'failed';
   }
 
   try {
@@ -216,7 +216,7 @@ export async function recoverGeneratorNode(
     }
 
     dispatch(clearImageProcess({ nodeId }));
-    return 'cleared';
+    return 'failed';
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return 'skipped';
     if (document.deltaSetLike?.[nodeId]) {

@@ -7,10 +7,14 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
+_ILP_REQUIRED_MSG = (
+    "工业分层需要接入 Recombyn Intelligence（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
+)
+
 
 async def decompose_board_layers(*, image: str) -> dict[str, Any]:
     """
-    Full editElements split when intelligence is available; otherwise one image layer.
+    Full editElements split via intelligence.
 
     Shape matches ILP decompose:
     ``{ layers, width, height, engines, warnings, image }``.
@@ -19,47 +23,6 @@ async def decompose_board_layers(*, image: str) -> dict[str, Any]:
     from app.services.vision.ilp_decompose import decompose_via_ilp
 
     if not ilp_enabled():
-        _log.info("img_layers: intelligence unavailable — single-image fallback")
-        return {
-            "image": image,
-            "layers": [
-                {
-                    "type": "image",
-                    "src": image,
-                    "x": 0,
-                    "y": 0,
-                    "width": 0,
-                    "height": 0,
-                    "name": "整板",
-                }
-            ],
-            "kind": "editElements",
-            "width": 0,
-            "height": 0,
-            "engines": ["fallback:single"],
-            "warnings": ["工业分层服务未配置 — 已作为单图层放置"],
-        }
+        raise RuntimeError(_ILP_REQUIRED_MSG)
 
-    try:
-        return await decompose_via_ilp(kind="editElements", image=image)
-    except Exception as err:  # noqa: BLE001
-        _log.exception("img_layers decompose failed: %s", err)
-        return {
-            "image": image,
-            "layers": [
-                {
-                    "type": "image",
-                    "src": image,
-                    "x": 0,
-                    "y": 0,
-                    "width": 0,
-                    "height": 0,
-                    "name": "整板",
-                }
-            ],
-            "kind": "editElements",
-            "width": 0,
-            "height": 0,
-            "engines": ["fallback:error"],
-            "warnings": [f"decompose failed: {err}"[:200]],
-        }
+    return await decompose_via_ilp(kind="editElements", image=image)

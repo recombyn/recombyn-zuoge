@@ -344,7 +344,7 @@ def test_hydrate_tool_ops_images_uses_celery_result(monkeypatch: pytest.MonkeyPa
     delay.assert_called_once()
 
 
-def test_hydrate_tool_ops_images_stall_falls_back(monkeypatch: pytest.MonkeyPatch):
+def test_hydrate_tool_ops_images_stall_raises(monkeypatch: pytest.MonkeyPatch):
     from app.services.design.ops import image_hydrate as mod
 
     ops = [{"name": "create_image", "args": {"genPrompt": "dog"}}]
@@ -362,18 +362,8 @@ def test_hydrate_tool_ops_images_stall_falls_back(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("app.services.job_store.get_job", _get)
     monkeypatch.setattr("worker.tasks.run_image_hydrate_job.delay", MagicMock())
 
-    called = {"n": 0}
-
-    async def _fallback(step_ops, **_k):
-        called["n"] += 1
-        return step_ops, 0
-
-    monkeypatch.setattr(mod, "_hydrate_tool_ops_images", _fallback)
-
-    out, filled = asyncio.run(mod.hydrate_tool_ops_images(ops, limit=2, policy="auto"))
-    assert filled == 0
-    assert out == ops
-    assert called["n"] == 1
+    with pytest.raises(RuntimeError, match="still queued"):
+        asyncio.run(mod.hydrate_tool_ops_images(ops, limit=2, policy="auto"))
 
 
 def test_hydrate_tool_ops_images_async_disabled(monkeypatch: pytest.MonkeyPatch):

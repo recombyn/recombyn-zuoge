@@ -171,8 +171,7 @@ async def _as_data_url(image_ref: str) -> str:
         return ref
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
         resp = await client.get(ref)
-        if resp.status_code >= 400:
-            return ref
+        resp.raise_for_status()
         ctype = (resp.headers.get("content-type") or "image/png").split(";")[0].strip()
         if not ctype.startswith("image/"):
             ctype = "image/png"

@@ -2,7 +2,7 @@
 
 BasicLocalProvider delegates to in-repo BasicLocal runners (open floor).
 Optional remote adapter posts to a generic HTTP IntelligenceProvider endpoint;
-usable results are applied onto Runtime slots; failures fall back to BasicLocal.
+usable results are applied onto Runtime slots. Remote failures propagate (no BasicLocal fallback).
 Do not document proprietary backends here.
 
 Stable surface matches ``DesignIntelligenceClient`` canonical methods.
@@ -432,27 +432,28 @@ def build_design_intelligence_client() -> DesignIntelligenceClient:
     local = BasicLocalProvider()
     if mode == "cloud":
         base = str(getattr(settings, "intelligence_remote_url", "") or "").strip()
-        if base:
-            key = str(getattr(settings, "intelligence_remote_api_key", "") or "")
-            timeout = float(
-                getattr(settings, "intelligence_remote_timeout_sec", 30.0) or 30.0
+        if not base:
+            raise RuntimeError(
+                "RECOMBYN_INTELLIGENCE_MODE=cloud but RECOMBYN_INTELLIGENCE_URL is empty"
             )
-            circuit_sec = float(
-                getattr(settings, "intelligence_circuit_sec", 30.0) or 30.0
+        key = str(getattr(settings, "intelligence_remote_api_key", "") or "")
+        timeout = float(
+            getattr(settings, "intelligence_remote_timeout_sec", 30.0) or 30.0
+        )
+        circuit_sec = float(
+            getattr(settings, "intelligence_circuit_sec", 30.0) or 30.0
+        )
+        return DesignIntelligenceClient(
+            RemoteIntelligenceProvider(
+                base_url=base,
+                api_key=key,
+                timeout_sec=timeout,
+                circuit_sec=circuit_sec,
+                apply_result=apply_intelligence_result,
+                hop_get=get_intelligence_hop,
+                hop_put=put_intelligence_hop,
             )
-            return DesignIntelligenceClient(
-                RemoteIntelligenceProvider(
-                    base_url=base,
-                    api_key=key,
-                    timeout_sec=timeout,
-                    circuit_sec=circuit_sec,
-                    fallback=local,
-                    apply_result=apply_intelligence_result,
-                    hop_get=get_intelligence_hop,
-                    hop_put=put_intelligence_hop,
-                )
-            )
-        _log.info("RECOMBYN_INTELLIGENCE_MODE=cloud but URL empty; using BasicLocal")
+        )
     return DesignIntelligenceClient(local)
 
 

@@ -43,6 +43,10 @@ def test_decompose_text_via_ilp_maps_layers(monkeypatch):
 
     monkeypatch.setattr("app.services.vision.ilp_text_decompose.ilp_enabled", lambda: True)
     monkeypatch.setattr("app.services.vision.ilp_text_decompose.text_decompose_via_ilp", fake_text_decompose)
+    monkeypatch.setattr(
+        "app.services.vision.ilp_text_decompose.rehost_image_bytes",
+        lambda _uid, data, **kwargs: f"https://cdn.example/{kwargs.get('filename', 'x')}",
+    )
 
     bgr = np.full((48, 64, 3), 200, dtype=np.uint8)
 
@@ -54,7 +58,11 @@ def test_decompose_text_via_ilp_maps_layers(monkeypatch):
     from app.services.vision.ilp_text_decompose import decompose_text_via_ilp
 
     result = asyncio.run(
-        decompose_text_via_ilp(kind="editText", image=_tiny_png_data_url())
+        decompose_text_via_ilp(
+            kind="editText",
+            image=_tiny_png_data_url(),
+            user_id="u1",
+        )
     )
     assert result["kind"] == "editText"
     assert result["width"] == 64

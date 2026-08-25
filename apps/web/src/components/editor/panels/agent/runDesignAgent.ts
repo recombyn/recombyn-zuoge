@@ -223,7 +223,12 @@ export function acknowledgeAppliedDesignCommand(
     try {
       await acknowledgeDesignCanvasCommands(normalizedTaskId, normalizedSequence, signal);
     } catch (error) {
-      console.warn('[design command ack failed]', { commandTaskId: normalizedTaskId, commandSeq: normalizedSequence, error });
+      console.error('[design command ack failed]', {
+        commandTaskId: normalizedTaskId,
+        commandSeq: normalizedSequence,
+        error,
+      });
+      throw error;
     }
   }
   ack();
@@ -2373,7 +2378,15 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         live.nodeIds = applied.nodeIds;
         live.frameId = applied.frameId;
         live.fingerprintById = applied.fingerprintById;
-        acknowledgeAppliedDesignCommand(liveTaskId, commandSeq, params.signal);
+        acknowledgeAppliedDesignCommand(liveTaskId, commandSeq, params.signal).catch(
+          (err) => {
+            params.onEvent({
+              type: 'error',
+              code: 'command_ack_failed',
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        );
         coverLiveBoard(processLabels.editing || 'Editing elements…');
         // Prefer backend patch counts when present (source of truth for "incremental").
         const created = patch ? patch.create_count : applied.created;
@@ -2944,7 +2957,17 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           }
           const anyOk = receiptResults.some((r) => r.ok);
           if (hasCompleteOperationReceipts(chunk, receiptResults)) {
-            acknowledgeAppliedDesignCommand(liveTaskId, ev.command_seq, params.signal);
+            acknowledgeAppliedDesignCommand(
+              liveTaskId,
+              ev.command_seq,
+              params.signal
+            ).catch((err) => {
+              params.onEvent({
+                type: 'error',
+                code: 'command_ack_failed',
+                message: err instanceof Error ? err.message : String(err),
+              });
+            });
           }
           toolOpsApplied = true;
           painted = painted || anyOk;
@@ -2964,7 +2987,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             return;
           }
         } catch (err) {
-          console.warn('[tool_ops apply failed]', err);
+          params.onEvent({
+            type: 'error',
+            code: 'tool_ops_apply_failed',
+            message: err instanceof Error ? err.message : String(err),
+          });
           undoQueuedTransaction(aiQueueRollback(aiQueue, chunkTxId));
           releaseAiMutationLock();
           return;

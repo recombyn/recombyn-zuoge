@@ -128,14 +128,6 @@ export function useImageToolCapabilities() {
   });
 }
 
-/** Fallback when `/image/tools` has not loaded yet — keep in sync with API `_KIND_CREDIT_COST`. */
-const IMAGE_TOOL_CREDIT_FALLBACK: Partial<Record<ImageProcessKindApi | string, number>> = {
-  multiAngle: 30,
-  expand: 30,
-  replaceText: 30,
-  vector: 20,
-};
-
 /** Server-reported credit cost for a toolbar kind (0 when billing off / no LLM). */
 export function useImageToolCreditCost(kind: ImageProcessKindApi | string): number {
   const billingEnabled = useBillingEnabled();
@@ -143,8 +135,7 @@ export function useImageToolCreditCost(kind: ImageProcessKindApi | string): numb
   if (!billingEnabled || !kind) return 0;
   const fromApi = caps.data?.credits?.[kind];
   if (typeof fromApi === 'number' && Number.isFinite(fromApi)) return Math.max(0, Math.round(fromApi));
-  const fallback = IMAGE_TOOL_CREDIT_FALLBACK[kind];
-  return typeof fallback === 'number' ? fallback : 0;
+  return 0;
 }
 
 type ImageProcessJobCreate = {
@@ -252,6 +243,7 @@ export async function waitForImageProcessJob(
         try {
           job = JSON.parse(ev.data) as ImageProcessJobState;
         } catch {
+          finish(() => reject(new Error('Invalid image process job event payload')));
           return;
         }
         try {
