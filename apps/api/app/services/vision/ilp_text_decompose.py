@@ -20,8 +20,7 @@ EditMode = Literal["editElements", "editText"]
 
 
 async def decompose_text_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any]:
-    """
-    """Run OCR + inpaint on intelligence; returns BFF layer payload."""
+    """Run OCR + inpaint on intelligence; returns BFF layer payload.
 
     Font/color enrichment still runs locally on the original image.
     """
