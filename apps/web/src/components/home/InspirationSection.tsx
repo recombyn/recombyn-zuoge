@@ -32,7 +32,7 @@ import { cn } from '@/utils/classnames';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { imageSrcToFile } from '@/utils/uploadImage';
 
-import { HOME_INSPIRATION_COLUMNS } from '@/components/home/homeLayout';
+import { HOME_FLOW_GRID } from '@/components/home/homeLayout';
 
 type Props = {
   onOpenCase: (meta: OfficialCaseMeta) => void;
@@ -588,7 +588,7 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
         onLoadMore={onLoadMore}
         isEmpty={!loading && cases.length === 0}
         empty={<EmptyState hint={t('home.cases.empty')} />}
-        columnsClassName={HOME_INSPIRATION_COLUMNS}
+        columnsClassName={HOME_FLOW_GRID}
         skeleton={<FlowFeedSkeleton />}
       >
         {cases.map((c) => {

@@ -11,7 +11,7 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { LuAudioLines, LuImagePlus } from 'react-icons/lu';
+import { LuAudioLines, LuImagePlus, LuType } from 'react-icons/lu';
 import { RiClapperboardFill, RiVideoAiLine } from 'react-icons/ri';
 import {
   RcbOverlayPortal,
@@ -44,7 +44,8 @@ type NodeTitleIcon =
   | 'video-generator'
   | 'lottie'
   | 'lottie-generator'
-  | 'audio';
+  | 'audio'
+  | 'text';
 
 type Props = {
   /** Scene-space AABB of the node / frame. */
@@ -210,6 +211,17 @@ function TitleIcon({ kind }: { kind: NodeTitleIcon }): ReactNode {
   if (kind === 'audio') {
     return (
       <LuAudioLines
+        size={TITLE_ICON_PX}
+        strokeWidth={2}
+        className="shrink-0"
+        style={iconStyle}
+        aria-hidden
+      />
+    );
+  }
+  if (kind === 'text') {
+    return (
+      <LuType
         size={TITLE_ICON_PX}
         strokeWidth={2}
         className="shrink-0"

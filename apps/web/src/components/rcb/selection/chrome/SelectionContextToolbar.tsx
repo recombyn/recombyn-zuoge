@@ -16,6 +16,7 @@ import {
   MdFormatAlignLeft,
   MdFormatAlignRight,
   MdFormatOverline,
+  MdOutlineWrapText,
 } from 'react-icons/md';
 import AppLogo from '@/components/base/AppLogo';
 import { ColorPanelPopover, INPUT_NO_SPIN } from '@/components/base/colorPanel';
@@ -51,16 +52,20 @@ import {
   measureTextNodeBoxAfterStyleChange,
   normalizeTextFontSize,
   parseNodeMarkdown,
+  parseNodeText,
   parseNodeTextStyle,
   toggleTextDecoration,
 } from '@/components/rcb/scene/document/sceneText';
 import { markdownToPlain } from '@/components/rcb/scene/document/sceneMarkdown';
+import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
+import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   isAudioGeneratorNode,
   isIconImageNode,
   isImageGeneratorNode,
   isImageProcessRunning,
   isLottieGeneratorNode,
+  isTextFrameNode,
   isVideoGeneratorNode,
   supportsCornerRadius,
 } from '@/components/rcb/scene/document/nodeCapabilities';
@@ -490,6 +495,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }
   if (imageSidePanelOpen) return null;
 
+  const fontSizePx = normalizeTextFontSize(style?.fontSize);
+
   const patchTextStyle = (partial: Record<string, unknown>) => {
     const mergedStyle = {
       ...parseNodeTextStyle(node.attrs || {}),
@@ -500,6 +507,37 @@ function SelectionContextToolbar(props: Props): ReactNode {
     }
     const nextAttrs = buildTextAttrsPreservingMarkdown(node.attrs || {}, mergedStyle);
     const { width, height } = measureTextNodeBoxAfterStyleChange(node, mergedStyle);
+    const { left, top } = nodeLeftTop(document, node);
+    const nodeEls = getSharedNodeEls();
+    let previewed = false;
+    if (nodeEls) {
+      const el = nodeEls.get(nodeId) as
+        | (SVGElement & {
+            __sceneDragBaseW?: number;
+            __sceneDragBaseH?: number;
+            __sceneDragBaseFontSize?: number;
+            __sceneDragBaseLetterSpacing?: number;
+            __sceneFontSize?: number;
+          })
+        | undefined;
+      if (el) {
+        delete el.__sceneDragBaseW;
+        delete el.__sceneDragBaseH;
+        delete el.__sceneDragBaseFontSize;
+        delete el.__sceneDragBaseLetterSpacing;
+        el.__sceneFontSize = Number(mergedStyle.fontSize) || undefined;
+      }
+      previewed = previewSvgNodeGeometry(
+        nodeEls,
+        nodeId,
+        { left, top, width, height },
+        {
+          textResizeMode: 'wrap',
+          plainText: parseNodeText(node.attrs || {}),
+          textStyle: mergedStyle,
+        }
+      );
+    }
     dispatch(
       patchDocumentNode({
         nodeId,
@@ -508,11 +546,78 @@ function SelectionContextToolbar(props: Props): ReactNode {
           width,
           height,
         },
+        // Live SVG already shows the new glyphs/box — skip remount flash (same as W/H).
+        skipHostReload: previewed,
       })
     );
   };
 
-  const fontSizePx = normalizeTextFontSize(style?.fontSize);
+  const commitFontSize = (raw: string) => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return;
+    const next = normalizeTextFontSize(trimmed, fontSizePx);
+    if (next === fontSizePx) return;
+    patchTextStyle({ fontSize: next });
+  };
+
+  const isTextBoxMode = String(node?.attrs?.textFrame ?? '') === 'true';
+
+  /** Plain text ↔ fixed plate with scrollable content (image-like W×H). */
+  const toggleTextBoxMode = () => {
+    if (!node || !style) return;
+    const plain = parseNodeText(node.attrs || {}) || ' ';
+    if (isTextBoxMode) {
+      const measured = measurePlainTextSize(plain, style);
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          patch: {
+            attrs: { textFrame: null, autoSize: 'true' },
+            width: Math.max(8, Math.round(measured.width)),
+            height: Math.max(8, Math.round(measured.height)),
+          },
+        })
+      );
+      return;
+    }
+    const boxW = Math.max(120, Math.round(Number(node.width) || 240));
+    const boxH = Math.max(80, Math.round(Number(node.height) || 160));
+    const titleName =
+      String(node.attrs?.name || '').trim() ||
+      plain.replace(/\s+/g, ' ').trim().slice(0, 48) ||
+      'Text';
+    dispatch(
+      patchDocumentNode({
+        nodeId,
+        patch: {
+          attrs: { textFrame: 'true', autoSize: 'false', name: titleName },
+          width: boxW,
+          height: boxH,
+        },
+      })
+    );
+  };
+
+  const commitTextBoxSize = (axis: 'w' | 'h', raw: string) => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return;
+    const n = Math.round(Number(trimmed));
+    if (!Number.isFinite(n) || n < 1) return;
+    const curW = Math.max(1, Math.round(Number(node?.width) || 1));
+    const curH = Math.max(1, Math.round(Number(node?.height) || 1));
+    if (axis === 'w' && n === curW) return;
+    if (axis === 'h' && n === curH) return;
+    dispatch(
+      patchDocumentNode({
+        nodeId,
+        patch: {
+          attrs: { textFrame: 'true', autoSize: 'false' },
+          width: axis === 'w' ? n : curW,
+          height: axis === 'h' ? n : curH,
+        },
+      })
+    );
+  };
 
   const textAlign = String(style?.textAlign || 'left');
   const fontFamily = String(style?.fontFamily || 'Alibaba PuHuiTi');
@@ -587,7 +692,18 @@ function SelectionContextToolbar(props: Props): ReactNode {
       label: t('editor.imageToolbar.effects'),
     });
   }
+  if (kind === 'text') {
+    elementMoreItems.push({
+      key: 'textFrame',
+      icon: <MdOutlineWrapText className="h-4 w-4" />,
+      label: isTextBoxMode ? t('editor.textBoxModeOff') : t('editor.textBoxModeOn'),
+    });
+  }
   const runElementMore = (key: string) => {
+    if (key === 'textFrame') {
+      toggleTextBoxMode();
+      return;
+    }
     if (key === 'outline') {
       const isShapeKind =
         kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path';
@@ -840,7 +956,11 @@ function SelectionContextToolbar(props: Props): ReactNode {
         angle={placementAngle}
         edgePadScene={edgePadScene}
         hasTitleLabel={
-          kind === 'image' || kind === 'video' || kind === 'lottie' || kind === 'audio'
+          kind === 'image' ||
+          kind === 'video' ||
+          kind === 'lottie' ||
+          kind === 'audio' ||
+          (kind === 'text' && isTextFrameNode(node))
         }
         bare={kind === 'image' && isIconImageNode(node)}
       >
@@ -876,26 +996,29 @@ function SelectionContextToolbar(props: Props): ReactNode {
                   displayLabel={weightDisplayLabel}
                 />
               ) : null}
-              <label className="inline-flex h-8 items-center rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
+              <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
+                <span className="text-[var(--muted)]">S</span>
                 <input
                   type="text"
                   inputMode="numeric"
                   aria-label={t('editor.fontSize')}
-                  className={cn(SEL_SIZE_INPUT, INPUT_NO_SPIN, 'w-10')}
+                  className={cn(SEL_SIZE_INPUT, INPUT_NO_SPIN)}
                   defaultValue={fontSizePx}
-                  key={`text-fs-${fontSizePx}`}
+                  key={`s-${nodeId}`}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                   onFocus={(e) => e.target.select()}
+                  onChange={(e) => commitFontSize(e.target.value)}
                   onBlur={(e) => {
                     const next = normalizeTextFontSize(e.target.value, fontSizePx);
                     e.target.value = String(next);
-                    if (next !== fontSizePx) patchTextStyle({ fontSize: next });
+                    commitFontSize(String(next));
                   }}
                   onKeyDown={(e) => {
                     e.stopPropagation();
                     if (e.key === 'Enter') {
                       e.preventDefault();
+                      commitFontSize((e.target as HTMLInputElement).value);
                       (e.target as HTMLInputElement).blur();
                     }
                     if (e.key === 'Escape') {
@@ -1019,6 +1142,46 @@ function SelectionContextToolbar(props: Props): ReactNode {
                   <HiOutlineCodeBracket className="h-3.5 w-3.5" />
                 </button>
               </Tooltip>
+              {isTextBoxMode ? (
+                <>
+                  <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
+                    <span className="text-[var(--muted)]">W</span>
+                    <input
+                      className={cn(SEL_SIZE_INPUT, INPUT_NO_SPIN)}
+                      defaultValue={Math.round(Number(node?.width) || 0)}
+                      key={`tw-${nodeId}-${Math.round(Number(node?.width) || 0)}`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onBlur={(e) => commitTextBoxSize('w', e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitTextBoxSize('w', (e.target as HTMLInputElement).value);
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                    />
+                  </label>
+                  <label className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[12px] text-[var(--ink)]">
+                    <span className="text-[var(--muted)]">H</span>
+                    <input
+                      className={cn(SEL_SIZE_INPUT, INPUT_NO_SPIN)}
+                      defaultValue={Math.round(Number(node?.height) || 0)}
+                      key={`th-${nodeId}-${Math.round(Number(node?.height) || 0)}`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onBlur={(e) => commitTextBoxSize('h', e.target.value)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitTextBoxSize('h', (e.target as HTMLInputElement).value);
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                    />
+                  </label>
+                </>
+              ) : null}
               {elementLayerChrome}
               <Sep />
               <ExportSelectionPopover nodeIds={[nodeId]} />

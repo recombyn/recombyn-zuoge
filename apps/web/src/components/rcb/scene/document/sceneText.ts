@@ -117,7 +117,18 @@ export function measureTextNodeBoxAfterStyleChange(
   };
   const plain = parseNodeText(node.attrs || {}) || ' ';
   const autoSize = String(node.attrs?.autoSize ?? 'true') !== 'false';
+  const textFrame =
+    node.attrs?.textFrame === true ||
+    node.attrs?.textFrame === 'true' ||
+    node.attrs?.textFrame === 1 ||
+    node.attrs?.textFrame === '1';
   const currentW = Math.max(1, Number(node.width) || DEFAULT_TEXT_BOX_WIDTH);
+  const currentH = Math.max(1, Number(node.height) || Math.ceil(merged.fontSize * merged.lineHeight));
+
+  // Image-like text plate: keep the authored box; content scrolls inside.
+  if (textFrame) {
+    return { width: Math.max(8, Math.round(currentW)), height: Math.max(8, Math.round(currentH)) };
+  }
 
   if (autoSize) {
     const measured = measurePlainTextSize(plain, merged);

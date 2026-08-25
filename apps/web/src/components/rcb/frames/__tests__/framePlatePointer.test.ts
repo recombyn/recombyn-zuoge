@@ -70,11 +70,14 @@ describe('framePlatePointer', () => {
     expect(resolveFramePlateTarget(doc, { x: 50, y: 50 }, 'shape', hitTestFrame)).toBeNull();
   });
 
-  it('frameIsEmpty uses page children', () => {
+  it('frameIsEmpty uses bound children (attrs.frameId), not geometry', () => {
     const doc = {
-      pages: [{ id: 'p1', children: ['inner'] }],
+      pages: [{ id: 'p1', children: ['inner', 'neighbor'] }],
       activePageId: 'p1',
-      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
+      frames: [
+        { id: 'f1', x: 0, y: 0, width: 300, height: 300 },
+        { id: 'f2', x: 400, y: 0, width: 300, height: 300 },
+      ],
       deltaSetLike: {
         ROOT: { children: [] },
         inner: {
@@ -84,16 +87,56 @@ describe('framePlatePointer', () => {
           y: 40,
           width: 80,
           height: 80,
+          attrs: { frameId: 'f1' },
+        },
+        // Sits inside f2 geometrically but belongs to f1 — must not occupy f2.
+        neighbor: {
+          id: 'neighbor',
+          key: 'image',
+          x: 420,
+          y: 40,
+          width: 200,
+          height: 200,
+          attrs: { frameId: 'f1' },
         },
       },
     } as unknown as SceneDocument;
     expect(frameIsEmpty(doc, 'f1')).toBe(false);
+    expect(frameIsEmpty(doc, 'f2')).toBe(true);
     expect(getFrameBox(doc, 'f1')).toEqual({
       left: 0,
       top: 0,
       width: 300,
       height: 300,
     });
+  });
+
+  it('frameIsEmpty ignores unbound overlap from adjacent artboards', () => {
+    const doc = {
+      pages: [{ id: 'p1', children: ['spill'] }],
+      activePageId: 'p1',
+      frames: [
+        { id: 'left', x: 0, y: 0, width: 200, height: 200 },
+        { id: 'right', x: 220, y: 0, width: 200, height: 200 },
+      ],
+      deltaSetLike: {
+        ROOT: { children: [] },
+        spill: {
+          id: 'spill',
+          key: 'image',
+          x: 100,
+          y: 20,
+          width: 200,
+          height: 160,
+          attrs: { frameId: 'left' },
+        },
+      },
+    } as unknown as SceneDocument;
+    expect(frameIsEmpty(doc, 'left')).toBe(false);
+    expect(frameIsEmpty(doc, 'right')).toBe(true);
+    expect(
+      resolveFramePlateDragMode(doc, 'right', { readOnly: false, canMove: true })
+    ).toBe('frame_move');
   });
 
   it('frameIsEmpty ignores hidden nodes and full-bleed plates', () => {
@@ -110,7 +153,7 @@ describe('framePlatePointer', () => {
           y: 40,
           width: 80,
           height: 80,
-          attrs: { hidden: true },
+          attrs: { hidden: true, frameId: 'f1' },
         },
         bg: {
           id: 'bg',
@@ -119,7 +162,7 @@ describe('framePlatePointer', () => {
           y: 0,
           width: 300,
           height: 300,
-          attrs: { shapeType: 'rect' },
+          attrs: { shapeType: 'rect', frameId: 'f1' },
         },
       },
     } as unknown as SceneDocument;
@@ -158,6 +201,7 @@ describe('framePlatePointer', () => {
           y: 40,
           width: 80,
           height: 80,
+          attrs: { frameId: 'f1' },
         },
       },
     } as unknown as SceneDocument;

@@ -1973,34 +1973,22 @@ function SelectionChrome({
                 })
               : null}
             {showHandles
-              ? visualKnobs.map(([dir, lx, ly]) => {
-                  const maskPad = stroke * 1.5;
-                  return (
-                    <g key={`knob-${dir}`} transform={`translate(${lx} ${ly})`}>
-                      <rect
-                        x={-halfVis - maskPad}
-                        y={-halfVis - maskPad}
-                        width={handleVis + maskPad * 2}
-                        height={handleVis + maskPad * 2}
-                        fill="#ffffff"
-                        stroke="none"
-                        style={{ pointerEvents: 'none' }}
-                      />
-                      <rect
-                        data-rcb-sel-knob={dir}
-                        {...handleAttrProps}
-                        x={-halfVis}
-                        y={-halfVis}
-                        width={handleVis}
-                        height={handleVis}
-                        fill="#ffffff"
-                        stroke={chromeColor}
-                        strokeWidth={stroke}
-                        style={{ pointerEvents: 'none' }}
-                      />
-                    </g>
-                  );
-                })
+              ? visualKnobs.map(([dir, lx, ly]) => (
+                  <g key={`knob-${dir}`} transform={`translate(${lx} ${ly})`}>
+                    <rect
+                      data-rcb-sel-knob={dir}
+                      {...handleAttrProps}
+                      x={-halfVis}
+                      y={-halfVis}
+                      width={handleVis}
+                      height={handleVis}
+                      fill="#ffffff"
+                      stroke={chromeColor}
+                      strokeWidth={stroke}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  </g>
+                ))
               : null}
           </g>
         )}

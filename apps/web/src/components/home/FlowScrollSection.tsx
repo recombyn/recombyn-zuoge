@@ -6,9 +6,9 @@ import {
   useScrollLoadMore,
 } from '@/components/home/InfiniteScroll';
 
-/** Default plaza / inspiration waterfall — same column scale as Me / Skills. */
+/** Default plaza / inspiration / assets flow — same as HOME_FLOW_GRID. */
 export const FLOW_COLUMNS_CLASS =
-  'w-full columns-2 gap-4 md:columns-3 lg:columns-4 2xl:columns-5';
+  'grid w-full grid-cols-2 gap-4 md:grid-cols-4';
 
 /** Each card in a CSS-columns flow must avoid breaking across columns. */
 export const FLOW_ITEM_CLASS = 'mb-5 break-inside-avoid';
@@ -38,8 +38,13 @@ type FlowScrollSectionProps = {
   children: ReactNode;
 };
 
+function flowItemClass(columnsClassName: string) {
+  // Grid layouts use gap; CSS columns need per-item margin + break-inside.
+  return columnsClassName.includes('grid') ? 'min-w-0' : FLOW_ITEM_CLASS;
+}
+
 /**
- * Scroll-load shell with CSS multi-column flow layout.
+ * Scroll-load shell with CSS multi-column or grid flow layout.
  * Same loading / empty / sentinel pattern as {@link InfiniteScrollSection}.
  */
 function FlowScrollSection({
@@ -60,12 +65,13 @@ function FlowScrollSection({
     loadingMore,
     onLoadMore,
   });
+  const itemClass = flowItemClass(columnsClassName);
 
   if (loading) {
     return (
       <div className={cn(className)}>
         <div className={columnsClassName} aria-busy="true">
-          {skeleton ?? <FlowFeedSkeleton />}
+          {skeleton ?? <FlowFeedSkeleton itemClassName={itemClass} />}
         </div>
       </div>
     );
@@ -81,7 +87,7 @@ function FlowScrollSection({
         {Children.map(children, (child) => {
           if (!isValidElement(child)) return child;
           return (
-            <div key={child.key ?? undefined} className={FLOW_ITEM_CLASS}>
+            <div key={child.key ?? undefined} className={itemClass}>
               {child}
             </div>
           );
@@ -97,11 +103,17 @@ function FlowScrollSection({
 }
 
 /** Varied-aspect skeleton cards for plaza / liked flow feeds. */
-function FlowFeedSkeleton({ count = FLOW_SKELETON_COUNT }: { count?: number }) {
+function FlowFeedSkeleton({
+  count = FLOW_SKELETON_COUNT,
+  itemClassName = FLOW_ITEM_CLASS,
+}: {
+  count?: number;
+  itemClassName?: string;
+}) {
   return (
     <>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className={FLOW_ITEM_CLASS} aria-busy="true">
+        <div key={i} className={itemClassName} aria-busy="true">
           <SoftGlowSurface
             seed={i}
             className={cn(

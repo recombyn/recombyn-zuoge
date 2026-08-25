@@ -1340,6 +1340,7 @@ export function paintCanvasTextInk(
 ): void {
   const node = opts.node;
   const w = Math.max(1, opts.width);
+  const h = Math.max(1, opts.height);
   const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
   const style = parseNodeTextStyle(node.attrs || {});
   const plain = parseNodeText(node.attrs || {});
@@ -1349,9 +1350,19 @@ export function paintCanvasTextInk(
   const italic = style.fontStyle === 'italic' ? 'italic ' : '';
   const weight = style.fontWeight || 'normal';
   const fillOpacity = Math.max(0, Math.min(100, Number(style.fillOpacity) || 100)) / 100;
+  const textFrame =
+    node.attrs?.textFrame === true ||
+    node.attrs?.textFrame === 'true' ||
+    node.attrs?.textFrame === 1 ||
+    node.attrs?.textFrame === '1';
 
   ctx.save();
   ctx.globalAlpha = opacity * fillOpacity;
+  if (textFrame) {
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.clip();
+  }
   applyCanvasDropShadow(ctx, node);
   ctx.font = `${italic}${weight} ${fontSize}px "${style.fontFamily}"`;
   ctx.fillStyle = style.fill || '#333333';
@@ -1372,6 +1383,8 @@ export function paintCanvasTextInk(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] || ' ';
+    // Fixed text frames: skip lines fully below the plate (scroll lives in HTML).
+    if (textFrame && i * lineH >= h) break;
     ctx.fillText(line, x, i * lineH);
   }
   clearCanvasDropShadow(ctx);

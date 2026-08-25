@@ -45,6 +45,7 @@ import {
   isLottieNode,
   isNodeHidden,
   isOutlinedPath,
+  isTextFrameNode,
   isVideoGeneratorNode
 } from '../document/nodeCapabilities';
 import {
@@ -674,7 +675,12 @@ const XHTML_NS = 'http://www.w3.org/1999/xhtml';
  */
 function appendHtmlMediaMount(
   g: SVGGElement,
-  opts: { nodeId: string; width: number; height: number; kind: 'lottie' | 'video' | 'audio' }
+  opts: {
+    nodeId: string;
+    width: number;
+    height: number;
+    kind: 'lottie' | 'video' | 'audio' | 'text';
+  }
 ): void {
   const w = Math.max(1, opts.width);
   const h = Math.max(1, opts.height);
@@ -695,7 +701,9 @@ function appendHtmlMediaMount(
   div.setAttribute(HTML_MEDIA_MOUNT_ATTR, opts.nodeId);
   div.setAttribute('data-rcb-html-media-kind', opts.kind);
   div.style.cssText =
-    'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;';
+    opts.kind === 'text'
+      ? 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;'
+      : 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;';
   fo.appendChild(div);
 }
 
@@ -1072,8 +1080,30 @@ export async function nodeToSvgElement(
     const boxW = Math.max(num(node.width, 0), 0);
     const boxH = Math.max(num(node.height, style.fontSize * (style.lineHeight || 1.4)), 1);
     const align = svgTextAnchor(style.textAlign);
-
     const autoSize = String(node.attrs?.autoSize ?? 'true') !== 'false';
+    const textFrame = isTextFrameNode(node);
+
+    // Fixed text plate: FO mount for HTML scroll content (image-like box).
+    if (textFrame) {
+      const g = appendChild(parent, svgEl('g'));
+      const plateW = Math.max(1, boxW);
+      const plateH = Math.max(1, boxH);
+      appendHtmlMediaMount(g, {
+        nodeId,
+        width: plateW,
+        height: plateH,
+        kind: 'text',
+      });
+      tagNode(g, nodeId, 'text', undefined, left, top, plateW, plateH);
+      const anyEl = asHost(g);
+      anyEl.__sceneFontSize = Math.max(1, Number(style.fontSize) || 14);
+      anyEl.__sceneLineHeight = Math.max(0.8, Number(style.lineHeight) || 1.4);
+      anyEl.__scenePlainText = text;
+      applyMeta(g, left, top, meta, plateW, plateH);
+      applyNodeEffects(root, g, node);
+      return g;
+    }
+
     const visualLines = textVisualLines(text || ' ', style, {
       width: boxW,
       autoSize,
@@ -2207,32 +2237,45 @@ function previewResizeText(
     const style = options?.textStyle || parseNodeTextStyle({});
     const plain =
       options?.plainText != null ? options.plainText : String(anyEl.__scenePlainText ?? '');
-    const wrapStyle = { ...style, fontSize: baseFs };
+    // Prefer explicit style.fontSize (toolbar / style patch). Fall back to drag base
+    // so width-only wrap resize keeps the committed size.
+    const styleFs = Number(style.fontSize);
+    const fontSize =
+      Number.isFinite(styleFs) && styleFs > 0 ? Math.max(1, Math.round(styleFs)) : baseFs;
+    const wrapStyle = { ...style, fontSize };
     const lines = wrapPlainTextLines(plain || ' ', wrapStyle, Math.max(24, box.width));
+    const lineCountNow = Math.max(1, lines.length);
+    const wrapOriginY =
+      anchor === 'middle'
+        ? textVerticalOriginY(box.height, fontSize, lineHeight, lineCountNow)
+        : 0;
     clearChildren(el);
     const dy = `${lineHeight}em`;
     lines.forEach((line, i) => {
       const tspan = svgEl('tspan', {
         x: localX,
-        ...(i === 0 ? { y: originY } : { dy }),
+        ...(i === 0 ? { y: wrapOriginY } : { dy }),
       });
       tspan.textContent = line || ' ';
       el.appendChild(tspan);
     });
     setAttrs(el, {
       'font-family': toFabricFontFamily(style.fontFamily || wrapStyle.fontFamily),
-      'font-size': baseFs,
+      'font-size': fontSize,
       'font-weight': String(style.fontWeight || 'normal'),
       'font-style': style.fontStyle || 'normal',
       'text-anchor': svgTextAnchor(style.textAlign),
       fill: hexWithOpacity(style.fill || '#333333', style.fillOpacity ?? 100),
       x: localX,
-      y: originY,
+      y: wrapOriginY,
       'dominant-baseline': 'text-before-edge',
       'alignment-baseline': 'before-edge',
     });
-    anyEl.__sceneFontSize = baseFs;
-    anyEl.__sceneLineCount = Math.max(1, lines.length);
+    anyEl.__sceneFontSize = fontSize;
+    anyEl.__sceneDragBaseFontSize = fontSize;
+    anyEl.__sceneDragBaseW = box.width;
+    anyEl.__sceneDragBaseH = box.height;
+    anyEl.__sceneLineCount = lineCountNow;
     anyEl.__scenePlainText = plain;
     anyEl.__sceneDidResize = false;
     writeGeom(el, {
@@ -2702,6 +2745,38 @@ export function previewSvgNodeGeometry(
     const isText = String(anyEl.sceneNodeKey || el.getAttribute('data-scene-node-key') || '') === 'text';
 
     if (isText) {
+      // Fixed text plates use FO scroll mounts — live-resize like image groups.
+      if (el.querySelector?.('foreignObject[data-rcb-html-media-fo="text"]')) {
+        const w = Math.max(1, box.width);
+        const h = Math.max(1, box.height);
+        if (sameSize && !anyEl.__sceneDidResize) {
+          writeGeom(el, {
+            left: box.left,
+            top: box.top,
+            width: w,
+            height: h,
+            abs: false,
+          });
+          reapplySceneTransform(el, box.left, box.top, w, h);
+          return true;
+        }
+        if (!anyEl.__sceneDragBaseW) {
+          anyEl.__sceneDragBaseW = geom.width;
+          anyEl.__sceneDragBaseH = geom.height;
+        }
+        anyEl.__sceneDidResize = true;
+        const bw = Math.max(1, Number(anyEl.__sceneDragBaseW) || geom.width);
+        const bh = Math.max(1, Number(anyEl.__sceneDragBaseH) || geom.height);
+        writeGeom(el, {
+          left: box.left,
+          top: box.top,
+          width: w,
+          height: h,
+          abs: false,
+        });
+        reapplySceneTransformScaled(el, box.left, box.top, bw, bh, w / bw, h / bh);
+        return true;
+      }
       return previewResizeText(el, box, options);
     }
 

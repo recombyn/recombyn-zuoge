@@ -147,31 +147,28 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
 .home-hero-chat__composer {
   box-sizing: border-box;
   height: auto;
-  min-height: 180px;
-  max-height: 200px;
+  min-height: 0;
+  max-height: none;
   border-radius: 20px;
   background: var(--surface);
   box-shadow: var(--home-hero-shadow);
   outline: 1px solid var(--home-hero-border);
-  overflow: hidden;
+  overflow: visible;
 }
 
-/* Home compact composer — tall input (agent/image/video), expands attach row when needed. */
+/* Home compact composer — stack by content; no fixed total height. */
 .rcb-home-composer-compact {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) 28px;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   box-sizing: border-box;
-  height: 100%;
+  height: auto;
   min-height: 0;
   padding: 12px;
 }
 
-.rcb-home-composer-compact--expanded {
-  grid-template-rows: auto minmax(0, 1fr) 28px;
-}
-
 .rcb-home-composer-compact__attach {
+  flex: 0 0 auto;
   margin: 0;
   min-width: 0;
 }
@@ -182,23 +179,23 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
 }
 
 .rcb-home-composer-compact__input {
-  min-height: 0;
+  flex: 0 0 auto;
+  height: 60px;
+  min-height: 60px;
+  max-height: 60px;
   overflow: hidden;
 }
 
-.rcb-home-composer-compact--expanded .rcb-home-composer-compact__input {
-  min-height: 26px;
-}
-
 .rcb-home-composer-compact__footer {
-  height: 28px;
+  flex: 0 0 auto;
   min-height: 28px;
-  margin: 0;
+  margin-top: 0;
 }
 
 .rcb-home-composer-compact [data-agent-composer] {
-  min-height: 26px !important;
-  max-height: 72px;
+  height: 60px !important;
+  min-height: 60px !important;
+  max-height: 60px !important;
   overflow-y: auto;
   padding-top: 0;
   padding-bottom: 0;

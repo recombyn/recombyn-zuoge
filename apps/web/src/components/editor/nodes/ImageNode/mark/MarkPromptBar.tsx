@@ -1,10 +1,10 @@
-import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
+import { type CSSProperties, type ReactNode, memo } from 'react';
 import { HiOutlineCheck } from 'react-icons/hi2';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/classnames';
 
 const PROMPT_CLASS =
-  'pointer-events-auto flex min-w-[min(92vw,360px)] max-w-[min(92vw,420px)] items-center gap-2 rounded-2xl border border-[var(--line)] bg-white/95 px-3 py-2 shadow-[0_12px_40px_rgba(15,23,42,0.16)] backdrop-blur-sm';
+  'pointer-events-auto flex w-[min(72vw,240px)] items-center gap-1.5 rounded-full border border-[var(--line)] bg-white/95 px-2.5 py-1.5 shadow-[0_12px_40px_rgba(15,23,42,0.16)] backdrop-blur-sm';
 
 function MarkPromptBar({
   style,
@@ -34,7 +34,7 @@ function MarkPromptBar({
       style={style}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <span className="inline-flex h-6 shrink-0 items-center rounded-md bg-sky-50 px-1.5 text-[12px] font-semibold text-sky-700 ring-1 ring-sky-200">
+      <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-sky-50 px-2 text-[12px] font-semibold text-sky-700 ring-1 ring-sky-200">
         {chipLabel}
       </span>
       <input
