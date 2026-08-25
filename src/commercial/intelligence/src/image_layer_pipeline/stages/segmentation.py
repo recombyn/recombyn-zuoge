@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from image_layer_pipeline.runtime import INFERENCE_LOCK
+from image_layer_pipeline.ort_providers import preferred_ort_providers
 
 import numpy as np
 from PIL import Image
@@ -14,11 +15,12 @@ from rembg import new_session, remove
 
 @lru_cache(maxsize=8)
 def _session(model_key: str, custom_onnx: str = ""):
+    providers = preferred_ort_providers()
     if model_key == "ben_custom":
         if not custom_onnx:
             raise ValueError("ben_custom requires custom ONNX path")
-        return new_session("ben_custom", model_path=custom_onnx)
-    return new_session(model_key)
+        return new_session("ben_custom", model_path=custom_onnx, providers=providers)
+    return new_session(model_key, providers=providers)
 
 
 @lru_cache(maxsize=4)
@@ -28,12 +30,11 @@ def _onnx_matting_session(onnx_path: str):
     opts = ort.SessionOptions()
     opts.enable_cpu_mem_arena = False
     opts.enable_mem_pattern = False
-    providers = ort.get_available_providers()
-    preferred = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in providers]
+    preferred = preferred_ort_providers()
     return ort.InferenceSession(
         onnx_path,
         sess_options=opts,
-        providers=preferred or None,
+        providers=preferred,
     )
 
 

@@ -15,6 +15,8 @@ dependencies = [
   "Pillow>=10.0",
   "PyYAML>=6.0",
   "rembg>=2.0.50",
+  # Windows: prefer onnxruntime-directml for GPU without CUDA toolkit.
+  # Linux/NVIDIA with CUDA toolkit: pip install onnxruntime-gpu
   "onnxruntime>=1.16",
   "torch>=2.1",
   "transformers>=4.40",
@@ -38,6 +40,12 @@ ocr = [
 ]
 sam = [
   "ultralytics>=8.1.0",
+]
+gpu-windows = [
+  "onnxruntime-directml>=1.22.0",
+]
+gpu-cuda = [
+  "onnxruntime-gpu>=1.22.0,<1.27",
 ]
 
 [tool.setuptools.packages.find]
