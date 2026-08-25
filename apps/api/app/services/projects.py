@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import uuid
@@ -260,6 +261,19 @@ def _is_project_owned_thumb_key(entry: str) -> bool:
 
 def _delete_thumb_entries(raw: str | None) -> None:
     for entry in _parse_thumb_entries(raw):
+        if _is_project_owned_thumb_key(entry):
+            try:
+                delete_object(entry)
+            except Exception:
+                pass
+
+
+def _prune_thumb_entries(raw: str | None, keep: list[str]) -> None:
+    """Drop owned thumb objects that are no longer referenced."""
+    keep_set = {str(k).strip() for k in keep if str(k or "").strip()}
+    for entry in _parse_thumb_entries(raw):
+        if entry in keep_set:
+            continue
         if _is_project_owned_thumb_key(entry):
             try:
                 delete_object(entry)
@@ -553,14 +567,20 @@ def _cov_media_src(node: dict[str, Any]) -> str | None:
 
 
 def _cov_put_tile_bytes(
-    user_id: str, project_id: str, blob: bytes | None, *, index: int, ext: str = "webp"
+    user_id: str,
+    project_id: str,
+    blob: bytes | None,
+    *,
+    index: int,
+    ext: str = "webp",
+    digest: str | None = None,
 ) -> str | None:
     if not blob:
         return None
-    stamp = int(time.time() * 1000)
     suffix = f"-{index}" if index else ""
+    key_part = (digest or "").strip() or str(int(time.time() * 1000))
     content_type = "image/webp" if ext == "webp" else f"image/{ext}"
-    thumb_key = f"projects/{user_id}/{project_id}/thumb-{stamp}{suffix}.{ext}"
+    thumb_key = f"projects/{user_id}/{project_id}/thumb-{key_part}{suffix}.{ext}"
     try:
         put_bytes(
             thumb_key,
@@ -571,6 +591,25 @@ def _cov_put_tile_bytes(
         return thumb_key
     except Exception:
         return None
+
+
+def _cov_node_cover_digest(node: dict[str, Any], blob: bytes | None) -> str:
+    """Stable id for raster tiles — same pixels → same storage key."""
+    parts = [
+        str(node.get("id") or ""),
+        str(node.get("key") or ""),
+        str(_cov_num(node.get("width"), 0)),
+        str(_cov_num(node.get("height"), 0)),
+    ]
+    attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
+    for key in ("fill-color", "fill", "shapeType", "border-color", "border-width"):
+        if key in attrs:
+            parts.append(f"{key}={attrs[key]}")
+    if node.get("fill"):
+        parts.append(f"fill={node.get('fill')}")
+    if blob:
+        parts.append(hashlib.sha256(blob).hexdigest()[:16])
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
 def _cov_raster_shape(node: dict[str, Any]) -> bytes | None:
@@ -669,34 +708,45 @@ def _cov_raster_text(node: dict[str, Any]) -> bytes | None:
 
 
 def _cov_tile_for_node(
-    user_id: str, project_id: str, node: dict[str, Any], *, index: int
+    user_id: str,
+    project_id: str,
+    node: dict[str, Any],
+    *,
+    index: int,
+    existing_entries: list[str] | None = None,
 ) -> str | None:
     """Return hosted URL or uploaded thumb key for one element tile."""
+    existing = existing_entries or []
+    suffix = f"-{index}" if index else ""
     key = str(node.get("key") or "")
     if key in ("image", "video", "lottie", "audio"):
         src = _cov_media_src(node)
         return src
+    blob: bytes | None = None
     if key in ("shape", "rect", "path"):
-        return _cov_put_tile_bytes(user_id, project_id, _cov_raster_shape(node), index=index)
-    if key == "text":
-        return _cov_put_tile_bytes(user_id, project_id, _cov_raster_text(node), index=index)
-    if key == "svg":
-        return _cov_put_tile_bytes(
-            user_id,
-            project_id,
-            _cov_raster_shape(
-                {
-                    **node,
-                    "attrs": {
-                        **(node.get("attrs") if isinstance(node.get("attrs"), dict) else {}),
-                        "shapeType": "rect",
-                        "fill": "#E8E8E8",
-                    },
-                }
-            ),
-            index=index,
+        blob = _cov_raster_shape(node)
+    elif key == "text":
+        blob = _cov_raster_text(node)
+    elif key == "svg":
+        blob = _cov_raster_shape(
+            {
+                **node,
+                "attrs": {
+                    **(node.get("attrs") if isinstance(node.get("attrs"), dict) else {}),
+                    "shapeType": "rect",
+                    "fill": "#E8E8E8",
+                },
+            }
         )
-    return None
+    if not blob:
+        return None
+    digest = _cov_node_cover_digest(node, blob)
+    thumb_key = f"projects/{user_id}/{project_id}/thumb-{digest}{suffix}.webp"
+    if thumb_key in existing:
+        return thumb_key
+    return _cov_put_tile_bytes(
+        user_id, project_id, blob, index=index, digest=digest
+    )
 
 
 def _build_auto_cover_key(
@@ -711,17 +761,23 @@ def _build_auto_cover_key(
     nodes = _cov_pick_nodes(document)
     if not nodes:
         return None
+    existing_entries = _parse_thumb_entries(existing_key)
     entries: list[str] = []
     for i, node in enumerate(nodes):
-        entry = _cov_tile_for_node(user_id, project_id, node, index=i)
+        entry = _cov_tile_for_node(
+            user_id, project_id, node, index=i, existing_entries=existing_entries
+        )
         if entry and entry not in entries:
             entries.append(entry)
         if len(entries) >= _MAX_COVER_TILES:
             break
     if not entries:
         return None
-    _delete_thumb_entries(existing_key)
     encoded = _encode_thumb_entries(entries)
+    prev = (existing_key or "").strip()
+    if encoded and encoded == prev:
+        return existing_key
+    _prune_thumb_entries(existing_key, entries)
     print(
         f"[projects.thumb] auto ok project={project_id} n={len(entries)}",
         flush=True,

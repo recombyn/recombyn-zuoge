@@ -130,9 +130,9 @@ function mergeProjectPages(pages: unknown[] | undefined): {
 }
 
 const PROJECT_LIST_QUERY_OPTS = {
-  staleTime: 0,
+  staleTime: 15_000,
   gcTime: 60_000,
-  refetchOnMount: 'always' as const,
+  refetchOnMount: true as const,
 };
 
 function useHomeProjectsList(enabled: boolean, filterOrgId = '') {
@@ -807,6 +807,7 @@ function HomeTemplateList({
   const projectListItems = projectsList.items;
   const projectsTotal = projectsList.total;
   const projectsReady = projectsList.ready;
+  const projectsIsStale = projectsList.isStale;
 
   const refreshProjectsList = useCallback(async (opts?: { flush?: boolean }) => {
     if (!authed) return;
@@ -852,11 +853,13 @@ function HomeTemplateList({
     const entering = !onProjectsSurfaceRef.current;
     onProjectsSurfaceRef.current = true;
     if (!entering) return;
-    // Re-enter from editor / another route — list cache may be warm but stale.
-    void refreshProjectsList({ flush: false });
+    // Re-enter from editor: one background refresh if cache is stale (not every mount).
+    if (projectsIsStale) {
+      void refreshProjectsList({ flush: false });
+    }
     // Intentionally keyed by tab visibility.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshProjectsList stable via refetch
-  }, [authed, dispatch, showHome, showMine]);
+  }, [authed, dispatch, showHome, showMine, projectsIsStale]);
 
   const loadMoreProjects = useCallback(() => {
     if (!authed || !projectsHasMore || projectsLoadingMore || !projectsReady) return;
