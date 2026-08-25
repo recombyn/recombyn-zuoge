@@ -60,7 +60,7 @@ def test_decompose_via_ilp_maps_layers(monkeypatch):
     async def fake_create(_image: str) -> str:
         return "job-1"
 
-    async def fake_wait(_job_id: str) -> dict:
+    async def fake_wait(_job_id: str, **_kw) -> dict:
         return {
             "status": "needs_review",
             "meta": {"size": [48, 64]},

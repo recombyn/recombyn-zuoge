@@ -15,7 +15,7 @@ import {
   HiOutlineTrash,
 } from 'react-icons/hi2';
 import { LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu';
-import { Dropdown, Tooltip, Button, Dialog, message, Popover } from '@/components/base';
+import { Dropdown, Tooltip, Button, Dialog, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { Icon } from '@/components/base/icon';
 import AppLogo from '@/components/base/AppLogo';
@@ -38,6 +38,7 @@ import { clearProjectsLibrary } from '@/store/modules/editor';
 import { apiQuery } from '@/service/client';
 import {
   clearProjectsListCache,
+  refetchProjectsListCache,
   type PaginatedProjects,
   type ProjectSummaryDto,
 } from '@/service/projects';
@@ -128,6 +129,12 @@ function mergeProjectPages(pages: unknown[] | undefined): {
   return { items, total: total || items.length };
 }
 
+const PROJECT_LIST_QUERY_OPTS = {
+  staleTime: 0,
+  gcTime: 60_000,
+  refetchOnMount: 'always' as const,
+};
+
 function useHomeProjectsList(enabled: boolean, filterOrgId = '') {
   const projectsQuery = useInfiniteQuery({
     ...apiQuery.projectsListMyProjects.infiniteOptions({
@@ -145,6 +152,7 @@ function useHomeProjectsList(enabled: boolean, filterOrgId = '') {
       },
     }),
     enabled,
+    ...PROJECT_LIST_QUERY_OPTS,
   });
 
   const { items, total } = useMemo(() => {
@@ -358,69 +366,62 @@ function RailMoreFlyout({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
-  const trigger = (
-    <div
-      aria-label={t('home.railMore')}
-      aria-expanded={open}
-      aria-haspopup="menu"
-      className={cn(
-        'group flex shrink-0 cursor-pointer items-center transition-colors',
-        expanded
-          ? cn('h-10 w-full rounded-[10px]', RAIL_INSET_X, RAIL_ROW_GAP)
-          : cn('h-10 w-10 justify-center rounded-xl'),
-        railItemTone(activeMore || open)
-      )}
-    >
-      <span className={expanded ? RAIL_ICON_SLOT : 'inline-flex items-center justify-center'}>
-        <Icon name="home-rail-more" className="h-[18px] w-[18px]" />
-      </span>
-      {expanded ? (
-        <span className="min-w-0 truncate text-[13px] font-medium leading-none tracking-tight">
-          {t('home.railMore')}
-        </span>
-      ) : null}
-    </div>
+  const menuItems = useMemo<MenuItemType[]>(
+    () =>
+      RAIL_MORE_ITEMS.map((item) => ({
+        key: item.id,
+        label: (
+          <span className="flex w-full items-center gap-3">
+            <Icon name={item.icon} className="h-[18px] w-[18px] shrink-0" />
+            <span className="truncate">{t(item.labelKey)}</span>
+          </span>
+        ),
+      })),
+    [t]
   );
 
   return (
-    <Popover
+    <Dropdown
       trigger="click"
-      position="right-start"
+      placement="right-start"
+      strategy="fixed"
+      offset={8}
       open={open}
       onOpenChange={setOpen}
-      // Match RailItem collapsed centering — override Popover's default inline-block.
-      className={expanded ? 'block w-full' : '!flex mx-auto w-10 justify-center'}
-      btnElement={trigger}
-      popupClassName="!z-[520] !rounded-2xl !border-0 !bg-[var(--surface)] !p-1.5 !shadow-[0_12px_40px_rgba(15,23,42,0.14)] !ring-1 !ring-[var(--line)]"
-      htmlContent={
-        <div role="menu" aria-label={t('home.railMore')} className="flex min-w-[9.5rem] flex-col gap-0.5">
-          {RAIL_MORE_ITEMS.map((item) => {
-            const selected = activeId === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="menuitem"
-                aria-current={selected ? 'page' : undefined}
-                onClick={() => {
-                  setOpen(false);
-                  onPick(item.id);
-                }}
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition',
-                  selected
-                    ? 'bg-[color-mix(in_srgb,var(--ink)_8%,var(--surface))] text-[var(--ink)]'
-                    : 'text-[var(--ink)] hover:bg-[color-mix(in_srgb,var(--ink)_5%,var(--surface))]'
-                )}
-              >
-                <Icon name={item.icon} className="h-[18px] w-[18px] shrink-0" />
-                <span className="truncate">{t(item.labelKey)}</span>
-              </button>
-            );
-          })}
-        </div>
-      }
-    />
+      items={menuItems}
+      selectedKeys={activeId ? [activeId] : []}
+      onClick={(key) => {
+        setOpen(false);
+        onPick(key as HomeMoreKey);
+      }}
+      floatingClassName="z-[600]"
+      referenceClassName={expanded ? 'block w-full' : 'mx-auto flex w-10 justify-center'}
+      popupClassName="min-w-[9.5rem] rounded-2xl !bg-[var(--surface)] p-1.5 shadow-[0_12px_40px_rgba(15,23,42,0.14)] ring-1 ring-[var(--line)]"
+      itemClassName="h-10 gap-0 rounded-xl px-3 text-[13px]"
+    >
+      <button
+        type="button"
+        aria-label={t('home.railMore')}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={cn(
+          'group flex shrink-0 items-center transition-colors',
+          expanded
+            ? cn('h-10 w-full rounded-[10px]', RAIL_INSET_X, RAIL_ROW_GAP)
+            : cn('h-10 w-10 justify-center rounded-xl'),
+          railItemTone(activeMore || open)
+        )}
+      >
+        <span className={expanded ? RAIL_ICON_SLOT : 'inline-flex items-center justify-center'}>
+          <Icon name="home-rail-more" className="h-[18px] w-[18px]" />
+        </span>
+        {expanded ? (
+          <span className="min-w-0 truncate text-[13px] font-medium leading-none tracking-tight">
+            {t('home.railMore')}
+          </span>
+        ) : null}
+      </button>
+    </Dropdown>
   );
 }
 
@@ -768,9 +769,8 @@ function HomeTemplateList({
   const [skillsMountKey, setSkillsMountKey] = useState(0);
   /** Filter "我的项目" by team org (empty = all accessible). */
   const [filterOrgId, setFilterOrgId] = useState('');
-  /** Tracks Home/Projects surface enter/leave so we don't double-fetch on cold mount. */
+  /** Tracks Home/Projects surface enter/leave so we refetch after editor. */
   const onProjectsSurfaceRef = useRef(false);
-  const skippedInitialProjectsRefreshRef = useRef(false);
 
   /** Guest must not stay on Projects / Skills / More sub-pages — bounce home + open login. */
   useEffect(() => {
@@ -817,15 +817,14 @@ function HomeTemplateList({
         /* list anyway */
       }
     }
-    await refetchProjects();
-  }, [authed, refetchProjects]);
+    await refetchProjectsListCache();
+  }, [authed]);
 
-  /** Same-tab Home/Projects click — refresh only when the Query cache is stale. */
-  const softRefreshProjectsList = useCallback(async () => {
-    if (!authed) return;
-    if (!projectsList.isStale && projectsList.data) return;
-    await refetchProjects();
-  }, [authed, projectsList.data, projectsList.isStale, refetchProjects]);
+  /** Same-tab Home/Projects click — always refetch (user expects fresh names/covers). */
+  const softRefreshProjectsList = useCallback(
+    () => refreshProjectsList({ flush: false }),
+    [refreshProjectsList]
+  );
 
   useEffect(() => {
     openProjectsListHandler = () => {
@@ -843,7 +842,6 @@ function HomeTemplateList({
       dispatch(clearProjectsLibrary());
       clearProjectsListCache();
       onProjectsSurfaceRef.current = false;
-      skippedInitialProjectsRefreshRef.current = false;
       return;
     }
     const onSurface = showHome || showMine;
@@ -853,14 +851,8 @@ function HomeTemplateList({
     }
     const entering = !onProjectsSurfaceRef.current;
     onProjectsSurfaceRef.current = true;
-    // Stay on list surface (Home ↔ Projects): keep Query cache — no extra list GET.
     if (!entering) return;
-    // Cold first enter: `useInfiniteQuery` `enabled` already fetches — skip effect refresh.
-    if (!skippedInitialProjectsRefreshRef.current) {
-      skippedInitialProjectsRefreshRef.current = true;
-      return;
-    }
-    // Re-enter from Skills — force refresh (staleTime may still be warm).
+    // Re-enter from editor / another route — list cache may be warm but stale.
     void refreshProjectsList({ flush: false });
     // Intentionally keyed by tab visibility.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshProjectsList stable via refetch

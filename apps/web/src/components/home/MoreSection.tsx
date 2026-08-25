@@ -145,6 +145,12 @@ function patchLikedPages(
   };
 }
 
+const LIVE_HOME_LIST_OPTS = {
+  staleTime: 0,
+  gcTime: 60_000,
+  refetchOnMount: 'always' as const,
+};
+
 /** Home More sub-page — assets or likes, same shell as 灵感. */
 function MoreSection({ section, onOpenCase }: Props): ReactNode {
   const { t, i18n } = useTranslation();
@@ -161,14 +167,15 @@ function MoreSection({ section, onOpenCase }: Props): ReactNode {
   const [assetDeleteTarget, setAssetDeleteTarget] = useState<UserAsset | null>(null);
   const [assetBusyId, setAssetBusyId] = useState<string | null>(null);
 
-  const likedIdsQuery = useQuery(
-    apiQuery.meMeLikedIds.queryOptions({
+  const likedIdsQuery = useQuery({
+    ...apiQuery.meMeLikedIds.queryOptions({
       enabled: Boolean(authed) && !isAssets,
-    })
-  );
+    }),
+    ...LIVE_HOME_LIST_OPTS,
+  });
 
-  const likedQuery = useInfiniteQuery(
-    apiQuery.meMeLikedList.infiniteOptions({
+  const likedQuery = useInfiniteQuery({
+    ...apiQuery.meMeLikedList.infiniteOptions({
       input: (pageParam: number) => ({
         query: { page: pageParam, pageSize: PAGE_SIZE },
       }),
@@ -178,11 +185,12 @@ function MoreSection({ section, onOpenCase }: Props): ReactNode {
         return page?.hasMore ? (page.page || 0) + 1 : undefined;
       },
       enabled: !isAssets && authed,
-    })
-  );
+    }),
+    ...LIVE_HOME_LIST_OPTS,
+  });
 
-  const assetsQuery = useInfiniteQuery(
-    apiQuery.assetsListMyAssets.infiniteOptions({
+  const assetsQuery = useInfiniteQuery({
+    ...apiQuery.assetsListMyAssets.infiniteOptions({
       input: (pageParam: number) => ({
         query: { page: pageParam, pageSize: ASSETS_PAGE_SIZE },
       }),
@@ -192,8 +200,9 @@ function MoreSection({ section, onOpenCase }: Props): ReactNode {
         return page?.hasMore ? (page.page || 0) + 1 : undefined;
       },
       enabled: isAssets && authed,
-    })
-  );
+    }),
+    ...LIVE_HOME_LIST_OPTS,
+  });
 
   const previewItemQuery = useQuery(
     apiQuery.plazaPlazaItem.queryOptions({

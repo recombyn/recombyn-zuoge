@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from image_layer_pipeline.runtime import INFERENCE_LOCK
+from image_layer_pipeline.runtime import hold_inference
 
 
 @lru_cache(maxsize=2)
@@ -56,7 +56,7 @@ def _estimate_depth_transformers(image_rgb: np.ndarray, model_id: str) -> np.nda
     inputs = processor(images=pil, return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    with torch.no_grad(), INFERENCE_LOCK:
+    with torch.no_grad(), hold_inference("depth"):
         outputs = model(**inputs)
         # 多数 Depth Anything 输出：值越大越近
         depth = outputs.predicted_depth

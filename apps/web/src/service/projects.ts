@@ -130,14 +130,62 @@ export async function deleteProjectsApi(
 export async function invalidateProjectsListCache() {
   await queryClient.invalidateQueries({
     queryKey: apiQuery.projectsListMyProjects.key(),
+    refetchType: 'all',
   });
 }
 
-/** Rename in sidebar — patch list cache only; do not refetch (avoids reordering 最近). */
-export function patchProjectNameInListCache(projectId: string, name: string) {
+/** Force network refetch for all project list queries (active or not). */
+export async function refetchProjectsListCache() {
+  await queryClient.refetchQueries({
+    queryKey: apiQuery.projectsListMyProjects.key(),
+    type: 'all',
+  });
+}
+
+type ProjectListCachePatch = {
+  name?: string;
+  thumbnailUrl?: string | string[] | null;
+  updatedAt?: number;
+  revision?: number;
+};
+
+function mergeProjectListRow(
+  row: ProjectSummaryDto,
+  patch: ProjectListCachePatch
+): ProjectSummaryDto {
+  const next = { ...row };
+  if (patch.name != null) {
+    next.name = String(patch.name || '').trim() || 'Untitled';
+  }
+  if (patch.thumbnailUrl !== undefined) {
+    next.thumbnailUrl = patch.thumbnailUrl ?? null;
+  }
+  if (patch.updatedAt != null) {
+    next.updatedAt = Number(patch.updatedAt) || row.updatedAt;
+  }
+  if (patch.revision != null) {
+    next.revision = Number(patch.revision) || row.revision;
+  }
+  return next;
+}
+
+function hasListCachePatch(patch: ProjectListCachePatch): boolean {
+  return (
+    patch.name != null ||
+    patch.thumbnailUrl !== undefined ||
+    patch.updatedAt != null ||
+    patch.revision != null
+  );
+}
+
+/** Optimistic list row patch — rename, cover, timestamps without a full refetch. */
+export function patchProjectSummaryInListCache(
+  projectId: string,
+  patch: ProjectListCachePatch
+) {
   const id = String(projectId || '').trim();
-  if (!id) return;
-  const nextName = String(name || '').trim() || 'Untitled';
+  if (!id || !hasListCachePatch(patch)) return;
+
   queryClient.setQueriesData(
     { queryKey: apiQuery.projectsListMyProjects.key() },
     (old: unknown) => {
@@ -149,12 +197,20 @@ export function patchProjectNameInListCache(projectId: string, name: string) {
         pages: data.pages.map((page) => ({
           ...page,
           projects: (page.projects || []).map((p) =>
-            p.id === id ? { ...p, name: nextName } : p
+            p.id === id ? mergeProjectListRow(p, patch) : p
           ),
         })),
       };
     }
   );
+}
+
+/** Rename in sidebar — patch list cache only; do not refetch (avoids reordering 最近). */
+export function patchProjectNameInListCache(projectId: string, name: string) {
+  patchProjectSummaryInListCache(projectId, {
+    name: String(name || '').trim() || 'Untitled',
+    updatedAt: Date.now(),
+  });
 }
 
 /** Drop cached list on logout / 401 (avoid leaking another account's pages). */

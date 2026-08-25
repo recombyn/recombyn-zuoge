@@ -1,11 +1,13 @@
 /**
- * Image toolbar AI tools — POST /api/v1/image/process
+ * Image toolbar AI tools — async POST /api/v1/image/process/jobs + SSE wait.
  * (Real-ESRGAN upscale, intelligence vision, or Seedream i2i).
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { abortAfter, apiClient } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
+import { request } from '@/utils/request';
+import { sse } from '@/utils/sse';
 
 export type ImageProcessKindApi =
   | 'upscale'
@@ -87,6 +89,19 @@ export const INTELLIGENCE_VISION_KINDS = [
   'editElements',
 ] as const;
 
+/** Toolbar kinds handled by async image process jobs (ImageProcessWatcher). */
+export const AI_IMAGE_PROCESS_KINDS = new Set<string>([
+  'upscale',
+  'removeBg',
+  'eraser',
+  'multiAngle',
+  'expand',
+  'editText',
+  'editElements',
+  'replaceText',
+  'adjust',
+]);
+
 let intelligenceVisionEnabled = false;
 
 /** Sync snapshot updated by ``useImageToolCapabilities`` / ``fetchImageToolCapabilities``. */
@@ -132,12 +147,146 @@ export function useImageToolCreditCost(kind: ImageProcessKindApi | string): numb
   return typeof fallback === 'number' ? fallback : 0;
 }
 
-/** Run an image toolbar tool on the API (intelligence vision or Seedream i2i). */
-export const processImageTool = (
+type ImageProcessJobCreate = {
+  job_id: string;
+  status: string;
+  trace_id?: string;
+};
+
+type ImageProcessJobState = {
+  job_id: string;
+  status: string;
+  progress: number;
+  result: ImageProcessResult | null;
+  error?: string | null;
+};
+
+const IMAGE_PROCESS_JOB_TIMEOUT_MS = 320_000;
+const IMAGE_PROCESS_QUEUED_STALL_MS = 60_000;
+const IMAGE_PROCESS_TIMEOUT_MSG = '图片分层超时，请稍后重试（大图首次加载模型会更慢）';
+
+/** POST /api/v1/image/process/jobs — returns job id for SSE / refresh recovery. */
+export async function createImageProcessJob(
   data: ImageProcessBody,
   opts?: { signal?: AbortSignal }
-) =>
-  apiClient.imageToolsPostImageProcess(
-    { body: data as never },
-    { signal: abortAfter(180_000, opts?.signal) }
-  ) as Promise<ImageProcessResult>;
+): Promise<string> {
+  const created = await request<ImageProcessJobCreate>({
+    url: '/api/v1/image/process/jobs',
+    method: 'post',
+    data,
+    signal: abortAfter(60_000, opts?.signal),
+  });
+  return created.job_id;
+}
+
+function handleImageProcessJobPayload(
+  job: ImageProcessJobState,
+  queuedSince: { at: number | null },
+  opts: { onProgress?: (pct: number) => void }
+): ImageProcessResult | 'pending' {
+  const progress = Math.max(0, Math.min(100, Number(job.progress) || 0));
+  opts.onProgress?.(progress);
+
+  if (job.status === 'done') {
+    if (!job.result || typeof job.result !== 'object') {
+      throw new Error(job.error || 'image process job missing result');
+    }
+    return job.result;
+  }
+  if (job.status === 'failed') {
+    throw new Error(job.error || 'image process failed');
+  }
+  if (job.status === 'queued') {
+    if (queuedSince.at == null) queuedSince.at = Date.now();
+    else if (Date.now() - queuedSince.at > IMAGE_PROCESS_QUEUED_STALL_MS) {
+      throw new Error(
+        'Image process queue stalled — run npm run dev:worker (Celery) alongside the API'
+      );
+    }
+  } else {
+    queuedSince.at = null;
+  }
+  return 'pending';
+}
+
+/** Wait for toolbar image job via SSE (progress + result). */
+export async function waitForImageProcessJob(
+  jobId: string,
+  opts?: { signal?: AbortSignal; onProgress?: (pct: number) => void }
+): Promise<ImageProcessResult> {
+  const deadline = Date.now() + IMAGE_PROCESS_JOB_TIMEOUT_MS;
+  const queuedSince = { at: null as number | null };
+
+  return new Promise<ImageProcessResult>((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
+    void sse({
+      url: `/api/v1/image/process/jobs/${encodeURIComponent(jobId)}/events`,
+      method: 'GET',
+      signal: abortAfter(IMAGE_PROCESS_JOB_TIMEOUT_MS, opts?.signal),
+      onmessage: (ev) => {
+        if (opts?.signal?.aborted) {
+          finish(() => reject(new DOMException('Aborted', 'AbortError')));
+          return;
+        }
+        if (Date.now() > deadline) {
+          finish(() => reject(new Error(IMAGE_PROCESS_TIMEOUT_MSG)));
+          return;
+        }
+        if (ev.event === 'error') {
+          let detail = 'Job not found';
+          try {
+            detail = String(JSON.parse(ev.data)?.error || detail);
+          } catch {
+            /* ignore */
+          }
+          finish(() => reject(new Error(detail)));
+          return;
+        }
+        let job: ImageProcessJobState;
+        try {
+          job = JSON.parse(ev.data) as ImageProcessJobState;
+        } catch {
+          return;
+        }
+        try {
+          const outcome = handleImageProcessJobPayload(job, queuedSince, opts || {});
+          if (outcome !== 'pending') finish(() => resolve(outcome));
+        } catch (err) {
+          finish(() => reject(err instanceof Error ? err : new Error(String(err))));
+        }
+      },
+      onerror: (err) => {
+        finish(() => reject(err));
+      },
+      onclose: () => {
+        if (!settled) {
+          finish(() => reject(new Error(IMAGE_PROCESS_TIMEOUT_MSG)));
+        }
+      },
+    });
+  });
+}
+
+/** Create async toolbar job + SSE wait (preferred for long intelligence paths). */
+export async function processImageToolAsync(
+  data: ImageProcessBody,
+  opts?: {
+    signal?: AbortSignal;
+    jobId?: string;
+    onProgress?: (pct: number) => void;
+    onJobCreated?: (jobId: string) => void;
+  }
+): Promise<ImageProcessResult> {
+  const jobId = opts?.jobId || (await createImageProcessJob(data, { signal: opts?.signal }));
+  if (!opts?.jobId) opts?.onJobCreated?.(jobId);
+  return waitForImageProcessJob(jobId, {
+    signal: opts?.signal,
+    onProgress: opts?.onProgress,
+  });
+}

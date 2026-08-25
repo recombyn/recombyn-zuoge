@@ -24,7 +24,7 @@
   <p><strong>作ろう、デザインがこんなに簡単だったことはない</strong></p>
 </div>
 
-**zuoge**（中国語ブランド名 **左格**。口語の「做个＝ひとつ作ろう」に由来）は **AI Native の無限ベクターキャンバス**です。スローガンは **「做个，设计从未如此简单」**（作ろう、デザインがこんなに簡単だったことはない）。Web キャンバスからデスクトップ、Design Agent、バックエンド、共同編集、プライベートデプロイ、自動テストまで、フルループの商用グレード製品です。
+**zuoge** は、編集可能な無限ベクターキャンバスと Design Agent を備えたオープンソースの AI デザインワークスペースです。スローガンは **作ろう、デザインがこんなに簡単だったことはない**。自然言語で図形・テキスト・レイアウト・スタイルを作成・修正し、キャンバス上で仕上げ、Docker Compose でセルフホストできます。
 
 内蔵 Design Agent（LangGraph）：自然言語でレイヤー作成・図形・スタイル・組版ができます。Skill を同梱しつつ、カスタム Skill / AgentProfile（YAML）/ プロンプトパックも追加でき、ポスター・ダッシュボード・LP など品類を広げたあと、ベクター精度で編集できます。
 
@@ -124,7 +124,7 @@ Env： [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs)。S
 
 1. `plugins/skills/<key>/` に `_meta.json` + `SKILL.md`（任意で `handler.py` など）  
 2. Compose は `./plugins/skills` をマウント済み。または `DESIGN_SKILLS_PLUGIN_DIRS`  
-3. API 再起動 / ホットリロード — トリガーで会話（例：「生成中秋红色海报」）
+3. API 再起動 / ホットリロード — トリガーで会話（例：「中秋の赤いポスターを作って」）
 
 任意：`DESIGN_SKILL_OPS_RUNNER=true` で `handler.py` が LLM paint 前に `tool_ops` を返せます。[docs/skill-extensions.md](docs/skill-extensions.md)
 

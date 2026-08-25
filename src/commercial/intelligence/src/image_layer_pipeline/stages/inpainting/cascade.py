@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from image_layer_pipeline.runtime import INFERENCE_LOCK
+from image_layer_pipeline.runtime import hold_inference
 
 
 @lru_cache(maxsize=1)
@@ -69,7 +69,7 @@ def _inpaint_lama(image_rgb: np.ndarray, mask_u8: np.ndarray) -> np.ndarray:
     lama = _lama()
     image = Image.fromarray(image_rgb)
     mask = Image.fromarray(mask_u8)
-    with INFERENCE_LOCK:
+    with hold_inference("lama"):
         result = lama(image, mask)
     if isinstance(result, Image.Image):
         arr = np.asarray(result.convert("RGB"), dtype=np.uint8)

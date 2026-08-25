@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from image_layer_pipeline.runtime import INFERENCE_LOCK
+from image_layer_pipeline.runtime import hold_inference
 from image_layer_pipeline.ort_providers import preferred_ort_providers
 
 import numpy as np
@@ -103,7 +103,7 @@ def segment_foreground(
     pil = Image.fromarray(image_rgb, mode="RGB")
     onnx_path = str(custom_onnx or "").strip()
 
-    with INFERENCE_LOCK:
+    with hold_inference("matting"):
         if model_name == "ben_custom" and onnx_path:
             try:
                 rgba = _segment_custom_onnx(pil, onnx_path)

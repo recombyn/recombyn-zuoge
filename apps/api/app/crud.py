@@ -2508,13 +2508,60 @@ def count_fonts(*, session: Session) -> int:
     return int(session.exec(select(func.count()).select_from(Font)).one() or 0)
 
 
-def list_fonts_page(
-    *, session: Session, offset: int, limit: int
-) -> list[Font]:
-    return list(
+def count_fonts_by_owner(*, session: Session, owner_user_id: str) -> int:
+    return len(list_user_font_rows(session=session, owner_user_id=owner_user_id))
+
+
+def list_fonts_by_owner(*, session: Session, owner_user_id: str) -> list[Font]:
+    return list_user_font_rows(session=session, owner_user_id=owner_user_id)
+
+
+def list_user_font_rows(*, session: Session, owner_user_id: str) -> list[Font]:
+    uid = (owner_user_id or "").strip()
+    if not uid:
+        return []
+    owned = list(
         session.exec(
             select(Font)
+            .where(Font.owner_user_id == uid)
             .order_by(col(Font.sort_order).asc(), col(Font.family).asc())
+        ).all()
+    )
+    path_needle = f"%uploads/{uid}/fonts/%"
+    orphans = list(
+        session.exec(
+            select(Font)
+            .where(Font.owner_user_id.is_(None), Font.faces_json.like(path_needle))
+            .order_by(col(Font.sort_order).asc(), col(Font.family).asc())
+        ).all()
+    )
+    seen = {row.id for row in owned}
+    rows = list(owned)
+    for row in orphans:
+        if row.id in seen:
+            continue
+        rows.append(row)
+        seen.add(row.id)
+    return rows
+
+
+def list_fonts_page(
+    *, session: Session, offset: int, limit: int, viewer_user_id: str | None = None
+) -> list[Font]:
+    q = select(Font)
+    if viewer_user_id:
+        uid = viewer_user_id.strip()
+        path_needle = f"%uploads/{uid}/fonts/%"
+        q = q.where(
+            (Font.owner_user_id == uid)
+            | (Font.owner_user_id.is_(None) & ~Font.faces_json.like(path_needle))
+            | Font.faces_json.like(path_needle)
+        )
+    else:
+        q = q.where(Font.owner_user_id.is_(None))
+    return list(
+        session.exec(
+            q.order_by(col(Font.sort_order).asc(), col(Font.family).asc())
             .offset(max(0, offset))
             .limit(max(1, limit))
         ).all()
@@ -2540,6 +2587,7 @@ def upsert_font_row(
     sort_order: int | None,
     new_id: str,
     created_at: float,
+    owner_user_id: str | None = None,
 ) -> Font:
     row = get_font_by_family(session=session, family=family)
     if row:
@@ -2547,6 +2595,8 @@ def upsert_font_row(
         row.faces_json = faces_json
         if sort_order is not None:
             row.sort_order = int(sort_order)
+        if owner_user_id is not None:
+            row.owner_user_id = owner_user_id
         session.add(row)
     else:
         row = Font(
@@ -2556,6 +2606,7 @@ def upsert_font_row(
             faces_json=faces_json,
             sort_order=int(sort_order) if sort_order is not None else 9999,
             created_at=created_at,
+            owner_user_id=owner_user_id,
         )
         session.add(row)
     session.commit()
@@ -2565,6 +2616,23 @@ def upsert_font_row(
 
 def delete_font_by_family(*, session: Session, family: str) -> bool:
     row = get_font_by_family(session=session, family=family)
+    if not row:
+        return False
+    session.delete(row)
+    session.commit()
+    return True
+
+
+def delete_font_by_family_and_owner(
+    *, session: Session, family: str, owner_user_id: str
+) -> bool:
+    fam = (family or "").strip()
+    uid = (owner_user_id or "").strip()
+    if not fam or not uid:
+        return False
+    row = session.exec(
+        select(Font).where(Font.family == fam, Font.owner_user_id == uid).limit(1)
+    ).first()
     if not row:
         return False
     session.delete(row)

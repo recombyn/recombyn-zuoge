@@ -2,7 +2,7 @@
   "name": "recombyn",
   "version": "0.1.0",
   "private": true,
-  "description": "zuoge (左格) — canvas editor + AI Design Agent",
+  "description": "zuoge — canvas editor + AI Design Agent",
   "license": "Apache-2.0",
   "packageManager": "npm@10.9.2",
   "workspaces": [

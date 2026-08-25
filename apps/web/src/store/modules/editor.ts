@@ -583,7 +583,7 @@ const editorSlice = createSlice({
       state.currentId = id;
       state.document = doc;
       clearSelection(state);
-      state.dirty = false;
+      state.dirty = Boolean(action.payload?.dirty);
       state.historyPast = [];
       state.historyFuture = [];
       state.sceneReloadToken += 1;

@@ -29,10 +29,15 @@ export function readProcessStartedAt(node: SceneNodeInput | null | undefined): n
 }
 
 /** Jobs older than server timeout + slack — treat as stale after refresh. */
-export const PROCESS_JOB_STALE_MS = 190_000;
+export const PROCESS_JOB_STALE_MS = 320_000;
 
 export function isStaleProcessJob(node: SceneNodeInput | null | undefined): boolean {
   const started = readProcessStartedAt(node);
   if (!started) return true;
   return Date.now() - started > PROCESS_JOB_STALE_MS;
+}
+
+/** Strip trailing ` 42%` progress suffix from SoftGlow labels. */
+export function stripProcessProgressLabel(label: string, fallback = '处理中'): string {
+  return String(label || fallback).replace(/\s+\d+%$/, '').trim() || fallback;
 }

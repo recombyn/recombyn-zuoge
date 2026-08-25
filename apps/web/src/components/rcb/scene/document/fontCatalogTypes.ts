@@ -18,6 +18,9 @@ export type FontFamilyNode = {
   url?: string;
   format?: FontFaceFormat;
   children: FontChild[];
+  /** True when the current user uploaded this family. */
+  isMine?: boolean;
+  ownerUserId?: string | null;
 };
 
 export type FontWeightOption = {

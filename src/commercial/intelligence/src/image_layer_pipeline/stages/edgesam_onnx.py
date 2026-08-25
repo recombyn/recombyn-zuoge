@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from image_layer_pipeline.runtime import INFERENCE_LOCK
+from image_layer_pipeline.runtime import hold_inference
 from image_layer_pipeline.stages.sam_roi import SamRegion, _bbox_from_mask, _dedupe_regions, _region_from_bbox
 
 
@@ -77,7 +77,7 @@ def _encode(image_rgb: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
     encoder = _encoder_session()
     x, padded = _prepare_image(image_rgb)
     inp_name = encoder.get_inputs()[0].name
-    with INFERENCE_LOCK:
+    with hold_inference("sam"):
         embedding = encoder.run(None, {inp_name: x})[0]
     return embedding, padded
 
@@ -110,7 +110,7 @@ def _decode_mask(
             feed[name] = np.array([h, w], dtype=np.float32)
     if len(feed) < 2:
         raise RuntimeError("EdgeSAM decoder ONNX inputs could not be bound — check export names")
-    with INFERENCE_LOCK:
+    with hold_inference("sam"):
         outputs = decoder.run(None, feed)
     mask = outputs[0]
     while mask.ndim > 2:

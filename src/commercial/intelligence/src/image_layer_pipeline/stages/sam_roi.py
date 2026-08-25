@@ -11,7 +11,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from image_layer_pipeline.runtime import INFERENCE_LOCK
+from image_layer_pipeline.runtime import hold_inference
 from image_layer_pipeline.stages.subpixel import snap_inset
 
 
@@ -112,7 +112,7 @@ def _load_fastsam():
         raise RuntimeError(
             "FastSAM weights not found (set ILP_FASTSAM_MODEL_PATH or place models/FastSAM-s.pt)"
         )
-    with INFERENCE_LOCK:
+    with hold_inference("sam"):
         return FastSAM(str(path))
 
 
@@ -209,7 +209,7 @@ def _fastsam_proposals(image_rgb: np.ndarray, *, max_regions: int = 12) -> list[
     model = _load_fastsam()
     bgr = image_rgb[:, :, ::-1]
     conf = float(os.environ.get("ILP_FASTSAM_CONF", "0.25") or 0.25)
-    with INFERENCE_LOCK:
+    with hold_inference("sam"):
         results = model.predict(
             source=bgr,
             conf=conf,

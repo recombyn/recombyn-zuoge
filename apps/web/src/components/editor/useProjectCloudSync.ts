@@ -5,12 +5,16 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
 import {
   upsertProjectApi,
   patchProjectApi,
   deleteProjectApi,
   deleteProjectsApi,
   fetchProject,
+  invalidateProjectsListCache,
+  patchProjectSummaryInListCache,
+  refetchProjectsListCache,
 } from '@/service/projects';
 import store from '@/store';
 import {
@@ -32,6 +36,7 @@ import {
   putProjectDraft,
 } from '@/components/editor/projectDraftStore';
 import { isCollabCloudPersistOwned } from '@/components/editor/collab/collabRuntime';
+import { message } from '@/components/base';
 
 const DEBOUNCE_MS = 800;
 /** Coalesce rapid Ctrl/⌘+S into one flush. */
@@ -58,7 +63,7 @@ function shouldPauseCloudAutoRetry(failCount: number): boolean {
 
 /** Latest in-flight / queued editor flush — Home awaits this before re-listing projects. */
 let flushChain: Promise<void> = Promise.resolve();
-let flushRunner: ((opts?: FlushProjectOptions) => Promise<void>) | null = null;
+let flushRunner: ((opts?: FlushProjectOptions) => Promise<FlushProjectResult>) | null = null;
 
 export type FlushProjectOptions = {
   /**
@@ -68,16 +73,19 @@ export type FlushProjectOptions = {
   force?: boolean;
 };
 
+/** Outcome of a single flush pass — manual save uses this for user feedback. */
+export type FlushProjectResult = 'saved' | 'local' | 'unchanged' | 'failed' | 'conflict' | 'skipped';
+
 /**
  * Force an immediate project sync (document + auto cover) and wait until it settles.
  * Safe to call from Home / leave-editor even when the hook is unmounted.
  */
-export function flushCurrentProjectNow(opts?: FlushProjectOptions): Promise<void> {
+export function flushCurrentProjectNow(opts?: FlushProjectOptions): Promise<FlushProjectResult> {
   const run = flushRunner;
-  if (!run) return flushChain;
-  const next = (async () => {
+  if (!run) return Promise.resolve('skipped');
+  const next: Promise<FlushProjectResult> = (async () => {
     await flushChain;
-    await run(opts);
+    return run(opts);
   })();
   // Keep the queue alive even if one pass fails.
   flushChain = (async () => {
@@ -190,6 +198,7 @@ async function applyCloudAck(opts: {
   contentHash: string;
   pushedDoc: unknown;
   ack?: CloudAck;
+  projectName?: string;
 }): Promise<void> {
   const nextThumb = ackThumbnail(opts.ack?.thumbnailUrl, opts.ack?.revision ?? Date.now());
   if (nextThumb) {
@@ -201,6 +210,20 @@ async function applyCloudAck(opts: {
       })
     );
   }
+  const ed = store.getState().editor as {
+    templates?: { id: string; name?: string }[];
+  };
+  const tplName =
+    opts.projectName ||
+    ed.templates?.find((t) => t.id === opts.projectId)?.name ||
+    'Untitled';
+  const listPatch: Parameters<typeof patchProjectSummaryInListCache>[1] = {
+    name: tplName,
+    updatedAt: Date.now(),
+  };
+  if (nextThumb) listPatch.thumbnailUrl = nextThumb;
+  if (opts.ack?.revision != null) listPatch.revision = opts.ack.revision;
+  patchProjectSummaryInListCache(opts.projectId, listPatch);
   await markProjectDraftSynced(
     opts.projectId,
     opts.contentHash,
@@ -449,9 +472,15 @@ export async function syncOwnedDocumentToCloud(opts: {
   }
 
   if (!delta && baseDoc && baseRevision != null) {
-    // Same document — do not empty-PATCH (that still bumps revision and 412s
-    // a overlapping boolean PUT that still holds the old If-Match).
-    return { status: 'ok', ack: { revision: baseRevision } };
+    // Document unchanged — still PATCH so renames reach the server (empty delta alone skips).
+    const patched = await patchProjectToCloud({
+      id,
+      name,
+      baseRevision,
+      patch: {},
+    });
+    if (patched.status !== 'failed') return patched;
+    return pushProjectToCloud({ id, name, document, baseRevision });
   }
 
   return pushProjectToCloud({ id, name, document, baseRevision });
@@ -478,9 +507,29 @@ async function handleFlushConflict(opts: {
   });
 }
 
+const MANUAL_SAVE_TOAST: Partial<
+  Record<FlushProjectResult, { level: 'success' | 'error' | 'warning'; key: string }>
+> = {
+  saved: { level: 'success', key: 'editor.projectSavedOk' },
+  local: { level: 'success', key: 'editor.projectSavedLocal' },
+  unchanged: { level: 'success', key: 'editor.projectSavedUpToDate' },
+  failed: { level: 'error', key: 'editor.projectSaveFailed' },
+  conflict: { level: 'warning', key: 'editor.revisionConflictTitle' },
+};
+
+function notifyManualSaveResult(result: FlushProjectResult, t: (key: string) => string): void {
+  const spec = MANUAL_SAVE_TOAST[result];
+  if (!spec) return;
+  const text = t(spec.key);
+  if (spec.level === 'error') message.error(text);
+  else if (spec.level === 'warning') message.warning(text);
+  else message.success(text);
+}
+
 /** Editor: debounce local draft + cloud upsert while editing. */
 export function useProjectCloudSync() {
   const dispatch = useDispatch();
+  const { t } = useTranslation();
   const dirty = useSelector((s: any) => Boolean(s.editor.dirty));
   const document = useSelector((s: any) => s.editor.document);
   const currentId = useSelector((s: any) => s.editor.currentId as string | null);
@@ -506,7 +555,7 @@ export function useProjectCloudSync() {
     }, delayMs);
   }, []);
 
-  const flush = useCallback(async (opts?: FlushProjectOptions) => {
+  const flush = useCallback(async (opts?: FlushProjectOptions): Promise<FlushProjectResult> => {
     // Read Redux directly — requestProjectFlush may fire before this hook re-renders.
     const force = Boolean(opts?.force);
     const ed = store.getState().editor as {
@@ -517,11 +566,11 @@ export function useProjectCloudSync() {
     };
     const id = ed.currentId;
     const tpl = ed.templates.find((t) => t.id === id);
-    if ((!ed.dirty && !force) || !ed.document || !id || !tpl) return;
-    if (id.startsWith('share_') || !isOwnedTemplate(tpl)) return;
+    if ((!ed.dirty && !force) || !ed.document || !id || !tpl) return 'skipped';
+    if (id.startsWith('share_') || !isOwnedTemplate(tpl)) return 'skipped';
     if (flushingRef.current) {
       pendingFlushRef.current = true;
-      return;
+      return 'skipped';
     }
     flushingRef.current = true;
     let cloudAttempted = false;
@@ -551,11 +600,15 @@ export function useProjectCloudSync() {
 
       if (!force && isDraftAlreadyAcked(draft, contentHash, name)) {
         clearDirtyIfSameDoc(dispatch, pushedDoc);
-        return;
+        return 'unchanged';
       }
-      if (!getToken() || (isCollabCloudPersistOwned() && !force)) {
+      if (!getToken()) {
         clearDirtyIfSameDoc(dispatch, pushedDoc);
-        return;
+        return 'local';
+      }
+      if (isCollabCloudPersistOwned() && !force) {
+        clearDirtyIfSameDoc(dispatch, pushedDoc);
+        return 'skipped';
       }
 
       // Same doc already failed the backoff ladder — wait for edits or force save.
@@ -565,7 +618,7 @@ export function useProjectCloudSync() {
         cloudFailHashRef.current === contentHash
       ) {
         pauseAutoRetry = true;
-        return;
+        return 'failed';
       }
 
       cloudAttempted = true;
@@ -586,8 +639,9 @@ export function useProjectCloudSync() {
           contentHash,
           pushedDoc,
           ack: written.ack,
+          projectName: name,
         });
-        return;
+        return 'saved';
       }
       if (written.status === 'conflict') {
         cloudFailCountRef.current = 0;
@@ -598,7 +652,7 @@ export function useProjectCloudSync() {
           pushedDoc,
           conflict: written.conflict,
         });
-        return;
+        return 'conflict';
       }
       cloudFailCountRef.current += 1;
       cloudFailHashRef.current = contentHash;
@@ -612,6 +666,9 @@ export function useProjectCloudSync() {
           paused: pauseAutoRetry,
         });
       }
+      return 'failed';
+    } catch {
+      return 'failed';
     } finally {
       flushingRef.current = false;
       const still = store.getState().editor as { dirty: boolean; currentId: string | null };
@@ -667,7 +724,9 @@ export function useProjectCloudSync() {
         manualSaveTimerRef.current = null;
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = null;
-        void flushCurrentProjectNow({ force: true });
+        void flushCurrentProjectNow({ force: true }).then((result) => {
+          notifyManualSaveResult(result, t);
+        });
       }, MANUAL_SAVE_DEBOUNCE_MS);
     };
     window.addEventListener('keydown', onKey);
@@ -676,7 +735,7 @@ export function useProjectCloudSync() {
       if (manualSaveTimerRef.current) clearTimeout(manualSaveTimerRef.current);
       manualSaveTimerRef.current = null;
     };
-  }, []);
+  }, [t]);
 
   // Leave / hide: force doc + cover once (not every debounce). Unmount same.
   useEffect(() => {
@@ -692,7 +751,14 @@ export function useProjectCloudSync() {
     return () => {
       window.removeEventListener('pagehide', onHide);
       window.document.removeEventListener('visibilitychange', onVisibility);
-      void flushCurrentProjectNow({ force: true });
+      void (async () => {
+        try {
+          await flushCurrentProjectNow({ force: true });
+        } finally {
+          await invalidateProjectsListCache();
+          await refetchProjectsListCache();
+        }
+      })();
     };
   }, []);
 }

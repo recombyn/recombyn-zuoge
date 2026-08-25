@@ -451,8 +451,13 @@ function SelectionContextToolbar(props: Props): ReactNode {
       if (!cancelled) setFontCatalogTick((n) => n + 1);
     }
     loadCatalog();
+    const onFontsUpdated = () => {
+      void loadCatalog();
+    };
+    window.addEventListener('recombyn:font-catalog-updated', onFontsUpdated);
     return () => {
       cancelled = true;
+      window.removeEventListener('recombyn:font-catalog-updated', onFontsUpdated);
     };
   }, []);
 

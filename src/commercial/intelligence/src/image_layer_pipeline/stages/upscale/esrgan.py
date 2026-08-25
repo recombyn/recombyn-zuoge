@@ -10,7 +10,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from image_layer_pipeline.runtime import INFERENCE_LOCK
+from image_layer_pipeline.runtime import hold_inference
 
 TileFn = Callable[[np.ndarray], np.ndarray]
 
@@ -133,7 +133,7 @@ def _upscale_tile_onnx(tile_rgb: np.ndarray, *, scale: int) -> np.ndarray:
 
     x = tile_rgb.astype(np.float32) / 255.0
     x = np.transpose(x, (2, 0, 1))[None, ...]
-    with INFERENCE_LOCK:
+    with hold_inference("esrgan"):
         y = session.run([out_name], {inp_name: x})[0]
     y = np.transpose(y[0], (1, 2, 0))
     y = np.clip(y * 255.0, 0, 255).astype(np.uint8)
