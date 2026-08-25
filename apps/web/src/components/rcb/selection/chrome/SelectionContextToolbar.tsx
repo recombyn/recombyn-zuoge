@@ -57,6 +57,7 @@ import {
   toggleTextDecoration,
 } from '@/components/rcb/scene/document/sceneText';
 import { markdownToPlain } from '@/components/rcb/scene/document/sceneMarkdown';
+import { TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
@@ -580,8 +581,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
       );
       return;
     }
-    const boxW = Math.max(120, Math.round(Number(node.width) || 240));
-    const boxH = Math.max(80, Math.round(Number(node.height) || 160));
+    const side = Math.max(120, Math.round(Math.max(Number(node.width) || 240, Number(node.height) || 240)));
     const titleName =
       String(node.attrs?.name || '').trim() ||
       plain.replace(/\s+/g, ' ').trim().slice(0, 48) ||
@@ -590,9 +590,19 @@ function SelectionContextToolbar(props: Props): ReactNode {
       patchDocumentNode({
         nodeId,
         patch: {
-          attrs: { textFrame: 'true', autoSize: 'false', name: titleName },
-          width: boxW,
-          height: boxH,
+          attrs: {
+            textFrame: 'true',
+            autoSize: 'false',
+            lockAspect: 'true',
+            name: titleName,
+            radiusTL: TEXT_FRAME_RADIUS,
+            radiusTR: TEXT_FRAME_RADIUS,
+            radiusBR: TEXT_FRAME_RADIUS,
+            radiusBL: TEXT_FRAME_RADIUS,
+            radiusLinked: 'true',
+          },
+          width: side,
+          height: side,
         },
       })
     );
@@ -605,15 +615,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
     if (!Number.isFinite(n) || n < 1) return;
     const curW = Math.max(1, Math.round(Number(node?.width) || 1));
     const curH = Math.max(1, Math.round(Number(node?.height) || 1));
-    if (axis === 'w' && n === curW) return;
-    if (axis === 'h' && n === curH) return;
+    if (n === curW && n === curH) return;
     dispatch(
       patchDocumentNode({
         nodeId,
         patch: {
-          attrs: { textFrame: 'true', autoSize: 'false' },
-          width: axis === 'w' ? n : curW,
-          height: axis === 'h' ? n : curH,
+          attrs: { textFrame: 'true', autoSize: 'false', lockAspect: 'true' },
+          width: n,
+          height: n,
         },
       })
     );

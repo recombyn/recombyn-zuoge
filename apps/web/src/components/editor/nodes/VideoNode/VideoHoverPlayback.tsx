@@ -43,8 +43,20 @@ function readCropNorm(opts: {
 }
 
 function mediaCropStyle(crop: { x: number; y: number; w: number; h: number } | null): CSSProperties {
+  // Tailwind preflight sets `video, img { max-width: 100%; height: auto }` which
+  // caps crop zoom (width > 100%) and collapses height — crop then looks like a
+  // thin/shifted strip instead of the selected region.
   if (!crop) {
-    return { width: '100%', height: '100%', objectFit: 'fill' };
+    return {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      width: '100%',
+      height: '100%',
+      maxWidth: 'none',
+      maxHeight: 'none',
+      objectFit: 'fill',
+    };
   }
   return {
     position: 'absolute',
@@ -52,6 +64,8 @@ function mediaCropStyle(crop: { x: number; y: number; w: number; h: number } | n
     top: `${(-crop.y / crop.h) * 100}%`,
     width: `${(1 / crop.w) * 100}%`,
     height: `${(1 / crop.h) * 100}%`,
+    maxWidth: 'none',
+    maxHeight: 'none',
     objectFit: 'fill',
   };
 }
@@ -112,6 +126,8 @@ type VideoHoverPlaybackProps = {
   poster?: string;
   uploadKey?: string | null;
   hidden?: boolean;
+  /** Hide playback bar / fullscreen chrome (e.g. while crop session is open). */
+  hideChrome?: boolean;
   flipX?: boolean;
   flipY?: boolean;
   trimStart?: number;
@@ -138,6 +154,7 @@ function VideoHoverPlayback({
   poster,
   uploadKey,
   hidden,
+  hideChrome = false,
   trimStart,
   trimEnd,
   knownDuration,
@@ -184,7 +201,8 @@ function VideoHoverPlayback({
     setVideoEl(el);
   }, []);
 
-  // Flip media pixels only — keep the playback bar upright.
+  // Flip media pixels only — group flip is suppressed for HTML video FO so the
+  // playback bar stays on the plate bottom (see hostIsolatesHtmlMediaFlip).
   const mediaFlip =
     flipX || flipY
       ? (`scale(${flipX ? -1 : 1}, ${flipY ? -1 : 1})` as const)
@@ -345,10 +363,19 @@ function VideoHoverPlayback({
   const freezeMatches = Boolean(freeze.url) && Math.abs(mediaTime - freeze.at) <= 0.12;
   const showStill = !playing && freezeMatches;
   const showVideo = playing || !showStill;
-  const barVisible = showUi && (plateHovered || barHovered || playing);
-  const screenW = Math.max(1, scenePlate.width * z);
-  const screenH = Math.max(1, scenePlate.height * z);
+  const barVisible = showUi && !hideChrome && (plateHovered || barHovered || playing);
+  // Layout must match FO box (drag-base while CSS-scale resizing), not the visual
+  // chrome size — otherwise scrubber/video sit mid-plate during live resize.
+  const layoutW = Math.max(1, scenePlate.width);
+  const layoutH = Math.max(1, scenePlate.height);
+  const screenW = Math.max(1, layoutW * z);
+  const screenH = Math.max(1, layoutH * z);
   const chrome = videoChromeLayout(screenW, screenH);
+  const crop = readCropNorm({ cropX, cropY, cropW, cropH });
+  const cropStyle = mediaCropStyle(crop);
+  const mediaFlipStyle: CSSProperties = mediaFlip
+    ? { transform: mediaFlip, transformOrigin: 'center center' }
+    : {};
 
   const plate = (
     <div
@@ -369,11 +396,10 @@ function VideoHoverPlayback({
           src={freeze.url}
           alt=""
           draggable={false}
-          className="pointer-events-none absolute inset-0 h-full w-full"
+          className="pointer-events-none absolute"
           style={{
-            objectFit: 'fill',
-            transform: mediaFlip,
-            transformOrigin: 'center center',
+            ...cropStyle,
+            ...mediaFlipStyle,
           }}
         />
       ) : null}
@@ -382,8 +408,8 @@ function VideoHoverPlayback({
         ref={videoWrapRef}
         className="pointer-events-none absolute left-0 top-0 overflow-hidden"
         style={{
-          width: scenePlate.width * z,
-          height: scenePlate.height * z,
+          width: layoutW * z,
+          height: layoutH * z,
           transform: `scale(${1 / z})`,
           transformOrigin: '0 0',
           visibility: showUi && showVideo ? 'visible' : 'hidden',
@@ -391,12 +417,11 @@ function VideoHoverPlayback({
       >
         <video
           ref={setVideoNodeRef}
-          className="pointer-events-none block h-full w-full"
+          className="pointer-events-none absolute block"
           style={{
-            objectFit: 'fill',
+            ...cropStyle,
             background: '#111827',
-            transform: mediaFlip,
-            transformOrigin: 'center center',
+            ...mediaFlipStyle,
           }}
           playsInline
           preload="auto"
@@ -406,13 +431,12 @@ function VideoHoverPlayback({
         />
       </div>
 
-      {showUi && chrome.visible ? (
+      {showUi && !hideChrome && chrome.visible ? (
         // Full plate + overflow visible so the vertical volume slider above mute isn’t clipped
         // by a bar-height-only wrapper (overflow-hidden + short height hid it entirely).
-        <div
-          className="pointer-events-none absolute inset-0 z-[2] overflow-visible"
-          style={{ width: scenePlate.width, height: scenePlate.height }}
-        >
+        // Use inset-0 (not scenePlate W×H): during live resize the FO box is authoritative;
+        // an explicit smaller box left the scrubber mid-plate when CSS scale was used.
+        <div className="pointer-events-none absolute inset-0 z-[2] overflow-visible">
           <div
             className="pointer-events-none absolute bottom-0 left-0 overflow-visible"
             style={{
@@ -444,8 +468,8 @@ function VideoHoverPlayback({
         src={src}
         poster={poster}
         uploadKey={uploadKey}
-        aspectWidth={scenePlate.width}
-        aspectHeight={scenePlate.height}
+        aspectWidth={layoutW}
+        aspectHeight={layoutH}
         cropX={cropX}
         cropY={cropY}
         cropW={cropW}
@@ -471,6 +495,7 @@ function propsEqual(prev: VideoHoverPlaybackProps, next: VideoHoverPlaybackProps
     prev.poster === next.poster &&
     prev.uploadKey === next.uploadKey &&
     prev.hidden === next.hidden &&
+    prev.hideChrome === next.hideChrome &&
     prev.trimStart === next.trimStart &&
     prev.trimEnd === next.trimEnd &&
     prev.knownDuration === next.knownDuration &&

@@ -16,7 +16,8 @@ import {
 } from '@/components/rcb/scene/document/sceneText';
 import { isTextFrameNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { TEXT_SELECTION_PAD } from '@/components/rcb/scene/document/sceneEffects';
+import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS, TEXT_SELECTION_PAD } from '@/components/rcb/scene/document/sceneEffects';
+import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 type Props = {
@@ -138,6 +139,7 @@ function TextInlineEditor({
       );
   // Same pad as selection chrome (flush with glyphs).
   const pad = TEXT_SELECTION_PAD;
+  const framePad = textFrame ? TEXT_FRAME_PADDING : 0;
   const chromeLeft = left - pad;
   const chromeTop = top - pad;
   const chromeW = widthWorld + pad * 2;
@@ -295,6 +297,14 @@ function TextInlineEditor({
   const contentScreenW = Math.max(8, widthWorld * z);
   const contentScreenH = Math.max(fontSize * z, heightWorld * z);
   const padScreen = pad * z;
+  const framePadScreen = framePad * z;
+  const radii = radiiFromAttrs(node.attrs || {});
+  const frameRadius = textFrame
+    ? Math.max(
+        TEXT_FRAME_RADIUS,
+        radii.tl || radii.tr || radii.br || radii.bl || TEXT_FRAME_RADIUS
+      ) * z
+    : 0;
 
   const startEdgeDrag = (side: 'e' | 'w') => (e: React.PointerEvent) => {
     e.preventDefault();
@@ -328,7 +338,11 @@ function TextInlineEditor({
           style={{
             borderWidth: BORDER_PX,
             borderStyle: 'solid',
-            boxShadow: `0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`,
+            borderRadius: frameRadius || undefined,
+            boxShadow: textFrame
+              ? `inset 0 0 0 1px var(--line), 0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`
+              : `0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`,
+            background: textFrame ? 'var(--surface)' : undefined,
           }}
         />
         {/* L/R wrap handles — not for scrollable text frames (image-like scale). */}
@@ -374,10 +388,16 @@ function TextInlineEditor({
             }
             e.stopPropagation();
           }}
+          onWheel={(e) => {
+            if (!textFrame) return;
+            // Keep wheel on the textarea — native canvas listener must not pan.
+            e.stopPropagation();
+            e.nativeEvent.stopImmediatePropagation();
+          }}
           spellCheck={false}
           className={
             textFrame
-              ? 'absolute z-[1] resize-none overflow-y-auto border-0 bg-transparent p-0 shadow-none outline-none ring-0'
+              ? 'absolute z-[1] resize-none overflow-y-auto border-0 bg-transparent shadow-none outline-none ring-0'
               : 'absolute z-[1] resize-none overflow-hidden border-0 bg-transparent p-0 shadow-none outline-none ring-0'
           }
           style={{
@@ -385,6 +405,8 @@ function TextInlineEditor({
             top: padScreen,
             width: contentScreenW,
             height: contentScreenH,
+            // Frame: pad text inside the plate; scrollbar stays flush to the plate edge.
+            padding: textFrame ? framePadScreen : 0,
             fontSize: fontSize * z,
             // Unitless line-height matches SVG.js `leading` (fontSize × lineH).
             lineHeight: lineH,
@@ -396,7 +418,6 @@ function TextInlineEditor({
             caretColor: '#111111',
             textAlign: (style.textAlign as CanvasTextAlign) || 'left',
             letterSpacing: style.letterSpacing ? `${style.letterSpacing * z}px` : undefined,
-            padding: 0,
             margin: 0,
             // autoSize: no soft wrap (hard `\n` only). Fixed width / frame: wrap like SVG.
             whiteSpace: autoSize && !textFrame ? 'pre' : 'pre-wrap',

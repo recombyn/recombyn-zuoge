@@ -162,7 +162,10 @@ function VideoPlateHost({
       src={src}
       poster={String(node.attrs?.poster || '').trim() || undefined}
       uploadKey={String(node.attrs?.uploadKey || node.attrs?.key || '').trim() || null}
-      hidden={Boolean(hidden) || trimOpen || layerHidden || cropSession}
+      // Keep pixels visible during crop (hiding left only the dark SVG underlay).
+      // Playback chrome is suppressed separately via hideChrome.
+      hidden={Boolean(hidden) || trimOpen || layerHidden}
+      hideChrome={cropSession}
       trimStart={readOptionalNumber(node.attrs?.trimStart)}
       trimEnd={readOptionalNumber(node.attrs?.trimEnd)}
       knownDuration={readOptionalNumber(node.attrs?.duration)}
