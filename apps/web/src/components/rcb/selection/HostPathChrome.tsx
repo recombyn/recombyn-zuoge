@@ -113,7 +113,7 @@ export type ShapeOutlineItem = {
   unionChrome?: boolean;
   mirrorHostId?: string;
   cornerHandlesOnly?: boolean;
-  edgeHandles?: 'all' | 'horizontal' | 'none';
+  edgeHandles?: 'all' | 'horizontal' | 'none' | 'se-only';
   /**
    * Pad from geom-local origin to control box (≥ 0). Normally 0 — box on path.
    */
@@ -424,7 +424,7 @@ function boxResizeKnobs(
   by: number,
   bw: number,
   bh: number,
-  opts: { cornerHandlesOnly?: boolean; edgeHandles?: 'all' | 'horizontal' | 'none' }
+  opts: { cornerHandlesOnly?: boolean; edgeHandles?: 'all' | 'horizontal' | 'none' | 'se-only' }
 ): BoxResizeKnob[] {
   if (opts.cornerHandlesOnly) {
     return [
@@ -433,6 +433,10 @@ function boxResizeKnobs(
       ['se', bx + bw, by + bh],
       ['sw', bx, by + bh],
     ];
+  }
+  if (opts.edgeHandles === 'none') return [];
+  if (opts.edgeHandles === 'se-only') {
+    return [['se', bx + bw, by + bh]];
   }
   if (opts.edgeHandles === 'horizontal') {
     return [

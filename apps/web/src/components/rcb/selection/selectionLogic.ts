@@ -1843,7 +1843,7 @@ export function buildShapeOutlines(opts: {
       isVideoGeneratorNode(node) ||
       isLottieGeneratorNode(node) ||
       isAudioGeneratorNode(node);
-    let edgeHandles: 'all' | 'horizontal' | 'none' = 'all';
+    let edgeHandles: SelectionEdgeHandles = 'all';
     if (isGen) edgeHandles = 'none';
     else if (nodeKey === 'video') edgeHandles = 'horizontal';
     const isMeasurePair =
