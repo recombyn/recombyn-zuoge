@@ -201,12 +201,18 @@ type Props = {
 
 
 const ATTACH_PREVIEW_WIDTH = 160;
+/** Video attach preview — wide enough for full playback chrome at ~1×. */
+const ATTACH_VIDEO_PREVIEW_WIDTH = 280;
 /** Cap tall previews by shrinking width so aspect stays true. */
 const ATTACH_PREVIEW_MAX_HEIGHT = 360;
 
-function fitAttachPreviewPanel(vw: number, vh: number): { w: number; h: number } {
-  let w = ATTACH_PREVIEW_WIDTH;
-  let h = Math.round((ATTACH_PREVIEW_WIDTH * vh) / Math.max(1, vw));
+function fitAttachPreviewPanel(
+  vw: number,
+  vh: number,
+  maxWidth = ATTACH_PREVIEW_WIDTH
+): { w: number; h: number } {
+  let w = maxWidth;
+  let h = Math.round((maxWidth * vh) / Math.max(1, vw));
   if (h > ATTACH_PREVIEW_MAX_HEIGHT) {
     h = ATTACH_PREVIEW_MAX_HEIGHT;
     w = Math.max(72, Math.round((ATTACH_PREVIEW_MAX_HEIGHT * vw) / Math.max(1, vh)));
@@ -374,7 +380,9 @@ function AttachmentVideoPreview({
   uploadKey?: string | null;
 }): ReactNode {
   const playSrc = usePlayableVideoSrc(src, uploadKey);
-  const [panel, setPanel] = useState({ w: ATTACH_PREVIEW_WIDTH, h: Math.round(ATTACH_PREVIEW_WIDTH * 1.25) });
+  const [panel, setPanel] = useState(() =>
+    fitAttachPreviewPanel(16, 9, ATTACH_VIDEO_PREVIEW_WIDTH)
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -383,7 +391,9 @@ function AttachmentVideoPreview({
     const img = new window.Image();
     img.onload = () => {
       if (cancelled || !(img.naturalWidth > 0)) return;
-      setPanel(fitAttachPreviewPanel(img.naturalWidth, img.naturalHeight));
+      setPanel(
+        fitAttachPreviewPanel(img.naturalWidth, img.naturalHeight, ATTACH_VIDEO_PREVIEW_WIDTH)
+      );
     };
     img.src = posterUrl;
     return () => {
@@ -407,7 +417,9 @@ function AttachmentVideoPreview({
           muted
           className="h-full w-full"
           onMediaSize={({ width, height }) => {
-            if (width > 0 && height > 0) setPanel(fitAttachPreviewPanel(width, height));
+            if (width > 0 && height > 0) {
+              setPanel(fitAttachPreviewPanel(width, height, ATTACH_VIDEO_PREVIEW_WIDTH));
+            }
           }}
         />
       ) : (

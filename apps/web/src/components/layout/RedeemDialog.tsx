@@ -121,8 +121,11 @@ function RedeemPanel({ active = true, onRedeemed, onCancel }: RedeemPanelProps) 
           onClick={() => {
             submit();
           }}
-          className="rounded-xl bg-[var(--ink)] px-3 py-2 text-[12px] font-medium text-[var(--on-brand)] transition hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--ink)] px-3 py-2 text-[12px] font-medium text-[var(--on-brand)] transition hover:opacity-90 disabled:opacity-50"
         >
+          {busy ? (
+            <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          ) : null}
           {t('wallet.redeemNow')}
         </button>
       </div>

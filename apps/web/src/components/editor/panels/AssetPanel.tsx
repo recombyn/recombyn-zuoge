@@ -384,7 +384,7 @@ function AssetPanel({
               size="small"
               type="primary"
               destructive
-              disabled={Boolean(busyId)}
+              loading={Boolean(busyId)}
               onClick={() => {
                 if (deleteTarget) onDelete(deleteTarget);
               }}

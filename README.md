@@ -21,9 +21,10 @@
     &nbsp;
     <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
   </p>
+  <p><strong>Make it — design has never been this simple</strong></p>
 </div>
 
-**zuoge** is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
+**zuoge** (Chinese brand **左格**, literally “make / do one”) is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. The product slogan is **「做个，设计从未如此简单」** — *Make it; design has never been this simple*. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
 
 Built-in Design Agent (LangGraph): natural language creates layers, draws shapes, restyles, and typesets. Ships with Skills out of the box; you can also add custom Skills / AgentProfile (YAML) / prompt packs for posters, dashboards, landing pages, and more — then keep editing at vector precision.
 

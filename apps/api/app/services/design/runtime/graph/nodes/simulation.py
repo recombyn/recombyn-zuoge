@@ -302,7 +302,7 @@ async def run_design_simulation(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "design-simulation",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_SIMULATION: predict attention / hierarchy before paint",
+            "code": "design_simulation_running", "summary": "DESIGN_SIMULATION: predict attention / hierarchy before paint",
         }
     )
     try:
@@ -372,7 +372,7 @@ async def run_design_simulation(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "design-simulation",
                 "kind": "explored",
                 "status": "done",
-                "summary": "DESIGN_SIMULATION: skipped (failed)",
+                "code": "design_simulation_skipped", "summary": "DESIGN_SIMULATION: skipped (failed)",
             }
         )
         return None

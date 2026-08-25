@@ -125,7 +125,11 @@ function ProjectBatchControls({
             onClick={onDelete}
             className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-red-500 disabled:opacity-40"
           >
-            <RiDeleteBinLine className="h-3.5 w-3.5" />
+            {deleting ? (
+              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-red-500/30 border-t-red-500" />
+            ) : (
+              <RiDeleteBinLine className="h-3.5 w-3.5" />
+            )}
             {t('common.delete')}
           </button>
           <button
@@ -483,7 +487,7 @@ function TemplateGrid({
               size="small"
               type="primary"
               destructive
-              disabled={deleting}
+              loading={deleting}
               onClick={() => void confirmSingleDelete()}
             >
               {t('common.delete')}
@@ -522,7 +526,7 @@ function TemplateGrid({
               size="small"
               type="primary"
               destructive
-              disabled={deleting}
+              loading={deleting}
               onClick={() => void batchDelete()}
             >
               {t('common.delete')}

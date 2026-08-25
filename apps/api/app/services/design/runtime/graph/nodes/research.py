@@ -338,7 +338,7 @@ async def run_design_research(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "design-research",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_RESEARCH: category patterns → ANTI-CATEGORY",
+            "code": "design_research_running", "summary": "DESIGN_RESEARCH: category patterns → ANTI-CATEGORY",
         }
     )
     try:
@@ -408,7 +408,7 @@ async def run_design_research(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "design-research",
                 "kind": "explored",
                 "status": "done",
-                "summary": "DESIGN_RESEARCH: skipped (failed)",
+                "code": "design_research_skipped", "summary": "DESIGN_RESEARCH: skipped (failed)",
             }
         )
         return None

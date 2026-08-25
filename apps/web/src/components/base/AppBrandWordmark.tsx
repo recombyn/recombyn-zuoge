@@ -1,10 +1,11 @@
 import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/utils/classnames';
 
-/** Latin `zuoge` graphic wordmark aspect (ink → alpha PNG under /brand/). */
+/** CJK 「左格」 lockup aspect (ink → alpha PNG under /brand/). */
+export const ZUOGE_WORDMARK_ASPECT = 490 / 192;
+/** Latin `zuoge` graphic wordmark aspect. */
 export const ZUOGE_WORDMARK_EN_ASPECT = 534 / 148;
-/** @deprecated Prefer `ZUOGE_WORDMARK_EN_ASPECT` — product wordmark is Latin-only. */
-export const ZUOGE_WORDMARK_ASPECT = ZUOGE_WORDMARK_EN_ASPECT;
 
 type Props = {
   /** Cap height in px. */
@@ -12,17 +13,30 @@ type Props = {
   className?: string;
   /** @deprecated Ignored — brand is always the graphic wordmark (no leading icon). */
   mark?: boolean;
-  /** @deprecated Ignored — Latin wordmark is the graphic sheet (always lowercase art). */
+  /** @deprecated Ignored — graphic sheet has fixed casing. */
   lowercase?: boolean;
 };
+
+function useCjkBrand(): boolean {
+  const { i18n, t } = useTranslation();
+  const name = t('app.name');
+  const lng = String(i18n.resolvedLanguage || i18n.language || '');
+  return /^(zh|ja)\b/i.test(lng) || name === '左格';
+}
 
 /**
  * Designed brand wordmark via CSS mask (not live `<text>`).
  * Fill is currentColor so light/dark and on-brand chrome stay correct.
  * `height` may be a px number or any CSS length (e.g. `100%` / `1em`).
  */
-function ZuogeWordmarkSvg({ height }: { height: number | string; locale?: 'cjk' | 'en' }) {
-  const aspect = ZUOGE_WORDMARK_EN_ASPECT;
+function ZuogeWordmarkSvg({
+  height,
+  variant = 'cjk',
+}: {
+  height: number | string;
+  variant?: 'cjk' | 'en';
+}) {
+  const aspect = variant === 'en' ? ZUOGE_WORDMARK_EN_ASPECT : ZUOGE_WORDMARK_ASPECT;
   const sizeStyle =
     typeof height === 'number'
       ? { width: aspect * height, height }
@@ -30,17 +44,22 @@ function ZuogeWordmarkSvg({ height }: { height: number | string; locale?: 'cjk' 
   return (
     <span
       aria-hidden
-      className="block shrink-0 app-brand-wordmark-mask-en"
+      className={cn(
+        'block shrink-0',
+        variant === 'en' ? 'app-brand-wordmark-mask-en' : 'app-brand-wordmark-mask'
+      )}
       style={sizeStyle}
     />
   );
 }
 
 /**
- * Product wordmark — Latin `zuoge` graphic mask (not live UI text).
+ * Product wordmark — CJK/JA uses graphic 「左格」; EN uses Latin `zuoge`.
  * Pair with text-[var(--ink)] or text-[var(--on-brand)] for theme contrast.
  */
 function AppBrandWordmark({ size = 20, className }: Props) {
+  const cjk = useCjkBrand();
+  const variant = cjk ? 'cjk' : 'en';
   return (
     <span
       className={cn(
@@ -50,10 +69,10 @@ function AppBrandWordmark({ size = 20, className }: Props) {
       style={{ height: size, lineHeight: 1 }}
       aria-hidden
     >
-      <ZuogeWordmarkSvg height={size} />
+      <ZuogeWordmarkSvg height={size} variant={variant} />
     </span>
   );
 }
 
 export default memo(AppBrandWordmark);
-export { ZuogeWordmarkSvg };
+export { ZuogeWordmarkSvg, useCjkBrand };

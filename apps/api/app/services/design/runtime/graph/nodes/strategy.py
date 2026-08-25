@@ -313,7 +313,7 @@ async def run_design_strategy(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "design-strategy",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_STRATEGY: Research → Strategy → Brief",
+            "code": "design_strategy_running", "summary": "DESIGN_STRATEGY: Research → Strategy → Brief",
         }
     )
     try:
@@ -379,7 +379,7 @@ async def run_design_strategy(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "design-strategy",
                 "kind": "explored",
                 "status": "done",
-                "summary": "DESIGN_STRATEGY: skipped (failed)",
+                "code": "design_strategy_skipped", "summary": "DESIGN_STRATEGY: skipped (failed)",
             }
         )
         return None

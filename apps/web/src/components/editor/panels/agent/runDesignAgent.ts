@@ -3137,13 +3137,26 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     }
     if (ev.summary) resultSummary = ev.summary;
     if (String(ev.status || '').toLowerCase() !== 'success') {
-      terminalErrorCode = String((ev as { error_code?: string }).error_code || 'design_failed');
+      const fromApi = String((ev as { error_code?: string }).error_code || '').trim();
+      const tipFromSummary = (() => {
+        const s = String(resultSummary || '').trim();
+        if (s === 'Decision failed. Please try again.') return 'decide_failed';
+        if (s.startsWith('Could not produce valid canvas ops')) return 'paint_failed';
+        if (s.startsWith('Canvas feedback timed out')) return 'observe_scene_timeout';
+        if (s.startsWith('Canvas structure check failed')) return 'observe_critique_failed';
+        if (s.startsWith('Some ops failed to apply')) return 'observe_ops_failed';
+        if (s.startsWith('Review did not pass')) return 'review_must_fix';
+        return '';
+      })();
+      terminalErrorCode = fromApi || tipFromSummary || 'design_failed';
       params.onEvent({
         type: 'activity',
         id: `result-error-${activitySeq++}`,
         kind: 'skipped',
         status: 'error',
         detail: resultSummary || undefined,
+        // Prefer tip/error codes so the process column can i18n (English summary is fallback only).
+        code: terminalErrorCode,
         stage: 'scene_check',
       });
       return;

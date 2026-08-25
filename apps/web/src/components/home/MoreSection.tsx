@@ -495,7 +495,7 @@ function MoreSection({ section, onOpenCase }: Props): ReactNode {
               size="small"
               type="primary"
               destructive
-              disabled={Boolean(assetBusyId)}
+              loading={Boolean(assetBusyId)}
               onClick={() => {
                 if (assetDeleteTarget) void onDeleteAsset(assetDeleteTarget);
               }}

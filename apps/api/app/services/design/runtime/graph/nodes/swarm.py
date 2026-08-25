@@ -328,7 +328,7 @@ async def run_design_swarm(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "design-swarm",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_SWARM: Art Director → leads → craft · resolve conflicts",
+            "code": "design_swarm_running", "summary": "DESIGN_SWARM: Art Director → leads → craft · resolve conflicts",
         }
     )
     try:
@@ -384,7 +384,7 @@ async def run_design_swarm(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "design-swarm",
                 "kind": "explored",
                 "status": "done",
-                "summary": "DESIGN_SWARM: skipped (failed)",
+                "code": "design_swarm_skipped", "summary": "DESIGN_SWARM: skipped (failed)",
             }
         )
         return None

@@ -17,10 +17,36 @@ import MarkPromptBar from './MarkPromptBar';
 import { commitMarkRegion } from './markCommit';
 import { markComposerChipLabel, nextMarkRegionIndex } from './markChipUtils';
 import { markPinsForNode } from './markPinStore';
-import { markPromptFixedStyle, listMarkSessionTargets, nodeSceneBox } from './markGeometry';
+import {
+  markPromptFixedStyle,
+  listMarkSessionTargets,
+  isMarkBlockedMediaKey,
+  nodeSceneBox,
+} from './markGeometry';
 import { dismissMarkToolSession } from './markSessionCleanup';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import store from '@/store';
+
+const noop = () => {};
+
+function BlockedMarkOverlay({
+  box,
+}: {
+  box: NonNullable<ReturnType<typeof nodeSceneBox>>;
+}) {
+  return (
+    <MarkRegionOverlay
+      imageBox={box}
+      regions={[]}
+      draft={null}
+      activeRegionId={null}
+      blocked
+      onDraftChange={noop}
+      onCommitDraft={noop}
+      onSelectRegion={noop}
+    />
+  );
+}
 
 function MarkSessionHost({
   document,
@@ -46,9 +72,19 @@ function MarkSessionHost({
     () => (agentMarkNodeId && agentNode ? nodeSceneBox(document, agentNode) : null),
     [document, agentMarkNodeId, agentNode]
   );
-  const quickEditTargets = useMemo(
-    () => (isMultiImageMark && !hidden ? listMarkSessionTargets(document) : []),
-    [document, isMultiImageMark, hidden]
+
+  const markActive = Boolean(agentMarkNodeId || isMultiImageMark) && !hidden;
+  const sessionTargets = useMemo(
+    () => (markActive ? listMarkSessionTargets(document) : []),
+    [document, markActive]
+  );
+  const quickEditTargets = isMultiImageMark ? sessionTargets : [];
+  const blockedMediaTargets = useMemo(
+    () =>
+      agentMarkNodeId
+        ? sessionTargets.filter((t) => t.blocked && isMarkBlockedMediaKey(t.node.key))
+        : [],
+    [sessionTargets, agentMarkNodeId]
   );
 
   const [regions, setRegions] = useState<MarkRegion[]>([]);
@@ -241,18 +277,18 @@ function MarkSessionHost({
             onSoftBlankClick={close}
           />
         ))}
-        {quickEditPromptStyle && activeQuickEditPrompt
-          ? createPortal(
-              <MarkPromptBar
-                style={quickEditPromptStyle}
-                chipLabel={markComposerChipLabel(activeQuickEditPrompt.region)}
-                value={promptText}
-                onChange={setPromptText}
-                onSubmit={onSubmitMultiImagePrompt}
-              />,
-              globalThis.document.body
-            )
-          : null}
+        {quickEditPromptStyle && activeQuickEditPrompt ? (
+          createPortal(
+            <MarkPromptBar
+              style={quickEditPromptStyle}
+              chipLabel={markComposerChipLabel(activeQuickEditPrompt.region)}
+              value={promptText}
+              onChange={setPromptText}
+              onSubmit={onSubmitMultiImagePrompt}
+            />,
+            globalThis.document.body
+          )
+        ) : null}
       </>
     );
   }
@@ -302,6 +338,9 @@ function MarkSessionHost({
 
   return (
     <>
+      {blockedMediaTargets.map(({ nodeId, box }) => (
+        <BlockedMarkOverlay key={nodeId} box={box} />
+      ))}
       <MarkRegionOverlay
         imageBox={agentBox}
         regions={regions}
@@ -312,18 +351,18 @@ function MarkSessionHost({
         onSelectRegion={onSelectRegion}
         onSoftBlankClick={close}
       />
-      {agentPromptStyle && promptRegion
-        ? createPortal(
-            <MarkPromptBar
-              style={agentPromptStyle}
-              chipLabel={markComposerChipLabel(promptRegion)}
-              value={promptText}
-              onChange={setPromptText}
-              onSubmit={onSubmitPrompt}
-            />,
-            globalThis.document.body
-          )
-        : null}
+      {agentPromptStyle && promptRegion ? (
+        createPortal(
+          <MarkPromptBar
+            style={agentPromptStyle}
+            chipLabel={markComposerChipLabel(promptRegion)}
+            value={promptText}
+            onChange={setPromptText}
+            onSubmit={onSubmitPrompt}
+          />,
+          globalThis.document.body
+        )
+      ) : null}
     </>
   );
 }

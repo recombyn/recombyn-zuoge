@@ -260,7 +260,7 @@ async def run_multi_candidate(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "design-candidates",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_CANDIDATES: Strategy → V1–V5 (off-canvas until selected)",
+            "code": "design_candidates_running", "summary": "DESIGN_CANDIDATES: Strategy → V1–V5 (off-canvas until selected)",
         }
     )
     try:
@@ -324,7 +324,7 @@ async def run_multi_candidate(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "design-candidates",
                 "kind": "explored",
                 "status": "done",
-                "summary": "DESIGN_CANDIDATES: skipped (failed)",
+                "code": "design_candidates_skipped", "summary": "DESIGN_CANDIDATES: skipped (failed)",
             }
         )
         return None
