@@ -193,6 +193,7 @@ import {
   type DragState,
   type MoveSnapContext,
   type ResizeSnapContext,
+  type SelectionEdgeHandles,
 } from './selectionLogic';
 import { frameSelId, parseFrameSelId } from './frameSelectionIds';
 import {
@@ -487,7 +488,7 @@ function SelectionFeature({
     showRotate: false,
     lineMode: false,
     cornerHandlesOnly: false,
-    edgeHandles: 'all' as 'all' | 'horizontal' | 'none',
+    edgeHandles: 'all' as SelectionEdgeHandles,
     suppressChrome: false,
     strokeOuterScene: 0,
     clientToScene: (clientX: number, clientY: number) => ({ x: clientX, y: clientY }),
