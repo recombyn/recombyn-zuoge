@@ -108,6 +108,32 @@ async function executeRequest<T>(config: RequestConfig, key: string | null): Pro
   } catch (err) {
     if (err instanceof HTTPError) {
       await clearSessionOnAuthDead(err.response);
+      let body: unknown;
+      try {
+        body = await err.response.clone().json();
+      } catch {
+        try {
+          body = await err.response.clone().text();
+        } catch {
+          body = undefined;
+        }
+      }
+      const detail =
+        body && typeof body === 'object' && body !== null && 'detail' in body
+          ? (body as { detail?: unknown }).detail
+          : undefined;
+      let detailText = '';
+      if (typeof detail === 'string') detailText = detail.trim();
+      else if (Array.isArray(detail)) detailText = detailToText(detail);
+      const enriched = new Error(
+        detailText || err.message || `Request failed (${err.response.status})`
+      ) as Error & {
+        response?: { status: number; data?: unknown };
+        status?: number;
+      };
+      enriched.response = { status: err.response.status, data: body };
+      enriched.status = err.response.status;
+      throw enriched;
     }
     throw err;
   }

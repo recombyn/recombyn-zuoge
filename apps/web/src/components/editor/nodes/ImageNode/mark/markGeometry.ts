@@ -10,8 +10,8 @@ export type MarkSessionTarget = {
   nodeId: string;
   box: SceneBox;
   node: SceneNodeInput;
-  /** Non-null → show overlay but block box drawing (processing / not ready). */
-  blocked: { message: string } | null;
+  /** True → overlay present but box drawing blocked (not-allowed cursor only). */
+  blocked: boolean;
 };
 
 export function nodeSceneBox(
@@ -31,19 +31,13 @@ export function nodeSceneBox(
 export function listCanvasImageNodes(
   document: SceneDocument
 ): Array<{ nodeId: string; box: SceneBox; node: SceneNodeInput }> {
-  return listMarkSessionTargets(document, {
-    processing: '',
-    unavailable: '',
-  })
+  return listMarkSessionTargets(document)
     .filter((t) => !t.blocked)
     .map(({ nodeId, box, node }) => ({ nodeId, box, node }));
 }
 
 /** All image plates in mark mode — markable nodes + blocked overlays (processing / generator). */
-export function listMarkSessionTargets(
-  document: SceneDocument,
-  labels: { processing: string; unavailable: string }
-): MarkSessionTarget[] {
+export function listMarkSessionTargets(document: SceneDocument): MarkSessionTarget[] {
   const out: MarkSessionTarget[] = [];
   const dsl = document?.deltaSetLike || {};
   for (const nodeId of Object.keys(dsl)) {
@@ -54,33 +48,20 @@ export function listMarkSessionTargets(
 
     const processing = String(node?.attrs?.processStatus || '') === 'running';
     const hasSrc = Boolean(String(node?.attrs?.src || '').trim());
-    const processLabel = String(node?.attrs?.processLabel || '').trim();
 
     if (processing) {
-      out.push({
-        nodeId,
-        box,
-        node,
-        blocked: {
-          message: processLabel || labels.processing,
-        },
-      });
+      out.push({ nodeId, box, node, blocked: true });
       continue;
     }
 
     if (!hasSrc) {
       if (isImageGeneratorNode(node)) {
-        out.push({
-          nodeId,
-          box,
-          node,
-          blocked: { message: labels.unavailable },
-        });
+        out.push({ nodeId, box, node, blocked: true });
       }
       continue;
     }
 
-    out.push({ nodeId, box, node, blocked: null });
+    out.push({ nodeId, box, node, blocked: false });
   }
   return out;
 }

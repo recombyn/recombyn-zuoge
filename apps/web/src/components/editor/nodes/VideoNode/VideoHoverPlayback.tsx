@@ -386,6 +386,7 @@ function VideoHoverPlayback({
         // opacity — not visibility. Child visibility:visible punches through
         // parent visibility:hidden (freeze / playing video wrap).
         opacity: showUi ? 1 : 0,
+        colorScheme: 'only light',
       }}
       aria-hidden={showUi ? undefined : true}
       data-video-hover-plate=""
@@ -421,6 +422,9 @@ function VideoHoverPlayback({
           style={{
             ...cropStyle,
             background: '#111827',
+            // Root theme sets color-scheme:dark — Chromium then paints <video>
+            // black inside SVG foreignObject. Opt this surface back to light.
+            colorScheme: 'only light',
             ...mediaFlipStyle,
           }}
           playsInline

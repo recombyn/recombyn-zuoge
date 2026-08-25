@@ -20,6 +20,7 @@ import {
   patchProjectNameInListCache,
 } from '@/service/projects';
 import { cn } from '@/utils/classnames';
+import { useDeferredBusy } from '@/utils/useDeferredBusy';
 
 const RAIL_INSET_X = 'px-2.5';
 const SIDEBAR_PROJECT_LIMIT = 15;
@@ -70,6 +71,7 @@ function RailRecentList({
   const cancelingEditRef = useRef(false);
 
   const recent = useMemo(() => sortRecent(projects), [projects]);
+  const showSkeleton = useDeferredBusy(Boolean(loading));
 
   useEffect(() => {
     if (!editingId) return;
@@ -196,14 +198,16 @@ function RailRecentList({
         </Tooltip>
       </div>
       <div>
-        {loading ? (
-          <div className="space-y-0.5">
+        {showSkeleton ? (
+          <div className="space-y-0.5" aria-busy="true">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className={cn('py-2.5', RAIL_INSET_X)}>
                 <span className="block h-4 animate-pulse rounded bg-[color-mix(in_srgb,var(--ink)_5%,var(--rail))]" />
               </div>
             ))}
           </div>
+        ) : loading ? (
+          <div className="min-h-[40px]" aria-busy="true" />
         ) : recent.length === 0 ? (
           <p className={cn('py-2.5 text-[12px] font-normal text-[var(--muted)]', RAIL_INSET_X)}>
             {t('home.recentEmpty')}

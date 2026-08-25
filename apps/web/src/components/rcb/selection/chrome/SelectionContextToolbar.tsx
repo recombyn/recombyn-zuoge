@@ -301,7 +301,7 @@ function openImageMoreTool(
           patch: {
             attrs: {
               mockupEnabled: 'true',
-              mockupTemplateId: 'demo-cylinder',
+              mockupTemplateId: 'auto-bake',
               ...(src && !node?.attrs?.mockupBaseSrc ? { mockupBaseSrc: src } : {}),
             },
           },

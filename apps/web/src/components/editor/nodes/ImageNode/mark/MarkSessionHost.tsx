@@ -47,14 +47,8 @@ function MarkSessionHost({
     [document, agentMarkNodeId, agentNode]
   );
   const quickEditTargets = useMemo(
-    () =>
-      isMultiImageMark && !hidden
-        ? listMarkSessionTargets(document, {
-            processing: t('editor.imageToolbar.markBlockedProcessing'),
-            unavailable: t('editor.imageToolbar.markBlockedUnavailable'),
-          })
-        : [],
-    [document, isMultiImageMark, hidden, t]
+    () => (isMultiImageMark && !hidden ? listMarkSessionTargets(document) : []),
+    [document, isMultiImageMark, hidden]
   );
 
   const [regions, setRegions] = useState<MarkRegion[]>([]);

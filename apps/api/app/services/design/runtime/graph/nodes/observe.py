@@ -1167,7 +1167,11 @@ async def _node_observe(
                 error="scene_receipt_unconfirmed",
                 summary=f"observe unconfirmed: {reason}"[:240],
             )
-            _emit_ux_tip(rt, "observe_scene_timeout", params={})
+            _emit_ux_tip(
+                rt,
+                "observe_ops_failed",
+                params={"count": str(len(receipt_issues)), "notes": reason[:180]},
+            )
             rt.terminal = True
             rt.flags["ok"] = False
             rt.flags["scene_ready"] = False

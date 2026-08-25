@@ -813,13 +813,11 @@ export function spawnImageProcessNode(
   // Expand may grow the plate; other kinds stay source-sized.
   const { width, height } = processCloneSize(src, opts);
   const srcW = Math.max(1, Number(src.width) || width);
-  const srcH = Math.max(1, Number(src.height) || height);
   const node = cloneSceneValue(src);
   node.id = id;
-  // Wide images: stack below so AI previews stay near the source (not a full width away).
-  const stackBelow = srcW > 640;
-  node.x = stackBelow ? Number(src.x) || 0 : (Number(src.x) || 0) + srcW + gap;
-  node.y = stackBelow ? (Number(src.y) || 0) + srcH + gap : Number(src.y) || 0;
+  // Always dock to the right of the source (left→right process flow).
+  node.x = (Number(src.x) || 0) + srcW + gap;
+  node.y = Number(src.y) || 0;
   node.width = width;
   node.height = height;
   node.attrs = {

@@ -1427,7 +1427,7 @@ type DesignStatusEvent = Extract<DesignJobEvent, { type: 'status' }>;
 type DesignSkillStartEvent = Extract<DesignJobEvent, { type: 'skill_start' }>;
 type DesignSkillProgressEvent = Extract<DesignJobEvent, { type: 'skill_progress' }>;
 type DesignActivityEvent = Extract<DesignJobEvent, { type: 'activity' }>;
-type DesignToolOpsEvent = Extract<DesignJobEvent, { type: 'tool_ops' }>;
+type DesignToolOpsEvent = Extract<DesignJobEvent, { type: 'tool_ops' | 'transaction.chunk' }>;
 type DesignSceneFeedbackEvent = Extract<DesignJobEvent, { type: 'scene_feedback_request' }>;
 type DesignTransactionBeginEvent = Extract<DesignJobEvent, { type: 'transaction.begin' }>;
 type DesignTransactionCommitEvent = Extract<DesignJobEvent, { type: 'transaction.commit' }>;
@@ -3319,7 +3319,9 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           handleStreamTransactionBegin(ev);
           return;
         case 'transaction.chunk':
-          // Metadata only — apply stays on companion `tool_ops` (no double-apply).
+          // Apply paint ops from the transaction chunk (kernel no longer emits a
+          // companion `tool_ops` event for the same batch).
+          handleStreamToolOps(ev);
           return;
         case 'transaction.commit':
           handleStreamTransactionCommit(ev);

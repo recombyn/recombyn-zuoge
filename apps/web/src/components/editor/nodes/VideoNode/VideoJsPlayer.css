@@ -5,10 +5,14 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
+  /* Root `color-scheme: dark` makes Chromium composite <video> frames black
+     (esp. inside SVG foreignObject). Keep media on a light color-scheme. */
+  color-scheme: only light;
 }
 
 .rcb-video__tech {
   background: #111827;
+  color-scheme: only light;
 }
 
 /* Flip the media surface only — do not transform the whole shell. */
