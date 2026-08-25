@@ -115,7 +115,7 @@ function MarkSessionHost({
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      e.preventDefault();
+        e.preventDefault();
       if (activePrompt) {
         removeQuickEditRegion(activePrompt.nodeId, activePrompt.regionId);
         setActivePrompt(null);
