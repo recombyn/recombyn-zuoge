@@ -1,6 +1,7 @@
 /**
  * PR6 — AIOperationQueue: enqueue / drain / pause / cancel / rollback.
- * Apply still happens via companion tool_ops; the queue owns grouping + halt.
+ * Apply still happens via transaction.chunk (or legacy companion tool_ops);
+ * the queue owns grouping + halt.
  */
 import { describe, expect, it } from 'vitest';
 import {

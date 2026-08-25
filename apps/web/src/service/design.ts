@@ -255,7 +255,7 @@ export type DesignJobEvent =
       phase?: string;
       chunk_index?: number;
       chunk_total?: number;
-      /** Metadata only — apply via companion `tool_ops` (do not double-apply). */
+      /** Canvas ops for this chunk — FE applies these (same path as legacy `tool_ops`). */
       ops?: Array<{ name: string; args?: Record<string, unknown>; op_id?: string }>;
       task_id?: string;
       round?: number;

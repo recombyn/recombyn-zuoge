@@ -2185,7 +2185,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
           <div className="flex w-full min-w-0 flex-col gap-3">
             {m && isEditing ? (
                 <div className="flex min-w-0 flex-col gap-1.5">
-                  <div className="overflow-hidden rounded-[22px] border border-[var(--line)] bg-[var(--canvas)] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
+                  <div className="overflow-hidden rounded-[22px] border border-[var(--line)] bg-[var(--accent-soft)] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
                     {editComposer}
                   </div>
                   <div className="flex items-center gap-1 px-0.5">
@@ -2216,7 +2216,7 @@ const ChatTurnList = forwardRef(function ChatTurnList(
                     disabled={sending}
                     onClick={() => onBeginEdit(m)}
                     className={cn(
-                      'w-full rounded-[22px] border-0 bg-[var(--canvas)] px-3.5 py-2.5 text-left text-[13px] leading-relaxed text-[var(--ink)] whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+                      'w-full rounded-[22px] border-0 bg-[var(--accent-soft)] px-3.5 py-2.5 text-left text-[13px] leading-relaxed text-[var(--ink)] whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
                       !sending ? 'cursor-pointer' : 'cursor-not-allowed opacity-80',
                       canRestore && !sending ? 'pr-10' : ''
                     )}

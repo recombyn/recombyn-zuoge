@@ -346,10 +346,13 @@ function RailItem({
 function RailMoreFlyout({
   expanded,
   activeMore,
+  activeId,
   onPick,
 }: {
   expanded: boolean;
   activeMore: boolean;
+  /** Current more-subpage id (`assets` / `liked`) for selected row chrome. */
+  activeId?: HomeMoreKey | null;
   onPick: (id: HomeMoreKey) => void;
 }) {
   const { t } = useTranslation();
@@ -362,11 +365,13 @@ function RailMoreFlyout({
       aria-haspopup="menu"
       className={cn(
         'group flex shrink-0 cursor-pointer items-center transition-colors',
-        expanded ? cn('h-10 w-full rounded-[10px]', RAIL_INSET_X, RAIL_ROW_GAP) : cn('mx-auto justify-center', RAIL_NAV_HIT),
+        expanded
+          ? cn('h-10 w-full rounded-[10px]', RAIL_INSET_X, RAIL_ROW_GAP)
+          : cn('h-10 w-10 justify-center rounded-xl'),
         railItemTone(activeMore || open)
       )}
     >
-      <span className={RAIL_ICON_SLOT}>
+      <span className={expanded ? RAIL_ICON_SLOT : 'inline-flex items-center justify-center'}>
         <Icon name="home-rail-more" className="h-[18px] w-[18px]" />
       </span>
       {expanded ? (
@@ -383,27 +388,36 @@ function RailMoreFlyout({
       position="right-start"
       open={open}
       onOpenChange={setOpen}
-      className={cn('!block', expanded ? 'w-full' : 'inline-flex justify-center')}
-      btnClassName="!m-0 !block !h-auto !w-full !rounded-none !border-0 !bg-transparent !p-0"
+      // Match RailItem collapsed centering — override Popover's default inline-block.
+      className={expanded ? 'block w-full' : '!flex mx-auto w-10 justify-center'}
       btnElement={trigger}
       popupClassName="!z-[520] !rounded-2xl !border-0 !bg-[var(--surface)] !p-1.5 !shadow-[0_12px_40px_rgba(15,23,42,0.14)] !ring-1 !ring-[var(--line)]"
       htmlContent={
         <div role="menu" aria-label={t('home.railMore')} className="flex min-w-[9.5rem] flex-col gap-0.5">
-          {RAIL_MORE_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onPick(item.id);
-              }}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium text-[var(--ink)] transition hover:bg-[color-mix(in_srgb,var(--ink)_5%,var(--surface))]"
-            >
-              <Icon name={item.icon} className="h-[18px] w-[18px] shrink-0" />
-              <span className="truncate">{t(item.labelKey)}</span>
-            </button>
-          ))}
+          {RAIL_MORE_ITEMS.map((item) => {
+            const selected = activeId === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                aria-current={selected ? 'page' : undefined}
+                onClick={() => {
+                  setOpen(false);
+                  onPick(item.id);
+                }}
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition',
+                  selected
+                    ? 'bg-[color-mix(in_srgb,var(--ink)_8%,var(--surface))] text-[var(--ink)]'
+                    : 'text-[var(--ink)] hover:bg-[color-mix(in_srgb,var(--ink)_5%,var(--surface))]'
+                )}
+              >
+                <Icon name={item.icon} className="h-[18px] w-[18px] shrink-0" />
+                <span className="truncate">{t(item.labelKey)}</span>
+              </button>
+            );
+          })}
         </div>
       }
     />
@@ -708,6 +722,7 @@ function HomeSidebar({
                 <RailMoreFlyout
                   expanded={expanded}
                   activeMore={isHomeMoreKey(nav)}
+                  activeId={isHomeMoreKey(nav) ? nav : null}
                   onPick={(id) => goNav(id)}
                 />
               </nav>

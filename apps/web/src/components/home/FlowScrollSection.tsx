@@ -6,6 +6,7 @@ import {
   useScrollLoadMore,
 } from '@/components/home/InfiniteScroll';
 import { HOME_FLOW_GRID } from '@/components/home/homeLayout';
+import { useDeferredBusy } from '@/utils/useDeferredBusy';
 
 /** Default plaza / inspiration / assets flow — same as HOME_FLOW_GRID. */
 export const FLOW_COLUMNS_CLASS = HOME_FLOW_GRID;
@@ -45,7 +46,8 @@ function flowItemClass(columnsClassName: string) {
 
 /**
  * Scroll-load shell with CSS multi-column or grid flow layout.
- * Same loading / empty / sentinel pattern as {@link InfiniteScrollSection}.
+ * Same loading / empty / sentinel pattern as {@link InfiniteScrollSection}
+ * (including deferred skeleton via {@link useDeferredBusy}).
  */
 function FlowScrollSection({
   loading,
@@ -59,15 +61,17 @@ function FlowScrollSection({
   columnsClassName = FLOW_COLUMNS_CLASS,
   children,
 }: FlowScrollSectionProps) {
+  const showSkeleton = useDeferredBusy(loading);
+  const blockLoadMore = loading || showSkeleton;
   const sentinelRef = useScrollLoadMore({
     hasMore,
-    loading,
+    loading: blockLoadMore,
     loadingMore,
     onLoadMore,
   });
   const itemClass = flowItemClass(columnsClassName);
 
-  if (loading) {
+  if (showSkeleton) {
     return (
       <div className={cn(className)}>
         <div className={columnsClassName} aria-busy="true">
@@ -75,6 +79,10 @@ function FlowScrollSection({
         </div>
       </div>
     );
+  }
+
+  if (loading) {
+    return <div className={cn(className)} aria-busy="true" />;
   }
 
   if (isEmpty) {

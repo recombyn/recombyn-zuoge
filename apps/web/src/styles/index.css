@@ -65,21 +65,30 @@
   }
 }
 
-/* 左格 graphic wordmark — PNG mask + currentColor (light/dark / on-brand). */
+/* Brand graphic wordmarks — PNG mask + currentColor (light/dark / on-brand). */
 .app-brand-wordmark-cjk {
   color: var(--ink);
 }
 
-.app-brand-wordmark-mask {
+.app-brand-wordmark-mask,
+.app-brand-wordmark-mask-en {
   background-color: currentColor;
-  -webkit-mask-image: url('/brand/zuoge-wordmark.png');
-  mask-image: url('/brand/zuoge-wordmark.png');
   -webkit-mask-size: contain;
   mask-size: contain;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
   mask-position: center;
+}
+
+.app-brand-wordmark-mask {
+  -webkit-mask-image: url('/brand/zuoge-wordmark.png');
+  mask-image: url('/brand/zuoge-wordmark.png');
+}
+
+.app-brand-wordmark-mask-en {
+  -webkit-mask-image: url('/brand/zuoge-wordmark-en.png');
+  mask-image: url('/brand/zuoge-wordmark-en.png');
 }
 
 /* Outside @layer so it reliably overrides Tailwind `transition` utilities during theme swaps */

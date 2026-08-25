@@ -91,8 +91,8 @@ type Props = {
   regions: MarkRegion[];
   draft: MarkRect | null;
   activeRegionId: string | null;
-  /** Block drag-to-box while image is still processing. */
-  blocked?: { message: string } | null;
+  /** Block drag-to-box (processing / generator empty) — cursor not-allowed only, no on-node tip. */
+  blocked?: boolean;
   onDraftChange: (rect: MarkRect | null) => void;
   onCommitDraft: (rect: MarkRect) => void;
   onSelectRegion: (id: string, additive: boolean) => void;
@@ -108,7 +108,7 @@ function MarkRegionOverlay({
   regions,
   draft,
   activeRegionId,
-  blocked = null,
+  blocked = false,
   onDraftChange,
   onCommitDraft,
   onSelectRegion,
@@ -359,15 +359,6 @@ function MarkRegionOverlay({
           if (!dragRef.current) setHoverId(null);
         }}
       >
-        {blocked ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20 p-2">
-            <div className="w-full min-w-0 max-w-full rounded-full bg-white/95 px-2 py-1 shadow-sm">
-              <span className="block truncate text-center text-[11px] font-medium leading-tight text-[var(--ink)]">
-                {blocked.message}
-              </span>
-            </div>
-          </div>
-        ) : null}
         {regions.map((r) => {
           const isActive = r.id === activeRegionId;
           const badgeOnly = !isActive;

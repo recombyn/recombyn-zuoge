@@ -78,6 +78,33 @@ def test_upload_user_file_uses_sniffed_ext(monkeypatch: pytest.MonkeyPatch):
     assert str(stored["key"]).endswith(".png")
 
 
+def test_upload_user_file_accepts_octet_stream_png(monkeypatch: pytest.MonkeyPatch):
+    from app.services import uploads as mod
+
+    stored: dict[str, object] = {}
+
+    class _Storage:
+        def enabled_remote(self) -> bool:
+            return False
+
+        def url_for(self, key: str) -> str:
+            return f"s3://{key}"
+
+    monkeypatch.setattr(mod, "put_bytes", lambda key, data, content_type=None: stored.setdefault("key", key))
+    monkeypatch.setattr(mod, "get_storage", lambda: _Storage())
+    monkeypatch.setattr(mod, "_probe_image_size", lambda *_a, **_k: (1, 1))
+    monkeypatch.setattr(mod.settings, "upload_av_hook_enabled", False)
+
+    out = mod.upload_user_file(
+        "u1",
+        data=_PNG,
+        filename="blob",
+        content_type="application/octet-stream",
+    )
+    assert out["mime"] == "image/png"
+    assert str(stored["key"]).endswith(".png")
+
+
 def test_av_hook_runs_when_enabled(monkeypatch: pytest.MonkeyPatch):
     from app.services import uploads as mod
 

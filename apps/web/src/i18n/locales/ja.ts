@@ -115,9 +115,9 @@ const ja = {
     heroSubtitle: 'zuoge — あなたの意図を汲むデザイン Agent',
     heroCategoryAria: '生成タイプを選択、現在：{{category}}',
     heroBrandSubtitle: 'AIデザインスタジオ',
-    /** Trailing copy after brand mark icon in HomeHero. */
-    heroStartTitle: '、デザインがこんなに簡単だったことはない',
-    heroStartTitleAria: 'zuoge、デザインがこんなに簡単だったことはない',
+    /** Home hero slogan. */
+    heroStartTitle: '作ろう、デザインがこんなに簡単だったことはない',
+    heroStartTitleAria: '作ろう、デザインがこんなに簡単だったことはない',
     heroSuggest: {
       ui: 'UIデザイン',
       poster: 'ポスター',
@@ -154,11 +154,11 @@ const ja = {
       '没入型の AI 体験へ。スマートテキスト・レイアウト・編集で、新しい時代が始まります。',
     aiPromoDocs: '使い方と事例を見る',
     composerPlaceholderPrompts: [
-      '高コンバージョンのEC商品画像を作ってもらう',
-      'パンダを描いてもらう',
-      'すっきりした商品ポスターをデザインしてもらう',
-      'シンプルなブランドビジュアルを作ってもらう',
-      '統一感のあるイラストを描いてもらう',
+      '高コンバージョンのEC商品画像',
+      'パンダ',
+      'すっきりした商品ポスター',
+      'シンプルなブランドビジュアル',
+      '統一感のあるイラスト',
     ],
     composerModelsLoading: 'モデルを読み込み中…',
     chips: {
@@ -1090,6 +1090,9 @@ const ja = {
       mockupAdjust: '配置を調整',
       mockupTemplateDefault: 'シリンダーマグ',
       mockupPreviewFailed: 'プレビューに失敗しました。Intelligence サービスを確認してください',
+      mockupKitNotReady: 'モックアップ準備中です。しばらくしてから貼り付けてください',
+      mockupAutoBaking: '貼り付け領域を検出中…',
+      mockupAutoBakeFallback: '自動検出に失敗しました。Intelligence サービスを確認してください',
       mockupClearDesign: 'デザインを削除',
       mockupFailed: 'モックアップの生成に失敗しました',
       mark: 'マーク',
@@ -1135,6 +1138,7 @@ const ja = {
       opacity: '不透明度',
       processingUpscale: '拡大中…',
       processingRemoveBg: '背景除去中…',
+      processingMockup: 'モックアップ準備中…',
       processingEraser: '消去中…',
       processingEditText: 'テキスト編集中…',
       cornerRadius: '角丸',

@@ -18,6 +18,7 @@ import {
 } from '@/service/design';
 import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
 import { HOME_SKILL_GRID } from '@/components/home/homeLayout';
+import { useDeferredBusy } from '@/utils/useDeferredBusy';
 import { cn } from '@/utils/classnames';
 
 const DEFAULT_SKILL_GRID = HOME_SKILL_GRID;
@@ -264,6 +265,7 @@ function SkillsLibraryPanel(): ReactNode {
   const mine = items.filter((x) => x.mine);
   const official = items.filter((x) => !x.mine);
   const loading = skillsQuery.isPending || (skillsQuery.isFetching && items.length === 0);
+  const showSkeleton = useDeferredBusy(loading);
 
   const skillsPickerQueryKey = apiQuery.designDesignSkillsPicker.queryKey({
     input: SKILLS_PICKER_INPUT,
@@ -405,12 +407,14 @@ function SkillsLibraryPanel(): ReactNode {
       </header>
 
       <div className="space-y-6">
-        {loading ? (
+        {showSkeleton ? (
           <SkillGroupSkeleton
             title={t('agent.skillsMine')}
             count={SKILL_SKELETON_MINE}
             leading={uploadTile}
           />
+        ) : loading ? (
+          <div className="min-h-[120px]" aria-busy="true" />
         ) : (
           <SkillGroup
             title={t('agent.skillsMine')}
@@ -422,12 +426,12 @@ function SkillsLibraryPanel(): ReactNode {
             leading={uploadTile}
           />
         )}
-        {loading ? (
+        {showSkeleton ? (
           <SkillGroupSkeleton
             title={t('agent.skillsOfficial')}
             count={SKILL_SKELETON_OFFICIAL}
           />
-        ) : (
+        ) : loading ? null : (
           <SkillGroup
             title={t('agent.skillsOfficial')}
             rows={official}

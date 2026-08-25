@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode, type RefObject, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import LoadingDots from '@/components/base/LoadingDots';
 import { cn } from '@/utils/classnames';
+import { useDeferredBusy } from '@/utils/useDeferredBusy';
 
 /** Walk up to the nearest overflow scroll container (Home / Me nested panels). */
 export function nearestScrollRoot(el: HTMLElement | null): Element | null {
@@ -103,8 +104,11 @@ type InfiniteScrollSectionProps = {
 };
 
 /**
- * Shared list shell: initial skeleton �?empty �?grid + scroll-load footer.
+ * Shared list shell: initial skeleton → empty → grid + scroll-load footer.
  * Used by Home plaza, Projects, and Me.
+ *
+ * Initial skeleton is deferred ({@link useDeferredBusy}) so sub-200ms loads
+ * do not flash placeholders.
  */
 function InfiniteScrollSection({
   loading,
@@ -118,19 +122,26 @@ function InfiniteScrollSection({
   className,
   children,
 }: InfiniteScrollSectionProps) {
+  const showSkeleton = useDeferredBusy(loading);
+  const blockLoadMore = loading || showSkeleton;
   const sentinelRef = useScrollLoadMore({
     hasMore,
-    loading,
+    loading: blockLoadMore,
     loadingMore,
     onLoadMore,
   });
 
-  if (loading) {
+  if (showSkeleton) {
     return (
       <div className={cn(className)}>
         <div className={cn(gridClassName)}>{skeleton}</div>
       </div>
     );
+  }
+
+  // Still fetching but skeleton not shown yet — hold blank, avoid empty flash.
+  if (loading) {
+    return <div className={cn(className)} aria-busy="true" />;
   }
 
   if (isEmpty) {
