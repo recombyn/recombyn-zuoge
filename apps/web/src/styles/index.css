@@ -196,10 +196,18 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
   height: 60px !important;
   min-height: 60px !important;
   max-height: 60px !important;
+  /* Keep scroll when text exceeds 60px, but avoid a always-on track from 1px overflow. */
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding-top: 0;
   padding-bottom: 0;
   line-height: 20px;
+}
+
+.rcb-home-composer-compact [data-agent-composer]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .home-hero-chat__case {

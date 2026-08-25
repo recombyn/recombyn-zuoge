@@ -2299,6 +2299,7 @@ function SelectionFeature({
     selectedIsVideoGen,
     selectedIsLottieGen,
     selectedIsVideo,
+    selectedIsTextFrame,
     lineChrome,
     nodeKey: singleNodeData?.key,
   });
@@ -2324,6 +2325,7 @@ function SelectionFeature({
       !readOnly &&
       !lineChrome &&
       !selectedIsMediaGen &&
+      !selectedIsTextFrame &&
       !transforming &&
       selectedNodeIds.length >= 1 &&
       selectedFrameIds.length === 0,
@@ -2415,6 +2417,7 @@ function SelectionFeature({
             !readOnly &&
             !lineChrome &&
             !selectedIsMediaGen &&
+            !selectedIsTextFrame &&
             !transforming &&
             selectedNodeIds.length >= 1 &&
             selectedFrameIds.length === 0

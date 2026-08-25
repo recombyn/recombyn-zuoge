@@ -169,10 +169,12 @@ function composeVideoCropFractions(
   rect: CropRect
 ) {
   const base = readVideoCropFractions(attrs);
-  const rx = rect.x / Math.max(1, boxW);
-  const ry = rect.y / Math.max(1, boxH);
-  const rw = rect.w / Math.max(1, boxW);
-  const rh = rect.h / Math.max(1, boxH);
+  const bw = Math.max(1, boxW);
+  const bh = Math.max(1, boxH);
+  const rx = Math.max(0, Math.min(1, rect.x / bw));
+  const ry = Math.max(0, Math.min(1, rect.y / bh));
+  const rw = Math.max(1e-4, Math.min(1 - rx, rect.w / bw));
+  const rh = Math.max(1e-4, Math.min(1 - ry, rect.h / bh));
   return {
     cropX: Number((base.x + rx * base.w).toFixed(5)),
     cropY: Number((base.y + ry * base.h).toFixed(5)),

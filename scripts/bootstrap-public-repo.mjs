@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Bootstrap a fresh public recombyn/recombyn mirror (single commit, one contributor).
+ * Bootstrap a fresh public recombyn/recombyn tree (single commit, one contributor).
  *
  * Prereqs:
  *   1. Delete the old github.com/recombyn/recombyn repo (Settings → Danger zone).
@@ -50,7 +50,7 @@ run('git init -b main', { cwd: pubDir });
 run('git config user.name "recombyn"', { cwd: pubDir });
 run('git config user.email "51704449+recombyn@users.noreply.github.com"', { cwd: pubDir });
 run('git add -A', { cwd: pubDir });
-run('git commit -m "chore: initial public mirror"', { cwd: pubDir });
+run('git commit -m "chore: initial public release"', { cwd: pubDir });
 
 console.log('\n[bootstrap] Public tree ready at pub-bootstrap/ (single commit, author=recombyn).');
 

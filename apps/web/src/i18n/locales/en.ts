@@ -1857,22 +1857,22 @@ const en = {
       light: {
         short: 'Fast run',
         label: 'Fast run',
-        desc: 'Fast paint; skip strategy stack and quality review. Not a pricier model.',
+        desc: 'Fast paint; skip strategy stack and quality review.',
       },
       medium: {
         short: 'Standard',
         label: 'Standard design',
-        desc: 'Default depth: standard decide, review when needed. Not a pricier model.',
+        desc: 'Default depth: standard decide, review when needed.',
       },
       high: {
         short: 'Deep',
         label: 'Deep design',
-        desc: 'Full strategy stack with always-on design review. Not a pricier model.',
+        desc: 'Full strategy stack with always-on design review.',
       },
       extreme: {
         short: 'Critique',
         label: 'Professional critique',
-        desc: 'High depth plus extra review loops for critical work. Not a pricier model.',
+        desc: 'High depth plus extra review loops for critical work.',
       },
     },
     devDebugTitle: 'Developer debug',

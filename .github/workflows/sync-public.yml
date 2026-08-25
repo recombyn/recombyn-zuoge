@@ -1,9 +1,9 @@
-# Private → public one-way mirror (runs only in recombyn-dev).
+# Private → public one-way sync (runs only in recombyn-dev).
 # Strips src/commercial before publishing to github.com/recombyn/recombyn.
 #
 # Secret (recombyn-dev): PUBLIC_REPO_TOKEN — PAT with repo scope on recombyn/recombyn
 
-name: Sync OSS mirror
+name: Sync public repo
 
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
           fi
           git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git" ./pub
 
-      - name: Mirror working tree
+      - name: Copy working tree
         run: |
           rsync -a --delete \
             --exclude=".git/" \
@@ -90,7 +90,7 @@ jobs:
           if [ -z "$PR_NUMBER" ]; then
             gh pr create --repo "${PUBLIC_REPO}" --base main --head "${SYNC_BRANCH}" \
               --title "chore: sync from recombyn-dev @ ${SHORT_SHA}" \
-              --body "Automated mirror from recombyn-dev. Do not edit manually."
+              --body "Automated sync from recombyn-dev. Do not edit manually."
             PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${SYNC_BRANCH}" --json number --jq '.[0].number')"
           fi
 

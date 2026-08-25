@@ -16,7 +16,7 @@ export const DEFAULT_VIDEO_DURATION = 5;
 const VIDEO_SETTINGS_TRACK = SETTINGS_SEGMENT_TRACK_CLASS;
 
 function VideoSegmentedTrack({ children }: { children: ReactNode }): ReactNode {
-  return <div className={cn('flex flex-wrap gap-1', VIDEO_SETTINGS_TRACK)}>{children}</div>;
+  return <div className={cn('flex flex-nowrap gap-0.5', VIDEO_SETTINGS_TRACK)}>{children}</div>;
 }
 
 function VideoSegmentPill({
@@ -39,7 +39,7 @@ function VideoSegmentPill({
         onClick();
       }}
       className={cn(
-        'flex min-w-[2.75rem] flex-1 items-center justify-center rounded-lg px-2 py-2 text-[12px] font-medium tabular-nums transition disabled:opacity-40',
+        'flex min-w-0 flex-1 items-center justify-center rounded-lg px-1 py-2 text-[12px] font-medium tabular-nums transition disabled:opacity-40',
         active
           ? 'bg-[var(--surface)] text-[var(--ink)] shadow-[0_1px_3px_rgba(15,23,42,0.12)]'
           : 'bg-transparent text-[var(--muted)] hover:text-[var(--ink)]'

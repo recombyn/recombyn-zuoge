@@ -308,7 +308,7 @@ function VideoQuickEditComposer({
 
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}
         <div
-          className="min-h-0 min-w-0 flex-1 cursor-text overflow-y-auto px-3 pt-2"
+          className="min-h-0 min-w-0 flex-1 cursor-text overflow-hidden px-3 pt-2"
           onClick={(e) => {
             if ((e.target as HTMLElement | null)?.closest?.('[data-agent-composer]')) return;
             inputRef.current?.focus();
