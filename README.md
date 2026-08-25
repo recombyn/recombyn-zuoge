@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="docs/assets/zuoge-wordmark-en.png" alt="zuoge" height="56" />
+</p>
+
+<p align="center">
   <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
   <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
   <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
@@ -31,7 +35,7 @@ You can self-host in a few minutes with Docker Compose (default **MySQL** + Redi
 
 Open source takes time. If zuoge helps you, please hit **⭐ Star** in the top-right of the GitHub repo.
 
-→ [https://github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
+→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## Canvas
 
@@ -145,7 +149,7 @@ node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
 ## Quick start (self-host)
 
 ```bash
-git clone https://github.com/recombyn/recombyn-zuoge.git
+git clone https://github.com/recombyn/zuoge.git
 cd recombyn
 cp apps/api/.env.example apps/api/.env   # add LLM_API_KEY / provider keys
 docker compose up -d --build
@@ -258,4 +262,4 @@ User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) 
 - **PRs** — see [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Security** — report privately per [SECURITY.md](SECURITY.md)
 
-Official: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
+Official: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)

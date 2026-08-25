@@ -1,6 +1,6 @@
 # Skills (Apache-2.0)
 
-Open Design Agent skill packs shipped with Recombyn.
+Open Design Agent skill packs shipped with zuoge.
 
 ```text
 skills/
