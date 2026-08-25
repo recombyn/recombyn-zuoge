@@ -47,3 +47,18 @@ def test_cov_pick_nodes_empty_when_only_blank_frame():
         },
     }
     assert _cov_pick_nodes(doc) == []
+
+
+def test_build_auto_cover_key_stable_when_document_unchanged():
+    from app.services.projects import (
+        _build_auto_cover_key,
+        _encode_thumb_entries,
+        _parse_thumb_entries,
+    )
+
+    doc = _frame_doc_with_rect()
+    first = _build_auto_cover_key("u1", "p1", doc, None)
+    assert first
+    second = _build_auto_cover_key("u1", "p1", doc, first)
+    assert second == first
+    assert _encode_thumb_entries(_parse_thumb_entries(first)) == first
