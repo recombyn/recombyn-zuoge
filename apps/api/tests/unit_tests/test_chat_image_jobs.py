@@ -229,6 +229,8 @@ def test_stream_image_job_events_sse(monkeypatch: pytest.MonkeyPatch):
         }
 
     monkeypatch.setattr("app.services.job_store.get_job", _get_job)
+    monkeypatch.setattr("app.api.routes.chat_job_sse.get_job", _get_job)
+    monkeypatch.setattr("app.services.job_events.get_job", _get_job)
     with _auth_client(monkeypatch) as client:
         with client.stream("GET", "/api/v1/chat/image/jobs/j1/events") as res:
             assert res.status_code == 200
