@@ -12,9 +12,7 @@ import {
   deleteProjectApi,
   deleteProjectsApi,
   fetchProject,
-  invalidateProjectsListCache,
   patchProjectSummaryInListCache,
-  refetchProjectsListCache,
 } from '@/service/projects';
 import store from '@/store';
 import {
@@ -116,6 +114,7 @@ export class ProjectRevisionConflictError extends Error {
 export type CloudAck = {
   revision: number;
   thumbnailUrl?: string | string[] | null;
+  updatedAt?: number;
 };
 
 /** Discriminated write outcome — callers branch on `status`, not nested catch. */
@@ -200,7 +199,8 @@ async function applyCloudAck(opts: {
   ack?: CloudAck;
   projectName?: string;
 }): Promise<void> {
-  const nextThumb = ackThumbnail(opts.ack?.thumbnailUrl, opts.ack?.revision ?? Date.now());
+  const version = opts.ack?.updatedAt ?? opts.ack?.revision;
+  const nextThumb = ackThumbnail(opts.ack?.thumbnailUrl, version);
   if (nextThumb) {
     opts.dispatch(
       setTemplateThumbnail({
@@ -219,9 +219,16 @@ async function applyCloudAck(opts: {
     'Untitled';
   const listPatch: Parameters<typeof patchProjectSummaryInListCache>[1] = {
     name: tplName,
-    updatedAt: Date.now(),
+    updatedAt: opts.ack?.updatedAt ?? Date.now(),
   };
-  if (nextThumb) listPatch.thumbnailUrl = nextThumb;
+  if (opts.ack?.thumbnailUrl != null) {
+    const raw = opts.ack.thumbnailUrl;
+    listPatch.thumbnailUrl = Array.isArray(raw)
+      ? raw.filter((u) => String(u || '').trim())
+      : String(raw || '').trim()
+        ? [String(raw).trim()]
+        : [];
+  }
   if (opts.ack?.revision != null) listPatch.revision = opts.ack.revision;
   patchProjectSummaryInListCache(opts.projectId, listPatch);
   await markProjectDraftSynced(
@@ -264,12 +271,15 @@ function fullPutReason(
 function ackFromProject(project: {
   revision?: unknown;
   thumbnailUrl?: string | string[] | null;
+  updatedAt?: unknown;
 } | null | undefined): CloudAck | null {
   const revision = asCloudRevision(project?.revision);
   if (revision == null) return null;
+  const updatedAt = Number(project?.updatedAt);
   return {
     revision,
     thumbnailUrl: project?.thumbnailUrl ?? null,
+    updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : undefined,
   };
 }
 
@@ -751,14 +761,9 @@ export function useProjectCloudSync() {
     return () => {
       window.removeEventListener('pagehide', onHide);
       window.document.removeEventListener('visibilitychange', onVisibility);
-      void (async () => {
-        try {
-          await flushCurrentProjectNow({ force: true });
-        } finally {
-          await invalidateProjectsListCache();
-          await refetchProjectsListCache();
-        }
-      })();
+      if (dirtyRef.current) {
+        void flushCurrentProjectNow({ force: true });
+      }
     };
   }, []);
 }

@@ -19,8 +19,6 @@ import { useNavigate } from 'react-router-dom';
 import { setTemplateThumbnail } from '@/store/modules/editor';
 import { cloneDocument } from '@/store/modules/editorHistory';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import { flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
-
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -304,12 +302,6 @@ function ShareDialog({ open, onClose }: Props) {
     if (coversInflightRef.current) return;
     async function refreshCovers() {
       try {
-        // Covers require a cloud project row — flush first if local-only / failed sync.
-        try {
-          await flushCurrentProjectNow({ force: true });
-        } catch {
-          /* still try covers; API returns project_not_found if missing */
-        }
         const res = await extractCoversMutation.mutateAsync({
           projectId: currentId!,
           document: document != null ? (document as Record<string, unknown>) : undefined,
