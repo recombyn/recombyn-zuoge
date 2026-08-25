@@ -53,7 +53,7 @@ type SelectionChromeProps = {
   /**
    * Edge handles: `all` (default), `horizontal` (text L/R wrap width only), or none.
    */
-  edgeHandles?: 'all' | 'horizontal' | 'none';
+  edgeHandles?: 'all' | 'horizontal' | 'none' | 'se-only';
   /** When false, only handles / hit targets (no AABB stroke). */
   showBoxStroke?: boolean;
   /** Past outer stroke edge ??rotate sits beyond this (scene units). */
@@ -657,7 +657,7 @@ export type ChromeHandlePickOpts = {
   zoom?: number;
   strokeOuterScene?: number;
   cornerHandlesOnly?: boolean;
-  edgeHandles?: 'all' | 'horizontal' | 'none';
+  edgeHandles?: 'all' | 'horizontal' | 'none' | 'se-only';
   lineMode?: boolean;
   /** Scene point under the pointer (preferred over clientToScene). */
   scene?: { x: number; y: number };
@@ -708,7 +708,7 @@ export function pickChromeHandleByGeometry(
     showRotate?: boolean;
     showHandles?: boolean;
     cornerHandlesOnly?: boolean;
-    edgeHandles?: 'all' | 'horizontal' | 'none';
+    edgeHandles?: 'all' | 'horizontal' | 'none' | 'se-only';
     lineMode?: boolean;
   }
 ): ChromeHandlePick | null {
@@ -1747,7 +1747,7 @@ function buildAllKnobs(w: number, h: number): Knob[] {
 function selectResizeKnobs(opts: {
   lineMode: boolean;
   cornerHandlesOnly: boolean;
-  edgeHandles: 'all' | 'horizontal' | 'none';
+  edgeHandles: 'all' | 'horizontal' | 'none' | 'se-only';
   w: number;
   h: number;
 }): Knob[] {
@@ -1756,6 +1756,7 @@ function selectResizeKnobs(opts: {
   const all = buildAllKnobs(w, h);
   let picked: Knob[];
   if (cornerHandlesOnly) picked = all.filter(([dir]) => isCornerHandle(dir));
+  else if (edgeHandles === 'se-only') picked = all.filter(([dir]) => dir === 'se');
   else if (edgeHandles === 'horizontal') {
     picked = all.filter(([dir]) => isCornerHandle(dir) || dir === 'e' || dir === 'w');
   } else {
@@ -1770,7 +1771,7 @@ function selectResizeKnobs(opts: {
 
 function selectVisualKnobs(
   knobs: Knob[],
-  opts: { lineMode: boolean; cornerHandlesOnly: boolean; edgeHandles: 'all' | 'horizontal' | 'none' }
+  opts: { lineMode: boolean; cornerHandlesOnly: boolean; edgeHandles: 'all' | 'horizontal' | 'none' | 'se-only' }
 ): Knob[] {
   if (opts.lineMode) return [];
   const showEdges = !opts.cornerHandlesOnly && opts.edgeHandles === 'all';

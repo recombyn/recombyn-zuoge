@@ -30,7 +30,7 @@ import {
   sidesFromAttrs,
   starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
-import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hexWithOpacity, boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
+import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hexWithOpacity, boolEffectAttr, TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import { findClippingFrameForNode } from '@/components/rcb/frames/frameContentClip';
 import {
@@ -1344,23 +1344,42 @@ export function paintCanvasTextInk(
   const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
   const style = parseNodeTextStyle(node.attrs || {});
   const plain = parseNodeText(node.attrs || {});
-  const lines = wrapPlainTextLines(plain, style, w);
-  const fontSize = Math.max(1, Number(style.fontSize) || 14);
-  const lineH = fontSize * Math.max(0.8, Number(style.lineHeight) || 1.4);
-  const italic = style.fontStyle === 'italic' ? 'italic ' : '';
-  const weight = style.fontWeight || 'normal';
-  const fillOpacity = Math.max(0, Math.min(100, Number(style.fillOpacity) || 100)) / 100;
   const textFrame =
     node.attrs?.textFrame === true ||
     node.attrs?.textFrame === 'true' ||
     node.attrs?.textFrame === 1 ||
     node.attrs?.textFrame === '1';
+  const framePad = textFrame ? TEXT_FRAME_PADDING : 0;
+  const innerW = textFrame ? Math.max(1, w - framePad * 2) : w;
+  const lines = wrapPlainTextLines(plain, style, innerW);
+  const fontSize = Math.max(1, Number(style.fontSize) || 14);
+  const lineH = fontSize * Math.max(0.8, Number(style.lineHeight) || 1.4);
+  const italic = style.fontStyle === 'italic' ? 'italic ' : '';
+  const weight = style.fontWeight || 'normal';
+  const fillOpacity = Math.max(0, Math.min(100, Number(style.fillOpacity) || 100)) / 100;
 
   ctx.save();
   ctx.globalAlpha = opacity * fillOpacity;
   if (textFrame) {
+    const radii = radiiFromAttrs(node.attrs || {});
+    const cornerR = clampCornerRadii(
+      {
+        tl: radii.tl > 0 ? radii.tl : TEXT_FRAME_RADIUS,
+        tr: radii.tr > 0 ? radii.tr : TEXT_FRAME_RADIUS,
+        br: radii.br > 0 ? radii.br : TEXT_FRAME_RADIUS,
+        bl: radii.bl > 0 ? radii.bl : TEXT_FRAME_RADIUS,
+      },
+      w,
+      h
+    );
+    traceRoundedRectLocal(ctx, w, h, cornerR);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.beginPath();
-    ctx.rect(0, 0, w, h);
+    traceRoundedRectLocal(ctx, w, h, cornerR);
     ctx.clip();
   }
   applyCanvasDropShadow(ctx, node);
@@ -1369,23 +1388,24 @@ export function paintCanvasTextInk(
   ctx.textBaseline = 'top';
 
   const align = String(style.textAlign || 'left');
-  let x = 0;
+  let x = framePad;
   if (align === 'center' || align === 'middle') {
     ctx.textAlign = 'center';
     x = w / 2;
   } else if (align === 'right' || align === 'end') {
     ctx.textAlign = 'right';
-    x = w;
+    x = w - framePad;
   } else {
     ctx.textAlign = 'left';
-    x = 0;
+    x = framePad;
   }
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] || ' ';
+    const y = framePad + i * lineH;
     // Fixed text frames: skip lines fully below the plate (scroll lives in HTML).
-    if (textFrame && i * lineH >= h) break;
-    ctx.fillText(line, x, i * lineH);
+    if (textFrame && y >= h - framePad) break;
+    ctx.fillText(line, x, y);
   }
   clearCanvasDropShadow(ctx);
   ctx.restore();

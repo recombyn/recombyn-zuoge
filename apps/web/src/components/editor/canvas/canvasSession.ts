@@ -412,7 +412,7 @@ export type CanvasSession = {
   ) => void;
   onGeometryPreview: (
     patches: GeomPatch[],
-    options?: { textResizeMode?: 'scale' | 'wrap' }
+    options?: { textResizeMode?: 'scale' | 'wrap' | 'frame' }
   ) => void;
   resetFrameMoveOwners: () => void;
   onAngleCommit: (nodeId: string, angleDeg: number, options?: { skipHistory?: boolean }) => void;
@@ -770,7 +770,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
 
   const onGeometryPreview = (
     patches: GeomPatch[],
-    options?: { textResizeMode?: 'scale' | 'wrap' }
+    options?: { textResizeMode?: 'scale' | 'wrap' | 'frame' }
   ) => {
     const doc = deps.getDocument();
     const board = deps.getBoard();
@@ -844,25 +844,6 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         height: Math.max(1, box.height),
         angle: Number(node?.attrs?.angle) || 0,
       });
-      if (
-        node?.key === 'video' ||
-        node?.key === 'lottie' ||
-        node?.key === 'audio' ||
-        // SoftGlow process plates sit in HTML — keep them glued like media hosts.
-        node?.key === 'image'
-      ) {
-        hasVideo = true;
-        const pending = coalescer.getPendingVideoGeom()?.[p.nodeId];
-        videoOverrides[p.nodeId] = {
-          left: box.left,
-          top: box.top,
-          width: Math.max(1, box.width),
-          height: Math.max(1, box.height),
-          angle: Number.isFinite(pending?.angle)
-            ? Number(pending!.angle)
-            : Number(node.attrs?.angle) || 0,
-        };
-      }
       // Per-shape hosts may register before shared nodeEls is wired — recover.
       if (!board.nodeEls.get(p.nodeId)) {
         const hostEl = getShapeHost(p.nodeId)?.el;
@@ -873,6 +854,38 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         plainText: isText ? parseNodeText(node.attrs || {}) : undefined,
         textStyle: isText ? parseNodeTextStyle(node.attrs || {}) : undefined,
       });
+      if (
+        node?.key === 'video' ||
+        node?.key === 'lottie' ||
+        node?.key === 'audio' ||
+        // SoftGlow process plates sit in HTML — keep them glued like media hosts.
+        node?.key === 'image'
+      ) {
+        hasVideo = true;
+        const pending = coalescer.getPendingVideoGeom()?.[p.nodeId];
+        const host = board.nodeEls.get(p.nodeId) as
+          | (SVGElement & {
+              __sceneDidResize?: boolean;
+              __sceneDragBaseW?: number;
+              __sceneDragBaseH?: number;
+            })
+          | undefined;
+        // While CSS-scale resizing, FO stays at drag-base size — HTML plate must
+        // match that base box or scrubber/video layout drifts inside the FO.
+        const useBase =
+          Boolean(host?.__sceneDidResize) &&
+          Number(host?.__sceneDragBaseW) > 0 &&
+          Number(host?.__sceneDragBaseH) > 0;
+        videoOverrides[p.nodeId] = {
+          left: box.left,
+          top: box.top,
+          width: useBase ? Number(host!.__sceneDragBaseW) : Math.max(1, box.width),
+          height: useBase ? Number(host!.__sceneDragBaseH) : Math.max(1, box.height),
+          angle: Number.isFinite(pending?.angle)
+            ? Number(pending!.angle)
+            : Number(node.attrs?.angle) || 0,
+        };
+      }
       const el = board.nodeEls.get(p.nodeId);
       if (el && board.root) {
         const previewNode = {
