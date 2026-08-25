@@ -364,7 +364,7 @@ async def run_design_tournament(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "design-tournament",
             "kind": "explored",
             "status": "running",
-            "summary": "DESIGN_TOURNAMENT: multi-dim bracket → Winner",
+            "code": "design_tournament_running", "summary": "DESIGN_TOURNAMENT: multi-dim bracket → Winner",
         }
     )
     try:
@@ -425,7 +425,7 @@ async def run_design_tournament(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "design-tournament",
                 "kind": "explored",
                 "status": "done",
-                "summary": "DESIGN_TOURNAMENT: skipped (failed)",
+                "code": "design_tournament_skipped", "summary": "DESIGN_TOURNAMENT: skipped (failed)",
             }
         )
         return None

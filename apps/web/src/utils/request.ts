@@ -109,14 +109,19 @@ async function executeRequest<T>(config: RequestConfig, key: string | null): Pro
     if (err instanceof HTTPError) {
       await clearSessionOnAuthDead(err.response);
       let body: unknown;
+      let rawText = '';
       try {
-        body = await err.response.clone().json();
-      } catch {
-        try {
-          body = await err.response.clone().text();
-        } catch {
-          body = undefined;
+        // Read once — clone after ky may already have consumed the stream.
+        rawText = err.response.bodyUsed ? '' : await err.response.text();
+        if (rawText) {
+          try {
+            body = JSON.parse(rawText) as unknown;
+          } catch {
+            body = rawText;
+          }
         }
+      } catch {
+        body = undefined;
       }
       const detail =
         body && typeof body === 'object' && body !== null && 'detail' in body
@@ -125,6 +130,7 @@ async function executeRequest<T>(config: RequestConfig, key: string | null): Pro
       let detailText = '';
       if (typeof detail === 'string') detailText = detail.trim();
       else if (Array.isArray(detail)) detailText = detailToText(detail);
+      else if (typeof body === 'string' && body.trim()) detailText = body.trim().slice(0, 300);
       const enriched = new Error(
         detailText || err.message || `Request failed (${err.response.status})`
       ) as Error & {

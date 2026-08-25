@@ -18,6 +18,7 @@ import {
   type DesignIntelligencePatch,
 } from '@/components/editor/panels/agent/runDesignAgent';
 import type { DesignSendMutable } from '@/components/editor/panels/agent/agentSendPath';
+import { localizeAgentProcessCopy } from '@/components/editor/panels/agent/agentProcessI18n';
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -446,9 +447,20 @@ export function createDesignAgentEventRouter(opts: {
       code: ev.code,
     });
     if (!label) return;
-    const detailText = (ev.detail || '').trim();
-    const summaryText = String(ev.summary || '').trim();
-    const bodyText = ev.body ? String(ev.body) : '';
+    const detailText = localizeAgentProcessCopy(
+      opts.t,
+      (ev.detail || '').trim(),
+      ev.code
+    );
+    const summaryText = localizeAgentProcessCopy(
+      opts.t,
+      String(ev.summary || '').trim(),
+      ev.code
+    );
+    const bodyText = ev.body
+      ? localizeAgentProcessCopy(opts.t, String(ev.body), ev.code)
+      : '';
+    // Skip nest rows that only repeat the already-localized label.
     const summary = activityRowSummary({
       kind: ev.kind,
       label,

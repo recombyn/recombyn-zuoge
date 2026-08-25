@@ -277,6 +277,8 @@ async def run_reference_intelligence(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "reference-intel",
             "kind": "explored",
             "status": "running",
+            "code": "reference_intel_running",
+            # English for logs; FE process column localizes via code / pattern.
             "summary": "REFERENCE_INTEL: analyzing composition / color / type / imagery",
         }
     )
@@ -317,6 +319,7 @@ async def run_reference_intelligence(rt: AgentRuntime) -> dict[str, Any] | None:
                 "id": "reference-intel",
                 "kind": "explored",
                 "status": "done",
+                "code": "reference_intel_skipped",
                 "summary": "REFERENCE_INTEL: skipped (analyze failed)",
             }
         )
@@ -349,6 +352,7 @@ async def run_reference_intelligence(rt: AgentRuntime) -> dict[str, Any] | None:
             "id": "reference-intel",
             "kind": "explored",
             "status": "done",
+            "code": "reference_intel_done",
             "summary": ("REFERENCE_DNA: " + (ctype or "locked"))[:200],
         }
     )

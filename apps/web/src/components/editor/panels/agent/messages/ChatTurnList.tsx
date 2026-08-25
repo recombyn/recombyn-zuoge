@@ -27,6 +27,10 @@ import {
 } from '@/utils/chatImageDrag';
 import { imageSrcToFile } from '@/utils/uploadImage';
 import VideoJsPlayer from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
+import {
+  localizeAgentProcessCopy,
+  looksLikeKernelProcessDump,
+} from '@/components/editor/panels/agent/agentProcessI18n';
 
 /** Leading icon tone for process / explore rows. */
 export type ExploreItemTone = 'ok' | 'warn' | 'error';
@@ -737,8 +741,13 @@ function formatExploredLabel(
   }
   const preload = formatPreloadExploredLabel(t, detail, ev.stage);
   if (preload) return preload;
-  // Never surface raw DESIGN_* / English kernel dumps as the row label.
-  if (/^DESIGN_/i.test(detail) || detail === 'design pipeline') {
+  // Never surface raw DESIGN_* / REFERENCE_INTEL / English kernel dumps as the row label.
+  if (
+    /^DESIGN_/i.test(detail) ||
+    /^REFERENCE_INTEL:/i.test(detail) ||
+    detail === 'design pipeline' ||
+    looksLikeKernelProcessDump(detail)
+  ) {
     if (ev.status === 'running') return t('agent.activityExploredRunning');
     return t('agent.activityExplored');
   }
@@ -765,12 +774,13 @@ export function formatActivityLabel(
   t: ProcessTFn,
   ev: ActivityStepEvent
 ): string | null {
-  const detail = (ev.detail || '').trim();
-  const preferDetail = detail.length > 0;
+  const detailRaw = (ev.detail || '').trim();
   const code = String(ev.code || '').trim().toLowerCase();
+  const detail = localizeAgentProcessCopy(t, detailRaw, code);
+  const preferDetail = detail.length > 0;
   if (code === 'design_quality_check') {
     if (ev.status === 'running') return t('agent.governanceRunning');
-    if (detail === 'fail' || ev.status === 'error') return t('agent.governanceFailShort');
+    if (detailRaw === 'fail' || ev.status === 'error') return t('agent.governanceFailShort');
     return t('agent.governanceDone');
   }
 
@@ -796,14 +806,13 @@ export function formatActivityLabel(
     );
   }
   if (ev.kind === 'explored') {
-    return formatExploredLabel(t, ev, detail, preferDetail);
+    return formatExploredLabel(t, ev, detailRaw, preferDetail && !looksLikeKernelProcessDump(detailRaw));
   }
   if (ev.kind === 'skipped') {
-    const code = String(ev.code || '').trim().toLowerCase();
     if (code === 'ops_validate_failed') {
       return t('agent.activityOpsValidateFailed', {
         count: ev.count ?? 0,
-        codes: detail || 'invalid_op',
+        codes: detailRaw || 'invalid_op',
       });
     }
     if (preferDetail) return detail;
