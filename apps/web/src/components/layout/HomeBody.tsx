@@ -366,6 +366,10 @@ function RailMoreFlyout({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    setOpen(false);
+  }, [expanded]);
+
   const menuItems = useMemo<MenuItemType[]>(
     () =>
       RAIL_MORE_ITEMS.map((item) => ({
@@ -386,6 +390,7 @@ function RailMoreFlyout({
       placement="right-start"
       strategy="fixed"
       offset={8}
+      layoutKey={expanded}
       open={open}
       onOpenChange={setOpen}
       items={menuItems}

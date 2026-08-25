@@ -1,5 +1,5 @@
 import type { FC, ReactNode } from 'react';
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, useEffect, memo } from 'react';
 import {
   autoUpdate,
   flip,
@@ -68,6 +68,8 @@ export type DropdownProps = {
    * nodes do not dismiss this dropdown — needed when level-2 floats outside the tree.
    */
   nestedDismissGuard?: string;
+  /** When this value changes, re-measure anchor (e.g. sidebar expand/collapse). */
+  layoutKey?: unknown;
   children: ReactNode;
 };
 
@@ -93,6 +95,7 @@ const Dropdown: FC<DropdownProps> = ({
   floatingClassName,
   referenceToggle = true,
   nestedDismissGuard,
+  layoutKey,
   children,
 }) => {
   const [localOpen, setLocalOpen] = useState(false);
@@ -114,7 +117,7 @@ const Dropdown: FC<DropdownProps> = ({
     [controlledOpen, onOpenChange]
   );
 
-  const { refs, floatingStyles, context } = useFloating({
+  const { refs, floatingStyles, context, update } = useFloating({
     open,
     onOpenChange: handleOpenChange,
     placement,
@@ -129,6 +132,11 @@ const Dropdown: FC<DropdownProps> = ({
       shift({ padding: 8 }),
     ],
   });
+
+  useEffect(() => {
+    if (!open) return;
+    void update();
+  }, [open, layoutKey, update]);
 
   const hover = useHover(context, {
     enabled: trigger === 'hover',
