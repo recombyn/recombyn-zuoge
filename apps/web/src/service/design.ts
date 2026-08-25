@@ -259,6 +259,8 @@ export type DesignJobEvent =
       ops?: Array<{ name: string; args?: Record<string, unknown>; op_id?: string }>;
       task_id?: string;
       round?: number;
+      /** Durable Worker outbox sequence; ACK only after successful canvas apply. */
+      command_seq?: number;
     }
   | {
       type: 'transaction.commit';
