@@ -43,8 +43,7 @@ def _size_from_bytes(content: bytes) -> tuple[int, int]:
 
 
 async def decompose_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any]:
-    """
-    """Run closed-source subject pipeline; returns BFF layer payload."""
+    """Run closed-source subject pipeline; returns BFF layer payload.
 
     Returns ``{ image, layers, kind, width, height, engines, warnings }``.
     """
