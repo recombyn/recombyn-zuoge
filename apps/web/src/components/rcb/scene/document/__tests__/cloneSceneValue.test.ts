@@ -47,4 +47,25 @@ describe('cloneSceneValue', () => {
       expect(id).toBeTruthy();
     });
   });
+
+  it('spawnImageProcessNode places wide images to the right, not below', () => {
+    let doc = createEmptyDocument({ width: 2400, height: 2000 });
+    doc = addNodeToDocument(doc, 'src1', {
+      id: 'src1',
+      key: 'image',
+      x: 100,
+      y: 50,
+      width: 1111,
+      height: 1978,
+      attrs: { src: 'https://example.com/wide.png' },
+    });
+    const { document: next, id } = spawnImageProcessNode(doc, 'src1', {
+      kind: 'removeBg',
+      label: '去背景中',
+    });
+    expect(id).toBeTruthy();
+    const spawned = next.deltaSetLike?.[id!];
+    expect(spawned?.x).toBe(100 + 1111 + 16);
+    expect(spawned?.y).toBe(50);
+  });
 });

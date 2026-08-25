@@ -757,7 +757,9 @@ function appendHtmlMediaMount(
   div.style.cssText =
     opts.kind === 'text'
       ? 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;'
-      : 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;';
+      : opts.kind === 'video'
+        ? 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;color-scheme:only light;'
+        : 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;';
   fo.appendChild(div);
 }
 

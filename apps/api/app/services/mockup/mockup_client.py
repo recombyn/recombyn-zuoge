@@ -59,6 +59,48 @@ async def fetch_mockup_template_kit(
         return data
 
 
+async def auto_bake_mockup_via_intelligence(
+    image_ref: str,
+    *,
+    scale: float = 0.5,
+) -> dict[str, Any]:
+    """
+    Full-auto kit from a product photo (matting → printable zones → UV + PBR maps).
+
+    Proxies Intelligence ``POST /api/v1/mockup/auto-bake``.
+    """
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Mockup service is not configured (set RECOMBYN_INTELLIGENCE_URL)"
+        )
+    content, _filename = await _load_bytes(image_ref)
+    # Data-URL keeps one JSON hop; Intelligence accepts data-URL or raw base64.
+    b64 = base64.b64encode(content).decode("ascii")
+    # Detect mime lightly for data URL prefix (PNG default).
+    mime = "image/png"
+    if content[:3] == b"\xff\xd8\xff":
+        mime = "image/jpeg"
+    elif content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        mime = "image/webp"
+    image_payload = f"data:{mime};base64,{b64}"
+    sc = max(0.25, min(1.0, float(scale or 0.5)))
+    kit_timeout = httpx.Timeout(180.0, connect=30.0)
+    async with httpx.AsyncClient(timeout=kit_timeout) as client:
+        resp = await client.post(
+            f"{base}/api/v1/mockup/auto-bake",
+            json={"image": image_payload, "scale": sc},
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            detail = (resp.text or "").strip()[:300] or resp.reason_phrase or "error"
+            raise RuntimeError(f"mockup auto-bake failed ({resp.status_code}): {detail}")
+        data = resp.json()
+        if not isinstance(data, dict) or not data.get("uvBase64"):
+            raise RuntimeError("mockup auto-bake returned invalid payload")
+        return data
+
+
 async def render_mockup_via_intelligence(
     image_ref: str,
     *,

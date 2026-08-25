@@ -1,6 +1,8 @@
 /**
- * WebGL2 UV remap preview — applies template UV to a flat design sheet over base.
+ * WebGL2 UV remap preview — design sheet over base with shadow × highlight (screen).
  */
+
+
 
 export type UvPreviewKit = {
   width: number;
@@ -8,7 +10,13 @@ export type UvPreviewKit = {
   baseUrl: string;
   maskUrl: string;
   uv: Float32Array;
+  /** Optional luminance-derived shadow map (RGB data URL). */
+  shadowUrl?: string | null;
+  /** Optional highlight map (RGB data URL). */
+  highlightUrl?: string | null;
 };
+
+
 
 const VS = `#version 300 es
 in vec2 aPos;
@@ -19,13 +27,18 @@ void main() {
 }
 `;
 
+
+
 const FS = `#version 300 es
 precision highp float;
 uniform sampler2D uBase;
 uniform sampler2D uDesign;
 uniform sampler2D uMask;
 uniform sampler2D uUV;
+uniform sampler2D uShadow;
+uniform sampler2D uHighlight;
 uniform bool uHasDesign;
+uniform bool uHasPbr;
 in vec2 vUv;
 out vec4 outColor;
 void main() {
@@ -38,9 +51,19 @@ void main() {
   vec2 uv = texture(uUV, vUv).rg;
   vec4 design = texture(uDesign, uv);
   float a = design.a * m;
-  outColor = vec4(mix(base.rgb, design.rgb, a), 1.0);
+  vec3 lit = design.rgb;
+  if (uHasPbr) {
+    vec3 shadow = texture(uShadow, vUv).rgb;
+    vec3 highlight = texture(uHighlight, vUv).rgb;
+    vec3 shaded = design.rgb * shadow;
+    // Screen blend (matches pbr_blend.blend_screen)
+    lit = 1.0 - (1.0 - shaded) * (1.0 - highlight * 0.85);
+  }
+  outColor = vec4(mix(base.rgb, lit, a), 1.0);
 }
 `;
+
+
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
   const sh = gl.createShader(type);
@@ -54,6 +77,8 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
   }
   return sh;
 }
+
+
 
 function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader): WebGLProgram {
   const prog = gl.createProgram();
@@ -69,6 +94,8 @@ function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader): Web
   return prog;
 }
 
+
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -78,6 +105,8 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     img.src = url;
   });
 }
+
+
 
 function texImage2D(
   gl: WebGL2RenderingContext,
@@ -137,14 +166,51 @@ function texImage2D(
   return tex;
 }
 
+
+
+/** 1×1 white / black placeholders when PBR maps are absent. */
+function solidTex(gl: WebGL2RenderingContext, unit: number, rgb: [number, number, number]): WebGLTexture {
+  const tex = gl.createTexture();
+  if (!tex) throw new Error('texture alloc failed');
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA,
+    1,
+    1,
+    0,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    new Uint8Array([rgb[0], rgb[1], rgb[2], 255])
+  );
+  return tex;
+}
+
+
+
 export type MockupUvPreview = {
   setKit: (kit: UvPreviewKit) => Promise<void>;
+  /** Swap printable region maps without clearing the bound design sheet. */
+  setRegionSurfaces: (
+    partial: Pick<UvPreviewKit, 'maskUrl' | 'uv'> &
+      Partial<Pick<UvPreviewKit, 'shadowUrl' | 'highlightUrl'>>
+  ) => Promise<void>;
   setDesignSheet: (dataUrl: string | null) => Promise<void>;
+  /** True only after a design sheet was bound — kit-only frames must not publish/bake. */
+  hasDesignBound: () => boolean;
   draw: () => void;
   toDataURL: () => string;
   dispose: () => void;
   canvas: HTMLCanvasElement;
 };
+
+
 
 export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPreview {
   const el = canvas || document.createElement('canvas');
@@ -155,14 +221,20 @@ export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPrevi
   });
   if (!gl) throw new Error('WebGL2 unavailable');
 
+
+
   // Float color textures often need this for RG32F sampling.
   gl.getExtension('EXT_color_buffer_float');
+
+
 
   const vs = compile(gl, gl.VERTEX_SHADER, VS);
   const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
   const prog = link(gl, vs, fs);
   gl.deleteShader(vs);
   gl.deleteShader(fs);
+
+
 
   const buf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -172,19 +244,53 @@ export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPrevi
   const uDesign = gl.getUniformLocation(prog, 'uDesign');
   const uMask = gl.getUniformLocation(prog, 'uMask');
   const uUV = gl.getUniformLocation(prog, 'uUV');
+  const uShadow = gl.getUniformLocation(prog, 'uShadow');
+  const uHighlight = gl.getUniformLocation(prog, 'uHighlight');
   const uHasDesign = gl.getUniformLocation(prog, 'uHasDesign');
+  const uHasPbr = gl.getUniformLocation(prog, 'uHasPbr');
+
+
 
   let texBase: WebGLTexture | null = null;
   let texMask: WebGLTexture | null = null;
   let texUv: WebGLTexture | null = null;
   let texDesign: WebGLTexture | null = null;
+  let texShadow: WebGLTexture | null = null;
+  let texHighlight: WebGLTexture | null = null;
   let hasDesign = false;
+  let hasPbr = false;
   let kitW = 1;
   let kitH = 1;
+
+
 
   const disposeTex = (t: WebGLTexture | null) => {
     if (t) gl.deleteTexture(t);
   };
+
+
+
+  const bindPbr = async (shadowUrl?: string | null, highlightUrl?: string | null) => {
+    disposeTex(texShadow);
+    disposeTex(texHighlight);
+    texShadow = null;
+    texHighlight = null;
+    hasPbr = Boolean(shadowUrl || highlightUrl);
+    if (shadowUrl) {
+      const img = await loadImage(shadowUrl);
+      texShadow = texImage2D(gl, 4, img);
+    } else {
+      texShadow = solidTex(gl, 4, [255, 255, 255]);
+    }
+    if (highlightUrl) {
+      const img = await loadImage(highlightUrl);
+      texHighlight = texImage2D(gl, 5, img);
+    } else {
+      texHighlight = solidTex(gl, 5, [0, 0, 0]);
+    }
+  };
+
+
 
   const draw = () => {
     if (!texBase || !texMask || !texUv) return;
@@ -196,25 +302,50 @@ export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPrevi
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
 
+
+
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texBase);
     gl.uniform1i(uBase, 0);
+
+
 
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, texDesign || texBase);
     gl.uniform1i(uDesign, 1);
 
+
+
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, texMask);
     gl.uniform1i(uMask, 2);
+
+
 
     gl.activeTexture(gl.TEXTURE3);
     gl.bindTexture(gl.TEXTURE_2D, texUv);
     gl.uniform1i(uUV, 3);
 
+
+
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, texShadow || texBase);
+    gl.uniform1i(uShadow, 4);
+
+
+
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D, texHighlight || texBase);
+    gl.uniform1i(uHighlight, 5);
+
+
+
     gl.uniform1i(uHasDesign, hasDesign ? 1 : 0);
+    gl.uniform1i(uHasPbr, hasPbr ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   };
+
+
 
   return {
     canvas: el,
@@ -225,6 +356,10 @@ export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPrevi
       disposeTex(texBase);
       disposeTex(texMask);
       disposeTex(texUv);
+      // New kit invalidates the prior design sheet until setDesignSheet runs again.
+      disposeTex(texDesign);
+      texDesign = null;
+      hasDesign = false;
       texBase = texImage2D(gl, 0, baseImg);
       texMask = texImage2D(gl, 2, maskImg);
       texUv = texImage2D(gl, 3, null, {
@@ -233,6 +368,23 @@ export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPrevi
         height: kitH,
         data: kit.uv,
       });
+      await bindPbr(kit.shadowUrl, kit.highlightUrl);
+      draw();
+    },
+    async setRegionSurfaces(partial) {
+      const maskImg = await loadImage(partial.maskUrl);
+      disposeTex(texMask);
+      disposeTex(texUv);
+      texMask = texImage2D(gl, 2, maskImg);
+      texUv = texImage2D(gl, 3, null, {
+        floatUv: true,
+        width: kitW,
+        height: kitH,
+        data: partial.uv,
+      });
+      if (partial.shadowUrl !== undefined || partial.highlightUrl !== undefined) {
+        await bindPbr(partial.shadowUrl, partial.highlightUrl);
+      }
       draw();
     },
     async setDesignSheet(dataUrl: string | null) {
@@ -246,6 +398,7 @@ export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPrevi
       }
       draw();
     },
+    hasDesignBound: () => hasDesign,
     draw,
     toDataURL: () => el.toDataURL('image/png'),
     dispose() {
@@ -253,8 +406,12 @@ export function createMockupUvPreview(canvas?: HTMLCanvasElement): MockupUvPrevi
       disposeTex(texMask);
       disposeTex(texUv);
       disposeTex(texDesign);
+      disposeTex(texShadow);
+      disposeTex(texHighlight);
       gl.deleteBuffer(buf);
       gl.deleteProgram(prog);
     },
   };
 }
+
+

@@ -102,4 +102,35 @@ def build_template_kit(
     "uvBase64": base64.b64encode(uv_bytes).decode("ascii"),
     "printRect": print_rect,
     "printFull": print_full,
+    "shadow": _png_b64_rgb(
+      cv2.resize(tpl.shadow_map.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA)
+      if tpl.shadow_map is not None
+      else np.ones((h, w, 3), dtype=np.float32)
+    ),
+    "highlight": _png_b64_rgb(
+      cv2.resize(tpl.highlight_map.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA)
+      if tpl.highlight_map is not None
+      else np.zeros((h, w, 3), dtype=np.float32)
+    ),
+    "regions": [
+      {
+        "id": "r0",
+        "mask": _png_b64_gray(mask),
+        "uvEncoding": "float32-le-hw2",
+        "uvBase64": base64.b64encode(uv_bytes).decode("ascii"),
+        "shadow": _png_b64_rgb(
+          cv2.resize(tpl.shadow_map.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA)
+          if tpl.shadow_map is not None
+          else np.ones((h, w, 3), dtype=np.float32)
+        ),
+        "highlight": _png_b64_rgb(
+          cv2.resize(tpl.highlight_map.astype(np.float32), (w, h), interpolation=cv2.INTER_AREA)
+          if tpl.highlight_map is not None
+          else np.zeros((h, w, 3), dtype=np.float32)
+        ),
+        "printRect": print_rect,
+        "printFull": print_full,
+      }
+    ],
+    "auto": False,
   }

@@ -115,9 +115,9 @@ const zhTW = {
     heroSubtitle: 'zuoge 懂你的設計 Agent',
     heroCategoryAria: '選擇生成類型，目前：{{category}}',
     heroBrandSubtitle: 'AI 設計創作平台',
-    /** Trailing copy after brand mark icon in HomeHero. */
-    heroStartTitle: '，設計從未如此簡單',
-    heroStartTitleAria: 'zuoge，設計從未如此簡單',
+    /** Home hero slogan. */
+    heroStartTitle: '做個，設計從未如此簡單',
+    heroStartTitleAria: '做個，設計從未如此簡單',
     heroSuggest: {
       ui: 'UI 介面',
       poster: '海報',
@@ -154,11 +154,11 @@ const zhTW = {
       '沉浸式體驗 AI 功能，智能文本、智能佈局、智能編輯……開啟 AI 新時代',
     aiPromoDocs: '查看使用文件及案例',
     composerPlaceholderPrompts: [
-      '製作一張高轉化的電商產品圖',
-      '繪製一隻大熊貓',
-      '設計一張清爽的產品海報',
-      '做一套簡潔的品牌視覺',
-      '畫一組統一風格的插畫',
+      '高轉化的電商產品圖',
+      '大熊貓',
+      '清爽的產品海報',
+      '簡潔的品牌視覺',
+      '統一風格的插畫',
     ],
     composerModelsLoading: '正在載入模型…',
     chips: {
@@ -1083,6 +1083,9 @@ const zhTW = {
       mockupAdjust: '調整貼圖',
       mockupTemplateDefault: '圓柱馬克杯',
       mockupPreviewFailed: '樣機預覽失敗，請確認 Intelligence 服務已啟動',
+      mockupKitNotReady: '樣機還在準備中，請稍後再拖入貼圖',
+      mockupAutoBaking: '正在識別可貼區域…',
+      mockupAutoBakeFallback: '自動識別失敗，請確認 Intelligence 服務已啟動',
       mockupClearDesign: '刪除貼圖',
       mockupFailed: '樣機生成失敗',
       mark: '標記',
@@ -1128,6 +1131,7 @@ const zhTW = {
       opacity: '不透明度',
       processingUpscale: '放大中',
       processingRemoveBg: '去背景中',
+      processingMockup: '樣機識別中',
       processingEraser: '擦除中',
       processingEditText: '編輯文字中',
       cornerRadius: '圓角',

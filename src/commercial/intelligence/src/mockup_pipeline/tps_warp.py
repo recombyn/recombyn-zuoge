@@ -73,8 +73,20 @@ def default_cylinder_tps_controls(
     curve_factor: float = 0.25,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Sparse TPS landmarks for a cylindrical printable area."""
-    cx, cy = width * 0.5, height * 0.52
-    rx, ry = width * 0.28, height * 0.34
+    return cylinder_tps_controls_in_rect(0, 0, width, height, curve_factor=curve_factor)
+
+
+def cylinder_tps_controls_in_rect(
+    x0: float,
+    y0: float,
+    rw: float,
+    rh: float,
+    *,
+    curve_factor: float = 0.25,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sparse TPS landmarks centered on a printable bbox (pixel coords)."""
+    cx, cy = x0 + rw * 0.5, y0 + rh * 0.52
+    rx, ry = rw * 0.42, rh * 0.40
     angles = np.linspace(-np.pi * 0.45, np.pi * 0.45, 9)
     xy: list[list[float]] = []
     uv: list[list[float]] = []
@@ -85,7 +97,6 @@ def default_cylinder_tps_controls(
         v = 0.5 + curve_factor * (1.0 - (np.sin(a)) ** 2) * 0.08
         xy.append([x, y])
         uv.append([float(np.clip(u, 0.0, 1.0)), float(np.clip(v, 0.0, 1.0))])
-    # corners anchor the field
     for x, y, u, v in [
         (cx - rx, cy, 0.05, 0.5),
         (cx + rx, cy, 0.95, 0.5),

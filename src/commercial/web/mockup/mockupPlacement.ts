@@ -24,18 +24,19 @@ export function defaultMockupPlacement(): MockupPlacement {
 export function autoFitMockupPlacement(
   designW: number,
   designH: number,
-  print = DEMO_CYLINDER_PRINT
+  print = DEMO_CYLINDER_PRINT,
+  /** Kept for callers; fill always targets the printable rect (cover drawn in compose). */
+  _mode: 'cover' | 'contain' = 'cover'
 ): MockupPlacement {
-  const dw = Math.max(1, designW);
-  const dh = Math.max(1, designH);
-  const scale = Math.min(print.w / dw, print.h / dh);
-  const width = dw * scale;
-  const height = dh * scale;
+  void designW;
+  void designH;
+  void _mode;
+  // Snap to printable face — aspect-correct cover is applied when composing the sheet.
   return {
-    x: print.x + (print.w - width) / 2,
-    y: print.y + (print.h - height) / 2,
-    width,
-    height,
+    x: print.x,
+    y: print.y,
+    width: Math.max(1, print.w),
+    height: Math.max(1, print.h),
     angle: 0,
   };
 }
@@ -53,43 +54,55 @@ export function loadImageNaturalSize(src: string): Promise<{ width: number; heig
   });
 }
 
-/** Flat design sheet for server-side cylindrical warp (template pixel space). */
+/** Flat design sheet for UV remap (template pixel space). */
 export async function composeMockupDesignSheet(
   designSrc: string,
   placement: MockupPlacement,
   templateW = DEMO_CYLINDER_PRINT.templateW,
   templateH = DEMO_CYLINDER_PRINT.templateH
 ): Promise<string> {
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const el = new Image();
-    el.crossOrigin = 'anonymous';
-    el.onload = () => resolve(el);
-    el.onerror = () => reject(new Error('failed to load design for compose'));
-    el.src = designSrc;
-  });
+  // Decode via upload pipeline so COS /auth URLs work (canvas needs CORS-clean pixels).
+  const { imageSrcToFile } = await import('@/utils/uploadImage');
+  const file = await imageSrcToFile(designSrc, 'mockup-design.png');
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('failed to load design for compose'));
+      el.src = objectUrl;
+    });
 
-  const canvas = document.createElement('canvas');
-  canvas.width = templateW;
-  canvas.height = templateH;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('canvas unsupported');
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(templateW));
+    canvas.height = Math.max(1, Math.round(templateH));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas unsupported');
 
-  ctx.clearRect(0, 0, templateW, templateH);
-  const cx = placement.x + placement.width / 2;
-  const cy = placement.y + placement.height / 2;
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate((placement.angle * Math.PI) / 180);
-  ctx.drawImage(
-    img,
-    -placement.width / 2,
-    -placement.height / 2,
-    placement.width,
-    placement.height
-  );
-  ctx.restore();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const pw = Math.max(1, placement.width);
+    const ph = Math.max(1, placement.height);
+    const iw = Math.max(1, img.naturalWidth || img.width || 1);
+    const ih = Math.max(1, img.naturalHeight || img.height || 1);
+    // Cover the printable rect (fill, crop overflow) — no letterbox gaps.
+    const scale = Math.max(pw / iw, ph / ih);
+    const dw = iw * scale;
+    const dh = ih * scale;
+    const cx = placement.x + pw / 2;
+    const cy = placement.y + ph / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(placement.x, placement.y, pw, ph);
+    ctx.clip();
+    ctx.translate(cx, cy);
+    ctx.rotate((placement.angle * Math.PI) / 180);
+    ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+    ctx.restore();
 
-  return canvas.toDataURL('image/png');
+    return canvas.toDataURL('image/png');
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export function parseMockupPlacement(raw: unknown): MockupPlacement | null {

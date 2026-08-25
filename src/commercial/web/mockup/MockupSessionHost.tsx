@@ -26,11 +26,18 @@ import {
   patchDocumentNode,
   removeDocumentNodes,
   setSelectedNodeId,
+  clearImageProcess,
 } from '@/store/modules/editor';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import MockupDesignLayer from './MockupDesignLayer';
 import { isMockupNodeActive } from './mockupAttrs';
-import { fetchMockupTemplateKit, type MockupTemplateKit } from './mockupKit';
+import {
+  fetchAutoBakeKit,
+  fetchMockupTemplateKit,
+  kitWithActiveRegion,
+  pickRegionAtPoint,
+  type MockupTemplateKit,
+} from './mockupKit';
 import {
   autoFitMockupPlacement,
   composeMockupDesignSheet,
@@ -47,11 +54,28 @@ import {
   dataTransferHasMediaAsset,
 } from '@/utils/chatImageDrag';
 
-const DEFAULT_TEMPLATE_ID = 'demo-cylinder';
+const DEFAULT_TEMPLATE_ID = 'auto-bake';
 const DEFAULT_TEMPLATE_WIDTH = 720;
 const DEFAULT_TEMPLATE_HEIGHT = 960;
 const CANVAS_ABSORB_MOVE_PX = 8;
 const KIT_SCALE = 0.5;
+
+function isAutoBakeTemplateId(id: string): boolean {
+  const t = (id || '').trim().toLowerCase();
+  return !t || t === 'auto' || t === 'auto-bake';
+}
+
+function previewKitPayload(kit: MockupTemplateKit) {
+  return {
+    width: kit.width,
+    height: kit.height,
+    baseUrl: kit.base,
+    maskUrl: kit.mask,
+    uv: kit.uv,
+    shadowUrl: kit.shadow || null,
+    highlightUrl: kit.highlight || null,
+  };
+}
 
 type SceneBox = { left: number; top: number; width: number; height: number };
 
@@ -156,17 +180,36 @@ function MockupPlate({
   const node = document?.deltaSetLike?.[nodeId];
   const box = useMemo(() => (node ? nodeBox(document, node) : null), [document, node]);
 
+  const requestedTemplateId = useMemo(() => {
+    const fromNode = String(node?.attrs?.mockupTemplateId || '').trim();
+    return fromNode || DEFAULT_TEMPLATE_ID;
+  }, [node?.attrs?.mockupTemplateId]);
+
   const template = useMemo(() => {
-    const tpl = imageToolCaps?.mockup?.templates?.find((item) => item.id === DEFAULT_TEMPLATE_ID);
+    const tid = isAutoBakeTemplateId(requestedTemplateId)
+      ? DEFAULT_TEMPLATE_ID
+      : requestedTemplateId;
+    const tpl = imageToolCaps?.mockup?.templates?.find((item) => item.id === tid);
     return {
-      id: tpl?.id || DEFAULT_TEMPLATE_ID,
-      name: tpl?.name || t('editor.imageToolbar.mockupTemplateDefault'),
+      id: tid,
+      name:
+        tpl?.name ||
+        (isAutoBakeTemplateId(tid)
+          ? t('editor.imageToolbar.mockupTemplateDefault')
+          : tid),
       width: tpl?.width || DEFAULT_TEMPLATE_WIDTH,
       height: tpl?.height || DEFAULT_TEMPLATE_HEIGHT,
     };
-  }, [imageToolCaps?.mockup?.templates, t]);
+  }, [imageToolCaps?.mockup?.templates, requestedTemplateId, t]);
+
+  const photoForAutoBake = useMemo(() => {
+    const baseSrc = String(node?.attrs?.mockupBaseSrc || '').trim();
+    const curSrc = String(node?.attrs?.src || '').trim();
+    return baseSrc || curSrc;
+  }, [node?.attrs?.mockupBaseSrc, node?.attrs?.src]);
 
   const [kit, setKit] = useState<MockupTemplateKit | null>(null);
+  const [activeRegionId, setActiveRegionId] = useState('r0');
   const [designSrc, setDesignSrc] = useState<string | null>(null);
   const [placement, setPlacement] = useState<MockupPlacement>(() => defaultMockupPlacement());
   const [designSelected, setDesignSelected] = useState(false);
@@ -176,65 +219,154 @@ function MockupPlate({
 
   const placementRef = useRef(placement);
   const designSrcRef = useRef(designSrc);
+  const kitRef = useRef<MockupTemplateKit | null>(null);
+  const activeRegionIdRef = useRef(activeRegionId);
   const applySeqRef = useRef(0);
   const absorbLockRef = useRef(false);
   const pointerGestureRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const lastAdjustTokenRef = useRef<string>('');
   const previewRef = useRef<MockupUvPreview | null>(null);
+  const warpHostRef = useRef<HTMLDivElement | null>(null);
   const composeGenRef = useRef(0);
   const liveRafRef = useRef(0);
   const pendingLiveRef = useRef<MockupPlacement | null>(null);
+  const fittedForKitRef = useRef('');
+  const pendingDesignRef = useRef<{ url: string; removeId?: string } | null>(null);
   placementRef.current = placement;
   designSrcRef.current = designSrc;
+  kitRef.current = kit;
+  activeRegionIdRef.current = activeRegionId;
 
   const designW = kit?.fullWidth || template.width;
   const designH = kit?.fullHeight || template.height;
 
-  // Load UV kit once per template (surface mapping — not per-drag render).
+  const applyKitToPreview = useCallback(async (next: MockupTemplateKit, cancelled: () => boolean) => {
+    setKit(next);
+    kitRef.current = next;
+    const regionId = next.regions[0]?.id || 'r0';
+    setActiveRegionId(regionId);
+    activeRegionIdRef.current = regionId;
+    // Drop any prior composite immediately — setKit clears the design sheet and
+    // kit-only frames are gray/white print zones that must never cover the photo.
+    setLivePreviewUrl(null);
+    if (!previewRef.current) {
+      previewRef.current = createMockupUvPreview();
+    }
+    await previewRef.current.setKit(previewKitPayload(next));
+    if (cancelled()) return;
+    const design = designSrcRef.current;
+    if (!design) return;
+    try {
+      const sheet = await composeMockupDesignSheet(
+        design,
+        placementRef.current,
+        next.fullWidth,
+        next.fullHeight
+      );
+      if (cancelled()) return;
+      await previewRef.current.setDesignSheet(sheet);
+      if (cancelled()) return;
+      if (!previewRef.current.hasDesignBound()) return;
+      previewRef.current.draw();
+      setLivePreviewUrl(previewRef.current.toDataURL());
+    } catch (err) {
+      console.warn('[mockup] rebind design after kit', err);
+      setLivePreviewUrl(null);
+    }
+  }, []);
+
+  const clearPreviewSurface = useCallback(() => {
+    setKit(null);
+    kitRef.current = null;
+    setLivePreviewUrl(null);
+    previewRef.current?.dispose();
+    previewRef.current = null;
+    const host = warpHostRef.current;
+    if (host) host.replaceChildren();
+  }, []);
+
+  const activateRegion = useCallback(async (regionId: string) => {
+    const baseKit = kitRef.current;
+    const preview = previewRef.current;
+    if (!baseKit || !preview || !regionId || regionId === activeRegionIdRef.current) return;
+    const next = kitWithActiveRegion(baseKit, regionId);
+    setActiveRegionId(regionId);
+    activeRegionIdRef.current = regionId;
+    setKit(next);
+    kitRef.current = next;
+    await preview.setRegionSurfaces({
+      maskUrl: next.mask,
+      uv: next.uv,
+      shadowUrl: next.shadow || null,
+      highlightUrl: next.highlight || null,
+    });
+  }, []);
+
+  // Load UV kit from product photo (auto-bake). Never fall back to demo-cylinder
+  // on a real photo — that paints the mug template over the user's image.
   useEffect(() => {
     let cancelled = false;
+    const isCancelled = () => cancelled;
+    const setPlateProcessing = (running: boolean) => {
+      if (running) {
+        dispatch(
+          patchDocumentNode({
+            nodeId,
+            patch: {
+              attrs: {
+                processStatus: 'running',
+                processKind: 'mockup',
+                processLabel: t('editor.imageToolbar.processingMockup'),
+              },
+            },
+            skipHostReload: true,
+          })
+        );
+        return;
+      }
+      dispatch(clearImageProcess({ nodeId }));
+    };
     void (async () => {
-      const load = async () => {
-        const next = await fetchMockupTemplateKit(template.id, KIT_SCALE);
-        if (cancelled) return;
-        setKit(next);
-        if (!previewRef.current) {
-          previewRef.current = createMockupUvPreview();
-        }
-        await previewRef.current.setKit({
-          width: next.width,
-          height: next.height,
-          baseUrl: next.base,
-          maskUrl: next.mask,
-          uv: next.uv,
-        });
-        // Never paint kit.base over the user's plate — composite only after design.
-        if (designSrcRef.current) {
-          setLivePreviewUrl(previewRef.current.toDataURL());
-        } else {
-          setLivePreviewUrl(null);
-        }
-      };
       try {
-        await load();
-      } catch (firstErr) {
-        console.warn('[mockup] kit', firstErr);
-        try {
-          await new Promise((r) => window.setTimeout(r, 600));
-          if (cancelled) return;
-          await load();
-        } catch (err) {
-          if (cancelled) return;
-          console.warn('[mockup] kit retry', err);
-          setKit(null);
-          message.error(mockupErrorMessage(err, t('editor.imageToolbar.mockupPreviewFailed')));
-        }
+        setPlateProcessing(isAutoBakeTemplateId(template.id));
+        const next = isAutoBakeTemplateId(template.id)
+          ? await fetchAutoBakeKit(photoForAutoBake, KIT_SCALE)
+          : await fetchMockupTemplateKit(template.id, KIT_SCALE);
+        if (cancelled) return;
+        await applyKitToPreview(next, isCancelled);
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('[mockup] kit', err);
+        clearPreviewSurface();
+        message.error(
+          mockupErrorMessage(
+            err,
+            t(
+              isAutoBakeTemplateId(template.id)
+                ? 'editor.imageToolbar.mockupAutoBakeFallback'
+                : 'editor.imageToolbar.mockupPreviewFailed'
+            )
+          )
+        );
+      } finally {
+        if (!cancelled) setPlateProcessing(false);
       }
     })();
     return () => {
       cancelled = true;
+      if (isAutoBakeTemplateId(template.id)) {
+        dispatch(clearImageProcess({ nodeId }));
+      }
     };
-  }, [template.id, t]);
+  }, [
+    applyKitToPreview,
+    clearPreviewSurface,
+    dispatch,
+    nodeId,
+    photoForAutoBake,
+    template.id,
+    t,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -245,7 +377,9 @@ function MockupPlate({
 
   // Hide SVG underlay only while a design composite covers the plate.
   // Never replace the original image with bare kit.base / mask chrome.
-  const overlayOwnsPixels = Boolean(designSrc && livePreviewUrl);
+  const overlayOwnsPixels = Boolean(
+    designSrc && livePreviewUrl && previewRef.current?.hasDesignBound()
+  );
   useEffect(() => {
     if (!nodeId || !overlayOwnsPixels) return;
     const root = globalThis.document;
@@ -313,6 +447,7 @@ function MockupPlate({
               mockupDesignSrc: nextDesign,
               mockupPlacement: JSON.stringify(nextPlacement),
               mockupTemplateId: template.id,
+              mockupRegionId: activeRegionIdRef.current || 'r0',
             },
           },
           skipHostReload: true,
@@ -339,12 +474,19 @@ function MockupPlate({
         if (composeGenRef.current !== gen) return;
         await preview.setDesignSheet(sheet);
         if (composeGenRef.current !== gen) return;
+        if (!preview.hasDesignBound()) {
+          setLivePreviewUrl(null);
+          return;
+        }
+        preview.draw();
         setLivePreviewUrl(preview.toDataURL());
       } catch (err) {
         console.warn('[mockup] fe preview', err);
+        setLivePreviewUrl(null);
+        message.error(mockupErrorMessage(err, t('editor.imageToolbar.mockupPreviewFailed')));
       }
     },
-    [kit]
+    [kit, t]
   );
 
   const printForFit = useMemo(() => {
@@ -363,23 +505,71 @@ function MockupPlate({
   }, [kit, template.width, template.height]);
 
   const assignDesignSrc = useCallback(
-    async (src: string, autoSelect = false) => {
+    async (
+      src: string,
+      autoSelect = false,
+      opts?: { regionId?: string; hitX?: number; hitY?: number; removeId?: string }
+    ) => {
       const url = String(src || '').trim();
-      if (!url) return;
+      if (!url) return false;
       try {
+        const baseKit = kitRef.current;
+        const preview = previewRef.current;
+        if (!baseKit || !preview) {
+          pendingDesignRef.current = { url, removeId: opts?.removeId };
+          message.warning(t('editor.imageToolbar.mockupKitNotReady'));
+          return false;
+        }
+        if (baseKit.regions.length > 1) {
+          let regionId = opts?.regionId;
+          if (!regionId && opts?.hitX != null && opts?.hitY != null) {
+            regionId = pickRegionAtPoint(baseKit, opts.hitX, opts.hitY).id;
+          }
+          if (regionId) await activateRegion(regionId);
+        }
+        const activeKit = kitRef.current;
+        const pf = activeKit?.printFull;
+        const fitGuide =
+          pf && pf.w > 0 && pf.h > 0
+            ? {
+                templateW: activeKit?.fullWidth || template.width,
+                templateH: activeKit?.fullHeight || template.height,
+                x: pf.x,
+                y: pf.y,
+                w: pf.w,
+                h: pf.h,
+              }
+            : printForFit;
+        if (!fitGuide || !(fitGuide.w > 0 && fitGuide.h > 0)) {
+          pendingDesignRef.current = { url, removeId: opts?.removeId };
+          message.warning(t('editor.imageToolbar.mockupKitNotReady'));
+          return false;
+        }
         const { width, height } = await loadImageNaturalSize(url);
-        const fit = autoFitMockupPlacement(width, height, printForFit);
+        const fit = autoFitMockupPlacement(width, height, fitGuide, 'cover');
+        fittedForKitRef.current = [
+          activeKit?.templateId,
+          activeKit?.fullWidth,
+          activeKit?.fullHeight,
+          fitGuide.x,
+          fitGuide.y,
+          fitGuide.w,
+          fitGuide.h,
+        ].join(':');
+        pendingDesignRef.current = null;
         setDesignSrc(url);
         setPlacement(fit);
         setDesignSelected(autoSelect);
         persistPlacement(fit, url);
         await refreshLivePreview(fit, url);
+        return true;
       } catch (err) {
         console.warn('[mockup] design load', err);
         message.error(t('editor.imageToolbar.mockupFailed'));
+        return false;
       }
     },
-    [persistPlacement, printForFit, refreshLivePreview, t]
+    [activateRegion, persistPlacement, printForFit, refreshLivePreview, t, template.height, template.width]
   );
 
   const clearDesign = useCallback(() => {
@@ -405,13 +595,62 @@ function MockupPlate({
     );
   }, [dispatch, node?.attrs?.mockupBaseSrc, nodeId, template.id]);
 
-  // Drag-in already auto-fits via assignDesignSrc — no on-canvas autofit button.
-
-  // When kit arrives after design already set, rebuild preview.
+  // When kit arrives after design already set, re-cover-fit to printFull then warp.
   useEffect(() => {
     if (!kit || !designSrc) return;
-    void refreshLivePreview(placementRef.current, designSrc);
-  }, [kit, designSrc, refreshLivePreview]);
+    const token = [
+      kit.templateId,
+      kit.fullWidth,
+      kit.fullHeight,
+      kit.printFull?.x,
+      kit.printFull?.y,
+      kit.printFull?.w,
+      kit.printFull?.h,
+    ].join(':');
+    void (async () => {
+      const pf = kit.printFull;
+      const shouldRefit =
+        fittedForKitRef.current !== token && pf && pf.w > 0 && pf.h > 0;
+      if (shouldRefit) {
+        fittedForKitRef.current = token;
+        try {
+          const { width, height } = await loadImageNaturalSize(designSrc);
+          const fit = autoFitMockupPlacement(width, height, {
+            templateW: kit.fullWidth,
+            templateH: kit.fullHeight,
+            x: pf.x,
+            y: pf.y,
+            w: pf.w,
+            h: pf.h,
+          });
+          setPlacement(fit);
+          placementRef.current = fit;
+          persistPlacement(fit, designSrc);
+          await refreshLivePreview(fit, designSrc);
+          return;
+        } catch (err) {
+          console.warn('[mockup] refit', err);
+        }
+      }
+      void refreshLivePreview(placementRef.current, designSrc);
+    })();
+  }, [kit, designSrc, persistPlacement, refreshLivePreview]);
+
+  // Kit became ready with a queued drop — attach now.
+  useEffect(() => {
+    const pending = pendingDesignRef.current;
+    if (!pending?.url || !kit || !previewRef.current) return;
+    pendingDesignRef.current = null;
+    void (async () => {
+      const ok = await assignDesignSrc(pending.url, false, {
+        removeId: pending.removeId,
+      });
+      if (ok && pending.removeId) {
+        dispatch(removeDocumentNodes({ nodeIds: [pending.removeId] }));
+        dispatch(setSelectedNodeId(nodeId));
+      }
+    })();
+  }, [assignDesignSrc, dispatch, kit, nodeId]);
 
   /** Canvas node drag → drop onto this mockup plate. */
   useEffect(() => {
@@ -442,10 +681,24 @@ function MockupPlate({
       if (!design || !liveHost) return;
       if (!mockupContainsDesignCenter(liveHost, design)) return;
 
+      const cx = design.left + design.width / 2;
+      const cy = design.top + design.height / 2;
+      const hitX =
+        ((cx - liveHost.left) / Math.max(1, liveHost.width)) *
+        (kitRef.current?.fullWidth || template.width);
+      const hitY =
+        ((cy - liveHost.top) / Math.max(1, liveHost.height)) *
+        (kitRef.current?.fullHeight || template.height);
+
       absorbLockRef.current = true;
       void (async () => {
         try {
-          await assignDesignSrc(src, false);
+          const ok = await assignDesignSrc(src, false, {
+            hitX,
+            hitY,
+            removeId: designId,
+          });
+          if (!ok) return;
           dispatch(removeDocumentNodes({ nodeIds: [designId] }));
           dispatch(setSelectedNodeId(nodeId));
         } catch (err) {
@@ -475,15 +728,18 @@ function MockupPlate({
       window.removeEventListener('pointermove', onMove, true);
       window.removeEventListener('pointerup', onUp, true);
     };
-  }, [assignDesignSrc, box, dispatch, document, node, nodeId, selectedNodeId, t]);
+  }, [assignDesignSrc, box, dispatch, document, node, nodeId, selectedNodeId, t, template.height, template.width]);
 
   // Auto-bake FE composite into node.src when idle (not adjusting).
   useEffect(() => {
     if (!nodeId || !designSrc || !livePreviewUrl || designSelected) return;
+    // Kit-only canvases look like empty print zones — never bake those into src.
+    if (!previewRef.current?.hasDesignBound()) return;
     const seq = ++applySeqRef.current;
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
+          if (!previewRef.current?.hasDesignBound()) return;
           const uploaded = await uploadImageFromSrcWithLocalFallback(
             livePreviewUrl,
             'mockup.png'
@@ -635,6 +891,26 @@ function MockupPlate({
     };
   }, [screenRect, resolveDropSrc, onFiles, assignDesignSrc]);
 
+  // Mount WebGL warp canvas into the overlay (never show flat HTML design as the result).
+  useEffect(() => {
+    const host = warpHostRef.current;
+    const preview = previewRef.current;
+    if (!host || !preview || !livePreviewUrl) {
+      if (host) host.replaceChildren();
+      return;
+    }
+    const canvas = preview.canvas;
+    if (canvas.parentElement !== host) {
+      host.replaceChildren(canvas);
+    }
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    canvas.style.objectFit = 'contain';
+    canvas.style.pointerEvents = 'none';
+    preview.draw();
+  }, [livePreviewUrl, screenRect?.width, screenRect?.height]);
+
   const onPlacementChange = useCallback(
     (next: MockupPlacement) => {
       setPlacement(next);
@@ -667,9 +943,9 @@ function MockupPlate({
   const origin = rcbSceneToScreen(camera, box.left, box.top);
   const stageW = box.width * z;
   const stageH = box.height * z;
-  const showComposite = Boolean(designSrc && livePreviewUrl);
-  // Only cover the original plate when we have a warped composite — never kit.base alone.
-  const backdrop = showComposite ? livePreviewUrl : null;
+  const showComposite = Boolean(
+    designSrc && livePreviewUrl && previewRef.current?.hasDesignBound()
+  );
 
   return (
     <RcbOverlayPortal>
@@ -686,14 +962,13 @@ function MockupPlate({
             height: stageH,
           }}
         >
-          {backdrop ? (
-            <img
-              src={backdrop}
-              alt=""
-              className="absolute inset-0 h-full w-full object-contain"
-              draggable={false}
-            />
-          ) : null}
+          {/* WebGL UV remap canvas — curved paste; never a flat HTML <img> design. */}
+          <div
+            ref={warpHostRef}
+            data-mockup-warp-canvas={nodeId}
+            className="pointer-events-none absolute inset-0"
+            style={{ visibility: showComposite ? 'visible' : 'hidden' }}
+          />
 
           {designSrc ? (
             <MockupDesignLayer
@@ -706,8 +981,8 @@ function MockupPlate({
               onLivePlacementChange={onLivePlacementChange}
               templateW={designW}
               templateH={designH}
-              ghostHitOnly={!designSelected && showComposite}
-              hideDesignImage={showComposite}
+              ghostHitOnly={!designSelected}
+              hideDesignImage
             />
           ) : null}
         </div>

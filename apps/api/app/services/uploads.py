@@ -247,12 +247,17 @@ def upload_user_file(
         raise ValueError("empty file")
 
     ext, mime = _ext_mime(filename, content_type)
+    # Browsers often send application/octet-stream (clipboard / unnamed blob).
+    # Prefer magic sniff before rejecting non-media Content-Type.
     if not (
         mime.startswith("image/")
         or mime.startswith("video/")
         or mime.startswith("audio/")
     ):
-        raise ValueError("only image, video, or audio uploads are supported")
+        sniffed = _sniff_media(data)
+        if sniffed is None:
+            raise ValueError("only image, video, or audio uploads are supported")
+        ext, mime = sniffed
 
     ext, mime = _reconcile_claimed_and_magic(data, claimed_ext=ext, claimed_mime=mime)
     _run_av_hook(data, filename=filename or f"upload.{ext}")

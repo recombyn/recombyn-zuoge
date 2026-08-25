@@ -2169,6 +2169,9 @@ function SelectionFeature({
   const selectedIsAudioGen = Boolean(singleNodeData && isAudioGeneratorNode(singleNodeData));
   const selectedIsVideo = Boolean(singleNodeData && singleNodeData.key === 'video' && !selectedIsVideoGen);
   const selectedIsTextFrame = Boolean(singleNodeData && isTextFrameNode(singleNodeData));
+  /** SoftGlow / mockup bake / etc. — hide in-node knobs (radius, sides) while running. */
+  const selectedNodeProcessing =
+    String(singleNodeData?.attrs?.processStatus || '') === 'running';
   const textFrameTitle = useMemo(() => {
     if (!selectedIsTextFrame || !singleNodeData) return null;
     return textFrameTitleChrome({
@@ -2441,7 +2444,8 @@ function SelectionFeature({
       !supportsShapeSides(singleNodeData) &&
       !lineChrome &&
       !suppressChrome &&
-      !selectedIsImageGen ? (
+      !selectedIsImageGen &&
+      !selectedNodeProcessing ? (
         <CornerRadiusHandlesOverlay
           box={chromeGeomBox || chromeUnion}
           angle={chromeAngle}
@@ -2464,7 +2468,8 @@ function SelectionFeature({
         singleNodeData?.key === 'ellipse') &&
       !lineChrome &&
       !suppressChrome &&
-      !selectedIsImageGen ? (
+      !selectedIsImageGen &&
+      !selectedNodeProcessing ? (
         <CircleShapeHandlesOverlay
           box={chromeGeomBox || chromeUnion}
           angle={chromeAngle}
@@ -2486,7 +2491,8 @@ function SelectionFeature({
       String(singleNodeData?.attrs?.shapeType || '') === 'polygon' &&
       !lineChrome &&
       !suppressChrome &&
-      !selectedIsImageGen ? (
+      !selectedIsImageGen &&
+      !selectedNodeProcessing ? (
         <PolygonShapeHandlesOverlay
           box={chromeGeomBox || chromeUnion}
           angle={chromeAngle}
@@ -2508,7 +2514,8 @@ function SelectionFeature({
       String(singleNodeData?.attrs?.shapeType || '') === 'star' &&
       !lineChrome &&
       !suppressChrome &&
-      !selectedIsImageGen ? (
+      !selectedIsImageGen &&
+      !selectedNodeProcessing ? (
         <StarShapeHandlesOverlay
           box={chromeGeomBox || chromeUnion}
           angle={chromeAngle}
@@ -2521,7 +2528,7 @@ function SelectionFeature({
       ) : null}
 
       {!inspectDev && chromeUnion && singleNode && !transforming && !effectiveSuppressToolbars &&
-      String(singleNodeData?.attrs?.processStatus || '') !== 'running' ? (
+      !selectedNodeProcessing ? (
         <SelectionContextToolbar
           document={document}
           nodeId={selectedNodeIds[0]}
@@ -2590,7 +2597,7 @@ function SelectionFeature({
       !suppressToolbars &&
       singleNodeData?.key === 'image' &&
       listImageVariantUrls(singleNodeData).length > 1 &&
-      String(singleNodeData?.attrs?.processStatus || '') !== 'running' ? (
+      !selectedNodeProcessing ? (
         <ImageVariantsOverlay
           document={document}
           nodeId={singleId}

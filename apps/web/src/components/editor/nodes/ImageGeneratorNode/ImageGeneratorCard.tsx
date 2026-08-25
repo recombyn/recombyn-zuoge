@@ -738,7 +738,8 @@ function ImageGeneratorCard({
                   onSubmit={() => {
                     if (canSendGen) void onGenerate();
                   }}
-                  disabled={disabled || sending || !canSendGen}
+                  // canSendGen only gates the send button — empty prompt must stay editable.
+                  disabled={disabled || sending}
                   placeholder={t('editor.tools.imageGenPlaceholder')}
                   flyLandId={pickTarget}
                   className="min-h-full w-full text-[13px]"

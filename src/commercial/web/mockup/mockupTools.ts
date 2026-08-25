@@ -21,12 +21,14 @@ export async function renderMockup(
     body: JSON.stringify({ image, template_id: templateId }),
   });
   if (!res.ok) {
+    const raw = await res.text();
     let detail = '';
     try {
-      const body = await res.json();
-      detail = String(body?.detail || '');
+      const body = JSON.parse(raw) as { detail?: unknown };
+      const d = body?.detail;
+      detail = typeof d === 'string' ? d : d != null ? JSON.stringify(d) : '';
     } catch {
-      detail = await res.text();
+      detail = raw;
     }
     throw new Error(detail || `mockup render failed (${res.status})`);
   }
