@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from typing import Any
 
 import logging
@@ -188,6 +189,8 @@ async def process_image_tool(
     quality: str | None = None,
     resolution: str | None = None,
     model: str | None = None,
+    user_id: str | None = None,
+    on_progress: Callable[[int, str], None] | None = None,
 ) -> dict[str, Any]:
     """
     Run a toolbar image tool.
@@ -210,7 +213,7 @@ async def process_image_tool(
     if k in CUTOUT_KINDS:
         from app.services.vision.remove_bg import remove_background
 
-        return await remove_background(src, meta=meta)
+        return await remove_background(src, meta=meta, user_id=user_id)
 
     if k in ERASE_KINDS:
         from app.services.vision.smart_erase import smart_erase
@@ -220,12 +223,17 @@ async def process_image_tool(
     if k == "editElements":
         from app.services.vision.ilp_decompose import decompose_via_ilp
 
-        return await decompose_via_ilp(kind="editElements", image=src)
+        return await decompose_via_ilp(
+            kind="editElements",
+            image=src,
+            user_id=user_id,
+            on_progress=on_progress,
+        )
 
     if k == "editText":
         from app.services.vision.ilp_text_decompose import decompose_text_via_ilp
 
-        return await decompose_text_via_ilp(kind="editText", image=src)
+        return await decompose_text_via_ilp(kind="editText", image=src, user_id=user_id)
 
     if k in DETECT_KINDS:
         from app.services.vision.ilp_detect_regions import detect_regions_via_ilp_adapter

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
 import {
   findResumableAiProcessNodeId,
+  findResumableUploadNodeId,
   listRecoverableGeneratorNodes,
   recoverGeneratorNode,
 } from '@/components/editor/nodes/shared/generatorJobRecovery';
@@ -34,8 +35,12 @@ function GeneratorJobRecoveryHost() {
     if (!doc) return undefined;
 
     if (!pendingImageProcessId) {
-      const aiId = findResumableAiProcessNodeId(doc);
-      if (aiId) dispatch(resumePendingImageProcess({ nodeId: aiId }));
+      const uploadId = findResumableUploadNodeId(doc);
+      if (uploadId) dispatch(resumePendingImageProcess({ nodeId: uploadId }));
+      else {
+        const aiId = findResumableAiProcessNodeId(doc);
+        if (aiId) dispatch(resumePendingImageProcess({ nodeId: aiId }));
+      }
     }
 
     const targets = listRecoverableGeneratorNodes(doc).filter(

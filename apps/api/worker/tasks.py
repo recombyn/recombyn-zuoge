@@ -19,6 +19,8 @@ _IMAGE_KIND = "image"
 _VIDEO_KIND = "video"
 _AUDIO_KIND = "audio"
 _LOTTIE_KIND = "lottie"
+_IMAGE_PROCESS_KIND = "image_process"
+_UPLOAD_KIND = "upload"
 _DESIGN_AGENT_KIND = "design_agent"
 _JOB_TRANSIENT = (ConnectionError, TimeoutError, OSError)
 
@@ -513,6 +515,46 @@ def run_chat_image_job(self, job_id: str) -> dict:
         )
 
     return _run_chat_media_job(self, job_id, kind=_IMAGE_KIND, execute=_execute)
+
+
+@celery.task(
+    name="worker.tasks.run_image_process_job",
+    bind=True,
+    autoretry_for=_JOB_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_image_process_job(self, job_id: str) -> dict:
+    """Fill POST /image/process/jobs via toolbar image tools."""
+
+    async def _execute(job: dict) -> dict:
+        from app.api.routes.image_process_jobs import execute_image_process
+
+        return await execute_image_process(job)
+
+    return _run_chat_media_job(self, job_id, kind=_IMAGE_PROCESS_KIND, execute=_execute)
+
+
+@celery.task(
+    name="worker.tasks.run_upload_job",
+    bind=True,
+    autoretry_for=_JOB_TRANSIENT,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 2},
+)
+def run_upload_job(self, job_id: str) -> dict:
+    """Push POST /uploads/jobs temp file to object storage."""
+
+    async def _execute(job: dict) -> dict:
+        from app.api.routes.upload_jobs import execute_upload_job
+
+        return execute_upload_job(job)
+
+    return _run_chat_media_job(self, job_id, kind=_UPLOAD_KIND, execute=_execute)
 
 
 @celery.task(

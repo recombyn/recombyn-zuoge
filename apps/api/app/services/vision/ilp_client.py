@@ -6,6 +6,7 @@ import asyncio
 import base64
 import re
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -45,6 +46,34 @@ def _timeout() -> httpx.Timeout:
     return httpx.Timeout(sec, connect=min(30.0, sec))
 
 
+def _object_key_from_image_ref(ref: str) -> str | None:
+    """Map /api/v1/uploads/files/… or COS display URL → storage key."""
+    s = (ref or "").strip()
+    if not s or s.startswith("data:") or s.startswith("blob:"):
+        return None
+    try:
+        from urllib.parse import unquote, urlparse
+
+        if s.startswith("/"):
+            path = s.split("?", 1)[0]
+        else:
+            path = urlparse(s).path or ""
+        path = unquote(path)
+        api_prefix = "/api/v1/uploads/files/"
+        if path.startswith(api_prefix):
+            key = path[len(api_prefix) :].lstrip("/")
+            return key or None
+        for marker in ("/uploads/", "/assets/", "/font-tasks/", "/projects/"):
+            idx = path.find(marker)
+            if idx >= 0:
+                key = path[idx + 1 :].lstrip("/")
+                if key.startswith(("uploads/", "assets/", "font-tasks/", "projects/")):
+                    return key
+    except Exception:
+        return None
+    return None
+
+
 async def _load_bytes(image_ref: str) -> tuple[bytes, str]:
     ref = (image_ref or "").strip()
     if not ref:
@@ -56,6 +85,21 @@ async def _load_bytes(image_ref: str) -> tuple[bytes, str]:
             raise ValueError("invalid data URL")
         b64 = match.group(2)
         return base64.b64decode(b64), "upload.png"
+
+    # Prefer local/COS storage read for our upload keys (no public fetch / CORS).
+    key = _object_key_from_image_ref(ref)
+    if key:
+        from app.services.storage import get_bytes
+
+        data = get_bytes(key)
+        if data:
+            name = "upload.png"
+            lower = key.lower()
+            if lower.endswith((".jpg", ".jpeg")):
+                name = "upload.jpg"
+            elif lower.endswith(".webp"):
+                name = "upload.webp"
+            return data, name
 
     if ref.startswith("http://") or ref.startswith("https://"):
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
@@ -71,7 +115,9 @@ async def _load_bytes(image_ref: str) -> tuple[bytes, str]:
                 name = "upload.jpg"
             return resp.content, name
 
-    raise ValueError("image must be a data URL or https URL")
+    if ref.startswith("/"):
+        raise ValueError(f"failed to resolve upload path: {ref[:120]}")
+    raise ValueError("image must be a data URL, uploads path, or https URL")
 
 
 async def create_job(image_ref: str) -> str:
@@ -97,7 +143,11 @@ async def create_job(image_ref: str) -> str:
         return job_id
 
 
-async def wait_for_job(job_id: str) -> dict[str, Any]:
+async def wait_for_job(
+    job_id: str,
+    *,
+    on_progress: Callable[[int, str], None] | None = None,
+) -> dict[str, Any]:
     base = _base_url()
     if not base:
         raise RuntimeError(
@@ -118,6 +168,9 @@ async def wait_for_job(job_id: str) -> dict[str, Any]:
                 raise RuntimeError(f"ILP job poll failed ({resp.status_code}): {resp.text[:300]}")
             job = resp.json()
             status = str(job.get("status") or "")
+            progress = int(job.get("progress") or 0)
+            if on_progress:
+                on_progress(progress, status)
             if status in _TERMINAL:
                 return job
             await asyncio.sleep(max(0.25, interval))
@@ -129,6 +182,8 @@ async def segment_foreground_via_ilp(
     *,
     model: str = "birefnet-general",
     decontaminate: float = 0.65,
+    include_mask: bytes | None = None,
+    exclude_mask: bytes | None = None,
 ) -> tuple[bytes, str]:
     """Matting-only — BiRefNet + decontaminate on the intelligence service."""
     base = _base_url()
@@ -138,10 +193,17 @@ async def segment_foreground_via_ilp(
         )
 
     content, filename = await _load_bytes(image_ref)
+    files: dict[str, tuple[str, bytes, str]] = {
+        "file": (filename, content, "application/octet-stream"),
+    }
+    if include_mask:
+        files["include_mask"] = ("include.png", include_mask, "image/png")
+    if exclude_mask:
+        files["exclude_mask"] = ("exclude.png", exclude_mask, "image/png")
     async with httpx.AsyncClient(timeout=_timeout()) as client:
         resp = await client.post(
             f"{base}/api/v1/pipeline/segment",
-            files={"file": (filename, content, "application/octet-stream")},
+            files=files,
             data={
                 "model": model.strip() or "birefnet-general",
                 "decontaminate": str(max(0.0, min(1.0, float(decontaminate)))),

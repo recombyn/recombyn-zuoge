@@ -24,7 +24,7 @@
   <p><strong>Make it — design has never been this simple</strong></p>
 </div>
 
-**zuoge** (Chinese brand **左格**, literally “make / do one”) is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. The product slogan is **「做个，设计从未如此简单」** — *Make it; design has never been this simple*. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
+**zuoge** is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. The product slogan is *Make it — design has never been this simple*. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
 
 Built-in Design Agent (LangGraph): natural language creates layers, draws shapes, restyles, and typesets. Ships with Skills out of the box; you can also add custom Skills / AgentProfile (YAML) / prompt packs for posters, dashboards, landing pages, and more — then keep editing at vector precision.
 
@@ -124,7 +124,7 @@ Two extension surfaces — don’t mix them up:
 
 1. Drop `_meta.json` + `SKILL.md` under `plugins/skills/<key>/` (optional `handler.py`, `schema.json`, `assets/`).  
 2. Compose already mounts `./plugins/skills` → API; or set `DESIGN_SKILLS_PLUGIN_DIRS`.  
-3. Restart API / wait for hot reload — chat with a trigger (sample: 「生成中秋红色海报」).
+3. Restart API / wait for hot reload — chat with a trigger (sample: "create a Mid-Autumn festival poster in red").
 
 Optional: `DESIGN_SKILL_OPS_RUNNER=true` lets `handler.py` emit `tool_ops` before LLM paint. Details: [docs/skill-extensions.md](docs/skill-extensions.md).
 

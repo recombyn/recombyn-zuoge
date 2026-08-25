@@ -4,6 +4,7 @@ import {
   processJobAttrPatch,
   readProcessJobIds,
   readProcessStartedAt,
+  stripProcessProgressLabel,
   PROCESS_JOB_STALE_MS,
 } from '../processJobAttrs';
 
@@ -39,6 +40,11 @@ describe('processJobAttrs', () => {
       processJobIds: '["j1"]',
       processStartedAt: String(Date.now()),
     });
+  });
+
+  it('strips trailing progress percent from labels', () => {
+    expect(stripProcessProgressLabel('上传中 42%')).toBe('上传中');
+    expect(stripProcessProgressLabel('', '上传中')).toBe('上传中');
   });
 
   it('treats missing start time as stale', () => {

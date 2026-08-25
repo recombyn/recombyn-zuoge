@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   listRecoverableGeneratorNodes,
   recoverGeneratorNode,
+  findResumableUploadNodeId,
 } from '../generatorJobRecovery';
 import {
   registerGeneratorSession,
@@ -126,6 +127,11 @@ describe('generatorJobRecovery', () => {
     expect(ids).toContain('stale-gen');
     expect(ids).toContain('lottie-gen');
     expect(ids).not.toContain('upload-ph');
+  });
+
+  it('finds upload placeholder for refresh recovery', () => {
+    expect(findResumableUploadNodeId(doc)).toBe('upload-ph');
+    expect(findResumableUploadNodeId({ deltaSetLike: {} } as any)).toBeNull();
   });
 
   it('skips nodes with an active in-memory session', async () => {

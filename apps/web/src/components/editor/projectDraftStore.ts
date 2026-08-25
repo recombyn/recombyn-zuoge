@@ -315,6 +315,23 @@ export async function putProjectDraft(input: {
   }
 }
 
+/** New / duplicated / imported project — local draft only until cloud flush. */
+export function writeUnsyncedProjectDraft(
+  projectId: string,
+  name: string,
+  document: unknown
+) {
+  void putProjectDraft({
+    projectId,
+    name,
+    document,
+    updatedAt: Date.now(),
+    syncedAt: null,
+    cloudRevision: null,
+    baseDocument: null,
+  });
+}
+
 export async function getProjectDraft(
   projectId: string
 ): Promise<ProjectDraftRecord | null> {

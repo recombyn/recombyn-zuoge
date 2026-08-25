@@ -524,6 +524,7 @@ class Font(SQLModel, table=True):
     faces_json: str = Field(default="[]")
     sort_order: int = Field(default=0)
     created_at: float = Field(default=0.0)
+    owner_user_id: Optional[str] = Field(default=None, max_length=64, index=True)
 
 
 class Notice(SQLModel, table=True):

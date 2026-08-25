@@ -12,6 +12,7 @@ from app.services.vision.ilp_client import (
     ilp_enabled,
     text_decompose_via_ilp,
 )
+from app.services.vision.rehost import rehost_image_bytes
 from app.services.vision.text_layer_style import enrich_text_layers, load_bgr
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,28 @@ logger = logging.getLogger(__name__)
 EditMode = Literal["editElements", "editText"]
 
 
-async def decompose_text_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any]:
+def _rehost_or_data_url(
+    user_id: str | None,
+    data: bytes,
+    *,
+    filename: str,
+    content_type: str = "image/png",
+) -> str:
+    url = rehost_image_bytes(
+        user_id,
+        data,
+        filename=filename,
+        content_type=content_type,
+    )
+    return url or bytes_to_data_url(data, content_type)
+
+
+async def decompose_text_via_ilp(
+    *,
+    kind: EditMode,
+    image: str,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """Run OCR + inpaint on intelligence; returns BFF layer payload.
 
     Font/color enrichment still runs locally on the original image.
@@ -47,6 +69,9 @@ async def decompose_text_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any
     if not bg_b64:
         raise RuntimeError("ILP text-decompose returned no background")
 
+    bg_bytes = base64.b64decode(bg_b64)
+    bg_src = _rehost_or_data_url(user_id, bg_bytes, filename="editText-bg.png")
+
     bgr = await load_bgr(image)
     editable_blocks = payload.get("editable_blocks") if isinstance(payload.get("editable_blocks"), list) else []
     text_layers = enrich_text_layers(
@@ -67,16 +92,21 @@ async def decompose_text_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any
     )
 
     raster_layers: list[dict[str, Any]] = []
-    for layer in payload.get("raster_layers") or []:
+    for i, layer in enumerate(payload.get("raster_layers") or []):
         if not isinstance(layer, dict):
             continue
         png_b64 = str(layer.get("png_b64") or "").strip()
         if not png_b64:
             continue
+        png_bytes = base64.b64decode(png_b64)
         raster_layers.append(
             {
                 "type": "image",
-                "src": bytes_to_data_url(base64.b64decode(png_b64), "image/png"),
+                "src": _rehost_or_data_url(
+                    user_id,
+                    png_bytes,
+                    filename=f"editText-raster-{i + 1}.png",
+                ),
                 "x": float(layer.get("x") or 0),
                 "y": float(layer.get("y") or 0),
                 "width": max(1.0, float(layer.get("width") or 1)),
@@ -87,7 +117,6 @@ async def decompose_text_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any
             }
         )
 
-    bg_src = bytes_to_data_url(base64.b64decode(bg_b64), "image/png")
     layers: list[dict[str, Any]] = [
         {
             "type": "image",
@@ -111,7 +140,7 @@ async def decompose_text_via_ilp(*, kind: EditMode, image: str) -> dict[str, Any
         layers = [
             {
                 "type": "image",
-                "src": bytes_to_data_url(base64.b64decode(bg_b64), "image/png"),
+                "src": bg_src,
                 "x": 0.0,
                 "y": 0.0,
                 "width": float(w),

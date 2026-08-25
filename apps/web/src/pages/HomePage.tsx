@@ -1,5 +1,6 @@
 import { useRef, useState, memo } from 'react';
 import { useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   createImportJob,
@@ -26,6 +27,7 @@ import { store } from '@/store';
 import { importDocument } from '@/store/modules/editor';
 import { parseAndValidateSceneJson } from '@/components/rcb/sceneNode';
 import { useGoEditor } from '@/utils/goEditor';
+import { publishEditorProjectLocally } from '@/utils/editorProjectNavigation';
 import {
   buildPlazaStyleSkillChip,
   type OfficialCaseMeta,
@@ -164,6 +166,7 @@ function showImportWarningsIfAny(
 function HomePage() {
   const { t } = useTranslation();
   const dispatch = useDispatch();
+  const navigate = useNavigate();
   const goEditor = useGoEditor();
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -219,15 +222,26 @@ function HomePage() {
         message.error(t('home.importJsonInvalid'));
         return;
       }
+      const importedName = file.name.replace(/\.json$/i, '');
       dispatch(
         importDocument({
-          name: file.name.replace(/\.json$/i, ''),
+          name: importedName,
           document: validation.data,
           source: 'import',
+          dirty: true,
         })
       );
       message.success(t('home.importSuccess'));
-      goEditor({ projectId: currentProjectId() });
+      const id = (store.getState() as any).editor?.currentId;
+      const importedDoc = (store.getState() as any).editor?.document;
+      if (id && importedDoc) {
+        await publishEditorProjectLocally({
+          projectId: id,
+          name: importedName,
+          document: importedDoc,
+          navigate,
+        });
+      }
     } catch (error) {
       console.error('Import JSON error:', error);
       message.error(t('home.importJsonFailed'));

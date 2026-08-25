@@ -14,7 +14,7 @@ import {
   useSetDesktopTitlebarLeading,
 } from '@/components/layout/DesktopTitlebar';
 import { flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
-import { invalidateProjectsListCache } from '@/service/projects';
+import { invalidateProjectsListCache, refetchProjectsListCache } from '@/service/projects';
 import { cn } from '@/utils/classnames';
 
 type Props = {
@@ -172,8 +172,8 @@ export async function flushAndGoHome(navigate: (path: string) => void, path = '/
   } catch {
     /* still navigate — local draft already holds bytes */
   }
-  // Editor rename patches cache live; still invalidate so Home refetch picks server name.
-  void invalidateProjectsListCache();
+  await invalidateProjectsListCache();
+  await refetchProjectsListCache();
   navigate(path);
 }
 

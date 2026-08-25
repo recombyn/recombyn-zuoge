@@ -1,6 +1,7 @@
 /** Tree-shaped font catalog loader. */
 
 import { apiQuery, queryClient } from '@/service/client';
+import { getToken } from '@/utils/token';
 import type { FontChild, FontFaceFormat, FontFamilyNode, FontWeightOption } from './fontCatalogTypes';
 
 export type { FontChild, FontFaceFormat, FontFamilyNode, FontWeightOption } from './fontCatalogTypes';
@@ -8,8 +9,23 @@ export type { FontChild, FontFaceFormat, FontFamilyNode, FontWeightOption } from
 const STYLE_ID = 'resume-dynamic-fonts';
 
 let catalogCache: FontFamilyNode[] | null = null;
+let catalogAuthKey: string | null = null;
 let loadPromise: Promise<FontFamilyNode[]> | null = null;
 let facesInjected = false;
+
+function currentCatalogAuthKey(): string {
+  return getToken() ? 'authed' : 'anon';
+}
+
+function fontsQueryOptions() {
+  return apiQuery.fontsListFontsEndpoint.queryOptions({
+    input: { query: { page: 1, pageSize: 500 } },
+  });
+}
+
+function isFontsQueryKey(queryKey: readonly unknown[]): boolean {
+  return queryKey.some((k) => typeof k === 'string' && k.includes('fonts'));
+}
 
 function normalizeCatalog(raw: unknown): FontFamilyNode[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
@@ -22,6 +38,8 @@ function normalizeCatalog(raw: unknown): FontFamilyNode[] {
         displayName: String(rec.displayName || rec.family || ''),
         url: rec.url ? String(rec.url) : undefined,
         format: rec.format as FontFaceFormat | undefined,
+        isMine: Boolean(rec.isMine),
+        ownerUserId: rec.ownerUserId ? String(rec.ownerUserId) : null,
         children: Array.isArray(childrenRaw)
           ? childrenRaw
               .map((c) => {
@@ -148,29 +166,36 @@ export function injectFontFaces(catalog: FontFamilyNode[], opts?: { force?: bool
   facesInjected = true;
 }
 
-async function loadCatalogFromApi(): Promise<FontFamilyNode[]> {
-  const page = (await queryClient.ensureQueryData({
-    ...apiQuery.fontsListFontsEndpoint.queryOptions({
-      input: { query: { page: 1, pageSize: 500 } },
-    }),
-    staleTime: 5 * 60_000,
+function resetCatalogCache(): void {
+  catalogCache = null;
+  catalogAuthKey = null;
+  loadPromise = null;
+  facesInjected = false;
+}
+
+async function loadCatalogFromApi(bust = false): Promise<FontFamilyNode[]> {
+  if (bust) {
+    await queryClient.removeQueries({
+      predicate: (q) => Array.isArray(q.queryKey) && isFontsQueryKey(q.queryKey),
+    });
+  }
+  const page = (await queryClient.fetchQuery({
+    ...fontsQueryOptions(),
+    staleTime: bust ? 0 : 5 * 60_000,
   })) as { items?: unknown[] };
   return normalizeCatalog(page.items || []);
 }
 
-async function loadFontCatalogOnce(): Promise<FontFamilyNode[]> {
+async function loadFontCatalogOnce(bust = false): Promise<FontFamilyNode[]> {
   try {
-    let data: FontFamilyNode[];
-    try {
-      data = await loadCatalogFromApi();
-    } catch {
-      data = [];
-    }
+    const data = await loadCatalogFromApi(bust).catch(() => [] as FontFamilyNode[]);
     catalogCache = data;
-    if (data.length) injectFontFaces(data);
+    catalogAuthKey = currentCatalogAuthKey();
+    if (data.length) injectFontFaces(data, { force: bust });
     return data;
   } catch {
     catalogCache = [];
+    catalogAuthKey = currentCatalogAuthKey();
     return [];
   } finally {
     loadPromise = null;
@@ -178,18 +203,19 @@ async function loadFontCatalogOnce(): Promise<FontFamilyNode[]> {
 }
 
 export async function loadFontCatalog(): Promise<FontFamilyNode[]> {
-  if (catalogCache) return catalogCache;
+  const authKey = currentCatalogAuthKey();
+  if (catalogCache && catalogAuthKey === authKey) return catalogCache;
+  if (catalogCache && catalogAuthKey !== authKey) resetCatalogCache();
   if (loadPromise) return loadPromise;
   loadPromise = loadFontCatalogOnce();
   return loadPromise;
 }
 
-/** Drop cache and reload from API (after register/upload). */
+/** Drop cache and reload from API (after register/upload / auth change). */
 export async function reloadFontCatalog(): Promise<FontFamilyNode[]> {
-  catalogCache = null;
-  loadPromise = null;
-  facesInjected = false;
-  return loadFontCatalog();
+  resetCatalogCache();
+  loadPromise = loadFontCatalogOnce(true);
+  return loadPromise;
 }
 
 export function getFontCatalogSync(): FontFamilyNode[] {
@@ -418,4 +444,31 @@ export function parseWeightSelectValue(
   }
 
   return { family: family || base, weight: 'normal' };
+}
+
+export function fontDisplayName(font: Pick<FontFamilyNode, 'displayName' | 'family'>): string {
+  return font.displayName || font.family;
+}
+
+function fontBelongsToUser(font: FontFamilyNode, userId: string): boolean {
+  if (!userId) return false;
+  if (font.isMine || font.ownerUserId === userId) return true;
+  const needle = `uploads/${userId}/fonts/`;
+  const urls = [font.url, ...font.children.map((c) => c.url)].filter(Boolean) as string[];
+  return urls.some((url) => url.includes(needle));
+}
+
+/** Reconcile API `isMine` with owner id and upload path for legacy rows. */
+export function markMineFonts(
+  list: FontFamilyNode[],
+  userId: string | null | undefined
+): FontFamilyNode[] {
+  const uid = String(userId || '').trim();
+  if (!uid) return list;
+  return list.map((font) => {
+    const isMine = fontBelongsToUser(font, uid);
+    let ownerUserId = font.ownerUserId ?? null;
+    if (isMine && !ownerUserId) ownerUserId = uid;
+    return { ...font, isMine, ownerUserId };
+  });
 }

@@ -131,6 +131,7 @@ async def post_image_process(
             quality=body.quality,
             resolution=body.resolution,
             model=body.model,
+            user_id=current_user.id,
         )
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err

@@ -1,11 +1,11 @@
 import { message } from '@/components/base';
 import { getHttpErrorMessage } from '@/service/client';
-import { uploadImageFile, readFileAsDataUrl } from '@/utils/uploadImage';
+import { uploadImageFile, readFileAsDataUrl, beginNodeUpload, finishNodeUpload } from '@/utils/uploadImage';
 import {
   captureVideoPosterFrame,
   measureVideoNaturalSize
 } from '@/components/rcb/scene/document/nodeFactories';
-import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
+import { finishImageProcess, patchDocumentNode, resumePendingImageProcess } from '@/store/modules/editor';
 
 type DispatchLike = (action: unknown) => unknown;
 
@@ -64,7 +64,14 @@ export async function replaceVideoNodeFromFile(opts: {
       })
     );
 
-    const uploaded = await uploadImageFile(file);
+    dispatch(resumePendingImageProcess({ nodeId }));
+    const signal = beginNodeUpload(nodeId);
+    try {
+      const uploaded = await uploadImageFile(file, {
+        signal,
+        dispatch,
+        nodeId,
+      });
     const src = uploaded.url;
     if (!alive()) return;
 
@@ -117,6 +124,9 @@ export async function replaceVideoNodeFromFile(opts: {
         skipHistory: true,
       })
     );
+    } finally {
+      finishNodeUpload(nodeId);
+    }
   } catch (err: any) {
     if (alive()) {
       dispatch(finishImageProcess({ nodeId }));
