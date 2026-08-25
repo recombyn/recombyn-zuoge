@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 
 def rehost_image_bytes(
     user_id: str | None,
@@ -13,22 +9,22 @@ def rehost_image_bytes(
     *,
     filename: str = "processed.png",
     content_type: str = "image/png",
-) -> str | None:
-    """Upload bytes for ``user_id``; return display URL or None."""
+) -> str:
+    """Upload bytes for ``user_id``; return display URL. Raises on failure."""
     uid = str(user_id or "").strip()
-    if not uid or not data:
-        return None
-    try:
-        from app.services.uploads import upload_user_file
+    if not uid:
+        raise RuntimeError("user_id required to rehost image")
+    if not data:
+        raise ValueError("empty image bytes")
+    from app.services.uploads import upload_user_file
 
-        item = upload_user_file(
-            uid,
-            data=data,
-            filename=filename,
-            content_type=content_type,
-        )
-        url = str(item.get("url") or "").strip()
-        return url or None
-    except Exception as err:  # noqa: BLE001
-        logger.warning("rehost %s failed: %s", filename, err)
-        return None
+    item = upload_user_file(
+        uid,
+        data=data,
+        filename=filename,
+        content_type=content_type,
+    )
+    url = str(item.get("url") or "").strip()
+    if not url:
+        raise RuntimeError(f"rehost failed for {filename}")
+    return url

@@ -21,13 +21,6 @@ _ILP_REQUIRED_MSG = (
 _DATA_URL_RE = re.compile(r"^data:[^;,]+(?:;base64)?,(.+)$", re.DOTALL)
 
 
-def _png_data_url_from_pil(img: Image.Image) -> str:
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{b64}"
-
-
 def _decode_optional_mask(raw: object) -> bytes | None:
     s = str(raw or "").strip()
     if not s:
@@ -77,10 +70,7 @@ async def remove_background(
         exclude_mask=exclude_mask,
     )
     rgba = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-    # Prefer storage URL so FE skips a second giant data-URL upload.
     image_out = rehost_image_bytes(user_id, png_bytes, filename="removeBg.png")
-    if not image_out:
-        image_out = _png_data_url_from_pil(rgba)
     return {
         "image": image_out,
         "kind": "removeBg",

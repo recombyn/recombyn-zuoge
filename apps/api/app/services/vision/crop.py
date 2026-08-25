@@ -9,14 +9,14 @@ from app.core.config import settings
 from app.services.vision.table_cells import expand_table_to_cells
 
 
-def crop_region_to_data_url(img_bgr, block: dict[str, Any], pad: int = 2) -> str | None:
-    """Return PNG data URL of block bbox cropped from BGR image, or None."""
+def crop_region_to_data_url(img_bgr, block: dict[str, Any], pad: int = 2) -> str:
+    """Return PNG data URL of block bbox cropped from BGR image."""
     try:
         import cv2
-    except ImportError:
-        return None
+    except ImportError as err:
+        raise RuntimeError("opencv required for image crop") from err
     if img_bgr is None:
-        return None
+        raise ValueError("empty image for crop")
 
     h, w = img_bgr.shape[:2]
     x = int(max(0, float(block.get("x") or 0) - pad))
@@ -26,12 +26,12 @@ def crop_region_to_data_url(img_bgr, block: dict[str, Any], pad: int = 2) -> str
     x2 = min(w, x + bw)
     y2 = min(h, y + bh)
     if x2 <= x or y2 <= y:
-        return None
+        raise ValueError("invalid crop region")
 
     crop = img_bgr[y:y2, x:x2]
     ok, buf = cv2.imencode(".png", crop)
     if not ok:
-        return None
+        raise RuntimeError("failed to encode crop as PNG")
     b64 = base64.b64encode(buf.tobytes()).decode("ascii")
     return f"data:image/png;base64,{b64}"
 
@@ -39,7 +39,7 @@ def crop_region_to_data_url(img_bgr, block: dict[str, Any], pad: int = 2) -> str
 def attach_crops(img_bgr, blocks: list[dict[str, Any]], page_index: int = 0) -> list[dict[str, Any]]:
     """
     - figure/image → image node with data-URL src
-    - table → editable cell textboxes (+ background rect); fall back to image crop
+    - table → editable cell textboxes (+ background rect)
     """
     out: list[dict[str, Any]] = []
     for block in blocks:
@@ -49,37 +49,26 @@ def attach_crops(img_bgr, blocks: list[dict[str, Any]], page_index: int = 0) -> 
 
         if btype == "table" or layout == "table":
             if settings.expand_table_cells:
-                try:
-                    cells = expand_table_to_cells(
-                        img_bgr, item, page_index=page_index, lang=settings.ocr_lang
-                    )
-                    if cells:
-                        out.extend(cells)
-                        continue
-                except Exception:
-                    pass
+                cells = expand_table_to_cells(
+                    img_bgr, item, page_index=page_index, lang=settings.ocr_lang
+                )
+                if not cells:
+                    raise RuntimeError("table cell expansion returned no cells")
+                out.extend(cells)
+                continue
             src = crop_region_to_data_url(img_bgr, item)
-            if src:
-                item["type"] = "image"
-                item["src"] = src
-                item["layout_type"] = "table"
-                out.append(item)
-            else:
-                item["type"] = "rect"
-                item["fill"] = "#F5F5F5"
-                out.append(item)
+            item["type"] = "image"
+            item["src"] = src
+            item["layout_type"] = "table"
+            out.append(item)
             continue
 
         if btype == "image" or layout in {"figure", "image", "equation"}:
             if not item.get("src"):
                 src = crop_region_to_data_url(img_bgr, item)
-                if src:
-                    item["type"] = "image"
-                    item["src"] = src
-                    item["layout_type"] = layout or "image"
-                else:
-                    item["type"] = "rect"
-                    item["fill"] = "#F0F0F0"
+                item["type"] = "image"
+                item["src"] = src
+                item["layout_type"] = layout or "image"
             out.append(item)
             continue
 

@@ -55,8 +55,8 @@ async def execute_video_generate(
     images: list[str] | None = None,
     credits_charged: int = 0,
 ) -> dict[str, Any]:
-    """Generate + best-effort rehost. Credits must already be charged."""
-    from app.services.assets import create_asset_from_remote_url, create_asset_from_url
+    """Generate, rehost to user assets storage, return storable URLs."""
+    from app.services.assets import create_asset_from_url
     from app.services.llm import reset_byok_user_id, set_byok_user_id
     from app.services.llm.usage_log import usage_context
     from app.services.llm.video import generate_video
@@ -79,40 +79,32 @@ async def execute_video_generate(
     finally:
         reset_byok_user_id(byok_token)
 
+    video_urls = [
+        u.strip()
+        for u in (result.get("videos") or [])
+        if isinstance(u, str) and u.strip()
+    ]
+    if not video_urls:
+        raise RuntimeError("video generation returned no videos")
+
     assets_out: list[dict[str, Any]] = []
-    for vid_url in result.get("videos") or []:
-        if not isinstance(vid_url, str) or not vid_url.strip():
-            continue
-        src = vid_url.strip()
-        try:
-            asset = create_asset_from_url(
+    for src in video_urls:
+        assets_out.append(
+            create_asset_from_url(
                 user_id,
                 src,
                 kind="video",
                 source="ai_video",
                 prompt=prompt.strip(),
             )
-            assets_out.append(asset)
-        except Exception as err:  # noqa: BLE001 — fall back to remote URL register
-            _log.warning("video rehost failed (%s): %s", type(err).__name__, err)
-            try:
-                asset = create_asset_from_remote_url(
-                    user_id,
-                    src,
-                    kind="video",
-                    source="ai_video",
-                    prompt=prompt.strip(),
-                    mime="video/mp4",
-                )
-                assets_out.append(asset)
-            except Exception as err2:  # noqa: BLE001
-                _log.warning(
-                    "video asset register failed (%s): %s", type(err2).__name__, err2
-                )
-                continue
-    if assets_out:
-        return {**result, "assets": assets_out}
-    return result
+        )
+
+    stored_urls = [str(a.get("url") or "").strip() for a in assets_out]
+    stored_urls = [u for u in stored_urls if u]
+    if len(stored_urls) != len(video_urls):
+        raise RuntimeError("video asset storage incomplete")
+
+    return {**result, "videos": stored_urls, "assets": assets_out}
 
 
 @router.post("/jobs", response_model=VideoJobCreateResponse)

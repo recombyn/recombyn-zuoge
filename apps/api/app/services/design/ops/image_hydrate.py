@@ -86,18 +86,17 @@ def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
     return None
 
 
-async def _maybe_cutout_hydrated_src(src: str, mode: str) -> tuple[str, bool]:
-    """Return (src, cutout_applied). Failures keep original URL."""
-    try:
-        from app.services.vision.remove_bg import remove_background
+async def _maybe_cutout_hydrated_src(
+    src: str, mode: str, *, user_id: str | None
+) -> str:
+    """Run industrial matting on a hydrated image URL. Raises on failure."""
+    from app.services.vision.remove_bg import remove_background
 
-        cut = await remove_background(src, meta={"cutoutMode": mode})
-        cut_src = str((cut or {}).get("image") or "").strip()
-        if cut_src:
-            return cut_src, True
-    except Exception:
-        pass
-    return src, False
+    cut = await remove_background(src, meta={"cutoutMode": mode}, user_id=user_id)
+    cut_src = str((cut or {}).get("image") or "").strip()
+    if not cut_src:
+        raise RuntimeError("remove background returned no image")
+    return cut_src
 
 
 async def _hydrate_gen_prompt_images(
@@ -139,9 +138,13 @@ async def _hydrate_gen_prompt_images(
             )
             url = (result.get("images") or [None])[0]
             if not url:
-                continue
-        except Exception:
-            continue
+                raise RuntimeError(
+                    f"SVG gen-prompt hydrate returned no image for {prompt[:80]!r}"
+                )
+        except Exception as err:
+            raise RuntimeError(
+                f"SVG gen-prompt hydrate failed for {prompt[:80]!r}"
+            ) from err
         if re.search(r"xlink:href\s*=", tag, re.I):
             new_tag = re.sub(
                 r"xlink:href\s*=\s*['\"][^'\"]*['\"]",
@@ -186,6 +189,7 @@ async def _hydrate_via_celery(
     rules: dict[str, str] | None,
     on_progress: _OnProgress | None,
     trace_id: str | None = None,
+    user_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int] | None:
     """Enqueue + poll. Returns None to signal caller should use in-process path."""
     from app.core.config import settings
@@ -205,6 +209,7 @@ async def _hydrate_via_celery(
         "limit": limit,
         "policy": policy,
         "rules": {str(k): str(v) for k, v in (rules or {}).items()},
+        "user_id": str(user_id or "").strip() or None,
         "result": None,
         "error": None,
         "trace_id": tid,
@@ -232,7 +237,7 @@ async def _hydrate_via_celery(
     while time.monotonic() < deadline:
         job = await asyncio.to_thread(get_job, job_id, kind=_HYDRATE_KIND)
         if not job:
-            return None
+            raise RuntimeError(f"hydrate job not found: {job_id}")
         status = str(job.get("status") or "queued")
         progress = int(job.get("progress") or 0)
         if on_progress and progress != last_progress:
@@ -244,33 +249,16 @@ async def _hydrate_via_celery(
             filled = int(result.get("filled") or 0)
             if isinstance(out, list):
                 return out, filled
-            return None
+            raise RuntimeError("hydrate job returned invalid result")
         if status == "failed":
-            _log.warning(
-                "hydrate job failed job=%s trace_id=%s err=%s",
-                job_id,
-                tid,
-                job.get("error"),
-                extra={"job_id": job_id, "trace_id": tid, "event": "failed"},
-            )
-            return None
+            err = str(job.get("error") or "hydrate job failed").strip()
+            raise RuntimeError(err)
         if status == "queued" and time.monotonic() >= queued_deadline:
-            _log.info(
-                "hydrate job still queued after %.1fs — falling back in-process job=%s trace_id=%s",
-                stall,
-                job_id,
-                tid,
-                extra={"job_id": job_id, "trace_id": tid, "event": "stall_fallback"},
+            raise RuntimeError(
+                f"hydrate job still queued after {stall:.1f}s (job_id={job_id})"
             )
-            return None
         await asyncio.sleep(0.35)
-    _log.warning(
-        "hydrate job poll budget exceeded job=%s trace_id=%s",
-        job_id,
-        tid,
-        extra={"job_id": job_id, "trace_id": tid, "event": "timeout"},
-    )
-    return None
+    raise RuntimeError(f"hydrate job poll budget exceeded (job_id={job_id})")
 
 
 async def hydrate_tool_ops_images(
@@ -281,6 +269,7 @@ async def hydrate_tool_ops_images(
     rules: dict[str, str] | None = None,
     on_progress: _OnProgress | None = None,
     trace_id: str | None = None,
+    user_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Apply/action entry: Celery when enabled, else in-process (ADR 0005)."""
     if policy != "auto" or not ops or limit <= 0:
@@ -296,22 +285,21 @@ async def hydrate_tool_ops_images(
         use_async = True
 
     if use_async:
-        try:
-            queued = await _hydrate_via_celery(
-                ops,
-                limit=limit,
-                policy=policy,
-                rules=rules,
-                on_progress=on_progress,
-                trace_id=trace_id,
-            )
-            if queued is not None:
-                return queued
-        except Exception:
-            _log.warning("hydrate Celery path unavailable; using in-process", exc_info=True)
+        queued = await _hydrate_via_celery(
+            ops,
+            limit=limit,
+            policy=policy,
+            rules=rules,
+            on_progress=on_progress,
+            trace_id=trace_id,
+            user_id=user_id,
+        )
+        if queued is not None:
+            return queued
+        raise RuntimeError("hydrate Celery path returned no result")
 
     return await _hydrate_tool_ops_images(
-        ops, limit=limit, policy=policy, rules=rules
+        ops, limit=limit, policy=policy, rules=rules, user_id=user_id
     )
 
 
@@ -321,6 +309,7 @@ async def _hydrate_tool_ops_images(
     limit: int = 6,
     policy: str = "auto",
     rules: dict[str, str] | None = None,
+    user_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """
     Fill create_image ops that only have genPrompt/prompt via the routed image model.
@@ -369,18 +358,22 @@ async def _hydrate_tool_ops_images(
                 resolution=resolution,
             )
             url = (result.get("images") or [None])[0]
-        except Exception:
-            url = None
-        if url:
-            src = str(url)
-            # Lettering + product plates → transparent overlay (models love opaque white boxes).
-            cut_mode = _cutout_mode_for_hydrate(args)
-            if cut_mode:
-                src, applied = await _maybe_cutout_hydrated_src(src, cut_mode)
-                if applied:
-                    args["cutoutApplied"] = True
-                    args["cutoutMode"] = cut_mode
-            args["src"] = src
+        except Exception as err:
+            raise RuntimeError(
+                f"image hydrate generation failed for prompt {prompt[:80]!r}"
+            ) from err
+        if not url:
+            raise RuntimeError(
+                f"image hydrate returned no image for prompt {prompt[:80]!r}"
+            )
+        src = str(url)
+        # Lettering + product plates → transparent overlay (models love opaque white boxes).
+        cut_mode = _cutout_mode_for_hydrate(args)
+        if cut_mode:
+            src = await _maybe_cutout_hydrated_src(src, cut_mode, user_id=user_id)
+            args["cutoutApplied"] = True
+            args["cutoutMode"] = cut_mode
+        args["src"] = src
         next_op: dict[str, Any] = {"name": "create_image", "args": args}
         if op.get("op_id"):
             next_op["op_id"] = op["op_id"]
@@ -405,11 +398,8 @@ async def _hydrate_tool_ops_images(
     for t in pending:
         t.cancel()
     if pending:
-        _log.warning(
-            "image hydrate budget exceeded after %.1fs pending=%s/%s",
-            budget,
-            len(pending),
-            len(pending_idx),
+        raise RuntimeError(
+            f"image hydrate timed out after {budget:.1f}s with {len(pending)} pending ops"
         )
 
     out = list(ops)
@@ -418,10 +408,14 @@ async def _hydrate_tool_ops_images(
         i = task_by_idx[t]
         try:
             new_op = t.result()
-        except Exception:
-            continue
+        except Exception as err:
+            raise RuntimeError(f"image hydrate op at index {i} failed") from err
         out[i] = new_op
         args = new_op.get("args") if isinstance(new_op.get("args"), dict) else {}
         if str((args or {}).get("src") or (args or {}).get("url") or "").strip():
             filled += 1
+    if filled < len(pending_idx):
+        raise RuntimeError(
+            f"image hydrate incomplete: {filled}/{len(pending_idx)} ops succeeded"
+        )
     return out, filled

@@ -147,7 +147,7 @@ describe('generatorJobRecovery', () => {
     expect(waitForImageBatchJobs).not.toHaveBeenCalled();
   });
 
-  it('clears SoftGlow when generator has no job ids', async () => {
+  it('fails when generator has no job ids', async () => {
     const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
       dispatch,
@@ -155,7 +155,7 @@ describe('generatorJobRecovery', () => {
       'stale-gen',
       doc.deltaSetLike['stale-gen']
     );
-    expect(result).toBe('cleared');
+    expect(result).toBe('failed');
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         type: expect.stringContaining('clearImageProcess'),
@@ -165,7 +165,7 @@ describe('generatorJobRecovery', () => {
     expect(waitForImageBatchJobs).not.toHaveBeenCalled();
   });
 
-  it('clears SoftGlow when job ids are stale (skip long poll)', async () => {
+  it('fails when job ids are stale (skip long poll)', async () => {
     const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
       dispatch,
@@ -173,7 +173,7 @@ describe('generatorJobRecovery', () => {
       'stale-gen-jobs',
       doc.deltaSetLike['stale-gen-jobs']
     );
-    expect(result).toBe('cleared');
+    expect(result).toBe('failed');
     expect(waitForImageBatchJobs).not.toHaveBeenCalled();
   });
 
@@ -209,7 +209,7 @@ describe('generatorJobRecovery', () => {
     );
   });
 
-  it('clears SoftGlow for lottie without job ids', async () => {
+  it('fails for lottie without job ids', async () => {
     const dispatch = vi.fn();
     const node = {
       ...doc.deltaSetLike['lottie-gen'],
@@ -219,7 +219,7 @@ describe('generatorJobRecovery', () => {
       },
     };
     const result = await recoverGeneratorNode(dispatch, doc, 'lottie-gen', node);
-    expect(result).toBe('cleared');
+    expect(result).toBe('failed');
     expect(waitForLottieJob).not.toHaveBeenCalled();
   });
 

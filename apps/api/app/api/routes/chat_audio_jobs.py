@@ -79,33 +79,28 @@ async def execute_audio_generate(
     finally:
         reset_byok_user_id(byok_token)
 
-    assets_out: list[dict[str, Any]] = []
     raw = result.pop("bytes", None)
+    if not isinstance(raw, (bytes, bytearray)) or not raw:
+        raise RuntimeError("audio generation returned no bytes")
     mime = str(result.get("mime") or "audio/mpeg")
-    if isinstance(raw, (bytes, bytearray)) and raw:
-        try:
-            ext = "mp3"
-            if "wav" in mime:
-                ext = "wav"
-            elif "ogg" in mime:
-                ext = "ogg"
-            asset = create_asset_from_bytes(
-                user_id,
-                bytes(raw),
-                kind="audio",
-                mime=mime,
-                source="ai_audio",
-                prompt=prompt.strip()[:500] or None,
-                filename_ext=ext,
-            )
-            assets_out.append(asset)
-            if asset.get("url"):
-                result["audios"] = [asset["url"]]
-        except Exception as err:  # noqa: BLE001
-            _log.warning("audio asset persist failed (%s): %s", type(err).__name__, err)
-    if assets_out:
-        return {**result, "assets": assets_out}
-    return result
+    ext = "mp3"
+    if "wav" in mime:
+        ext = "wav"
+    elif "ogg" in mime:
+        ext = "ogg"
+    asset = create_asset_from_bytes(
+        user_id,
+        bytes(raw),
+        kind="audio",
+        mime=mime,
+        source="ai_audio",
+        prompt=prompt.strip()[:500] or None,
+        filename_ext=ext,
+    )
+    stored_url = str(asset.get("url") or "").strip()
+    if not stored_url:
+        raise RuntimeError("audio asset storage incomplete")
+    return {**result, "audios": [stored_url], "assets": [asset]}
 
 
 @router.post("/jobs", response_model=AudioJobCreateResponse)

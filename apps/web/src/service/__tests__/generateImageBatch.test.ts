@@ -54,25 +54,33 @@ describe('generateImageBatch', () => {
 });
 
 describe('pickGenerateImageUrl', () => {
-  it('prefers images[] over assets[]', () => {
+  it('returns the first stored image url', () => {
     expect(
       pickGenerateImageUrl({
-        images: ['https://img'],
+        images: ['https://cdn/asset.png', 'https://cdn/asset-2.png'],
         model: 'm',
-        assets: [{ url: 'https://asset' }],
       })
-    ).toBe('https://img');
+    ).toBe('https://cdn/asset.png');
   });
 });
 
 describe('listGenerateImageUrls', () => {
-  it('returns all images and asset urls without duplicates', () => {
+  it('returns stored image urls from images[]', () => {
     expect(
       listGenerateImageUrls({
-        images: ['https://img/1.png', 'https://img/2.png'],
+        images: ['https://cdn/asset/1.png'],
         model: 'm',
-        assets: [{ url: 'https://img/2.png' }, { url: 'https://asset/3.png' }],
+        assets: [{ url: 'https://cdn/ignored.png' }],
       })
-    ).toEqual(['https://img/1.png', 'https://img/2.png', 'https://asset/3.png']);
+    ).toEqual(['https://cdn/asset/1.png']);
+  });
+
+  it('dedupes image urls', () => {
+    expect(
+      listGenerateImageUrls({
+        images: ['https://cdn/1.png', 'https://cdn/1.png'],
+        model: 'm',
+      })
+    ).toEqual(['https://cdn/1.png']);
   });
 });

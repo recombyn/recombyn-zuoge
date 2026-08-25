@@ -232,7 +232,7 @@ def get_models(
     try:
         get_llm_endpoint()
     except Exception:
-        available = bool(platforms)
+        available = False
     return {
         "models": items,
         "available": available,

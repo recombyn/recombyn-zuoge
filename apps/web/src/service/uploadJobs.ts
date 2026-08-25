@@ -119,6 +119,7 @@ export async function waitForUploadJob(
         try {
           job = JSON.parse(ev.data) as UploadJobState;
         } catch {
+          finish(() => reject(new Error('Invalid upload job event payload')));
           return;
         }
         try {

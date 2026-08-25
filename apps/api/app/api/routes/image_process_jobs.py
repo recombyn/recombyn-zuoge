@@ -76,9 +76,12 @@ async def execute_image_process(job: dict[str, Any]) -> dict[str, Any]:
     if job_id:
         update_job(job_id, kind=_KIND, progress=90)
 
-    if isinstance(result, dict):
-        return {**result, "credits": credits}
-    return {"image": "", "kind": tool_kind, "credits": credits}
+    if not isinstance(result, dict):
+        raise RuntimeError(f"image process returned unexpected type: {type(result)!r}")
+    image = str(result.get("image") or "").strip()
+    if not image:
+        raise RuntimeError("image process returned no image")
+    return {**result, "credits": credits}
 
 
 @router.post("/jobs", response_model=ImageProcessJobCreateResponse)

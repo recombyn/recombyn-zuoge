@@ -78,15 +78,23 @@ def test_decompose_via_ilp_maps_layers(monkeypatch):
     monkeypatch.setattr("app.services.vision.ilp_decompose.wait_for_job", fake_wait)
     monkeypatch.setattr("app.services.vision.ilp_decompose.fetch_file_bytes", fake_fetch)
     monkeypatch.setattr("app.services.vision.ilp_decompose.ilp_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.services.vision.ilp_decompose.rehost_image_bytes",
+        lambda _uid, data, **kwargs: f"https://cdn.example/{kwargs.get('filename', 'x')}",
+    )
 
     from app.services.vision.ilp_decompose import decompose_via_ilp
 
     result = asyncio.run(
-        decompose_via_ilp(kind="editElements", image="data:image/png;base64,abc")
+        decompose_via_ilp(
+            kind="editElements",
+            image="data:image/png;base64,abc",
+            user_id="u1",
+        )
     )
     assert result["kind"] == "editElements"
     assert result["width"] == 64
     assert result["height"] == 48
     assert len(result["layers"]) == 3
     assert result["layers"][0]["name"] == "远景底图"
-    assert str(result["layers"][0]["src"]).startswith("data:image/png;base64,")
+    assert str(result["layers"][0]["src"]).startswith("https://cdn.example/")

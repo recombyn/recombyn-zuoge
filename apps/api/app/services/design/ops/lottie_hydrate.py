@@ -308,16 +308,13 @@ async def generate_lottie_animation(
     model: str | None = None,
     images: list[str] | None = None,
 ) -> dict[str, Any]:
-    """LLM Bodymovin when possible; always returns a valid animation dict."""
+    """LLM Bodymovin when configured; raises on failure."""
     text = str(prompt or "").strip()
     w, h = _clamp_lottie_design_size(width, height)
     sec = max(0.5, float(duration_sec or 3.0))
     refs = _normalize_lottie_ref_images(images)
-    fallback = build_fallback_lottie(
-        prompt=text or "Lottie", width=w, height=h, duration_sec=sec
-    )
     if not text:
-        return fallback
+        raise ValueError("empty lottie prompt")
 
     brief = (
         f"Brief: {text}\n"
@@ -369,8 +366,11 @@ async def generate_lottie_animation(
             )
             validated["nm"] = validated.get("nm") or text[:80]
             return validated
-    except Exception:
-        _log.exception("lottie LLM hydrate failed; using fallback")
+    except Exception as err:
+        _log.exception("lottie LLM hydrate failed")
+        last_err: Exception = err
+    else:
+        last_err = RuntimeError("lottie structured output invalid")
 
     try:
         from app.services.llm import build_user_message_content
@@ -405,10 +405,11 @@ async def generate_lottie_animation(
                 validated, design_w=w, design_h=h
             )
             return validated
-    except Exception:
-        _log.exception("lottie freeform hydrate failed; using fallback")
+    except Exception as err:
+        _log.exception("lottie freeform hydrate failed")
+        raise RuntimeError("lottie generation failed") from err
 
-    return fallback
+    raise RuntimeError("lottie generation failed") from last_err
 
 
 def _needs_lottie_hydrate(op: dict[str, Any]) -> bool:
@@ -453,19 +454,11 @@ async def hydrate_tool_ops_lottie(
             dur = float(args.get("durationSec") or 3)
         except (TypeError, ValueError):
             dur = 3.0
-        try:
-            anim = await generate_lottie_animation(
-                prompt=prompt, width=w, height=h, duration_sec=dur
-            )
-        except BaseException:
-            _log.exception("lottie hydrate generate raised; using fallback")
-            anim = build_fallback_lottie(
-                prompt=prompt or "Lottie", width=w, height=h, duration_sec=dur
-            )
+        anim = await generate_lottie_animation(
+            prompt=prompt, width=w, height=h, duration_sec=dur
+        )
         if not validate_lottie_animation(anim):
-            anim = build_fallback_lottie(
-                prompt=prompt or "Lottie", width=w, height=h, duration_sec=dur
-            )
+            raise RuntimeError("lottie hydrate returned invalid animation")
         args["animationData"] = anim
         args.setdefault("genPrompt", prompt)
         next_op = dict(op)
