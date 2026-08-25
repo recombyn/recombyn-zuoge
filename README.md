@@ -19,7 +19,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
+**zuoge** is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
 
 Built-in Design Agent (LangGraph): natural language creates layers, draws shapes, restyles, and typesets. Ships with Skills out of the box; you can also add custom Skills / AgentProfile (YAML) / prompt packs for posters, dashboards, landing pages, and more — then keep editing at vector precision.
 
@@ -29,13 +29,13 @@ You can self-host in a few minutes with Docker Compose (default **MySQL** + Redi
 
 ## Star us on GitHub ⭐
 
-Open source takes time. If Recombyn helps you, please hit **⭐ Star** in the top-right of the GitHub repo.
+Open source takes time. If zuoge helps you, please hit **⭐ Star** in the top-right of the GitHub repo.
 
-→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+→ [https://github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
 
 ## Canvas
 
-Custom **RCB** infinite canvas: the scene graph is `SceneDocument`, with a 5%–10000% zoom range. Committed nodes normally paint as per-node **SVG**; the grid and eligible lightweight far-out nodes use Canvas2D LOD proxies. Hit testing combines the spatial index, AABB checks, and **Path2D** geometry to keep large documents responsive.
+Custom infinite canvas: the scene graph is `SceneDocument`, with a 5%–10000% zoom range. Committed nodes normally paint as per-node **SVG**; the grid and eligible lightweight far-out nodes use Canvas2D LOD proxies. Hit testing combines the spatial index, AABB checks, and **Path2D** geometry to keep large documents responsive.
 
 Details: [docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md).
 
@@ -145,7 +145,7 @@ node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
 ## Quick start (self-host)
 
 ```bash
-git clone https://github.com/recombyn/recombyn.git
+git clone https://github.com/recombyn/recombyn-zuoge.git
 cd recombyn
 cp apps/api/.env.example apps/api/.env   # add LLM_API_KEY / provider keys
 docker compose up -d --build
@@ -223,7 +223,7 @@ Build output: `apps/web/src-tauri/target/release/bundle/` (installers); main bin
 
 ```
 apps/web/          React canvas + Agent UI + Yjs client
-  src-tauri/       Tauri v2 desktop shell (Recombyn)
+  src-tauri/       Tauri v2 desktop shell (zuoge)
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket server (y-websocket)
 plugins/           Extensions (skills + canvas) — Compose-mounted
@@ -258,4 +258,4 @@ User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) 
 - **PRs** — see [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Security** — report privately per [SECURITY.md](SECURITY.md)
 
-Official: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+Official: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)

@@ -18,7 +18,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** 是一个开源的 AI 设计工作台，提供可编辑的无限矢量画布与 Design Agent。你可以用自然语言创建和修改图形、文字、布局与样式，也可以在画布中继续精细编辑，并通过 Docker Compose 自托管。
+**左格** 是一个开源的 AI 设计工作台，提供可编辑的无限矢量画布与 Design Agent。你可以用自然语言创建和修改图形、文字、布局与样式，也可以在画布中继续精细编辑，并通过 Docker Compose 自托管。
 
 内置 Design Agent（LangGraph）：自然语言就能建图层、画图形、改样式、排版布局。自带多套 Skill，也可自定义 Skill / AgentProfile（YAML）/ 提示词包，扩展海报、仪表盘、落地页等品类；做完后仍可在矢量画布上精细改。
 
@@ -28,13 +28,13 @@
 
 ## 帮忙点个 ⭐ Star
 
-开源不易，如果觉得 Recombyn 对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
+开源不易，如果觉得左格对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
 
-→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+→ [https://github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
 
 ## 画布
 
-自研 **RCB** 无限画布：场景图是 `SceneDocument`，缩放范围为 5%–10000%。已提交图元默认按节点使用 **SVG** 绘制；网格和符合条件的远距离轻量图元使用 Canvas2D LOD 代理。命中采用空间索引、AABB 与 **Path2D** 几何协同处理，降低大文档的渲染与交互成本。
+自研无限画布：场景图是 `SceneDocument`，缩放范围为 5%–10000%。已提交图元默认按节点使用 **SVG** 绘制；网格和符合条件的远距离轻量图元使用 Canvas2D LOD 代理。命中采用空间索引、AABB 与 **Path2D** 几何协同处理，降低大文档的渲染与交互成本。
 
 工程细节：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
 
@@ -144,7 +144,7 @@ node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
 ## 快速开始（自托管）
 
 ```bash
-git clone https://github.com/recombyn/recombyn.git
+git clone https://github.com/recombyn/recombyn-zuoge.git
 cd recombyn
 cp apps/api/.env.example apps/api/.env   # 填入 LLM_API_KEY 等
 docker compose up -d --build
@@ -193,7 +193,7 @@ npm run build:desktop:cloud
 
 ```
 apps/web/          React 画布 + Agent UI + Yjs 客户端
-  src-tauri/       Tauri v2 桌面壳（Recombyn）
+  src-tauri/       Tauri v2 桌面壳（左格）
 apps/api/          FastAPI（含 collab room-token）
 apps/collab/       Yjs WebSocket 服务（y-websocket）
 plugins/           扩展（skills + canvas）— Compose 已挂载
@@ -222,4 +222,4 @@ e2e/               Playwright
 | Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
 | 贡献 · 安全 · 行为准则 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 
-官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
