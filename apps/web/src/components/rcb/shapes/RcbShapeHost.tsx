@@ -180,10 +180,15 @@ function RcbShapeHost({
     node?.attrs?.['fill-image-adjust'],
     node?.attrs?.opacity,
     node?.attrs?.blendMode,
-    node?.attrs?.markdown ?? node?.attrs?.DATA,
+    // Track markdown *and* DATA/ORIGIN_DATA — style-only edits (fontSize) keep
+    // markdown identical, so `markdown ?? DATA` would skip remounts.
+    node?.attrs?.markdown,
+    node?.attrs?.DATA,
+    node?.attrs?.ORIGIN_DATA,
     node?.attrs?.fontSize,
     node?.attrs?.fontFamily,
     node?.attrs?.autoSize,
+    node?.attrs?.textFrame,
     node?.attrs?.path,
     node?.attrs?.shapeType,
     // Angle / flip are transform-only — previewSvgNodeTransform updates the host

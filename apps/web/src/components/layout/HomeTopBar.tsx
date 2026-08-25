@@ -5,8 +5,11 @@ import { useTranslation } from 'react-i18next';
 import {
   HiOutlineBars3,
   HiOutlineBriefcase,
+  HiOutlineCube,
   HiOutlineFolder,
+  HiOutlineHeart,
   HiOutlineLightBulb,
+  HiOutlinePhoto,
 } from 'react-icons/hi2';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
@@ -27,7 +30,9 @@ const MOBILE_NAV_ITEMS: { key: HomeNavKey; labelKey: string; Icon: typeof HiOutl
   { key: 'home', labelKey: 'home.navHome', Icon: HiOutlineBriefcase },
   { key: 'inspiration', labelKey: 'home.railInspiration', Icon: HiOutlineLightBulb },
   { key: 'mine', labelKey: 'home.mine', Icon: HiOutlineFolder },
-  { key: 'skills', labelKey: 'home.railSkills', Icon: HiOutlineBriefcase },
+  { key: 'skills', labelKey: 'home.railSkills', Icon: HiOutlineCube },
+  { key: 'assets', labelKey: 'home.railAssets', Icon: HiOutlinePhoto },
+  { key: 'liked', labelKey: 'home.railLiked', Icon: HiOutlineHeart },
 ];
 
 /** Mobile-only nav menu — desktop account/credits live in the sidebar footer. */
@@ -79,11 +84,10 @@ function HomeTopBar({ setNav, nav = 'home' }: Props) {
         >
           <button
             type="button"
-            aria-label={t('home.navHome')}
-            aria-haspopup="menu"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] md:hidden"
+            aria-label={t('common.more')}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--ink)] shadow-sm ring-1 ring-[var(--line)]"
           >
-            <HiOutlineBars3 className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+            <HiOutlineBars3 className="h-5 w-5" strokeWidth={1.75} aria-hidden />
           </button>
         </Dropdown>
       </div>

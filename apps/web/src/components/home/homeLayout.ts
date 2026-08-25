@@ -18,10 +18,15 @@ export const HOME_MAIN_SHELL =
 export const HOME_SKILL_GRID =
   'grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3';
 
-/** Inspiration waterfall — 4 cards per row inside the 1300 shell. */
-export const HOME_INSPIRATION_COLUMNS =
-  'w-full columns-2 gap-4 md:columns-3 lg:columns-4';
+/**
+ * Home content grids (项目 / 灵感 / 资产 / 喜欢) — same breakpoints.
+ * Mobile 2 cols; md+ always 4 per row (card height follows content).
+ */
+export const HOME_FLOW_GRID =
+  'grid w-full grid-cols-2 gap-4 md:grid-cols-4';
 
-/** My projects — 4 cards per row inside the 1300 shell. */
-export const HOME_PROJECT_GRID =
-  'grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4';
+/** @deprecated alias — use HOME_FLOW_GRID */
+export const HOME_INSPIRATION_COLUMNS = HOME_FLOW_GRID;
+
+/** @deprecated alias — use HOME_FLOW_GRID */
+export const HOME_PROJECT_GRID = HOME_FLOW_GRID;

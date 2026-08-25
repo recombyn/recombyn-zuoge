@@ -19,6 +19,10 @@ from app.services.security import (
 router = APIRouter(prefix="/me", tags=["me"])
 
 
+class SyncLikedIn(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
 class ByokProviderIn(BaseModel):
     id: str | None = None
     name: str = ""
@@ -28,6 +32,15 @@ class ByokProviderIn(BaseModel):
     modelKind: str = "text"
     # Omit or empty on update to keep existing encrypted key.
     apiKey: str | None = None
+
+
+@router.get("/liked")
+def me_liked_list(
+    current_user: CurrentUser,
+    page: int = 1,
+    pageSize: int = 24,
+) -> dict[str, Any]:
+    return likes_store.list_liked(current_user.id, page=page, page_size=pageSize)
 
 
 @router.get("/liked/ids", response_model=IdsOut)
@@ -54,6 +67,15 @@ def me_unlike(
     submission_id: str,
 ) -> dict[str, Any]:
     return likes_store.unlike_submission(current_user.id, submission_id)
+
+
+@router.post("/liked/sync")
+def me_liked_sync(
+    current_user: CurrentUser,
+    body: SyncLikedIn,
+) -> dict[str, Any]:
+    """One-shot migrate from client-local like ids."""
+    return likes_store.sync_likes(current_user.id, body.ids or [])
 
 
 @router.get("/byok/providers", response_model=ItemsOut)

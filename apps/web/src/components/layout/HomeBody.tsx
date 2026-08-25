@@ -15,14 +15,16 @@ import {
   HiOutlineTrash,
 } from 'react-icons/hi2';
 import { LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu';
-import { Dropdown, Tooltip, Button, Dialog, message } from '@/components/base';
+import { Dropdown, Tooltip, Button, Dialog, message, Popover } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
-import AppLogo from '@/components/base/AppLogo';
 import { Icon } from '@/components/base/icon';
+import AppLogo from '@/components/base/AppLogo';
 import PlansDialog from '@/components/layout/PlansDialog';
 import UserAccountPanel, { UserAvatar } from '@/components/layout/UserAccountPanel';
 import HomeHero from '@/components/home/HomeHero';
+import RailRecentList from '@/components/layout/RailRecentList';
 import InspirationSection from '@/components/home/InspirationSection';
+import MoreSection from '@/components/home/MoreSection';
 import SkillsLibraryPanel from '@/components/home/SkillsLibraryPanel';
 import { HOME_MAIN_SHELL, HOME_MAIN_SCROLL, HOME_PROJECT_GRID } from '@/components/home/homeLayout';
 import type { HomeAgentSubmitPayload } from '@/components/home/HomeAgentComposer';
@@ -30,16 +32,11 @@ import type { OfficialCaseMeta } from '@/utils/officialCases';
 import TemplateGrid from '@/components/templates/TemplateGrid';
 import {
   flushCurrentProjectNow,
-  removeProjectFromCloud,
-  renameProjectOnCloud,
-  requestProjectFlush,
 } from '@/components/editor/useProjectCloudSync';
-import { clearProjectsLibrary, deleteTemplate, renameTemplateById } from '@/store/modules/editor';
+import { clearProjectsLibrary } from '@/store/modules/editor';
 import { apiQuery } from '@/service/client';
 import {
   clearProjectsListCache,
-  invalidateProjectsListCache,
-  patchProjectNameInListCache,
   type PaginatedProjects,
   type ProjectSummaryDto,
 } from '@/service/projects';
@@ -64,8 +61,10 @@ import { cn } from '@/utils/classnames';
 import {
   HOME_NAV_KEYS,
   homeLoginReturnPath,
+  isHomeMoreKey,
   parseHomeNavParam,
   runHomeGoNav,
+  type HomeMoreKey,
   type HomeNavKey,
 } from '@/components/layout/homeNav';
 
@@ -126,18 +125,6 @@ function mergeProjectPages(pages: unknown[] | undefined): {
     if (Number.isFinite(Number(page.total))) total = Number(page.total);
   }
   return { items, total: total || items.length };
-}
-
-const SIDEBAR_PROJECT_LIMIT = 15;
-
-function sortRecentSidebarProjects(projects: ProjectListItem[]): ProjectListItem[] {
-  return [...projects]
-    .sort(
-      (a, b) =>
-        (Number(b.openedAt) || Number(b.updatedAt) || 0) -
-        (Number(a.openedAt) || Number(a.updatedAt) || 0)
-    )
-    .slice(0, SIDEBAR_PROJECT_LIMIT);
 }
 
 function useHomeProjectsList(enabled: boolean, filterOrgId = '') {
@@ -215,6 +202,11 @@ const RAIL_NAV_ITEMS: { id: RailNavId; labelKey: string }[] = [
   { id: 'inspiration', labelKey: 'home.railInspiration' },
   { id: 'mine', labelKey: 'home.mine' },
   { id: 'skills', labelKey: 'home.railSkills' },
+];
+
+const RAIL_MORE_ITEMS: { id: HomeMoreKey; labelKey: string; icon: string }[] = [
+  { id: 'assets', labelKey: 'home.railAssets', icon: 'home-rail-assets' },
+  { id: 'liked', labelKey: 'home.railLiked', icon: 'home-rail-likes' },
 ];
 
 /** Per-nav glyph size — tuned per icon artwork. */
@@ -349,6 +341,74 @@ function RailItem({
   );
 }
 
+/** 「更多」— click opens secondary flyout (资产 / 喜欢), like fig.2. */
+function RailMoreFlyout({
+  expanded,
+  activeMore,
+  onPick,
+}: {
+  expanded: boolean;
+  activeMore: boolean;
+  onPick: (id: HomeMoreKey) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  const trigger = (
+    <div
+      aria-label={t('home.railMore')}
+      aria-expanded={open}
+      aria-haspopup="menu"
+      className={cn(
+        'group flex shrink-0 cursor-pointer items-center transition-colors',
+        expanded ? cn('h-10 w-full rounded-[10px]', RAIL_INSET_X, RAIL_ROW_GAP) : cn('mx-auto justify-center', RAIL_NAV_HIT),
+        railItemTone(activeMore || open)
+      )}
+    >
+      <span className={RAIL_ICON_SLOT}>
+        <Icon name="home-rail-more" className="h-[18px] w-[18px]" />
+      </span>
+      {expanded ? (
+        <span className="min-w-0 truncate text-[13px] font-medium leading-none tracking-tight">
+          {t('home.railMore')}
+        </span>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <Popover
+      trigger="click"
+      position="right-start"
+      open={open}
+      onOpenChange={setOpen}
+      className={cn('!block', expanded ? 'w-full' : 'inline-flex justify-center')}
+      btnClassName="!m-0 !block !h-auto !w-full !rounded-none !border-0 !bg-transparent !p-0"
+      btnElement={trigger}
+      popupClassName="!z-[520] !rounded-2xl !border-0 !bg-[var(--surface)] !p-1.5 !shadow-[0_12px_40px_rgba(15,23,42,0.14)] !ring-1 !ring-[var(--line)]"
+      htmlContent={
+        <div role="menu" aria-label={t('home.railMore')} className="flex min-w-[9.5rem] flex-col gap-0.5">
+          {RAIL_MORE_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onPick(item.id);
+              }}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium text-[var(--ink)] transition hover:bg-[color-mix(in_srgb,var(--ink)_5%,var(--surface))]"
+            >
+              <Icon name={item.icon} className="h-[18px] w-[18px] shrink-0" />
+              <span className="truncate">{t(item.labelKey)}</span>
+            </button>
+          ))}
+        </div>
+      }
+    />
+  );
+}
+
 /** Collapsed: logo → hover reveals expand icon (fig.2). Expanded: brand + collapse (fig.1). */
 function RailBrandHeader({
   expanded,
@@ -365,16 +425,13 @@ function RailBrandHeader({
     return (
       <div
         className={cn(
-          'mb-3 flex h-10 w-full shrink-0 items-center',
+          'mb-[16px] flex h-8 w-full shrink-0 items-center',
           RAIL_INSET_X,
           RAIL_ROW_GAP
         )}
       >
-        <span className={RAIL_ICON_SLOT}>
-          <AppLogo size={20} />
-        </span>
         <span
-          className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-none tracking-tight text-[var(--ink)] [font-family:var(--font-hero)]"
+          className="min-w-0 flex-1 truncate text-[20px] font-semibold leading-none tracking-tight text-[var(--ink)] [font-family:var(--font-hero)]"
           aria-hidden
         >
           {t('app.name')}
@@ -394,7 +451,7 @@ function RailBrandHeader({
   }
 
   return (
-    <div className="mb-3 flex shrink-0 justify-center">
+    <div className="mb-[16px] flex shrink-0 justify-center">
       <Tooltip
         tip={t('home.railExpand')}
         placement="right"
@@ -405,307 +462,16 @@ function RailBrandHeader({
           type="button"
           aria-label={t('home.railExpand')}
           onClick={onExpand}
-          className="group relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_4%,var(--rail))]"
+          className="group relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[color-mix(in_srgb,var(--ink)_4%,var(--rail))]"
         >
           <span className="flex items-center justify-center transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
-            <AppLogo size={26} />
+            <AppLogo size={20} />
           </span>
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[var(--ink)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
             <LuPanelLeftOpen className="h-[18px] w-[18px]" strokeWidth={1.75} aria-hidden />
           </span>
         </button>
       </Tooltip>
-    </div>
-  );
-}
-
-function RailProjectsList({
-  expanded,
-  projects,
-  loading,
-  onOpenProject,
-  onCreate,
-}: {
-  expanded: boolean;
-  projects: ProjectListItem[];
-  loading?: boolean;
-  onOpenProject: (id: string) => void;
-  onCreate: () => void;
-}) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const currentId = useSelector((s: any) => s.editor?.currentId as string | null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<ProjectListItem | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const editInputRef = useRef<HTMLInputElement>(null);
-  const cancelingEditRef = useRef(false);
-
-  const recent = useMemo(() => sortRecentSidebarProjects(projects), [projects]);
-
-  useEffect(() => {
-    if (!editingId) return;
-    const el = editInputRef.current;
-    if (!el) return;
-    el.focus();
-    el.select();
-  }, [editingId]);
-
-  const commitRenameFor = useCallback(
-    (item: ProjectListItem, name: string) => {
-      const next = name.trim() || t('home.untitled');
-      const id = String(item.id || '');
-      if (!id) return;
-      dispatch(renameTemplateById({ id, name: next, skipUpdatedAt: true }));
-      async function pushRename() {
-        try {
-          if (currentId === id) {
-            requestProjectFlush();
-          } else {
-            await renameProjectOnCloud(id, next);
-          }
-        } finally {
-          patchProjectNameInListCache(id, next);
-        }
-      }
-      void pushRename();
-    },
-    [currentId, dispatch, t]
-  );
-
-  const startEdit = useCallback(
-    (item: ProjectListItem) => {
-      setEditingId(String(item.id));
-      setEditDraft(item.name || t('home.untitled'));
-    },
-    [t]
-  );
-
-  const finishEdit = useCallback(
-    (item: ProjectListItem) => {
-      if (editingId !== String(item.id)) return;
-      commitRenameFor(item, editDraft);
-      setEditingId(null);
-    },
-    [commitRenameFor, editDraft, editingId]
-  );
-
-  const cancelEdit = useCallback(() => {
-    cancelingEditRef.current = true;
-    setEditingId(null);
-  }, []);
-
-  const commitDelete = useCallback(
-    async (item: ProjectListItem) => {
-      const id = String(item.id || '');
-      if (!id) return;
-      try {
-        await removeProjectFromCloud(id);
-        dispatch(deleteTemplate(id));
-        invalidateProjectsListCache();
-        refreshHomeProjectsList();
-        message.destructive(t('common.delete'));
-      } catch {
-        message.error(t('home.batchDeleteFailed'));
-      }
-    },
-    [dispatch, t]
-  );
-
-  const confirmDelete = useCallback(async () => {
-    if (!deleteTarget || deleting) return;
-    setDeleting(true);
-    try {
-      await commitDelete(deleteTarget);
-      setDeleteTarget(null);
-    } finally {
-      setDeleting(false);
-    }
-  }, [commitDelete, deleteTarget, deleting]);
-
-  if (!expanded) return null;
-
-  const menuItems: MenuItemType[] = [
-    {
-      key: 'rename',
-      label: (
-        <span className="inline-flex items-center gap-2">
-          <HiOutlinePencilSquare className="h-3.5 w-3.5" strokeWidth={1.5} />
-          {t('home.rename')}
-        </span>
-      ),
-    },
-    {
-      key: 'delete',
-      label: (
-        <span className="inline-flex items-center gap-2 text-red-500">
-          <HiOutlineTrash className="h-3.5 w-3.5" strokeWidth={1.5} />
-          {t('common.delete')}
-        </span>
-      ),
-    },
-  ];
-
-  return (
-    <div className="mt-4 shrink-0">
-      <div className={cn('group mb-1 flex h-8 items-center', RAIL_INSET_X)}>
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--muted)]">
-          {t('home.recent')}
-        </span>
-        <Tooltip tip={t('home.newProject')} placement="top" offset={6}>
-          <button
-            type="button"
-            aria-label={t('home.newProject')}
-            onClick={onCreate}
-            className={cn(
-              'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition',
-              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-              'hover:bg-[color-mix(in_srgb,var(--ink)_5%,var(--rail))] hover:text-[var(--ink)]'
-            )}
-          >
-            <HiOutlinePlus className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-          </button>
-        </Tooltip>
-      </div>
-      <div>
-        {loading ? (
-          <div className="space-y-0.5">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className={cn('py-1.5', RAIL_INSET_X)}>
-                <span className="block h-4 animate-pulse rounded bg-[color-mix(in_srgb,var(--ink)_5%,var(--rail))]" />
-              </div>
-            ))}
-          </div>
-        ) : recent.length === 0 ? (
-          <p className={cn('py-1.5 text-[12px] font-normal text-[var(--muted)]', RAIL_INSET_X)}>
-            {t('home.recentEmpty')}
-          </p>
-        ) : (
-          <ul className="space-y-0.5">
-            {recent.map((p) => (
-              <li key={p.id} className="group">
-                <div
-                  className={cn(
-                    'flex items-center rounded-[10px] py-1.5 transition hover:bg-[color-mix(in_srgb,var(--ink)_5%,var(--rail))]',
-                    RAIL_INSET_X
-                  )}
-                >
-                  <div
-                    className="min-w-0 flex-1"
-                    onClick={(e) => editingId === p.id && e.stopPropagation()}
-                  >
-                    {editingId === p.id ? (
-                      <input
-                        ref={editInputRef}
-                        value={editDraft}
-                        onChange={(e) => setEditDraft(e.target.value)}
-                        onBlur={() => {
-                          if (cancelingEditRef.current) {
-                            cancelingEditRef.current = false;
-                            return;
-                          }
-                          finishEdit(p);
-                        }}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            finishEdit(p);
-                          }
-                          if (e.key === 'Escape') {
-                            e.preventDefault();
-                            cancelEdit();
-                          }
-                        }}
-                        className="w-full min-w-0 truncate border-0 bg-transparent px-0 text-left text-[13px] font-medium leading-none tracking-tight text-[var(--ink)] outline-none focus:outline-none focus:ring-0"
-                        aria-label={t('home.rename')}
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => onOpenProject(p.id)}
-                        className="w-full min-w-0 truncate text-left text-[13px] font-medium leading-none tracking-tight text-[var(--ink)]/80 transition group-hover:text-[var(--ink)]"
-                      >
-                        {p.name || t('home.untitled')}
-                      </button>
-                    )}
-                  </div>
-                  <div
-                    className="shrink-0 pl-1"
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <Dropdown
-                      trigger="click"
-                      placement="bottom-end"
-                      offset={4}
-                      items={menuItems}
-                      onClick={(key) => {
-                        if (key === 'rename') startEdit(p);
-                        if (key === 'delete') setDeleteTarget(p);
-                      }}
-                      floatingClassName="z-[600]"
-                      popupClassName="min-w-[9.5rem] rounded-xl !bg-[var(--surface)] p-1.5 shadow-[0_8px_28px_rgba(15,23,42,0.14)] ring-1 ring-[var(--line)]"
-                    >
-                      <button
-                        type="button"
-                        aria-label={t('common.more')}
-                        className={cn(
-                          'flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] transition',
-                          'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-                          'hover:bg-[color-mix(in_srgb,var(--ink)_6%,var(--rail))] hover:text-[var(--ink)]'
-                        )}
-                      >
-                        <HiOutlineEllipsisHorizontal className="h-4 w-4" aria-hidden />
-                      </button>
-                    </Dropdown>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <Dialog
-        show={Boolean(deleteTarget)}
-        onClose={() => {
-          if (deleting) return;
-          setDeleteTarget(null);
-        }}
-        width={400}
-        title={t('home.deleteProjectConfirmTitle')}
-        titleClassName="!text-[16px] !font-semibold !pb-2"
-        className="!bg-[var(--surface)] !p-5"
-        footer={
-          <>
-            <Button
-              size="small"
-              type="default"
-              disabled={deleting}
-              onClick={() => setDeleteTarget(null)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              size="small"
-              type="primary"
-              destructive
-              disabled={deleting}
-              onClick={() => void confirmDelete()}
-            >
-              {t('common.delete')}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-[13px] leading-relaxed text-[var(--muted)]">
-          {t('home.deleteProjectConfirmBody', {
-            name: deleteTarget?.name?.trim() || t('home.untitled'),
-          })}
-        </p>
-      </Dialog>
     </div>
   );
 }
@@ -904,9 +670,8 @@ function HomeSidebar({
       {!desktop ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex h-20 items-start bg-gradient-to-b from-[var(--surface)] from-60% to-transparent pt-4 px-4 md:hidden">
           <div className="pointer-events-auto inline-flex min-w-0 items-center gap-2 leading-none">
-            <AppLogo size={22} />
             <span
-              className="-translate-y-px truncate text-[15px] font-medium leading-none tracking-tight text-[var(--ink)] [font-family:var(--font-hero)]"
+              className="-translate-y-px truncate text-[20px] font-semibold leading-none tracking-tight text-[var(--ink)] [font-family:var(--font-hero)]"
               aria-hidden
             >
               {t('app.name')}
@@ -923,7 +688,7 @@ function HomeSidebar({
       >
         <div className="pointer-events-auto flex h-full flex-col overflow-hidden bg-[var(--rail)]">
           <div className="rail-sidebar-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-            <div className={cn('sticky top-0 z-10 shrink-0 bg-[var(--rail)] pt-3', railSidePadding(expanded))}>
+            <div className={cn('sticky top-0 z-10 shrink-0 bg-[var(--rail)] pt-2', railSidePadding(expanded))}>
               <RailBrandHeader
                 expanded={expanded}
                 onExpand={() => setExpanded(true)}
@@ -949,15 +714,21 @@ function HomeSidebar({
                     icon={<RailNavIcon id={id} />}
                   />
                 ))}
+                <RailMoreFlyout
+                  expanded={expanded}
+                  activeMore={isHomeMoreKey(nav)}
+                  onPick={(id) => goNav(id)}
+                />
               </nav>
 
               {authed ? (
-                <RailProjectsList
+                <RailRecentList
                   expanded={expanded}
                   projects={projectsList.items}
                   loading={sidebarProjectsLoading}
                   onOpenProject={openProject}
                   onCreate={onCreate}
+                  onProjectDeleted={refreshHomeProjectsList}
                 />
               ) : null}
             </div>
@@ -995,10 +766,10 @@ function HomeTemplateList({
   const onProjectsSurfaceRef = useRef(false);
   const skippedInitialProjectsRefreshRef = useRef(false);
 
-  /** Guest must not stay on Projects / Skills — bounce home + open login. */
+  /** Guest must not stay on Projects / Skills / More sub-pages — bounce home + open login. */
   useEffect(() => {
     if (authed) return;
-    if (nav !== 'mine' && nav !== 'skills') return;
+    if (nav !== 'mine' && nav !== 'skills' && nav !== 'assets' && nav !== 'liked') return;
     const returnTo = homeLoginReturnPath(parseHomeNavParam(nav));
     setNav('home');
     navigate(buildLoginUrl(returnTo));
@@ -1006,6 +777,8 @@ function HomeTemplateList({
 
   const showMine = nav === 'mine' && Boolean(authed);
   const showSkills = nav === 'skills' && Boolean(authed);
+  const showAssets = nav === 'assets' && Boolean(authed);
+  const showLiked = nav === 'liked' && Boolean(authed);
   const showInspiration = nav === 'inspiration';
   const showHome = nav === 'home';
   const projectsListEnabled = Boolean(authed && (showHome || showMine));
@@ -1124,6 +897,17 @@ function HomeTemplateList({
         </main>
       ) : null}
 
+      {showAssets || showLiked ? (
+        <main className={HOME_MAIN_SCROLL}>
+          <div className={HOME_MAIN_INSET}>
+            <MoreSection
+              section={showAssets ? 'assets' : 'liked'}
+              onOpenCase={onOpenCase}
+            />
+          </div>
+        </main>
+      ) : null}
+
       {showMine ? (
         <main className={HOME_MAIN_SCROLL}>
           <div className={cn(HOME_MAIN_INSET, 'space-y-8')}>
@@ -1175,7 +959,7 @@ function HomeTemplateList({
           <div
             className={cn(
               HOME_MAIN_INSET,
-              'flex h-full min-h-[min(100%,calc(100dvh-5rem))] w-full flex-1 flex-col items-center justify-start pt-[calc(14vh+50px)] sm:pt-[calc(16vh+50px)]'
+              'flex w-full flex-1 flex-col items-center justify-start pb-10 pt-[calc(14vh+50px)] sm:pt-[calc(16vh+50px)]'
             )}
           >
             <HomeHero onSubmit={onAgentSubmit} />

@@ -882,7 +882,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     <>
       <AgentComposerShell
         className={cn(
-          'h-full min-h-0 w-full overflow-hidden border-0 bg-transparent shadow-none',
+          'h-auto min-h-0 w-full overflow-visible border-0 bg-transparent shadow-none',
           className
         )}
         inputRef={inputRef}
@@ -903,7 +903,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
             : t('agent.uploadImage')
         }
         sendVariant="circle"
-        sendTone="cta"
+        sendTone="ink"
         compact
         showInteractionModePicker
         allowedInteractionModes={['agent', 'image', 'video']}
