@@ -1,27 +1,27 @@
-<p align="center">
+<div align="center">
   <img src="docs/assets/zuoge-wordmark.png" alt="左格（zuoge）" height="56" />
-</p>
 
-<p align="center">
-  <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
-  <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
-  <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
-</p>
+  <p>
+    <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
+    <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
+    <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
+  </p>
 
-<p align="center">
-  <a href="docs/self-hosting.md"><img src="https://img.shields.io/badge/self--host-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Self-host" /></a>
-  <a href="apps/web"><img src="https://img.shields.io/badge/web-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
-  <a href="apps/api"><img src="https://img.shields.io/badge/api-FastAPI%20%2B%20Python-3776AB?logo=python&logoColor=white" alt="Python" /></a>
-  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-green.svg" alt="Security" /></a>
-</p>
+  <p>
+    <a href="docs/self-hosting.md"><img src="https://img.shields.io/badge/self--host-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Self-host" /></a>
+    <a href="apps/web"><img src="https://img.shields.io/badge/web-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
+    <a href="apps/api"><img src="https://img.shields.io/badge/api-FastAPI%20%2B%20Python-3776AB?logo=python&logoColor=white" alt="Python" /></a>
+    <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-green.svg" alt="Security" /></a>
+  </p>
 
-<p align="center">
-  <a href="README.md"><img src="docs/assets/lang-en.png" alt="English" height="28" /></a>
-  &nbsp;
-  <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.png" alt="简体中文" height="28" /></a>
-  &nbsp;
-  <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
-</p>
+  <p>
+    <a href="README.md"><img src="docs/assets/lang-en.png" alt="English" height="28" /></a>
+    &nbsp;
+    <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.png" alt="简体中文" height="28" /></a>
+    &nbsp;
+    <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
+  </p>
+</div>
 
 **左格（zuoge）** は **AI Native の無限ベクターキャンバス**です。Web キャンバスからデスクトップ、Design Agent、バックエンド、共同編集、プライベートデプロイ、自動テストまで、フルループの商用グレード製品です。
 
