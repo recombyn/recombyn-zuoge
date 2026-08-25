@@ -1,4 +1,4 @@
-# Self-hosting Recombyn
+# Self-hosting zuoge
 
 You can run the full product on your own machine or server: web canvas, Design Agent, API, collab, and a database.
 
@@ -320,7 +320,7 @@ Platform credits are controlled by **`WALLET_BILLING_ENABLED`** (API env; **defa
 | `false` (default) | No holds/charges. UI hides balance chip, Plans, redeem, Usage & billing, and send-button credit chips. Bring your own LLM keys. |
 | `true` | SaaS-style wallet (plans, card keys, daily free quota, credit estimates in the editor). |
 
-This is **not** a Recombyn Cloud subscription — you own the switch on your instance. Local desktop (`DESKTOP_LOCAL_AUTO_LOGIN`) always skips billing regardless of the env flag.
+This is **not** a zuoge Cloud subscription — you own the switch on your instance. Local desktop (`DESKTOP_LOCAL_AUTO_LOGIN`) always skips billing regardless of the env flag.
 
 Cloud / SaaS deploys must set `WALLET_BILLING_ENABLED=true` explicitly.
 

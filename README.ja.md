@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="docs/assets/zuoge-wordmark.png" alt="左格（zuoge）" height="56" />
+</p>
+
+<p align="center">
   <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
   <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
   <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
@@ -31,7 +35,7 @@
 
 オープンソースは時間がかかります。左格（zuoge） が役に立ったら、右上の **⭐ Star** をお願いします。
 
-→ [https://github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
+→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## キャンバス
 
@@ -143,7 +147,7 @@ node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
 ## クイックスタート（セルフホスト）
 
 ```bash
-git clone https://github.com/recombyn/recombyn-zuoge.git
+git clone https://github.com/recombyn/zuoge.git
 cd recombyn
 cp apps/api/.env.example apps/api/.env   # LLM_API_KEY / プロバイダキーを設定
 docker compose up -d --build
@@ -219,4 +223,4 @@ e2e/               Playwright
 | Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
 | コントリビュート · セキュリティ · CoC | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 
-公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
+公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)

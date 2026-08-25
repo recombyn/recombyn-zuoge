@@ -1,4 +1,4 @@
-# Recombyn Protocol (Apache-2.0)
+# zuoge Protocol (Apache-2.0)
 
 Stable **open** contracts for Design Runtime and `intelligence-client`.
 

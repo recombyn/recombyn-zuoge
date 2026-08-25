@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="docs/assets/zuoge-wordmark.png" alt="左格" height="56" />
+</p>
+
+<p align="center">
   <a href="docs/self-hosting.md"><strong>自托管</strong></a> ·
   <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
   <a href="https://recombyn.github.io/recombyn/"><strong>文档</strong></a>
@@ -30,7 +34,7 @@
 
 开源不易，如果觉得左格对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
 
-→ [https://github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
+→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## 画布
 
@@ -144,7 +148,7 @@ node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
 ## 快速开始（自托管）
 
 ```bash
-git clone https://github.com/recombyn/recombyn-zuoge.git
+git clone https://github.com/recombyn/zuoge.git
 cd recombyn
 cp apps/api/.env.example apps/api/.env   # 填入 LLM_API_KEY 等
 docker compose up -d --build
@@ -222,4 +226,4 @@ e2e/               Playwright
 | Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
 | 贡献 · 安全 · 行为准则 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 
-官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
+官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
