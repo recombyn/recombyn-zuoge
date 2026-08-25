@@ -167,13 +167,12 @@ function MockupPlate({
   }, [imageToolCaps?.mockup?.templates, t]);
 
   const [kit, setKit] = useState<MockupTemplateKit | null>(null);
-  const [kitBusy, setKitBusy] = useState(false);
-  const [kitError, setKitError] = useState(false);
   const [designSrc, setDesignSrc] = useState<string | null>(null);
   const [placement, setPlacement] = useState<MockupPlacement>(() => defaultMockupPlacement());
   const [designSelected, setDesignSelected] = useState(false);
   const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const placementRef = useRef(placement);
   const designSrcRef = useRef(designSrc);
@@ -194,8 +193,6 @@ function MockupPlate({
   // Load UV kit once per template (surface mapping — not per-drag render).
   useEffect(() => {
     let cancelled = false;
-    setKitBusy(true);
-    setKitError(false);
     void (async () => {
       const load = async () => {
         const next = await fetchMockupTemplateKit(template.id, KIT_SCALE);
@@ -211,14 +208,17 @@ function MockupPlate({
           maskUrl: next.mask,
           uv: next.uv,
         });
-        setLivePreviewUrl(previewRef.current.toDataURL());
-        setKitError(false);
+        // Never paint kit.base over the user's plate — composite only after design.
+        if (designSrcRef.current) {
+          setLivePreviewUrl(previewRef.current.toDataURL());
+        } else {
+          setLivePreviewUrl(null);
+        }
       };
       try {
         await load();
       } catch (firstErr) {
         console.warn('[mockup] kit', firstErr);
-        // One retry — kit is large and first hit after intel restart can flake.
         try {
           await new Promise((r) => window.setTimeout(r, 600));
           if (cancelled) return;
@@ -227,11 +227,8 @@ function MockupPlate({
           if (cancelled) return;
           console.warn('[mockup] kit retry', err);
           setKit(null);
-          setKitError(true);
           message.error(mockupErrorMessage(err, t('editor.imageToolbar.mockupPreviewFailed')));
         }
-      } finally {
-        if (!cancelled) setKitBusy(false);
       }
     })();
     return () => {
@@ -246,9 +243,9 @@ function MockupPlate({
     };
   }, []);
 
-  // Hide SVG underlay only while the HTML overlay has pixels to show.
-  // If kit failed / preview empty, keep the scene node visible (avoids blank plate).
-  const overlayOwnsPixels = Boolean(livePreviewUrl || kit?.base);
+  // Hide SVG underlay only while a design composite covers the plate.
+  // Never replace the original image with bare kit.base / mask chrome.
+  const overlayOwnsPixels = Boolean(designSrc && livePreviewUrl);
   useEffect(() => {
     if (!nodeId || !overlayOwnsPixels) return;
     const root = globalThis.document;
@@ -282,9 +279,21 @@ function MockupPlate({
     } else {
       setDesignSrc(null);
       setPlacement(defaultMockupPlacement());
+      // Restore original plate if a previous bake overwrote src.
+      const baseSrc = String(node?.attrs?.mockupBaseSrc || '').trim();
+      const curSrc = String(node?.attrs?.src || '').trim();
+      if (baseSrc && curSrc && baseSrc !== curSrc) {
+        dispatch(
+          patchDocumentNode({
+            nodeId,
+            patch: { attrs: { src: baseSrc } },
+            skipHostReload: true,
+          })
+        );
+      }
     }
     setDesignSelected(false);
-  }, [nodeId, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement]);
+  }, [dispatch, nodeId, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement, node?.attrs?.mockupBaseSrc, node?.attrs?.src]);
 
   // Toolbar "样机" again → enter FE adjust (no API).
   useEffect(() => {
@@ -354,7 +363,7 @@ function MockupPlate({
   }, [kit, template.width, template.height]);
 
   const assignDesignSrc = useCallback(
-    async (src: string, autoSelect = true) => {
+    async (src: string, autoSelect = false) => {
       const url = String(src || '').trim();
       if (!url) return;
       try {
@@ -377,14 +386,9 @@ function MockupPlate({
     setDesignSrc(null);
     setPlacement(defaultMockupPlacement());
     setDesignSelected(false);
-    void (async () => {
-      try {
-        await previewRef.current?.setDesignSheet(null);
-        setLivePreviewUrl(previewRef.current?.toDataURL() || kit?.base || null);
-      } catch {
-        setLivePreviewUrl(kit?.base || null);
-      }
-    })();
+    setLivePreviewUrl(null);
+    void previewRef.current?.setDesignSheet(null).catch(() => undefined);
+    const baseSrc = String(node?.attrs?.mockupBaseSrc || '').trim();
     dispatch(
       patchDocumentNode({
         nodeId,
@@ -393,30 +397,15 @@ function MockupPlate({
             mockupDesignSrc: '',
             mockupPlacement: '',
             mockupTemplateId: template.id,
+            ...(baseSrc ? { src: baseSrc } : {}),
           },
         },
         skipHostReload: true,
       })
     );
-  }, [dispatch, kit?.base, nodeId, template.id]);
+  }, [dispatch, node?.attrs?.mockupBaseSrc, nodeId, template.id]);
 
-  const refitDesign = useCallback(() => {
-    const src = designSrcRef.current;
-    if (!src) return;
-    void (async () => {
-      try {
-        const { width, height } = await loadImageNaturalSize(src);
-        const fit = autoFitMockupPlacement(width, height, printForFit);
-        setPlacement(fit);
-        setDesignSelected(true);
-        persistPlacement(fit, src);
-        await refreshLivePreview(fit, src);
-      } catch (err) {
-        console.warn('[mockup] refit', err);
-        message.error(t('editor.imageToolbar.mockupFailed'));
-      }
-    })();
-  }, [persistPlacement, printForFit, refreshLivePreview, t]);
+  // Drag-in already auto-fits via assignDesignSrc — no on-canvas autofit button.
 
   // When kit arrives after design already set, rebuild preview.
   useEffect(() => {
@@ -456,7 +445,7 @@ function MockupPlate({
       absorbLockRef.current = true;
       void (async () => {
         try {
-          await assignDesignSrc(src, true);
+          await assignDesignSrc(src, false);
           dispatch(removeDocumentNodes({ nodeIds: [designId] }));
           dispatch(setSelectedNodeId(nodeId));
         } catch (err) {
@@ -526,27 +515,33 @@ function MockupPlate({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (ctxMenu) {
+          e.preventDefault();
+          setCtxMenu(null);
+          return;
+        }
         if (designSelected) {
           e.preventDefault();
           setDesignSelected(false);
         }
         return;
       }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && designSrc) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && designSrc) {
         const tag = (e.target as HTMLElement | null)?.tagName || '';
         if (/^(INPUT|TEXTAREA|SELECT)$/i.test(tag) || (e.target as HTMLElement)?.isContentEditable) {
           return;
         }
-        // Only when mockup plate or its design is the focus of selection.
+        // Plate selected (or design handles active) → remove texture, keep mockup image.
         if (selectedNodeId !== nodeId && !designSelected) return;
         e.preventDefault();
         e.stopPropagation();
+        setCtxMenu(null);
         clearDesign();
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [clearDesign, designSelected, designSrc, nodeId, selectedNodeId]);
+  }, [clearDesign, ctxMenu, designSelected, designSrc, nodeId, selectedNodeId]);
 
   const resolveDropSrc = useCallback((dt: DataTransfer | null): string | null => {
     const asset = readMediaAssetDragPayload(dt);
@@ -560,7 +555,7 @@ function MockupPlate({
     (files: FileList | null) => {
       const file = files?.[0];
       if (!file) return;
-      readImageFile(file, (url) => void assignDesignSrc(url, true));
+      readImageFile(file, (url) => void assignDesignSrc(url, false));
     },
     [assignDesignSrc]
   );
@@ -576,6 +571,29 @@ function MockupPlate({
       height: box.height * z,
     };
   }, [box, camera]);
+
+  // Right-click on plate with a texture → 「删除贴图」 (no on-canvas buttons).
+  useEffect(() => {
+    if (!designSrc || !screenRect) return;
+    const onCtx = (e: MouseEvent) => {
+      const r = screenRect;
+      if (!pointInScreenRect(e.clientX, e.clientY, r.left, r.top, r.width, r.height)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setCtxMenu({ x: e.clientX, y: e.clientY });
+      setDesignSelected(true);
+      dispatch(setSelectedNodeId(nodeId));
+    };
+    window.addEventListener('contextmenu', onCtx, true);
+    return () => window.removeEventListener('contextmenu', onCtx, true);
+  }, [designSrc, dispatch, nodeId, screenRect]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('pointerdown', close, true);
+    return () => window.removeEventListener('pointerdown', close, true);
+  }, [ctxMenu]);
 
   useEffect(() => {
     if (!screenRect) return;
@@ -602,7 +620,7 @@ function MockupPlate({
       e.preventDefault();
       const droppedUrl = resolveDropSrc(e.dataTransfer);
       if (droppedUrl) {
-        void assignDesignSrc(droppedUrl, true);
+        void assignDesignSrc(droppedUrl, false);
         return;
       }
       onFiles(e.dataTransfer?.files || null);
@@ -649,9 +667,9 @@ function MockupPlate({
   const origin = rcbSceneToScreen(camera, box.left, box.top);
   const stageW = box.width * z;
   const stageH = box.height * z;
-  const showComposite = Boolean(livePreviewUrl);
-  // Prefer live UV composite → kit base. If neither, leave transparent so the scene node stays visible.
-  const backdrop = livePreviewUrl || kit?.base || null;
+  const showComposite = Boolean(designSrc && livePreviewUrl);
+  // Only cover the original plate when we have a warped composite — never kit.base alone.
+  const backdrop = showComposite ? livePreviewUrl : null;
 
   return (
     <RcbOverlayPortal>
@@ -677,55 +695,6 @@ function MockupPlate({
             />
           ) : null}
 
-          {kitBusy ? (
-            <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-2 pt-1">
-              <span className="inline-block w-max max-w-[calc(100%-16px)] truncate whitespace-nowrap text-[11px] font-medium text-white drop-shadow">
-                {t('editor.imageToolbar.mockupPreviewLoading')}
-              </span>
-            </div>
-          ) : null}
-
-          {!kitBusy && kitError ? (
-            <div className="pointer-events-none absolute inset-x-0 top-6 flex justify-center px-2">
-              <span className="inline-block w-max max-w-[calc(100%-16px)] truncate whitespace-nowrap text-[11px] font-medium text-white drop-shadow">
-                {t('editor.imageToolbar.mockupPreviewFailed')}
-              </span>
-            </div>
-          ) : null}
-
-          {!designSrc && !kitBusy ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3">
-              <span className="inline-block w-max max-w-full truncate whitespace-nowrap rounded-md bg-black/45 px-2.5 py-1 text-[11px] font-medium text-white">
-                {t('editor.imageToolbar.mockupDropHint')}
-              </span>
-            </div>
-          ) : null}
-
-          {designSrc ? (
-            <div className="pointer-events-auto absolute inset-x-0 bottom-3 flex justify-center gap-2 px-3">
-              <button
-                type="button"
-                className="rounded-md bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-black/70"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  refitDesign();
-                }}
-              >
-                {t('editor.imageToolbar.mockupAutoFit')}
-              </button>
-              <button
-                type="button"
-                className="rounded-md bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-black/70"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clearDesign();
-                }}
-              >
-                {t('editor.imageToolbar.mockupClearDesign')}
-              </button>
-            </div>
-          ) : null}
-
           {designSrc ? (
             <MockupDesignLayer
               imageBox={box}
@@ -742,6 +711,26 @@ function MockupPlate({
             />
           ) : null}
         </div>
+
+        {ctxMenu ? (
+          <div
+            className="pointer-events-auto fixed z-[80] min-w-[140px] rounded-md border border-[var(--line)] bg-[var(--surface)] py-1 shadow-lg"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="flex w-full px-3 py-1.5 text-left text-[12px] text-[var(--ink)] hover:bg-[var(--accent-soft)]"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCtxMenu(null);
+                clearDesign();
+              }}
+            >
+              {t('editor.imageToolbar.mockupClearDesign')}
+            </button>
+          </div>
+        ) : null}
       </div>
     </RcbOverlayPortal>
   );

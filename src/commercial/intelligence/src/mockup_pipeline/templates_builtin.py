@@ -66,7 +66,8 @@ def demo_cylinder_template(
     fresnel=FresnelParams(f0=0.04, power=5.0, transparency=0.0),
     tps_control_xy=tps_xy,
     tps_control_uv=tps_uv,
-    meta={"kind": "cylinder", "width": width, "height": height, "uv_mode": "dense", "depth_warp": True},
+    meta={"kind": "cylinder", "width": width, "height": height, "uv_mode": "dense", "depth_warp": True,
+          "print": {"x": 175, "y": 212, "w": 371, "h": 574}},
   )
 
 
@@ -80,7 +81,8 @@ def demo_glass_template(
   tpl = demo_cylinder_template(width=width, height=height, template_id=template_id)
   tpl.name = "Demo glass cylinder"
   tpl.fresnel = FresnelParams(f0=0.06, power=4.5, transparency=0.78)
-  tpl.meta = {"kind": "glass", "width": width, "height": height, "uv_mode": "dense"}
+  tpl.meta = {"kind": "glass", "width": width, "height": height, "uv_mode": "dense",
+              "print": {"x": 175, "y": 212, "w": 371, "h": 574}}
   # lighter studio base for glass
   tpl.base_image = np.clip(tpl.base_image * 0.92 + 0.06, 0.0, 1.0)
   return tpl

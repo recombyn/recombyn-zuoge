@@ -27,7 +27,7 @@ def color_decontaminate(
     foreground_rgba: np.ndarray,
     strength: float = 0.65,
 ) -> np.ndarray:
-    """半透明边缘向不透明邻域颜色靠拢，减轻背景溢色。"""
+    """半透明边缘向不透明邻域颜色靠拢，减轻背景溢色与黑边。"""
     if strength <= 0:
         return foreground_rgba.copy()
 
@@ -44,18 +44,30 @@ def color_decontaminate(
     count = cv2.blur(opaque.astype(np.float32), (21, 21)) + 1e-6
     mean_rgb = cv2.blur(opaque_rgb, (21, 21)) / count[:, :, None]
 
-    fringe = (alpha[:, :, 0] > 0.02) & (alpha[:, :, 0] < 0.95)
-    blend = strength * (1.0 - alpha[:, :, 0])
+    a = alpha[:, :, 0]
+    fringe = (a > 0.02) & (a < 0.95)
+    blend = strength * (1.0 - a)
     blend = np.clip(blend, 0.0, 1.0)[:, :, None]
 
     cleaned = rgb.copy()
     cleaned[fringe] = (1.0 - blend[fringe]) * rgb[fringe] + blend[fringe] * mean_rgb[fringe]
 
+    # Dark fringe / black halo: replace with opaque neighborhood color.
+    lum = cleaned.mean(axis=2)
+    mean_lum = mean_rgb.mean(axis=2)
+    dark = fringe & (lum + 18.0 < mean_lum)
+    cleaned[dark] = mean_rgb[dark]
+
+    # Kill near-clear RGB so composites don't show black matte ghosts.
+    cleaned[a < 0.04] = 0.0
+
     out = fg.copy()
     out[:, :, :3] = np.clip(cleaned, 0, 255)
-    a = alpha[:, :, 0]
-    a_blur = cv2.GaussianBlur(a, (0, 0), sigmaX=0.8)
-    out[:, :, 3] = np.clip(a_blur * 255.0, 0, 255)
+    # Mild edge harden on weak fringe (avoids soft black halo from alpha blur).
+    a_out = a.copy()
+    weak = (a_out > 0.02) & (a_out < 0.28)
+    a_out[weak] = a_out[weak] * a_out[weak]
+    out[:, :, 3] = np.clip(a_out * 255.0, 0, 255)
     return out.astype(np.uint8)
 
 

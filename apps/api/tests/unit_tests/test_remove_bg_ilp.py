@@ -29,9 +29,11 @@ def test_remove_background_uses_ilp(monkeypatch):
     monkeypatch.setattr("app.services.vision.remove_bg.ilp_enabled", lambda: True)
 
     rgba = io.BytesIO()
-    Image.new("RGBA", (8, 8), color=(10, 20, 30, 200)).save(rgba, format="PNG")
+    # Subject-sized paint on a larger canvas — removeBg must keep full size (no trim).
+    Image.new("RGBA", (64, 48), color=(10, 20, 30, 200)).save(rgba, format="PNG")
 
-    async def fake_segment(_image, *, model="birefnet-general"):
+    async def fake_segment(_image, *, model="birefnet-general", decontaminate=0.65):
+        assert decontaminate >= 0.8
         return rgba.getvalue(), "image/png"
 
     monkeypatch.setattr("app.services.vision.remove_bg.segment_foreground_via_ilp", fake_segment)
@@ -39,4 +41,6 @@ def test_remove_background_uses_ilp(monkeypatch):
     result = asyncio.run(remove_background(_tiny_png()))
     assert result["kind"] == "removeBg"
     assert result["engine"] == "ilp:birefnet"
+    assert result["width"] == 64
+    assert result["height"] == 48
     assert str(result["image"]).startswith("data:image/png;base64,")

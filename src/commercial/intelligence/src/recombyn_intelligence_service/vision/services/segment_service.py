@@ -15,7 +15,7 @@ def segment_foreground_rgba(
     image_bytes: bytes,
     *,
     model_name: str = "",
-    decontaminate: float = 0.65,
+    decontaminate: float = 0.85,
     include_mask_bytes: bytes | None = None,
     exclude_mask_bytes: bytes | None = None,
 ) -> tuple[bytes, list[str]]:
@@ -34,6 +34,7 @@ def segment_foreground_rgba(
         decontaminate=decontaminate,
         include_mask=inc,
         exclude_mask=exc,
-        trim_output=True,
+        # Keep full HxW canvas for editor alignment / mockup placement (no auto-crop).
+        trim_output=False,
     )
     return matting_png_bytes(result), result.engines

@@ -70,7 +70,13 @@ Production cutout uses one general path. Place HR-matting ONNX (~1 GB) for best 
 
 ```bash
 python scripts/setup_commercial_models.py --hr-matting
-# or manually:
+# or manually (GitHub rembg release — may be slow/blocked in CN):
+# curl -L -o models/BiRefNet_HR-matting-epoch_135.onnx \
+#   https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet_HR-matting-epoch_135.onnx
+#
+# Hugging Face mirrors (recommended when GitHub resets):
+#   https://huggingface.co/emrikol/birefnet-matting-onnx/resolve/main/birefnet-matting.onnx
+#   https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/main/onnx/model.onnx  (~224MB lighter)
 export ILP_MATTING_ONNX=/data/models/BiRefNet_HR-matting-epoch_135.onnx
 ```
 
@@ -85,7 +91,13 @@ python scripts/benchmark_matting.py --golden-dir private-eval/matting/golden \
 
 ## Real-ESRGAN
 
-Place [RealESRGAN_x4plus.onnx](https://github.com/xinntao/Real-ESRGAN) on disk or set
+```bash
+python scripts/setup_commercial_models.py --esrgan
+# Default URL: https://huggingface.co/Meeperomi/RealESRGAN_x4-onnx/resolve/main/RealESRGAN_x4.onnx
+export ILP_ESRGAN_MODEL_PATH=/data/models/RealESRGAN_x4plus.onnx
+```
+
+Or place [RealESRGAN_x4plus.onnx](https://github.com/xinntao/Real-ESRGAN) on disk / set
 `ILP_ESRGAN_DOWNLOAD_URL` for automated fetch in your deploy pipeline.
 
 ## Health endpoint

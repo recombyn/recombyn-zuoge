@@ -29,14 +29,10 @@ def ensure_esrgan(*, force: bool = False) -> Path | None:
     dest = MODELS / "RealESRGAN_x4plus.onnx"
     if dest.is_file() and not force:
         return dest
-    url = str(os.environ.get("ILP_ESRGAN_DOWNLOAD_URL", "") or "").strip()
-    if not url:
-        print(
-            "skip Real-ESRGAN download: set ILP_ESRGAN_DOWNLOAD_URL or place "
-            f"{dest} manually",
-            file=sys.stderr,
-        )
-        return dest if dest.is_file() else None
+    # Default: community ONNX compatible with NCHW float [0,1] (same I/O as our tiled runner).
+    url = str(os.environ.get("ILP_ESRGAN_DOWNLOAD_URL", "") or "").strip() or (
+        "https://huggingface.co/Meeperomi/RealESRGAN_x4-onnx/resolve/main/RealESRGAN_x4.onnx"
+    )
     _download(url, dest)
     return dest if dest.is_file() else None
 
@@ -83,8 +79,36 @@ def ensure_hr_matting(*, force: bool = False) -> Path | None:
         return dest
 
     url = str(os.environ.get("ILP_HR_MATTING_DOWNLOAD_URL", "") or "").strip() or REMBG_HR_MATTING_URL
-    print(f"downloading HR-matting (~1GB) from rembg releases...")
-    _download(url, dest)
+    # Prefer HF-hosted mirrors when GitHub releases are unreachable (common in CN).
+    fallbacks = [
+        url,
+        "https://hf-mirror.com/emrikol/birefnet-matting-onnx/resolve/main/birefnet-matting.onnx",
+        "https://huggingface.co/emrikol/birefnet-matting-onnx/resolve/main/birefnet-matting.onnx",
+        REMBG_HR_MATTING_URL,
+    ]
+    # de-dupe while preserving order
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for u in fallbacks:
+        if u and u not in seen:
+            seen.add(u)
+            ordered.append(u)
+
+    last_err: Exception | None = None
+    for candidate in ordered:
+        try:
+            print(f"downloading HR-matting (~1GB) from {candidate} ...")
+            _download(candidate, dest)
+            if dest.is_file() and dest.stat().st_size > 100_000_000:
+                return dest
+            print(f"download too small or missing: {dest}", file=sys.stderr)
+        except Exception as err:  # noqa: BLE001
+            last_err = err
+            print(f"download failed: {err}", file=sys.stderr)
+            if dest.exists():
+                dest.unlink(missing_ok=True)
+    if last_err:
+        raise last_err
     return dest if dest.is_file() else None
 
 

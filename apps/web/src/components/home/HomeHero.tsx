@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
 import { useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ZUOGE_WORDMARK_ASPECT } from '@/components/base/AppBrandWordmark';
+import {
+  ZuogeWordmarkSvg,
+  ZUOGE_WORDMARK_ASPECT,
+} from '@/components/base/AppBrandWordmark';
 import HomeAgentComposer, {
   type HomeAgentCategory,
   type HomeAgentSubmitPayload,
@@ -46,14 +49,16 @@ function HomeHero({ onSubmit }: Props): ReactNode {
       >
         {cjk ? (
           <>
+            {/* Brand wordmark via AppBrandWordmark — sized to trailing copy. */}
             <span
-              aria-hidden
-              className="app-brand-wordmark-cjk app-brand-wordmark-mask inline-block shrink-0 self-center text-[var(--ink)]"
+              className="app-brand-wordmark-cjk inline-block shrink-0 self-center text-[var(--ink)]"
               style={{
                 height: 'calc(1em - 6px)',
                 width: `calc((1em - 6px) * ${ZUOGE_WORDMARK_ASPECT})`,
               }}
-            />
+            >
+              <ZuogeWordmarkSvg height="100%" />
+            </span>
             <span>{t('home.heroStartTitle')}</span>
           </>
         ) : (

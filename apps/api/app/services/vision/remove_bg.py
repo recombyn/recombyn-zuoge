@@ -25,21 +25,6 @@ def _png_data_url_from_pil(img: Image.Image) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-def _trim_transparent(img: Image.Image) -> Image.Image:
-    if img.mode != "RGBA":
-        img = img.convert("RGBA")
-    bbox = img.getbbox()
-    if not bbox:
-        return img
-    l, t, r, b = bbox
-    pad = 2
-    l = max(0, l - pad)
-    t = max(0, t - pad)
-    r = min(img.width, r + pad)
-    b = min(img.height, b + pad)
-    return img.crop((l, t, r, b))
-
-
 async def remove_background(
     image: str,
     *,
@@ -48,15 +33,19 @@ async def remove_background(
     """
     Cut out the main subject via intelligence BiRefNet matting.
 
+    Keeps the original canvas size (transparent outside the subject) — no bbox trim.
+
     Returns ``{ image, kind, engine, model, mode, width, height }``.
     """
     if not ilp_enabled():
         raise RuntimeError(_ILP_REQUIRED_MSG)
 
     model_name = str((meta or {}).get("segmentationModel") or "birefnet-general").strip() or "birefnet-general"
-    png_bytes, _ctype = await segment_foreground_via_ilp(image, model=model_name)
+    # Stronger edge decontaminate reduces dark fringe / black halo on hard product edges.
+    png_bytes, _ctype = await segment_foreground_via_ilp(
+        image, model=model_name, decontaminate=0.85
+    )
     rgba = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-    rgba = _trim_transparent(rgba)
     return {
         "image": _png_data_url_from_pil(rgba),
         "kind": "removeBg",

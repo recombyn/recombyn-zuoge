@@ -19,7 +19,7 @@ router = APIRouter(
 async def segment_image(
     file: UploadFile = File(...),
     model: str = Form(""),
-    decontaminate: float = Form(0.65),
+    decontaminate: float = Form(0.85),
     include_mask: UploadFile | None = File(None),
     exclude_mask: UploadFile | None = File(None),
 ):
