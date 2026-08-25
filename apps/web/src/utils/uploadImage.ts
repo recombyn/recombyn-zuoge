@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Upload helpers shared across editor / home (FormData, preview, COS key resolve).
  * HTTP endpoints live in `@/service/upload`.
  */

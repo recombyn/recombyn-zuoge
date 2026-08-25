@@ -323,6 +323,7 @@ function AssetCardMetaOverlay({
       className={cn(
         'pointer-events-none absolute inset-x-0 bottom-0',
         'bg-gradient-to-t from-black/70 via-black/35 to-transparent',
+        'opacity-0 transition-opacity duration-200 group-hover:opacity-100',
         'group-data-[dragging]:!opacity-0 group-data-[dragging]:!transition-none',
         dense ? 'px-1.5 pb-1.5 pt-6' : 'px-2 pb-2 pt-8'
       )}
