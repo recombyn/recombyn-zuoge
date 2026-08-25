@@ -99,9 +99,9 @@ def upscale_tiled(
 @lru_cache(maxsize=2)
 def _onnx_session(model_path: str):
     import onnxruntime as ort
+    from image_layer_pipeline.ort_providers import preferred_ort_providers
 
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    return ort.InferenceSession(model_path, providers=providers)
+    return ort.InferenceSession(model_path, providers=preferred_ort_providers())
 
 
 def _resolve_model_path() -> Path | None:

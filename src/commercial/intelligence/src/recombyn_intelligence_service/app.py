@@ -78,6 +78,13 @@ async def health() -> dict:
 
     models = vision_model_status()
     blocker = vision_ready_for_production()
+    ort_providers: list[str] = []
+    try:
+        from image_layer_pipeline.ort_providers import preferred_ort_providers
+
+        ort_providers = preferred_ort_providers()
+    except Exception:
+        ort_providers = []
     return {
         "status": "ok" if not blocker else "degraded",
         "service": "recombyn-intelligence",
@@ -87,6 +94,7 @@ async def health() -> dict:
             "queue": queue_stats(),
             "flux": flux_available(),
             "models": models,
+            "ort_providers": ort_providers,
         },
         "mockup": {
             "enabled": True,

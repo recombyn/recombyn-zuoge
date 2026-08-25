@@ -42,20 +42,22 @@ def _resolve_decoder_path() -> Path | None:
 @lru_cache(maxsize=1)
 def _encoder_session():
     import onnxruntime as ort
+    from image_layer_pipeline.ort_providers import preferred_ort_providers
 
     return ort.InferenceSession(
         str(_resolve_encoder_path()),
-        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        providers=preferred_ort_providers(),
     )
 
 
 @lru_cache(maxsize=1)
 def _decoder_session():
     import onnxruntime as ort
+    from image_layer_pipeline.ort_providers import preferred_ort_providers
 
     return ort.InferenceSession(
         str(_resolve_decoder_path()),
-        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        providers=preferred_ort_providers(),
     )
 
 
