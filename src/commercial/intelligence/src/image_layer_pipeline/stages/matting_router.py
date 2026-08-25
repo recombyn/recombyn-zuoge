@@ -22,6 +22,15 @@ BUILTIN_MODELS = frozenset(
     }
 )
 
+# Client/BFF often send these rembg keys; prefer local precision ONNX instead of a ~1GB download.
+_PRECISION_ONNX_ALIASES = frozenset(
+    {
+        "birefnet-general",
+        "birefnet-general-lite",
+        "ben_custom",
+    }
+)
+
 SCENE_ALIASES: dict[str, str] = {
     "portrait": "general",
     "hair": "general",
@@ -170,8 +179,9 @@ def resolve_matting_route(
             use_precision_onnx=use_precision_onnx,
             production_fallback=production_fallback,
         )
-        if explicit_model == "ben_custom":
-            if not onnx_path:
+        # Prefer local ILP_MATTING_ONNX over rembg's birefnet-general network fetch.
+        if explicit_model in _PRECISION_ONNX_ALIASES:
+            if not onnx_path and explicit_model == "ben_custom":
                 onnx_path = _resolve_onnx_path(
                     preset_env=preset_env,
                     explicit="",
@@ -184,6 +194,10 @@ def resolve_matting_route(
                     model="ben_custom",
                     decontaminate=strength,
                     custom_onnx=onnx_path,
+                )
+            if explicit_model == "ben_custom":
+                raise ValueError(
+                    "ben_custom requires a local ONNX (set ILP_MATTING_ONNX or pass custom_onnx)"
                 )
         return _make_route(
             scene=_route_scene_label(norm_scene),

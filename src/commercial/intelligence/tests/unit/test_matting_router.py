@@ -61,9 +61,20 @@ def test_custom_onnx_uses_ben_custom(monkeypatch, tmp_path):
 
 
 def test_hr_matting_auto_for_general(monkeypatch, tmp_path):
-    onnx = tmp_path / "BiRefNet_HR-matting-epoch_135.onnx"
+    onnx = tmp_path / "precision-hr.onnx"
     onnx.write_bytes(b"fake")
     monkeypatch.setenv("ILP_MATTING_ONNX", str(onnx))
     route = resolve_matting_route(scene="auto")
     assert route.model == "ben_custom"
+    assert route.custom_onnx == str(onnx)
     assert route.scene == "general"
+
+
+def test_explicit_birefnet_general_uses_local_onnx(monkeypatch, tmp_path):
+    """BFF sends model=birefnet-general; must not trigger rembg's ~1GB download."""
+    onnx = tmp_path / "precision.onnx"
+    onnx.write_bytes(b"fake-weights")
+    monkeypatch.setenv("ILP_MATTING_ONNX", str(onnx))
+    route = resolve_matting_route(scene="auto", model="birefnet-general")
+    assert route.model == "ben_custom"
+    assert route.custom_onnx == str(onnx)

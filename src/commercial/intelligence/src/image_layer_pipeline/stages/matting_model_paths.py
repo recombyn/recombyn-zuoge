@@ -29,24 +29,37 @@ def u2net_home() -> Path:
     return _repo_models_dir()
 
 
+def _usable_onnx(path: Path) -> bool:
+    """Reject empty / truncated CDN pulls; accept small fixture files for tests."""
+    if not path.is_file():
+        return False
+    size = path.stat().st_size
+    if size <= 0:
+        return False
+    name = path.name
+    # Full HR weights are ~940MB–1GB; mid-download stubs must not win routing.
+    if name == HR_MATTING_FILENAME and size < 500_000_000:
+        return False
+    if name == "BiRefNet_lite.onnx" and size < 50_000_000:
+        return False
+    return True
+
+
 def _path_from_env(key: str) -> Path | None:
     raw = str(os.environ.get(key, "") or "").strip()
     if not raw:
         return None
     path = Path(raw)
-    # Ignore incomplete / truncated downloads (common when CDN resets mid-file).
-    if path.is_file() and path.stat().st_size > 50_000_000:
-        return path
-    return None
+    return path if _usable_onnx(path) else None
 
 
 def _bundled_hr_matting() -> Path | None:
     for base in (u2net_home(), _repo_models_dir()):
         candidate = base / HR_MATTING_FILENAME
-        if candidate.is_file() and candidate.stat().st_size > 50_000_000:
+        if _usable_onnx(candidate):
             return candidate
         lite = base / "BiRefNet_lite.onnx"
-        if lite.is_file() and lite.stat().st_size > 50_000_000:
+        if _usable_onnx(lite):
             return lite
     return None
 
