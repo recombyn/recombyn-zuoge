@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/zuoge-wordmark.png" alt="左格（zuoge）" height="140" />
+  <img src="docs/assets/zuoge-wordmark-en.png" alt="zuoge" height="140" />
 
   <p>
     <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
@@ -23,7 +23,7 @@
   </p>
 </div>
 
-**左格（zuoge）** は **AI Native の無限ベクターキャンバス**です。Web キャンバスからデスクトップ、Design Agent、バックエンド、共同編集、プライベートデプロイ、自動テストまで、フルループの商用グレード製品です。
+**zuoge** は **AI Native の無限ベクターキャンバス**です。Web キャンバスからデスクトップ、Design Agent、バックエンド、共同編集、プライベートデプロイ、自動テストまで、フルループの商用グレード製品です。
 
 内蔵 Design Agent（LangGraph）：自然言語でレイヤー作成・図形・スタイル・組版ができます。Skill を同梱しつつ、カスタム Skill / AgentProfile（YAML）/ プロンプトパックも追加でき、ポスター・ダッシュボード・LP など品類を広げたあと、ベクター精度で編集できます。
 
@@ -33,7 +33,7 @@
 
 ## GitHub で ⭐ Star を
 
-オープンソースは時間がかかります。左格（zuoge） が役に立ったら、右上の **⭐ Star** をお願いします。
+オープンソースは時間がかかります。zuoge が役に立ったら、右上の **⭐ Star** をお願いします。
 
 → [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
@@ -196,7 +196,7 @@ npm run build:desktop:cloud
 
 ```
 apps/web/          React キャンバス + Agent UI + Yjs クライアント
-  src-tauri/       Tauri v2 デスクトップシェル（左格（zuoge））
+  src-tauri/       Tauri v2 デスクトップシェル（zuoge）
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket サーバー（y-websocket）
 plugins/           拡張（skills + canvas）— Compose マウント
