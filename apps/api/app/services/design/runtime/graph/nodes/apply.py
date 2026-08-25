@@ -266,6 +266,7 @@ async def _node_apply_confirm(state: GraphState) -> Command:
         policy="auto",
         rules=rt.rules,
         trace_id=st.trace_id,
+        user_id=rt.user_id,
         on_progress=lambda progress, status: _emit_hydrate_job_progress(
             rt, progress, status
         ),
@@ -443,6 +444,7 @@ async def _node_action(state: GraphState) -> Command:
         policy="auto",
         rules=rt.rules,
         trace_id=st.trace_id,
+        user_id=rt.user_id,
         on_progress=lambda progress, status: _emit_hydrate_job_progress(
             rt, progress, status
         ),

@@ -56,7 +56,7 @@ async def execute_image_generate(
     images: list[str] | None = None,
     credits_charged: int = 0,
 ) -> dict[str, Any]:
-    """Generate + best-effort rehost. Credits must already be charged."""
+    """Generate, rehost to user assets storage, return storable URLs."""
     from app.services.assets import create_asset_from_url
     from app.services.llm import reset_byok_user_id, set_byok_user_id
     from app.services.llm.image import generate_image
@@ -80,25 +80,32 @@ async def execute_image_generate(
     finally:
         reset_byok_user_id(byok_token)
 
+    image_urls = [
+        u.strip()
+        for u in (result.get("images") or [])
+        if isinstance(u, str) and u.strip()
+    ]
+    if not image_urls:
+        raise RuntimeError("image generation returned no images")
+
     assets_out: list[dict[str, Any]] = []
-    for img_url in result.get("images") or []:
-        if not isinstance(img_url, str) or not img_url.strip():
-            continue
-        try:
-            asset = create_asset_from_url(
+    for src in image_urls:
+        assets_out.append(
+            create_asset_from_url(
                 user_id,
-                img_url.strip(),
+                src,
                 kind="image",
                 source="ai_image",
                 prompt=prompt.strip(),
             )
-            assets_out.append(asset)
-        except Exception as err:  # noqa: BLE001 — keep raw CDN url when rehost fails
-            _log.warning("image rehost failed (%s): %s", type(err).__name__, err)
-            continue
-    if assets_out:
-        return {**result, "assets": assets_out}
-    return result
+        )
+
+    stored_urls = [str(a.get("url") or "").strip() for a in assets_out]
+    stored_urls = [u for u in stored_urls if u]
+    if len(stored_urls) != len(image_urls):
+        raise RuntimeError("image asset storage incomplete")
+
+    return {**result, "images": stored_urls, "assets": assets_out}
 
 
 @router.post("/jobs", response_model=ImageJobCreateResponse)

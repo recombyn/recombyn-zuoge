@@ -233,6 +233,7 @@ async function waitForMediaJobViaSse<TResult>(
         try {
           job = JSON.parse(ev.data) as MediaJobState<TResult>;
         } catch {
+          finish(() => reject(new Error('Invalid media job event payload')));
           return;
         }
         try {

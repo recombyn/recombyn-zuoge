@@ -58,23 +58,20 @@ def expand_table_to_cells(
     """
     crop, ox, oy = _crop_bgr(img_bgr, block)
     if crop is None:
-        return []
+        raise ValueError("invalid table crop region")
 
     try:
         import cv2
-    except ImportError:
-        return []
+    except ImportError as err:
+        raise RuntimeError("opencv required for table OCR") from err
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp) / "table.png"
         cv2.imwrite(str(tmp_path), crop)
-        try:
-            local_blocks = ocr_image(tmp_path, page_index=0, lang=lang)
-        except Exception:
-            return []
+        local_blocks = ocr_image(tmp_path, page_index=0, lang=lang)
 
     if not local_blocks:
-        return []
+        raise RuntimeError("table OCR produced no cells")
 
     # Map crop-local → page coords
     cells: list[dict[str, Any]] = []

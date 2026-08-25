@@ -44,13 +44,17 @@ def test_remove_background_uses_ilp(monkeypatch):
         return rgba.getvalue(), "image/png"
 
     monkeypatch.setattr("app.services.vision.remove_bg.segment_foreground_via_ilp", fake_segment)
+    monkeypatch.setattr(
+        "app.services.vision.remove_bg.rehost_image_bytes",
+        lambda _uid, data, **kwargs: "https://cdn.example/removeBg.png",
+    )
 
-    result = asyncio.run(remove_background(_tiny_png()))
+    result = asyncio.run(remove_background(_tiny_png(), user_id="u1"))
     assert result["kind"] == "removeBg"
     assert result["engine"] == "ilp:birefnet"
     assert result["width"] == 64
     assert result["height"] == 48
-    assert str(result["image"]).startswith("data:image/png;base64,")
+    assert str(result["image"]).startswith("https://cdn.example/")
 
 
 def test_remove_background_forwards_brush_masks(monkeypatch):
@@ -67,6 +71,10 @@ def test_remove_background_forwards_brush_masks(monkeypatch):
         return rgba.getvalue(), "image/png"
 
     monkeypatch.setattr("app.services.vision.remove_bg.segment_foreground_via_ilp", fake_segment)
+    monkeypatch.setattr(
+        "app.services.vision.remove_bg.rehost_image_bytes",
+        lambda _uid, data, **kwargs: "https://cdn.example/removeBg.png",
+    )
 
     inc = _tiny_mask_png()
     exc = _tiny_mask_png()
@@ -74,6 +82,7 @@ def test_remove_background_forwards_brush_masks(monkeypatch):
         remove_background(
             _tiny_png(),
             meta={"includeMask": inc, "excludeMask": exc, "decontaminate": 0.9},
+            user_id="u1",
         )
     )
     assert result["kind"] == "removeBg"

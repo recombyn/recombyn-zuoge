@@ -79,30 +79,11 @@ export async function uploadImageFile(
       ? (jobId: string) => dispatchUploadJobCreated(opts.dispatch!, nodeId, jobId)
       : undefined);
 
-  try {
-    return await uploadFileViaJob(file, {
-      signal: opts?.signal,
-      jobId: opts?.jobId,
-      onJobCreated,
-    });
-  } catch (err) {
-    if (isUploadAbortError(err)) throw err;
-    // Worker/Redis down — fall back to direct upload (no refresh recovery).
-    const form = new FormData();
-    form.append('files', file, file.name);
-    const timeout = uploadTimeoutForMime(file.type);
-    const res = await uploadFiles(form, {
-      timeout,
-      signal: opts?.signal,
-    });
-    const item = res?.items?.[0];
-    if (!item?.url) {
-      const uploadErr = new Error('upload returned no url') as Error & { cause?: unknown };
-      uploadErr.cause = err;
-      throw uploadErr;
-    }
-    return item;
-  }
+  return uploadFileViaJob(file, {
+    signal: opts?.signal,
+    jobId: opts?.jobId,
+    onJobCreated,
+  });
 }
 
 /** Delete a previously uploaded object by storage key (no-op when logged out / empty). */
@@ -323,20 +304,10 @@ export async function imageSrcToFile(
   } else {
     const key = String(opts?.uploadKey || '').trim() || resolveUploadObjectKey(s);
     if (key) {
-      try {
-        blob = await fetchUploadBytesByKey(key);
-      } catch (err) {
-        console.warn('[upload] key fetch failed', err);
-      }
-    }
-    if (!blob && /^https?:\/\//i.test(s)) {
-      try {
-        blob = await fetchUploadBytesByDisplayUrl(s);
-      } catch (err) {
-        console.warn('[upload] content-by-url failed', err);
-      }
-    }
-    if (!blob) {
+      blob = await fetchUploadBytesByKey(key);
+    } else if (/^https?:\/\//i.test(s)) {
+      blob = await fetchUploadBytesByDisplayUrl(s);
+    } else {
       const absolute = s.startsWith('/') ? resolveApiUrl(s) : s;
       const headers: HeadersInit = {};
       const token = getToken();
@@ -384,22 +355,13 @@ export async function uploadImageFromSrc(
   });
 }
 
-/** Upload when possible; keep data:/blob: locally if the API is unreachable (local dev). */
+/** @deprecated Use uploadImageFromSrc — local preview fallback removed. */
 export async function uploadImageFromSrcWithLocalFallback(
   src: string,
   filename = 'processed.png',
   opts?: { signal?: AbortSignal; uploadKey?: string | null }
 ): Promise<UploadedFileItem> {
-  try {
-    return await uploadImageFromSrc(src, filename, opts);
-  } catch (err) {
-    const s = String(src || '').trim();
-    if (s.startsWith('data:') || s.startsWith('blob:')) {
-      console.warn('[upload] using local preview URL', err);
-      return { url: s, name: filename };
-    }
-    throw err;
-  }
+  return uploadImageFromSrc(src, filename, opts);
 }
 
 /**

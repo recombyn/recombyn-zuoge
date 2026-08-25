@@ -254,6 +254,7 @@ def run_image_hydrate_job(self, job_id: str) -> dict:
                 limit=max(1, min(24, limit)),
                 policy=policy,
                 rules={str(k): str(v) for k, v in rules.items()},
+                user_id=str(job.get("user_id") or "").strip() or None,
             )
         )
         result: dict[str, Any] = {

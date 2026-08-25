@@ -53,17 +53,14 @@ function resolutionFor(kind: string, node: SceneNodeInput): string | undefined {
   return '2K';
 }
 
-/** Persist tool output on our file server; fall back to original src if upload fails. */
+/** Persist tool output on our file server. */
 async function persistProcessedSrc(src: string, filename: string): Promise<string> {
   const raw = String(src || '').trim();
-  if (!raw) return raw;
-  try {
-    const uploaded = await uploadImageFromSrc(raw, filename);
-    return uploaded.url || raw;
-  } catch (err) {
-    console.warn('[image-process] upload failed, keeping inline/remote src', err);
-    return raw;
-  }
+  if (!raw) throw new Error('empty processed image');
+  const uploaded = await uploadImageFromSrc(raw, filename);
+  const url = String(uploaded.url || '').trim();
+  if (!url) throw new Error('upload returned no url');
+  return url;
 }
 
 async function refreshWallet() {
@@ -188,8 +185,7 @@ function ImageProcessWatcher() {
 
     const run = async () => {
       if (!AI_IMAGE_PROCESS_KINDS.has(kind)) {
-        await new Promise((r) => window.setTimeout(r, 400));
-        if (!cancelled) dispatch(finishImageProcess({ nodeId: pendingId }));
+        fail(`unsupported image process kind: ${kind || 'unknown'}`);
         return;
       }
 

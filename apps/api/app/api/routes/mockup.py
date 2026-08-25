@@ -45,10 +45,7 @@ async def list_mockup_tools() -> dict[str, Any]:
     enabled = mockup_enabled()
     templates: list[dict[str, Any]] = []
     if enabled:
-        try:
-            templates = await list_mockup_templates()
-        except Exception:
-            templates = [{"id": "demo-cylinder", "name": "Demo cylinder mug", "kind": "builtin"}]
+        templates = await list_mockup_templates()
     return {
         "mockup": {
             "enabled": enabled,

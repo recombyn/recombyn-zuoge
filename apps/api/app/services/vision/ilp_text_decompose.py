@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 from app.core.config import settings
 from app.services.vision.ilp_client import (
-    bytes_to_data_url,
     ilp_enabled,
     text_decompose_via_ilp,
 )
@@ -18,22 +17,6 @@ from app.services.vision.text_layer_style import enrich_text_layers, load_bgr
 logger = logging.getLogger(__name__)
 
 EditMode = Literal["editElements", "editText"]
-
-
-def _rehost_or_data_url(
-    user_id: str | None,
-    data: bytes,
-    *,
-    filename: str,
-    content_type: str = "image/png",
-) -> str:
-    url = rehost_image_bytes(
-        user_id,
-        data,
-        filename=filename,
-        content_type=content_type,
-    )
-    return url or bytes_to_data_url(data, content_type)
 
 
 async def decompose_text_via_ilp(
@@ -70,7 +53,7 @@ async def decompose_text_via_ilp(
         raise RuntimeError("ILP text-decompose returned no background")
 
     bg_bytes = base64.b64decode(bg_b64)
-    bg_src = _rehost_or_data_url(user_id, bg_bytes, filename="editText-bg.png")
+    bg_src = rehost_image_bytes(user_id, bg_bytes, filename="editText-bg.png")
 
     bgr = await load_bgr(image)
     editable_blocks = payload.get("editable_blocks") if isinstance(payload.get("editable_blocks"), list) else []
@@ -102,7 +85,7 @@ async def decompose_text_via_ilp(
         raster_layers.append(
             {
                 "type": "image",
-                "src": _rehost_or_data_url(
+                "src": rehost_image_bytes(
                     user_id,
                     png_bytes,
                     filename=f"editText-raster-{i + 1}.png",
@@ -137,17 +120,7 @@ async def decompose_text_via_ilp(
         engines.append("text-style")
 
     if not text_layers and not raster_layers:
-        layers = [
-            {
-                "type": "image",
-                "src": bg_src,
-                "x": 0.0,
-                "y": 0.0,
-                "width": float(w),
-                "height": float(h),
-                "name": "原图",
-            }
-        ]
+        raise RuntimeError("ILP text-decompose found no editable text or raster layers")
 
     return {
         "image": bg_src if text_layers or raster_layers else layers[0]["src"],

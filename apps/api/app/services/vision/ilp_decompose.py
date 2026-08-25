@@ -10,7 +10,6 @@ from typing import Any, Literal
 from PIL import Image
 
 from app.services.vision.ilp_client import (
-    bytes_to_data_url,
     create_job,
     fetch_file_bytes,
     ilp_enabled,
@@ -77,7 +76,7 @@ async def decompose_via_ilp(
     for key, name in _LAYER_SPECS:
         rel = urls.get(key)
         if not rel:
-            continue
+            raise RuntimeError(f"ILP layer missing: {key}")
         content, ctype = await fetch_file_bytes(str(rel))
         if w <= 0 or h <= 0:
             w, h = _size_from_bytes(content)
@@ -86,7 +85,7 @@ async def decompose_via_ilp(
             content,
             filename=f"editElements-{key}.png",
             content_type=ctype or "image/png",
-        ) or bytes_to_data_url(content, ctype)
+        )
         layers.append(
             {
                 "type": "image",
