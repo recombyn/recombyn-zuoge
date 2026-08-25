@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/zuoge-wordmark.png" alt="左格（zuoge）" height="56" />
+  <img src="docs/assets/zuoge-wordmark.png" alt="左格（zuoge）" height="140" />
 
   <p>
     <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
