@@ -1,7 +1,7 @@
 # Private → public one-way sync (runs only in recombyn-dev).
-# Strips src/commercial before publishing to github.com/recombyn/recombyn.
+# Strips src/commercial before publishing to github.com/recombyn/zuoge.
 #
-# Secret (recombyn-dev): PUBLIC_REPO_TOKEN — PAT with repo scope on recombyn/recombyn
+# Secret (recombyn-dev): PUBLIC_REPO_TOKEN — PAT with repo scope on recombyn/zuoge
 
 name: Sync public repo
 
@@ -18,7 +18,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     env:
-      PUBLIC_REPO: recombyn/recombyn
+      PUBLIC_REPO: recombyn/zuoge
     steps:
       - name: Checkout private tree
         uses: actions/checkout@v4

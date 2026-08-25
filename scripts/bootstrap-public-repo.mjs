@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Bootstrap a fresh public recombyn/recombyn tree (single commit, one contributor).
+ * Bootstrap a fresh public recombyn/zuoge tree (single commit, one contributor).
  *
  * Prereqs:
- *   1. Delete the old github.com/recombyn/recombyn repo (Settings → Danger zone).
- *   2. Create an empty public repo named "recombyn" under the recombyn account.
+ *   1. Delete the old github.com/recombyn/zuoge repo (Settings → Danger zone).
+ *   2. Create an empty public repo named "zuoge" under the recombyn account.
  *   3. PAT with repo scope on the new public repo (reuse PUBLIC_REPO_TOKEN).
  *
  * Usage (from repo root):

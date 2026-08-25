@@ -3,7 +3,7 @@
  * Configure git remotes for the private-dev → public-OSS workflow.
  *
  *   origin  → recombyn/recombyn-dev   (daily push target)
- *   public  → recombyn/recombyn       (read-only OSS mirror)
+ *   public  → recombyn/zuoge (read-only OSS mirror)
  *
  * Usage: node scripts/setup-private-remote.mjs
  */
@@ -11,7 +11,7 @@
 import { execSync } from 'node:child_process';
 
 const PRIVATE = 'git@github.com:recombyn/recombyn-dev.git';
-const PUBLIC = 'git@github.com:recombyn/recombyn.git';
+const PUBLIC = 'git@github.com:recombyn/zuoge.git';
 
 function run(cmd) {
   console.log(`> ${cmd}`);

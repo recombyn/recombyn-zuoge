@@ -1,6 +1,6 @@
 # Commercial tree (recombyn-dev)
 
-Closed-source product code for the private monorepo. Not published to `recombyn/recombyn`.
+Closed-source product code for the private monorepo. Not published to `recombyn/zuoge`.
 
 ## Layout
 

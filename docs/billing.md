@@ -114,7 +114,7 @@ WALLET_BILLING_ENABLED=false   # 默认：不预扣、UI 藏余额 / Plans / Usa
 | `false`（默认） | 无 hold/charge；自带 LLM key 即可 |
 | `true` | SaaS 风格钱包（plans、卡密、日免费额度等） |
 
-这不是 Recombyn Cloud 订阅——开关在你自己的实例上。  
+这不是 zuoge Cloud 订阅——开关在你自己的实例上。  
 桌面本地登录（`DESKTOP_LOCAL_AUTO_LOGIN`）始终跳过计费。
 
 打开后可选：

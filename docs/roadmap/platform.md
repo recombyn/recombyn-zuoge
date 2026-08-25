@@ -1,6 +1,6 @@
 # Platform roadmap
 
-Living checklist for Recombyn. Phase 1 tooling is in flight ([PR](https://github.com/recombyn/recombyn/pull/104)).
+Living checklist for zuoge. Phase 1 tooling is in flight ([PR](https://github.com/recombyn/zuoge/pull/104)).
 
 ## Principles
 

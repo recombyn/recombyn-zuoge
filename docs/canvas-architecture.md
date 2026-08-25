@@ -1,6 +1,6 @@
 # Canvas architecture (RCB)
 
-RCB is Recombyn’s infinite vector canvas. This note is for people changing paint, hit-testing, or viewport cull / Canvas idle — source of truth is `apps/web/src/components/rcb` + `apps/web/src/components/editor/canvas`. Keep this doc in sync when those constants change.
+RCB is zuoge’s infinite vector canvas. This note is for people changing paint, hit-testing, or viewport cull / Canvas idle — source of truth is `apps/web/src/components/rcb` + `apps/web/src/components/editor/canvas`. Keep this doc in sync when those constants change.
 
 ## Stack
 

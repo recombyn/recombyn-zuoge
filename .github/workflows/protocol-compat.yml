@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       protocol_ref:
-        description: "Optional git ref on recombyn/recombyn for packages/protocol"
+        description: "Optional git ref on recombyn/zuoge for packages/protocol"
         required: false
         default: "main"
   repository_dispatch:
@@ -54,7 +54,7 @@ jobs:
         if: steps.ref.outputs.protocol_ref != ''
         uses: actions/checkout@v4
         with:
-          repository: recombyn/recombyn
+          repository: recombyn/zuoge
           ref: ${{ steps.ref.outputs.protocol_ref }}
           path: _protocol_src
           sparse-checkout: |

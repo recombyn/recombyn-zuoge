@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution to Recombyn. Please read the [Code of Conduct](./CODE_OF_CONDUCT.md). Security issues go to [SECURITY.md](./SECURITY.md) — don’t file a public issue.
+Thanks for considering a contribution to zuoge. Please read the [Code of Conduct](./CODE_OF_CONDUCT.md). Security issues go to [SECURITY.md](./SECURITY.md) — don’t file a public issue.
 
 How to run locally: [README.md](./README.md) · [docs/self-hosting.md](./docs/self-hosting.md) · desktop [docs/desktop.md](./docs/desktop.md).
 

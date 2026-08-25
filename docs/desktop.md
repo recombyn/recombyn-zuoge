@@ -1,11 +1,11 @@
 # Desktop (Tauri v2)
 
-You can run Recombyn as a desktop app (Tauri v2). Two flavors: **Local** (bundled API + SQLite) and **Cloud** (same API as the browser).
+You can run zuoge as a desktop app (Tauri v2). Two flavors: **Local** (bundled API + SQLite) and **Cloud** (same API as the browser).
 
 | | Command | API | Product id |
 |--|---------|-----|------------|
-| **Local** | `npm run dev:desktop` / `build:desktop` | Bundled API sidecar + SQLite (app data) | `com.recombyn.app` · Recombyn |
-| **Cloud** | `npm run dev:desktop:cloud` / `build:desktop:cloud` | Same as browser: local `:8000` + `apps/api/.env` (opt-in `VITE_API_BASE_URL` when a host is deployed) | `com.recombyn.app.cloud` · Recombyn Cloud |
+| **Local** | `npm run dev:desktop` / `build:desktop` | Bundled API sidecar + SQLite (app data) | `com.recombyn.app` · zuoge |
+| **Cloud** | `npm run dev:desktop:cloud` / `build:desktop:cloud` | Same as browser: local `:8000` + `apps/api/.env` (opt-in `VITE_API_BASE_URL` when a host is deployed) | `com.recombyn.app.cloud` · zuoge Cloud |
 
 ## Local data & login
 
@@ -56,7 +56,7 @@ npm run build:desktop:cloud
 | Unpacked main EXE | `apps/web/src-tauri/target/release/recombyn.exe` |
 | API sidecar (build staging) | `apps/web/src-tauri/sidecars/recombyn-api/recombyn-api.exe` |
 
-Cloud build uses the same `bundle/` tree; product name is **Recombyn Cloud**.
+Cloud build uses the same `bundle/` tree; product name is **zuoge Cloud**.
 
 ## Code signing (release)
 

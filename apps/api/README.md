@@ -1,4 +1,4 @@
-# Recombyn API
+# zuoge API
 
 FastAPI：画布 Scene、项目与广场、Design Agent、钱包、Admin。本地文档：http://127.0.0.1:8000/docs
 
