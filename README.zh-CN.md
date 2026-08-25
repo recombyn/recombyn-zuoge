@@ -1,26 +1,26 @@
-<p align="center">
+<div align="center">
   <img src="docs/assets/zuoge-wordmark.png" alt="左格" height="56" />
-</p>
 
-<p align="center">
-  <a href="docs/self-hosting.md"><strong>自托管</strong></a> ·
-  <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
-  <a href="https://recombyn.github.io/recombyn/"><strong>文档</strong></a>
-</p>
+  <p>
+    <a href="docs/self-hosting.md"><strong>自托管</strong></a> ·
+    <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
+    <a href="https://recombyn.github.io/recombyn/"><strong>文档</strong></a>
+  </p>
 
-<p align="center">
-  <a href="docs/self-hosting.md"><img src="https://img.shields.io/badge/self--host-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Self-host" /></a>
-  <a href="apps/web"><img src="https://img.shields.io/badge/web-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
-  <a href="apps/api"><img src="https://img.shields.io/badge/api-FastAPI%20%2B%20Python-3776AB?logo=python&logoColor=white" alt="Python" /></a>
-</p>
+  <p>
+    <a href="docs/self-hosting.md"><img src="https://img.shields.io/badge/self--host-Docker%20Compose-2496ED?logo=docker&logoColor=white" alt="Self-host" /></a>
+    <a href="apps/web"><img src="https://img.shields.io/badge/web-React%20%2B%20TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
+    <a href="apps/api"><img src="https://img.shields.io/badge/api-FastAPI%20%2B%20Python-3776AB?logo=python&logoColor=white" alt="Python" /></a>
+  </p>
 
-<p align="center">
-  <a href="README.md"><img src="docs/assets/lang-en.png" alt="English" height="28" /></a>
-  &nbsp;
-  <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.png" alt="简体中文" height="28" /></a>
-  &nbsp;
-  <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
-</p>
+  <p>
+    <a href="README.md"><img src="docs/assets/lang-en.png" alt="English" height="28" /></a>
+    &nbsp;
+    <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.png" alt="简体中文" height="28" /></a>
+    &nbsp;
+    <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
+  </p>
+</div>
 
 **左格** 是一个开源的 AI 设计工作台，提供可编辑的无限矢量画布与 Design Agent。你可以用自然语言创建和修改图形、文字、布局与样式，也可以在画布中继续精细编辑，并通过 Docker Compose 自托管。
 
