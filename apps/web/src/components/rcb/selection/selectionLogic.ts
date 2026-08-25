@@ -94,8 +94,8 @@ export function textResizeModeForHandle(
   handle: ResizeHandle,
   opts?: { textFrame?: boolean }
 ): TextResizeMode {
-  // Fixed text plates scale like images — no wrap-width edge mode.
-  if (opts?.textFrame) return 'scale';
+  // Fixed text plates: resize box only — font size stays constant.
+  if (opts?.textFrame) return 'frame';
   return handle === 'e' || handle === 'w' ? 'wrap' : 'scale';
 }
 
@@ -221,6 +221,13 @@ export function resolveLockAspect(
   if (origins.length === 1) {
     const node = document?.deltaSetLike?.[origins[0].nodeId];
     const key = node?.key;
+    const textFrame =
+      node?.attrs?.textFrame === true ||
+      node?.attrs?.textFrame === 'true' ||
+      node?.attrs?.textFrame === 1 ||
+      node?.attrs?.textFrame === '1';
+    // Fixed text plates: always 1:1 aspect while resizing.
+    if (key === 'text' && textFrame) return combineAspectLock(true, shiftKey);
     // Text side handles have independent semantics: L/R change wrap width,
     // N/S change height only. A persisted aspect lock must not turn a vertical
     // text-edge drag into a diagonal resize; only corners scale proportionally.
@@ -2166,18 +2173,23 @@ export function resolvePinnedImageVariantsId(opts: {
   return nodeId;
 }
 
-/** SelectionChrome edge knobs: generators none; video/text L/R only; else all. */
+/** SelectionChrome edge knobs: generators none; video/text L/R only; text frame SE only; else all. */
+export type SelectionEdgeHandles = 'all' | 'horizontal' | 'none' | 'se-only';
+
 export function resolveSelectionEdgeHandles(opts: {
   selectedIsImageGen: boolean;
   selectedIsVideoGen: boolean;
   selectedIsLottieGen: boolean;
   selectedIsVideo: boolean;
+  selectedIsTextFrame?: boolean;
   lineChrome: boolean;
   nodeKey: string | undefined;
-}): 'all' | 'horizontal' | 'none' {
+}): SelectionEdgeHandles {
   if (opts.selectedIsImageGen || opts.selectedIsVideoGen || opts.selectedIsLottieGen) return 'none';
   // Video scrubber on bottom — keep L/R only so S handle does not steal events.
   if (opts.selectedIsVideo) return 'horizontal';
+  // Fixed text plates: bottom-right grip only (card-like resize).
+  if (opts.selectedIsTextFrame) return 'se-only';
   // Text supports width and height wrapping/scaling from all four edges.
   if (!opts.lineChrome && opts.nodeKey === 'text') return 'all';
   return 'all';

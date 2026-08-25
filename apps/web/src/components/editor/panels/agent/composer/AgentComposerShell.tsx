@@ -21,7 +21,6 @@ import {
   HiOutlineDocument,
   HiOutlineMusicalNote,
   HiOutlinePhoto,
-  HiOutlineFilm,
   HiOutlinePlay,
   HiOutlinePlus,
   HiOutlineXMark,
@@ -29,6 +28,7 @@ import {
   HiChevronDown,
 } from 'react-icons/hi2';
 import { LuInfinity, LuMessageSquare } from 'react-icons/lu';
+import { RiVideoLine } from 'react-icons/ri';
 import { Dropdown, DropdownPanel, DropdownPanelItem } from '@/components/base';
 import { Icon } from '@/components/base/icon';
 import Tooltip from '@/components/base/tooltip';
@@ -685,7 +685,7 @@ function interactionModeLabel(
 
 function interactionModeIcon(mode: ComposerInteractionMode): ReactNode {
   if (mode === 'video') {
-    return <HiOutlineFilm className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />;
+    return <RiVideoLine className="h-3.5 w-3.5 shrink-0" />;
   }
   if (mode === 'image') {
     return <HiOutlinePhoto className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />;
@@ -719,7 +719,7 @@ function buildInteractionModeOptions(
     {
       key: 'video',
       label: t('agent.interactionVideo'),
-      icon: <HiOutlineFilm className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />,
+      icon: <RiVideoLine className="h-3.5 w-3.5 shrink-0" />,
     },
   ];
   return all.filter((item) => allowedModes.includes(item.key));

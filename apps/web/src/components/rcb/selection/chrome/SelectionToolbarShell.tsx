@@ -83,6 +83,8 @@ export function useChromePointerActivate() {
  */
 export const NODE_TITLE_LABEL_GAP_PX = 10;
 export const NODE_TITLE_LABEL_LINE_PX = 16;
+/** Left inset before icon + name (flush left looked cramped against the plate). */
+export const NODE_TITLE_LABEL_INSET_PX = 10;
 
 /** Gap between title top and toolbar bottom (above dock, titled). */
 export const SELECTION_TOOLBAR_ABOVE_LABEL_GAP_PX = 8;

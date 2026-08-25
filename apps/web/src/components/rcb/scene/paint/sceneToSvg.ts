@@ -32,6 +32,7 @@ import {
   resolveStrokeLinecap,
   resolveStrokeLinejoin,
   resolveStrokeMiterlimit,
+  TEXT_FRAME_RADIUS,
 } from '../document/sceneEffects';
 import type { StrokeAlign, StrokeLinecap, StrokeLinejoin } from '../document/sceneEffects';
 import { isTransparentFill, resolveDocumentBackground, resolveFill } from '../document/sceneFill';
@@ -486,6 +487,57 @@ function applyMeta(
   return el;
 }
 
+/**
+ * Editor video plates portal a playback bar into foreignObject. Group-level
+ * flip would move that chrome to the opposite edge (and upside-down), while
+ * VideoHoverPlayback also CSS-flips the media — pixels look unchanged, bar jumps.
+ * Isolate flip: rotate/translate stay on the group; flip only underlay + HTML media.
+ */
+function hostIsolatesHtmlMediaFlip(el: SVGElement): boolean {
+  try {
+    return Boolean(
+      el.querySelector(':scope > foreignObject[data-rcb-html-media-fo="video"]')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function htmlMediaLocalSize(el: SVGElement, fallbackW: number, fallbackH: number) {
+  const anyEl = asHost(el);
+  const baseW = Number(anyEl.__sceneDragBaseW);
+  const baseH = Number(anyEl.__sceneDragBaseH);
+  if (anyEl.__sceneDidResize && baseW > 0 && baseH > 0) {
+    return { width: baseW, height: baseH };
+  }
+  const geom = readGeom(el);
+  return {
+    width: Math.max(1, geom?.width || fallbackW),
+    height: Math.max(1, geom?.height || fallbackH),
+  };
+}
+
+/** Mirror poster/underlay when group flip is suppressed for HTML video chrome. */
+function syncHtmlMediaUnderlayFlip(el: SVGElement, width: number, height: number) {
+  const anyEl = asHost(el);
+  const flipX = !!anyEl.__sceneFlipX;
+  const flipY = !!anyEl.__sceneFlipY;
+  const { width: w, height: h } = htmlMediaLocalSize(el, width, height);
+  const cx = w / 2;
+  const cy = h / 2;
+  const t =
+    flipX || flipY
+      ? `translate(${cx} ${cy}) scale(${flipX ? -1 : 1} ${flipY ? -1 : 1}) translate(${-cx} ${-cy})`
+      : '';
+  el.querySelectorAll(':scope > image, :scope > [data-rcb-video-svg-underlay="1"]').forEach(
+    (node) => {
+      if (!(node instanceof SVGElement)) return;
+      if (t) node.setAttribute('transform', t);
+      else node.removeAttribute('transform');
+    }
+  );
+}
+
 function reapplySceneTransform(el: SVGElement, left: number, top: number, width: number, height: number) {
   const anyEl = asHost(el);
   const angle = Number(anyEl.__sceneAngle) || 0;
@@ -493,6 +545,7 @@ function reapplySceneTransform(el: SVGElement, left: number, top: number, width:
   const flipY = !!anyEl.__sceneFlipY;
   const geom = readGeom(el);
   const abs = geom ? geom.abs : !!anyEl.__sceneAbsPos;
+  const isolateFlip = hostIsolatesHtmlMediaFlip(el);
   const parts: string[] = [];
 
   if (!abs) parts.push(`translate(${left} ${top})`);
@@ -500,7 +553,7 @@ function reapplySceneTransform(el: SVGElement, left: number, top: number, width:
   const rx = abs ? left + width / 2 : width / 2;
   const ry = abs ? top + height / 2 : height / 2;
   if (angle) parts.push(`rotate(${angle} ${rx} ${ry})`);
-  if (flipX || flipY) {
+  if ((flipX || flipY) && !isolateFlip) {
     const sx = flipX ? -1 : 1;
     const sy = flipY ? -1 : 1;
     parts.push(`translate(${rx} ${ry}) scale(${sx} ${sy}) translate(${-rx} ${-ry})`);
@@ -508,6 +561,7 @@ function reapplySceneTransform(el: SVGElement, left: number, top: number, width:
 
   if (parts.length) setAttrs(el, { transform: parts.join(' ') });
   else el.removeAttribute('transform');
+  if (isolateFlip) syncHtmlMediaUnderlayFlip(el, width, height);
   syncStrokeUnderlayTransform(el);
 }
 
@@ -1088,6 +1142,27 @@ export async function nodeToSvgElement(
       const g = appendChild(parent, svgEl('g'));
       const plateW = Math.max(1, boxW);
       const plateH = Math.max(1, boxH);
+      const radii = radiiFromAttrs(node.attrs);
+      const cornerR = {
+        tl: radii.tl > 0 ? radii.tl : TEXT_FRAME_RADIUS,
+        tr: radii.tr > 0 ? radii.tr : TEXT_FRAME_RADIUS,
+        br: radii.br > 0 ? radii.br : TEXT_FRAME_RADIUS,
+        bl: radii.bl > 0 ? radii.bl : TEXT_FRAME_RADIUS,
+      };
+      const clipD = roundedRectPath(plateW, plateH, cornerR);
+      // Surface plate + 1px gray stroke (audio-node language); HTML overlay scrolls on top.
+      const plate = appendChild(g, svgEl('path', { d: clipD }));
+      setFill(plate, resolveThemeSurfaceFill(node.attrs?.['fill-color']));
+      setStroke(plate, {
+        color: 'var(--line)',
+        width: editorChromeStrokeSceneWidth(1),
+      });
+      setAttrs(plate, {
+        'data-radius-body': '1',
+        'data-baseline': '1',
+        'data-rcb-text-frame-plate': '1',
+      });
+      rememberSceneCornerRadii(g, cornerR);
       appendHtmlMediaMount(g, {
         nodeId,
         width: plateW,
@@ -2195,7 +2270,7 @@ function previewResizeText(
   el: SVGElement,
   box: { left: number; top: number; width: number; height: number },
   options?: {
-    textResizeMode?: 'scale' | 'wrap';
+    textResizeMode?: 'scale' | 'wrap' | 'frame';
     plainText?: string;
     textStyle?: ReturnType<typeof parseNodeTextStyle>;
   }
@@ -2364,6 +2439,116 @@ export function syncProcessGlowForeignObject(
   fo.setAttribute('height', String(h));
 }
 
+function syncTextFrameForeignObject(
+  host: SVGElement | null | undefined,
+  width: number,
+  height: number
+): void {
+  if (!host) return;
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  const fo = host.querySelector(
+    'foreignObject[data-rcb-html-media-fo="text"]'
+  ) as SVGForeignObjectElement | null;
+  if (!fo) return;
+  fo.setAttribute('width', String(w));
+  fo.setAttribute('height', String(h));
+}
+
+function previewResizeTextFrame(
+  el: SVGElement,
+  box: { left: number; top: number; width: number; height: number }
+): boolean {
+  const w = Math.max(1, box.width);
+  const h = Math.max(1, box.height);
+  writeGeom(el, { left: box.left, top: box.top, width: w, height: h, abs: false });
+  previewResizeLocalGeometry(el, w, h);
+  syncTextFrameForeignObject(el, w, h);
+  reapplySceneTransform(el, box.left, box.top, w, h);
+  return true;
+}
+
+function syncHtmlMediaForeignObject(
+  host: SVGElement | null | undefined,
+  width: number,
+  height: number
+): void {
+  if (!host) return;
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  const fo = host.querySelector(
+    'foreignObject[data-rcb-html-media-fo]'
+  ) as SVGForeignObjectElement | null;
+  if (!fo) return;
+  fo.setAttribute('width', String(w));
+  fo.setAttribute('height', String(h));
+}
+
+/** Poster / underlay <image> + clipPath — keep in sync when FO resizes (no CSS scale). */
+function syncMediaPlateLocalPaint(el: SVGElement, width: number, height: number, prevW: number, prevH: number) {
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  const pw = Math.max(1, prevW);
+  const ph = Math.max(1, prevH);
+  previewResizeLocalGeometry(el, w, h);
+
+  const clipId = el.getAttribute('data-radius-clip-id');
+  if (clipId && el.ownerSVGElement) {
+    try {
+      const clipPath = el.ownerSVGElement.querySelector(
+        `#${CSS.escape(clipId)} path`
+      ) as SVGPathElement | null;
+      if (clipPath) {
+        const liveR = clampCornerRadii(readSceneCornerRadii(el), w, h);
+        clipPath.setAttribute('d', roundedRectPath(w, h, liveR));
+      }
+    } catch {
+      /* ignore bad clip id */
+    }
+  }
+
+  const sx = w / pw;
+  const sy = h / ph;
+  if (Math.abs(sx - 1) > 1e-6 || Math.abs(sy - 1) > 1e-6) {
+    el.querySelectorAll(':scope > image').forEach((node) => {
+      const img = node as SVGImageElement;
+      const ix = Number(img.getAttribute('x') || 0);
+      const iy = Number(img.getAttribute('y') || 0);
+      const iw = Number(img.getAttribute('width') || pw);
+      const ih = Number(img.getAttribute('height') || ph);
+      setAttrs(img, {
+        x: ix * sx,
+        y: iy * sy,
+        width: Math.max(1, iw * sx),
+        height: Math.max(1, ih * sy),
+      });
+    });
+  }
+
+  syncHtmlMediaForeignObject(el, w, h);
+}
+
+/**
+ * Video / lottie / audio HTML mounts: resize FO + underlay dims directly.
+ * CSS scale(sx,sy) would leave portaled chrome (scrubber) at the wrong local
+ * box while geometryOverrides already use the new size — controls "run away".
+ */
+function previewResizeHtmlMediaPlate(
+  el: SVGElement,
+  box: { left: number; top: number; width: number; height: number }
+): boolean {
+  const geom = readGeom(el);
+  if (!geom) return false;
+  const w = Math.max(1, box.width);
+  const h = Math.max(1, box.height);
+  const prevW = Math.max(1, geom.width);
+  const prevH = Math.max(1, geom.height);
+  writeGeom(el, { left: box.left, top: box.top, width: w, height: h, abs: false });
+  syncMediaPlateLocalPaint(el, w, h, prevW, prevH);
+  reapplySceneTransform(el, box.left, box.top, w, h);
+  return true;
+}
+
 function previewResizeProcessPlate(
   el: SVGElement,
   box: { left: number; top: number; width: number; height: number }
@@ -2417,7 +2602,8 @@ function previewResizeImage(
   // Live resize: scale the group (same as svg/custom-path nodes). Mutating
   // <image width/height> alone does not reliably repaint under per-shape
   // infinite SVG hosts — the control box moves while the bitmap stays put.
-  // Final size is baked via replaceShapePaint on commit.
+  // HTML media FO stays at drag-base size and rides this CSS scale so portaled
+  // chrome (scrubber) stays glued to the plate. Final size is baked on commit.
   if (!anyEl.__sceneDragBaseW) {
     anyEl.__sceneDragBaseW = geom.width;
     anyEl.__sceneDragBaseH = geom.height;
@@ -2507,6 +2693,7 @@ function reapplySceneTransformScaled(
   const flipY = !!anyEl.__sceneFlipY;
   const geom = readGeom(el);
   const abs = geom ? geom.abs : !!anyEl.__sceneAbsPos;
+  const isolateFlip = hostIsolatesHtmlMediaFlip(el);
   const parts: string[] = [];
 
   if (!abs) {
@@ -2519,7 +2706,7 @@ function reapplySceneTransformScaled(
   const rx = abs ? left + (baseW * sx) / 2 : baseW / 2;
   const ry = abs ? top + (baseH * sy) / 2 : baseH / 2;
   if (angle) parts.push(`rotate(${angle} ${rx} ${ry})`);
-  if (flipX || flipY) {
+  if ((flipX || flipY) && !isolateFlip) {
     const fsx = flipX ? -1 : 1;
     const fsy = flipY ? -1 : 1;
     parts.push(`translate(${rx} ${ry}) scale(${fsx} ${fsy}) translate(${-rx} ${-ry})`);
@@ -2527,6 +2714,7 @@ function reapplySceneTransformScaled(
 
   if (parts.length) setAttrs(el, { transform: parts.join(' ') });
   else el.removeAttribute('transform');
+  if (isolateFlip) syncHtmlMediaUnderlayFlip(el, baseW, baseH);
   syncStrokeUnderlayTransform(el);
 }
 
@@ -2675,7 +2863,7 @@ export function previewSvgNodeGeometry(
   nodeId: string,
   box: { left: number; top: number; width: number; height: number },
   options?: {
-    textResizeMode?: 'scale' | 'wrap';
+    textResizeMode?: 'scale' | 'wrap' | 'frame';
     plainText?: string;
     textStyle?: ReturnType<typeof parseNodeTextStyle>;
   }
@@ -2745,37 +2933,9 @@ export function previewSvgNodeGeometry(
     const isText = String(anyEl.sceneNodeKey || el.getAttribute('data-scene-node-key') || '') === 'text';
 
     if (isText) {
-      // Fixed text plates use FO scroll mounts — live-resize like image groups.
+      // Fixed text plates use FO scroll mounts — resize FO dims directly (no CSS scale).
       if (el.querySelector?.('foreignObject[data-rcb-html-media-fo="text"]')) {
-        const w = Math.max(1, box.width);
-        const h = Math.max(1, box.height);
-        if (sameSize && !anyEl.__sceneDidResize) {
-          writeGeom(el, {
-            left: box.left,
-            top: box.top,
-            width: w,
-            height: h,
-            abs: false,
-          });
-          reapplySceneTransform(el, box.left, box.top, w, h);
-          return true;
-        }
-        if (!anyEl.__sceneDragBaseW) {
-          anyEl.__sceneDragBaseW = geom.width;
-          anyEl.__sceneDragBaseH = geom.height;
-        }
-        anyEl.__sceneDidResize = true;
-        const bw = Math.max(1, Number(anyEl.__sceneDragBaseW) || geom.width);
-        const bh = Math.max(1, Number(anyEl.__sceneDragBaseH) || geom.height);
-        writeGeom(el, {
-          left: box.left,
-          top: box.top,
-          width: w,
-          height: h,
-          abs: false,
-        });
-        reapplySceneTransformScaled(el, box.left, box.top, bw, bh, w / bw, h / bh);
-        return true;
+        return previewResizeTextFrame(el, box);
       }
       return previewResizeText(el, box, options);
     }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   nodeToSvgElement,
   previewSvgNodeGeometry,
+  previewSvgNodeTransform,
   readScenePaintLocalSize,
   videoSvgOwnsPixels,
 } from '../../scene/paint/sceneToSvg';
@@ -224,5 +225,93 @@ describe('process glow local size during resize preview', () => {
     const anyEl = el as any;
     expect(anyEl.__sceneDidResize).toBeFalsy();
     expect(el!.querySelector('image')).toBeNull();
+  });
+});
+
+describe('video HTML FO resize preview (CSS scale, FO stays at base)', () => {
+  it('keeps foreignObject at drag-base size and sets __sceneDidResize', async () => {
+    const { root, layer } = svgRoot({
+      'data-rcb-infinite': '1',
+      'data-rcb-shared-scene-surface': '1',
+    });
+    const node = videoNode({ x: 0, y: 0, width: 100, height: 200 });
+    const el = await nodeToSvgElement(root, layer, doc, node, 'vid-resize');
+    expect(el).toBeTruthy();
+    const fo = el!.querySelector('foreignObject[data-rcb-html-media-fo="video"]');
+    expect(fo).toBeTruthy();
+    expect(fo!.getAttribute('width')).toBe('100');
+    expect(fo!.getAttribute('height')).toBe('200');
+    const nodeEls = new Map<string, SVGElement>([['vid-resize', el!]]);
+    expect(
+      previewSvgNodeGeometry(nodeEls, 'vid-resize', { left: 10, top: 20, width: 50, height: 100 })
+    ).toBe(true);
+    // FO stays at base — HTML plate layouts against this box while the group CSS-scales.
+    expect(fo!.getAttribute('width')).toBe('100');
+    expect(fo!.getAttribute('height')).toBe('200');
+    const anyEl = el as any;
+    expect(anyEl.__sceneDidResize).toBe(true);
+    expect(Number(anyEl.__sceneDragBaseW)).toBe(100);
+    expect(Number(anyEl.__sceneDragBaseH)).toBe(200);
+    expect({
+      left: Number(anyEl.__sceneLeft),
+      top: Number(anyEl.__sceneTop),
+      width: Number(anyEl.sceneWidth),
+      height: Number(anyEl.sceneHeight),
+    }).toEqual({ left: 10, top: 20, width: 50, height: 100 });
+  });
+});
+
+describe('video flip isolates HTML playback chrome', () => {
+  it('keeps flip off the group transform and mirrors the poster underlay instead', async () => {
+    const { root, layer } = svgRoot({
+      'data-rcb-infinite': '1',
+      'data-rcb-shared-scene-surface': '1',
+    });
+    const node = {
+      ...videoNode({ x: 0, y: 0, width: 100, height: 80 }),
+      attrs: {
+        ...videoNode(box).attrs,
+        flipY: 'true',
+        angle: 15,
+      },
+    };
+    const el = await nodeToSvgElement(root, layer, doc, node, 'vid-flip');
+    expect(el).toBeTruthy();
+    expect(el!.querySelector('foreignObject[data-rcb-html-media-fo="video"]')).toBeTruthy();
+    const transform = el!.getAttribute('transform') || '';
+    expect(transform).toContain('rotate(15');
+    // Group must not include scale(-1…) — that would move the playback bar to the top.
+    expect(transform).not.toMatch(/scale\(\s*-1/);
+    const underlay = el!.querySelector('[data-rcb-video-svg-underlay="1"]') as SVGElement | null;
+    expect(underlay?.getAttribute('transform') || '').toMatch(/scale\(\s*1\s+-1/);
+
+    const nodeEls = new Map<string, SVGElement>([['vid-flip', el!]]);
+    expect(
+      previewSvgNodeTransform(nodeEls, 'vid-flip', {
+        ...node,
+        attrs: { ...node.attrs, flipY: 'false', flipX: 'true' },
+      })
+    ).toBe(true);
+    const next = el!.getAttribute('transform') || '';
+    expect(next).not.toMatch(/scale\(\s*-1/);
+    expect(underlay?.getAttribute('transform') || '').toMatch(/scale\(\s*-1\s+1/);
+  });
+
+  it('export video (no FO) still flips on the group', async () => {
+    const { root, layer } = svgRoot({
+      'data-rcb-infinite': '1',
+      'data-rcb-export-surface': '1',
+    });
+    const node = {
+      ...videoNode({ x: 0, y: 0, width: 100, height: 80 }),
+      attrs: {
+        ...videoNode(box).attrs,
+        flipY: 'true',
+      },
+    };
+    const el = await nodeToSvgElement(root, layer, doc, node, 'vid-flip-export');
+    expect(el).toBeTruthy();
+    expect(el!.querySelector('foreignObject[data-rcb-html-media-fo="video"]')).toBeNull();
+    expect(el!.getAttribute('transform') || '').toMatch(/scale\(\s*1\s+-1/);
   });
 });

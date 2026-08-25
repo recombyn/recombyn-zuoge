@@ -212,7 +212,7 @@ export function svgObjectsToScene(document: SceneDocument, objects: SvgSceneObje
   return syncRootChildren(next);
 }
 
-export type TextResizeMode = 'scale' | 'wrap';
+export type TextResizeMode = 'scale' | 'wrap' | 'frame';
 
 export type PatchGeometryOptions = {
   /** Remasure text height so chrome hugs ink (keep wrap width). */
@@ -221,6 +221,7 @@ export type PatchGeometryOptions = {
    * text resize:
    * - `scale`: corner handles — scale font with box
    * - `wrap`: left/right edges — change width only, remasure height (no font scale)
+   * - `frame`: fixed text plate — resize box only, font unchanged
    */
   textResizeMode?: TextResizeMode;
 };
@@ -275,7 +276,7 @@ export function patchNodeGeometry(
     };
   }
 
-  // Text: corners scale type; L/R edges set wrap width only.
+  // Text: corners scale type; L/R edges set wrap width only; frames resize box only.
   if (
     node.key === 'text' &&
     (Math.abs(newW - oldW) > 0.5 || Math.abs(newH - oldH) > 0.5)
@@ -283,7 +284,9 @@ export function patchNodeGeometry(
     let style = parseNodeTextStyle(attrs || node.attrs || {});
     const mode = inferTextResizeMode(oldW, oldH, newW, newH, options?.textResizeMode);
 
-    if (mode === 'scale') {
+    if (mode === 'frame') {
+      // Fixed plate: geometry only — content scrolls inside at constant font size.
+    } else if (mode === 'scale') {
       const sx = newW / oldW;
       const sy = newH / oldH;
       // Prefer uniform scale when aspect-locked (sx ≈ sy); else follow height.
