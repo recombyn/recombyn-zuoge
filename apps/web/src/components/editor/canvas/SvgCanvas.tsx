@@ -179,6 +179,7 @@ import LottieNodeOverlay, {
 } from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
 import type { SceneDocument, ScenePage } from '@/components/rcb/sceneNode';
 import TextInlineEditor from '@/components/editor/nodes/TextNode/TextInlineEditor';
+import TextFrameOverlay from '@/components/editor/nodes/TextNode/TextFrameOverlay';
 import CanvasContextMenu, {
   type ContextMenuState,
   type CtxAction,
@@ -1997,6 +1998,13 @@ function SvgCanvas({
             document={document}
             // Keep HTML waveform during drag — SVG underlay is plate-only (no poster).
             geometryOverrides={videoLiveGeom as Record<string, AudioGeomOverride> | null}
+          />
+        ) : null}
+        {infinite ? (
+          <TextFrameOverlay
+            document={document}
+            hiddenNodeId={editingTextId}
+            selectedNodeIds={ids}
           />
         ) : null}
         {/* Process SoftGlow is owned by RcbShapeHost (node attrs.processStatus). */}

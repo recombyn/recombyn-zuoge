@@ -61,9 +61,11 @@ import {
   isVideoGeneratorNode,
   isNodeHidden,
   isNodeLocked,
+  isTextFrameNode,
   supportsCornerRadius,
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { parseNodeText } from '@/components/rcb/scene/document/sceneText';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { deflateSelectionBox, inflateSelectionBox, strokeOuterClearanceScene } from '@/components/rcb/scene/document/sceneEffects';
 import { isEditablePathNode } from '@/components/rcb/scene/paint/outlineToPath';
@@ -127,6 +129,7 @@ import {
   textResizeModeForHandle,
   nodeAspectLockDefault,
   mediaTitleChrome,
+  textFrameTitleChrome,
   readNodeAspectLocked,
   combineAspectLock,
   resolveLockAspect,
@@ -2164,6 +2167,34 @@ function SelectionFeature({
   const selectedIsLottieGen = Boolean(singleNodeData && isLottieGeneratorNode(singleNodeData));
   const selectedIsAudioGen = Boolean(singleNodeData && isAudioGeneratorNode(singleNodeData));
   const selectedIsVideo = Boolean(singleNodeData && singleNodeData.key === 'video' && !selectedIsVideoGen);
+  const selectedIsTextFrame = Boolean(singleNodeData && isTextFrameNode(singleNodeData));
+  const textFrameTitle = useMemo(() => {
+    if (!selectedIsTextFrame || !singleNodeData) return null;
+    return textFrameTitleChrome({
+      name: singleNodeData.attrs?.name,
+      plainText: parseNodeText(singleNodeData.attrs || {}),
+    });
+  }, [selectedIsTextFrame, singleNodeData]);
+  const mediaTitle = useMemo(() => {
+    if (!singleNodeData || selectedIsTextFrame) return null;
+    return mediaTitleChrome({
+      key: singleNodeData.key,
+      name: singleNodeData.attrs?.name,
+      isImageGen: selectedIsImageGen,
+      isVideoGen: selectedIsVideoGen,
+      isLottieGen: selectedIsLottieGen,
+      isAudioGen: selectedIsAudioGen,
+      isVideo: selectedIsVideo,
+    });
+  }, [
+    singleNodeData,
+    selectedIsTextFrame,
+    selectedIsImageGen,
+    selectedIsVideoGen,
+    selectedIsLottieGen,
+    selectedIsAudioGen,
+    selectedIsVideo,
+  ]);
   const selectedIsMediaGen =
     selectedIsImageGen || selectedIsVideoGen || selectedIsLottieGen || selectedIsAudioGen;
   const singleShapeType = singleNodeData
@@ -2519,36 +2550,18 @@ function SelectionFeature({
       (singleNodeData?.key === 'image' ||
         singleNodeData?.key === 'video' ||
         singleNodeData?.key === 'lottie' ||
-        singleNodeData?.key === 'audio') ? (
+        singleNodeData?.key === 'audio' ||
+        selectedIsTextFrame) &&
+      (textFrameTitle || mediaTitle) ? (
         <NodeTitleLabel
           box={chromeUnion}
           angle={chromeAngle}
           nodeId={singleId}
-          name={
-            mediaTitleChrome({
-              key: singleNodeData?.key,
-              name: singleNodeData?.attrs?.name,
-              isImageGen: selectedIsImageGen,
-              isVideoGen: selectedIsVideoGen,
-              isLottieGen: selectedIsLottieGen,
-              isAudioGen: selectedIsAudioGen,
-              isVideo: selectedIsVideo,
-            }).name
-          }
+          name={(textFrameTitle || mediaTitle)!.name}
           sizeWidth={chromeUnion.width}
           sizeHeight={chromeUnion.height}
           dataAttr="image-label"
-          icon={
-            mediaTitleChrome({
-              key: singleNodeData?.key,
-              name: singleNodeData?.attrs?.name,
-              isImageGen: selectedIsImageGen,
-              isVideoGen: selectedIsVideoGen,
-              isLottieGen: selectedIsLottieGen,
-              isAudioGen: selectedIsAudioGen,
-              isVideo: selectedIsVideo,
-            }).icon
-          }
+          icon={(textFrameTitle || mediaTitle)!.icon}
           dataProps={{ 'data-scene-node-id': singleId }}
           onRename={(name, options) =>
             dispatch(
@@ -2561,17 +2574,7 @@ function SelectionFeature({
               })
             )
           }
-          renameAriaLabel={
-            mediaTitleChrome({
-              key: singleNodeData?.key,
-              name: singleNodeData?.attrs?.name,
-              isImageGen: selectedIsImageGen,
-              isVideoGen: selectedIsVideoGen,
-              isLottieGen: selectedIsLottieGen,
-              isAudioGen: selectedIsAudioGen,
-              isVideo: selectedIsVideo,
-            }).renameAriaLabel
-          }
+          renameAriaLabel={(textFrameTitle || mediaTitle)!.renameAriaLabel}
         />
       ) : null}
 

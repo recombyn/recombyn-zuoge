@@ -1,5 +1,5 @@
 import { frameForFullBleedPlate } from '@/components/rcb/selection/selectionLogic';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { isNodeHidden } from '@/components/rcb/scene/document/nodeCapabilities';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
@@ -36,31 +36,18 @@ export function getFrameBox(
   };
 }
 
-function nodeOverlapsFrame(
-  doc: SceneDocument,
-  nodeId: string,
-  frame: FrameSceneBox,
-  minAreaRatio = 0.2
-): boolean {
-  const node = doc.deltaSetLike?.[nodeId];
-  if (!node) return false;
-  const { left, top } = nodeLeftTop(doc, node);
-  const nw = Math.max(1, Number(node.width) || 1);
-  const nh = Math.max(1, Number(node.height) || 1);
-  const ow = Math.max(0, Math.min(left + nw, frame.left + frame.width) - Math.max(left, frame.left));
-  const oh = Math.max(0, Math.min(top + nh, frame.top + frame.height) - Math.max(top, frame.top));
-  return ow * oh >= nw * nh * minAreaRatio;
-}
-
-/** True when no node meaningfully overlaps the artboard interior. */
+/**
+ * True when this artboard has no real bound content.
+ * Ownership is `attrs.frameId` only — geometric overlap from neighbors must not
+ * steal empty-plate selection (full chrome / frame_move).
+ */
 export function frameIsEmpty(doc: SceneDocument, frameId: string): boolean {
-  const box = getFrameBox(doc, frameId);
-  if (!box) return true;
-  return !listContentNodeIds(doc).some((id) => {
+  return !nodeIdsBoundToFrames(doc, [frameId]).some((id) => {
     const node = doc.deltaSetLike?.[id];
     if (!node || isNodeHidden(node)) return false;
+    // Full-bleed background plate is chrome, not content.
     if (frameForFullBleedPlate(doc, id) === frameId) return false;
-    return nodeOverlapsFrame(doc, id, box);
+    return true;
   });
 }
 

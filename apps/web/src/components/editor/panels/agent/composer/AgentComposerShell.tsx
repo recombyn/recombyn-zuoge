@@ -936,7 +936,6 @@ function AgentComposerShell({
   const isGenMediaMode = isImageMode || isVideoMode;
   // Top attach strip (image/video mode always, or agent/ask after upload) must not steal typing height.
   const hasTopAttachRow = isGenMediaMode || attachments.length > 0;
-  const compactExpanded = compact && hasTopAttachRow;
   const inputMinClass = compact
     ? ''
     : hasTopAttachRow
@@ -1094,10 +1093,7 @@ function AgentComposerShell({
     <div
       className={cn(
         compact
-          ? cn(
-              'rcb-home-composer-compact box-border h-full min-h-0',
-              compactExpanded && 'rcb-home-composer-compact--expanded'
-            )
+          ? 'rcb-home-composer-compact box-border h-auto min-h-0'
           : 'flex flex-col px-3.5 pb-2 pt-2',
         className,
         !compact && hasTopAttachRow && 'min-h-[180px]'
@@ -1148,7 +1144,7 @@ function AgentComposerShell({
       <div
         className={cn(
           'flex cursor-text overflow-hidden',
-          compact ? 'rcb-home-composer-compact__input min-h-0 flex-1 items-start' : 'flex-1 items-start',
+          compact ? 'rcb-home-composer-compact__input items-start' : 'flex-1 items-start',
           !compact && inputMinClass,
           !compact && 'max-h-[140px]'
         )}

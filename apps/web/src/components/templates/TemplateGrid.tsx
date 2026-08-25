@@ -162,9 +162,9 @@ function ProjectBatchBottomBar(props: ProjectBatchControlsProps) {
   );
 }
 
-/** Projects library default — override via `gridClassName` per call site. */
+/** Projects library default — same 4-col home flow as 资产 / 喜欢 / 灵感. */
 const DEFAULT_PROJECTS_GRID =
-  'grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5';
+  'grid w-full grid-cols-2 gap-4 md:grid-cols-4';
 
 /**
  * Projects grid (侧栏「项目」). Data = GET /projects only.

@@ -361,7 +361,7 @@ function UserAssetCardSkeleton({
   const ratio = ASSET_SKELETON_RATIOS[index % ASSET_SKELETON_RATIOS.length];
   return (
     <div
-      className={cn(dense ? 'mb-1.5 min-w-0 break-inside-avoid' : FLOW_ITEM_CLASS)}
+      className={cn(dense ? 'mb-1.5 min-w-0 break-inside-avoid' : 'min-w-0')}
       aria-busy="true"
       aria-hidden
     >
@@ -450,8 +450,8 @@ function UserAssetCard({
     <div
       data-asset-card
       className={cn(
-        // Dock: CSS columns waterfall — keep break-inside + column gap via mb.
-        dense ? 'mb-1.5 min-w-0 break-inside-avoid' : FLOW_ITEM_CLASS,
+        // Dock: own column spacing. Home flow: FlowScrollSection wraps with FLOW_ITEM_CLASS.
+        dense ? 'mb-1.5 min-w-0 break-inside-avoid' : 'min-w-0',
         'group relative overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--rail)]'
         // Do NOT set pointer-events-none while dragging — that cancels HTML5 drag.
       )}

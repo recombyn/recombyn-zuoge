@@ -14,6 +14,7 @@ import {
   parseNodeTextStyle,
   resolveTextBoxWidth,
 } from '@/components/rcb/scene/document/sceneText';
+import { isTextFrameNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { TEXT_SELECTION_PAD } from '@/components/rcb/scene/document/sceneEffects';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -61,7 +62,9 @@ function TextInlineEditor({
   const initial = parseNodeMarkdown(node?.attrs || {}) || '';
   const [value, setValue] = useState(initial);
   const autoSize0 = String(node?.attrs?.autoSize ?? 'true') !== 'false';
+  const textFrame0 = isTextFrameNode(node);
   const [autoSize, setAutoSize] = useState(autoSize0);
+  const [textFrame] = useState(textFrame0);
   const committedRef = useRef(false);
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -69,6 +72,8 @@ function TextInlineEditor({
   styleRef.current = style;
   const autoSizeRef = useRef(autoSize);
   autoSizeRef.current = autoSize;
+  const textFrameRef = useRef(textFrame);
+  textFrameRef.current = textFrame;
   const boxWidthRef = useRef(resolveTextBoxWidth(node?.width, true, style.fontSize));
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
@@ -122,12 +127,15 @@ function TextInlineEditor({
       );
 
   // Prefer content height (tight, even top/bottom). Grow past nodeH only if wrapping needs it.
-  const heightWorld = Math.max(
-    Math.ceil(fontSize * lineH),
-    Math.ceil(contentBox.height),
-    // While edge-dragging width, keep at least the prior node height to avoid flicker.
-    isEdgeDragging ? nodeH : 0
-  );
+  // Text frames keep the authored plate height (image-like) — scroll inside.
+  const heightWorld = textFrame
+    ? Math.max(Math.ceil(fontSize * lineH), nodeH)
+    : Math.max(
+        Math.ceil(fontSize * lineH),
+        Math.ceil(contentBox.height),
+        // While edge-dragging width, keep at least the prior node height to avoid flicker.
+        isEdgeDragging ? nodeH : 0
+      );
   // Same pad as selection chrome (flush with glyphs).
   const pad = TEXT_SELECTION_PAD;
   const chromeLeft = left - pad;
@@ -151,10 +159,20 @@ function TextInlineEditor({
       : measureWrappedTextSize(trimmed, s, boxW);
     const attrs = buildMarkdownTextAttrs(trimmed, s);
     (attrs as any).autoSize = autoSizeRef.current ? 'true' : 'false';
+    if (textFrameRef.current) {
+      (attrs as any).textFrame = 'true';
+      (attrs as any).autoSize = 'false';
+    }
     onCommitRef.current({
       attrs,
-      width: autoSizeRef.current ? measuredBox.width : boxW,
-      height: measuredBox.height,
+      width: textFrameRef.current
+        ? Math.max(1, Math.round(Number(node?.width) || boxW))
+        : autoSizeRef.current
+          ? measuredBox.width
+          : boxW,
+      height: textFrameRef.current
+        ? Math.max(1, Math.round(Number(node?.height) || measuredBox.height))
+        : measuredBox.height,
       left: dragLeftRef.current ?? undefined,
     });
   };
@@ -170,9 +188,10 @@ function TextInlineEditor({
   }, [initial]);
 
   // Entering edit: sync node box to tight content metrics so chrome matches selection
-  // without the old bottom-heavy pad (top edge stays put).
+  // without the old bottom-heavy pad (top edge stays put). Skip for scrollable text frames.
   useLayoutEffect(() => {
     if (!node || node.key !== 'text') return;
+    if (textFrameRef.current) return;
     const s = styleRef.current;
     const plain = valueRef.current;
     const has = Boolean(plain.trim());
@@ -312,35 +331,37 @@ function TextInlineEditor({
             boxShadow: `0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`,
           }}
         />
-        {/* L/R wrap handles (text onResize left/right) */}
-        {(['w', 'e'] as const).map((side) => (
-          <div
-            key={side}
-            role="button"
-            aria-label={side === 'e' ? 'resize-e' : 'resize-w'}
-            className="pointer-events-auto absolute z-[2]"
-            style={{
-              left: side === 'w' ? -HANDLE_HIT / 2 : screenW - HANDLE_HIT / 2,
-              top: screenH / 2 - HANDLE_HIT / 2,
-              width: HANDLE_HIT,
-              height: HANDLE_HIT,
-              cursor: 'ew-resize',
-            }}
-            onPointerDown={startEdgeDrag(side)}
-          >
-            <span
-              className="pointer-events-none absolute bg-white"
-              style={{
-                left: (HANDLE_HIT - HANDLE_VIS) / 2,
-                top: (HANDLE_HIT - HANDLE_VIS) / 2,
-                width: HANDLE_VIS,
-                height: HANDLE_VIS,
-                border: `${BORDER_PX}px solid #3388ff`,
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-        ))}
+        {/* L/R wrap handles — not for scrollable text frames (image-like scale). */}
+        {!textFrame
+          ? (['w', 'e'] as const).map((side) => (
+              <div
+                key={side}
+                role="button"
+                aria-label={side === 'e' ? 'resize-e' : 'resize-w'}
+                className="pointer-events-auto absolute z-[2]"
+                style={{
+                  left: side === 'w' ? -HANDLE_HIT / 2 : screenW - HANDLE_HIT / 2,
+                  top: screenH / 2 - HANDLE_HIT / 2,
+                  width: HANDLE_HIT,
+                  height: HANDLE_HIT,
+                  cursor: 'ew-resize',
+                }}
+                onPointerDown={startEdgeDrag(side)}
+              >
+                <span
+                  className="pointer-events-none absolute bg-white"
+                  style={{
+                    left: (HANDLE_HIT - HANDLE_VIS) / 2,
+                    top: (HANDLE_HIT - HANDLE_VIS) / 2,
+                    width: HANDLE_VIS,
+                    height: HANDLE_VIS,
+                    border: `${BORDER_PX}px solid #3388ff`,
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            ))
+          : null}
         <textarea
           ref={textareaRef}
           value={value}
@@ -354,7 +375,11 @@ function TextInlineEditor({
             e.stopPropagation();
           }}
           spellCheck={false}
-          className="absolute z-[1] resize-none overflow-hidden border-0 bg-transparent p-0 shadow-none outline-none ring-0"
+          className={
+            textFrame
+              ? 'absolute z-[1] resize-none overflow-y-auto border-0 bg-transparent p-0 shadow-none outline-none ring-0'
+              : 'absolute z-[1] resize-none overflow-hidden border-0 bg-transparent p-0 shadow-none outline-none ring-0'
+          }
           style={{
             left: padScreen,
             top: padScreen,
@@ -373,10 +398,10 @@ function TextInlineEditor({
             letterSpacing: style.letterSpacing ? `${style.letterSpacing * z}px` : undefined,
             padding: 0,
             margin: 0,
-            // autoSize: no soft wrap (hard `\n` only). Fixed width: wrap like SVG.
-            whiteSpace: autoSize ? 'pre' : 'pre-wrap',
-            overflowWrap: autoSize ? 'normal' : 'break-word',
-            wordBreak: autoSize ? 'normal' : 'break-word',
+            // autoSize: no soft wrap (hard `\n` only). Fixed width / frame: wrap like SVG.
+            whiteSpace: autoSize && !textFrame ? 'pre' : 'pre-wrap',
+            overflowWrap: autoSize && !textFrame ? 'normal' : 'break-word',
+            wordBreak: autoSize && !textFrame ? 'normal' : 'break-word',
             boxSizing: 'border-box',
             display: 'block',
           }}

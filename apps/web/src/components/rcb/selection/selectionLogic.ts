@@ -90,7 +90,12 @@ import { frameSelId, parseFrameSelId } from './frameSelectionIds';
 
 export const CORNER_HANDLES = new Set<ResizeHandle>(['nw', 'ne', 'sw', 'se']);
 
-export function textResizeModeForHandle(handle: ResizeHandle): TextResizeMode {
+export function textResizeModeForHandle(
+  handle: ResizeHandle,
+  opts?: { textFrame?: boolean }
+): TextResizeMode {
+  // Fixed text plates scale like images — no wrap-width edge mode.
+  if (opts?.textFrame) return 'scale';
   return handle === 'e' || handle === 'w' ? 'wrap' : 'scale';
 }
 
@@ -112,7 +117,27 @@ export type MediaTitleIcon =
   | 'video-generator'
   | 'lottie'
   | 'lottie-generator'
-  | 'audio';
+  | 'audio'
+  | 'text';
+
+export function textFrameTitleChrome(opts: {
+  name?: unknown;
+  plainText?: string;
+}): { name: string; icon: 'text'; renameAriaLabel: string } {
+  const existing = String(opts.name || '').trim();
+  if (existing) {
+    return { name: existing, icon: 'text', renameAriaLabel: 'Text name' };
+  }
+  const snippet = String(opts.plainText || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 48);
+  return {
+    name: snippet || 'Text',
+    icon: 'text',
+    renameAriaLabel: 'Text name',
+  };
+}
 
 export function mediaTitleChrome(opts: {
   key: string | undefined;
@@ -1360,9 +1385,14 @@ export function computeResizedUnion(ctx: ResizeSnapContext): {
     height: Math.max(1, next.height),
   };
   const singleTextMode =
-    ctx.drag.origins.length === 1 &&
-    String(ctx.document?.deltaSetLike?.[ctx.drag.origins[0].nodeId]?.key || '') === 'text'
-      ? textResizeModeForHandle(handle)
+    ctx.drag.origins.length === 1 && String(singleNode?.key || '') === 'text'
+      ? textResizeModeForHandle(handle, {
+          textFrame:
+            singleNode?.attrs?.textFrame === true ||
+            singleNode?.attrs?.textFrame === 'true' ||
+            singleNode?.attrs?.textFrame === 1 ||
+            singleNode?.attrs?.textFrame === '1',
+        })
       : undefined;
   // Only horizontal edge resizing changes wrapping. Corner and vertical
   // resizing must preserve the requested control-box height while scaling text.
