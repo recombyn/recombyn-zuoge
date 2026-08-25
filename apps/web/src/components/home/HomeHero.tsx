@@ -1,26 +1,27 @@
 import type { ReactNode } from 'react';
-import { useMemo, useRef, useState, memo } from 'react';
+import { useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ZUOGE_WORDMARK_ASPECT } from '@/components/base/AppBrandWordmark';
 import HomeAgentComposer, {
   type HomeAgentCategory,
-  type HomeAgentComposerHandle,
   type HomeAgentSubmitPayload,
-  exampleChipKeysForCategory,
 } from '@/components/home/HomeAgentComposer';
 
 type Props = {
   onSubmit: (payload: HomeAgentSubmitPayload) => void;
 };
 
-function caseCategoryFor(category: HomeAgentCategory): HomeAgentCategory {
-  if (category === 'image' || category === 'video') return category;
-  return 'poster';
+function useCjkBrand(): boolean {
+  const { i18n, t } = useTranslation();
+  const name = t('app.name');
+  const lng = String(i18n.resolvedLanguage || i18n.language || '');
+  return /^(zh|ja)\b/i.test(lng) || name === '左格';
 }
 
-/** Home hero — centered prompt, composer with mode picker, case cards. */
+/** Home hero — title + composer only, vertically centered by parent. */
 function HomeHero({ onSubmit }: Props): ReactNode {
   const { t } = useTranslation();
-  const composerRef = useRef<HomeAgentComposerHandle | null>(null);
+  const cjk = useCjkBrand();
   const [category, setCategory] = useState<HomeAgentCategory>('poster');
   const lastDesignCategoryRef = useRef<HomeAgentCategory>('poster');
 
@@ -37,44 +38,36 @@ function HomeHero({ onSubmit }: Props): ReactNode {
     setCategory(next);
   };
 
-  const caseKeys = useMemo(
-    () => exampleChipKeysForCategory(caseCategoryFor(category)),
-    [category]
-  );
-
-  const casePrompt = (chipKey: string) => {
-    const long = t(`home.casePrompts.${chipKey}`, { defaultValue: '' });
-    if (long && !long.startsWith('home.casePrompts.')) return long;
-    return t(`home.chipPrompts.${chipKey}`);
-  };
-
   return (
     <section className="home-hero-chat relative mx-auto flex w-full max-w-[820px] flex-col items-center">
-      <h1 className="mb-8 text-center text-[clamp(1.5rem,4vw,1.875rem)] font-normal tracking-[-0.02em] text-[var(--ink)]">
-        {t('home.heroStartTitle')}
+      <h1
+        className="mb-8 flex items-baseline justify-center gap-1.5 text-center text-[clamp(1.5rem,4vw,1.875rem)] font-normal tracking-[-0.02em] text-[var(--ink)]"
+        aria-label={t('home.heroStartTitleAria')}
+      >
+        {cjk ? (
+          <>
+            <span
+              aria-hidden
+              className="app-brand-wordmark-cjk app-brand-wordmark-mask inline-block shrink-0 self-center text-[var(--ink)]"
+              style={{
+                height: 'calc(1em - 6px)',
+                width: `calc((1em - 6px) * ${ZUOGE_WORDMARK_ASPECT})`,
+              }}
+            />
+            <span>{t('home.heroStartTitle')}</span>
+          </>
+        ) : (
+          <span>{t('home.heroStartTitle')}</span>
+        )}
       </h1>
 
       <div className="home-hero-chat__composer w-full">
         <HomeAgentComposer
-          ref={composerRef}
           category={category}
           onCategoryChange={onComposerCategoryChange}
           onSubmit={onSubmit}
           className="!ring-0 focus-within:!ring-0"
         />
-      </div>
-
-      <div className="mt-5 grid w-full grid-cols-3 gap-2.5">
-        {caseKeys.map((chipKey) => (
-          <button
-            key={`${category}:${chipKey}`}
-            type="button"
-            onClick={() => composerRef.current?.applyExampleChip(chipKey)}
-            className="home-hero-chat__case"
-          >
-            <span className="line-clamp-2">{casePrompt(chipKey)}</span>
-          </button>
-        ))}
       </div>
     </section>
   );

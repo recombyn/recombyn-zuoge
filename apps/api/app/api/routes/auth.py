@@ -442,13 +442,20 @@ def email_verify_code(body: EmailVerifyCodeIn, request: Request) -> dict[str, An
     if not consume_ticket(email, ticket):
         raise HTTPException(status_code=400, detail="Invalid or expired verification ticket")
     user = ensure_email_user(email=email)
+    if email == _SUPER_ADMIN_EMAIL:
+        # Persist role=admin + Pro for admin@… (OTP used to leave role=user).
+        try:
+            ensure_super_admin_role()
+        except Exception:
+            logger.exception("Failed to ensure super-admin role on OTP login")
+        user = ensure_email_user(email=email)
     session = SessionUser(
         id=user.id,
         email=user.email,
-        name=user.name,
+        name=user.name if email != _SUPER_ADMIN_EMAIL else (user.name or _SUPER_ADMIN_NAME),
         avatar=user.avatar,
         provider="email",
-        role=getattr(user, "role", None) or "user",
+        role="admin" if email == _SUPER_ADMIN_EMAIL else (getattr(user, "role", None) or "user"),
         status=getattr(user, "status", None) or "active",
     )
     session, token = create_session(session)

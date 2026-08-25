@@ -29,6 +29,36 @@ async def list_mockup_templates() -> list[dict[str, Any]]:
         return list(templates or [])
 
 
+async def fetch_mockup_template_kit(
+    template_id: str = "demo-cylinder",
+    *,
+    scale: float = 0.5,
+) -> dict[str, Any]:
+    """Download UV/mask/base kit for FE live remap."""
+    base = _base_url()
+    if not base:
+        raise RuntimeError(
+            "Mockup service is not configured (set RECOMBYN_INTELLIGENCE_URL)"
+        )
+    tid = (template_id or "demo-cylinder").strip() or "demo-cylinder"
+    sc = max(0.25, min(1.0, float(scale or 0.5)))
+    # Kit payload is multi-MB JSON; allow longer than default ILP connect budget.
+    kit_timeout = httpx.Timeout(120.0, connect=30.0)
+    async with httpx.AsyncClient(timeout=kit_timeout) as client:
+        resp = await client.get(
+            f"{base}/api/v1/mockup/templates/{tid}/kit",
+            params={"scale": sc},
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            detail = (resp.text or "").strip()[:300] or resp.reason_phrase or "error"
+            raise RuntimeError(f"mockup kit failed ({resp.status_code}): {detail}")
+        data = resp.json()
+        if not isinstance(data, dict) or not data.get("uvBase64"):
+            raise RuntimeError("mockup kit returned invalid payload")
+        return data
+
+
 async def render_mockup_via_intelligence(
     image_ref: str,
     *,

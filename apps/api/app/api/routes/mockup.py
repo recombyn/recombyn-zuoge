@@ -11,6 +11,7 @@ from app.api.deps import CurrentUser
 from app.services.mockup.mockup_client import (
     mockup_enabled,
     list_mockup_templates,
+    fetch_mockup_template_kit,
     render_mockup_batch_via_intelligence,
     render_mockup_via_intelligence,
 )
@@ -48,6 +49,24 @@ async def list_mockup_tools() -> dict[str, Any]:
             "templates": templates,
         }
     }
+
+
+@router.get("/templates/{template_id}/kit")
+async def get_mockup_template_kit(
+    _current_user: CurrentUser,
+    template_id: str,
+    scale: float = 0.5,
+) -> dict[str, Any]:
+    """Proxy Intelligence template kit (UV/mask/base) for FE WebGL preview."""
+    if not mockup_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="样机渲染需要接入 Recombyn Intelligence（设置 RECOMBYN_INTELLIGENCE_URL）",
+        )
+    try:
+        return await fetch_mockup_template_kit(template_id, scale=scale)
+    except RuntimeError as err:
+        raise HTTPException(status_code=502, detail=str(err)) from err
 
 
 @router.post("/render")

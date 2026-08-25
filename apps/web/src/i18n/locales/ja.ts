@@ -115,7 +115,9 @@ const ja = {
     heroSubtitle: '左格 — あなたの意図を汲むデザイン Agent',
     heroCategoryAria: '生成タイプを選択、現在：{{category}}',
     heroBrandSubtitle: 'AIデザインスタジオ',
-    heroStartTitle: 'まず何から始めますか？',
+    /** Trailing copy after brand mark icon in HomeHero. */
+    heroStartTitle: '、デザインがこんなに簡単だったことはない',
+    heroStartTitleAria: '左格、デザインがこんなに簡単だったことはない',
     heroSuggest: {
       ui: 'UIデザイン',
       poster: 'ポスター',
@@ -1097,6 +1099,8 @@ const ja = {
       mockupTemplateDefault: 'シリンダーマグ',
       mockupPreviewLoading: 'モックアッププレビューを合成中…',
       mockupPreviewFailed: 'プレビューに失敗しました。Intelligence サービスを確認してください',
+      mockupClearDesign: 'デザインを削除',
+      mockupAutoFit: '自動フィット',
       processingMockup: 'モックアップ生成中…',
       mockupDone: 'モックアップが完成しました',
       mockupFailed: 'モックアップの生成に失敗しました',

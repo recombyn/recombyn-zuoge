@@ -55,6 +55,7 @@ def ensure_credits_scale_x10_migration() -> None:
 __all__ = [
     "init_wallet_db",
     "ensure_user_balance",
+    "ensure_super_admin_pro_plan",
     "get_user_credits",
     "get_user_plan",
     "get_wallet",
@@ -119,6 +120,13 @@ def get_wallet(user_id: str) -> dict[str, Any]:
             "planLocked": False,
             "billingEnabled": billing,
         }
+    # Admins always stay on Pro (model pick + membership). Previously only the
+    # bootstrap SUPER_ADMIN_ID was upgraded — other role=admin users stayed Free.
+    try:
+        if _user_is_admin(uid):
+            ensure_super_admin_pro_plan(uid)
+    except Exception:
+        pass
     import time
 
     init_wallet_db()
@@ -140,6 +148,87 @@ def get_wallet(user_id: str) -> dict[str, Any]:
         "billingEnabled": billing,
     }
 
+
+
+def _user_is_admin(user_id: str) -> bool:
+    """True when uid is bootstrap super-admin or DB role/email qualifies as admin."""
+    from sqlmodel import Session
+
+    from app import crud
+    from app.core.db import engine
+    from app.services.auth import SessionUser
+    from app.services.auth.admin import SUPER_ADMIN_ID, is_admin_user
+
+    uid = (user_id or "").strip()
+    if not uid:
+        return False
+    if uid == SUPER_ADMIN_ID:
+        return True
+    init_wallet_db()
+    with Session(engine) as session:
+        row = crud.get_user_by_id(session=session, user_id=uid)
+        if row is None:
+            return False
+        return is_admin_user(
+            SessionUser(
+                id=str(row.id),
+                email=str(row.email or ""),
+                name=str(row.name or ""),
+                avatar=getattr(row, "avatar", None),
+                provider=str(getattr(row, "provider", None) or "email"),
+                bio=getattr(row, "bio", None),
+                role=getattr(row, "role", None),
+                status=getattr(row, "status", None),
+            )
+        )
+
+
+def ensure_super_admin_pro_plan(user_id: str | None = None) -> None:
+    """Admin wallet → Pro (long-lived), so model pick / membership UI stay unlocked."""
+    import time
+
+    from sqlmodel import Session
+
+    from app import crud
+    from app.core.db import engine
+    from app.services.auth.admin import SUPER_ADMIN_ID
+    from app.services.wallet.billing import plan_credit_grant
+
+    uid = (user_id or SUPER_ADMIN_ID or "").strip()
+    if not uid:
+        return
+    init_wallet_db()
+    now = time.time()
+    # ~10 years — admin membership should not silently fall back to free.
+    expires = now + (10 * 365.25 * 86400)
+    gift = max(0, int(plan_credit_grant("pro") or 1030))
+    with Session(engine) as session:
+        bal = crud.ensure_user_balance_row(session=session, user_id=uid, starting_credits=0)
+        prev = normalize_plan(bal.plan_id)
+        prev_exp = float(bal.plan_expires_at) if bal.plan_expires_at is not None else None
+        active = plan_is_active(prev, prev_exp, now=now)
+        dirty = False
+        if prev != "pro" or not active or (prev_exp is not None and prev_exp < expires - 86400):
+            bal.plan_id = "pro"
+            bal.plan_expires_at = expires
+            dirty = True
+        # Fresh free wallet → seed Pro monthly credits once.
+        if prev == "free" and int(bal.credits or 0) <= 0 and gift > 0:
+            bal.credits = gift
+            dirty = True
+            crud.add_wallet_ledger(
+                session=session,
+                user_id=uid,
+                kind="plan",
+                amount=gift,
+                balance_after=gift,
+                detail="super_admin:pro_bootstrap",
+                commit=False,
+            )
+        if dirty:
+            bal.updated_at = now
+            session.add(bal)
+            session.commit()
 
 
 def get_user_credits(user_id: str) -> int:

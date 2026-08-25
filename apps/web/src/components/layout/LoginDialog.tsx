@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation, Trans } from 'react-i18next';
 import { Button, Checkbox, Input, message, Dialog, Icon } from '@/components/base';
 import AppLogo from '@/components/base/AppLogo';
+import AppBrandWordmark from '@/components/base/AppBrandWordmark';
 import {
   createSliderCaptcha,
   sendEmailCode,
@@ -101,13 +102,7 @@ function LoginArtPanel() {
       </div>
       <div className="relative z-10 inline-flex shrink-0 items-center gap-2 self-start p-6 leading-none">
         <AppLogo size={22} scheme="light" />
-        {/* Lowercase Latin sits low in the em-box — nudge up for optical center with mark. */}
-        <span
-          className="-translate-y-px text-[15px] font-medium leading-none tracking-tight text-white"
-          aria-hidden
-        >
-          {t('app.name').toLowerCase()}
-        </span>
+        <AppBrandWordmark size={15} mark={false} lowercase className="-translate-y-px text-white" />
       </div>
     </div>
   );

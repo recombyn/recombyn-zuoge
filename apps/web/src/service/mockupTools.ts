@@ -32,5 +32,10 @@ export async function renderMockup(
 }
 
 export function mockupErrorMessage(err: unknown, fallback: string): string {
-  return getHttpErrorMessage(err, fallback);
+  const msg = getHttpErrorMessage(err, fallback);
+  const trimmed = msg.trim();
+  // FastAPI bare 404 / auth noise is useless for users (stale API / logged out).
+  if (/^not found$/i.test(trimmed)) return fallback;
+  if (/not authenticated/i.test(trimmed)) return fallback;
+  return msg;
 }
