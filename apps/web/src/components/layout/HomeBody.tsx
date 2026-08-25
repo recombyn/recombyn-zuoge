@@ -19,6 +19,7 @@ import { Dropdown, Tooltip, Button, Dialog, message, Popover } from '@/component
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { Icon } from '@/components/base/icon';
 import AppLogo from '@/components/base/AppLogo';
+import AppBrandWordmark from '@/components/base/AppBrandWordmark';
 import PlansDialog from '@/components/layout/PlansDialog';
 import UserAccountPanel, { UserAvatar } from '@/components/layout/UserAccountPanel';
 import HomeHero from '@/components/home/HomeHero';
@@ -430,12 +431,7 @@ function RailBrandHeader({
           RAIL_ROW_GAP
         )}
       >
-        <span
-          className="min-w-0 flex-1 truncate text-[20px] font-semibold leading-none tracking-tight text-[var(--ink)] [font-family:var(--font-hero)]"
-          aria-hidden
-        >
-          {t('app.name')}
-        </span>
+        <AppBrandWordmark size={20} className="min-w-0 flex-1" />
         <Tooltip tip={t('home.railCollapse')} placement="bottom" offset={6}>
           <button
             type="button"
@@ -670,12 +666,7 @@ function HomeSidebar({
       {!desktop ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex h-20 items-start bg-gradient-to-b from-[var(--surface)] from-60% to-transparent pt-4 px-4 md:hidden">
           <div className="pointer-events-auto inline-flex min-w-0 items-center gap-2 leading-none">
-            <span
-              className="-translate-y-px truncate text-[20px] font-semibold leading-none tracking-tight text-[var(--ink)] [font-family:var(--font-hero)]"
-              aria-hidden
-            >
-              {t('app.name')}
-            </span>
+            <AppBrandWordmark size={20} className="-translate-y-px" />
           </div>
         </div>
       ) : null}
@@ -959,7 +950,7 @@ function HomeTemplateList({
           <div
             className={cn(
               HOME_MAIN_INSET,
-              'flex w-full flex-1 flex-col items-center justify-start pb-10 pt-[calc(14vh+50px)] sm:pt-[calc(16vh+50px)]'
+              'flex w-full flex-1 flex-col items-center justify-center pb-16 pt-8 -translate-y-[50px]'
             )}
           >
             <HomeHero onSubmit={onAgentSubmit} />

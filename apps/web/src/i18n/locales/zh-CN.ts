@@ -118,7 +118,9 @@ const zhCN = {
     heroSubtitle: '左格懂你的设计 Agent',
     heroCategoryAria: '选择生成类型，当前：{{category}}',
     heroBrandSubtitle: 'AI 设计创作平台',
-    heroStartTitle: '我们先从哪里开始呢？',
+    /** Trailing copy after brand mark icon in HomeHero. */
+    heroStartTitle: '，设计从未如此简单',
+    heroStartTitleAria: '左格，设计从未如此简单',
     heroSuggest: {
       ui: 'UI 界面',
       poster: '海报',
@@ -1203,6 +1205,8 @@ const zhCN = {
       mockupTemplateDefault: '圆柱马克杯',
       mockupPreviewLoading: '正在合成样机预览…',
       mockupPreviewFailed: '样机预览失败，请确认 Intelligence 服务已启动',
+      mockupClearDesign: '删除贴图',
+      mockupAutoFit: '自动贴合',
       processingMockup: '生成样机中',
       mockupDone: '样机已生成',
       mockupFailed: '样机生成失败',

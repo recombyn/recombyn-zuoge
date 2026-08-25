@@ -17,15 +17,20 @@ import {
   useRcbCamera,
 } from '@/components/rcb';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { liveShapeGeomBox } from '@/components/rcb/selection/HostPathChrome';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import { isMockupEnabled, mockupErrorMessage } from '@/service/mockupTools';
 import { uploadImageFromSrcWithLocalFallback } from '@/utils/uploadImage';
 import { cn } from '@/utils/classnames';
-import { patchDocumentNode } from '@/store/modules/editor';
+import {
+  patchDocumentNode,
+  removeDocumentNodes,
+  setSelectedNodeId,
+} from '@/store/modules/editor';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
-import { renderMockup } from './mockupTools';
 import MockupDesignLayer from './MockupDesignLayer';
 import { isMockupNodeActive } from './mockupAttrs';
+import { fetchMockupTemplateKit, type MockupTemplateKit } from './mockupKit';
 import {
   autoFitMockupPlacement,
   composeMockupDesignSheet,
@@ -34,6 +39,7 @@ import {
   parseMockupPlacement,
   type MockupPlacement,
 } from './mockupPlacement';
+import { createMockupUvPreview, type MockupUvPreview } from './mockupUvPreview';
 import {
   readChatImageDragUrl,
   readMediaAssetDragPayload,
@@ -44,8 +50,12 @@ import {
 const DEFAULT_TEMPLATE_ID = 'demo-cylinder';
 const DEFAULT_TEMPLATE_WIDTH = 720;
 const DEFAULT_TEMPLATE_HEIGHT = 960;
+const CANVAS_ABSORB_MOVE_PX = 8;
+const KIT_SCALE = 0.5;
 
-function nodeBox(document: SceneDocument, node: SceneNodeInput) {
+type SceneBox = { left: number; top: number; width: number; height: number };
+
+function nodeBox(document: SceneDocument, node: SceneNodeInput): SceneBox | null {
   if (!node) return null;
   const { left, top } = nodeLeftTop(document, node);
   return {
@@ -54,6 +64,14 @@ function nodeBox(document: SceneDocument, node: SceneNodeInput) {
     width: Math.max(1, Number(node.width) || 1),
     height: Math.max(1, Number(node.height) || 1),
   };
+}
+
+function listMockupNodeIds(document: SceneDocument | null | undefined): string[] {
+  const ds = document?.deltaSetLike || {};
+  return Object.keys(ds).filter((id) => {
+    const node = ds[id];
+    return node?.key === 'image' && isMockupNodeActive(node.attrs || {});
+  });
 }
 
 function isImageFile(file: File): boolean {
@@ -82,23 +100,61 @@ function pointInScreenRect(
   return clientX >= left && clientX <= left + width && clientY >= top && clientY <= top + height;
 }
 
-/** Passive mockup overlay: attr-driven, no session mode, drag-to-place + live warp preview. */
+function mockupContainsDesignCenter(host: SceneBox, design: SceneBox): boolean {
+  const cx = design.left + design.width / 2;
+  const cy = design.top + design.height / 2;
+  return (
+    cx >= host.left &&
+    cx <= host.left + host.width &&
+    cy >= host.top &&
+    cy <= host.top + host.height
+  );
+}
+
+function parseSavedPlacement(raw: unknown): MockupPlacement | null {
+  if (typeof raw === 'string') {
+    try {
+      return parseMockupPlacement(JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  return parseMockupPlacement(raw);
+}
+
 function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode {
+  const { data: imageToolCaps } = useImageToolCapabilities();
+  const mockupIntelEnabled = isMockupEnabled(imageToolCaps);
+  const mockupIds = useMemo(
+    () => (mockupIntelEnabled ? listMockupNodeIds(document) : []),
+    [document, mockupIntelEnabled]
+  );
+
+  if (!mockupIds.length) return null;
+
+  return (
+    <>
+      {mockupIds.map((nodeId) => (
+        <MockupPlate key={nodeId} nodeId={nodeId} document={document} />
+      ))}
+    </>
+  );
+}
+
+function MockupPlate({
+  nodeId,
+  document,
+}: {
+  nodeId: string;
+  document: SceneDocument;
+}): ReactNode {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const camera = useRcbCamera();
   const { data: imageToolCaps } = useImageToolCapabilities();
-  const mockupIntelEnabled = isMockupEnabled(imageToolCaps);
-
   const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
-  const node = selectedNodeId ? document?.deltaSetLike?.[selectedNodeId] : null;
-  const active =
-    mockupIntelEnabled && node?.key === 'image' && isMockupNodeActive(node?.attrs || {});
-  const nodeId = active ? selectedNodeId! : '';
-  const box = useMemo(
-    () => (active && node ? nodeBox(document, node) : null),
-    [active, document, node]
-  );
+  const node = document?.deltaSetLike?.[nodeId];
+  const box = useMemo(() => (node ? nodeBox(document, node) : null), [document, node]);
 
   const template = useMemo(() => {
     const tpl = imageToolCaps?.mockup?.templates?.find((item) => item.id === DEFAULT_TEMPLATE_ID);
@@ -110,20 +166,91 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
     };
   }, [imageToolCaps?.mockup?.templates, t]);
 
-  const [baseSrc, setBaseSrc] = useState<string | null>(null);
+  const [kit, setKit] = useState<MockupTemplateKit | null>(null);
+  const [kitBusy, setKitBusy] = useState(false);
+  const [kitError, setKitError] = useState(false);
   const [designSrc, setDesignSrc] = useState<string | null>(null);
   const [placement, setPlacement] = useState<MockupPlacement>(() => defaultMockupPlacement());
   const [designSelected, setDesignSelected] = useState(false);
-  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const previewSeqRef = useRef(0);
+
   const placementRef = useRef(placement);
+  const designSrcRef = useRef(designSrc);
   const applySeqRef = useRef(0);
+  const absorbLockRef = useRef(false);
+  const pointerGestureRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const lastAdjustTokenRef = useRef<string>('');
+  const previewRef = useRef<MockupUvPreview | null>(null);
+  const composeGenRef = useRef(0);
+  const liveRafRef = useRef(0);
+  const pendingLiveRef = useRef<MockupPlacement | null>(null);
   placementRef.current = placement;
+  designSrcRef.current = designSrc;
+
+  const designW = kit?.fullWidth || template.width;
+  const designH = kit?.fullHeight || template.height;
+
+  // Load UV kit once per template (surface mapping — not per-drag render).
+  useEffect(() => {
+    let cancelled = false;
+    setKitBusy(true);
+    setKitError(false);
+    void (async () => {
+      const load = async () => {
+        const next = await fetchMockupTemplateKit(template.id, KIT_SCALE);
+        if (cancelled) return;
+        setKit(next);
+        if (!previewRef.current) {
+          previewRef.current = createMockupUvPreview();
+        }
+        await previewRef.current.setKit({
+          width: next.width,
+          height: next.height,
+          baseUrl: next.base,
+          maskUrl: next.mask,
+          uv: next.uv,
+        });
+        setLivePreviewUrl(previewRef.current.toDataURL());
+        setKitError(false);
+      };
+      try {
+        await load();
+      } catch (firstErr) {
+        console.warn('[mockup] kit', firstErr);
+        // One retry — kit is large and first hit after intel restart can flake.
+        try {
+          await new Promise((r) => window.setTimeout(r, 600));
+          if (cancelled) return;
+          await load();
+        } catch (err) {
+          if (cancelled) return;
+          console.warn('[mockup] kit retry', err);
+          setKit(null);
+          setKitError(true);
+          message.error(mockupErrorMessage(err, t('editor.imageToolbar.mockupPreviewFailed')));
+        }
+      } finally {
+        if (!cancelled) setKitBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [template.id, t]);
 
   useEffect(() => {
-    if (!active || !nodeId) return;
+    return () => {
+      previewRef.current?.dispose();
+      previewRef.current = null;
+    };
+  }, []);
+
+  // Hide SVG underlay only while the HTML overlay has pixels to show.
+  // If kit failed / preview empty, keep the scene node visible (avoids blank plate).
+  const overlayOwnsPixels = Boolean(livePreviewUrl || kit?.base);
+  useEffect(() => {
+    if (!nodeId || !overlayOwnsPixels) return;
     const root = globalThis.document;
     const hidden = new Set<Element>();
     const hideSceneNode = () => {
@@ -144,31 +271,11 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
         }
       });
     };
-  }, [active, nodeId, camera]);
+  }, [nodeId, camera, overlayOwnsPixels]);
 
   useEffect(() => {
-    if (!active || !nodeId) {
-      setBaseSrc(null);
-      setDesignSrc(null);
-      setPlacement(defaultMockupPlacement());
-      setDesignSelected(false);
-      setPreviewSrc(null);
-      setPreviewBusy(false);
-      setDragOver(false);
-      return;
-    }
     const savedDesign = String(node?.attrs?.mockupDesignSrc || '').trim();
-    const savedPlacement = parseMockupPlacement(
-      typeof node?.attrs?.mockupPlacement === 'string'
-        ? (() => {
-            try {
-              return JSON.parse(node!.attrs!.mockupPlacement as string);
-            } catch {
-              return null;
-            }
-          })()
-        : node?.attrs?.mockupPlacement
-    );
+    const savedPlacement = parseSavedPlacement(node?.attrs?.mockupPlacement);
     if (savedDesign) {
       setDesignSrc(savedDesign);
       setPlacement(savedPlacement || defaultMockupPlacement());
@@ -177,14 +284,15 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
       setPlacement(defaultMockupPlacement());
     }
     setDesignSelected(false);
-  }, [active, nodeId, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement]);
+  }, [nodeId, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement]);
 
+  // Toolbar "样机" again → enter FE adjust (no API).
   useEffect(() => {
-    if (!active || !nodeId) return;
-    const src =
-      String(node?.attrs?.mockupBaseSrc || node?.attrs?.src || '').trim();
-    setBaseSrc(src || null);
-  }, [active, nodeId, node?.attrs?.src, node?.attrs?.mockupBaseSrc]);
+    const token = String(node?.attrs?.mockupAdjust || '').trim();
+    if (!token || token === lastAdjustTokenRef.current) return;
+    lastAdjustTokenRef.current = token;
+    if (designSrcRef.current) setDesignSelected(true);
+  }, [node?.attrs?.mockupAdjust]);
 
   const persistPlacement = useCallback(
     (nextPlacement: MockupPlacement, nextDesign: string) => {
@@ -205,91 +313,199 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
     [dispatch, nodeId, template.id]
   );
 
+  /** FE-only: compose sheet + WebGL UV remap (no /mockup/render). */
+  const refreshLivePreview = useCallback(
+    async (nextPlacement: MockupPlacement, nextDesign: string) => {
+      const preview = previewRef.current;
+      const activeKit = kit;
+      if (!preview || !activeKit || !nextDesign) return;
+      const gen = ++composeGenRef.current;
+      try {
+        const sheet = await composeMockupDesignSheet(
+          nextDesign,
+          nextPlacement,
+          activeKit.fullWidth,
+          activeKit.fullHeight
+        );
+        if (composeGenRef.current !== gen) return;
+        await preview.setDesignSheet(sheet);
+        if (composeGenRef.current !== gen) return;
+        setLivePreviewUrl(preview.toDataURL());
+      } catch (err) {
+        console.warn('[mockup] fe preview', err);
+      }
+    },
+    [kit]
+  );
+
+  const printForFit = useMemo(() => {
+    const pf = kit?.printFull;
+    if (pf && pf.w > 0 && pf.h > 0) {
+      return {
+        templateW: kit?.fullWidth || template.width,
+        templateH: kit?.fullHeight || template.height,
+        x: pf.x,
+        y: pf.y,
+        w: pf.w,
+        h: pf.h,
+      };
+    }
+    return undefined;
+  }, [kit, template.width, template.height]);
+
   const assignDesignSrc = useCallback(
     async (src: string, autoSelect = true) => {
       const url = String(src || '').trim();
       if (!url) return;
       try {
         const { width, height } = await loadImageNaturalSize(url);
-        const fit = autoFitMockupPlacement(width, height);
+        const fit = autoFitMockupPlacement(width, height, printForFit);
         setDesignSrc(url);
         setPlacement(fit);
         setDesignSelected(autoSelect);
-        setPreviewSrc(null);
         persistPlacement(fit, url);
+        await refreshLivePreview(fit, url);
       } catch (err) {
         console.warn('[mockup] design load', err);
         message.error(t('editor.imageToolbar.mockupFailed'));
       }
     },
-    [persistPlacement, t]
+    [persistPlacement, printForFit, refreshLivePreview, t]
   );
 
-  useEffect(() => {
-    if (!active || !nodeId) return;
-    if (!selectedNodeId || selectedNodeId === nodeId) return;
-    const other = document?.deltaSetLike?.[selectedNodeId];
-    if (other?.key !== 'image') return;
-    const src = String(other?.attrs?.src || '').trim();
-    if (!src) return;
-    void assignDesignSrc(src, true);
-  }, [active, nodeId, selectedNodeId, document, assignDesignSrc]);
+  const clearDesign = useCallback(() => {
+    setDesignSrc(null);
+    setPlacement(defaultMockupPlacement());
+    setDesignSelected(false);
+    void (async () => {
+      try {
+        await previewRef.current?.setDesignSheet(null);
+        setLivePreviewUrl(previewRef.current?.toDataURL() || kit?.base || null);
+      } catch {
+        setLivePreviewUrl(kit?.base || null);
+      }
+    })();
+    dispatch(
+      patchDocumentNode({
+        nodeId,
+        patch: {
+          attrs: {
+            mockupDesignSrc: '',
+            mockupPlacement: '',
+            mockupTemplateId: template.id,
+          },
+        },
+        skipHostReload: true,
+      })
+    );
+  }, [dispatch, kit?.base, nodeId, template.id]);
 
+  const refitDesign = useCallback(() => {
+    const src = designSrcRef.current;
+    if (!src) return;
+    void (async () => {
+      try {
+        const { width, height } = await loadImageNaturalSize(src);
+        const fit = autoFitMockupPlacement(width, height, printForFit);
+        setPlacement(fit);
+        setDesignSelected(true);
+        persistPlacement(fit, src);
+        await refreshLivePreview(fit, src);
+      } catch (err) {
+        console.warn('[mockup] refit', err);
+        message.error(t('editor.imageToolbar.mockupFailed'));
+      }
+    })();
+  }, [persistPlacement, printForFit, refreshLivePreview, t]);
+
+  // When kit arrives after design already set, rebuild preview.
   useEffect(() => {
-    if (!active || !designSrc) {
-      setPreviewSrc(null);
-      setPreviewBusy(false);
-      return;
-    }
-    const seq = ++previewSeqRef.current;
-    setPreviewBusy(true);
-    const timer = window.setTimeout(() => {
+    if (!kit || !designSrc) return;
+    void refreshLivePreview(placementRef.current, designSrc);
+  }, [kit, designSrc, refreshLivePreview]);
+
+  /** Canvas node drag → drop onto this mockup plate. */
+  useEffect(() => {
+    if (!box) return;
+
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      pointerGestureRef.current = { x: e.clientX, y: e.clientY, moved: false };
+    };
+    const onMove = (e: PointerEvent) => {
+      const g = pointerGestureRef.current;
+      if (!g || g.moved) return;
+      if (Math.hypot(e.clientX - g.x, e.clientY - g.y) >= CANVAS_ABSORB_MOVE_PX) {
+        g.moved = true;
+      }
+    };
+    const tryAbsorb = () => {
+      if (absorbLockRef.current) return;
+      const designId = String(selectedNodeId || '').trim();
+      if (!designId || designId === nodeId) return;
+      const designNode = document?.deltaSetLike?.[designId];
+      if (!designNode || designNode.key !== 'image') return;
+      if (isMockupNodeActive(designNode.attrs || {})) return;
+      const src = String(designNode.attrs?.src || '').trim();
+      if (!src) return;
+      const design = liveShapeGeomBox(designId) || nodeBox(document, designNode);
+      const liveHost = liveShapeGeomBox(nodeId) || (node ? nodeBox(document, node) : null);
+      if (!design || !liveHost) return;
+      if (!mockupContainsDesignCenter(liveHost, design)) return;
+
+      absorbLockRef.current = true;
       void (async () => {
         try {
-          const sheet = await composeMockupDesignSheet(
-            designSrc,
-            placementRef.current,
-            template.width,
-            template.height
-          );
-          const result = await renderMockup(sheet, template.id);
-          if (previewSeqRef.current !== seq) return;
-          setPreviewSrc(String(result.image || '').trim() || null);
+          await assignDesignSrc(src, true);
+          dispatch(removeDocumentNodes({ nodeIds: [designId] }));
+          dispatch(setSelectedNodeId(nodeId));
         } catch (err) {
-          if (previewSeqRef.current !== seq) return;
-          console.warn('[mockup] preview', err);
-          setPreviewSrc(null);
+          console.warn('[mockup] canvas absorb', err);
+          message.error(mockupErrorMessage(err, t('editor.imageToolbar.mockupFailed')));
         } finally {
-          if (previewSeqRef.current === seq) setPreviewBusy(false);
+          window.setTimeout(() => {
+            absorbLockRef.current = false;
+          }, 400);
         }
       })();
-    }, designSelected ? 420 : 280);
-    return () => window.clearTimeout(timer);
-  }, [
-    active,
-    designSrc,
-    placement,
-    template.id,
-    template.width,
-    template.height,
-    designSelected,
-  ]);
+    };
+    const onUp = () => {
+      const gesture = pointerGestureRef.current;
+      pointerGestureRef.current = null;
+      if (!gesture?.moved) return;
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(tryAbsorb);
+      });
+    };
 
-  // Auto-bake warped preview when idle (not dragging placement).
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+    };
+  }, [assignDesignSrc, box, dispatch, document, node, nodeId, selectedNodeId, t]);
+
+  // Auto-bake FE composite into node.src when idle (not adjusting).
   useEffect(() => {
-    if (!active || !nodeId || !designSrc || !previewSrc || designSelected) return;
+    if (!nodeId || !designSrc || !livePreviewUrl || designSelected) return;
     const seq = ++applySeqRef.current;
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          const uploaded = await uploadImageFromSrcWithLocalFallback(previewSrc, 'mockup.png');
+          const uploaded = await uploadImageFromSrcWithLocalFallback(
+            livePreviewUrl,
+            'mockup.png'
+          );
           if (applySeqRef.current !== seq) return;
           dispatch(
             patchDocumentNode({
               nodeId,
               patch: {
                 attrs: {
-                  src: uploaded.url || previewSrc,
+                  src: uploaded.url || livePreviewUrl,
                   mockupTemplateId: template.id,
                   mockupDesignSrc: designSrc,
                   mockupPlacement: JSON.stringify(placementRef.current),
@@ -305,20 +521,32 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
       })();
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [active, nodeId, designSrc, previewSrc, designSelected, template.id, dispatch]);
+  }, [nodeId, designSrc, livePreviewUrl, designSelected, template.id, dispatch]);
 
   useEffect(() => {
-    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (designSelected) {
+      if (e.key === 'Escape') {
+        if (designSelected) {
+          e.preventDefault();
+          setDesignSelected(false);
+        }
+        return;
+      }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && designSrc) {
+        const tag = (e.target as HTMLElement | null)?.tagName || '';
+        if (/^(INPUT|TEXTAREA|SELECT)$/i.test(tag) || (e.target as HTMLElement)?.isContentEditable) {
+          return;
+        }
+        // Only when mockup plate or its design is the focus of selection.
+        if (selectedNodeId !== nodeId && !designSelected) return;
         e.preventDefault();
-        setDesignSelected(false);
+        e.stopPropagation();
+        clearDesign();
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [active, designSelected]);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [clearDesign, designSelected, designSrc, nodeId, selectedNodeId]);
 
   const resolveDropSrc = useCallback((dt: DataTransfer | null): string | null => {
     const asset = readMediaAssetDragPayload(dt);
@@ -350,7 +578,7 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
   }, [box, camera]);
 
   useEffect(() => {
-    if (!active || !screenRect) return;
+    if (!screenRect) return;
     const hasAsset = (dt: DataTransfer | null) => {
       const hasFile = Array.from(dt?.types || []).includes('Files');
       return dataTransferHasMediaAsset(dt) || dataTransferHasChatImage(dt) || hasFile;
@@ -387,28 +615,47 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
       window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
     };
-  }, [active, screenRect, resolveDropSrc, onFiles, assignDesignSrc]);
+  }, [screenRect, resolveDropSrc, onFiles, assignDesignSrc]);
 
   const onPlacementChange = useCallback(
     (next: MockupPlacement) => {
       setPlacement(next);
-      if (designSrc) persistPlacement(next, designSrc);
+      if (designSrc) {
+        persistPlacement(next, designSrc);
+        void refreshLivePreview(next, designSrc);
+      }
     },
-    [designSrc, persistPlacement]
+    [designSrc, persistPlacement, refreshLivePreview]
   );
 
-  if (!active || !nodeId || !box || !screenRect) return null;
+  const onLivePlacementChange = useCallback(
+    (next: MockupPlacement) => {
+      if (!designSrc) return;
+      pendingLiveRef.current = next;
+      if (liveRafRef.current) return;
+      liveRafRef.current = window.requestAnimationFrame(() => {
+        liveRafRef.current = 0;
+        const p = pendingLiveRef.current;
+        const src = designSrcRef.current;
+        if (p && src) void refreshLivePreview(p, src);
+      });
+    },
+    [designSrc, refreshLivePreview]
+  );
+
+  if (!node || !box || !screenRect) return null;
 
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const origin = rcbSceneToScreen(camera, box.left, box.top);
   const stageW = box.width * z;
   const stageH = box.height * z;
-  const showWarped = Boolean(previewSrc) && !designSelected;
-  const ghostHitOnly = showWarped && Boolean(designSrc);
+  const showComposite = Boolean(livePreviewUrl);
+  // Prefer live UV composite → kit base. If neither, leave transparent so the scene node stays visible.
+  const backdrop = livePreviewUrl || kit?.base || null;
 
   return (
     <RcbOverlayPortal>
-      <div data-mockup-session className="pointer-events-none absolute inset-0 z-[36]">
+      <div data-mockup-session={nodeId} className="pointer-events-none absolute inset-0 z-[36]">
         <div
           className={cn(
             'pointer-events-none absolute overflow-hidden rounded-sm',
@@ -421,25 +668,16 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
             height: stageH,
           }}
         >
-          {showWarped ? (
+          {backdrop ? (
             <img
-              src={previewSrc!}
+              src={backdrop}
               alt=""
               className="absolute inset-0 h-full w-full object-contain"
               draggable={false}
             />
-          ) : baseSrc ? (
-            <img
-              src={baseSrc}
-              alt=""
-              className="absolute inset-0 h-full w-full object-contain bg-[var(--surface-2)]"
-              draggable={false}
-            />
-          ) : (
-            <div className="absolute inset-0 bg-[var(--surface-2)]" />
-          )}
+          ) : null}
 
-          {previewBusy ? (
+          {kitBusy ? (
             <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center px-2 pt-1">
               <span className="inline-block w-max max-w-[calc(100%-16px)] truncate whitespace-nowrap text-[11px] font-medium text-white drop-shadow">
                 {t('editor.imageToolbar.mockupPreviewLoading')}
@@ -447,7 +685,7 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
             </div>
           ) : null}
 
-          {!previewBusy && designSrc && !previewSrc && !designSelected ? (
+          {!kitBusy && kitError ? (
             <div className="pointer-events-none absolute inset-x-0 top-6 flex justify-center px-2">
               <span className="inline-block w-max max-w-[calc(100%-16px)] truncate whitespace-nowrap text-[11px] font-medium text-white drop-shadow">
                 {t('editor.imageToolbar.mockupPreviewFailed')}
@@ -455,11 +693,36 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
             </div>
           ) : null}
 
-          {!designSrc && !previewBusy ? (
+          {!designSrc && !kitBusy ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3">
               <span className="inline-block w-max max-w-full truncate whitespace-nowrap rounded-md bg-black/45 px-2.5 py-1 text-[11px] font-medium text-white">
                 {t('editor.imageToolbar.mockupDropHint')}
               </span>
+            </div>
+          ) : null}
+
+          {designSrc ? (
+            <div className="pointer-events-auto absolute inset-x-0 bottom-3 flex justify-center gap-2 px-3">
+              <button
+                type="button"
+                className="rounded-md bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-black/70"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  refitDesign();
+                }}
+              >
+                {t('editor.imageToolbar.mockupAutoFit')}
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-black/70"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearDesign();
+                }}
+              >
+                {t('editor.imageToolbar.mockupClearDesign')}
+              </button>
             </div>
           ) : null}
 
@@ -471,9 +734,11 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
               selected={designSelected}
               onSelect={() => setDesignSelected(true)}
               onPlacementChange={onPlacementChange}
-              templateW={template.width}
-              templateH={template.height}
-              ghostHitOnly={ghostHitOnly}
+              onLivePlacementChange={onLivePlacementChange}
+              templateW={designW}
+              templateH={designH}
+              ghostHitOnly={!designSelected && showComposite}
+              hideDesignImage={showComposite}
             />
           ) : null}
         </div>

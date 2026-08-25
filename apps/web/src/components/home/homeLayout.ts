@@ -20,10 +20,10 @@ export const HOME_SKILL_GRID =
 
 /**
  * Home content grids (项目 / 灵感 / 资产 / 喜欢) — same breakpoints.
- * Mobile 2 cols; md+ always 4 per row (card height follows content).
+ * Mobile 2 → md 3 → xl 4 (fills the 1300 shell on large screens).
  */
 export const HOME_FLOW_GRID =
-  'grid w-full grid-cols-2 gap-4 md:grid-cols-4';
+  'grid w-full grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4';
 
 /** @deprecated alias — use HOME_FLOW_GRID */
 export const HOME_INSPIRATION_COLUMNS = HOME_FLOW_GRID;

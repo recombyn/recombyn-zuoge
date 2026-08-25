@@ -32,6 +32,7 @@ import {
   GRID_SKELETON_COUNT,
   InfiniteScrollSection,
 } from '@/components/home/InfiniteScroll';
+import { HOME_PROJECT_GRID } from '@/components/home/homeLayout';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 
 export { ProjectCardSkeleton };
@@ -162,9 +163,8 @@ function ProjectBatchBottomBar(props: ProjectBatchControlsProps) {
   );
 }
 
-/** Projects library default — same 4-col home flow as 资产 / 喜欢 / 灵感. */
-const DEFAULT_PROJECTS_GRID =
-  'grid w-full grid-cols-2 gap-4 md:grid-cols-4';
+/** Projects library default — same home flow as 资产 / 喜欢 / 灵感. */
+const DEFAULT_PROJECTS_GRID = HOME_PROJECT_GRID;
 
 /**
  * Projects grid (侧栏「项目」). Data = GET /projects only.
