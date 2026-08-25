@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { listMarkSessionTargets } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-function docWith(nodes: Record<string, any>): SceneDocument {
+function docWith(nodes: Record<string, any>) {
   return {
     version: 1,
     activeFrameId: null,
     frames: [],
     deltaSetLike: {
-      ROOT: { id: 'ROOT', key: 'group', children: Object.keys(nodes) },
+      ROOT: { id: 'ROOT', key: 'group', children: Object.keys(nodes), x: 0, y: 0, width: 0, height: 0, attrs: {} },
       ...nodes,
     },
-  } as SceneDocument;
+  } as any;
 }
 
 describe('listMarkSessionTargets', () => {
