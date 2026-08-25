@@ -5,10 +5,10 @@ import {
   ScrollLoadFooter,
   useScrollLoadMore,
 } from '@/components/home/InfiniteScroll';
+import { HOME_FLOW_GRID } from '@/components/home/homeLayout';
 
 /** Default plaza / inspiration / assets flow — same as HOME_FLOW_GRID. */
-export const FLOW_COLUMNS_CLASS =
-  'grid w-full grid-cols-2 gap-4 md:grid-cols-4';
+export const FLOW_COLUMNS_CLASS = HOME_FLOW_GRID;
 
 /** Each card in a CSS-columns flow must avoid breaking across columns. */
 export const FLOW_ITEM_CLASS = 'mb-5 break-inside-avoid';

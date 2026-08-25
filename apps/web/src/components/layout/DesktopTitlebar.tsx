@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { VscChromeClose, VscChromeMaximize, VscChromeMinimize, VscChromeRestore } from 'react-icons/vsc';
 import AppLogo from '@/components/base/AppLogo';
+import AppBrandWordmark from '@/components/base/AppBrandWordmark';
 import { cn } from '@/utils/classnames';
 import {
   homeRailWidthPx,
@@ -175,12 +176,11 @@ function DesktopTitlebar() {
             data-tauri-drag-region
           >
             {onHome ? null : (
-              <span
-                className="truncate text-[13px] font-medium tracking-tight text-[var(--ink)]/90"
-                data-tauri-drag-region
-              >
-                {t('app.name')}
-              </span>
+              <AppBrandWordmark
+                size={13}
+                mark={false}
+                className="truncate text-[var(--ink)]/90"
+              />
             )}
           </div>
         </>

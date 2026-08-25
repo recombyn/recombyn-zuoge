@@ -119,10 +119,28 @@ def user_ledger(
 
 
 def ensure_super_admin_role() -> None:
-    """Make sure bootstrap super-admin row has role=admin."""
+    """Make sure SUPER_ADMIN_EMAIL / SUPER_ADMIN_ID rows have role=admin and Pro plan."""
     init_schema()
+    from app.services.auth.admin import SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID
+    from app.services.wallet.db import ensure_super_admin_pro_plan
+
     with Session(engine) as session:
         crud.ensure_super_admin_role(session=session)
+        admin_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
+        admin_id = (SUPER_ADMIN_ID or "").strip()
+        ids: list[str] = []
+        if admin_id:
+            ids.append(admin_id)
+        if admin_email:
+            row = crud.get_user_by_email(session=session, email=admin_email)
+            if row is not None:
+                ids.append(str(row.id))
+    seen: set[str] = set()
+    for uid in ids:
+        if not uid or uid in seen:
+            continue
+        seen.add(uid)
+        ensure_super_admin_pro_plan(uid)
 
 
 def _user_to_out(user: User, bal: UserBalance | None) -> dict[str, Any]:

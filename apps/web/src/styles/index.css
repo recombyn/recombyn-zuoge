@@ -65,6 +65,23 @@
   }
 }
 
+/* 左格 graphic wordmark — PNG mask + currentColor (light/dark / on-brand). */
+.app-brand-wordmark-cjk {
+  color: var(--ink);
+}
+
+.app-brand-wordmark-mask {
+  background-color: currentColor;
+  -webkit-mask-image: url('/brand/zuoge-wordmark.png');
+  mask-image: url('/brand/zuoge-wordmark.png');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
 /* Outside @layer so it reliably overrides Tailwind `transition` utilities during theme swaps */
 html.rcb-theme-switching,
 html.rcb-theme-switching *,
@@ -208,41 +225,6 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
 .rcb-home-composer-compact [data-agent-composer]::-webkit-scrollbar {
   width: 0;
   height: 0;
-}
-
-.home-hero-chat__case {
-  display: flex;
-  flex-direction: column;
-  border-radius: 16px;
-  border: 1px solid var(--home-hero-border);
-  background: color-mix(in srgb, var(--ink) 3%, var(--rail));
-  padding: 16px;
-  text-align: left;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--muted);
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.home-hero-chat__case:hover {
-  background: color-mix(in srgb, var(--ink) 5%, var(--rail));
-  border-color: color-mix(in srgb, var(--ink) 12%, var(--line));
-  color: color-mix(in srgb, var(--muted) 55%, var(--ink));
-}
-
-html[data-theme='dark'] .home-hero-chat__case {
-  background: color-mix(in srgb, var(--ink) 12%, var(--surface));
-  border-color: color-mix(in srgb, var(--ink) 22%, var(--line));
-  color: color-mix(in srgb, var(--muted) 70%, var(--ink));
-}
-
-html[data-theme='dark'] .home-hero-chat__case:hover {
-  background: color-mix(in srgb, var(--ink) 18%, var(--surface));
-  border-color: color-mix(in srgb, var(--ink) 30%, var(--line));
-  color: color-mix(in srgb, var(--muted) 35%, var(--ink));
 }
 
 .rcb-home-composer-glow::before {

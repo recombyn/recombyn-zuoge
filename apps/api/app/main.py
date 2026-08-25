@@ -166,6 +166,13 @@ def _startup() -> None:
     except Exception:
         logger.exception("seed failed")
     try:
+        from app.services.admin.users import ensure_super_admin_role
+
+        ensure_super_admin_role()
+        logger.info("super-admin role/plan ensured")
+    except Exception:
+        logger.exception("super-admin bootstrap failed")
+    try:
         from app.services.design.readpath.catalog import ensure_design_catalog
 
         ensure_design_catalog()

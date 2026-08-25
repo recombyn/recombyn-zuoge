@@ -270,28 +270,71 @@ def ensure_email_user(*, email: str) -> EmailUser:
     from app import crud
     from app.core.db import engine
     from app.models import User
+    from app.services.auth.admin import SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID
 
     init_auth_db()
     email_n = email.strip().lower()
-    name_n = email_n.split("@")[0] if "@" in email_n else email_n
+    is_super = bool(SUPER_ADMIN_EMAIL) and email_n == SUPER_ADMIN_EMAIL.strip().lower()
+    name_n = (
+        "Super Admin"
+        if is_super
+        else (email_n.split("@")[0] if "@" in email_n else email_n)
+    )
     now = time.time()
     with Session(engine) as session:
         existing = crud.get_user_by_email(session=session, email=email_n)
+        if is_super and existing is None and SUPER_ADMIN_ID:
+            # Prefer stable bootstrap id so password / OTP share one admin row.
+            existing = crud.get_user_by_id(session=session, user_id=SUPER_ADMIN_ID)
+            if existing is not None and (existing.email or "").strip().lower() not in (
+                "",
+                email_n,
+            ):
+                # Bootstrap id already used by another email — fall through to create.
+                existing = None
         if existing:
+            dirty = False
+            if is_super:
+                if (existing.role or "").strip().lower() != "admin":
+                    existing.role = "admin"
+                    dirty = True
+                if (existing.status or "").strip().lower() != "active":
+                    existing.status = "active"
+                    dirty = True
+                if not (existing.name or "").strip():
+                    existing.name = name_n
+                    dirty = True
+                if (existing.email or "").strip().lower() != email_n:
+                    existing.email = email_n
+                    dirty = True
+            if dirty:
+                existing.updated_at = now
+                session.add(existing)
+                session.commit()
+                session.refresh(existing)
             return _user_from_model(existing)
-        uid = str(uuid.uuid4())
+        uid = SUPER_ADMIN_ID if is_super and SUPER_ADMIN_ID else str(uuid.uuid4())
         session.add(
             User(
                 id=uid,
                 email=email_n,
                 name=name_n,
                 provider="email",
+                role="admin" if is_super else "user",
+                status="active",
                 created_at=now,
                 updated_at=now,
             )
         )
         session.commit()
-    return EmailUser(id=uid, email=email_n, name=name_n, provider="email")
+    return EmailUser(
+        id=uid,
+        email=email_n,
+        name=name_n,
+        provider="email",
+        role="admin" if is_super else "user",
+        status="active",
+    )
 
 
 def _is_oauth_placeholder_avatar(url: str | None) -> bool:

@@ -115,7 +115,9 @@ const zhTW = {
     heroSubtitle: '左格懂你的設計 Agent',
     heroCategoryAria: '選擇生成類型，目前：{{category}}',
     heroBrandSubtitle: 'AI 設計創作平台',
-    heroStartTitle: '我們先從哪裡開始呢？',
+    /** Trailing copy after brand mark icon in HomeHero. */
+    heroStartTitle: '，設計從未如此簡單',
+    heroStartTitleAria: '左格，設計從未如此簡單',
     heroSuggest: {
       ui: 'UI 介面',
       poster: '海報',
@@ -1090,6 +1092,8 @@ const zhTW = {
       mockupTemplateDefault: '圓柱馬克杯',
       mockupPreviewLoading: '正在合成樣機預覽…',
       mockupPreviewFailed: '樣機預覽失敗，請確認 Intelligence 服務已啟動',
+      mockupClearDesign: '刪除貼圖',
+      mockupAutoFit: '自動貼合',
       processingMockup: '生成樣機中',
       mockupDone: '樣機已生成',
       mockupFailed: '樣機生成失敗',

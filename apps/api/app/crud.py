@@ -1445,15 +1445,20 @@ def update_admin_user(
 
 
 def ensure_super_admin_role(*, session: Session) -> None:
+    """Persist role=admin for bootstrap SUPER_ADMIN_ID / SUPER_ADMIN_EMAIL."""
+    from app.services.auth.admin import SUPER_ADMIN_EMAIL, SUPER_ADMIN_ID
+
     now = time.time()
-    rows = list(
-        session.exec(
-            select(User).where(
-                (User.id == "user_super_admin")
-                | (func.lower(User.email) == "admin@recombyn.com")
-            )
-        ).all()
-    )
+    admin_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
+    admin_id = (SUPER_ADMIN_ID or "").strip()
+    clauses: list[Any] = []
+    if admin_id:
+        clauses.append(User.id == admin_id)
+    if admin_email:
+        clauses.append(func.lower(User.email) == admin_email)
+    if not clauses:
+        return
+    rows = list(session.exec(select(User).where(or_(*clauses))).all())
     for row in rows:
         row.role = "admin"
         row.status = "active"

@@ -118,7 +118,9 @@ const en = {
     heroSubtitle: 'Recombyn — the design agent that gets you',
     heroCategoryAria: 'Choose what to generate, current: {{category}}',
     heroBrandSubtitle: 'AI design studio',
-    heroStartTitle: 'Where shall we start?',
+    /** Full hero line (EN — no brand icon). */
+    heroStartTitle: 'Design has never been this simple',
+    heroStartTitleAria: 'Design has never been this simple',
     heroSuggest: {
       ui: 'UI design',
       poster: 'Poster',
@@ -1212,6 +1214,8 @@ const en = {
       mockupTemplateDefault: 'Cylinder mug',
       mockupPreviewLoading: 'Compositing mockup preview…',
       mockupPreviewFailed: 'Preview failed — check that Intelligence is running',
+      mockupClearDesign: 'Remove design',
+      mockupAutoFit: 'Auto fit',
       processingMockup: 'Generating mockup…',
       mockupDone: 'Mockup ready',
       mockupFailed: 'Mockup failed',
