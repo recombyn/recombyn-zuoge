@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
+import { coerceSceneDocumentInput, parseAndValidateSceneJson } from '@/components/rcb/sceneNode';
 import DevPropertiesPanel from '@/components/editor/panels/DevPropertiesPanel';
 import {
   RCB_DEFAULT_CAMERA as DEFAULT_CAMERA,
@@ -16,6 +16,7 @@ import {
 } from '@/components/rcb';
 import {
   advanceBootProgress,
+  message,
   readBootProgress,
   resetBootProgress,
 } from '@/components/base';
@@ -37,9 +38,12 @@ import {
   setSelectedNodeIds,
   setWorkspaceMode,
   applyCollabDocument,
+  createTemplate,
+  importDocument,
   EMPTY_ID_LIST,
   type ArtboardFrame,
 } from '@/store/modules/editor';
+import { store } from '@/store';
 import type { ShareDto } from '@/models/shares';
 import { apiQuery } from '@/service/client';
 import { buildLoginUrl } from '@/utils/authReturnTo';
@@ -230,6 +234,62 @@ function SharePage() {
   /** Anyone who can open the share may export finished scene content (same gate as editor inspect). */
   const canExport = canView;
   const loginUrl = buildLoginUrl(location.pathname + location.search);
+
+  const goProjectsFromShare = useCallback(() => {
+    navigate('/home?nav=mine');
+  }, [navigate]);
+
+  const newProjectFromShare = useCallback(() => {
+    navigate('/editor?createNew=1');
+  }, [navigate]);
+
+  const duplicateShareDocument = useCallback(() => {
+    const doc = (store.getState() as any).editor?.document as SceneDocument | null;
+    if (!doc) return;
+    const baseName = record?.name || t('home.untitled');
+    dispatch(
+      createTemplate({
+        name: `${baseName} ${t('editor.projectMenu.duplicateSuffix')}`,
+        document: structuredClone(doc),
+        source: 'user',
+      })
+    );
+    const newId = (store.getState() as any).editor?.currentId;
+    if (newId) navigate(`/editor/${encodeURIComponent(newId)}`, { replace: true });
+  }, [dispatch, navigate, record?.name, t]);
+
+  const importJsonFromShare = useCallback(
+    async (file: File) => {
+      try {
+        const text = await file.text();
+        const validation = parseAndValidateSceneJson(text);
+        if (validation.valid === false) {
+          message.error(t('home.importJsonInvalid'));
+          return;
+        }
+        dispatch(
+          importDocument({
+            name: file.name.replace(/\.json$/i, ''),
+            document: validation.data,
+            source: 'import',
+          })
+        );
+        message.success(t('home.importSuccess'));
+        const id = (store.getState() as any).editor?.currentId;
+        if (id) navigate(`/editor/${encodeURIComponent(id)}`, { replace: true });
+      } catch {
+        message.error(t('home.importJsonFailed'));
+      }
+    },
+    [dispatch, navigate, t]
+  );
+
+  const shareMenuProps = {
+    onProjectList: goProjectsFromShare,
+    onNewProject: newProjectFromShare,
+    onDuplicateProject: duplicateShareDocument,
+    onImportJson: importJsonFromShare,
+  };
 
   const zoomAtStageCenter = useCallback((nextZoom: number) => {
     const el = stageRef.current;
@@ -443,12 +503,12 @@ function SharePage() {
   }, [document?.backgroundColor, document?.backgroundOpacity]);
 
   if (missing) {
-    return <ShareGateStates kind="missing" loginUrl={loginUrl} />;
+    return <ShareGateStates kind="missing" loginUrl={loginUrl} {...shareMenuProps} />;
   }
 
   if (forbidden || (record && !canView)) {
     return (
-      <ShareGateStates kind="forbidden" viewerId={viewerId} loginUrl={loginUrl} />
+      <ShareGateStates kind="forbidden" viewerId={viewerId} loginUrl={loginUrl} {...shareMenuProps} />
     );
   }
 
@@ -468,6 +528,7 @@ function SharePage() {
         inspectOpen={inspectOpen}
         canExport={canExport}
         onToggleInspect={() => setInspectOpen((v) => !v)}
+        {...shareMenuProps}
       />
 
       <div className="relative flex min-h-0 flex-1">

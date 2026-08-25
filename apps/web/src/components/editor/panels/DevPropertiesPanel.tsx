@@ -18,8 +18,10 @@ import {
 } from '@/components/rcb/scene/document/sceneEffects';
 import {
   isExportableSceneNode,
-  isVideoNode
+  isTextNode,
+  isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 
 function formatPx(n: number) {
@@ -181,6 +183,18 @@ function androidColor(color: string): string {
   return formatColor(color, 'argb');
 }
 
+type TextTypography = {
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: string;
+  fontStyle: string;
+  lineHeight: number;
+  letterSpacing: number;
+  textAlign: string;
+  textDecoration: string;
+  fill: string;
+};
+
 function buildCodeSnippet(
   target: CodeTarget,
   colorFormat: ColorFormat,
@@ -195,23 +209,31 @@ function buildCodeSnippet(
     stroke: string;
     strokeWidth: number;
     shadow: ReturnType<typeof resolveShadow>;
+    typography: TextTypography | null;
   }
 ): string {
   const hasFill =
     opts.fill && opts.fill !== 'rgba(0,0,0,0)' && opts.fill !== 'transparent';
   const hasStroke =
     opts.strokeWidth > 0 && opts.stroke && opts.stroke !== 'transparent';
+  const ty = opts.typography;
 
   if (target === 'ios') {
     const lines = [
       `frame: CGRect(x: ${formatPx(opts.left)}, y: ${formatPx(opts.top)}, width: ${formatPx(opts.width)}, height: ${formatPx(opts.height)})`,
       `opacity: ${formatAlpha(opts.opacity)}`,
     ];
-    if (opts.radius > 0) lines.push(`cornerRadius: ${formatPx(opts.radius)}`);
-    if (hasFill) lines.push(`backgroundColor: ${iosUiColor(opts.fill)}`);
-    if (hasStroke) {
-      lines.push(`borderWidth: ${formatPx(opts.strokeWidth)}`);
-      lines.push(`borderColor: ${iosUiColor(opts.stroke)}`);
+    if (ty) {
+      lines.push(`font: UIFont(name: "${ty.fontFamily}", size: ${formatPx(ty.fontSize)})`);
+      lines.push(`textColor: ${iosUiColor(ty.fill)}`);
+      lines.push(`textAlignment: .${ty.textAlign || 'left'}`);
+    } else {
+      if (opts.radius > 0) lines.push(`cornerRadius: ${formatPx(opts.radius)}`);
+      if (hasFill) lines.push(`backgroundColor: ${iosUiColor(opts.fill)}`);
+      if (hasStroke) {
+        lines.push(`borderWidth: ${formatPx(opts.strokeWidth)}`);
+        lines.push(`borderColor: ${iosUiColor(opts.stroke)}`);
+      }
     }
     if (opts.shadow) {
       lines.push(`shadowOffset: CGSize(width: ${formatPx(opts.shadow.offsetX)}, height: ${formatPx(opts.shadow.offsetY)})`);
@@ -229,13 +251,20 @@ function buildCodeSnippet(
       `android:translationY="${formatPx(opts.top)}dp"`,
       `android:alpha="${formatAlpha(opts.opacity)}"`,
     ];
-    if (hasFill) lines.push(`android:background="${androidColor(opts.fill)}"`);
-    if (opts.radius > 0) {
-      lines.push(`app:cardCornerRadius="${formatPx(opts.radius)}dp"`);
-    }
-    if (hasStroke) {
-      lines.push(`android:strokeWidth="${formatPx(opts.strokeWidth)}dp"`);
-      lines.push(`android:strokeColor="${androidColor(opts.stroke)}"`);
+    if (ty) {
+      lines.push(`android:fontFamily="${ty.fontFamily}"`);
+      lines.push(`android:textSize="${formatPx(ty.fontSize)}sp"`);
+      lines.push(`android:textColor="${androidColor(ty.fill)}"`);
+      lines.push(`android:textAlignment="${ty.textAlign || 'left'}"`);
+    } else {
+      if (hasFill) lines.push(`android:background="${androidColor(opts.fill)}"`);
+      if (opts.radius > 0) {
+        lines.push(`app:cardCornerRadius="${formatPx(opts.radius)}dp"`);
+      }
+      if (hasStroke) {
+        lines.push(`android:strokeWidth="${formatPx(opts.strokeWidth)}dp"`);
+        lines.push(`android:strokeColor="${androidColor(opts.stroke)}"`);
+      }
     }
     return lines.join('\n');
   }
@@ -247,12 +276,30 @@ function buildCodeSnippet(
     `height: ${formatPx(opts.height)}px;`,
     `opacity: ${formatAlpha(opts.opacity)};`,
   ];
-  if (opts.radius > 0) lines.push(`border-radius: ${formatPx(opts.radius)}px;`);
-  if (hasFill) lines.push(`background: ${formatColor(opts.fill, colorFormat)};`);
-  if (hasStroke) {
-    lines.push(
-      `border: ${formatPx(opts.strokeWidth)}px solid ${formatColor(opts.stroke, colorFormat)};`
-    );
+  if (ty) {
+    lines.push(`font-family: ${ty.fontFamily};`);
+    lines.push(`font-size: ${formatPx(ty.fontSize)}px;`);
+    lines.push(`font-weight: ${ty.fontWeight};`);
+    if (ty.fontStyle && ty.fontStyle !== 'normal') {
+      lines.push(`font-style: ${ty.fontStyle};`);
+    }
+    lines.push(`line-height: ${formatPx(ty.lineHeight)};`);
+    if (ty.letterSpacing) {
+      lines.push(`letter-spacing: ${formatPx(ty.letterSpacing)}px;`);
+    }
+    lines.push(`text-align: ${ty.textAlign || 'left'};`);
+    if (ty.textDecoration && ty.textDecoration !== 'none') {
+      lines.push(`text-decoration: ${ty.textDecoration};`);
+    }
+    lines.push(`color: ${formatColor(ty.fill, colorFormat)};`);
+  } else {
+    if (opts.radius > 0) lines.push(`border-radius: ${formatPx(opts.radius)}px;`);
+    if (hasFill) lines.push(`background: ${formatColor(opts.fill, colorFormat)};`);
+    if (hasStroke) {
+      lines.push(
+        `border: ${formatPx(opts.strokeWidth)}px solid ${formatColor(opts.stroke, colorFormat)};`
+      );
+    }
   }
   if (opts.shadow) {
     lines.push(
@@ -458,6 +505,21 @@ function DevPropertiesPanel({
     const fill = resolveFillColor(node, 'transparent');
     const stroke = resolveStroke(node, 'transparent');
     const shadow = resolveShadow(node);
+    const textNode = isTextNode(node);
+    const textStyle = textNode ? parseNodeTextStyle(node.attrs || {}) : null;
+    const typography: TextTypography | null = textStyle
+      ? {
+          fontFamily: textStyle.fontFamily,
+          fontSize: textStyle.fontSize,
+          fontWeight: String(textStyle.fontWeight || 'normal'),
+          fontStyle: String(textStyle.fontStyle || 'normal'),
+          lineHeight: textStyle.lineHeight,
+          letterSpacing: textStyle.letterSpacing,
+          textAlign: String(textStyle.textAlign || 'left'),
+          textDecoration: String(textStyle.textDecoration || 'none'),
+          fill: textStyle.fill || fill,
+        }
+      : null;
     const snippet = buildCodeSnippet(codeTarget, colorFormat, {
       left,
       top,
@@ -465,10 +527,11 @@ function DevPropertiesPanel({
       height,
       opacity,
       radius,
-      fill,
+      fill: typography?.fill || fill,
       stroke: stroke.stroke,
       strokeWidth: stroke.strokeWidth,
       shadow,
+      typography,
     });
     return {
       left,
@@ -481,7 +544,8 @@ function DevPropertiesPanel({
       stroke,
       shadow,
       snippet,
-      fillText: formatColor(fill, colorFormat),
+      typography,
+      fillText: formatColor(typography?.fill || fill, colorFormat),
       strokeText: formatColor(stroke.stroke, colorFormat),
       shadowText: shadow ? formatColor(shadow.color, colorFormat) : '',
     };
@@ -525,16 +589,28 @@ function DevPropertiesPanel({
 
   const copyStyle = async () => {
     if (!model) return;
-    const lines = [
-      `fill: ${model.fillText}`,
-      `stroke: ${formatPx(model.stroke.strokeWidth)}px ${model.strokeText}`,
-    ];
-    if (model.shadow) {
-      lines.push(
-        `shadow: ${formatPx(model.shadow.offsetX)} ${formatPx(model.shadow.offsetY)} ${formatPx(model.shadow.blur)} ${model.shadowText}`
-      );
-    } else {
-      lines.push('shadow: none');
+    const lines = model.typography
+      ? [
+          `font-family: ${model.typography.fontFamily}`,
+          `font-size: ${formatPx(model.typography.fontSize)}px`,
+          `font-weight: ${model.typography.fontWeight}`,
+          `line-height: ${formatPx(model.typography.lineHeight)}`,
+          `letter-spacing: ${formatPx(model.typography.letterSpacing)}px`,
+          `text-align: ${model.typography.textAlign}`,
+          `color: ${formatColor(model.typography.fill, colorFormat)}`,
+        ]
+      : [
+          `fill: ${model.fillText}`,
+          `stroke: ${formatPx(model.stroke.strokeWidth)}px ${model.strokeText}`,
+        ];
+    if (!model.typography) {
+      if (model.shadow) {
+        lines.push(
+          `shadow: ${formatPx(model.shadow.offsetX)} ${formatPx(model.shadow.offsetY)} ${formatPx(model.shadow.blur)} ${model.shadowText}`
+        );
+      } else {
+        lines.push('shadow: none');
+      }
     }
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
@@ -614,7 +690,7 @@ function DevPropertiesPanel({
                 <Metric label="W" value={`${formatPx(model.width)}px`} />
                 <Metric label="H" value={`${formatPx(model.height)}px`} />
               </div>
-              {!isVideo ? (
+              {!isVideo && !model.typography ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--ink)]">
                   <span className="text-[var(--muted)]">{t('editor.fillRadius')}</span>
                   <span className="tabular-nums">{formatPx(model.radius)}px</span>
@@ -623,9 +699,75 @@ function DevPropertiesPanel({
                   <span className="tabular-nums">{Math.round(model.opacity * 100)}%</span>
                 </div>
               ) : null}
+              {!isVideo && model.typography ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--ink)]">
+                  <span className="text-[var(--muted)]">{t('editor.fillOpacity')}</span>
+                  <span className="tabular-nums">{Math.round(model.opacity * 100)}%</span>
+                </div>
+              ) : null}
             </Section>
 
-            {!isVideo ? (
+            {model.typography ? (
+              <Section
+                title={t('editor.devTypography')}
+                right={
+                  <button
+                    type="button"
+                    onClick={copyStyle}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+                    aria-label={t('editor.devCopyStyle')}
+                  >
+                    <HiOutlineClipboardDocument className="h-3.5 w-3.5" />
+                  </button>
+                }
+              >
+                <div className="space-y-2 text-[12px]">
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-[var(--muted)]">
+                      {t('editor.fontFamily')}
+                    </span>
+                    <span className="min-w-0 truncate text-[var(--ink)]">
+                      {model.typography.fontFamily}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Metric
+                      label={t('editor.fontSize')}
+                      value={`${formatPx(model.typography.fontSize)}px`}
+                    />
+                    <Metric
+                      label={t('editor.fontWeight')}
+                      value={String(model.typography.fontWeight)}
+                    />
+                    <Metric
+                      label={t('editor.lineHeight')}
+                      value={formatPx(model.typography.lineHeight)}
+                    />
+                    <Metric
+                      label={t('editor.letterSpacing')}
+                      value={`${formatPx(model.typography.letterSpacing)}px`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-[var(--muted)]">
+                      {t('editor.textAlign')}
+                    </span>
+                    <span className="tabular-nums text-[var(--ink)]">
+                      {model.typography.textAlign}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-[var(--muted)]">{t('editor.fill')}</span>
+                    <ColorSwatch color={model.typography.fill} />
+                    <span className="min-w-0 truncate tabular-nums text-[var(--ink)]">
+                      {model.fillText}
+                    </span>
+                  </div>
+                </div>
+              </Section>
+            ) : null}
+
+            {!isVideo && !model.typography ? (
             <Section
               title={t('editor.devStyle')}
               right={

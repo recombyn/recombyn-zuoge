@@ -2,14 +2,38 @@ import { memo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineArrowRightOnRectangle } from 'react-icons/hi2';
-import WalletAccountChip from '@/components/layout/WalletAccountChip';
+import EditorProjectMenu from '@/components/editor/chrome/EditorProjectMenu';
+import { useLeftDockInset } from '@/components/editor/page/editorBottomHudLayout';
 
-function GateShell({ children }: { children: React.ReactNode }) {
+function GateShell({
+  children,
+  onProjectList,
+  onNewProject,
+  onDuplicateProject,
+  onImportJson,
+}: {
+  children: React.ReactNode;
+  onProjectList: () => void;
+  onNewProject: () => void;
+  onDuplicateProject: () => void;
+  onImportJson: (file: File) => void;
+}) {
+  const leftHudInsetPx = useLeftDockInset(false, false);
+
   return (
     <div className="relative flex h-full min-h-[60vh] flex-col items-center justify-center gap-3 bg-[var(--canvas)] px-6">
-      <div className="pointer-events-none absolute right-4 top-3 z-20">
+      <div
+        className="pointer-events-none absolute top-3 z-20 hidden md:block"
+        style={{ left: leftHudInsetPx }}
+      >
         <div className="pointer-events-auto">
-          <WalletAccountChip />
+          <EditorProjectMenu
+            onProjectList={onProjectList}
+            onNewProject={onNewProject}
+            onDuplicateProject={onDuplicateProject}
+            onImportJson={onImportJson}
+            variant="float"
+          />
         </div>
       </div>
       {children}
@@ -22,16 +46,29 @@ function ShareGateStates({
   kind,
   viewerId,
   loginUrl,
+  onProjectList,
+  onNewProject,
+  onDuplicateProject,
+  onImportJson,
 }: {
   kind: 'missing' | 'forbidden';
   viewerId?: string;
   loginUrl: string;
+  onProjectList: () => void;
+  onNewProject: () => void;
+  onDuplicateProject: () => void;
+  onImportJson: (file: File) => void;
 }) {
   const { t } = useTranslation();
 
   if (kind === 'missing') {
     return (
-      <GateShell>
+      <GateShell
+        onProjectList={onProjectList}
+        onNewProject={onNewProject}
+        onDuplicateProject={onDuplicateProject}
+        onImportJson={onImportJson}
+      >
         <p className="text-[15px] font-medium text-[var(--ink)]">
           {t('editor.shareMissing', { defaultValue: '分享不存在或已失效' })}
         </p>
@@ -45,7 +82,12 @@ function ShareGateStates({
   }
 
   return (
-    <GateShell>
+    <GateShell
+      onProjectList={onProjectList}
+      onNewProject={onNewProject}
+      onDuplicateProject={onDuplicateProject}
+      onImportJson={onImportJson}
+    >
       <p className="text-[15px] font-medium text-[var(--ink)]">{t('editor.shareNoViewAccess')}</p>
       <p className="max-w-sm text-center text-[13px] text-[var(--muted)]">
         {viewerId ? t('editor.shareNoViewAccessHint') : t('editor.shareLoginToView')}
