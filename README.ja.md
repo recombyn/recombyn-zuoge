@@ -19,7 +19,7 @@
   <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
 </p>
 
-**Recombyn** は **AI Native の無限ベクターキャンバス**です。Web キャンバスからデスクトップ、Design Agent、バックエンド、共同編集、プライベートデプロイ、自動テストまで、フルループの商用グレード製品です。
+**左格（zuoge）** は **AI Native の無限ベクターキャンバス**です。Web キャンバスからデスクトップ、Design Agent、バックエンド、共同編集、プライベートデプロイ、自動テストまで、フルループの商用グレード製品です。
 
 内蔵 Design Agent（LangGraph）：自然言語でレイヤー作成・図形・スタイル・組版ができます。Skill を同梱しつつ、カスタム Skill / AgentProfile（YAML）/ プロンプトパックも追加でき、ポスター・ダッシュボード・LP など品類を広げたあと、ベクター精度で編集できます。
 
@@ -29,13 +29,13 @@
 
 ## GitHub で ⭐ Star を
 
-オープンソースは時間がかかります。Recombyn が役に立ったら、右上の **⭐ Star** をお願いします。
+オープンソースは時間がかかります。左格（zuoge） が役に立ったら、右上の **⭐ Star** をお願いします。
 
-→ [https://github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+→ [https://github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
 
 ## キャンバス
 
-自作 **RCB** 無限キャンバス。シーンは `SceneDocument`、ズームはおよそ 5%–10000%。確定図元はノード単位の **SVG**、ヒットテストと選択は **Path2D**。遠景は **LOD** で簡略化し、大きなドキュメントも編集できます。
+自作の無限キャンバス。シーンは `SceneDocument`、ズームはおよそ 5%–10000%。確定図元はノード単位の **SVG**、ヒットテストと選択は **Path2D**。遠景は **LOD** で簡略化し、大きなドキュメントも編集できます。
 
 詳細：[docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON：[docs/scene-json-spec.md](docs/scene-json-spec.md)。
 
@@ -143,7 +143,7 @@ node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
 ## クイックスタート（セルフホスト）
 
 ```bash
-git clone https://github.com/recombyn/recombyn.git
+git clone https://github.com/recombyn/recombyn-zuoge.git
 cd recombyn
 cp apps/api/.env.example apps/api/.env   # LLM_API_KEY / プロバイダキーを設定
 docker compose up -d --build
@@ -192,7 +192,7 @@ npm run build:desktop:cloud
 
 ```
 apps/web/          React キャンバス + Agent UI + Yjs クライアント
-  src-tauri/       Tauri v2 デスクトップシェル（Recombyn）
+  src-tauri/       Tauri v2 デスクトップシェル（左格（zuoge））
 apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket サーバー（y-websocket）
 plugins/           拡張（skills + canvas）— Compose マウント
@@ -219,4 +219,4 @@ e2e/               Playwright
 | Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
 | コントリビュート · セキュリティ · CoC | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 
-公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn](https://github.com/recombyn/recombyn)
+公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/recombyn-zuoge](https://github.com/recombyn/recombyn-zuoge)
