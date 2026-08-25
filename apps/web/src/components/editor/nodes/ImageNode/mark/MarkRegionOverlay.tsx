@@ -289,6 +289,36 @@ function MarkRegionOverlay({
     );
   };
 
+  const hitRegionAt = useCallback(
+    (x: number, y: number) => [...regions].reverse().find((r) => pointInRect(x, y, r)),
+    [regions]
+  );
+
+  const swallowEvent = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const beginDrag = (opts: {
+    x: number;
+    y: number;
+    pointerId: number;
+    additive: boolean;
+    captureEl?: HTMLElement;
+  }) => {
+    const hit = hitRegionAt(opts.x, opts.y);
+    dragRef.current = {
+      x0: opts.x,
+      y0: opts.y,
+      pointerId: opts.pointerId,
+      hitId: hit?.id ?? null,
+      additive: opts.additive,
+      moved: false,
+    };
+    onDraftChange(null);
+    opts.captureEl?.setPointerCapture?.(opts.pointerId);
+  };
+
   return (
     <RcbOverlayPortal>
       <div
@@ -306,44 +336,34 @@ function MarkRegionOverlay({
           finishActiveDrag(e.clientX, e.clientY);
         }}
         onMouseDown={(e) => {
-          if (interactionLocked) return;
+          if (interactionLocked) {
+            swallowEvent(e);
+            return;
+          }
           if (e.button !== 0) return;
-          e.preventDefault();
-          e.stopPropagation();
+          swallowEvent(e);
           const p = localFromClient(e.clientX, e.clientY);
           if (!p.inside) return;
-
-          const hit = [...regions].reverse().find((r) => pointInRect(p.x, p.y, r));
-          dragRef.current = {
-            x0: p.x,
-            y0: p.y,
-            pointerId: -1,
-            hitId: hit?.id ?? null,
-            additive: e.shiftKey,
-            moved: false,
-          };
-          onDraftChange(null);
+          beginDrag({ x: p.x, y: p.y, pointerId: -1, additive: e.shiftKey });
         }}
         onPointerDown={(e) => {
-          if (interactionLocked) return;
+          if (interactionLocked) {
+            swallowEvent(e);
+            e.nativeEvent.stopImmediatePropagation?.();
+            return;
+          }
           if (e.button !== 0) return;
-          e.preventDefault();
-          e.stopPropagation();
+          swallowEvent(e);
           e.nativeEvent.stopImmediatePropagation?.();
           const p = localFromClient(e.clientX, e.clientY);
           if (!p.inside) return;
-
-          const hit = [...regions].reverse().find((r) => pointInRect(p.x, p.y, r));
-          dragRef.current = {
-            x0: p.x,
-            y0: p.y,
+          beginDrag({
+            x: p.x,
+            y: p.y,
             pointerId: e.pointerId,
-            hitId: hit?.id ?? null,
             additive: e.shiftKey,
-            moved: false,
-          };
-          onDraftChange(null);
-          (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+            captureEl: e.currentTarget as HTMLElement,
+          });
         }}
         onPointerMove={(e) => {
           if (dragRef.current) return;
@@ -352,8 +372,7 @@ function MarkRegionOverlay({
             setHoverId(null);
             return;
           }
-          const hit = [...regions].reverse().find((r) => pointInRect(p.x, p.y, r));
-          setHoverId(hit?.id ?? null);
+          setHoverId(hitRegionAt(p.x, p.y)?.id ?? null);
         }}
         onPointerLeave={() => {
           if (!dragRef.current) setHoverId(null);

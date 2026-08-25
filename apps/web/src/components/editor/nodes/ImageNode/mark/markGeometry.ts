@@ -14,6 +14,12 @@ export type MarkSessionTarget = {
   blocked: boolean;
 };
 
+const MARK_BLOCKED_MEDIA = new Set(['video', 'audio', 'lottie']);
+
+export function isMarkBlockedMediaKey(key: unknown): boolean {
+  return MARK_BLOCKED_MEDIA.has(String(key || ''));
+}
+
 export function nodeSceneBox(
   document: SceneDocument,
   node: SceneNodeInput | null | undefined
@@ -36,32 +42,37 @@ export function listCanvasImageNodes(
     .map(({ nodeId, box, node }) => ({ nodeId, box, node }));
 }
 
-/** All image plates in mark mode — markable nodes + blocked overlays (processing / generator). */
+function imageMarkBlocked(node: SceneNodeInput): boolean | null {
+  if (String(node.attrs?.processStatus || '') === 'running') return true;
+  const hasSrc = Boolean(String(node.attrs?.src || '').trim());
+  if (hasSrc) return false;
+  return isImageGeneratorNode(node) ? true : null;
+}
+
+/** Image plates + non-image media in mark mode.
+ * Images: markable or blocked (processing / empty generator).
+ * Video / audio / lottie: always blocked.
+ */
 export function listMarkSessionTargets(document: SceneDocument): MarkSessionTarget[] {
   const out: MarkSessionTarget[] = [];
   const dsl = document?.deltaSetLike || {};
+
   for (const nodeId of Object.keys(dsl)) {
     const node = dsl[nodeId];
-    if (node?.key !== 'image') continue;
+    if (!node) continue;
+    const key = String(node.key || '');
     const box = nodeSceneBox(document, node);
     if (!box) continue;
 
-    const processing = String(node?.attrs?.processStatus || '') === 'running';
-    const hasSrc = Boolean(String(node?.attrs?.src || '').trim());
-
-    if (processing) {
+    if (isMarkBlockedMediaKey(key)) {
       out.push({ nodeId, box, node, blocked: true });
       continue;
     }
+    if (key !== 'image') continue;
 
-    if (!hasSrc) {
-      if (isImageGeneratorNode(node)) {
-        out.push({ nodeId, box, node, blocked: true });
-      }
-      continue;
-    }
-
-    out.push({ nodeId, box, node, blocked: false });
+    const blocked = imageMarkBlocked(node);
+    if (blocked == null) continue;
+    out.push({ nodeId, box, node, blocked });
   }
   return out;
 }

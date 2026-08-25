@@ -19,6 +19,10 @@ class VisionSettings(BaseSettings):
     job_ttl_seconds: int = 7 * 86400
     ocr_lang: str = "ch"
     ocr_text_min_confidence: float = 0.72
+    # Cap long edge before BiRefNet/SAM (mask upscaled back). 0 = disabled.
+    infer_max_long_edge: int = 2048
+    matting_cache: bool = True
+    warmup: bool = True
 
 
 settings = VisionSettings()

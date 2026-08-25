@@ -54,7 +54,13 @@ function toDataUrl(filePath) {
 }
 
 function pickRefImage() {
+  // Prefer tiny-but-valid fixture for live smoke (Doubao rejects <14px).
+  if (String(process.env.SMOKE_REF_TINY || '').trim() === '1') {
+    const tiny = path.join(outDir, 'ref-64.png');
+    if (fs.existsSync(tiny) && fs.statSync(tiny).size > 100) return tiny;
+  }
   const preferred = [
+    path.join(outDir, 'ref-64.png'),
     path.join(outDir, 'ref-small.jpg'),
     path.join(root, 'e2e/fixtures/refs/zhuanzhuan-home.png'),
     path.join(root, 'apps/api/private-eval/mark-edit-test/output.png'),
@@ -63,16 +69,19 @@ function pickRefImage() {
   for (const p of preferred) {
     if (fs.existsSync(p) && fs.statSync(p).size > 1000) return p;
   }
-  // Tiny 8x8 coral PNG fallback (still a real image attachment).
-  const fallback = path.join(outDir, '_fallback-ref.png');
+  // Last resort: 64×64 coral wireframe PNG (meets vision min dimension).
+  const fallback = path.join(outDir, 'ref-64.png');
   fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(
-    fallback,
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADedQpGAAAALElEQVQYV2NkYGD4z0ABYBzVMKoBVAMogP8MDAwMjIyMjP8ZGBgYGBkZGf8DABkJAwF0F6mXAAAAAElFTkSuQmCC',
-      'base64'
-    )
-  );
+  if (!fs.existsSync(fallback)) {
+    // 64x64 solid #ff6b35 PNG (precomputed).
+    fs.writeFileSync(
+      fallback,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAUElEQVR4nO3BMQEAAADCoPVP7WsIoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIC3AAGQAAGQeH+8AAAAAElFTkSuQmCC',
+        'base64'
+      )
+    );
+  }
   return fallback;
 }
 
@@ -125,7 +134,8 @@ function nodeFromOp(op, i, frameId) {
   if (name === 'create_shape' || name === 'create_rect') {
     return {
       ...base,
-      key: 'rect',
+      // Editor scene nodes use key "shape" (shapeType in attrs).
+      key: 'shape',
       attrs: {
         fill: String(a.fill || '#e2e8f0'),
         cornerRadius: a.cornerRadius ?? a.radius ?? 0,

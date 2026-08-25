@@ -752,7 +752,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                 <Button
                   type="primary"
                   className="!h-11 !w-full !rounded-lg !border-none !bg-[#1a1a1a] !text-[14px] !font-medium !text-white hover:!bg-[#333]"
-                  disabled={busy}
+                  loading={busy}
                   onClick={() => onLogin()}
                 >
                   {busy ? t('auth.sending') : t('auth.login')}

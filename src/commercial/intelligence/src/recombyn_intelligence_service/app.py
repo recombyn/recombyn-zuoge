@@ -7,6 +7,7 @@ Empty ``{}`` for skip / unknown → host Runtime uses its local fallback.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -34,7 +35,19 @@ def _production_guard() -> None:
 
 _production_guard()
 
-app = FastAPI(title="recombyn-intelligence", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    try:
+        from recombyn_intelligence_service.vision.warmup import schedule_warmup
+
+        schedule_warmup()
+    except Exception:
+        pass
+    yield
+
+
+app = FastAPI(title="recombyn-intelligence", version="0.1.0", lifespan=_lifespan)
 
 _METHODS = intelligence_wire_methods()
 

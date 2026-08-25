@@ -132,6 +132,8 @@ function VideoPlateHost({
   if (!src) return null;
   const trimOpen = videoToolPanel?.nodeId === nodeId;
   const cropSession = imageToolPanel?.nodeId === nodeId && imageToolPanel.kind === 'crop';
+  const markSession =
+    imageToolPanel?.kind === 'mark' || imageToolPanel?.kind === 'quickEdit';
   const layerHidden = isNodeHidden(node);
   const { left, top } = nodeLeftTop(document, node);
   const ov = geometryOverrides?.[nodeId];
@@ -165,7 +167,7 @@ function VideoPlateHost({
       // Keep pixels visible during crop (hiding left only the dark SVG underlay).
       // Playback chrome is suppressed separately via hideChrome.
       hidden={Boolean(hidden) || trimOpen || layerHidden}
-      hideChrome={cropSession}
+      hideChrome={cropSession || markSession}
       trimStart={readOptionalNumber(node.attrs?.trimStart)}
       trimEnd={readOptionalNumber(node.attrs?.trimEnd)}
       knownDuration={readOptionalNumber(node.attrs?.duration)}

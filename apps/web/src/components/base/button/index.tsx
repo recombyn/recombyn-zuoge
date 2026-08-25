@@ -3,7 +3,6 @@ import { Button as HeadlessButton } from '@headlessui/react';
 import { memo, type ButtonHTMLAttributes } from 'react';
 import type { VariantProps } from 'class-variance-authority';
 import { cva } from 'class-variance-authority';
-import { Icon } from '@/components/base/icon';
 import { cn } from '@/utils/classnames';
 import './index.css';
 
@@ -88,50 +87,34 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       onClick?.(event);
     };
 
-    const renderLoadingIcon = () => {
-      if (!loading) return null;
+    const spinnerSize = size === 'large' ? 16 : size === 'small' ? 12 : 14;
+    const renderLoadingIcon = (trailingGap = true) =>
+      loading ? (
+        <span
+          aria-hidden
+          className={cn(
+            'inline-block shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent opacity-90',
+            trailingGap && 'mr-2'
+          )}
+          style={{ width: spinnerSize, height: spinnerSize }}
+        />
+      ) : null;
 
-      const iconSizeMap: Record<string, { width: number; height: number }> = {
-        large: { width: 18, height: 18 },
-        medium: { width: 16, height: 16 },
-        small: { width: 14, height: 14 },
-      };
-      const iconSize = iconSizeMap[size || 'medium'] || iconSizeMap.medium;
-
-      return (
-        <span className='animate-spin -ml-1 mr-2 inline-flex items-center'>
-          <Icon
-            name='base-loading_spinner'
-            width={iconSize.width}
-            height={iconSize.height}
-            color='currentColor'
-          />
-        </span>
-      );
-    };
-
-    let buttonContent: React.ReactNode;
+    let buttonContent: React.ReactNode = null;
     if (shape === 'circle') {
-      if (loading) {
-        buttonContent = renderLoadingIcon();
-      } else if (icon || children) {
-        buttonContent = (
-          <span className={disabled ? 'opacity-40' : ''}>{icon || children}</span>
-        );
-      } else {
-        buttonContent = null;
-      }
+      buttonContent = loading
+        ? renderLoadingIcon(false)
+        : icon || children
+          ? <span className={disabled ? 'opacity-40' : ''}>{icon || children}</span>
+          : null;
     } else {
-      let iconContent: React.ReactNode = null;
-      if (icon && !loading) {
-        iconContent = children
-          ? <span className={cn('mr-2', disabled && 'opacity-40')}>{icon}</span>
-          : <span className={disabled ? 'opacity-40' : ''}>{icon}</span>;
-      }
+      const showIcon = Boolean(icon) && !loading;
       buttonContent = (
         <>
           {loading && !icon ? renderLoadingIcon() : null}
-          {iconContent}
+          {showIcon ? (
+            <span className={cn(children && 'mr-2', disabled && 'opacity-40')}>{icon}</span>
+          ) : null}
           {children}
         </>
       );

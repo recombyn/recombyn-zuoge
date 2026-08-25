@@ -7,6 +7,14 @@ from typing import Any
 
 import numpy as np
 
+from image_layer_pipeline.infer_resize import (
+    fit_long_edge_scale,
+    resize_rgb,
+    scale_sam_regions,
+    upscale_mask,
+    upscale_rgba,
+)
+from image_layer_pipeline.matting_cache import cache_key, load_rgba, store_rgba
 from image_layer_pipeline.stages.matting_hints import apply_matting_hints
 from image_layer_pipeline.stages.matting_router import MattingRoute, resolve_matting_route
 from image_layer_pipeline.stages.segment_refined import segment_engines, segment_foreground_refined
@@ -39,6 +47,8 @@ def _build_engines(
     sam_regions: list[dict[str, Any]],
     *,
     has_hints: bool,
+    cached: bool = False,
+    scaled: bool = False,
 ) -> list[str]:
     engines = ["smart-matting"]
     if route.custom_onnx:
@@ -48,6 +58,10 @@ def _build_engines(
     engines.extend(segment_engines(sam_regions, scene=route.scene))
     if has_hints:
         engines.append("matting-hints")
+    if cached:
+        engines.append("matting-cache")
+    if scaled:
+        engines.append("infer-resize")
     return engines
 
 
@@ -65,7 +79,12 @@ def run_matting(
     custom_onnx: str | None = None,
     use_precision_onnx: bool = True,
 ) -> MattingResult:
-    """High-precision general matting + optional keep/exclude brush hints."""
+    """High-precision general matting + optional keep/exclude brush hints.
+
+    Large images are capped to ``ILP_INFER_MAX_LONG_EDGE`` (default 2048) for
+    inference; alpha/mask are upscaled back. Brush hints always apply at full
+    resolution. Results are content-hash cached (base cutout only).
+    """
     route = resolve_matting_route(
         scene=scene,
         model=model,
@@ -73,13 +92,40 @@ def run_matting(
         custom_onnx=custom_onnx,
         use_precision_onnx=use_precision_onnx,
     )
-    rgba, binary, sam_regions = segment_foreground_refined(
-        image_rgb,
-        model_name=route.model,
-        decontaminate=route.decontaminate,
-        custom_onnx=route.custom_onnx,
+
+    orig_h, orig_w = int(image_rgb.shape[0]), int(image_rgb.shape[1])
+    scale = fit_long_edge_scale(orig_h, orig_w)
+    scaled = scale < 0.999
+    work_rgb = resize_rgb(image_rgb, scale) if scaled else image_rgb
+
+    # Cache base cutout only (no brush hints) so removeBg / layer / detect share hits.
+    key = cache_key(
+        work_rgb,
+        route,
         use_sam_roi=use_sam_roi,
+        include_mask=None,
+        exclude_mask=None,
     )
+    cached_hit = load_rgba(key)
+    sam_regions: list[dict[str, Any]] = []
+    from_cache = False
+    if cached_hit is not None:
+        rgba, binary = cached_hit
+        from_cache = True
+    else:
+        rgba, binary, sam_regions = segment_foreground_refined(
+            work_rgb,
+            model_name=route.model,
+            decontaminate=route.decontaminate,
+            custom_onnx=route.custom_onnx,
+            use_sam_roi=use_sam_roi,
+        )
+        store_rgba(key, rgba, binary)
+
+    if scaled:
+        rgba = upscale_rgba(rgba, orig_h, orig_w)
+        binary = upscale_mask(binary, orig_h, orig_w)
+        sam_regions = scale_sam_regions(sam_regions, scale, out_h=orig_h, out_w=orig_w)
 
     has_hints = _has_brush_hints(include_mask, exclude_mask)
     if has_hints:
@@ -95,8 +141,8 @@ def run_matting(
     trim_meta = {
         "trimX": 0.0,
         "trimY": 0.0,
-        "originWidth": float(image_rgb.shape[1]),
-        "originHeight": float(image_rgb.shape[0]),
+        "originWidth": float(orig_w),
+        "originHeight": float(orig_h),
     }
     if trim_output:
         rgba, trim_meta = trim_rgba_bbox(rgba, pad=trim_pad)
@@ -106,7 +152,13 @@ def run_matting(
         binary_mask=binary,
         sam_regions=sam_regions,
         route=route,
-        engines=_build_engines(route, sam_regions, has_hints=has_hints),
+        engines=_build_engines(
+            route,
+            sam_regions,
+            has_hints=has_hints,
+            cached=from_cache,
+            scaled=scaled,
+        ),
         trim=trim_meta,
     )
 
