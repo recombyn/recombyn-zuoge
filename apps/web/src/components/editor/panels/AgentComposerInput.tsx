@@ -1367,7 +1367,7 @@ const AgentComposerInput = forwardRef<
           'h-full w-full min-h-[26px] max-h-[140px] cursor-text overflow-y-auto whitespace-pre-wrap break-words bg-transparent py-0.5 text-[13px] leading-5 text-[var(--ink)] outline-none',
           '[&_[data-composer-chip]]:align-middle',
           '[&_[data-mark-chip="1"]]:cursor-pointer [&_[data-mark-chip="1"]]:select-none',
-          '[&_[data-mark-chip="1"]:hover]:border-sky-300 [&_[data-mark-chip="1"]:hover]:bg-sky-50/80',
+          '[&_[data-mark-chip="1"]:hover]:border-[var(--line)] [&_[data-mark-chip="1"]:hover]:bg-[var(--accent-soft)]',
           disabled && 'pointer-events-none cursor-default opacity-50'
         )}
       />
