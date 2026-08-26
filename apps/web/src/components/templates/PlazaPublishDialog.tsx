@@ -64,7 +64,18 @@ function PlazaPublishForm({
   );
   const hasThumbCollage = resolvedUrls.length > 0;
   const canvasEmpty = !hasThumbCollage && !coverDocumentHasContent(document);
-  const showCoverGlow = coverRefreshing && !hasThumbCollage;
+  const [coverGlowTimedOut, setCoverGlowTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (!coverRefreshing) {
+      setCoverGlowTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setCoverGlowTimedOut(true), 12_000);
+    return () => window.clearTimeout(timer);
+  }, [coverRefreshing, projectId]);
+
+  const showCoverGlow = coverRefreshing && !hasThumbCollage && !coverGlowTimedOut;
   const canSubmit = (coverCheck.ok || hasThumbCollage) && !canvasEmpty && !showCoverGlow;
 
   useEffect(() => {

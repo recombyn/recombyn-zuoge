@@ -1142,6 +1142,7 @@ const en = {
       imageQualityLow: 'Low',
       uploading: 'Uploading',
       uploadFail: 'Upload failed',
+      uploadTooLarge: 'File too large (max {{max}}MB)',
     },
     audioToolbar: {
       trim: 'Trim',

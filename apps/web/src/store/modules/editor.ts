@@ -1542,18 +1542,6 @@ const editorSlice = createSlice({
       if (state.currentId === id) state.dirty = true;
       saveTemplates(state.templates);
     },
-    /** Store generated/list thumbnail URL or data URL on a project card. */
-    setTemplateThumbnail(state, action) {
-      const { id, thumbnail, custom } = action.payload || {};
-      if (!id) return;
-      const item = state.templates.find((t) => t.id === id);
-      if (!item) return;
-      item.thumbnail = thumbnail || null;
-      // Do not bump updatedAt — thumb-only writes were racing list hydrate and
-      // pinning stale data: covers over newer COS URLs.
-      if (custom === true) item.thumbnailCustom = true;
-      else if (custom === false) item.thumbnailCustom = false;
-    },
     /**
      * Drop in-memory open project + sessions (logout / guest).
      * Home / Mine lists live in Query — do not keep owned rows after sign-out.
@@ -2544,7 +2532,6 @@ export const {
   deleteTemplate,
   deleteTemplates,
   renameTemplateById,
-  setTemplateThumbnail,
   clearProjectsLibrary,
   undo,
   redo,

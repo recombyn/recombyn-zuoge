@@ -39,7 +39,7 @@ def _share_http(err: ShareError) -> HTTPException:
 class CreateShareIn(BaseModel):
     name: str = Field(default="Untitled", max_length=255)
     permission: str = Field(default="preview", max_length=16)
-    document: dict[str, Any]
+    document: dict[str, Any] | None = None
     sourceProjectId: str | None = Field(default=None, max_length=64)
     editorUserIds: list[str] = Field(default_factory=list)
     viewerUserIds: list[str] = Field(default_factory=list)

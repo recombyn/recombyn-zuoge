@@ -454,7 +454,6 @@ function RcbCanvas({
       width: viewportEl?.clientWidth || 0,
       height: viewportEl?.clientHeight || 0,
     });
-    notifyShapeHostGeometry();
   }, [camera, devicePixelRatio, viewportEl?.clientWidth, viewportEl?.clientHeight]);
 
   // One scene SVG for shape layers (grid lives on the Canvas underlay).

@@ -114,7 +114,25 @@ export function walletDtoToSnapshot(
   };
 }
 
-/** After redeem / spend — refresh me + ledger lists. */
+/** Balance is live data — never treat `/wallet` as a catalog cache. */
+export const WALLET_ME_QUERY_OPTS = {
+  staleTime: 0,
+  refetchOnMount: 'always' as const,
+  refetchOnWindowFocus: true,
+};
+
+/** Ledger rows change on spend/redeem — same freshness rules as balance. */
+export const WALLET_LEDGER_QUERY_OPTS = {
+  staleTime: 0,
+  refetchOnMount: 'always' as const,
+};
+
+/** After chat / image / tool spend — sidebar chip must update immediately. */
+export function refreshWalletAfterSpend(): void {
+  void queryClient.invalidateQueries({ queryKey: apiQuery.walletWalletMe.key() });
+}
+
+/** After redeem / plan change — balance + ledger + public plan SKUs. */
 export async function invalidateWalletCache() {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: apiQuery.walletWalletMe.key() }),
@@ -137,6 +155,7 @@ export function useWalletMeQuery(enabled?: boolean) {
     ...apiQuery.walletWalletMe.queryOptions({
       enabled: enabled ?? authed,
     }),
+    ...WALLET_ME_QUERY_OPTS,
   });
 }
 

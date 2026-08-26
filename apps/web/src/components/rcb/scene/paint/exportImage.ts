@@ -7,7 +7,10 @@ import {
 import { strokeVisualOutset } from '../document/sceneEffects';
 import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
+import { withTimeout } from '@/utils/withTimeout';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+
+const EXPORT_HREF_FETCH_TIMEOUT_MS = 10_000;
 
 export type ExportImageFormat = 'png' | 'jpeg' | 'svg';
 
@@ -406,6 +409,15 @@ function rasterizeViaHtmlImage(src: string): Promise<string | null> {
 
 /** Fetch any image href (data / our uploads / remote) as a data URL for export. */
 async function fetchHrefAsDataUrl(
+  href: string,
+  opts?: { uploadKey?: string | null }
+): Promise<string | null> {
+  return withTimeout(fetchHrefAsDataUrlInner(href, opts), EXPORT_HREF_FETCH_TIMEOUT_MS, 'export_href_timeout').catch(
+    () => null
+  );
+}
+
+async function fetchHrefAsDataUrlInner(
   href: string,
   opts?: { uploadKey?: string | null }
 ): Promise<string | null> {

@@ -1,107 +1,74 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { createSvgIconsPlugin } from 'vite-plugin-svg-icons';
 import { resolveDevApiPort } from '../../scripts/dev-api-port.mjs';
 
+const root = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(root, '../..');
 const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM);
 
-export default defineConfig(({ mode }) => {
-  // Prefer repo-root / apps/web env; support both GOOGLE_CLIENT_ID and VITE_GOOGLE_CLIENT_ID
-  const envWeb = loadEnv(mode, path.resolve(__dirname), '');
-  const envRoot = loadEnv(mode, path.resolve(__dirname, '../..'), '');
-  const googleClientId =
-    envWeb.GOOGLE_CLIENT_ID ||
-    envWeb.VITE_GOOGLE_CLIENT_ID ||
-    envRoot.GOOGLE_CLIENT_ID ||
-    envRoot.VITE_GOOGLE_CLIENT_ID ||
-    '';
-  const docsUrl = (
-    envWeb.VITE_DOCS_URL ||
-    envRoot.VITE_DOCS_URL ||
-    (mode === 'development' ? 'http://localhost:5175' : 'https://recombyn.github.io/recombyn')
-  ).replace(/\/$/, '');
-  // Desktop flavors: local (auto-login BYOK) | cloud (local or hosted API, platform catalog).
-  const desktopMode = (
-    process.env.VITE_DESKTOP_MODE ||
-    process.env.RECOMBYN_DESKTOP_MODE ||
-    envWeb.VITE_DESKTOP_MODE ||
-    envRoot.VITE_DESKTOP_MODE ||
-    ''
-  )
-    .trim()
-    .toLowerCase();
-  const apiBaseUrl = (
-    process.env.VITE_API_BASE_URL ||
-    envWeb.VITE_API_BASE_URL ||
-    envRoot.VITE_API_BASE_URL ||
-    ''
-  )
-    .trim()
-    .replace(/\/$/, '');
-  const devApiPort = resolveDevApiPort({ ...process.env, ...envWeb, ...envRoot });
+const commercialDev = path.join(repoRoot, 'src/commercial/web');
+const commercialRoot = fs.existsSync(commercialDev)
+  ? commercialDev
+  : path.join(root, 'src/commercial-oss');
 
-  // Default proxy → local uvicorn. Only remote http(s) hosts override the target.
+function pick(env: Record<string, string>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = String(env[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+export default defineConfig(({ mode }) => {
+  const env = { ...loadEnv(mode, repoRoot, ''), ...loadEnv(mode, root, '') };
+  const devApiPort = resolveDevApiPort(env);
+  const apiBaseUrl = pick(env, 'VITE_API_BASE_URL').replace(/\/$/, '');
   const apiProxyTarget =
-    apiBaseUrl && /^https?:\/\//i.test(apiBaseUrl) && !/127\.0\.0\.1|localhost/i.test(apiBaseUrl)
+    apiBaseUrl && /^https?:\/\//i.test(apiBaseUrl) && !/localhost|127\.0\.0\.1/i.test(apiBaseUrl)
       ? apiBaseUrl
       : `http://127.0.0.1:${devApiPort}`;
-  const apiProxySecure = /^https:\/\//i.test(apiProxyTarget);
-
-  const commercialDevRoot = path.resolve(__dirname, '../../src/commercial/web');
-  const commercialOssRoot = path.resolve(__dirname, 'src/commercial-oss');
-  const commercialRoot = fs.existsSync(commercialDevRoot) ? commercialDevRoot : commercialOssRoot;
 
   return {
-    // Keep Rust compiler output visible when `tauri dev` runs Vite.
     clearScreen: false,
     plugins: [
       react(),
       createSvgIconsPlugin({
-        iconDirs: [path.resolve(__dirname, 'src/assets/svg')],
+        iconDirs: [path.join(root, 'src/assets/svg')],
         symbolId: 'icon-[dir]-[name]',
         inject: 'body-last',
         customDomId: '__svg__icons__dom__',
         svgoOptions: {
-          plugins: [
-            {
-              name: 'preset-default',
-              params: {
-                overrides: {
-                  removeViewBox: false,
-                  // Keep multi-color brand marks (logo_mark) intact.
-                  convertColors: false,
-                },
-              },
-            },
-            // Monochrome UI icons already use currentColor in source.
-          ],
+          plugins: [{ name: 'preset-default', params: { overrides: { removeViewBox: false } } }],
         },
       }),
     ],
     define: {
-      __GOOGLE_CLIENT_ID__: JSON.stringify(googleClientId),
-      __DOCS_URL__: JSON.stringify(docsUrl),
-      __DESKTOP_MODE__: JSON.stringify(desktopMode),
+      __GOOGLE_CLIENT_ID__: JSON.stringify(pick(env, 'GOOGLE_CLIENT_ID', 'VITE_GOOGLE_CLIENT_ID')),
+      __DOCS_URL__: JSON.stringify(
+        pick(env, 'VITE_DOCS_URL') ||
+          (mode === 'development' ? 'http://localhost:5175' : 'https://recombyn.github.io/recombyn')
+      ),
+      __DESKTOP_MODE__: JSON.stringify(pick(env, 'VITE_DESKTOP_MODE', 'RECOMBYN_DESKTOP_MODE').toLowerCase()),
       __API_BASE_URL__: JSON.stringify(apiBaseUrl),
     },
     envPrefix: ['VITE_', 'TAURI_ENV_*'],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, 'src'),
+        '@': path.join(root, 'src'),
         '@commercial': commercialRoot,
-        '@canvas-plugins': path.resolve(__dirname, '../../plugins/canvas'),
+        '@canvas-plugins': path.join(repoRoot, 'plugins/canvas'),
       },
-      // Prefer TS sources — leftover/cached `.js` URLs must not 404 after sibling emits were removed.
-      extensions: ['.mjs', '.mts', '.ts', '.tsx', '.jsx', '.js', '.json'],
       extensionAlias: {
         '.js': ['.ts', '.tsx', '.js', '.jsx'],
         '.jsx': ['.tsx', '.jsx'],
       },
     },
     optimizeDeps: {
-      // Prebundle oRPC client stack; never pull `@orpc/server` (backend-only, not installed).
       include: [
         'fontkit',
         '@orpc/client',
@@ -110,7 +77,6 @@ export default defineConfig(({ mode }) => {
         '@orpc/openapi-client/fetch',
         '@orpc/tanstack-query',
         '@tanstack/react-query',
-        // nuqs RR adapter is a subpath export — without include Vite can 504 and blank the app.
         'nuqs',
         'nuqs/adapters/react-router/v6',
       ],
@@ -118,31 +84,17 @@ export default defineConfig(({ mode }) => {
     },
     assetsInclude: ['**/*.wasm'],
     server: {
-      // Listen on all local interfaces so both localhost and 127.0.0.1 work on Windows.
       host: true,
       port: 3000,
       strictPort: true,
-      // Browser auto-open only for plain `npm run dev`, not under Tauri.
       open: !isTauri,
-      headers: {
-        'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'SAMEORIGIN',
-        'Referrer-Policy': 'strict-origin-when-cross-origin',
-        'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
-        'Content-Security-Policy': `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self' https://accounts.google.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https: wss: ws: blob: http://127.0.0.1:${devApiPort} http://localhost:${devApiPort} http://127.0.0.1:3000 http://localhost:3000; worker-src 'self' blob:; child-src 'self' blob:; frame-src 'self'`,
-      },
-      fs: {
-        allow: [path.resolve(__dirname), path.resolve(__dirname, '../..')],
-      },
-      watch: {
-        ignored: ['**/src-tauri/**'],
-      },
+      fs: { allow: [root, repoRoot] },
+      watch: { ignored: ['**/src-tauri/**'] },
       proxy: {
         '/api': {
           target: apiProxyTarget,
           changeOrigin: true,
-          secure: apiProxySecure,
-          // 0 = no limit (http-proxy skips setTimeout when falsy). Design SSE can run many minutes.
+          secure: /^https:/i.test(apiProxyTarget),
           timeout: 0,
           proxyTimeout: 0,
         },
@@ -151,13 +103,18 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: isTauri ? Boolean(process.env.TAURI_ENV_DEBUG) : true,
-      // Windows WebView2 ≈ Chromium; macOS/Linux use WebKit.
-      ...(isTauri
-        ? {
-            target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
-            minify: process.env.TAURI_ENV_DEBUG ? false : 'esbuild',
-          }
-        : {}),
+      ...(isTauri && {
+        target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+        minify: process.env.TAURI_ENV_DEBUG ? false : 'esbuild',
+      }),
+    },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: ['./src/setupTests.ts'],
+      include: ['src/**/*.{test,spec}.{ts,tsx}'],
+      exclude: ['src/private/**', '../../src/commercial/**'],
+      css: false,
     },
   };
 });

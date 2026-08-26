@@ -13,7 +13,8 @@ import {
   type ImageProcessResult,
 } from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
-import { apiQuery, getHttpErrorMessage, getHttpStatus, queryClient } from '@/service/client';
+import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
+import { refreshWalletAfterSpend } from '@/service/wallet';
 import {
   failImageProcess,
   finishImageProcess,
@@ -64,14 +65,7 @@ async function persistProcessedSrc(src: string, filename: string): Promise<strin
 }
 
 async function refreshWallet() {
-  try {
-    await queryClient.fetchQuery({
-      ...apiQuery.walletWalletMe.queryOptions(),
-      staleTime: 0,
-    });
-  } catch {
-    /* ignore wallet refresh errors */
-  }
+  refreshWalletAfterSpend();
 }
 
 function processFailMessage(err: unknown): string {

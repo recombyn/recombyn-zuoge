@@ -5,7 +5,10 @@ import {
   renderDocumentThumbnail,
   type ThumbRasterOptions,
 } from '@/utils/renderProjectThumbnail';
+import { withTimeout } from '@/utils/withTimeout';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+
+const THUMB_RENDER_TIMEOUT_MS = 12_000;
 
 function isEmptyDocument(document: SceneDocument) {
   const children = document?.deltaSetLike?.ROOT?.children;
@@ -52,8 +55,16 @@ function TemplateThumbnail({
     const edge =
       maxEdge ?? (format === 'png' ? PREVIEW_PNG_MAX_EDGE : undefined);
     async function renderThumb() {
-      const url = await renderDocumentThumbnail(document, { format, maxEdge: edge });
-      if (!cancelled) setSrc(url);
+      try {
+        const url = await withTimeout(
+          renderDocumentThumbnail(document, { format, maxEdge: edge }),
+          THUMB_RENDER_TIMEOUT_MS,
+          'thumb_render_timeout'
+        );
+        if (!cancelled) setSrc(url);
+      } catch {
+        if (!cancelled) setSrc(null);
+      }
     }
     void renderThumb();
     return () => {

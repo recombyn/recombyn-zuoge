@@ -1132,6 +1132,7 @@ const zhCN = {
       imageQualityLow: '低',
       uploading: '上传中',
       uploadFail: '上传失败',
+      uploadTooLarge: '文件过大（最大 {{max}}MB）',
     },
     audioToolbar: {
       trim: '截取',

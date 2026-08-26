@@ -6,6 +6,8 @@ import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobA
 import { patchDocumentNode } from '@/store/modules/editor';
 import { abortAfter } from '@/service/client';
 import type { UploadedFileItem } from '@/service/upload';
+import { getLocalDevApiOrigin } from '@/utils/apiBase';
+import { assertUploadFileSize } from '@/utils/uploadLimits';
 import { request } from '@/utils/request';
 import { sse } from '@/utils/sse';
 
@@ -35,11 +37,13 @@ export async function createUploadJob(
   file: File,
   opts?: { signal?: AbortSignal }
 ): Promise<string> {
+  assertUploadFileSize(file);
   const form = new FormData();
   form.append('file', file, file.name);
   const timeout = uploadTimeoutForMime(file.type);
+  const devApi = getLocalDevApiOrigin();
   const created = await request<UploadJobCreate>({
-    url: '/api/v1/uploads/jobs',
+    url: devApi ? `${devApi}/api/v1/uploads/jobs` : '/api/v1/uploads/jobs',
     method: 'post',
     data: form,
     timeout,

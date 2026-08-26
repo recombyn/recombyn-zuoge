@@ -64,6 +64,7 @@ import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboa
 import { previewSvgNodeTransform } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   abortNodeUpload,
+  formatUploadErrorMessage,
   isUploadAbortError,
   readFileAsDataUrl,
 } from '@/utils/uploadImage';
@@ -71,7 +72,6 @@ import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import { probeAudioDuration } from '@/components/editor/nodes/shared/mediaProbe';
 import store, { type RootState } from '@/store';
 import { message } from '@/components/base';
-import { getHttpErrorMessage } from '@/service/client';
 import { useTranslation } from 'react-i18next';
 import {
   cssPreviewForGradient,
@@ -644,7 +644,7 @@ function SvgCanvas({
 
   const nodeSpatialIndex = useMemo(() => {
     const runtime = spatialRuntimeRef.current;
-    const doc = document;
+    const doc = geometryTransforming ? documentRef.current : document;
     if (!doc) {
       runtime.clear();
       return runtime.index;
@@ -665,7 +665,7 @@ function SvgCanvas({
       patchedNodeIds: lastPatchedNodeIds,
       aabbPad: 32,
     });
-  }, [document, reloadToken, lastPatchedNodeIds]);
+  }, [document, reloadToken, lastPatchedNodeIds, geometryTransforming]);
 
   useEffect(() => {
     setSceneHitTestBridge(hitTest);
@@ -1587,7 +1587,7 @@ function SvgCanvas({
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({ nodeId: spawnedId || undefined }));
-      message.error(getHttpErrorMessage(err, '图片上传失败'));
+      message.error(formatUploadErrorMessage(err, t, '图片上传失败'));
     }
   };
 
@@ -1632,7 +1632,7 @@ function SvgCanvas({
       });
     } catch (err: unknown) {
       dispatch(failImageProcess({}));
-      message.error(getHttpErrorMessage(err, '视频上传失败'));
+      message.error(formatUploadErrorMessage(err, t, '视频上传失败'));
     }
   };
 
@@ -1680,7 +1680,7 @@ function SvgCanvas({
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
       dispatch(failImageProcess({}));
-      message.error(getHttpErrorMessage(err, '音频上传失败'));
+      message.error(formatUploadErrorMessage(err, t, '音频上传失败'));
     }
   };
 

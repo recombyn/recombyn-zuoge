@@ -26,7 +26,9 @@ import {
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import NodeTitleLabel from '../selection/chrome/NodeTitleLabel';
 import { ProcessGlowShell } from '@/components/rcb/process/ProcessGlowShell';
-import { processGlowForeignObjectBounds, PROCESS_PLATE_FILL } from '@/components/rcb/process/processGlow';
+import { processGlowForeignObjectBounds } from '@/components/rcb/process/processGlow';
+import { appendProcessPlatePaths, syncProcessPlateGeometry } from '@/components/rcb/process/processPlateSvg';
+import { roundedRectPath } from '@/components/rcb/scene/document/sceneRadii';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
   FRAME_HIGHLIGHT_STROKE,
@@ -83,6 +85,13 @@ export function previewArtboardFrameGeometry(frame: ArtboardFrameGeometry): bool
   host.__sceneTop = y;
   host.sceneWidth = width;
   host.sceneHeight = height;
+  if (el.getAttribute('data-rcb-process-plate') === '1') {
+    syncProcessPlateGeometry(
+      el,
+      roundedRectPath(width, height, { tl: 0, tr: 0, br: 0, bl: 0 })
+    );
+    return true;
+  }
   const plate = el.querySelector<SVGRectElement>('rect[data-baseline="1"]');
   if (plate) setAttrs(plate, { width, height });
   return true;
@@ -102,11 +111,6 @@ function paintFramePlate(
   const y = Number(frame.y) || 0;
   const w = Math.max(1, Number(frame.width) || 1);
   const h = Math.max(1, Number(frame.height) || 1);
-  let bg = '#FFFFFF';
-  if (generating) bg = PROCESS_PLATE_FILL;
-  else if (frame.backgroundColor && frame.backgroundColor !== 'transparent') {
-    bg = frame.backgroundColor;
-  }
   const backgroundOpacity = generating
     ? 1
     : Math.max(0, Math.min(100, Number(frame.backgroundOpacity ?? 100))) / 100;
@@ -119,6 +123,7 @@ function paintFramePlate(
     'data-scene-node-id': frame.id,
     'data-rcb-frame-plate': '1',
   });
+  if (generating) setAttrs(g, { 'data-rcb-process-plate': '1' });
   const anyG = g as unknown as {
     __sceneLeft?: number;
     __sceneTop?: number;
@@ -130,34 +135,50 @@ function paintFramePlate(
   anyG.sceneWidth = w;
   anyG.sceneHeight = h;
 
-  const plate = svgEl('rect', {
-    x: 0,
-    y: 0,
-    width: w,
-    height: h,
-    'data-baseline': '1',
-    'data-radius-body': '1',
-  });
-  append(g, plate);
-  setFill(plate, bg);
-  setAttrs(plate, { 'fill-opacity': backgroundOpacity });
-  plate.removeAttribute('vector-effect');
-  if (selected) {
-    // Full chrome owns the blue box — no plate stroke.
-    setStroke(plate, 'none');
-    plate.removeAttribute('shape-rendering');
-  } else if (highlighted) {
-    setStroke(plate, {
-      color: FRAME_HIGHLIGHT_STROKE,
-      width: framePlateStrokeSceneWidth(zoom),
-    });
-    setAttrs(plate, { 'shape-rendering': 'crispEdges' });
+  const root = layer.ownerSVGElement;
+  const clipD = roundedRectPath(w, h, { tl: 0, tr: 0, br: 0, bl: 0 });
+  const stroke = selected
+    ? undefined
+    : {
+        color: highlighted ? FRAME_HIGHLIGHT_STROKE : FRAME_PLATE_STROKE,
+        width: framePlateStrokeSceneWidth(zoom),
+      };
+
+  if (generating && root) {
+    appendProcessPlatePaths(g, root, frame.id, clipD, stroke || undefined);
   } else {
-    setStroke(plate, {
-      color: FRAME_PLATE_STROKE,
-      width: framePlateStrokeSceneWidth(zoom),
+    let bg = '#FFFFFF';
+    if (frame.backgroundColor && frame.backgroundColor !== 'transparent') {
+      bg = frame.backgroundColor;
+    }
+    const plate = svgEl('rect', {
+      x: 0,
+      y: 0,
+      width: w,
+      height: h,
+      'data-baseline': '1',
+      'data-radius-body': '1',
     });
-    setAttrs(plate, { 'shape-rendering': 'crispEdges' });
+    append(g, plate);
+    setFill(plate, bg);
+    setAttrs(plate, { 'fill-opacity': backgroundOpacity });
+    plate.removeAttribute('vector-effect');
+    if (selected) {
+      setStroke(plate, 'none');
+      plate.removeAttribute('shape-rendering');
+    } else if (highlighted) {
+      setStroke(plate, {
+        color: FRAME_HIGHLIGHT_STROKE,
+        width: framePlateStrokeSceneWidth(zoom),
+      });
+      setAttrs(plate, { 'shape-rendering': 'crispEdges' });
+    } else {
+      setStroke(plate, {
+        color: FRAME_PLATE_STROKE,
+        width: framePlateStrokeSceneWidth(zoom),
+      });
+      setAttrs(plate, { 'shape-rendering': 'crispEdges' });
+    }
   }
   return g;
 }
@@ -309,7 +330,6 @@ function HtmlArtboardFrame({
             label={processLabel}
             width={frame.width}
             zoom={z}
-            shimmerDataAttr="data-artboard-process-shimmer"
             labelDataAttr="data-artboard-process-label"
           />
         </foreignObject>

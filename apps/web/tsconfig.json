@@ -7,6 +7,6 @@
       "@canvas-plugins/*": ["../../plugins/canvas/*"]
     }
   },
-  "include": ["src", "../../src/commercial/web", "./src/commercial-oss", "../../plugins/canvas", "vite.config.ts", "vitest.config.ts"],
+  "include": ["src", "../../src/commercial/web", "./src/commercial-oss", "../../plugins/canvas", "vite.config.ts"],
   "exclude": ["src/private", "../../src/commercial"]
 }

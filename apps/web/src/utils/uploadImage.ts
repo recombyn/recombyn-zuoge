@@ -8,6 +8,8 @@ import {
   type UploadedFileItem,
 } from '@/service/upload';
 import { uploadFileViaJob, dispatchUploadJobCreated } from '@/service/uploadJobs';
+import { getHttpErrorMessage } from '@/service/client';
+import { UploadTooLargeError } from '@/utils/uploadLimits';
 import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
@@ -58,6 +60,21 @@ export function isUploadAbortError(err: unknown): boolean {
     e.code === 'ERR_CANCELED' ||
     /abort|cancel/i.test(String(e.message || ''))
   );
+}
+
+/** Map upload errors (413 / size cap) to user-facing copy. */
+export function formatUploadErrorMessage(
+  err: unknown,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  fallback: string
+): string {
+  if (err instanceof UploadTooLargeError) {
+    return t('editor.tools.uploadTooLarge', {
+      max: err.maxMb,
+      defaultValue: `文件过大（最大 ${err.maxMb}MB）`,
+    });
+  }
+  return getHttpErrorMessage(err, fallback);
 }
 
 /** Upload a single image/video and return its public/display URL. */

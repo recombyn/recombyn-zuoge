@@ -59,7 +59,8 @@ import EditorToolStrip from '@/components/editor/chrome/EditorToolStrip';
 import type { PathEditSubtool } from '@/components/editor/chrome/PathEditToolbar';
 import { getDocumentGridSize } from '@/components/rcb/selection/alignGuides';
 import { cn } from '@/utils/classnames';
-import { fetchProject, patchProjectNameInListCache } from '@/service/projects';
+import { fetchProject, syncProjectRowFromServer, refreshProjectsListAfterMutation } from '@/service/projects';
+import { prefetchShareRecord } from '@/service/shareSession';
 import {
   createEmptyDocument,
   listSceneNodes
@@ -82,12 +83,10 @@ import {
   setMixedSelection,
   setGridMode,
   setSelectedNodeId,
-  setTemplateThumbnail,
   setWorkspaceMode,
   bakeDocumentOrigin,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
-import { normalizeProjectThumbnailUrls, collageOrSingleThumb } from '@/utils/projectThumb';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
 import { cssSolidWithOpacity } from '@/components/base/colorPanel';
@@ -464,6 +463,7 @@ async function hydrateCloudProject(
         })
       );
       if (needsUpload) persistUnsyncedDraft(targetId, draft, name);
+      syncProjectRowFromServer(proj);
       return;
     }
 
@@ -499,16 +499,7 @@ async function hydrateCloudProject(
         source: 'user',
       })
     );
-    {
-      const thumbs = normalizeProjectThumbnailUrls(proj.thumbnailUrl, proj.updatedAt);
-      dispatch(
-        setTemplateThumbnail({
-          id: proj.id,
-          thumbnail: collageOrSingleThumb(thumbs),
-          custom: Boolean(proj.thumbnailCustom),
-        })
-      );
-    }
+    syncProjectRowFromServer(proj);
     void putProjectDraft({
       projectId: proj.id,
       name: proj.name || t('home.untitled'),
@@ -992,7 +983,7 @@ function EditorPage() {
   const holdHomeAgentSubmit = bootOpen || holdForEditorTour;
 
   const goProjectsFromEditor = useCallback(() => {
-    void flushAndGoHome(navigate, '/home?nav=mine');
+    void flushAndGoHome(navigate, '/home?nav=mine', { refreshProjectsList: true });
   }, [navigate]);
 
   const newProjectFromEditor = useCallback(() => {
@@ -1074,11 +1065,12 @@ function EditorPage() {
       const id = String((store.getState() as any).editor?.currentId || '').trim();
       if (!id) return;
       const nextName = String(name || '').trim() || 'Untitled';
-      patchProjectNameInListCache(id, nextName);
       if (renameCloudTimer.current) clearTimeout(renameCloudTimer.current);
       renameCloudTimer.current = setTimeout(() => {
         renameCloudTimer.current = null;
-        void renameProjectOnCloud(id, nextName);
+        void renameProjectOnCloud(id, nextName).then(() =>
+          refreshProjectsListAfterMutation(id)
+        );
       }, 400);
     },
     [dispatch]
@@ -1126,8 +1118,22 @@ function EditorPage() {
   }, [isMobileViewport, agentOpen]);
 
   const openShareDialog = useCallback(() => {
+    const projectId = String(currentId || '').trim();
+    const tpl = templates.find((item: { id: string }) => item.id === currentId);
+    const name =
+      tpl?.name ||
+      String((document as { name?: string } | null)?.name || '') ||
+      t('home.untitled', { defaultValue: '未命名作品' });
+    if (document && projectId) {
+      prefetchShareRecord({
+        projectId,
+        projectName: name,
+        document,
+        sourceProjectId: projectId,
+      });
+    }
     setShareOpen(true);
-  }, []);
+  }, [currentId, document, t, templates]);
 
   const toggleLayersOpen = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setLayersOpen((prev) => {

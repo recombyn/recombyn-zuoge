@@ -46,6 +46,7 @@ import {
 import { store } from '@/store';
 import type { ShareDto } from '@/models/shares';
 import { apiQuery } from '@/service/client';
+import { prepareProjectsListNavigation } from '@/service/projects';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { cssSolidWithOpacity } from '@/components/base/colorPanel';
 import ShareTopChrome from '@/components/share/ShareTopChrome';
@@ -236,7 +237,14 @@ function SharePage() {
   const loginUrl = buildLoginUrl(location.pathname + location.search);
 
   const goProjectsFromShare = useCallback(() => {
-    navigate('/home?nav=mine');
+    void (async () => {
+      try {
+        await prepareProjectsListNavigation();
+      } catch {
+        /* navigate anyway */
+      }
+      navigate('/home?nav=mine');
+    })();
   }, [navigate]);
 
   const newProjectFromShare = useCallback(() => {

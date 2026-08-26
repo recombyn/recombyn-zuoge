@@ -5,6 +5,7 @@ import {
   type GenerateImageResult,
 } from '@/service/chat';
 import { apiQuery, queryClient } from '@/service/client';
+import { refreshWalletAfterSpend } from '@/service/wallet';
 
 /** Bust home assets dock + editor asset panel after AI image jobs finish. */
 export function invalidateUserAssetsCache(): void {
@@ -66,6 +67,7 @@ export async function generateImageBatch(
     );
   }
   invalidateUserAssetsCache();
+  refreshWalletAfterSpend();
   return unique;
 }
 
@@ -101,5 +103,6 @@ export async function waitForImageBatchJobs(
     );
   }
   invalidateUserAssetsCache();
+  refreshWalletAfterSpend();
   return unique;
 }

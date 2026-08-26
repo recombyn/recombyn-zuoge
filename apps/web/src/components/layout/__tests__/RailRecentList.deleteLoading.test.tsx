@@ -32,7 +32,7 @@ vi.mock('@/components/editor/useProjectCloudSync', () => ({
 
 vi.mock('@/service/projects', () => ({
   invalidateProjectsListCache: vi.fn(),
-  patchProjectNameInListCache: vi.fn(),
+  refreshProjectsListAfterMutation: vi.fn(),
 }));
 
 vi.mock('@/utils/useDeferredBusy', () => ({

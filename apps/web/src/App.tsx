@@ -3,7 +3,7 @@ import { useDispatch } from 'react-redux';
 import { loginDesktopLocal } from '@/service/auth';
 import { apiQuery, queryClient } from '@/service/client';
 import { clearProjectsListCache } from '@/service/projects';
-import { clearWalletCache } from '@/service/wallet';
+import { clearWalletCache, WALLET_ME_QUERY_OPTS } from '@/service/wallet';
 import AppRouter from '@/router';
 import { logout, setSession, clearSessionCaches } from '@/store/modules/auth';
 import { clearProjectsLibrary } from '@/store/modules/editor';
@@ -71,7 +71,7 @@ function App() {
       await runQuietly(async () => {
         await queryClient.prefetchQuery({
           ...apiQuery.walletWalletMe.queryOptions(),
-          staleTime: 30_000,
+          ...WALLET_ME_QUERY_OPTS,
         });
       });
     }

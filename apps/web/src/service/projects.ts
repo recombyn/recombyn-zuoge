@@ -1,5 +1,8 @@
 /**
  * User projects API — metadata + document sync (camera/selection stay local).
+ *
+ * List + cover metadata SoT: React Query (`projectsListMyProjects` + `project-list-row`).
+ * After any mutation, call `refreshProjectsListAfterMutation`.
  */
 
 import { apiClient, apiQuery, queryClient } from '@/service/client';
@@ -7,14 +10,10 @@ import { apiClient, apiQuery, queryClient } from '@/service/client';
 export type ProjectSummaryDto = {
   id: string;
   name: string;
-  /** Team org when shared. */
   orgId?: string | null;
   orgName?: string | null;
-  /** Up to 4 cover tiles for 最近打开 / 我的项目 collage. */
   thumbnailUrl?: string | string[] | null;
-  /** User-uploaded cover — auto-save must not overwrite. */
   thumbnailCustom?: boolean;
-  /** Optimistic concurrency token — send as baseRevision / If-Match on PUT. */
   revision?: number;
   updatedAt: number;
   createdAt: number;
@@ -42,7 +41,6 @@ export type UpsertProjectBody = {
   thumbnailUrls?: string[] | null;
   thumbnailCustom?: boolean;
   baseRevision?: number;
-  /** Attach to team on create (requires org:project:write). */
   orgId?: string | null;
 };
 
@@ -61,12 +59,14 @@ export type PatchProjectBody = {
   canvas?: Record<string, unknown>;
 };
 
+export const projectListRowQueryKey = (projectId: string) =>
+  ['project-list-row', projectId] as const;
+
 export const fetchProject = (id: string) =>
   apiClient.projectsGetOne({
     params: { project_id: id },
   }) as Promise<{ project: ProjectDto }>;
 
-/** Ask server to rebuild ≤4 cover tiles from document elements (no revision bump). */
 export async function extractProjectCoversApi(
   id: string,
   document?: unknown
@@ -87,7 +87,6 @@ export async function upsertProjectApi(
   }) as Promise<{ project: ProjectSummaryDto }>;
 }
 
-/** Node-level incremental sync — server merges under the same revision lock. */
 export async function patchProjectApi(
   id: string,
   data: PatchProjectBody,
@@ -106,7 +105,6 @@ export async function deleteProjectApi(id: string): Promise<{ ok: boolean }> {
   }) as Promise<{ ok: boolean }>;
 }
 
-/** Attach / detach team org (no revision bump). */
 export async function setProjectOrgApi(
   id: string,
   orgId: string | null
@@ -117,7 +115,6 @@ export async function setProjectOrgApi(
   }) as Promise<{ project: ProjectSummaryDto }>;
 }
 
-/** Batch delete — one request for many project ids. */
 export async function deleteProjectsApi(
   ids: string[]
 ): Promise<{ ok: boolean; deleted: number }> {
@@ -126,65 +123,29 @@ export async function deleteProjectsApi(
   }) as Promise<{ ok: boolean; deleted: number }>;
 }
 
-/** Home / Mine list — Query is SoT; call after rename/delete/create. */
-export async function invalidateProjectsListCache() {
-  await queryClient.invalidateQueries({
-    queryKey: apiQuery.projectsListMyProjects.key(),
-    refetchType: 'all',
-  });
-}
-
-/** Force network refetch for all project list queries (active or not). */
-export async function refetchProjectsListCache() {
-  await queryClient.refetchQueries({
-    queryKey: apiQuery.projectsListMyProjects.key(),
-    type: 'all',
-  });
-}
-
-type ProjectListCachePatch = {
-  name?: string;
-  thumbnailUrl?: string | string[] | null;
-  updatedAt?: number;
-  revision?: number;
-};
-
-function mergeProjectListRow(
-  row: ProjectSummaryDto,
-  patch: ProjectListCachePatch
-): ProjectSummaryDto {
-  const next = { ...row };
-  if (patch.name != null) {
-    next.name = String(patch.name || '').trim() || 'Untitled';
-  }
-  if (patch.thumbnailUrl !== undefined) {
-    next.thumbnailUrl = patch.thumbnailUrl ?? null;
-  }
-  if (patch.updatedAt != null) {
-    next.updatedAt = Number(patch.updatedAt) || row.updatedAt;
-  }
-  if (patch.revision != null) {
-    next.revision = Number(patch.revision) || row.revision;
-  }
-  return next;
-}
-
-function hasListCachePatch(patch: ProjectListCachePatch): boolean {
-  return (
-    patch.name != null ||
-    patch.thumbnailUrl !== undefined ||
-    patch.updatedAt != null ||
-    patch.revision != null
-  );
-}
-
-/** Optimistic list row patch — rename, cover, timestamps without a full refetch. */
-export function patchProjectSummaryInListCache(
-  projectId: string,
-  patch: ProjectListCachePatch
-) {
+/** Read one row from cached list pages (if present). */
+export function findProjectSummaryInListCache(
+  projectId: string
+): ProjectSummaryDto | null {
   const id = String(projectId || '').trim();
-  if (!id || !hasListCachePatch(patch)) return;
+  if (!id) return null;
+  const queries = queryClient.getQueriesData<{ pages?: PaginatedProjects[] }>({
+    queryKey: apiQuery.projectsListMyProjects.key(),
+  });
+  for (const [, data] of queries) {
+    if (!data?.pages) continue;
+    for (const page of data.pages) {
+      const row = (page.projects || []).find((p) => p.id === id);
+      if (row) return row;
+    }
+  }
+  return null;
+}
+
+/** Write server row into list + row queries (not optimistic — API response only). */
+export function syncProjectRowFromServer(row: ProjectSummaryDto) {
+  const id = String(row.id || '').trim();
+  if (!id) return;
 
   queryClient.setQueriesData(
     { queryKey: apiQuery.projectsListMyProjects.key() },
@@ -192,30 +153,52 @@ export function patchProjectSummaryInListCache(
       if (!old || typeof old !== 'object') return old;
       const data = old as { pages?: PaginatedProjects[]; pageParams?: unknown[] };
       if (!Array.isArray(data.pages)) return old;
-      return {
-        ...data,
-        pages: data.pages.map((page) => ({
-          ...page,
-          projects: (page.projects || []).map((p) =>
-            p.id === id ? mergeProjectListRow(p, patch) : p
-          ),
-        })),
-      };
+      let found = false;
+      const pages = data.pages.map((page) => ({
+        ...page,
+        projects: (page.projects || []).map((p) => {
+          if (p.id !== id) return p;
+          found = true;
+          return { ...p, ...row, id };
+        }),
+      }));
+      if (!found) return old;
+      return { ...data, pages };
     }
   );
+
+  queryClient.setQueryData(projectListRowQueryKey(id), row);
 }
 
-/** Rename in sidebar — patch list cache only; do not refetch (avoids reordering 最近). */
-export function patchProjectNameInListCache(projectId: string, name: string) {
-  patchProjectSummaryInListCache(projectId, {
-    name: String(name || '').trim() || 'Untitled',
-    updatedAt: Date.now(),
+export async function invalidateProjectsListCache() {
+  await queryClient.invalidateQueries({
+    queryKey: apiQuery.projectsListMyProjects.key(),
+    refetchType: 'all',
   });
 }
 
-/** Drop cached list on logout / 401 (avoid leaking another account's pages). */
+export async function invalidateProjectListRow(projectId: string) {
+  const id = String(projectId || '').trim();
+  if (!id) return;
+  await queryClient.invalidateQueries({ queryKey: projectListRowQueryKey(id) });
+}
+
+/** After create/update/delete/rename/cover — refetch list + optional row. */
+export async function refreshProjectsListAfterMutation(projectId?: string) {
+  await invalidateProjectsListCache();
+  if (projectId) await invalidateProjectListRow(projectId);
+}
+
+/** Editor/share → home: mark list stale so mount refetches (staleTime: 0). */
+export async function prepareProjectsListNavigation() {
+  await invalidateProjectsListCache();
+}
+
 export function clearProjectsListCache() {
   queryClient.removeQueries({
     queryKey: apiQuery.projectsListMyProjects.key(),
+  });
+  queryClient.removeQueries({
+    queryKey: ['project-list-row'],
   });
 }

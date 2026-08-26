@@ -1,6 +1,6 @@
 import { frameForFullBleedPlate } from '@/components/rcb/selection/selectionLogic';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
-import { isNodeHidden } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isNodeHiddenInDocument } from '@/components/rcb/scene/document/nodeCapabilities';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 export type FrameSceneBox = {
@@ -44,7 +44,7 @@ export function getFrameBox(
 export function frameIsEmpty(doc: SceneDocument, frameId: string): boolean {
   return !nodeIdsBoundToFrames(doc, [frameId]).some((id) => {
     const node = doc.deltaSetLike?.[id];
-    if (!node || isNodeHidden(node)) return false;
+    if (!node || isNodeHiddenInDocument(doc, node)) return false;
     // Full-bleed background plate is chrome, not content.
     if (frameForFullBleedPlate(doc, id) === frameId) return false;
     return true;

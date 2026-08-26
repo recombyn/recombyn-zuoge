@@ -267,7 +267,7 @@ function measureHitNearby(doc: SceneDocument, _idx: RcbSpatialIndex, points: Arr
   let candSum = 0;
   const t0 = performance.now();
   for (const [x, y] of points) {
-    const order = runtime.hitCandidateIds({ x, y, pad: 48, allIds });
+    const order = runtime.hitCandidateIds({ x, y, pad: 48 });
     for (const id of order) {
       const box = nodeSceneAabb(doc, id, 8);
       candSum += 1;

@@ -14,7 +14,7 @@ import {
   resolveStroke,
   resolveStrokeAlign,
 } from '@/components/rcb/scene/document/sceneEffects';
-import { isNodeHidden, supportsFill } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isNodeHiddenInDocument, supportsFill } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
@@ -177,7 +177,7 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
   const boxes: Array<{ id: string; box: SceneHitBox | null; hit: boolean }> = [];
   for (const id of order) {
     const node = doc?.deltaSetLike?.[id];
-    if (!node || isNodeHidden(node)) {
+    if (!node || isNodeHiddenInDocument(doc, node)) {
       boxes.push({ id, box: null, hit: false });
       continue;
     }

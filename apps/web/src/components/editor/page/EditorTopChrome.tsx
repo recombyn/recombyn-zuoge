@@ -14,6 +14,7 @@ import {
   useSetDesktopTitlebarLeading,
 } from '@/components/layout/DesktopTitlebar';
 import { flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
+import { prepareProjectsListNavigation } from '@/service/projects';
 import { cn } from '@/utils/classnames';
 
 type Props = {
@@ -160,7 +161,11 @@ function EditorTopChrome({
   );
 }
 
-export async function flushAndGoHome(navigate: (path: string) => void, path = '/home') {
+export async function flushAndGoHome(
+  navigate: (path: string) => void,
+  path = '/home',
+  opts?: { refreshProjectsList?: boolean }
+) {
   try {
     await Promise.race([
       flushCurrentProjectNow({ force: true }),
@@ -170,6 +175,13 @@ export async function flushAndGoHome(navigate: (path: string) => void, path = '/
     ]);
   } catch {
     /* still navigate — local draft already holds bytes */
+  }
+  if (opts?.refreshProjectsList) {
+    try {
+      await prepareProjectsListNavigation();
+    } catch {
+      /* navigate anyway — Home mount will retry */
+    }
   }
   navigate(path);
 }

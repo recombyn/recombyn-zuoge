@@ -44,16 +44,17 @@ import {
   isImageProcessRunning,
   isLottieGeneratorNode,
   isLottieNode,
-  isNodeHidden,
+  shouldSkipNodeInSvgPaint,
   isOutlinedPath,
   isTextFrameNode,
   isVideoGeneratorNode
 } from '../document/nodeCapabilities';
+import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
 import {
-  PROCESS_PLATE_FILL,
-  PROCESS_PLATE_STROKE,
-  processGlowForeignObjectBounds,
-} from '@/components/rcb/process/processGlow';
+  appendProcessPlatePaths,
+  syncProcessPillForeignObject,
+  syncProcessPlateGeometry,
+} from '@/components/rcb/process/processPlateSvg';
 import {
   resolveThemeSurfaceFill
 } from '../document/nodeFactories';
@@ -1428,13 +1429,12 @@ export async function nodeToSvgElement(
 
     if (processing) {
       const g = appendChild(parent, svgEl('g'));
-      const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, PROCESS_PLATE_FILL);
-      setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
-      setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
+      appendProcessPlatePaths(g, root, nodeId, clipD, {
+        color: PROCESS_PLATE_STROKE,
+        width: editorChromeStrokeSceneWidth(1.5),
+      });
 
       tagNode(g, nodeId, 'image', undefined, left, top, boxW, boxH);
-      // Process shimmer is editor chrome — never bake into export / cover clones.
       setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       applyNodeEffects(root, g, node);
@@ -1511,10 +1511,10 @@ export async function nodeToSvgElement(
 
     // Same process plate as image/video — shimmer chrome overlays this node.
     if (processing) {
-      const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, PROCESS_PLATE_FILL);
-      setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
-      setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
+      appendProcessPlatePaths(g, root, nodeId, clipD, {
+        color: PROCESS_PLATE_STROKE,
+        width: editorChromeStrokeSceneWidth(1.5),
+      });
       rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
@@ -1686,10 +1686,10 @@ export async function nodeToSvgElement(
         );
         setSvgImageHref(img, preview);
       } else {
-        const plate = appendChild(g, svgEl('path', { d: clipD }));
-        setFill(plate, PROCESS_PLATE_FILL);
-        setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
-        setAttrs(plate, { 'data-radius-body': '1' });
+        appendProcessPlatePaths(g, root, nodeId, clipD, {
+          color: PROCESS_PLATE_STROKE,
+          width: editorChromeStrokeSceneWidth(1.5),
+        });
       }
       tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
@@ -2179,7 +2179,7 @@ export async function loadSceneOntoSvg(
   for (const nodeId of children) {
     if (boardMeta && loadSeq && boardMeta.loadSeq !== loadSeq) return nodeEls;
     const node = document.deltaSetLike[nodeId];
-    if (omitNonExportable ? !isExportableSceneNode(node) : isNodeHidden(node)) continue;
+    if (shouldSkipNodeInSvgPaint(document, node, omitNonExportable)) continue;
     try {
       const el = await nodeToSvgElement(root, layer, document, node, nodeId);
       if (boardMeta && loadSeq && boardMeta.loadSeq !== loadSeq) {
@@ -2425,22 +2425,13 @@ function isProcessPlateHost(el: SVGElement): boolean {
   return el.getAttribute('data-rcb-process-plate') === '1';
 }
 
-/** Keep portaled SoftGlow foreignObject glued during live resize (no CSS scale). */
+/** Pill-only foreignObject — gradient is SVG-native on the process plate. */
 export function syncProcessGlowForeignObject(
   host: SVGElement | null | undefined,
   width: number,
   height: number
 ): void {
-  if (!host) return;
-  const box = processGlowForeignObjectBounds(width, height);
-  const fo = host.querySelector(
-    'foreignObject[data-rcb-process-glow]'
-  ) as SVGForeignObjectElement | null;
-  if (!fo) return;
-  fo.setAttribute('x', String(box.x));
-  fo.setAttribute('y', String(box.y));
-  fo.setAttribute('width', String(box.width));
-  fo.setAttribute('height', String(box.height));
+  syncProcessPillForeignObject(host, width, height);
 }
 
 function syncTextFrameForeignObject(
@@ -2561,7 +2552,9 @@ function previewResizeProcessPlate(
   const h = Math.max(1, box.height);
   writeGeom(el, { left: box.left, top: box.top, width: w, height: h, abs: false });
   if (!previewResizeLocalGeometry(el, w, h)) return false;
-  syncProcessGlowForeignObject(el, w, h);
+  const liveR = clampCornerRadii(readSceneCornerRadii(el), w, h);
+  syncProcessPlateGeometry(el, roundedRectPath(w, h, liveR));
+  syncProcessPillForeignObject(el, w, h);
   reapplySceneTransform(el, box.left, box.top, w, h);
   return true;
 }

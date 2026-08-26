@@ -19,7 +19,6 @@ import {
   ensureMinScreenHitBox,
   MARQUEE_MIN_HIT_SCREEN_PX,
   nodeHitsMarquee,
-  resolveMarqueeCandidates,
   makeDragSeed,
   shiftConstrainedMoveDelta,
   resolveMoveAxisLock,
@@ -61,14 +60,6 @@ describe('frameSelectionIds', () => {
 });
 
 describe('selectionLogic marquee helpers', () => {
-  it('resolveMarqueeCandidates treats empty spatial as miss, not no-nodes', () => {
-    const all = ['a', 'b', 'c'];
-    expect(resolveMarqueeCandidates(['b'], all)).toEqual(['b']);
-    expect(resolveMarqueeCandidates([], all)).toEqual(all);
-    expect(resolveMarqueeCandidates(undefined, all)).toEqual(all);
-    expect(resolveMarqueeCandidates(null, all)).toEqual(all);
-  });
-
   it('normalizeBox + boxesIntersect', () => {
     const box = normalizeBox(120, 80, 20, 10);
     expect(box).toEqual({ left: 20, top: 10, width: 100, height: 70 });

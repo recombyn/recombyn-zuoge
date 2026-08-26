@@ -80,6 +80,58 @@ export function isNodeHidden(node: SceneNodeRef): boolean {
   return Boolean(node) && attrFlagTrue(node!.attrs?.hidden);
 }
 
+export function isArtboardFrameHidden(
+  frame: { hidden?: unknown } | null | undefined
+): boolean {
+  return Boolean(frame?.hidden);
+}
+
+export function findArtboardFrame(
+  document: SceneDocument | null | undefined,
+  frameId: string | null | undefined
+) {
+  const id = String(frameId || '').trim();
+  if (!id || !document?.frames) return undefined;
+  return document.frames.find((f) => String(f?.id) === id);
+}
+
+/** Node hidden or bound to a hidden artboard — paint / hit-test / overlays. */
+export function isNodeHiddenInDocument(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeRef
+): boolean {
+  if (!node || isNodeHidden(node)) return true;
+  const frameId = String(node.attrs?.frameId || '').trim();
+  if (!frameId) return false;
+  return isArtboardFrameHidden(findArtboardFrame(document, frameId));
+}
+
+/** Marquee + smart guides skip hidden (incl. parent frame) and locked nodes. */
+export function isNodeMarqueeSkippable(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeRef
+): boolean {
+  return isNodeHiddenInDocument(document, node) || isNodeLocked(node);
+}
+
+export function shouldSkipNodeInSvgPaint(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeRef,
+  omitNonExportable: boolean
+): boolean {
+  if (omitNonExportable) return !isExportableSceneNode(node);
+  return isNodeHiddenInDocument(document, node);
+}
+
+/** Overlay hosts: session hide + document/frame hide. */
+export function isNodeOverlayHidden(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeRef,
+  sessionHidden = false
+): boolean {
+  return sessionHidden || isNodeHiddenInDocument(document, node);
+}
+
 /**
  * Nodes that belong in export / cover / thumbnail output.
  * Skip editor-only chrome: image/video-generator plates and in-progress process shimmer.

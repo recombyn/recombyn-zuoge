@@ -2,17 +2,15 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { apiQuery, queryClient } from '@/service/client';
 import { syncProjectRowFromServer, findProjectSummaryInListCache } from '@/service/projects';
 
-const PROJECT_PAGE_SIZE = 24;
-
-describe('projects list cache row sync', () => {
+describe('syncProjectRowFromServer', () => {
   beforeEach(() => {
     queryClient.clear();
   });
 
-  it('syncs under infiniteOptions query key', () => {
+  it('updates row inside infinite list cache', () => {
     const infiniteOpts = apiQuery.projectsListMyProjects.infiniteOptions({
       input: (pageParam: number) => ({
-        query: { page: pageParam, pageSize: PROJECT_PAGE_SIZE },
+        query: { page: pageParam, pageSize: 24 },
       }),
       initialPageParam: 1,
       getNextPageParam: () => undefined,
@@ -21,7 +19,15 @@ describe('projects list cache row sync', () => {
     queryClient.setQueryData(key, {
       pages: [
         {
-          projects: [{ id: 'p1', name: '未命名', updatedAt: 1, createdAt: 1 }],
+          projects: [
+            {
+              id: 'p1',
+              name: '旧名',
+              updatedAt: 1,
+              createdAt: 1,
+              thumbnailUrl: null,
+            },
+          ],
           page: 1,
           total: 1,
           hasMore: false,
@@ -32,15 +38,17 @@ describe('projects list cache row sync', () => {
 
     syncProjectRowFromServer({
       id: 'p1',
-      name: '啦啦啦啦',
+      name: '新名',
       updatedAt: 2,
       createdAt: 1,
+      thumbnailUrl: ['/api/v1/uploads/files/projects/u/p1/thumb.webp'],
     });
 
-    const data = queryClient.getQueryData(key) as {
-      pages: Array<{ projects: Array<{ id: string; name: string }> }>;
-    };
-    expect(data.pages[0]!.projects[0]!.name).toBe('啦啦啦啦');
-    expect(findProjectSummaryInListCache('p1')?.name).toBe('啦啦啦啦');
+    const row = findProjectSummaryInListCache('p1');
+    expect(row?.name).toBe('新名');
+    expect(row?.updatedAt).toBe(2);
+    expect(row?.thumbnailUrl).toEqual([
+      '/api/v1/uploads/files/projects/u/p1/thumb.webp',
+    ]);
   });
 });

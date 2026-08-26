@@ -10,7 +10,7 @@ import type {
 import PlansDialog from '@/components/layout/PlansDialog';
 import RedeemDialog from '@/components/layout/RedeemDialog';
 import { apiQuery } from '@/service/client';
-import { usePlanCatalog, useWalletSnapshot, type WalletSnapshot } from '@/service/wallet';
+import { usePlanCatalog, useWalletSnapshot, WALLET_LEDGER_QUERY_OPTS, type WalletSnapshot } from '@/service/wallet';
 import {
   formatCredits,
   isTopOfferedPlan,
@@ -174,6 +174,7 @@ function WalletLedgerPanel({
         query: { page, pageSize: PAGE_SIZE, kind: filter },
       },
     }),
+    ...WALLET_LEDGER_QUERY_OPTS,
   });
 
   const ledgerRes = ledgerQuery.data as PaginatedWalletLedger | undefined;

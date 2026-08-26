@@ -631,6 +631,13 @@ function EditorStageWorld({
         }),
       };
       frameMoveDocumentRef.current = nextDocument;
+      const spatial = getSharedSceneSpatialRuntime();
+      if (spatial && childPatches.length) {
+        spatial.patchNodes(
+          nextDocument,
+          childPatches.map((item) => item.nodeId)
+        );
+      }
       dispatch(setDocumentFromCanvas(nextDocument));
     },
     [camera.zoom, dispatch, document, frames, gridSize]

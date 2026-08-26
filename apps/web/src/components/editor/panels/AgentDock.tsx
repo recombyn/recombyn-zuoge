@@ -168,7 +168,7 @@ import ModelPickerPanel, {
 } from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { cn } from '@/utils/classnames';
 import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
-import { useWalletSnapshot } from '@/service/wallet';
+import { refreshWalletAfterSpend, useWalletSnapshot } from '@/service/wallet';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick } from '@/utils/wallet';
 import {
   buildDesignSceneSnapshot,
@@ -2304,6 +2304,7 @@ function AgentDock({
       } finally {
         dispatch(setAgentBusy(false));
         setSending(false);
+        refreshWalletAfterSpend();
       }
       return;
     }
@@ -2449,6 +2450,7 @@ function AgentDock({
       } finally {
         dispatch(setAgentBusy(false));
         setSending(false);
+        refreshWalletAfterSpend();
       }
       return;
     }
@@ -2608,6 +2610,7 @@ function AgentDock({
         );
         setPendingReview({ userMessageId: userMsg.id, assistantId });
       }
+      refreshWalletAfterSpend();
     }
 
     if (ac.signal.aborted) {

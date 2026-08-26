@@ -276,17 +276,27 @@ export class SceneSpatialRuntime {
       }
     }
 
-    for (const raw of patched) {
-      const id = String(raw);
-      if (!doc.deltaSetLike?.[id]) {
+    this.patchNodes(doc, patched, pad);
+    return this.index;
+  }
+
+  /** Live geometry preview — keep broad-phase AABBs aligned with documentRef. */
+  patchNodes(
+    document: SceneDocument,
+    patchedNodeIds: readonly string[],
+    aabbPad = 32
+  ): void {
+    for (const raw of patchedNodeIds) {
+      const id = String(raw || '').trim();
+      if (!id) continue;
+      if (!document.deltaSetLike?.[id]) {
         this.index.remove(id);
         continue;
       }
-      const box = nodeSceneAabb(doc, id, pad);
+      const box = nodeSceneAabb(document, id, aabbPad);
       if (!box) this.index.remove(id);
       else this.index.upsert({ id, ...box });
     }
-    return this.index;
   }
 
   /** Bottom→top ids intersecting rect (rank-sorted hits only). */
@@ -308,32 +318,14 @@ export class SceneSpatialRuntime {
     );
   }
 
-  /**
-   * Top→bottom hit-test order. Large warm scenes prefer spatial pad; if the pad
-   * misses (stale AABB / thin pad), fall back to allIds so clicks still resolve.
-   */
-  hitCandidateIds(opts: {
-    x: number;
-    y: number;
-    pad: number;
-    allIds: readonly string[];
-    largeThreshold?: number;
-  }): string[] {
-    const threshold = opts.largeThreshold ?? SCENE_SPATIAL_LARGE_THRESHOLD;
-    const { allIds, x, y, pad } = opts;
-    if (allIds.length < threshold) {
-      return [...allIds].reverse();
-    }
-    const nearby = this.index.searchPoint(x, y, pad);
-    if (nearby.length) {
-      return sortIdsByRank(
-        nearby.map((n) => n.id),
-        this.rank,
-        { ascending: false }
-      );
-    }
-    // Warm empty must not mean "no hit" — index can lag geometry commits.
-    return [...allIds].reverse();
+  /** Top→bottom hit-test order — always spatial broad-phase (no full-scene scan). */
+  hitCandidateIds(opts: { x: number; y: number; pad: number }): string[] {
+    const nearby = this.index.searchPoint(opts.x, opts.y, opts.pad);
+    return sortIdsByRank(
+      nearby.map((n) => n.id),
+      this.rank,
+      { ascending: false }
+    );
   }
 }
 

@@ -42,7 +42,7 @@ import PlansDialog from '@/components/layout/PlansDialog';
 import { apiQuery, queryClient } from '@/service/client';
 import { logout as logoutRemote } from '@/service/auth';
 import { clearProjectsListCache } from '@/service/projects';
-import { clearWalletCache, useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
+import { clearWalletCache, useBillingEnabled, useWalletSnapshot, WALLET_ME_QUERY_OPTS } from '@/service/wallet';
 import { logout, setSession, clearSessionCaches } from '@/store/modules/auth';
 import { clearProjectsLibrary } from '@/store/modules/editor';
 import { formatCredits, planLabelKey, type PlanId } from '@/utils/wallet';
@@ -375,7 +375,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
       try {
         await queryClient.ensureQueryData({
           ...apiQuery.walletWalletMe.queryOptions(),
-          staleTime: 30_000,
+          ...WALLET_ME_QUERY_OPTS,
         });
       } catch {
         /* ignore */

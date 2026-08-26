@@ -110,20 +110,27 @@ describe('SceneSpatialRuntime', () => {
     expect(runtime.index.searchPoint(100, 20)).toEqual([]);
   });
 
-  it('hitCandidateIds falls back to allIds when warm pad misses', () => {
+  it('hitCandidateIds uses spatial only on large scenes', () => {
     const runtime = new SceneSpatialRuntime(100);
     const children = Array.from({ length: 60 }, (_, i) => `n${i}`);
     const doc = makeDoc(children);
     runtime.sync({ document: doc, childrenIds: children, reloadToken: 1 });
-    // Far from every AABB — previously returned [] and clicks died.
     const order = runtime.hitCandidateIds({
       x: 50_000,
       y: 50_000,
       pad: 1,
-      allIds: children,
     });
-    expect(order.length).toBe(children.length);
-    expect(order[0]).toBe(children[children.length - 1]);
+    expect(order).toEqual([]);
+  });
+
+  it('patchNodes updates AABB without full rebuild', () => {
+    const runtime = new SceneSpatialRuntime(100);
+    const children = ['a', 'b'];
+    const doc = makeDoc(children);
+    runtime.sync({ document: doc, childrenIds: children, reloadToken: 1 });
+    doc.deltaSetLike.b.x = 900;
+    runtime.patchNodes(doc, ['b']);
+    expect(runtime.index.searchPoint(920, 20).map((h) => h.id)).toEqual(['b']);
   });
 });
 

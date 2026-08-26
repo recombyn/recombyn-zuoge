@@ -42,7 +42,8 @@ import {
   isImageGeneratorNode,
   isLottieGeneratorNode,
   isVideoGeneratorNode,
-  isNodeHidden,
+  isNodeHiddenInDocument,
+  isNodeMarqueeSkippable,
   isNodeLocked,
   supportsCornerRadius,
   supportsFill,
@@ -511,7 +512,7 @@ export function nodeHitsMarquee(
   const node = doc?.deltaSetLike?.[nodeId];
   // Locked layers: click/context still works so users can Unlock; marquee skips
   // them (same as locked frames) — all node kinds.
-  if (!node || isNodeHidden(node) || isNodeLocked(node)) return false;
+  if (!node || isNodeMarqueeSkippable(doc, node)) return false;
   const dataBox = getNodeBox(nodeId);
   const domBox = sceneBoxFromMountedNode(nodeId, toScene);
   const fullBox = dataBox && domBox ? unionSceneBoxes(dataBox, domBox) : domBox || dataBox;
@@ -946,7 +947,7 @@ export function fallbackVisibleNodeHit(
   for (const rawId of orderedNodeIds) {
     const id = String(rawId || '');
     const node = document?.deltaSetLike?.[id];
-    if (!id || !node || isNodeHidden(node) || frameForFullBleedPlate(document, id)) continue;
+    if (!id || !node || isNodeHiddenInDocument(document, node) || frameForFullBleedPlate(document, id)) continue;
     const ownerId = String(node.attrs?.frameId || '').trim();
     if (ownerId && frameIdAtPoint(document, point.x, point.y) !== ownerId) continue;
     const box = getNodeBox(id);
@@ -1033,7 +1034,7 @@ export function visibleNodeBoxForSelection(
   const ownerId = String(node?.attrs?.frameId || '').trim();
   if (ownerId) {
     const frame = (doc.frames || []).find((f) => String(f?.id) === ownerId);
-    if (!frame) return null;
+    if (!frame || frame.hidden) return null;
     const fb: SceneBox = {
       left: Number(frame.x) || 0,
       top: Number(frame.y) || 0,
@@ -1053,18 +1054,6 @@ export function visibleNodeBoxForSelection(
     };
   }
   return visibleNodeBoxWithinFrames(doc, node, box);
-}
-
-/**
- * Spatial prefilter for marquee. Empty `[]` means miss (stale index), not "no nodes" —
- * `??` would keep [] and skip every hit.
- */
-export function resolveMarqueeCandidates(
-  spatialHits: readonly string[] | null | undefined,
-  allIds: readonly string[]
-): readonly string[] {
-  if (spatialHits && spatialHits.length > 0) return spatialHits;
-  return allIds;
 }
 
 export function commitMarqueeSelection(opts: {
@@ -1489,7 +1478,7 @@ export function collectSmartGuideTargets(
   for (const id of ids) {
     if (excludeIds.has(id)) continue;
     const node = document?.deltaSetLike?.[id];
-    if (!node || isNodeHidden(node) || isNodeLocked(node)) continue;
+    if (!node || isNodeMarqueeSkippable(document, node)) continue;
     const box = clippedGuideBoxForNode(id, document, getNodeBox(id));
     if (box && box.width > 0 && box.height > 0) out.push({ ...box, guideKind: 'peer' });
   }

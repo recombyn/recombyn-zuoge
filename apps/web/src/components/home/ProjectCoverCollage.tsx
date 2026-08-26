@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode, memo } from 'react';
+import { useMemo, useState, useEffect, useRef, type ReactNode, memo } from 'react';
 import { SoftGlowSurface } from '@/components/base';
 import TemplateThumbnail from '@/components/templates/TemplateThumbnail';
 import LazyTemplateThumb from '@/components/home/LazyTemplateThumb';
@@ -14,6 +14,7 @@ import {
 import { cn } from '@/utils/classnames';
 
 const MAX_TILES = 4;
+const IMG_TILE_LOAD_TIMEOUT_MS = 15_000;
 const GRID_2_CLASS = 'absolute inset-0 grid grid-cols-2 gap-1 overflow-hidden';
 const GRID_4_CLASS = 'absolute inset-0 grid grid-cols-2 grid-rows-2 gap-1 overflow-hidden';
 
@@ -153,6 +154,25 @@ function ProjectCoverCollage({
 function ImgTile({ src, className }: { src: string; className?: string }) {
   const [errored, setErrored] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const loadTimerRef = useRef<number | null>(null);
+
+  const clearLoadTimer = () => {
+    if (loadTimerRef.current != null) {
+      window.clearTimeout(loadTimerRef.current);
+      loadTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    setErrored(false);
+    setLoaded(false);
+    clearLoadTimer();
+    loadTimerRef.current = window.setTimeout(() => {
+      setErrored(true);
+    }, IMG_TILE_LOAD_TIMEOUT_MS);
+    return clearLoadTimer;
+  }, [src]);
+
   if (errored) return null;
   return (
     <div className={cn('relative min-h-0 min-w-0 overflow-hidden', className)}>
@@ -171,8 +191,14 @@ function ImgTile({ src, className }: { src: string; className?: string }) {
           loaded ? 'opacity-100' : 'opacity-0'
         )}
         loading="lazy"
-        onLoad={() => setLoaded(true)}
-        onError={() => setErrored(true)}
+        onLoad={() => {
+          clearLoadTimer();
+          setLoaded(true);
+        }}
+        onError={() => {
+          clearLoadTimer();
+          setErrored(true);
+        }}
       />
     </div>
   );

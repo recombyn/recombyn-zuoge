@@ -2,18 +2,16 @@ import { useMemo, memo } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  HiOutlineBars3,
-  HiOutlineBriefcase,
-  HiOutlineCube,
-  HiOutlineFolder,
-  HiOutlineHeart,
-  HiOutlineLightBulb,
-  HiOutlinePhoto,
-} from 'react-icons/hi2';
+import { HiOutlineBars3 } from 'react-icons/hi2';
 import { Dropdown } from '@/components/base';
+import { Icon } from '@/components/base/icon';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { refreshHomeNavPanel, refreshHomeProjectsList } from '@/components/layout/HomeBody';
+import {
+  HOME_MOBILE_NAV_ITEMS,
+  homeRailIconName,
+  homeRailIconSize,
+} from '@/components/layout/homeRailIcons';
 import {
   isHomeNavKey,
   runHomeGoNav,
@@ -26,14 +24,7 @@ type Props = {
   nav?: string;
 };
 
-const MOBILE_NAV_ITEMS: { key: HomeNavKey; labelKey: string; Icon: typeof HiOutlineBriefcase }[] = [
-  { key: 'home', labelKey: 'home.navHome', Icon: HiOutlineBriefcase },
-  { key: 'inspiration', labelKey: 'home.railInspiration', Icon: HiOutlineLightBulb },
-  { key: 'mine', labelKey: 'home.mine', Icon: HiOutlineFolder },
-  { key: 'skills', labelKey: 'home.railSkills', Icon: HiOutlineCube },
-  { key: 'assets', labelKey: 'home.railAssets', Icon: HiOutlinePhoto },
-  { key: 'liked', labelKey: 'home.railLiked', Icon: HiOutlineHeart },
-];
+const MOBILE_NAV_ITEMS = HOME_MOBILE_NAV_ITEMS;
 
 /** Mobile-only nav menu — desktop account/credits live in the sidebar footer. */
 function HomeTopBar({ setNav, nav = 'home' }: Props) {
@@ -55,11 +46,14 @@ function HomeTopBar({ setNav, nav = 'home' }: Props) {
 
   const mobileNavItems: MenuItemType[] = useMemo(
     () =>
-      MOBILE_NAV_ITEMS.map(({ key, labelKey, Icon }) => ({
+      MOBILE_NAV_ITEMS.map(({ key, labelKey }) => ({
         key,
         label: (
           <span className="inline-flex items-center gap-2">
-            <Icon className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.5} />
+            <Icon
+              name={homeRailIconName(key)}
+              className={`${homeRailIconSize(key)} shrink-0 opacity-80`}
+            />
             {t(labelKey)}
           </span>
         ),

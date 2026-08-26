@@ -17,7 +17,7 @@ import {
 import { deleteTemplate, renameTemplateById } from '@/store/modules/editor';
 import {
   invalidateProjectsListCache,
-  patchProjectNameInListCache,
+  refreshProjectsListAfterMutation,
 } from '@/service/projects';
 import { cn } from '@/utils/classnames';
 import { useDeferredBusy } from '@/utils/useDeferredBusy';
@@ -95,7 +95,7 @@ function RailRecentList({
             await renameProjectOnCloud(id, next);
           }
         } finally {
-          patchProjectNameInListCache(id, next);
+          void refreshProjectsListAfterMutation(id);
         }
       }
       void pushRename();

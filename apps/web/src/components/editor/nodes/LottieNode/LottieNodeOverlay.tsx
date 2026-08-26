@@ -1,4 +1,4 @@
-import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 /**
  * Lottie ink portals into the node’s SVG foreignObject mount so paint order
  * follows shared `stackOrder` / `data-z` (same as images & generators).
@@ -18,23 +18,19 @@ import lottie, { type AnimationItem } from 'lottie-web';
 import { useRcbCamera } from '@/components/rcb';
 import {
   isLottieNode,
-  isNodeHidden
+  isNodeOverlayHidden,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   parseLottieAnimationData,
   resolveThemeSurfaceFill
 } from '@/components/rcb/scene/document/nodeFactories';
-import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import {
+  buildScenePlateStyle,
+  type MediaGeomOverride,
+} from '@/components/editor/nodes/shared/mediaPlateGeometry';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
 
-export type LottieGeomOverride = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  angle?: number;
-};
+export type LottieGeomOverride = MediaGeomOverride;
 
 export type LottieHostApi = {
   play: () => void;
@@ -49,16 +45,6 @@ const lottieHosts = new Map<string, LottieHostApi>();
 
 export function getLottieHost(nodeId: string): LottieHostApi | null {
   return lottieHosts.get(nodeId) || null;
-}
-
-function readNodeAngle(node: SceneNodeInput) {
-  const n = Number(node?.attrs?.angle);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function plateTransform(angle: number) {
-  if (Math.abs(angle) > 0.001) return `rotate(${angle}deg)`;
-  return undefined;
 }
 
 function readLoop(attrs: any): boolean {
@@ -262,27 +248,7 @@ function LottiePlateHost({
   if (!node || !mount) return null;
   const animationJson = String(node.attrs?.animationData || '').trim();
   if (!parseLottieAnimationData(animationJson)) return null;
-  const layerHidden = isNodeHidden(node);
-  const { left, top } = nodeLeftTop(document, node);
-  const ov = geometryOverrides?.[nodeId];
-  const width = Math.max(1, ov ? ov.width : Number(node.width) || 1);
-  const height = Math.max(1, ov ? ov.height : Number(node.height) || 1);
-  const angle = ov && Number.isFinite(ov.angle) ? Number(ov.angle) : readNodeAngle(node);
-  const radii = radiiFromAttrs(node.attrs || {});
-  const scenePlate: CSSProperties & {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } = {
-    left: ov ? ov.left : left,
-    top: ov ? ov.top : top,
-    width,
-    height,
-    borderRadius: `${radii.tl}px ${radii.tr}px ${radii.br}px ${radii.bl}px`,
-    transform: plateTransform(angle),
-    transformOrigin: 'center center',
-  };
+  const scenePlate = buildScenePlateStyle(document, node, geometryOverrides?.[nodeId]);
   return (
     <LottiePlate
       nodeId={nodeId}
@@ -291,7 +257,7 @@ function LottiePlateHost({
       loop={readLoop(node.attrs)}
       speed={readSpeed(node.attrs)}
       plateFill={String(node.attrs?.['fill-color'] || '').trim()}
-      hidden={Boolean(hidden) || layerHidden}
+      hidden={isNodeOverlayHidden(document, node, hidden)}
       mount={mount}
     />
   );

@@ -1,4 +1,4 @@
-import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 /**
  * HTML audio plates over SVG hit-targets (same lattice as Video/Lottie overlays).
  * Title lives on selection chrome only — plate shows waveform + transport.
@@ -19,13 +19,16 @@ import { HiOutlinePlay, HiOutlinePause } from 'react-icons/hi2';
 import { useRcbCamera } from '@/components/rcb';
 import {
   isAudioNode,
-  isNodeHidden
+  isNodeOverlayHidden,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   resolveThemeSurfaceFill
 } from '@/components/rcb/scene/document/nodeFactories';
-import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import {
+  buildScenePlateStyle,
+  readOptionalNumber,
+  type MediaGeomOverride,
+} from '@/components/editor/nodes/shared/mediaPlateGeometry';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
 import {
   toDisplayMediaUrl,
@@ -33,13 +36,7 @@ import {
 } from '@/utils/uploadImage';
 import AudioWaveform, { type AudioWaveformHandle } from './AudioWaveform';
 
-export type AudioGeomOverride = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  angle?: number;
-};
+export type AudioGeomOverride = MediaGeomOverride;
 
 export type AudioHostApi = {
   getAudio: () => HTMLAudioElement | null;
@@ -91,23 +88,6 @@ function useWaveThemeColors(): WaveThemeColors {
 
 export function getAudioHost(nodeId: string): AudioHostApi | null {
   return audioHosts.get(String(nodeId)) || null;
-}
-
-function readOptionalNumber(value: unknown): number | undefined {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return undefined;
-  return n;
-}
-
-function readNodeAngle(node: SceneNodeInput) {
-  const n = Number(node?.attrs?.angle);
-  if (!Number.isFinite(n)) return 0;
-  return n;
-}
-
-function plateTransform(angle: number) {
-  if (Math.abs(angle) <= 0.001) return undefined;
-  return `rotate(${angle}deg)`;
 }
 
 function clampSpeed(value: unknown): number {
@@ -598,26 +578,7 @@ function AudioPlateHost({
   if (!node || !mount) return null;
   const src = String(node.attrs?.src || '').trim();
   if (!src) return null;
-  const ov = geometryOverrides?.[nodeId];
-  const { left, top } = nodeLeftTop(document, node);
-  const width = Math.max(1, Number(ov?.width ?? node.width) || 1);
-  const height = Math.max(1, Number(ov?.height ?? node.height) || 1);
-  const angle = Number.isFinite(ov?.angle) ? Number(ov!.angle) : readNodeAngle(node);
-  const radii = radiiFromAttrs(node.attrs || {});
-  const scenePlate: CSSProperties & {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } = {
-    left: ov?.left ?? left,
-    top: ov?.top ?? top,
-    width,
-    height,
-    borderRadius: `${radii.tl}px ${radii.tr}px ${radii.br}px ${radii.bl}px`,
-    transform: plateTransform(angle),
-    transformOrigin: 'center center',
-  };
+  const scenePlate = buildScenePlateStyle(document, node, geometryOverrides?.[nodeId]);
   return (
     <AudioPlate
       nodeId={nodeId}
@@ -627,7 +588,7 @@ function AudioPlateHost({
       src={src}
       uploadKey={String(node.attrs?.uploadKey || '').trim() || null}
       plateFill={resolveThemeSurfaceFill(node.attrs?.['fill-color'])}
-      hidden={Boolean(hidden) || isNodeHidden(node)}
+      hidden={isNodeOverlayHidden(document, node, hidden)}
       trimStart={readOptionalNumber(node.attrs?.trimStart)}
       trimEnd={readOptionalNumber(node.attrs?.trimEnd)}
       knownDuration={readOptionalNumber(node.attrs?.duration)}

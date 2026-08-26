@@ -38,7 +38,7 @@ import { clearProjectsLibrary } from '@/store/modules/editor';
 import { apiQuery } from '@/service/client';
 import {
   clearProjectsListCache,
-  refetchProjectsListCache,
+  refreshProjectsListAfterMutation,
   type PaginatedProjects,
   type ProjectSummaryDto,
 } from '@/service/projects';
@@ -130,9 +130,9 @@ function mergeProjectPages(pages: unknown[] | undefined): {
 }
 
 const PROJECT_LIST_QUERY_OPTS = {
-  staleTime: 15_000,
+  staleTime: 0,
   gcTime: 60_000,
-  refetchOnMount: true as const,
+  refetchOnMount: 'always' as const,
 };
 
 function useHomeProjectsList(enabled: boolean, filterOrgId = '') {
@@ -197,34 +197,13 @@ const RAIL_ROW_GAP = 'gap-3';
 const RAIL_ICON_SLOT = 'flex h-5 w-[21px] shrink-0 items-center justify-center';
 const railSidePadding = (expanded: boolean) => (expanded ? 'px-2.5' : 'px-2');
 
-const RAIL_NAV_ICONS = {
-  home: 'home-rail-compose',
-  inspiration: 'home-rail-inspire',
-  mine: 'home-rail-projects',
-  skills: 'home-rail-skills',
-} as const;
-
-type RailNavId = keyof typeof RAIL_NAV_ICONS;
-
-const RAIL_NAV_ITEMS: { id: RailNavId; labelKey: string }[] = [
-  { id: 'home', labelKey: 'home.navHome' },
-  { id: 'inspiration', labelKey: 'home.railInspiration' },
-  { id: 'mine', labelKey: 'home.mine' },
-  { id: 'skills', labelKey: 'home.railSkills' },
-];
-
-const RAIL_MORE_ITEMS: { id: HomeMoreKey; labelKey: string; icon: string }[] = [
-  { id: 'assets', labelKey: 'home.railAssets', icon: 'home-rail-assets' },
-  { id: 'liked', labelKey: 'home.railLiked', icon: 'home-rail-likes' },
-];
-
-/** Per-nav glyph size — tuned per icon artwork. */
-const RAIL_ICON_SIZES: Record<RailNavId, string> = {
-  home: 'h-[20px] w-[20px]',
-  inspiration: 'h-[21px] w-[21px]',
-  mine: 'h-[19px] w-[19px]',
-  skills: 'h-[19px] w-[19px]',
-};
+import {
+  HOME_RAIL_MORE_ITEMS,
+  HOME_RAIL_NAV_ICON_SIZES,
+  HOME_RAIL_NAV_ICONS,
+  HOME_RAIL_NAV_ITEMS,
+  type HomeRailNavId,
+} from '@/components/layout/homeRailIcons';
 
 const RAIL_HELP_LABEL_KEYS: Record<RailHelpItemKey, string> = {
   guide: 'home.railHelpGuide',
@@ -296,11 +275,11 @@ function RailGuestFooterPanel({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function RailNavIcon({ id }: { id: keyof typeof RAIL_NAV_ICONS }) {
-  const size = RAIL_ICON_SIZES[id];
+function RailNavIcon({ id }: { id: HomeRailNavId }) {
+  const size = HOME_RAIL_NAV_ICON_SIZES[id];
   return (
     <span className={RAIL_ICON_SLOT}>
-      <Icon name={RAIL_NAV_ICONS[id]} className={size} />
+      <Icon name={HOME_RAIL_NAV_ICONS[id]} className={size} />
     </span>
   );
 }
@@ -372,7 +351,7 @@ function RailMoreFlyout({
 
   const menuItems = useMemo<MenuItemType[]>(
     () =>
-      RAIL_MORE_ITEMS.map((item) => ({
+      HOME_RAIL_MORE_ITEMS.map((item) => ({
         key: item.id,
         label: (
           <span className="flex w-full items-center gap-3">
@@ -715,7 +694,7 @@ function HomeSidebar({
                 )}
                 aria-label={t('app.name')}
               >
-                {RAIL_NAV_ITEMS.map(({ id, labelKey }) => (
+                {HOME_RAIL_NAV_ITEMS.map(({ id, labelKey }) => (
                   <RailItem
                     key={id}
                     expanded={expanded}
@@ -812,7 +791,6 @@ function HomeTemplateList({
   const projectListItems = projectsList.items;
   const projectsTotal = projectsList.total;
   const projectsReady = projectsList.ready;
-  const projectsIsStale = projectsList.isStale;
 
   const refreshProjectsList = useCallback(async (opts?: { flush?: boolean }) => {
     if (!authed) return;
@@ -823,7 +801,7 @@ function HomeTemplateList({
         /* list anyway */
       }
     }
-    await refetchProjectsListCache();
+    await refreshProjectsListAfterMutation();
   }, [authed]);
 
   /** Same-tab Home/Projects click — always refetch (user expects fresh names/covers). */
@@ -858,13 +836,9 @@ function HomeTemplateList({
     const entering = !onProjectsSurfaceRef.current;
     onProjectsSurfaceRef.current = true;
     if (!entering) return;
-    // Re-enter from editor: one background refresh if cache is stale (not every mount).
-    if (projectsIsStale) {
-      void refreshProjectsList({ flush: false });
-    }
-    // Intentionally keyed by tab visibility.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshProjectsList stable via refetch
-  }, [authed, dispatch, showHome, showMine, projectsIsStale]);
+    void refreshProjectsList({ flush: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh on surface enter
+  }, [authed, dispatch, showHome, showMine]);
 
   const loadMoreProjects = useCallback(() => {
     if (!authed || !projectsHasMore || projectsLoadingMore || !projectsReady) return;

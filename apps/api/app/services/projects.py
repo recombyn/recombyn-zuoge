@@ -566,6 +566,62 @@ def _cov_media_src(node: dict[str, Any]) -> str | None:
     return None
 
 
+def _cov_fetch_media_bytes(src: str) -> bytes | None:
+    from app.services.assets import _fetch_bytes
+
+    try:
+        data, _ctype = _fetch_bytes(src)
+        return data if data and len(data) >= 8 else None
+    except Exception:
+        return None
+
+
+def _cov_raster_image(node: dict[str, Any]) -> bytes | None:
+    """Host image tiles on storage — avoids CORS/auth issues with raw src URLs."""
+    src = _cov_media_src(node)
+    if not src:
+        return None
+    raw = _cov_fetch_media_bytes(src)
+    if not raw:
+        return None
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+    except Exception:
+        return None
+    attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
+    try:
+        with Image.open(BytesIO(raw)) as im:
+            im = im.convert("RGBA")
+            crop_x = _cov_num(attrs.get("cropX"), -1)
+            crop_y = _cov_num(attrs.get("cropY"), -1)
+            crop_w = _cov_num(attrs.get("cropW"), -1)
+            crop_h = _cov_num(attrs.get("cropH"), -1)
+            if crop_w > 0 and crop_h > 0:
+                iw, ih = im.size
+                left = max(0, min(iw - 1, int(round(crop_x * iw))))
+                top = max(0, min(ih - 1, int(round(crop_y * ih))))
+                right = max(left + 1, min(iw, int(round((crop_x + crop_w) * iw))))
+                bottom = max(top + 1, min(ih, int(round((crop_y + crop_h) * ih))))
+                im = im.crop((left, top, right, bottom))
+            w, h = im.size
+            if w < 1 or h < 1:
+                return None
+            scale = min(1.0, float(_COVER_EDGE) / max(w, h))
+            out_w = max(32, int(round(w * scale)))
+            out_h = max(32, int(round(h * scale)))
+            if scale < 1.0:
+                im = im.resize((out_w, out_h), Image.Resampling.LANCZOS)
+            rgb = Image.new("RGB", im.size, (255, 255, 255))
+            rgb.paste(im, mask=im.split()[3] if im.mode == "RGBA" else None)
+            buf = BytesIO()
+            rgb.save(buf, format="WEBP", quality=82, method=4)
+            return buf.getvalue()
+    except Exception:
+        return None
+
+
 def _cov_put_tile_bytes(
     user_id: str,
     project_id: str,
@@ -603,6 +659,9 @@ def _cov_node_cover_digest(node: dict[str, Any], blob: bytes | None) -> str:
     ]
     attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
     for key in ("fill-color", "fill", "shapeType", "border-color", "border-width"):
+        if key in attrs:
+            parts.append(f"{key}={attrs[key]}")
+    for key in ("src", "uploadKey", "cropX", "cropY", "cropW", "cropH", "opacity"):
         if key in attrs:
             parts.append(f"{key}={attrs[key]}")
     if node.get("fill"):
@@ -719,7 +778,18 @@ def _cov_tile_for_node(
     existing = existing_entries or []
     suffix = f"-{index}" if index else ""
     key = str(node.get("key") or "")
-    if key in ("image", "video", "lottie", "audio"):
+    if key == "image":
+        blob = _cov_raster_image(node)
+        if blob:
+            digest = _cov_node_cover_digest(node, blob)
+            thumb_key = f"projects/{user_id}/{project_id}/thumb-{digest}{suffix}.webp"
+            if thumb_key in existing:
+                return thumb_key
+            return _cov_put_tile_bytes(
+                user_id, project_id, blob, index=index, digest=digest
+            )
+        return None
+    if key in ("video", "lottie", "audio"):
         src = _cov_media_src(node)
         return src
     blob: bytes | None = None
@@ -1568,6 +1638,7 @@ def extract_project_covers(
             )
             prev = (existing.thumbnail_key or "").strip()
             nxt = (next_key or "").strip()
+            force_ts = document is not None
             if nxt != prev or bool(next_custom) != bool(custom):
                 thumb_key = next_key
                 custom = bool(next_custom)
@@ -1576,6 +1647,14 @@ def extract_project_covers(
                     project_id=pid,
                     thumbnail_key=thumb_key,
                     thumbnail_custom=bool(next_custom),
+                    updated_at=now,
+                )
+            elif force_ts and nxt:
+                crud.update_project_covers_by_id(
+                    session=session,
+                    project_id=pid,
+                    thumbnail_key=thumb_key,
+                    thumbnail_custom=bool(custom),
                     updated_at=now,
                 )
 

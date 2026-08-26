@@ -9,16 +9,27 @@ import LoadingDots from '@/components/base/LoadingDots';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { PlazaPublishForm } from '@/components/templates/PlazaPublishDialog';
 import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
+import {
+  refreshProjectsListAfterMutation,
+  syncProjectRowFromServer,
+  type ProjectSummaryDto,
+} from '@/service/projects';
+import { useProjectListRow } from '@/hooks/useProjectListRow';
 import { coverDocumentHasContent } from '@/utils/plazaCover';
-import { normalizeProjectThumbnailUrls, collageOrSingleThumb } from '@/utils/projectThumb';
+import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
 import { cn } from '@/utils/classnames';
 import { isOwnedTemplate } from '@/utils/templatesStorage';
 import { getToken } from '@/utils/token';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { useNavigate } from 'react-router-dom';
-import { setTemplateThumbnail } from '@/store/modules/editor';
 import { cloneDocument } from '@/store/modules/editorHistory';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import {
+  cacheShareRecord,
+  ensureShareRecord,
+  getCachedShareRecord,
+  syncShareDocumentQuiet,
+} from '@/service/shareSession';
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -139,6 +150,20 @@ type SharePatchBody = {
   linkPublic?: boolean;
 };
 
+function applyShareDtoToForm(s: ShareDto): {
+  linkEnabled: boolean;
+  linkAccess: LinkAccess;
+  editorIds: string[];
+  viewerIds: string[];
+} {
+  return {
+    linkEnabled: s.linkEnabled !== false,
+    linkAccess: linkAccessFromPermission(s.permission),
+    editorIds: Array.isArray(s.editorUserIds) ? s.editorUserIds : [],
+    viewerIds: Array.isArray(s.viewerUserIds) ? s.viewerUserIds : [],
+  };
+}
+
 function ShareDialog({ open, onClose }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -151,20 +176,19 @@ function ShareDialog({ open, onClose }: Props) {
         id: string;
         name?: string;
         source?: string;
-        thumbnail?: string | string[] | null;
-        updatedAt?: number;
       }>
   );
   const me = useSelector((s: any) => s.auth?.user as { id?: string; name?: string; email?: string; avatar?: string } | null);
   const currentTpl = templates.find((tItem) => tItem.id === currentId);
+  const listRow = useProjectListRow(currentId, open);
   const projectName = resolveProjectDisplayName({
     templateName: currentTpl?.name,
     documentName: document?.name,
     fallback: t('home.untitled', { defaultValue: '未命名作品' }),
   });
   const coverUrls = normalizeProjectThumbnailUrls(
-    currentTpl?.thumbnail,
-    currentTpl?.updatedAt
+    listRow.data?.thumbnailUrl,
+    listRow.data?.updatedAt
   );
 
   const [tab, setTab] = useState<DialogTab>('share');
@@ -183,15 +207,19 @@ function ShareDialog({ open, onClose }: Props) {
   const searchTimer = useRef<number | null>(null);
   /** StrictMode remounts effects once in dev — avoid duplicate toasts per open. */
   const noDocWarnedRef = useRef(false);
-  /** Shared create promise — StrictMode remount must not fire /shares twice. */
-  const createShareInflightRef = useRef<Promise<{ share: ShareDto }> | null>(null);
-  /** Dedupe cover extract (StrictMode / rapid Publish tab clicks). */
-  const coversInflightRef = useRef<Promise<void> | null>(null);
   /** Only the latest open-session applies results / clears busy. */
   const createGenRef = useRef(0);
+  /** Dedupe cover extract (StrictMode / rapid Publish tab clicks). */
+  const coversInflightRef = useRef<Promise<void> | null>(null);
+  const coversGenRef = useRef(0);
+  const documentRef = useRef(document);
+  const projectNameRef = useRef(projectName);
+  documentRef.current = document;
+  projectNameRef.current = projectName;
 
   const url = record && linkEnabled ? shareUrl(record.id) : '';
-  const linkReady = Boolean(record) && !busy;
+  const linkReady = Boolean(record);
+  const linkBootstrapping = busy && !record;
   const linkOn = linkReady && linkEnabled;
 
   const accessLabel = (access: LinkAccess) => t(accessLabelKey(access));
@@ -299,37 +327,37 @@ function ShareDialog({ open, onClose }: Props) {
   /** Server builds ≤4 element cover tiles from the live document (Publish tab). */
   const refreshCoversFromApi = useCallback(() => {
     if (!currentId || !getToken() || !document) return;
-    if (coversInflightRef.current) return;
+    const gen = ++coversGenRef.current;
     async function refreshCovers() {
       try {
         const res = await extractCoversMutation.mutateAsync({
           projectId: currentId!,
           document: document != null ? (document as Record<string, unknown>) : undefined,
         });
-        const thumbs = normalizeProjectThumbnailUrls(
-          res.project?.thumbnailUrl,
-          res.project?.updatedAt
-        );
-        dispatch(
-          setTemplateThumbnail({
-            id: currentId!,
-            thumbnail: collageOrSingleThumb(thumbs),
-            custom: Boolean(res.project?.thumbnailCustom),
-          })
-        );
+        if (gen !== coversGenRef.current) return;
+        if (res.project) {
+          syncProjectRowFromServer(res.project as ProjectSummaryDto);
+        }
+        await refreshProjectsListAfterMutation(currentId!);
       } catch {
-        /* keep current collage */
+        message.warning(t('plaza.coverExtractFailed', { defaultValue: '封面生成失败，请稍后重试' }));
       } finally {
-        coversInflightRef.current = null;
+        if (gen === coversGenRef.current) coversInflightRef.current = null;
       }
     }
     coversInflightRef.current = refreshCovers();
-  }, [currentId, dispatch, document, extractCoversMutation.mutateAsync]);
+  }, [currentId, document, extractCoversMutation.mutateAsync, t]);
 
   useEffect(() => {
-    if (!document) {
+    if (!open) {
       createGenRef.current += 1;
-      createShareInflightRef.current = null;
+      setBusy(false);
+      return;
+    }
+
+    const doc = documentRef.current;
+    if (!doc) {
+      createGenRef.current += 1;
       setRecord(null);
       setBusy(false);
       if (!noDocWarnedRef.current) {
@@ -338,36 +366,41 @@ function ShareDialog({ open, onClose }: Props) {
       }
       return;
     }
+
+    const projectId = String(currentId || '').trim();
     const gen = ++createGenRef.current;
-    setBusy(true);
-    if (!createShareInflightRef.current) {
-      createShareInflightRef.current = apiClient.sharesSharesCreate({
-        body: {
-          document: document as Record<string, unknown>,
-          name: projectName,
-          permission: 'preview',
-          sourceProjectId: currentId || undefined,
-          editorUserIds: [],
-          viewerUserIds: [],
-          // Match default "Can view" / anyone-with-link UI.
-          linkPublic: true,
-        },
-      }) as Promise<{ share: ShareDto }>;
+    const cached = projectId ? getCachedShareRecord(projectId) : undefined;
+
+    const hydrateRecord = (s: ShareDto) => {
+      const form = applyShareDtoToForm(s);
+      setRecord(s);
+      setLinkEnabled(form.linkEnabled);
+      setLinkAccess(form.linkAccess);
+      setEditorIds(form.editorIds);
+      setViewerIds(form.viewerIds);
+    };
+
+    if (cached) {
+      hydrateRecord(cached);
+      setBusy(false);
+      syncShareDocumentQuiet(cached.id, doc);
+      return;
     }
+
+    setBusy(true);
     async function createShareRecord() {
       try {
-        const res = await createShareInflightRef.current!;
+        const res = await ensureShareRecord({
+          projectId,
+          projectName: projectNameRef.current,
+          document: doc,
+          sourceProjectId: currentId || undefined,
+        });
         if (createGenRef.current !== gen) return;
         const s = res.share;
-        setRecord(s);
+        hydrateRecord(s);
         const enabled = s.linkEnabled !== false;
-        setLinkEnabled(enabled);
         const access = linkAccessFromPermission(s.permission);
-        setLinkAccess(access);
-        setEditorIds(Array.isArray(s.editorUserIds) ? s.editorUserIds : []);
-        setViewerIds(Array.isArray(s.viewerUserIds) ? s.viewerUserIds : []);
-        // Older rows were created with linkPublic:false while the UI still showed
-        // "anyone with the link". Promote so Copy link actually works for viewers.
         if (enabled && access !== 'edit' && s.linkPublic === false) {
           async function persistShareLinkPublic() {
             try {
@@ -377,6 +410,7 @@ function ShareDialog({ open, onClose }: Props) {
               });
               if (createGenRef.current !== gen) return;
               setRecord(patched.share);
+              if (projectId) cacheShareRecord(projectId, patched.share);
             } catch {
               /* keep local UI; copy still works for owner */
             }
@@ -385,7 +419,6 @@ function ShareDialog({ open, onClose }: Props) {
         }
       } catch {
         if (createGenRef.current !== gen) return;
-        createShareInflightRef.current = null;
         setRecord(null);
         setLinkEnabled(false);
         message.error(t('editor.shareCreateFailed'));
@@ -394,9 +427,15 @@ function ShareDialog({ open, onClose }: Props) {
       }
     }
     createShareRecord();
-    // No cleanup bump — StrictMode remount reuses the same in-flight create.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- first enter Share panel only
-  }, []);
+  }, [open, currentId, patchShareMutation.mutateAsync, t]);
+
+  /** Reset share session when switching projects while the dialog stays mounted. */
+  useEffect(() => {
+    if (!open) return;
+    const projectId = String(currentId || '').trim();
+    if (projectId && getCachedShareRecord(projectId)) return;
+    setRecord(null);
+  }, [open, currentId]);
 
   const patchMeta = async (next: SharePatchBody) => {
     if (!record?.id) return null;
@@ -406,6 +445,8 @@ function ShareDialog({ open, onClose }: Props) {
         body: next,
       });
       setRecord(res.share);
+      const projectId = String(currentId || '').trim();
+      if (projectId) cacheShareRecord(projectId, res.share);
       if (typeof next.linkEnabled === 'boolean') setLinkEnabled(res.share.linkEnabled !== false);
       if (next.permission) setLinkAccess(linkAccessFromPermission(res.share.permission));
       if (next.editorUserIds) setEditorIds(res.share.editorUserIds || []);
@@ -560,7 +601,7 @@ function ShareDialog({ open, onClose }: Props) {
   };
 
   const ownerName = me?.name || me?.email || 'User';
-  const inviteDisabled = !selectedInvite || inviting || busy;
+  const inviteDisabled = !selectedInvite || inviting || !record;
   const showPublishThanks = tab === 'publish' && publishPhase === 'success';
 
   return (
@@ -613,7 +654,7 @@ function ShareDialog({ open, onClose }: Props) {
           projectName={projectName}
           document={document}
           coverUrls={coverUrls}
-          coverVersion={Number(currentTpl?.updatedAt) || undefined}
+          coverVersion={listRow.data?.updatedAt}
           coverRefreshing={extractCoversMutation.isPending}
           onCancel={onClose}
           onSubmit={commitPublish}
@@ -627,9 +668,18 @@ function ShareDialog({ open, onClose }: Props) {
               {t('editor.shareLinkSection')}
             </h3>
             <div className="flex items-center gap-3">
-              <Switch checked={linkOn} onChange={onToggleLink} disabled={!linkReady} />
+              <Switch checked={linkOn} onChange={onToggleLink} disabled={!linkReady || linkBootstrapping} />
               <span className="min-w-0 text-[13px] leading-snug text-[var(--muted)]">
-                {linkOn ? t('editor.shareLinkOn') : t('editor.shareLinkOff')}
+                {linkBootstrapping ? (
+                  <span className="inline-flex items-center gap-2">
+                    <LoadingDots label={t('common.loading')} />
+                    {t('editor.shareLinkPreparing', { defaultValue: '正在准备分享链接…' })}
+                  </span>
+                ) : linkOn ? (
+                  t('editor.shareLinkOn')
+                ) : (
+                  t('editor.shareLinkOff')
+                )}
               </span>
             </div>
 
@@ -668,7 +718,7 @@ function ShareDialog({ open, onClose }: Props) {
                 </div>
                 <button
                   type="button"
-                  disabled={!url || busy}
+                  disabled={!url || linkBootstrapping}
                   onClick={() => onCopyLink()}
                   className="inline-flex h-9 w-[108px] shrink-0 items-center justify-center rounded-lg bg-[var(--ink)] px-3 text-[13px] font-medium text-[var(--on-brand)] disabled:cursor-not-allowed disabled:opacity-50 hover:opacity-90"
                 >

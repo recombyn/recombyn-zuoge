@@ -930,6 +930,19 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     }
     // Fact-layer preview for Canvas underlay / chrome (ADR 0027) — not SVG-DOM-only.
     setNodeTransformPreviews(previewPatches);
+    const spatialPatchIds = new Set<string>(
+      normalized.map((p) => String(p.nodeId || '').trim()).filter(Boolean)
+    );
+    if (frames.length) {
+      for (const frame of frames) {
+        for (const nodeId of frameMoveOwners.get(frame.id) || []) {
+          spatialPatchIds.add(String(nodeId || '').trim());
+        }
+      }
+    }
+    if (spatialPatchIds.size) {
+      deps.spatial.patchNodes(previewDocument, [...spatialPatchIds]);
+    }
     // Keep HTML <video> plates glued to chrome (Redux doc is still pre-gesture).
     if (hasVideo) {
       deps.publishVideoLiveGeom({
@@ -985,6 +998,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         },
       }),
     });
+    deps.spatial.patchNodes(deps.getDocument()!, [nodeId]);
     setNodeTransformAngles([{ nodeId, angle: nextAngle }]);
     const synced = previewSvgNodeAngle(
       board.nodeEls,

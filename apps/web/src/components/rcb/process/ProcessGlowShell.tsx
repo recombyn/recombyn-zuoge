@@ -1,5 +1,4 @@
 import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
-import { SoftGlowSurface } from '@/components/base';
 import { PROCESS_PILL_BOTTOM_PAD_PX, PROCESS_PILL_CLASS } from './processGlow';
 
 export type ProcessGlowShellProps = {
@@ -10,22 +9,18 @@ export type ProcessGlowShellProps = {
   /** Camera css zoom — counter-scales the status pill (default 1). */
   zoom?: number;
   borderRadius?: string;
-  shimmerDataAttr?: string;
   labelDataAttr?: string;
   className?: string;
 };
 
 /**
- * Shared SoftGlow + status pill for canvas processing chrome (nodes + artboards).
- * Parent must size the shell (100% fill or explicit foreignObject bounds).
+ * Status pill for canvas processing chrome (nodes + artboards).
+ * Gradient bloom is painted in SVG — this shell is label-only.
  */
 export function ProcessGlowShell({
-  seed,
   label,
   width = 120,
   zoom = 1,
-  borderRadius = '0',
-  shimmerDataAttr = 'data-image-process-shimmer',
   labelDataAttr = 'data-image-process-label',
   className,
 }: ProcessGlowShellProps): ReactNode {
@@ -39,19 +34,9 @@ export function ProcessGlowShell({
       width: '100%',
       height: '100%',
       overflow: 'hidden',
-      borderRadius,
       pointerEvents: 'none',
     }),
-    [borderRadius]
-  );
-
-  const shimmerStyle = useMemo(
-    (): CSSProperties => ({
-      position: 'absolute',
-      inset: 0,
-      borderRadius,
-    }),
-    [borderRadius]
+    []
   );
 
   const pillStyle = useMemo(
@@ -67,15 +52,6 @@ export function ProcessGlowShell({
 
   return (
     <div className={className} style={shellStyle}>
-      <SoftGlowSurface
-        {...{ [shimmerDataAttr]: true }}
-        tone="canvas"
-        seed={seed}
-        className="absolute inset-0"
-        style={shimmerStyle}
-        data-rcb-process="1"
-        aria-hidden
-      />
       <div {...{ [labelDataAttr]: true }} className={PROCESS_PILL_CLASS} style={pillStyle}>
         {label}
       </div>

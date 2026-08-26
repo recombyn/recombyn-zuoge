@@ -246,7 +246,7 @@ def create_share(
     owner_id: str,
     name: str,
     permission: str,
-    document: dict[str, Any],
+    document: dict[str, Any] | None,
     source_project_id: str | None = None,
     editor_user_ids: list[str] | None = None,
     viewer_user_ids: list[str] | None = None,
@@ -267,11 +267,20 @@ def create_share(
         raise ShareError(
             "invalid_permission", "permission must be preview, download, or edit"
         )
-    if not isinstance(document, dict):
-        raise ShareError("invalid_document", "document must be an object")
-    title = _clamp_share_title(name)
-    raw = _encode_document_json(document)
     src = (source_project_id or "").strip() or None
+    doc_obj: dict[str, Any] | None = document if isinstance(document, dict) else None
+    if not doc_obj or not doc_obj.keys():
+        if src:
+            from app.services.projects import get_project
+
+            proj = get_project(uid, src)
+            loaded = proj.get("document") if isinstance(proj, dict) else None
+            if isinstance(loaded, dict):
+                doc_obj = loaded
+        if not doc_obj:
+            raise ShareError("invalid_document", "document must be an object")
+    title = _clamp_share_title(name)
+    raw = _encode_document_json(doc_obj)
     editors = _normalize_user_ids(editor_user_ids, owner_id=uid) if perm == "edit" else []
     viewers = _normalize_user_ids(viewer_user_ids, owner_id=uid)
     # Default restricted (invited only). Public preview when explicitly enabled.
@@ -292,13 +301,17 @@ def create_share(
                     viewers=viewers,
                     public=public,
                 )
+                # Fast open: empty client document → keep stored snapshot; caller syncs via PUT.
+                next_doc_json = raw
+                if isinstance(document, dict) and not document.keys():
+                    next_doc_json = str(_get(existing, "document_json") or raw)
                 row = crud.upsert_document_share(
                     session=session,
                     share_id=str(existing.id),
                     owner_id=uid,
                     name=title,
                     permission=next_perm,
-                    document_json=raw,
+                    document_json=next_doc_json,
                     source_project_id=src,
                     editor_user_ids=next_editors,
                     viewer_user_ids=next_viewers,

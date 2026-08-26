@@ -19,6 +19,7 @@ import {
 } from '@/components/editor/panels/agent/runDesignAgent';
 import type { DesignSendMutable } from '@/components/editor/panels/agent/agentSendPath';
 import { localizeAgentProcessCopy } from '@/components/editor/panels/agent/agentProcessI18n';
+import { refreshWalletAfterSpend } from '@/service/wallet';
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -564,6 +565,7 @@ export function createDesignAgentEventRouter(opts: {
           : m
       )
     );
+    refreshWalletAfterSpend();
   };
 
   const handleUiPaused = (ev: Extract<AgentStepEvent, { type: 'paused' }>) => {
@@ -643,6 +645,7 @@ export function createDesignAgentEventRouter(opts: {
         return m;
       })
     );
+    refreshWalletAfterSpend();
   };
 
   return (ev: AgentStepEvent) => {

@@ -15,7 +15,8 @@ import { createCameraTransform, worldToScreen } from '@/components/rcb/camera/tr
 import { getShapeBaseline } from '@/components/rcb/core/geometry';
 import { effectivePaintBox } from '@/components/rcb/core/transformPreview';
 import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
-import { PROCESS_PLATE_FILL } from '@/components/rcb/process/processGlow';
+import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
+import { paintProcessPlateCanvas } from '@/components/rcb/process/processPlateSvg';
 import {
   hitTestSceneAtPoint,
   type SceneHitBox,
@@ -125,13 +126,11 @@ export function hitTestWithSpatialIndex(
   const doc = deps.getDocument();
   const zoom = Math.max(0.05, deps.getZoom() || 1);
   const pad = sceneHitSlop(zoom);
-  const allIds = doc ? deps.listNodeIds() : [];
   const order = doc
     ? deps.getSpatial().hitCandidateIds({
         x: point.x,
         y: point.y,
         pad: pad + 64 / zoom,
-        allIds,
       })
     : [];
   const hitOrder = doc
@@ -165,7 +164,7 @@ export function hitTestWithSpatialIndex(
       zoom,
       doc: Boolean(doc),
       disposed: false,
-      allIdsLen: allIds.length,
+      allIdsLen: doc ? deps.listNodeIds().length : 0,
       orderLen: order.length,
       orderHead: order.slice(0, 8),
       boxes,
@@ -1741,11 +1740,7 @@ export function paintCanvasIdleNode(
     }
     if (isMedia) {
       if (isImageProcessRunning(node)) {
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        ctx.fillStyle = PROCESS_PLATE_FILL;
-        ctx.fillRect(0, 0, w, h);
-        ctx.restore();
+        paintProcessPlateCanvas(ctx, w, h, opacity);
         return;
       }
       if (key === 'image' || key === 'video') {

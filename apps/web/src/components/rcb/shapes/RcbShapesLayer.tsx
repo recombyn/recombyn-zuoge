@@ -10,7 +10,8 @@ import {
 } from '../core/spatialIndex';
 import {
   isImageProcessRunning,
-  isNodeHidden
+  isNodeHiddenInDocument,
+  isNodeOverlayHidden,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   stackZIndex
@@ -342,7 +343,7 @@ function RcbShapesLayer({
       hiddenNodeId: hiddenNodeId ?? null,
       getNodeBox: (id) => {
         const node = sceneDoc.deltaSetLike?.[id];
-        if (!node || isNodeHidden(node)) return null;
+        if (!node || isNodeHiddenInDocument(sceneDoc, node)) return null;
         const { left, top } = nodeLeftTop(sceneDoc, node);
         return {
           left,
@@ -369,8 +370,6 @@ function RcbShapesLayer({
     >
       {fullIds.map((id) => {
         const node = document?.deltaSetLike?.[id];
-        // Layer hide (`attrs.hidden`) + inline-edit hide share the same paint gate.
-        const layerHidden = isNodeHidden(node);
         return (
           <RcbShapeHost
             key={id}
@@ -379,7 +378,7 @@ function RcbShapesLayer({
             zIndex={stackZIndex(document, 'node', id)}
             reloadToken={patched.has(id) ? `${reloadToken}:${documentPatchToken}` : reloadToken}
             frameClipToken={frameClipToken}
-            forceHidden={hiddenNodeId === id || layerHidden}
+            forceHidden={isNodeOverlayHidden(document, node, hiddenNodeId === id)}
             // SoftGlow plates stay forceFull (live SVG) but keep frame clip.
             revealOverflow={shouldRevealShapeOverflow(forceFullSet.has(id), node)}
           />

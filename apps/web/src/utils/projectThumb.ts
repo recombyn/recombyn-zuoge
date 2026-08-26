@@ -86,6 +86,19 @@ export function withThumbCacheBust(
     : `${stripped}?v=${encodeURIComponent(v)}`;
 }
 
+/** Browser-ready cover URLs from API — no cache-bust query (use row `updatedAt` at display time). */
+export function projectThumbnailUrlsFromApi(
+  input: string | string[] | null | undefined
+): string[] {
+  let list: string[] = [];
+  if (Array.isArray(input)) list = input;
+  else if (typeof input === 'string' && input.trim()) list = [input];
+  return list
+    .map((u) => toBrowserThumbUrl(String(u || '').trim()))
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
 /** Normalize project `thumbnailUrl` (string | string[]) with optional cache-bust. */
 export function normalizeProjectThumbnailUrls(
   input: string | string[] | null | undefined,

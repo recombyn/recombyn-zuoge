@@ -162,7 +162,6 @@ import {
   isRecentNodeDoubleTap,
   buildMoveOriginsForHit,
   filterMarqueeContentHits,
-  resolveMarqueeCandidates,
   commitMarqueeSelection,
   fallbackVisibleNodeHit,
   computeMovedUnion,
@@ -1717,11 +1716,7 @@ function SelectionFeature({
         // Pad spatial prefilter the same as fine hit — tiny nodes near the brush edge.
         const queryPad = marqueeHitPadScene(zoom) + MARQUEE_MIN_HIT_SCREEN_PX / Math.max(0.05, zoom);
         const queryBox = expandSceneBox(box, queryPad);
-        const allNodeIds = listNodeIds();
-        const indexedCandidates = resolveMarqueeCandidates(queryIdsInRect?.(queryBox), allNodeIds);
-        // The spatial index is only a broad-phase hint. A stale/incomplete
-        // index must never make a visible intersecting node unselectable.
-        const candidates = Array.from(new Set([...indexedCandidates, ...allNodeIds]));
+        const candidates = queryIdsInRect?.(queryBox) ?? [];
         const rawHits = candidates.filter((id) =>
           nodeHitsMarquee(sceneDoc, id, box, getNodeBox, toScene, zoom)
         );

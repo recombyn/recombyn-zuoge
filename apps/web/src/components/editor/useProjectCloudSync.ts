@@ -12,13 +12,15 @@ import {
   deleteProjectApi,
   deleteProjectsApi,
   fetchProject,
-  patchProjectSummaryInListCache,
+  findProjectSummaryInListCache,
+  syncProjectRowFromServer,
+  refreshProjectsListAfterMutation,
+  type ProjectSummaryDto,
 } from '@/service/projects';
 import store from '@/store';
 import {
   clearEditorDirty,
   persistCurrent,
-  setTemplateThumbnail,
 } from '@/store/modules/editor';
 import { isOwnedTemplate } from '@/utils/templatesStorage';
 import { getToken } from '@/utils/token';
@@ -174,15 +176,6 @@ function applyThumbUpload(
   if (thumb.thumbnailDataUrl) data.thumbnailDataUrl = thumb.thumbnailDataUrl;
 }
 
-function ackThumbnail(
-  url: string | string[] | null | undefined,
-  version?: number
-): string | string[] | null {
-  const list = normalizeProjectThumbnailUrls(url, version);
-  if (!list.length) return null;
-  return list.length === 1 ? list[0] : list;
-}
-
 function clearDirtyIfSameDoc(
   dispatch: ReturnType<typeof useDispatch>,
   pushedDoc: unknown
@@ -199,17 +192,6 @@ async function applyCloudAck(opts: {
   ack?: CloudAck;
   projectName?: string;
 }): Promise<void> {
-  const version = opts.ack?.updatedAt ?? opts.ack?.revision;
-  const nextThumb = ackThumbnail(opts.ack?.thumbnailUrl, version);
-  if (nextThumb) {
-    opts.dispatch(
-      setTemplateThumbnail({
-        id: opts.projectId,
-        thumbnail: nextThumb,
-        custom: false,
-      })
-    );
-  }
   const ed = store.getState().editor as {
     templates?: { id: string; name?: string }[];
   };
@@ -217,26 +199,35 @@ async function applyCloudAck(opts: {
     opts.projectName ||
     ed.templates?.find((t) => t.id === opts.projectId)?.name ||
     'Untitled';
-  const listPatch: Parameters<typeof patchProjectSummaryInListCache>[1] = {
-    name: tplName,
-    updatedAt: opts.ack?.updatedAt ?? Date.now(),
-  };
-  if (opts.ack?.thumbnailUrl != null) {
-    const raw = opts.ack.thumbnailUrl;
-    listPatch.thumbnailUrl = Array.isArray(raw)
-      ? raw.filter((u) => String(u || '').trim())
-      : String(raw || '').trim()
-        ? [String(raw).trim()]
-        : [];
+  const existing = findProjectSummaryInListCache(opts.projectId);
+  const ackUpdatedAt = opts.ack?.updatedAt ?? Date.now();
+
+  if (opts.ack) {
+    const row: ProjectSummaryDto = {
+      id: opts.projectId,
+      name: tplName,
+      thumbnailUrl:
+        opts.ack.thumbnailUrl !== undefined
+          ? opts.ack.thumbnailUrl
+          : (existing?.thumbnailUrl ?? null),
+      thumbnailCustom: existing?.thumbnailCustom ?? false,
+      revision: opts.ack.revision ?? existing?.revision,
+      updatedAt: ackUpdatedAt,
+      createdAt: existing?.createdAt ?? ackUpdatedAt,
+      orgId: existing?.orgId ?? null,
+      orgName: existing?.orgName ?? null,
+      hasDocument: existing?.hasDocument ?? true,
+    };
+    syncProjectRowFromServer(row);
   }
-  if (opts.ack?.revision != null) listPatch.revision = opts.ack.revision;
-  patchProjectSummaryInListCache(opts.projectId, listPatch);
+
   await markProjectDraftSynced(
     opts.projectId,
     opts.contentHash,
     opts.ack?.revision ?? null
   );
   clearDirtyIfSameDoc(opts.dispatch, opts.pushedDoc);
+  void refreshProjectsListAfterMutation(opts.projectId);
 }
 
 export function asCloudRevision(value: unknown): number | null {
@@ -303,7 +294,6 @@ export async function pushProjectToCloud(payload: {
     id: payload.id,
     name: payload.name || 'Untitled',
     document: payload.document as Record<string, unknown>,
-    thumbnailCustom: false,
   };
   if (payload.thumb) applyThumbUpload(data, payload.thumb);
   if (base != null) data.baseRevision = base;
@@ -340,7 +330,6 @@ export async function patchProjectToCloud(payload: {
   const data: Parameters<typeof patchProjectApi>[1] = {
     baseRevision: base,
     name: payload.name || 'Untitled',
-    thumbnailCustom: false,
   };
   if (payload.thumb) applyThumbUpload(data, payload.thumb);
   if (payload.patch.upsertNodes) {
@@ -367,8 +356,8 @@ export async function removeProjectFromCloud(id: string): Promise<void> {
   if (!id) return;
   await deleteProjectDraft(id);
   if (!getToken()) return;
-  // Local draft already gone — cloud miss is fine.
   await tryCloudApi(() => deleteProjectApi(id));
+  void refreshProjectsListAfterMutation(id);
 }
 
 /** Batch remove owned projects from the API (no-op when logged out). */
@@ -380,6 +369,7 @@ export async function removeProjectsFromCloud(ids: string[]): Promise<void> {
   await deleteProjectDrafts(list);
   if (!getToken()) return;
   await deleteProjectsApi(list);
+  void refreshProjectsListAfterMutation();
 }
 
 /** Ask the open editor to flush the project to the cloud immediately. */

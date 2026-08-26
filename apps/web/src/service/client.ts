@@ -60,6 +60,12 @@ export function getHttpErrorMessage(err: unknown, fallback = ''): string {
   if (status === 502 || status === 503 || status === 504) {
     if (fallback.trim()) return fallback;
   }
+  if (status === 413) {
+    const detail = getHttpErrorDetail(err);
+    if (typeof detail === 'string' && /max\s+\d+MB/i.test(detail)) return detail;
+    if (fallback.trim()) return fallback;
+    return '文件过大，请压缩后重试';
+  }
 
   const detail = getHttpErrorDetail(err);
   if (typeof detail === 'string' && detail.trim()) return detail;
