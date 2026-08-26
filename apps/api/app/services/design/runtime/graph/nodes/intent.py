@@ -15,6 +15,7 @@ from app.services.design.runtime.graph.llm_io import (
     _chat_fallback_text,
     _clip_llm_raw,
     _emit_ux_tip,
+    _stream_llm_text,
 )
 from app.services.design.runtime.graph.scene_log import _bump, _goto_cmd
 from app.services.design.runtime.models_route import (
@@ -77,6 +78,55 @@ def _drop_pending(rt: AgentRuntime) -> None:
     rt.flags.pop("pending_proposal", None)
 
 
+async def _vision_chat_reply(rt: AgentRuntime) -> str:
+    """Answer chat turns that include attached canvas/reference images.
+
+    Intent classify is text-only; when the user asks about a selection crop
+    (e.g. handwritten ``2+2=?`` + 「告诉我答案」), this vision turn owns the reply.
+    """
+    images = [
+        str(u).strip()
+        for u in list(getattr(rt, "images", None) or [])
+        if isinstance(u, str) and str(u).strip()
+    ]
+    if not images:
+        return ""
+    from app.services.design.runtime.models_route import (
+        resolve_vision_model,
+        router_model_id,
+    )
+
+    model = resolve_vision_model(rt.rules) or router_model_id(rt.rules)
+    if not model:
+        return ""
+    system = (
+        "You are a helpful design-canvas assistant. The user attached image(s) "
+        "from the canvas or as references. Look at every image carefully and "
+        "answer their question. If an image shows a math problem, quiz, or "
+        "puzzle, solve it and give the answer. Reply in the user's language. "
+        "Be concise — do not claim you cannot see the image."
+    )
+    user = (rt.prompt or "").strip()[:4000]
+    if not user:
+        user = "Look at the attached image(s) and answer any question they contain."
+    try:
+        _family, content, _used, events, _thinking = await _stream_llm_text(
+            model_family=model,
+            system=system,
+            user=user,
+            rules=rt.rules if isinstance(rt.rules, dict) else {},
+            images=images[:4],
+            max_tokens=768,
+            live_emit=True,
+        )
+        for ev in events:
+            if isinstance(ev, dict) and ev.get("phase") == "model_switch":
+                _emit({"type": "activity", "kind": "model", **ev})
+        return str(content or "").strip()
+    except Exception:
+        return ""
+
+
 async def _node_intent_classify(state: GraphState) -> Command:
     """Cheap intent gate: chat → end; canvas_op → paint; design → decide (+ skills).
 
@@ -134,7 +184,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
     if session_action:
         intent = "chat"
         paint_lane = ""
-    elif intent == "chat" and not reply and action != "apply":
+    elif intent == "chat" and not reply and action != "apply" and not rt.images:
         reply = _chat_fallback_text(rt)
     rt.classified_intent = intent
     rt.classified_paint_lane = paint_lane
@@ -238,9 +288,28 @@ async def _node_intent_classify(state: GraphState) -> Command:
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     if intent == "chat":
-        if reply:
+        vision_streamed = False
+        if rt.images and not session_action:
+            # Classifier never saw pixels — regenerate with vision before settle.
+            vision_reply = await _vision_chat_reply(rt)
+            if vision_reply:
+                reply = vision_reply
+                vision_streamed = True
+                st.reply = reply
+                rt.classified_reply = reply
+                st.push_log(
+                    phase="intent_vision_chat",
+                    intent="chat",
+                    summary=f"vision_chat images={len(rt.images)}",
+                    reply=reply[:500],
+                )
+            elif not reply:
+                reply = _chat_fallback_text(rt)
+        if reply and not vision_streamed:
             st.reply = reply
             _emit({"type": "token", "text": reply})
+        elif reply and vision_streamed:
+            st.reply = reply
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     if needs_clarification:

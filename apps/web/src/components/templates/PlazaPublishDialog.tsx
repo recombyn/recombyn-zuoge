@@ -27,6 +27,8 @@ type PlazaPublishFormProps = {
   /** Saved project cover tiles (拼贴) — preferred when list has no live document. */
   coverUrls?: string | string[] | null;
   coverVersion?: number | string | null;
+  /** True while Publish tab is extracting server covers. */
+  coverRefreshing?: boolean;
   onCancel: () => void;
   onSubmit: () => Promise<void> | void;
   onSuccessDone?: () => void;
@@ -44,6 +46,7 @@ function PlazaPublishForm({
   document,
   coverUrls,
   coverVersion,
+  coverRefreshing = false,
   onCancel,
   onSubmit,
   onSuccessDone,
@@ -52,7 +55,6 @@ function PlazaPublishForm({
   const { t } = useTranslation();
   const [phase, setPhase] = useState<'confirm' | 'success'>('confirm');
   const [resolvedUrls, setResolvedUrls] = useState<string[]>([]);
-  const [resolvingCover, setResolvingCover] = useState(false);
 
   const coverCheck = useMemo(() => checkPlazaCoverForPublish(document), [document]);
   const propUrls = useMemo(
@@ -62,7 +64,8 @@ function PlazaPublishForm({
   );
   const hasThumbCollage = resolvedUrls.length > 0;
   const canvasEmpty = !hasThumbCollage && !coverDocumentHasContent(document);
-  const canSubmit = (coverCheck.ok || hasThumbCollage) && !canvasEmpty;
+  const showCoverGlow = coverRefreshing && !hasThumbCollage;
+  const canSubmit = (coverCheck.ok || hasThumbCollage) && !canvasEmpty && !showCoverGlow;
 
   useEffect(() => {
     setPhase('confirm');
@@ -73,7 +76,6 @@ function PlazaPublishForm({
   // Prefer server cover URLs (from /covers). Fallback: live document collage.
   useEffect(() => {
     setResolvedUrls(propUrls);
-    setResolvingCover(false);
   }, [propUrls]);
 
   const goPhase = (next: 'confirm' | 'success') => {
@@ -141,8 +143,8 @@ function PlazaPublishForm({
   return (
     <div>
       <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--canvas)]">
-        <div className="aspect-[680/385] w-full overflow-hidden bg-[var(--canvas)]">
-          {resolvingCover && !hasThumbCollage ? (
+        <div className="rcb-publish-cover-panel aspect-[680/385] w-full overflow-hidden bg-[var(--canvas)]">
+          {showCoverGlow ? (
             <SoftGlowSurface className="h-full w-full !rounded-none" seed="plaza-cover" aria-hidden />
           ) : (
             <ProjectCoverCollage
@@ -169,7 +171,7 @@ function PlazaPublishForm({
           size="small"
           type="primary"
           loading={publishing}
-          disabled={!canSubmit || resolvingCover}
+          disabled={!canSubmit}
           onClick={() => void handleSubmit()}
         >
           {t('plaza.submit')}
