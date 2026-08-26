@@ -368,13 +368,27 @@ def _tool_calls_from_message(msg: Any) -> list[dict[str, Any]]:
     return out
 
 
-def server_langchain_tools() -> list[Any]:
-    """Tools the backend executes (e.g. generate_image)."""
-    return [
+def server_langchain_tools(
+    *,
+    user_id: str | None = None,
+    project_id: str | None = None,
+) -> list[Any]:
+    """Tools the backend executes (e.g. generate_image, MCP canvas when enabled)."""
+    tools = [
         t
         for t in design_langchain_tools()
         if getattr(t, "name", None) in _SERVER_TOOL_NAMES
     ]
+    if user_id:
+        from app.services.llm.mcp_canvas_tools import mcp_canvas_langchain_tools
+
+        tools.extend(
+            mcp_canvas_langchain_tools(
+                user_id=str(user_id),
+                project_id=str(project_id or "").strip() or None,
+            )
+        )
+    return tools
 
 
 def agent_thread_config(thread_id: str | None) -> dict[str, Any] | None:
@@ -914,6 +928,8 @@ def build_official_agent(
     middleware: list[Any] | None = None,
     summarize: bool | None = None,
     with_long_term_store: bool = True,
+    user_id: str | None = None,
+    project_id: str | None = None,
 ):
     """Build create_agent graph (optional checkpointer, summarization, Store)."""
     from langchain.agents import create_agent
@@ -929,7 +945,11 @@ def build_official_agent(
         source=source,
         catalog_model_id=model or model_id,
     )
-    tool_list = tools if tools is not None else server_langchain_tools()
+    tool_list = (
+        tools
+        if tools is not None
+        else server_langchain_tools(user_id=user_id, project_id=project_id)
+    )
     # Structured one-shots don't need session summarization / store tools.
     want_summary = False if response_format is not None else summarize
     mw = (
@@ -1116,6 +1136,7 @@ async def stream_official_agent(
     tools: list[Any] | None = None,
     thread_id: str | None = None,
     user_id: str | None = None,
+    project_id: str | None = None,
     interrupt_before_tools: bool = False,
     source: str = "agent",
     run_name: str | None = None,
@@ -1147,6 +1168,8 @@ async def stream_official_agent(
         tools=tools,
         source=source,
         interrupt_before=interrupt_before,
+        user_id=user_id,
+        project_id=project_id,
     )
     lc_messages = to_lc_messages(
         _prepare_agent_messages(

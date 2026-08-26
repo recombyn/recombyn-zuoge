@@ -11,8 +11,6 @@ const SESSION_STORAGE_KEYS = [
   'recombyn.customLlmProviders.v1',
   'recombyn.notices.read.v1',
   'recombyn.agentPaintMode.v1',
-  'recombyn.agentEngineMode.v1',
-  'recombyn.agentCodingCli.v1',
   'recombyn.byok.deviceKey.v1',
   'recombyn:custom-project-thumbs',
   'recombyn-google-oauth-nonce-v1',

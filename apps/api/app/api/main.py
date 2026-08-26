@@ -29,6 +29,7 @@ from app.api.routes import (
     shares,
     uploads,
     users,
+    mcp,
 )
 
 api_router = APIRouter()
@@ -61,3 +62,4 @@ api_router.include_router(image_tools.router)
 api_router.include_router(image_process_jobs.router)
 api_router.include_router(mockup.router)
 api_router.include_router(design.router)
+api_router.include_router(mcp.router)

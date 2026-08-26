@@ -31,6 +31,7 @@ import {
 import { store } from '@/store';
 import { useProjectCloudSync, flushCurrentProjectNow, ProjectRevisionConflictDialog, renameProjectOnCloud } from '@/components/editor/useProjectCloudSync';
 import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvider';
+import { McpCanvasBridge } from '@/components/editor/mcp/McpCanvasBridge';
 import { isCollabActive } from '@/components/editor/collab/collabRuntime';
 import type { ComposerContext } from '@/components/editor/panels/AgentComposerInput';
 import AgentDock from '@/components/editor/panels/AgentDock';
@@ -1519,6 +1520,10 @@ function EditorPage() {
   return (
     <CollabRoomProvider stageEl={stageEl} camera={camera} onCameraChange={setCamera}>
       <ProjectRevisionConflictDialog />
+      <McpCanvasBridge
+        projectId={currentId}
+        enabled={import.meta.env.VITE_MCP_CANVAS_ENABLED === 'true'}
+      />
       <div
         className={cn(
           'relative flex h-full flex-col overflow-hidden',

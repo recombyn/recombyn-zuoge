@@ -63,6 +63,11 @@ class AgentTurnIn(BaseModel):
     messages: list[dict] = Field(default_factory=list)
     model: str | None = None
     tools: list[dict] | None = None
+    project_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="When set, react mode may use MCP canvas tools on this project",
+    )
     # turn = bind_tools + client canvas (default); react = official create_agent loop
     mode: str | None = Field(
         default="turn",
@@ -353,6 +358,8 @@ async def post_agent_turn(
                 stream_official_agent(
                     messages=body.messages,
                     model=body.model,
+                    user_id=current_user.id,
+                    project_id=body.project_id,
                 )
                 if mode == "react"
                 else stream_agent_turn(

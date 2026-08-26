@@ -49,7 +49,7 @@ export function isLocalDevHost(): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
-/** Tauri desktop shell (local or cloud flavor) — can spawn OS coding CLIs. */
+/** Tauri desktop shell (local or cloud flavor). */
 export function isDesktopShell(): boolean {
   return getDesktopMode() !== null;
 }

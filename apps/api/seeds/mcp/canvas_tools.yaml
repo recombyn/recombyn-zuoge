@@ -1,0 +1,24 @@
+# MCP canvas — expose full canvas_actions catalog to external MCP clients.
+# live_only ops require an open editor (queued → FE designTools apply).
+expose_all_canvas_ops: true
+
+expose:
+  read:
+    - get_scene_summary
+    - list_nodes
+    - list_frames
+  batch:
+    - apply_tool_ops
+
+# UI / async / viewport — validated then queued for live editor apply only.
+live_only:
+  - set_viewport
+  - set_active_tool
+  - set_grid
+  - export_canvas
+  - image_process
+  - outline_text
+
+allowlist_only: false
+max_ops_per_call: 32
+live_session_ttl_sec: 15

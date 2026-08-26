@@ -254,6 +254,9 @@ class Settings(BaseSettings):
     ses_activate_base_url: str = "https://recombyn.com/activate"
     public_app_base_url: str = ""
 
+    # MCP canvas server — external clients control project documents via tool_ops.
+    mcp_canvas_enabled: bool = False
+
 settings = Settings()
 
 
