@@ -2,8 +2,13 @@
 set -euo pipefail
 cd /opt/recombyn
 
-KEY="$(grep -E '^RECOMBYN_INTELLIGENCE_API_KEY=' .env | cut -d= -f2- | head -1)"
-KEY="${KEY:-r8cvxa37hmp9nuk64boqt0zl1jgef2ids5wy}"
+KEY="$(grep -E '^RECOMBYN_INTELLIGENCE_API_KEY=' .env | cut -d= -f2- | head -1 || true)"
+KEY="${KEY#"${KEY%%[![:space:]]*}"}"
+KEY="${KEY%"${KEY##*[![:space:]]}"}"
+if [ -z "$KEY" ]; then
+  echo "RECOMBYN_INTELLIGENCE_API_KEY missing in /opt/recombyn/.env" >&2
+  exit 1
+fi
 
 if ! grep -q '^IMAGE_LAYER_PIPELINE_URL=' .env; then
   cat >> .env <<EOF
