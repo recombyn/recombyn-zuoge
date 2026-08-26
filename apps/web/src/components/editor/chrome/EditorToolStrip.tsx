@@ -41,6 +41,8 @@ import {
   spawnLottie,
   spawnImageGenerator,
   spawnVideoGenerator,
+  spawnLottieGenerator,
+  spawnAudioGenerator,
   finishImageProcess,
   failImageProcess,
 } from '@/store/modules/editor';
@@ -91,6 +93,9 @@ const TOOL_SHORTCUT = {
   star: 'S',
   upload: 'I',
   imageGenerator: 'A',
+  videoGenerator: 'Shift A',
+  lottieGenerator: 'M',
+  audioGenerator: 'U',
 } as const;
 
 function toolTipWithShortcut(label: string, shortcut?: string) {
@@ -419,6 +424,8 @@ function EditorToolStrip({
       }),
       imageGenerator: t('editor.tools.imageGenerator'),
       videoGenerator: t('editor.tools.videoGenerator'),
+      lottieGenerator: t('editor.tools.lottieGenerator'),
+      audioGenerator: t('editor.tools.audioGenerator'),
       uploading: t('editor.tools.uploading'),
       uploadFail: t('editor.tools.uploadFail'),
     }),
@@ -577,6 +584,72 @@ function EditorToolStrip({
     );
   };
 
+  const spawnLottieGeneratorAtView = () => {
+    if (!document) return;
+    let width = 200;
+    let height = 200;
+    let x = 40;
+    let y = 40;
+    if (camera && stageEl) {
+      const view = stageEl.getBoundingClientRect();
+      if (view.width > 0 && view.height > 0) {
+        const laid = layoutGeneratorPlateInView({
+          document,
+          camera,
+          stageEl,
+          natural: { width: 200, height: 200 },
+          fit: { minRatio: 0.18, maxRatio: 0.32 },
+        });
+        width = laid.width;
+        height = laid.height;
+        x = laid.x;
+        y = laid.y;
+      }
+    }
+    dispatch(
+      spawnLottieGenerator({
+        x,
+        y,
+        width,
+        height,
+        name: L.lottieGenerator,
+      })
+    );
+  };
+
+  const spawnAudioGeneratorAtView = () => {
+    if (!document) return;
+    let width = 360;
+    let height = 200;
+    let x = 40;
+    let y = 40;
+    if (camera && stageEl) {
+      const view = stageEl.getBoundingClientRect();
+      if (view.width > 0 && view.height > 0) {
+        const laid = layoutGeneratorPlateInView({
+          document,
+          camera,
+          stageEl,
+          natural: { width: 720, height: 400 },
+          fit: { minRatio: 0.22, maxRatio: 0.4 },
+        });
+        width = laid.width;
+        height = laid.height;
+        x = laid.x;
+        y = laid.y;
+      }
+    }
+    dispatch(
+      spawnAudioGenerator({
+        x,
+        y,
+        width,
+        height,
+        name: L.audioGenerator,
+      })
+    );
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -625,6 +698,12 @@ function EditorToolStrip({
       if (key === 'a' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
         spawnVideoGeneratorAtView();
       }
+      if (key === 'm' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        spawnLottieGeneratorAtView();
+      }
+      if (key === 'u' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        spawnAudioGeneratorAtView();
+      }
       if (key === 'p' && !e.shiftKey) dispatch(setActiveTool('pen'));
       if (key === 'p' && e.shiftKey) dispatch(setActiveTool('pencil'));
       if (key === 'escape') {
@@ -641,6 +720,8 @@ function EditorToolStrip({
     document,
     L.imageGenerator,
     L.videoGenerator,
+    L.lottieGenerator,
+    L.audioGenerator,
     stageEl,
     toolsLocked,
   ]);
@@ -977,8 +1058,7 @@ function EditorToolStrip({
         </ToolIcon>
       </SplitToolButton>
 
-      {/* 图像生成器 — places a generator node at viewport center.
-          Video / Lottie / Audio generators: context menu 「生成器」 only. */}
+      {/* Image generator on toolbar; video / Lottie / audio via context menu or shortcuts. */}
       <ToolBtn
         tip={toolTipWithShortcut(L.imageGenerator, TOOL_SHORTCUT.imageGenerator)}
         disabled={toolsLocked}

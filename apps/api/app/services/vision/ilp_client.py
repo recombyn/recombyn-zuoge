@@ -27,7 +27,12 @@ def _base_url() -> str:
         return explicit
     mode = str(getattr(settings, "intelligence_provider", "") or "").strip().lower()
     intel_url = str(getattr(settings, "intelligence_remote_url", "") or "").strip().rstrip("/")
-    if intel_url and mode in {"remote", "cloud"}:
+    # Prefer explicit ILP URL; also accept Design Intelligence host when MODE is
+    # cloud/remote, or when IMAGE_LAYER_PIPELINE_MODE is ilp/auto (local npm + :8091).
+    pipeline_mode = str(getattr(settings, "image_layer_pipeline_mode", "") or "").strip().lower()
+    if intel_url and (
+        mode in {"remote", "cloud"} or pipeline_mode in {"ilp", "auto"}
+    ):
         return intel_url
     return ""
 

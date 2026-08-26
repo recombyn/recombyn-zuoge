@@ -2,7 +2,14 @@
 
 You can run the full product on your own machine or server: web canvas, Design Agent, API, collab, and a database.
 
-Docker Compose is the default (**MySQL** + **MinIO** + Redis + web + API + **Yjs**). Local npm dev uses the same **MySQL + MinIO** stack via `npm run dev:infra`. Empty `DATABASE_URL` (without MySQL in `.env`) falls back to **SQLite**. Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite) / **Cloud** (same API as the browser).
+**Two supported paths (same stack: MySQL + MinIO + Redis):**
+
+| | Command |
+|--|---------|
+| **Local** | `npm run setup:local` → `npm run dev:api` / `dev:worker` / `dev:web` |
+| **Production** | `bash deploy/vps/deploy.sh` — see [deploy/vps/README.zh-CN.md](../deploy/vps/README.zh-CN.md) |
+
+Docker Compose is the infra for both. Desktop (Tauri): **[desktop.md](./desktop.md)** (sidecar / cloud API — separate from web deploy).
 
 ## What you get
 
@@ -29,10 +36,9 @@ Host tools can reach MySQL at `127.0.0.1:3306` (same user/password). Change via 
 
 **Quality gates (Pytest / Playwright / k6 / Prometheus):** [quality-gates.md](./quality-gates.md).
 
-**Dev without Docker MySQL:** leave `DATABASE_URL` empty → SQLite at `storage/recombyn.db`.  
-**Recommended local dev:** `npm run dev:infra` then set `DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn` and MinIO vars in `apps/api/.env` (see `apps/api/.env.selfhost.example`).
+**Local:** `npm run setup:local` (MySQL + Redis + MinIO). Env: `apps/api/.env.selfhost.example` → Local block.
 
-Object storage defaults to **MinIO** (`S3_ENABLED=true`). Bucket `recombyn` is created on first boot; public read URLs use `S3_PUBLIC_BASE_URL` (local: `http://127.0.0.1:9000/recombyn`). Do not use Tencent COS unless you intentionally switch back.
+Object storage is **MinIO** (`S3_ENABLED=true`). Bucket `recombyn` is created on first boot. Do not use Tencent COS for new deploys.
 
 Default config loads from seed JSON under `apps/api/seeds/` on first API start.
 
@@ -259,16 +265,16 @@ Do not duplicate craft into `paint_system` / `react_system`. Brush / Lottie → 
 
 User OpenAI-style endpoints (custom LLM providers) store API keys encrypted (AES-GCM). Set a dedicated `BYOK_AES_KEY` (32+ chars) in production; empty falls back to a derive-from-`CARD_KEY_SALT` path for local only.
 
-## Quick path (Docker)
+## Quick path (Docker — production / full stack)
 
-From the repo root:
+From the repo root on a server (or see [deploy/vps/README.zh-CN.md](../deploy/vps/README.zh-CN.md)):
 
 ```bash
-cp apps/api/.env.example apps/api/.env
-# fill LLM_API_KEY (or provider keys), CARD_KEY_SALT, etc.
-# leave DATABASE_URL commented out — compose injects MySQL
+cp apps/api/.env.selfhost.example apps/api/.env
+# fill Production block + LLM keys; set root .env from deploy/vps/.env.production.example
 
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# or: bash deploy/vps/deploy.sh
 ```
 
 - Web: http://localhost:3000  
@@ -334,39 +340,22 @@ Optional when billing is on:
 - Issue card keys (admin + `CARD_KEY_SALT` / `CARD_KEY_OPS_PASSWORD`)
 
 
-## Dev path (MySQL + MinIO, npm on host)
+## Dev path (MySQL + MinIO)
 
 ```bash
-npm run dev:infra   # mysql + redis + minio (+ bucket init)
-cp apps/api/.env.selfhost.example apps/api/.env   # merge LLM keys
-# Profile A in .env.selfhost.example: DATABASE_URL + S3_* → 127.0.0.1
+npm run setup:local   # mysql + redis + minio (+ bucket init; waits for MySQL)
+# apps/api/.env — Local block from .env.selfhost.example
 npm install
 npm run dev:api
 npm run dev:worker
 npm run dev:web
 ```
 
-MinIO console: http://127.0.0.1:9001 (`minioadmin` / `minioadmin` by default).
+MinIO console: http://127.0.0.1:9001 (`minioadmin` / `minioadmin`).
 
-## Dev path (SQLite only, no MinIO)
+(`npm run dev:infra` is the same compose up without the wait helper.)
 
-```bash
-docker compose up -d redis
-cp apps/api/.env.example apps/api/.env
-# DATABASE_URL empty → SQLite; S3_ENABLED=false
-npm install
-npm run dev:api
-npm run dev:web
-```
-
-To use compose MySQL from host uvicorn without MinIO (disk storage):
-
-```bash
-docker compose up -d mysql redis
-# apps/api/.env:
-# DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn
-# S3_ENABLED=false
-```
+SQLite / disk-only is **not** a supported deploy path (desktop sidecar may still use it — see [desktop.md](./desktop.md)).
 
 ## Canvas multiplayer (Yjs / WSS)
 

@@ -6,8 +6,6 @@
 
 services:
   api:
-    ports:
-      - "127.0.0.1:8000:8000"
     environment:
       - AUTH_CONSOLE_LOGIN_CODE=${AUTH_CONSOLE_LOGIN_CODE:-false}
       - CORS_ORIGINS=${CORS_ORIGINS:-["https://recombyn.com","https://www.recombyn.com"]}
@@ -15,10 +13,6 @@ services:
       - PUBLIC_APP_BASE_URL=${PUBLIC_APP_BASE_URL:-https://recombyn.com}
       - S3_PUBLIC_BASE_URL=${S3_PUBLIC_BASE_URL:-https://files.recombyn.com/recombyn}
       - WALLET_BILLING_ENABLED=${WALLET_BILLING_ENABLED:-true}
-
-  web:
-    ports:
-      - "127.0.0.1:3000:80"
 
   worker:
     environment:

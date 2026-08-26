@@ -15,7 +15,7 @@ type Props = {
   onSubmit: (payload: HomeAgentSubmitPayload) => void;
 };
 
-/** Home hero — CJK uses graphic 「左格」 + slogan; EN keeps full text slogan. */
+/** Home hero — zh uses graphic 「左格」 + slogan; ja/en keep text slogan (Latin brand in chrome). */
 function HomeHero({ onSubmit }: Props): ReactNode {
   const { t } = useTranslation();
   const cjk = useCjkBrand();

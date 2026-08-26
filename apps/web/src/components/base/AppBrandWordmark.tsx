@@ -17,11 +17,15 @@ type Props = {
   lowercase?: boolean;
 };
 
+/**
+ * Chinese locales use graphic 「左格」; Japanese/English use Latin `zuoge`.
+ * 「左格」is the CN brand lockup — not appropriate for `ja` UI copy.
+ */
 function useCjkBrand(): boolean {
   const { i18n, t } = useTranslation();
   const name = t('app.name');
   const lng = String(i18n.resolvedLanguage || i18n.language || '');
-  return /^(zh|ja)\b/i.test(lng) || name === '左格';
+  return /^zh\b/i.test(lng) || name === '左格';
 }
 
 /**
@@ -54,7 +58,7 @@ function ZuogeWordmarkSvg({
 }
 
 /**
- * Product wordmark — CJK/JA uses graphic 「左格」; EN uses Latin `zuoge`.
+ * Product wordmark — zh uses graphic 「左格」; ja/en use Latin `zuoge`.
  * Pair with text-[var(--ink)] or text-[var(--on-brand)] for theme contrast.
  */
 function AppBrandWordmark({ size = 20, className }: Props) {

@@ -6,6 +6,7 @@ const zhCN = {
     heroSubtitle: '懂你的设计 Agent，一键出稿',
     heroTitle: '左格 懂你的设计 Agent',
     heroLinePrefix: '',
+    /** After graphic 「左格」 (zh only). */
     heroLineSuffix: '懂你的设计 Agent',
     heroTitleLead: '左格',
     heroTitleAccent: '懂你的设计 Agent',
@@ -121,6 +122,7 @@ const zhCN = {
     /** Trailing slogan after graphic 「左格」 wordmark. */
     heroStartTitle: '，设计从未如此简单',
     heroStartTitleAria: '左格，设计从未如此简单',
+    footerCopy: '© {{year}} 左格',
     heroSuggest: {
       ui: 'UI 界面',
       poster: '海报',

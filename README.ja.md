@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/zuoge-wordmark-en.png" alt="zuoge" height="140" style="margin-top: 20px; margin-bottom: 20px;" />
+  <img src="docs/assets/zuoge-wordmark-en.png" alt="zuoge" height="140" style="margin-top: 48px; margin-bottom: 40px;" />
 
   <p>
     <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·

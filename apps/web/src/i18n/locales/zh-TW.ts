@@ -6,6 +6,7 @@ const zhTW = {
     heroSubtitle: '懂你的設計 Agent，一鍵出稿',
     heroTitle: '左格 懂你的設計 Agent',
     heroLinePrefix: '',
+    /** After graphic 「左格」 (zh only). */
     heroLineSuffix: '懂你的設計 Agent',
     heroTitleLead: '左格',
     heroTitleAccent: '懂你的設計 Agent',
@@ -118,6 +119,7 @@ const zhTW = {
     /** Trailing slogan after graphic 「左格」 wordmark. */
     heroStartTitle: '，設計從未如此簡單',
     heroStartTitleAria: '左格，設計從未如此簡單',
+    footerCopy: '© {{year}} 左格',
     heroSuggest: {
       ui: 'UI 介面',
       poster: '海報',

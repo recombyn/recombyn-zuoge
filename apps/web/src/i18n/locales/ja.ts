@@ -6,6 +6,7 @@ const ja = {
     heroSubtitle: 'あなたのデザイン Agent。すべてお任せ',
     heroTitle: 'zuoge あなたのデザイン Agent',
     heroLinePrefix: '',
+    /** After Latin `zuoge` wordmark (ja uses Latin brand, not 「左格」). */
     heroLineSuffix: 'あなたのデザイン Agent',
     heroTitleLead: 'zuoge ',
     heroTitleAccent: 'あなたのデザイン Agent',
@@ -118,6 +119,7 @@ const ja = {
     /** Home hero slogan. */
     heroStartTitle: '作ろう、デザインがこんなに簡単だったことはない',
     heroStartTitleAria: '作ろう、デザインがこんなに簡単だったことはない',
+    footerCopy: '© {{year}} zuoge',
     heroSuggest: {
       ui: 'UIデザイン',
       poster: 'ポスター',

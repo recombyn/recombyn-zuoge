@@ -970,6 +970,9 @@ function HomeTemplateList({
           >
             <HomeHero onSubmit={onAgentSubmit} />
           </div>
+          <p className="pointer-events-none shrink-0 pb-5 pt-2 text-center text-[12px] leading-none text-[color-mix(in_srgb,var(--ink)_38%,transparent)]">
+            {t('home.footerCopy', { year: new Date().getFullYear() })}
+          </p>
         </main>
       ) : null}
 

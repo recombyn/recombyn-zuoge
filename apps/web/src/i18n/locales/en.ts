@@ -5,9 +5,9 @@ const en = {
     documentTitle: 'Zuoge - The Agentic Creative',
     heroSubtitle: 'Your design Agent — from idea to shippable work',
     heroTitle: 'Your design Agent with Zuoge',
-    /** EN: "{tagline} with [logo] Brand". CJK/JA: leave empty (brand first). */
+    /** EN/JA: "{tagline} with [logo] Brand". zh: leave empty (「左格」 graphic first). */
     heroLinePrefix: 'Your design Agent with',
-    /** CJK/JA: text after [logo] Brand. EN: leave empty. */
+    /** zh: text after 「左格」 graphic. EN/JA: leave empty. */
     heroLineSuffix: '',
     heroTitleLead: 'Zuoge ',
     heroTitleAccent: 'Your design Agent',
@@ -121,6 +121,7 @@ const en = {
     /** Home hero slogan. */
     heroStartTitle: 'Make it, design has never been this simple',
     heroStartTitleAria: 'Make it, design has never been this simple',
+    footerCopy: '© {{year}} zuoge',
     heroSuggest: {
       ui: 'UI design',
       poster: 'Poster',

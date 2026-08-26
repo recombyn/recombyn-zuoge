@@ -32,7 +32,7 @@ function MenuRow({ label, onClick }: { label: string; onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-[13px] text-[var(--ink)] transition hover:bg-[var(--accent-soft)]"
+      className="flex w-full items-center whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-[13px] text-[var(--ink)] transition hover:bg-[var(--accent-soft)]"
     >
       {label}
     </button>
@@ -121,7 +121,7 @@ function EditorProjectMenu({
             ref={refs.setFloating}
             style={floatingStyles}
             {...getFloatingProps()}
-            className="z-[600] w-[min(100vw-1.5rem,200px)] overflow-hidden rounded-xl bg-[var(--surface)] p-1.5 shadow-[0_12px_40px_rgba(12,12,13,0.14)] ring-1 ring-[var(--line)]"
+            className="z-[600] w-max max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl bg-[var(--surface)] p-1.5 shadow-[0_12px_40px_rgba(12,12,13,0.14)] ring-1 ring-[var(--line)]"
           >
             {authed ? (
               <>
