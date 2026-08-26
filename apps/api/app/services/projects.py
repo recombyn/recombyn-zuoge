@@ -166,37 +166,50 @@ def _encode_document(
     return raw, None
 
 
-def _thumb_key_from_data_url(
-    user_id: str, project_id: str, data_url: str | None, *, index: int = 0
-) -> str | None:
-    if not data_url or not data_url.startswith("data:image/"):
-        return None
-    try:
-        import base64
-        import time
+def _next_thumbnail(
+    user_id: str,
+    project_id: str,
+    existing_key: str | None,
+    *,
+    existing_custom: bool,
+    mark_custom: bool | None,
+    thumbnail_urls: list[str] | None = None,
+    document: dict[str, Any] | None = None,
+) -> tuple[str | None, bool]:
+    """Resolve next thumbnail_key (+ JSON array) and custom flag."""
+    if mark_custom is True:
+        hosted = _normalize_incoming_urls(thumbnail_urls)
+        if hosted:
+            _delete_thumb_entries(existing_key)
+            return _encode_thumb_entries(hosted), True
 
-        header, b64 = data_url.split(",", 1)
-        h = header.lower()
-        if "webp" in h:
-            ext, content_type = "webp", "image/webp"
-        elif "png" in h:
-            ext, content_type = "png", "image/png"
-        else:
-            ext, content_type = "jpg", "image/jpeg"
-        blob = base64.b64decode(b64)
-        # Unique key per upload so CDN/browser never serve a stale thumb.webp.
-        stamp = int(time.time() * 1000)
-        suffix = f"-{index}" if index else ""
-        thumb_key = f"projects/{user_id}/{project_id}/thumb-{stamp}{suffix}.{ext}"
-        put_bytes(
-            thumb_key,
-            blob,
-            content_type=content_type,
-            cache_control="no-cache, max-age=0, must-revalidate",
+    if existing_custom and mark_custom is not False:
+        return existing_key, True
+
+    if document is not None and mark_custom is not True:
+        auto = _build_auto_cover_key(user_id, project_id, document, existing_key)
+        if auto:
+            return auto, False
+        _delete_thumb_entries(existing_key)
+        print(
+            f"[projects.thumb] cleared project={project_id} (no cover tiles)",
+            flush=True,
         )
-        return thumb_key
-    except Exception:
-        return None
+        return None, False
+
+    hosted = _normalize_incoming_urls(thumbnail_urls)
+    if hosted and mark_custom is not True:
+        _delete_thumb_entries(existing_key)
+        encoded = _encode_thumb_entries(hosted)
+        print(
+            f"[projects.thumb] urls ok project={project_id} n={len(hosted)} custom=False",
+            flush=True,
+        )
+        return encoded, False
+
+    if mark_custom is False:
+        return existing_key, False
+    return existing_key, bool(existing_custom)
 
 
 def _row_thumb_custom(row: Any) -> bool:
@@ -855,104 +868,6 @@ def _build_auto_cover_key(
     return encoded
 
 
-def _next_thumbnail(
-    user_id: str,
-    project_id: str,
-    thumbnail_data_url: str | None,
-    existing_key: str | None,
-    *,
-    existing_custom: bool,
-    mark_custom: bool | None,
-    thumbnail_data_urls: list[str] | None = None,
-    thumbnail_urls: list[str] | None = None,
-    document: dict[str, Any] | None = None,
-) -> tuple[str | None, bool]:
-    """Resolve next thumbnail_key (+ JSON array) and custom flag.
-
-    Priority: custom client urls/data → keep custom lock → server auto from
-    document elements (or clear when document has no tiles) → client
-    urls/data → keep existing (only when document was not provided).
-    """
-    # User-uploaded / explicit custom cover.
-    if mark_custom is True:
-        hosted = _normalize_incoming_urls(thumbnail_urls)
-        if hosted:
-            _delete_thumb_entries(existing_key)
-            return _encode_thumb_entries(hosted), True
-        data_list = [
-            str(x).strip()
-            for x in (thumbnail_data_urls or [])
-            if str(x or "").strip().startswith("data:image/")
-        ]
-        if not data_list and thumbnail_data_url:
-            one = str(thumbnail_data_url).strip()
-            if one.startswith("data:image/"):
-                data_list = [one]
-        if data_list:
-            uploaded: list[str] = []
-            for i, data_url in enumerate(data_list[:4]):
-                key = _thumb_key_from_data_url(user_id, project_id, data_url, index=i)
-                if key:
-                    uploaded.append(key)
-            if uploaded:
-                _delete_thumb_entries(existing_key)
-                return _encode_thumb_entries(uploaded), True
-
-    if existing_custom and mark_custom is not False:
-        return existing_key, True
-
-    # Server: ≤4 tiles from latest document elements (image URL + shape rasters).
-    # When ``document`` is provided, always rebuild (or clear) — never keep a stale cover.
-    if document is not None and mark_custom is not True:
-        auto = _build_auto_cover_key(user_id, project_id, document, existing_key)
-        if auto:
-            return auto, False
-        _delete_thumb_entries(existing_key)
-        print(
-            f"[projects.thumb] cleared project={project_id} (no cover tiles)",
-            flush=True,
-        )
-        return None, False
-
-    # Legacy client thumbs (optional).
-    hosted = _normalize_incoming_urls(thumbnail_urls)
-    if hosted and mark_custom is not True:
-        _delete_thumb_entries(existing_key)
-        encoded = _encode_thumb_entries(hosted)
-        print(
-            f"[projects.thumb] urls ok project={project_id} n={len(hosted)} custom=False",
-            flush=True,
-        )
-        return encoded, False
-
-    data_list = [
-        str(x).strip()
-        for x in (thumbnail_data_urls or [])
-        if str(x or "").strip().startswith("data:image/")
-    ]
-    if not data_list and thumbnail_data_url:
-        one = str(thumbnail_data_url).strip()
-        if one.startswith("data:image/"):
-            data_list = [one]
-    if data_list and mark_custom is not True:
-        uploaded = []
-        for i, data_url in enumerate(data_list[:4]):
-            key = _thumb_key_from_data_url(user_id, project_id, data_url, index=i)
-            if key:
-                uploaded.append(key)
-        if uploaded:
-            _delete_thumb_entries(existing_key)
-            print(
-                f"[projects.thumb] upload ok project={project_id} n={len(uploaded)}",
-                flush=True,
-            )
-            return _encode_thumb_entries(uploaded), False
-
-    if mark_custom is False:
-        return existing_key, False
-    return existing_key, bool(existing_custom)
-
-
 def _ensure_delta_root(doc: dict[str, Any]) -> dict[str, Any]:
     delta = doc.get("deltaSetLike")
     if not isinstance(delta, dict):
@@ -1136,8 +1051,6 @@ def patch_project(
     *,
     name: str | None = None,
     patch: dict[str, Any],
-    thumbnail_data_url: str | None = None,
-    thumbnail_data_urls: list[str] | None = None,
     thumbnail_urls: list[str] | None = None,
     thumbnail_custom: bool | None = None,
     base_revision: int | None = None,
@@ -1194,11 +1107,9 @@ def patch_project(
             thumb_key, thumb_custom = _next_thumbnail(
                 owner_id,
                 pid,
-                thumbnail_data_url,
                 existing.thumbnail_key,
                 existing_custom=_row_thumb_custom(existing),
                 mark_custom=thumbnail_custom,
-                thumbnail_data_urls=thumbnail_data_urls,
                 thumbnail_urls=thumbnail_urls,
                 document=merged if touch_doc else None,
             )
@@ -1413,8 +1324,6 @@ def upsert_project(
     project_id: str | None,
     name: str,
     document: dict[str, Any] | None,
-    thumbnail_data_url: str | None = None,
-    thumbnail_data_urls: list[str] | None = None,
     thumbnail_urls: list[str] | None = None,
     thumbnail_custom: bool | None = None,
     base_revision: int | None = None,
@@ -1465,11 +1374,9 @@ def upsert_project(
                 next_thumb, next_custom = _next_thumbnail(
                     owner_id,
                     pid,
-                    thumbnail_data_url,
                     existing.thumbnail_key,
                     existing_custom=_row_thumb_custom(existing),
                     mark_custom=thumbnail_custom,
-                    thumbnail_data_urls=thumbnail_data_urls,
                     thumbnail_urls=thumbnail_urls,
                     document=document,
                 )
@@ -1531,11 +1438,9 @@ def upsert_project(
                 thumb_key, thumb_custom = _next_thumbnail(
                     user_id,
                     pid,
-                    thumbnail_data_url,
                     None,
                     existing_custom=False,
                     mark_custom=thumbnail_custom,
-                    thumbnail_data_urls=thumbnail_data_urls,
                     thumbnail_urls=thumbnail_urls,
                     document=document,
                 )
@@ -1586,87 +1491,6 @@ def upsert_project(
         "revision": revision,
         "updatedAt": int(now * 1000),
         "createdAt": int(created * 1000),
-    }
-
-
-def extract_project_covers(
-    user_id: str,
-    project_id: str,
-    *,
-    document: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build ≤4 cover tiles from document elements. Does not bump revision."""
-    from sqlmodel import Session
-
-    from app import crud
-    from app.core.db import engine
-
-    init_schema()
-    pid = (project_id or "").strip()
-    if not pid:
-        raise ProjectNotFoundError("")
-
-    with Session(engine) as session:
-        existing = crud.get_project_accessible(
-            session=session, user_id=user_id, project_id=pid
-        )
-        if not existing:
-            raise ProjectNotFoundError(pid)
-        if not _can_write_project(user_id=user_id, row=existing):
-            raise ProjectForbiddenError(pid)
-
-        owner_id = str(existing.user_id or user_id)
-        name_n = str(existing.name or "Untitled")
-        created_at = float(existing.created_at)
-        revision = int(existing.revision or 1)
-        custom = _row_thumb_custom(existing)
-        thumb_key = existing.thumbnail_key
-        now = float(existing.updated_at)
-        org_id_out = getattr(existing, "org_id", None)
-
-        if not custom:
-            doc = document if isinstance(document, dict) else _decode_document_row(existing)
-            now = time.time()
-            next_key, next_custom = _next_thumbnail(
-                owner_id,
-                pid,
-                None,
-                existing.thumbnail_key,
-                existing_custom=False,
-                mark_custom=False,
-                document=doc if isinstance(doc, dict) else {},
-            )
-            prev = (existing.thumbnail_key or "").strip()
-            nxt = (next_key or "").strip()
-            force_ts = document is not None
-            if nxt != prev or bool(next_custom) != bool(custom):
-                thumb_key = next_key
-                custom = bool(next_custom)
-                crud.update_project_covers_by_id(
-                    session=session,
-                    project_id=pid,
-                    thumbnail_key=thumb_key,
-                    thumbnail_custom=bool(next_custom),
-                    updated_at=now,
-                )
-            elif force_ts and nxt:
-                crud.update_project_covers_by_id(
-                    session=session,
-                    project_id=pid,
-                    thumbnail_key=thumb_key,
-                    thumbnail_custom=bool(custom),
-                    updated_at=now,
-                )
-
-    return {
-        "id": pid,
-        "name": name_n,
-        "orgId": str(org_id_out) if org_id_out else None,
-        "thumbnailUrl": _thumbnail_urls_out(thumb_key),
-        "thumbnailCustom": bool(custom),
-        "revision": revision,
-        "updatedAt": int(now * 1000),
-        "createdAt": int(created_at * 1000),
     }
 
 

@@ -24,7 +24,7 @@ export type HomeAgentBoot = {
     dataUrl?: string;
     /** Local preview for thumbnails when dataUrl is a remote URL. */
     thumbUrl?: string;
-    /** Object key from POST /api/v1/uploads. */
+    /** Object key from upload job. */
     uploadKey?: string;
   }>;
 };

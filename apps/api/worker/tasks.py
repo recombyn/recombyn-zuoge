@@ -548,7 +548,7 @@ def run_image_process_job(self, job_id: str) -> dict:
     retry_kwargs={"max_retries": 2},
 )
 def run_upload_job(self, job_id: str) -> dict:
-    """Push POST /uploads/jobs temp file to object storage."""
+    """Push assembled upload job file to object storage."""
 
     async def _execute(job: dict) -> dict:
         from app.api.routes.upload_jobs import execute_upload_job

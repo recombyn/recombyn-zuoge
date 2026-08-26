@@ -437,15 +437,6 @@ export const zExportJobStatusResponse = z.object({
 });
 
 /**
- * ExtractCoversIn
- *
- * Optional live document; otherwise server uses the stored project document.
- */
-export const zExtractCoversIn = z.object({
-    document: z.record(z.unknown()).nullish()
-});
-
-/**
  * FontFaceIn
  */
 export const zFontFaceIn = z.object({
@@ -811,8 +802,6 @@ export const zOkOut = z.object({
 export const zPatchProjectIn = z.object({
     name: z.string().max(255).nullish(),
     baseRevision: z.number().int().nullish(),
-    thumbnailDataUrl: z.string().nullish(),
-    thumbnailDataUrls: z.array(z.string()).nullish(),
     thumbnailUrls: z.array(z.string()).nullish(),
     thumbnailCustom: z.boolean().nullish(),
     upsertNodes: z.record(z.unknown()).nullish(),
@@ -1038,8 +1027,6 @@ export const zUpsertProjectIn = z.object({
     id: z.string().max(64).nullish(),
     name: z.string().max(255).optional().default('Untitled'),
     document: z.record(z.unknown()).nullish(),
-    thumbnailDataUrl: z.string().nullish(),
-    thumbnailDataUrls: z.array(z.string()).nullish(),
     thumbnailUrls: z.array(z.string()).nullish(),
     thumbnailCustom: z.boolean().nullish(),
     baseRevision: z.number().int().nullish(),
@@ -2675,20 +2662,6 @@ export const zProjectsPatchOnePath = z.object({
  * Successful Response
  */
 export const zProjectsPatchOneResponse = zProjectOneOut;
-
-/**
- * Body
- */
-export const zProjectsExtractCoversBody = zExtractCoversIn.nullable();
-
-export const zProjectsExtractCoversPath = z.object({
-    project_id: z.string()
-});
-
-/**
- * Successful Response
- */
-export const zProjectsExtractCoversResponse = zProjectOneOut;
 
 export const zProjectsSetProjectOrgBody = zSetProjectOrgIn;
 

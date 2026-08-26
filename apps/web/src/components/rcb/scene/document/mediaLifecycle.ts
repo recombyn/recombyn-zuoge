@@ -365,6 +365,7 @@ export function spawnVideoUploadPlaceholderNode(
     processStatus: 'running',
     processKind: 'upload',
     processLabel: label,
+    processStartedAt: String(Date.now()),
   };
   return { document: addNodeToDocument(next, id, node), id };
 }
@@ -408,6 +409,7 @@ export function spawnAudioUploadPlaceholderNode(
     processStatus: 'running',
     processKind: 'upload',
     processLabel: label,
+    processStartedAt: String(Date.now()),
   };
   return { document: addNodeToDocument(next, id, node), id };
 }
@@ -766,6 +768,7 @@ export function spawnImageUploadPlaceholderNode(
     processStatus: 'running',
     processKind: 'upload',
     processLabel: opts.label || '上传中',
+    processStartedAt: String(Date.now()),
   };
   return { document: addNodeToDocument(doc, id, node), id };
 }

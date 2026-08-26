@@ -54,7 +54,6 @@ export function listRecoverableGeneratorNodes(
   return out;
 }
 
-/** First upload placeholder that UploadJobWatcher should resume after refresh. */
 export function findResumableUploadNodeId(
   document: SceneDocument | null | undefined
 ): string | null {

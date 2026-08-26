@@ -935,7 +935,6 @@ const ja = {
     shareEdit: '編集可',
     shareTabShare: '共有',
     shareTabPublish: '公開',
-    sharePublishSoon: '公開機能は近日公開予定です',
     shareLinkSection: 'リンク共有',
     shareLinkOn: '有効 — リンクを持つユーザーが権限に応じてアクセスできます',
     shareLinkOff: '未有効 — 共同編集者のみがこのファイルにアクセスできます',

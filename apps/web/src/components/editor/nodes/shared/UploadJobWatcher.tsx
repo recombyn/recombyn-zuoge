@@ -2,11 +2,13 @@ import { useEffect, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { message } from '@/components/base';
 import {
+  formatProcessProgressLabel,
   readProcessJobIds,
-  isStaleProcessJob,
   stripProcessProgressLabel,
+  uploadRecoveryBlockReason,
+  uploadRecoveryFailMessage,
 } from '@/components/rcb/scene/document/processJobAttrs';
-import { waitForUploadJob } from '@/service/uploadJobs';
+import { resumeOrWaitUploadJob } from '@/service/uploadJobs';
 import { getHttpErrorMessage } from '@/service/client';
 import { buildUploadFinishAttrs } from '@/utils/canvasUploadFlow';
 import {
@@ -21,10 +23,6 @@ import {
 } from '@/store/modules/editor';
 import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 
-/**
- * After refresh, resume in-flight upload jobs from persisted job ids.
- * Fresh uploads in the same tab are owned by canvas upload helpers (nodeUploadAborts).
- */
 function UploadJobWatcher() {
   const dispatch = useDispatch();
   const pendingId = useSelector(
@@ -39,8 +37,7 @@ function UploadJobWatcher() {
   useEffect(() => {
     if (!pendingId) return undefined;
     const node = document?.deltaSetLike?.[pendingId];
-    const kind = String(node?.attrs?.processKind || '');
-    if (kind !== 'upload') return undefined;
+    if (String(node?.attrs?.processKind || '') !== 'upload') return undefined;
     if (hasActiveNodeUpload(pendingId)) return undefined;
 
     let cancelled = false;
@@ -54,12 +51,9 @@ function UploadJobWatcher() {
     };
 
     const run = async () => {
-      if (!jobIds.length) {
-        fail('上传已中断，请重新选择文件');
-        return;
-      }
-      if (isStaleProcessJob(node)) {
-        dispatch(failImageProcess({ nodeId: pendingId }));
+      const block = uploadRecoveryBlockReason(node);
+      if (block) {
+        fail(uploadRecoveryFailMessage(block));
         return;
       }
 
@@ -68,7 +62,7 @@ function UploadJobWatcher() {
       const isRaster = assetKind !== 'video' && assetKind !== 'audio';
 
       try {
-        const uploaded = await waitForUploadJob(jobIds[0], {
+        const uploaded = await resumeOrWaitUploadJob(jobIds[0], {
           signal: ac.signal,
           onProgress: (pct) => {
             if (cancelled) return;
@@ -77,7 +71,9 @@ function UploadJobWatcher() {
                 nodeId: pendingId,
                 skipHistory: true,
                 patch: {
-                  attrs: { processLabel: `${labelBase} ${Math.round(pct)}%` },
+                  attrs: {
+                    processLabel: formatProcessProgressLabel(labelBase, pct, '上传中'),
+                  },
                 },
               })
             );

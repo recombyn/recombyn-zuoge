@@ -928,7 +928,6 @@ const zhTW = {
     shareEdit: '可編輯',
     shareTabShare: '分享',
     shareTabPublish: '發布',
-    sharePublishSoon: '發布功能即將開放',
     shareLinkSection: '連結分享',
     shareLinkOn: '已開啟，獲得連結的人可按權限存取',
     shareLinkOff: '未開啟，僅檔案協作者可存取此檔案',

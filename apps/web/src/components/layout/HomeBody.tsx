@@ -42,7 +42,7 @@ import {
   type PaginatedProjects,
   type ProjectSummaryDto,
 } from '@/service/projects';
-import { normalizeProjectThumbnailUrls, collageOrSingleThumb } from '@/utils/projectThumb';
+import { normalizeProjectThumbnailUrls, collageOrSingleThumb, projectThumbnailUrlsFromApi } from '@/utils/projectThumb';
 import { getToken } from '@/utils/token';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { useGoEditor } from '@/utils/goEditor';
@@ -96,7 +96,7 @@ type ProjectListItem = {
 };
 
 function projectSummaryToListItem(row: ProjectSummaryDto): ProjectListItem {
-  const thumbs = normalizeProjectThumbnailUrls(row.thumbnailUrl, row.updatedAt);
+  const thumbs = projectThumbnailUrlsFromApi(row.thumbnailUrl);
   return {
     id: row.id,
     name: row.name || 'Untitled',
@@ -753,8 +753,6 @@ function HomeTemplateList({
   const [skillsMountKey, setSkillsMountKey] = useState(0);
   /** Filter "我的项目" by team org (empty = all accessible). */
   const [filterOrgId, setFilterOrgId] = useState('');
-  /** Tracks Home/Projects surface enter/leave so we refetch after editor. */
-  const onProjectsSurfaceRef = useRef(false);
 
   /** Guest must not stay on Projects / Skills / More sub-pages — bounce home + open login. */
   useEffect(() => {
@@ -825,19 +823,9 @@ function HomeTemplateList({
     if (!authed) {
       dispatch(clearProjectsLibrary());
       clearProjectsListCache();
-      onProjectsSurfaceRef.current = false;
       return;
     }
-    const onSurface = showHome || showMine;
-    if (!onSurface) {
-      onProjectsSurfaceRef.current = false;
-      return;
-    }
-    const entering = !onProjectsSurfaceRef.current;
-    onProjectsSurfaceRef.current = true;
-    if (!entering) return;
-    void refreshProjectsList({ flush: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh on surface enter
+    // List uses refetchOnMount:'always'; editor exit invalidates via prepareProjectsListNavigation.
   }, [authed, dispatch, showHome, showMine]);
 
   const loadMoreProjects = useCallback(() => {

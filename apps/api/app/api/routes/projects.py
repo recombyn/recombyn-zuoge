@@ -52,10 +52,6 @@ class UpsertProjectIn(BaseModel):
     id: str | None = Field(default=None, max_length=64)
     name: str = Field(default="Untitled", max_length=255)
     document: dict[str, Any] | None = None
-    thumbnailDataUrl: str | None = None
-    """Up to 4 raster data URLs for list collage (preferred over single)."""
-    thumbnailDataUrls: list[str] | None = None
-    """Up to 4 already-hosted image URLs (element-node srcs)."""
     thumbnailUrls: list[str] | None = None
     """True when the client is uploading a user-chosen cover (protect from auto thumbs)."""
     thumbnailCustom: bool | None = None
@@ -68,8 +64,6 @@ class UpsertProjectIn(BaseModel):
 class PatchProjectIn(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     baseRevision: int | None = None
-    thumbnailDataUrl: str | None = None
-    thumbnailDataUrls: list[str] | None = None
     thumbnailUrls: list[str] | None = None
     thumbnailCustom: bool | None = None
     upsertNodes: dict[str, Any] | None = None
@@ -82,11 +76,6 @@ class PatchProjectIn(BaseModel):
 
 class BatchDeleteIn(BaseModel):
     ids: list[str] = Field(..., min_length=1, max_length=100)
-
-
-class ExtractCoversIn(BaseModel):
-    """Optional live document; otherwise server uses the stored project document."""
-    document: dict[str, Any] | None = None
 
 
 @router.get("", response_model=ProjectListOut)
@@ -121,32 +110,6 @@ def get_one(
     return {"project": row}
 
 
-@router.post("/{project_id}/covers", response_model=ProjectOneOut)
-def extract_covers(
-    current_user: CurrentUser,
-    project_id: str,
-    body: ExtractCoversIn | None = None,
-) -> dict[str, Any]:
-    """Build ≤4 cover tiles from document elements (Publish tab)."""
-    try:
-        row = project_store.extract_project_covers(
-            current_user.id,
-            project_id,
-            document=(body.document if body else None),
-        )
-    except ProjectNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "project_not_found", "id": exc.project_id or project_id},
-        ) from exc
-    except ProjectForbiddenError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": exc.code, "id": exc.project_id},
-        ) from exc
-    return {"project": row}
-
-
 @router.put("", response_model=ProjectOneOut)
 def upsert(
     current_user: CurrentUser,
@@ -162,8 +125,6 @@ def upsert(
             project_id=body.id,
             name=body.name,
             document=body.document,
-            thumbnail_data_url=body.thumbnailDataUrl,
-            thumbnail_data_urls=body.thumbnailDataUrls,
             thumbnail_urls=body.thumbnailUrls,
             thumbnail_custom=body.thumbnailCustom,
             base_revision=base_rev,
@@ -204,12 +165,7 @@ def patch_one(
     if body.canvas is not None:
         patch["canvas"] = body.canvas
     # Allow thumbnail-only / rename-only patches (no node delta).
-    has_thumb = bool(
-        body.thumbnailDataUrl
-        or body.thumbnailDataUrls
-        or body.thumbnailUrls
-        or body.thumbnailCustom is not None
-    )
+    has_thumb = bool(body.thumbnailUrls or body.thumbnailCustom is not None)
     has_name = body.name is not None
     if not patch and not has_thumb and not has_name:
         raise HTTPException(status_code=400, detail="Empty patch")
@@ -221,8 +177,6 @@ def patch_one(
             project_id,
             name=body.name,
             patch=patch,
-            thumbnail_data_url=body.thumbnailDataUrl,
-            thumbnail_data_urls=body.thumbnailDataUrls,
             thumbnail_urls=body.thumbnailUrls,
             thumbnail_custom=body.thumbnailCustom,
             base_revision=base_rev,

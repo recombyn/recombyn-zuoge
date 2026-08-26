@@ -1,13 +1,13 @@
 /**
- * Upload helpers shared across editor / home (FormData, preview, COS key resolve).
+ * Upload helpers shared across editor / home (preview, COS key resolve).
  * HTTP endpoints live in `@/service/upload`.
  */
 
 import {
   deleteUploadedFile as deleteUploadedFileApi,
+  uploadUserFile,
   type UploadedFileItem,
 } from '@/service/upload';
-import { uploadFileViaJob, dispatchUploadJobCreated } from '@/service/uploadJobs';
 import { getHttpErrorMessage } from '@/service/client';
 import { UploadTooLargeError } from '@/utils/uploadLimits';
 import { resolveApiUrl } from '@/utils/apiBase';
@@ -77,29 +77,18 @@ export function formatUploadErrorMessage(
   return getHttpErrorMessage(err, fallback);
 }
 
-/** Upload a single image/video and return its public/display URL. */
+/** Upload a single image/video/audio file and return its public/display URL. */
 export async function uploadImageFile(
   file: File,
   opts?: {
     signal?: AbortSignal;
-    onJobCreated?: (jobId: string) => void;
+    onProgress?: (pct: number) => void;
     jobId?: string;
     dispatch?: (action: unknown) => unknown;
     nodeId?: string;
   }
 ): Promise<UploadedFileItem> {
-  const nodeId = String(opts?.nodeId || '').trim();
-  const onJobCreated =
-    opts?.onJobCreated ??
-    (opts?.dispatch && nodeId
-      ? (jobId: string) => dispatchUploadJobCreated(opts.dispatch!, nodeId, jobId)
-      : undefined);
-
-  return uploadFileViaJob(file, {
-    signal: opts?.signal,
-    jobId: opts?.jobId,
-    onJobCreated,
-  });
+  return uploadUserFile(file, opts);
 }
 
 /** Delete a previously uploaded object by storage key (no-op when logged out / empty). */
@@ -350,10 +339,9 @@ export async function uploadImageFromSrc(
   opts?: {
     signal?: AbortSignal;
     uploadKey?: string | null;
-    onJobCreated?: (jobId: string) => void;
-    jobId?: string;
     dispatch?: (action: unknown) => unknown;
     nodeId?: string;
+    jobId?: string;
   }
 ): Promise<UploadedFileItem> {
   const s = (src || '').trim();
@@ -365,7 +353,6 @@ export async function uploadImageFromSrc(
   return uploadImageFile(file, {
     signal: opts?.signal,
     jobId: opts?.jobId,
-    onJobCreated: opts?.onJobCreated,
     dispatch: opts?.dispatch,
     nodeId: opts?.nodeId,
   });

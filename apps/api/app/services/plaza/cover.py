@@ -51,7 +51,7 @@ def _frame_by_name(frames: list[dict[str, Any]], name: str) -> dict[str, Any] | 
 
 def find_cover_frame(document: dict[str, Any] | None) -> dict[str, Any] | None:
     """
-    Frame used for Plaza list cards / publish preview.
+    Frame used for Plaza list cards.
     Prefer activeFrameId, then a board named 「封面」, then the first artboard.
     """
     frames = list_artboard_frames(document)
@@ -223,7 +223,7 @@ def extract_frame_document(
 
 
 def extract_cover_document(document: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Plaza list / publish preview: artboard when present, else full document."""
+    """Plaza list: artboard when present, else full document."""
     framed = extract_frame_document(document, find_cover_frame(document))
     if framed:
         return framed

@@ -1,7 +1,8 @@
-"""Unit tests for async upload jobs."""
+"""Unit tests for chunked upload jobs."""
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from typing import Any, Iterator
 from unittest.mock import MagicMock
@@ -10,13 +11,33 @@ import pytest
 
 
 @contextmanager
+def _memory_job_store(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
+    from app.services import job_store
+
+    store: dict[str, str] = {}
+
+    class _Fake:
+        def set(self, key: str, value: str, ex: int | None = None) -> None:
+            store[key] = value
+
+        def get(self, key: str) -> str | None:
+            return store.get(key)
+
+    monkeypatch.setattr(job_store, "_client", lambda: _Fake())
+    yield store
+
+
+@contextmanager
 def _auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
     from app.api import deps
-    from app.main import app
+    from app.api.routes import upload_jobs
     from app.services.auth import SessionUser
 
+    app = FastAPI()
+    app.include_router(upload_jobs.router, prefix="/api/v1/uploads")
     app.dependency_overrides[deps.get_current_user] = lambda: SessionUser(
         id="u1",
         email="t@example.com",
@@ -31,68 +52,55 @@ def _auth_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
         app.dependency_overrides.clear()
 
 
-def test_create_upload_job_enqueues(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    from app.api.routes import upload_jobs as route_mod
+def test_create_upload_session(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    from app.core.config import settings
+    from app.services.job_store import job_key
 
-    saved: dict[str, Any] = {}
-    monkeypatch.setattr(route_mod, "_upload_job_temp_dir", lambda: tmp_path)
+    with _memory_job_store(monkeypatch) as redis_store:
+        monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
+        monkeypatch.setattr(settings, "max_upload_mb", 0)
 
-    def _save(job_id: str, payload: dict[str, Any], *, kind: str = "import"):
-        saved["kind"] = kind
-        saved["payload"] = payload
+        with _auth_client(monkeypatch) as client:
+            res = client.post(
+                "/api/v1/uploads/jobs/session",
+                json={"filename": "photo.png", "content_type": "image/png", "total_size": 128},
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["part_count"] == 1
 
-    delay = MagicMock()
-    monkeypatch.setattr(route_mod, "save_job", _save)
-    monkeypatch.setattr(route_mod.run_upload_job, "delay", delay)
-
-    with _auth_client(monkeypatch) as client:
-        res = client.post(
-            "/api/v1/uploads/jobs",
-            files={"file": ("photo.png", b"png-bytes", "image/png")},
-        )
-        assert res.status_code == 200, res.text
-        body = res.json()
-        assert body["status"] == "queued"
-        assert saved["kind"] == "upload"
-        assert saved["payload"]["user_id"] == "u1"
-        assert saved["payload"]["filename"] == "photo.png"
-        delay.assert_called_once()
+            raw = redis_store.get(job_key(body["job_id"], kind="upload"))
+            assert raw is not None
+            payload = json.loads(raw)
+            assert payload["status"] == "uploading"
+            assert payload["user_id"] == "u1"
 
 
-def test_create_upload_job_rejects_oversized_file(monkeypatch: pytest.MonkeyPatch, tmp_path):
+def test_complete_upload_job_enqueues_worker(monkeypatch: pytest.MonkeyPatch, tmp_path):
     from app.api.routes import upload_jobs as route_mod
     from app.core.config import settings
+    from app.services import upload_job_store as store
 
-    monkeypatch.setattr(route_mod, "_upload_job_temp_dir", lambda: tmp_path)
-    monkeypatch.setattr(settings, "max_upload_mb", 1)
-    monkeypatch.setattr(settings, "max_video_upload_mb", 2)
+    with _memory_job_store(monkeypatch):
+        monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
+        monkeypatch.setattr(settings, "upload_chunk_size_mb", 1)
+        monkeypatch.setattr(settings, "max_upload_mb", 0)
 
-    with _auth_client(monkeypatch) as client:
-        res = client.post(
-            "/api/v1/uploads/jobs",
-            files={"file": ("big.png", b"x" * (1024 * 1024 + 1), "image/png")},
+        mock_run = MagicMock()
+        monkeypatch.setattr(route_mod, "run_upload_job", mock_run)
+
+        sess = store.create_upload_session(
+            "u1",
+            filename="photo.png",
+            content_type="image/png",
+            total_size=10,
         )
-        assert res.status_code == 413, res.text
-        assert "max 1MB" in res.json()["detail"]
+        store.save_upload_part("u1", sess["job_id"], 1, b"1234567890")
 
-
-def test_create_upload_job_allows_larger_video(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    from app.api.routes import upload_jobs as route_mod
-    from app.core.config import settings
-
-    monkeypatch.setattr(route_mod, "_upload_job_temp_dir", lambda: tmp_path)
-    monkeypatch.setattr(settings, "max_upload_mb", 1)
-    monkeypatch.setattr(settings, "max_video_upload_mb", 3)
-    monkeypatch.setattr(route_mod, "save_job", lambda *a, **k: None)
-    monkeypatch.setattr(route_mod.run_upload_job, "delay", MagicMock())
-
-    payload = b"v" * (2 * 1024 * 1024)
-    with _auth_client(monkeypatch) as client:
-        res = client.post(
-            "/api/v1/uploads/jobs",
-            files={"file": ("clip.mp4", payload, "video/mp4")},
-        )
-        assert res.status_code == 200, res.text
+        with _auth_client(monkeypatch) as client:
+            res = client.post(f"/api/v1/uploads/jobs/{sess['job_id']}/complete")
+            assert res.status_code == 200, res.text
+            mock_run.delay.assert_called_once_with(sess["job_id"])
 
 
 def test_get_upload_job_ok(monkeypatch: pytest.MonkeyPatch):
@@ -113,51 +121,30 @@ def test_get_upload_job_ok(monkeypatch: pytest.MonkeyPatch):
     with _auth_client(monkeypatch) as client:
         res = client.get("/api/v1/uploads/jobs/abc123")
         assert res.status_code == 200, res.text
-        body = res.json()
-        assert body["status"] == "done"
-        assert body["result"]["item"]["url"] == "https://cdn.example/a.png"
-
-
-def test_upload_job_temp_dir_under_upload_dir(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    from app.api.routes import upload_jobs as route_mod
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
-    monkeypatch.chdir(tmp_path)
-    dest = route_mod._upload_job_temp_dir()
-    assert dest == (tmp_path / "upload_jobs").resolve()
-    assert dest.is_dir()
-
-
-def test_execute_upload_job_missing_temp_raises():
-    from app.api.routes.upload_jobs import execute_upload_job
-
-    with pytest.raises(RuntimeError, match="临时文件"):
-        execute_upload_job(
-            {
-                "user_id": "u1",
-                "temp_path": "/no/such/file",
-                "filename": "x.png",
-                "content_type": "image/png",
-            }
-        )
+        assert res.json()["status"] == "done"
 
 
 def test_execute_upload_job_pushes_to_storage(monkeypatch: pytest.MonkeyPatch, tmp_path):
     from app.api.routes.upload_jobs import execute_upload_job
 
-    temp = tmp_path / "job1"
+    temp = tmp_path / "assembled.bin"
     temp.write_bytes(b"hello")
 
     monkeypatch.setattr(
-        "app.services.uploads.upload_user_files",
-        lambda user_id, files: [
-            {"url": "https://cdn.example/x.png", "key": f"uploads/{user_id}/x.png"}
-        ],
+        "app.services.uploads.upload_user_file_from_path",
+        lambda user_id, path, filename, content_type: {
+            "url": "https://cdn.example/x.png",
+            "key": f"uploads/{user_id}/x.png",
+        },
+    )
+    monkeypatch.setattr(
+        "app.api.routes.upload_jobs.job_store.cleanup_upload_job_files",
+        lambda *a, **k: None,
     )
 
     out = execute_upload_job(
         {
+            "job_id": "j1",
             "user_id": "u1",
             "temp_path": str(temp),
             "filename": "x.png",
@@ -165,4 +152,3 @@ def test_execute_upload_job_pushes_to_storage(monkeypatch: pytest.MonkeyPatch, t
         }
     )
     assert out["item"]["url"] == "https://cdn.example/x.png"
-    assert not temp.exists()

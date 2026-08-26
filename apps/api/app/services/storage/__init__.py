@@ -195,6 +195,13 @@ def put_bytes(
         raise RuntimeError(_storage_put_error_message(exc)) from exc
 
 
+def put_file(key: str, path: Path, content_type: str | None = None) -> str:
+    try:
+        return get_storage().put_file(key, path, content_type=content_type)
+    except Exception as exc:
+        raise RuntimeError(_storage_put_error_message(exc)) from exc
+
+
 def get_bytes(key: str) -> bytes | None:
     return get_storage().get_bytes(key)
 

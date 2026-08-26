@@ -55,8 +55,10 @@ class Settings(BaseSettings):
     )
     upload_dir: str = "storage/uploads"
     result_dir: str = "storage/results"
-    max_upload_mb: int = 50
-    max_video_upload_mb: int = 100
+    # 0 = no per-file size cap (chunked upload handles large bodies).
+    max_upload_mb: int = 0
+    max_video_upload_mb: int = 0
+    upload_chunk_size_mb: int = 8
     # Reject uploads whose magic bytes disagree with claimed image/video/audio type.
     upload_require_magic_match: bool = True
     # Optional external scanner (e.g. clamscan); off by default.

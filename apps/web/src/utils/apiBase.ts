@@ -50,7 +50,7 @@ export function isLocalDevHost(): boolean {
 }
 
 /**
- * Local dev: multipart uploads bypass Vite proxy (Node HTTP parser → 413 on large bodies).
+ * Local dev: chunk uploads bypass Vite proxy (Node HTTP parser → 413 on large bodies).
  * Returns e.g. `http://127.0.0.1:8000`; empty in prod / remote API builds.
  */
 export function getLocalDevApiOrigin(): string {

@@ -956,7 +956,6 @@ const en = {
     shareEdit: 'Can edit',
     shareTabShare: 'Share',
     shareTabPublish: 'Publish',
-    sharePublishSoon: 'Publishing is coming soon',
     shareLinkSection: 'Link sharing',
     shareLinkOn: 'Enabled — anyone with the link can access by permission',
     shareLinkOff: 'Not enabled — only collaborators can access this file',

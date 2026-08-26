@@ -948,7 +948,6 @@ const zhCN = {
     shareEdit: '可编辑',
     shareTabShare: '分享',
     shareTabPublish: '发布',
-    sharePublishSoon: '发布功能即将开放',
     shareLinkSection: '链接分享',
     shareLinkOn: '已开启，获得链接的人可按权限访问',
     shareLinkOff: '未开启，仅文件协作者可访问此文件',
