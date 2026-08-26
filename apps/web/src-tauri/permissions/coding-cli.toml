@@ -1,9 +1,0 @@
-[[permission]]
-identifier = "allow-coding-cli"
-description = "Detect and run local coding-agent CLIs (Claude Code, Codex, …)"
-commands.allow = [
-  "list_coding_clis",
-  "prepare_coding_cli_workspace",
-  "run_coding_cli",
-  "kill_coding_cli",
-]

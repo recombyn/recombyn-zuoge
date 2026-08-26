@@ -116,6 +116,7 @@ runtime:
   flags:
     defer_tools: true
     critique_enabled: true
+    mcp_canvas_enabled: true
     # auto = Review only on structure retry / taste complaint / high-stakes
     review_mode: auto
     memory_clip: true

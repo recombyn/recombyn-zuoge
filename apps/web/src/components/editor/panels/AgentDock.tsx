@@ -80,10 +80,7 @@ import {
   type ComposerContext,
 } from '@/components/editor/panels/AgentComposerInput';
 import { pauseDesignRun, fetchDesignRunStatus, type DesignSkillCard, type DesignCatalog, type DesignScene } from '@/service/design';
-import AgentDockHeader, {
-  type AgentEngineMode,
-  type CodingCliOption,
-} from '@/components/editor/panels/agent/dock/AgentDockHeader';
+import AgentDockHeader from '@/components/editor/panels/agent/dock/AgentDockHeader';
 import AgentDockFloatingPanels from '@/components/editor/panels/agent/dock/AgentDockFloatingPanels';
 import {
   applyCanvasAttachPayload,
@@ -95,23 +92,9 @@ import {
   resolveAttachFlyLabel,
   resolveNextFlyOrigin,
 } from '@/components/editor/panels/agent/composer/flyToChat';
-import {
-  buildCodingCliEnrichedPrompt,
-  buildCodingCliWorkspaceFiles,
-  codingCliApplyFooter,
-  listCodingClisDesktop,
-  persistCodingCliId,
-  persistEngineMode,
-  prepareCodingCliWorkspaceDesktop,
-  readStoredCodingCliId,
-  readStoredEngineMode,
-  runCodingCliDesktop,
-} from '@/components/editor/panels/agent/codingCli';
-import { extractToolOpsFromText } from '@/components/editor/panels/agent/toolOpsContract';
 import { useChatSessions } from '@/components/editor/panels/agent/useChatSessions';
 import {
   runDesignAgent,
-  applyAgentToolOps,
   resolveDesignTargetFrame,
   nodeIdsInsideFrame,
   frameIdContainingNode,
@@ -161,7 +144,6 @@ import { normalizeCanvasSizeChip } from '@/components/editor/chrome/SizePresetPa
 import {
   customProvidersAsModels,
 } from '@/components/editor/panels/agent/customLlmProviders';
-import { isDesktopLocal, isDesktopShell } from '@/utils/apiBase';
 import {
   routeOverridesForApi,
   warmAgentRoutePresetRules,
@@ -728,14 +710,6 @@ function AgentDock({
   const [imageAspectRatio, setImageAspectRatio] = useState<string>('auto');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const desktopShell = isDesktopShell();
-  const [engineMode, setEngineMode] = useState<AgentEngineMode>(() =>
-    desktopShell ? readStoredEngineMode() : 'agent'
-  );
-  const [codingClis, setCodingClis] = useState<CodingCliOption[]>([]);
-  const [codingCliId, setCodingCliId] = useState(() =>
-    desktopShell ? readStoredCodingCliId() : ''
-  );
   /** @ / cube → model panel */
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
   const [mentionPanelOpen, setMentionPanelOpen] = useState(false);
@@ -853,7 +827,6 @@ function AgentDock({
     if (fid) lastAgentFrameIdRef.current = String(fid);
   }, [sessionId, taskState?.canvas?.last_agent_frame_id]);
 
-  const codingClisInflightRef = useRef<Promise<CodingCliOption[]> | null>(null);
   const lastHydrateSignalRef = useRef(0);
   const modelsUnavailableWarnRef = useRef(false);
   const modelsErrToastRef = useRef(false);
@@ -968,47 +941,6 @@ function AgentDock({
     setSkillsWanted(true);
   };
 
-  const ensureCodingClisLoaded = async (): Promise<CodingCliOption[]> => {
-    if (!desktopShell) return [];
-    if (codingClis.length) return codingClis;
-    if (codingClisInflightRef.current) return codingClisInflightRef.current;
-    async function loadCodingClis(): Promise<CodingCliOption[]> {
-      try {
-        const rows = await listCodingClisDesktop();
-        const anyAvailable = rows.some((r) => r.available);
-        setCodingClis(rows);
-        if (!anyAvailable) {
-          setEngineMode('agent');
-          persistEngineMode('agent');
-          setCodingCliId('');
-        } else {
-          setCodingCliId((prev) => {
-            if (prev && rows.some((r) => r.id === prev && r.available)) return prev;
-            const next = rows.find((c) => c.available)?.id || '';
-            if (next) persistCodingCliId(next);
-            return next;
-          });
-        }
-        return rows;
-      } catch {
-        setCodingClis([]);
-        setEngineMode('agent');
-        persistEngineMode('agent');
-        setCodingCliId('');
-        return [] as CodingCliOption[];
-      } finally {
-        codingClisInflightRef.current = null;
-      }
-    }
-    const pending = loadCodingClis();
-    codingClisInflightRef.current = pending;
-    return pending;
-  };
-
-  const hydrateDockData = () => {
-    ensureCodingClisLoaded();
-  };
-
   useEffect(() => {
     const onWinResize = () => setDockWidth((w) => clampAgentDockWidth(w));
     window.addEventListener('resize', onWinResize);
@@ -1081,8 +1013,7 @@ function AgentDock({
     if (lastHydrateSignalRef.current === openSignal) return;
     lastHydrateSignalRef.current = openSignal;
     setModelPanelOpen(false);
-    hydrateDockData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- signal-driven hydrate; loaders short-circuit when ready
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- signal-driven reset on dock open
   }, [open, openSignal]);
 
   useEffect(() => {
@@ -1956,17 +1887,6 @@ function AgentDock({
       pauseLiveDesignRun();
     }
     abortRef.current?.abort();
-    if (desktopShell && engineMode === 'cli') {
-      async function killCodingCliOnStop() {
-        try {
-          const { invoke } = await import('@tauri-apps/api/core');
-          await invoke('kill_coding_cli');
-        } catch {
-          /* ignore */
-        }
-      }
-      killCodingCliOnStop();
-    }
     dispatch(setAgentBusy(false));
     setSending(false);
     setMessages((prev) =>
@@ -2187,13 +2107,7 @@ function AgentDock({
       message.warning(t('agent.attachWaitUpload'));
       return;
     }
-    const useCodingCli =
-      desktopShell &&
-      engineMode === 'cli' &&
-      codingClis.some((c) => c.available) &&
-      !forceAgent &&
-      !options.applyOps?.length;
-    if (available === false && !useCodingCli) {
+    if (available === false) {
       message.warning(
         composerSendDisabledReason({
           t,
@@ -2272,9 +2186,7 @@ function AgentDock({
       mentionNodeIds,
       docForFill,
     });
-    const runVideoGen =
-      !useCodingCli &&
-      shouldRunVideoGenPath({
+    const runVideoGen = shouldRunVideoGenPath({
         isVideoModelSelected,
         forceAgent,
         hasApplyOps: Boolean(options.applyOps?.length),
@@ -2388,133 +2300,6 @@ function AgentDock({
               videoPendingCount: undefined,
               steps: [],
             })
-        );
-      } finally {
-        dispatch(setAgentBusy(false));
-        setSending(false);
-      }
-      return;
-    }
-
-    // Local coding CLI — mutually exclusive with Design Agent (LangGraph untouched).
-    if (useCodingCli) {
-      dispatch(setAgentBusy(true));
-      const cliId = codingCliId || codingClis.find((c) => c.available)?.id || '';
-      let streamed = '';
-      const appendToken = (chunk: string) => {
-        if (!chunk) return;
-        streamed += chunk;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: `${m.content || ''}${chunk}` }
-              : m
-          )
-        );
-      };
-      try {
-        if (!cliId) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? finishAssistantPatch(m, { content: t('agent.engineCliMissing') })
-                : m
-            )
-          );
-          return;
-        }
-        const docNow = store.getState().editor?.document;
-        const {
-          chipFrameId,
-          targetFrameId,
-          sceneNodes,
-          sceneFrames,
-          spatialSummary,
-        } = buildDesignSceneSnapshot({
-          docNow,
-          chipFrameId: chipFrameIdFromContext,
-          frameChip,
-          mentionNodeIds,
-          lastAgentFrameId: lastAgentFrameIdRef.current,
-          taskStateFrameId: taskState?.canvas?.last_agent_frame_id || null,
-          canvasUi,
-        });
-        if (docNow) {
-          checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
-        }
-        const cwd = await prepareCodingCliWorkspaceDesktop({
-          projectId: chatScopeId || '__none__',
-          files: buildCodingCliWorkspaceFiles({
-            userPrompt: userMessageForApi,
-            skillRefs,
-            scene: {
-              focusFrameId: chipFrameId || targetFrameId,
-              frames: sceneFrames,
-              nodes: sceneNodes,
-              spatial: spatialSummary,
-            },
-          }),
-        });
-        appendToken(`${t('agent.engineCliRunning')}\n\n`);
-        await runCodingCliDesktop({
-          cliId,
-          cwd,
-          prompt: buildCodingCliEnrichedPrompt({
-            userPrompt: userMessageForApi,
-            cwd,
-            skillRefs,
-          }),
-          signal: ac.signal,
-          onChunk: appendToken,
-        });
-        if (ac.signal.aborted) return;
-        const ops = extractToolOpsFromText(streamed);
-        let applied = { created: 0, updated: 0, deleted: 0 };
-        if (ops.length) {
-          const paint = await applyAgentToolOps({
-            ops,
-            dispatch,
-            getDocument: () => store.getState().editor?.document,
-            frameId: targetFrameId,
-            signal: ac.signal,
-            sceneNodes,
-            canvasUi,
-          });
-          applied = {
-            created: paint.created,
-            updated: paint.updated,
-            deleted: paint.deleted,
-          };
-          if (paint.frameId) lastAgentFrameIdRef.current = paint.frameId;
-        }
-        const footer = codingCliApplyFooter({ t, ops, applied });
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? finishAssistantPatch(m, {
-                  content: m.content?.trim()
-                    ? `${m.content.trim()}\n\n_${footer}_`
-                    : footer,
-                })
-              : m
-          )
-        );
-      } catch (err) {
-        if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
-          return;
-        }
-        const msg =
-          err instanceof Error && err.message ? err.message : t('agent.requestFailed');
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? finishAssistantPatch(m, {
-                  content: m.content?.trim()
-                    ? `${m.content.trim()}\n\n${msg}`
-                    : msg,
-                })
-              : m
-          )
         );
       } finally {
         dispatch(setAgentBusy(false));
@@ -3031,32 +2816,11 @@ function AgentDock({
 
   const handleHeaderClose = () => {
     abortRef.current?.abort();
-    if (desktopShell && engineMode === 'cli') {
-      async function killCodingCliOnClose() {
-        try {
-          const { invoke } = await import('@tauri-apps/api/core');
-          await invoke('kill_coding_cli');
-        } catch {
-          /* ignore */
-        }
-      }
-      killCodingCliOnClose();
-    }
     dispatch(setAgentBusy(false));
     setSending(false);
     closePopovers();
     setHistoryOpen(false);
     onClose();
-  };
-
-  const handleEngineModeChange = (mode: AgentEngineMode) => {
-    setEngineMode(mode);
-    persistEngineMode(mode);
-  };
-
-  const handleCodingCliChange = (id: string) => {
-    setCodingCliId(id);
-    persistCodingCliId(id);
   };
 
   const slashTriggerIndex = (value: string): number => {
@@ -3491,11 +3255,6 @@ function AgentDock({
         onNewChat={startNewChat}
         onToggleHistory={handleToggleHistory}
         onClose={handleHeaderClose}
-        engineMode={desktopShell ? engineMode : undefined}
-        onEngineModeChange={desktopShell ? handleEngineModeChange : undefined}
-        codingClis={desktopShell ? codingClis : undefined}
-        codingCliId={desktopShell ? codingCliId : undefined}
-        onCodingCliChange={desktopShell ? handleCodingCliChange : undefined}
       />
 
       <AgentMessageList

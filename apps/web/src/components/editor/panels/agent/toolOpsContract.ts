@@ -98,7 +98,7 @@ function coerceOpsPayload(data: unknown): AgentToolOp[] {
   return [];
 }
 
-/** Pull canvas tool_ops from coding-CLI / LLM prose (fenced JSON or embedded object). */
+/** Pull canvas tool_ops from LLM prose (fenced JSON or embedded object). */
 export function extractToolOpsFromText(text: string): AgentToolOp[] {
   const raw = String(text || '');
   if (!raw.trim()) return [];

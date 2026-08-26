@@ -1643,7 +1643,7 @@ export async function captureCritiquePreview(
   return captureFocusFramePreview(doc, focusFrameId);
 }
 
-/** Apply allowlisted canvas tool_ops (Design Agent SSE + coding-CLI bridge). */
+/** Apply allowlisted canvas tool_ops (Design Agent SSE). */
 /** Show artboard scan/shimmer while the design agent is generating. */
 function markArtboardGenerating(
   dispatch: Dispatch,

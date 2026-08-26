@@ -24,11 +24,43 @@
   <p><strong>Make it — design has never been this simple</strong></p>
 </div>
 
-**zuoge** is an open-source AI design workspace with an editable infinite vector canvas and a Design Agent. The product slogan is *Make it — design has never been this simple*. Use natural language to create and revise shapes, text, layouts, and styles, continue refining directly on the canvas, and self-host with Docker Compose.
+**zuoge** is an open-source AI design workspace: infinite vector canvas, LangGraph Design Agent, and an **MCP server** so tools like Cursor can read and edit the same projects. Self-host with Docker Compose; local dev defaults to SQLite ([PostgreSQL](docs/postgres-switch.md) optional).
 
-Built-in Design Agent (LangGraph): natural language creates layers, draws shapes, restyles, and typesets. Ships with Skills out of the box; you can also add custom Skills / AgentProfile (YAML) / prompt packs for posters, dashboards, landing pages, and more — then keep editing at vector precision.
+## MCP canvas
 
-You can self-host in a few minutes with Docker Compose (default **MySQL** + Redis + web + API + **Yjs collab**). For local dev, leave `DATABASE_URL` empty for **SQLite**, or switch to **PostgreSQL** — see [docs/postgres-switch.md](docs/postgres-switch.md).
+External clients connect via [Model Context Protocol](https://modelcontextprotocol.io) and use the same `tool_ops` contract as the built-in Agent.
+
+| Mode | Behavior |
+|------|----------|
+| **Live** | Editor open → ops apply in the browser |
+| **Headless** | Editor closed → API patches the project document |
+
+```bash
+# apps/api/.env
+MCP_CANVAS_ENABLED=true
+# apps/web/.env — live apply while editing
+VITE_MCP_CANVAS_ENABLED=true
+```
+
+Cursor — add to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "recombyn-canvas": {
+      "command": "node",
+      "args": ["scripts/mcp/recombyn_canvas_stdio.mjs"],
+      "env": {
+        "RECOMBYN_API_URL": "http://127.0.0.1:8000",
+        "RECOMBYN_TOKEN": "<token>",
+        "RECOMBYN_PROJECT_ID": "<project-id>"
+      }
+    }
+  }
+}
+```
+
+Smoke test: `SUPER_ADMIN_TEST_CODE=… node scripts/mcp/test-canvas-e2e.mjs` · [docs/mcp-canvas.md](docs/mcp-canvas.md)
 
 ---
 
@@ -40,112 +72,30 @@ Open source takes time. If zuoge helps you, please hit **⭐ Star** in the top-r
 
 ## Canvas
 
-Custom infinite canvas: the scene graph is `SceneDocument`, with a 5%–10000% zoom range. Committed nodes normally paint as per-node **SVG**; the grid and eligible lightweight far-out nodes use Canvas2D LOD proxies. Hit testing combines the spatial index, AABB checks, and **Path2D** geometry to keep large documents responsive.
+Infinite vector canvas (`SceneDocument`, 5%–10000% zoom): SVG nodes, Path2D hit testing, Canvas2D LOD. Frames, shapes, text, images, pen/pencil, boolean ops, stroke align, export, **Yjs** collab.
 
-Details: [docs/canvas-architecture.md](docs/canvas-architecture.md) · Scene JSON: [docs/scene-json-spec.md](docs/scene-json-spec.md).
-
-You can:
-
-- Build frames, shapes, text, images, video, Lottie; draw with pen / pencil (filled-ribbon vector brushes); select & transform  
-- Run **boolean ops** (union / subtract / intersect, …)  
-- Set **stroke align**: center / **inside** / **outside**  
-- **Outline** a stroke into an editable filled path, then edit the path  
-- Fill, corner radius, blend modes, opacity, stacking; export & share  
-- Turn on **Yjs** live collab (cursors, selection, undo; `apps/collab`)
+→ [docs/canvas-architecture.md](docs/canvas-architecture.md) · [docs/scene-json-spec.md](docs/scene-json-spec.md)
 
 ## Design Agent
 
-A streaming chat agent: you describe the job; it plans, attaches Skills, calls tools, and writes back onto the same canvas — landings, posters, revisions, and more.
+Streaming chat on the same canvas: plan → Skills → `tool_ops` → apply. Fixed LangGraph kernel (`canvas_ops_v1`); behavior from **AgentProfile** YAML, stage prompts, **Skills**, and the tool registry.
 
-### How it’s layered
+| Customize | Where |
+|-----------|--------|
+| Profile / routing | [`design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml), [`bindings.yaml`](apps/api/seeds/agents/bindings.yaml) |
+| Skills | [`skills/`](skills/) · [`plugins/skills/`](plugins/skills/) |
+| Canvas ops | [`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) |
 
-The execution kernel is fixed: LangGraph template `canvas_ops_v1`. Category and behavior come from config (AgentProfile YAML / prompt packs / Skills / Tools) — you don’t have to touch the kernel.
-
-| Layer | Owns | Must not |
-|-------|------|----------|
-| **Kernel** | Control loop, tool scheduling, canvas R/W, rounds / permissions / ops allowlist | Design taste or category craft |
-| **AgentProfile (YAML)** | Stage protocol, routing, roles, sub-agents, capabilities | Replace the LangGraph registry |
-| **Stage prompt packs** | Per-stage turn protocol (intent / decide / paint / review / …) | Category craft curricula |
-| **Skills** | Domain playbooks (layout, rhythm, review bars, few-shots) | JSON element / patch schema |
-| **Tools** | Atomic canvas ops (`create_frame`, `update_node`, …) | Business aesthetics |
-
-Typical turn: `intent` → (chat settle / lean `paint` / design `decide`) → `paint` emits `tool_ops` → `observe` → optional **Review** sub-agent → settle. Full graph: **[docs/agent-profile.md](docs/agent-profile.md)**.
-
-### Skills
-
-One folder per skill: `skills/foundation/<key>/` or `skills/domains/<key>/` (`_meta.json` + `SKILL.md`; optional `schema.json`, `assets/`, …).
-
-- **`_meta.json`** — when to use, triggers, `preferred_tools`, mutex — Decide picks skills from this  
-- **`SKILL.md`** — how to craft that deliverable (landing, poster, resume, dashboard, motion, …)
-
-The repo already ships many (landing, poster, resume, dashboard, motion, ecommerce…). You can keep adding folders — no fixed cap.
-
-### Tools
-
-Atomic canvas ops live in [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json). Paint emits structured `tool_ops`; the host validates and applies them. Skills may prefer tools; they cannot invent ops outside the registry.
-
-### Files to change when you customize the Agent
-
-| File | Purpose |
-|------|---------|
-| [`apps/api/seeds/agents/profiles/design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) | **Default Profile**: stages, roles, subagents, skills/tools catalogs, `$kv` routing |
-| [`apps/api/seeds/agents/bindings.yaml`](apps/api/seeds/agents/bindings.yaml) | `product` / `surface` → Profile id |
-| [`apps/api/seeds/design_prompt_packs/`](apps/api/seeds/design_prompt_packs/) | Stage prompt bodies |
-| [`skills/`](skills/) | Add / edit shipped skills (foundation + domains) |
-| [`apps/api/seeds/canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) | Tool catalog |
-| `apps/api/.env` → `AGENT_PROFILE_ID` | Force Profile id (default `design.canvas`; empty → use bindings) |
-
-**Swap / add an Agent**
-
-1. Copy `profiles/design.canvas.yaml` → `profiles/my.agent.yaml`; change `id:` / identity / capabilities  
-2. Point `bindings.yaml` at the new id, or set `AGENT_PROFILE_ID=my.agent`  
-3. Restart the API (Profiles load from disk, not DB rows)
-
-**Add a Skill**
-
-1. Create `design_skills/my_scene/_meta.json` + `SKILL.md`  
-2. Fill triggers + `preferred_tools`  
-3. Restart / re-ensure seeds — Decide can attach it
-
-Extra skill packs can also live under [`plugins/skills/`](plugins/skills/) (Compose-mounted). See [docs/skill-extensions.md](docs/skill-extensions.md).
-
-Env knobs (Review on/off, timeouts): [docs/agent-profile.md § Env knobs](docs/agent-profile.md#env-knobs). Seeds overview: [`apps/api/seeds/README.md`](apps/api/seeds/README.md). Models: [docs/self-hosting.md](docs/self-hosting.md).
+Graph, env knobs, add/swap profiles: **[docs/agent-profile.md](docs/agent-profile.md)** · [seeds README](apps/api/seeds/README.md)
 
 ## Plugins & extensions
 
-Two extension surfaces — don’t mix them up:
+| Kind | Path | Docs |
+|------|------|------|
+| **Skill pack** | [`plugins/skills/<key>/`](plugins/skills/) | [skill-extensions.md](docs/skill-extensions.md) |
+| **Canvas plugin** | [`plugins/canvas/<id>/`](plugins/canvas/) | [canvas-plugins.md](docs/canvas-plugins.md) |
 
-| Kind | Path | What it extends | Sample |
-|------|------|-----------------|--------|
-| **Skill pack** | [`plugins/skills/<key>/`](plugins/skills/) | Design Agent craft (same layout as `skills/`) | [`festival_poster`](plugins/skills/festival_poster/) |
-| **Canvas plugin** | [`plugins/canvas/<id>/`](plugins/canvas/) | Editor UI (toolbar buttons today) | [`watermark`](plugins/canvas/watermark/) |
-
-**Skill pack**
-
-1. Drop `_meta.json` + `SKILL.md` under `plugins/skills/<key>/` (optional `handler.py`, `schema.json`, `assets/`).  
-2. Compose already mounts `./plugins/skills` → API; or set `DESIGN_SKILLS_PLUGIN_DIRS`.  
-3. Restart API / wait for hot reload — chat with a trigger (sample: "create a Mid-Autumn festival poster in red").
-
-Optional: `DESIGN_SKILL_OPS_RUNNER=true` lets `handler.py` emit `tool_ops` before LLM paint. Details: [docs/skill-extensions.md](docs/skill-extensions.md).
-
-**Canvas plugin**
-
-1. Add `manifest.json` + `index.ts` under `plugins/canvas/<id>/`.  
-2. Register it in `ensureCanvasPlugins()` (`apps/web/src/plugins/canvas/host.ts`).  
-3. Rebuild / refresh the web app.
-
-Details: [docs/canvas-plugins.md](docs/canvas-plugins.md).
-
-**Packaged install (`.recombyn-plugin`)**
-
-```bash
-node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster
-# → dist/plugins/<id>-<version>.recombyn-plugin
-# Upload via Skills library, or POST /api/v1/design/plugins/install
-# Disk install needs DESIGN_PLUGIN_DISK_INSTALL=true
-```
-
-→ [docs/plugin-packs.md](docs/plugin-packs.md) · [plugins/skills/README.md](plugins/skills/README.md) · [plugins/canvas/README.md](plugins/canvas/README.md)
+Pack: `node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster` → [plugin-packs.md](docs/plugin-packs.md)
 
 ## Quick start (self-host)
 
@@ -245,6 +195,7 @@ User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) 
 | | |
 |--|--|
 | User docs | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
+| MCP canvas (Cursor / external AI) | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
 | Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
 | Skill extensions | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | Canvas plugins | [docs/canvas-plugins.md](docs/canvas-plugins.md) |

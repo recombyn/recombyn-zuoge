@@ -2,16 +2,8 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BiMessageSquareAdd, BiTimeFive } from 'react-icons/bi';
 import { LuPanelRight } from 'react-icons/lu';
-import { SegmentedControl, Tooltip } from '@/components/base';
+import { Tooltip } from '@/components/base';
 import { cn } from '@/utils/classnames';
-
-export type AgentEngineMode = 'agent' | 'cli';
-
-export type CodingCliOption = {
-  id: string;
-  name: string;
-  available: boolean;
-};
 
 type Props = {
   title: string;
@@ -21,12 +13,6 @@ type Props = {
   onNewChat: () => void;
   onToggleHistory: () => void;
   onClose?: () => void;
-  /** Desktop shell: Agent vs local coding CLI (mutually exclusive). */
-  engineMode?: AgentEngineMode;
-  onEngineModeChange?: (mode: AgentEngineMode) => void;
-  codingClis?: CodingCliOption[];
-  codingCliId?: string;
-  onCodingCliChange?: (id: string) => void;
 };
 
 /**
@@ -40,18 +26,8 @@ function AgentDockHeader({
   onNewChat,
   onToggleHistory,
   onClose,
-  engineMode,
-  onEngineModeChange,
-  codingClis,
-  codingCliId,
-  onCodingCliChange,
 }: Props): ReactNode {
   const { t } = useTranslation();
-  const availableClis = (codingClis || []).filter((c) => c.available);
-  // Hide Agent/CLI chrome entirely when no coding CLI is on PATH.
-  const showEngine = Boolean(
-    engineMode && onEngineModeChange && availableClis.length > 0
-  );
 
   return (
     <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-3">
@@ -59,43 +35,6 @@ function AgentDockHeader({
         <span className="min-w-0 truncate text-[15px] font-semibold text-[var(--ink)]">
           {historyOpen ? t('agent.history') : title}
         </span>
-        {showEngine && !historyOpen && engineMode && onEngineModeChange ? (
-          <div className="flex shrink-0 items-center gap-1.5">
-            <SegmentedControl
-              size="xs"
-              radius="full"
-              aria-label="Agent engine"
-              value={engineMode}
-              onChange={onEngineModeChange}
-              options={[
-                {
-                  value: 'agent',
-                  label: t('agent.engineAgent'),
-                  title: t('agent.engineAgentTip'),
-                },
-                {
-                  value: 'cli',
-                  label: t('agent.engineCli'),
-                  title: t('agent.engineCliTip'),
-                },
-              ]}
-            />
-            {engineMode === 'cli' && onCodingCliChange ? (
-              <select
-                aria-label={t('agent.engineCliPick')}
-                className="h-[26px] max-w-[9rem] truncate rounded-full border border-[var(--line)] bg-[var(--surface)] px-2 text-[11px] text-[var(--ink)] outline-none"
-                value={codingCliId || availableClis[0]?.id || ''}
-                onChange={(e) => onCodingCliChange(e.target.value)}
-              >
-                {availableClis.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-          </div>
-        ) : null}
       </div>
       <div className="relative flex shrink-0 items-center gap-0.5">
         <Tooltip

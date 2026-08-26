@@ -1,10 +1,5 @@
-mod coding_cli;
 mod local_api;
 
-use coding_cli::{
-  kill_coding_cli, list_coding_clis, prepare_coding_cli_workspace, run_coding_cli, stop_coding_cli,
-  CodingCliState,
-};
 use local_api::{ensure_local_api, stop_child, ApiSidecarState};
 use tauri::Manager;
 
@@ -15,13 +10,6 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .manage(ApiSidecarState(std::sync::Mutex::new(None)))
-    .manage(CodingCliState(std::sync::Mutex::new(None)))
-    .invoke_handler(tauri::generate_handler![
-      list_coding_clis,
-      prepare_coding_cli_workspace,
-      run_coding_cli,
-      kill_coding_cli
-    ])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -58,11 +46,6 @@ pub fn run() {
         if let Some(state) = app_handle.try_state::<ApiSidecarState>() {
           if let Ok(mut guard) = state.0.lock() {
             stop_child(&mut guard);
-          }
-        }
-        if let Some(state) = app_handle.try_state::<CodingCliState>() {
-          if let Ok(mut guard) = state.0.lock() {
-            stop_coding_cli(&mut guard);
           }
         }
       }
