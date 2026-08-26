@@ -45,13 +45,13 @@ function createHarness(initialDoc: Record<string, unknown> | undefined, targetFr
       return;
     }
   };
-  const ctx: DesignToolContext = {
+  const ctx = {
     dispatch,
     getDocument: () => doc,
     skipHistory: true,
     targetFrameId,
     allowDestructive: true,
-  };
+  } as DesignToolContext;
   return {
     ctx,
     getDocument: () => doc,
