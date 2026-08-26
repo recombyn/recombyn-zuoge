@@ -118,4 +118,4 @@ jobs:
             sleep 10
           done
           gh pr checks "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --watch --interval 15 || true
-          gh pr merge "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --merge --admin --delete-branch
+          gh pr merge "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --squash --admin --delete-branch
