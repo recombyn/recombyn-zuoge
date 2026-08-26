@@ -165,7 +165,6 @@ import {
   resolveMarqueeCandidates,
   commitMarqueeSelection,
   fallbackVisibleNodeHit,
-  visualGuideBoxForNode,
   computeMovedUnion,
   shiftConstrainedMoveDelta,
   computeResizedUnion,
@@ -181,6 +180,7 @@ import {
   resolveChromeAngle,
   resolveMeasurePairNodeId,
   resolveMeasureBox,
+  resolveClippedMeasureBox,
   deflateChromeBox,
   resolveTransformHostGuideBox,
   buildShapeOutlines,
@@ -2235,17 +2235,14 @@ function SelectionFeature({
     () => resolveMeasureBox(inspectPrimaryId, document, getNodeBox),
     [inspectPrimaryId, document, getNodeBox]
   );
-  const measurePairBox = useMemo(
-    () => resolveMeasureBox(measurePairId, document, getNodeBox),
-    [measurePairId, document, getNodeBox]
-  );
 
   const idleMeasureGuides = useMemo(() => {
-    if (!inspectDev || transforming || !measurePrimaryBox || !measurePairBox) {
-      return [] as SmartGuideLine[];
-    }
-    return collectPairSpacingGuides(measurePrimaryBox, measurePairBox);
-  }, [inspectDev, transforming, measurePrimaryBox, measurePairBox]);
+    if (!inspectDev || transforming) return [] as SmartGuideLine[];
+    const a = resolveClippedMeasureBox(inspectPrimaryId, document, getNodeBox);
+    const b = resolveClippedMeasureBox(measurePairId, document, getNodeBox);
+    if (!a || !b) return [] as SmartGuideLine[];
+    return collectPairSpacingGuides(a, b);
+  }, [inspectDev, transforming, inspectPrimaryId, measurePairId, document, getNodeBox]);
 
   // Artboard movement already has a stable frame boundary. Object guides add
   // extra lines and repaint churn while the frame and its contents translate.

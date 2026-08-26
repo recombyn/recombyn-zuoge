@@ -25,6 +25,10 @@ import {
   resolveMoveAxisLock,
   constrainMoveDelta,
   visualGuideBoxForNode,
+  clippedGuideBoxForNode,
+  collectSmartGuideTargets,
+  resolveMeasureBox,
+  resolveClippedMeasureBox,
 } from '../selectionLogic';
 import { segmentIntersectsAabb } from '@/components/rcb/scene/document/sceneShapes';
 import { inflateBoxByVisualOutset } from '@/components/rcb/scene/document/sceneEffects';
@@ -477,6 +481,119 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
     expect(nextUnion.width).toBe(40);
     expect(nextUnion.height).toBe(40);
     expect(Array.isArray(guides)).toBe(true);
+  });
+
+  it('clippedGuideBoxForNode drops fully frame-clipped overflow', () => {
+    // Frame 0..200; path sits entirely to the right of the plate (clip hides it).
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 800,
+      frames: [{ id: 'f1', x: 0, y: 0, width: 200, height: 400, clipContent: true }],
+      deltaSetLike: {
+        outside: {
+          id: 'outside',
+          key: 'shape',
+          x: 261,
+          y: 100,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'path', frameId: 'f1' },
+          children: [],
+        },
+        partial: {
+          id: 'partial',
+          key: 'shape',
+          x: 150,
+          y: 50,
+          width: 100,
+          height: 60,
+          attrs: { shapeType: 'rect', frameId: 'f1' },
+          children: [],
+        },
+      },
+    } as unknown as SceneDocument;
+    const outsideChrome = { left: 261, top: 100, width: 80, height: 80 };
+    const partialChrome = { left: 150, top: 50, width: 100, height: 60 };
+    expect(clippedGuideBoxForNode('outside', doc, outsideChrome)).toBeNull();
+    expect(visualGuideBoxForNode('outside', doc, outsideChrome)?.left).toBe(261);
+    const clipped = clippedGuideBoxForNode('partial', doc, partialChrome);
+    expect(clipped).toEqual({ left: 150, top: 50, width: 50, height: 60 });
+  });
+
+  it('collectSmartGuideTargets skips fully clipped peers; resolveClippedMeasureBox too', () => {
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 800,
+      frames: [{ id: 'f1', x: 0, y: 0, width: 200, height: 400, clipContent: true }],
+      deltaSetLike: {
+        inside: {
+          id: 'inside',
+          key: 'shape',
+          x: 20,
+          y: 20,
+          width: 40,
+          height: 40,
+          attrs: { shapeType: 'rect', frameId: 'f1' },
+          children: [],
+        },
+        outside: {
+          id: 'outside',
+          key: 'shape',
+          x: 261,
+          y: 100,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'path', frameId: 'f1' },
+          children: [],
+        },
+      },
+    } as unknown as SceneDocument;
+    const boxes: Record<string, { left: number; top: number; width: number; height: number }> = {
+      inside: { left: 20, top: 20, width: 40, height: 40 },
+      outside: { left: 261, top: 100, width: 80, height: 80 },
+    };
+    const targets = collectSmartGuideTargets(
+      doc,
+      () => ['inside', 'outside'],
+      (id) => boxes[id] ?? null,
+      new Set(['inside'])
+    );
+    expect(targets.some((t) => t.left === 261)).toBe(false);
+    expect(targets.some((t) => t.guideKind === 'frame')).toBe(true);
+    // Chrome size badge stays unclipped; spacing guides use clipped measure.
+    expect(resolveMeasureBox('outside', doc, (id) => boxes[id] ?? null)).toEqual(boxes.outside);
+    expect(resolveClippedMeasureBox('outside', doc, (id) => boxes[id] ?? null)).toBeNull();
+    expect(resolveClippedMeasureBox('inside', doc, (id) => boxes[id] ?? null)).toEqual(
+      boxes.inside
+    );
+  });
+
+  it('clippedGuideBoxForNode keeps overflow when clipContent is false', () => {
+    const doc = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 800,
+      frames: [{ id: 'f1', x: 0, y: 0, width: 200, height: 400, clipContent: false }],
+      deltaSetLike: {
+        outside: {
+          id: 'outside',
+          key: 'shape',
+          x: 261,
+          y: 100,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', frameId: 'f1' },
+          children: [],
+        },
+      },
+    } as unknown as SceneDocument;
+    const chrome = { left: 261, top: 100, width: 80, height: 80 };
+    expect(clippedGuideBoxForNode('outside', doc, chrome)).toEqual(chrome);
   });
 
   it('align guides follow mover path top (not outer ink, not a fixed y)', () => {

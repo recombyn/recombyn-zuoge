@@ -1164,6 +1164,44 @@ export function visualGuideBoxForNode(
   return deflateSelectionBox({ ...chrome }, document?.deltaSetLike?.[id]);
 }
 
+/**
+ * Guide / spacing / peer-snap target box: path geom clipped to the owning
+ * artboard when `clipContent` is on. Fully clipped-away nodes return null so
+ * overflow outside the plate cannot spawn align or distance guides.
+ */
+export function clippedGuideBoxForNode(
+  id: string,
+  document: SceneDocument,
+  chrome: SceneBox | null | undefined
+): SceneBox | null {
+  const path = visualGuideBoxForNode(id, document, chrome);
+  if (!path) return null;
+  if (parseFrameSelId(id)) return path;
+  const node = document?.deltaSetLike?.[id];
+  if (!node) return path;
+  const ownerId = String(node.attrs?.frameId || '').trim();
+  if (!ownerId) return path;
+  const frame = (document.frames || []).find((f) => String(f?.id) === ownerId);
+  if (!frame || frame.clipContent === false || frame.hidden) return path;
+  const fb: SceneBox = {
+    left: Number(frame.x) || 0,
+    top: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  };
+  const leftEdge = Math.max(path.left, fb.left);
+  const topEdge = Math.max(path.top, fb.top);
+  const rightEdge = Math.min(path.left + path.width, fb.left + fb.width);
+  const bottomEdge = Math.min(path.top + path.height, fb.top + fb.height);
+  if (rightEdge <= leftEdge || bottomEdge <= topEdge) return null;
+  return {
+    left: leftEdge,
+    top: topEdge,
+    width: rightEdge - leftEdge,
+    height: bottomEdge - topEdge,
+  };
+}
+
 /** Painted outer ink from a chrome origin — used for grid settle only. */
 export function visualBoxFromChromeOrigin(
   document: SceneDocument,
@@ -1452,7 +1490,7 @@ export function collectSmartGuideTargets(
     if (excludeIds.has(id)) continue;
     const node = document?.deltaSetLike?.[id];
     if (!node || isNodeHidden(node) || isNodeLocked(node)) continue;
-    const box = visualGuideBoxForNode(id, document, getNodeBox(id));
+    const box = clippedGuideBoxForNode(id, document, getNodeBox(id));
     if (box && box.width > 0 && box.height > 0) out.push({ ...box, guideKind: 'peer' });
   }
   const frames = Array.isArray(document?.frames) ? document.frames : [];
@@ -1671,7 +1709,7 @@ export function resolveMeasurePairNodeId(opts: {
   return null;
 }
 
-/** Resolve node or `__frame__:` synthetic id to a scene AABB. */
+/** Resolve node or `__frame__:` synthetic id to a scene AABB (selection chrome). */
 export function resolveMeasureBox(
   selId: string | null | undefined,
   document: SceneDocument,
@@ -1690,6 +1728,20 @@ export function resolveMeasureBox(
     return { left, top, width, height };
   }
   return getNodeBox(selId);
+}
+
+/**
+ * Idle select↔hover spacing boxes: same as {@link resolveMeasureBox}, but
+ * frame-clipped so overflow outside the artboard cannot spawn gap/align guides.
+ */
+export function resolveClippedMeasureBox(
+  selId: string | null | undefined,
+  document: SceneDocument,
+  getNodeBox: (id: string) => SceneBox | null
+): SceneBox | null {
+  if (!selId) return null;
+  if (parseFrameSelId(selId)) return resolveMeasureBox(selId, document, getNodeBox);
+  return clippedGuideBoxForNode(selId, document, getNodeBox(selId));
 }
 
 export function deflateChromeBox(chrome: SceneBox | null | undefined, node: SceneNodeInput): SceneBox | null {
