@@ -7,9 +7,12 @@ const EVENT = 'rcb:home-rail-expanded';
 
 function readStored(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) === '1';
+    const v = localStorage.getItem(STORAGE_KEY);
+    // No preference yet → expanded by default.
+    if (v === null) return true;
+    return v === '1';
   } catch {
-    return false;
+    return true;
   }
 }
 
