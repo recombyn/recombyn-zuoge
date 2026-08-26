@@ -615,7 +615,7 @@ async def extract_triples_via_skill(
         ops_raw = "[]"
     pred_hint = "|".join(sorted(allowed))
     user = (
-        f"SCENE: {(scene or '').strip() or ""}\n\n"
+        f"SCENE: {(scene or '').strip() or ''}\n\n"
         f"USER_GOAL:\n{(goal or '')[:2000]}\n\n"
         f"SUMMARY:\n{(summary or '')[:2000]}\n\n"
         f"OPS:\n{ops_raw}\n\n"

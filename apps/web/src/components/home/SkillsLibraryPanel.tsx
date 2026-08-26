@@ -17,11 +17,10 @@ import {
   type DesignSkillImportExisting,
 } from '@/service/design';
 import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
-import { HOME_SKILL_GRID } from '@/components/home/homeLayout';
 import { useDeferredBusy } from '@/utils/useDeferredBusy';
 import { cn } from '@/utils/classnames';
 
-const DEFAULT_SKILL_GRID = HOME_SKILL_GRID;
+const DEFAULT_SKILL_GRID = 'grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3';
 
 /**
  * Loading placeholders only (same idea as GRID_SKELETON_COUNT on Me / feed).

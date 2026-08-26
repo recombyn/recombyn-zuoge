@@ -32,7 +32,7 @@ import {
   GRID_SKELETON_COUNT,
   InfiniteScrollSection,
 } from '@/components/home/InfiniteScroll';
-import { HOME_FLOW_GRID } from '@/components/home/homeLayout';
+import { FLOW_COLUMNS_CLASS } from '@/components/home/FlowScrollSection';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 
 export { ProjectCardSkeleton };
@@ -168,7 +168,7 @@ function ProjectBatchBottomBar(props: ProjectBatchControlsProps) {
 }
 
 /** Projects library default — same home flow as 资产 / 喜欢 / 灵感. */
-const DEFAULT_PROJECTS_GRID = HOME_FLOW_GRID;
+const DEFAULT_PROJECTS_GRID = FLOW_COLUMNS_CLASS;
 
 /**
  * Projects grid (侧栏「项目」). Data = GET /projects only.

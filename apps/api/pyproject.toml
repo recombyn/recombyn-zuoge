@@ -74,6 +74,7 @@ dev = [
   "httpx>=0.27.0",
   "numpy>=1.26.0",
   "opencv-python-headless>=4.10.0",
+  "ruff>=0.9.0",
 ]
 otel = [
   "opentelemetry-api>=1.27.0",
@@ -108,3 +109,9 @@ omit = ["tests/*", "app/alembic/*"]
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+
+[tool.ruff.lint]
+select = ["F401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401"]

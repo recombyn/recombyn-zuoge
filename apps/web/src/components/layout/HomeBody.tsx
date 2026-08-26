@@ -27,7 +27,7 @@ import RailRecentList from '@/components/layout/RailRecentList';
 import InspirationSection from '@/components/home/InspirationSection';
 import MoreSection from '@/components/home/MoreSection';
 import SkillsLibraryPanel from '@/components/home/SkillsLibraryPanel';
-import { HOME_MAIN_SHELL, HOME_MAIN_SCROLL, HOME_FLOW_GRID } from '@/components/home/homeLayout';
+import { FLOW_COLUMNS_CLASS } from '@/components/home/FlowScrollSection';
 import type { HomeAgentSubmitPayload } from '@/components/home/HomeAgentComposer';
 import type { OfficialCaseMeta } from '@/utils/officialCases';
 import TemplateGrid from '@/components/templates/TemplateGrid';
@@ -204,6 +204,11 @@ import {
   HOME_RAIL_NAV_ITEMS,
   type HomeRailNavId,
 } from '@/components/layout/homeRailIcons';
+
+const HOME_MAIN_SCROLL =
+  'relative min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-transparent [scrollbar-gutter:stable]';
+const HOME_MAIN_SHELL =
+  'relative mx-auto box-border w-full min-w-0 max-w-[1300px] px-4 pb-10 pt-[25px] lg:px-0';
 
 const RAIL_HELP_LABEL_KEYS: Record<RailHelpItemKey, string> = {
   guide: 'home.railHelpGuide',
@@ -916,7 +921,7 @@ function HomeTemplateList({
               onCreate={onCreate}
               createDisabled={importing}
               orgOptions={orgOptions}
-              gridClassName={HOME_FLOW_GRID}
+              gridClassName={FLOW_COLUMNS_CLASS}
             />
           </div>
         </main>

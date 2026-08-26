@@ -9,9 +9,18 @@ import {
   type UploadedFileItem,
 } from '@/service/upload';
 import { getHttpErrorMessage } from '@/service/client';
-import { UploadTooLargeError } from '@/utils/uploadLimits';
 import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
+
+export class UploadTooLargeError extends Error {
+  readonly maxMb: number;
+
+  constructor(maxMb: number) {
+    super(`upload_too_large:${maxMb}`);
+    this.name = 'UploadTooLargeError';
+    this.maxMb = maxMb;
+  }
+}
 
 /** In-flight canvas placeholder uploads 鈥?delete node 鈫?abort. */
 const nodeUploadAborts = new Map<string, AbortController>();
