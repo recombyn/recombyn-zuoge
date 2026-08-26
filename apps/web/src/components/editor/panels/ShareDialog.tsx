@@ -614,6 +614,7 @@ function ShareDialog({ open, onClose }: Props) {
           document={document}
           coverUrls={coverUrls}
           coverVersion={Number(currentTpl?.updatedAt) || undefined}
+          coverRefreshing={extractCoversMutation.isPending}
           onCancel={onClose}
           onSubmit={commitPublish}
           onSuccessDone={onClose}

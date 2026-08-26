@@ -474,3 +474,36 @@ def test_chat_persists_ask_fields(tmp_path, monkeypatch):
         assert m.get("choiceUi", {}).get("mode") == "confirm"
     finally:
         restore_default_sqlite_engine()
+
+
+def test_intent_chat_with_images_runs_vision_reply(monkeypatch):
+    """Selection crop Q&A must not settle on a blind text-only chat reply."""
+    import asyncio
+
+    from app.services.design.runtime.graph.nodes import intent as intent_mod
+    from app.services.design.runtime.models_route import IntentClassifyDecision
+
+    async def _classify(**_kwargs):
+        return IntentClassifyDecision(
+            intent="chat",
+            paint_lane="",
+            reply="目前还没有看到具体的问题哦",
+            rationale="blind_chat",
+        )
+
+    async def _vision(_rt):
+        return "答案是 4"
+
+    monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    monkeypatch.setattr(intent_mod, "_vision_chat_reply", _vision)
+    monkeypatch.setattr(intent_mod, "_emit", lambda *_a, **_k: None)
+    monkeypatch.setattr(intent_mod, "_emit_design_loading_artboard", lambda *_a, **_k: None)
+
+    rt = _rt(
+        prompt="[Target element]\nid: shape1\nUser request:\n告诉我答案",
+        images=["data:image/png;base64,abc"],
+    )
+    cmd = asyncio.run(intent_mod._node_intent_classify({"rt": rt}))
+    assert cmd.goto == "__settle__"
+    assert rt.run.reply == "答案是 4"
+    assert "没有看到" not in (rt.run.reply or "")

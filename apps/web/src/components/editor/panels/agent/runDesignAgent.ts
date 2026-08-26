@@ -215,11 +215,11 @@ export function acknowledgeAppliedDesignCommand(
   taskId: string | null | undefined,
   sequence: number | null | undefined,
   signal?: AbortSignal,
-) {
+): Promise<void> {
   const normalizedTaskId = String(taskId || '').trim();
   const normalizedSequence = Number(sequence || 0);
-  if (!normalizedTaskId || normalizedSequence <= 0) return;
-  async function ack() {
+  if (!normalizedTaskId || normalizedSequence <= 0) return Promise.resolve();
+  return (async () => {
     try {
       await acknowledgeDesignCanvasCommands(normalizedTaskId, normalizedSequence, signal);
     } catch (error) {
@@ -230,8 +230,7 @@ export function acknowledgeAppliedDesignCommand(
       });
       throw error;
     }
-  }
-  ack();
+  })();
 }
 
 function overlayArgId(args: Record<string, unknown> | undefined): string | null {
@@ -2379,11 +2378,10 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         live.frameId = applied.frameId;
         live.fingerprintById = applied.fingerprintById;
         acknowledgeAppliedDesignCommand(liveTaskId, commandSeq, params.signal).catch(
-          (err) => {
+          () => {
             params.onEvent({
               type: 'error',
               code: 'command_ack_failed',
-              message: err instanceof Error ? err.message : String(err),
             });
           }
         );
@@ -2961,11 +2959,10 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               liveTaskId,
               ev.command_seq,
               params.signal
-            ).catch((err) => {
+            ).catch(() => {
               params.onEvent({
                 type: 'error',
                 code: 'command_ack_failed',
-                message: err instanceof Error ? err.message : String(err),
               });
             });
           }
@@ -2990,7 +2987,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           params.onEvent({
             type: 'error',
             code: 'tool_ops_apply_failed',
-            message: err instanceof Error ? err.message : String(err),
           });
           undoQueuedTransaction(aiQueueRollback(aiQueue, chunkTxId));
           releaseAiMutationLock();
