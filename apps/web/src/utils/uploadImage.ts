@@ -5,10 +5,9 @@
 
 import {
   deleteUploadedFile as deleteUploadedFileApi,
-  uploadFiles,
   type UploadedFileItem,
 } from '@/service/upload';
-import { uploadFileViaJob, dispatchUploadJobCreated, uploadTimeoutForMime } from '@/service/uploadJobs';
+import { uploadFileViaJob, dispatchUploadJobCreated } from '@/service/uploadJobs';
 import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
