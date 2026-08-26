@@ -9,6 +9,7 @@ COPY packages ./packages
 RUN npm ci --ignore-scripts
 
 COPY apps/web ./apps/web
+COPY scripts/dev-api-port.mjs ./scripts/dev-api-port.mjs
 COPY plugins/canvas ./plugins/canvas
 # Bake collab client flag at build time (self-host default: on).
 ARG VITE_COLLAB_ENABLED=true
