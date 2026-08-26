@@ -82,6 +82,31 @@ def test_get_upload_job_ok(monkeypatch: pytest.MonkeyPatch):
         assert body["result"]["item"]["url"] == "https://cdn.example/a.png"
 
 
+def test_upload_job_temp_dir_under_upload_dir(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    from app.api.routes import upload_jobs as route_mod
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    dest = route_mod._upload_job_temp_dir()
+    assert dest == (tmp_path / "upload_jobs").resolve()
+    assert dest.is_dir()
+
+
+def test_execute_upload_job_missing_temp_raises():
+    from app.api.routes.upload_jobs import execute_upload_job
+
+    with pytest.raises(RuntimeError, match="临时文件"):
+        execute_upload_job(
+            {
+                "user_id": "u1",
+                "temp_path": "/no/such/file",
+                "filename": "x.png",
+                "content_type": "image/png",
+            }
+        )
+
+
 def test_execute_upload_job_pushes_to_storage(monkeypatch: pytest.MonkeyPatch, tmp_path):
     from app.api.routes.upload_jobs import execute_upload_job
 

@@ -153,13 +153,32 @@ def get_storage() -> ObjectStorage:
     if _storage is not None:
         return _storage
     if settings.s3_enabled:
-        try:
-            _storage = S3Storage()
-        except Exception:
-            _storage = LocalStorage()
+        # Fail loud — do not silently degrade to local when S3 is configured.
+        _storage = S3Storage()
     else:
         _storage = LocalStorage()
     return _storage
+
+
+def _storage_put_error_message(exc: BaseException) -> str:
+    """Map object-storage failures to a clear, user-facing message."""
+    raw = str(exc) or type(exc).__name__
+    low = raw.lower()
+    if (
+        "arrears" in low
+        or "unavailableforlegalreasons" in low
+        or "account is arrears" in low
+        or "recharge" in low
+    ):
+        return (
+            "对象存储不可用：云存储账号已欠费，请充值后再试 "
+            f"(object storage arrears: {raw})"
+        )
+    if "accessdenied" in low or "invalidaccesskeyid" in low or "signature" in low:
+        return f"对象存储鉴权失败，请检查 S3/COS 密钥配置 ({raw})"
+    if "nosuchbucket" in low:
+        return f"对象存储桶不存在，请检查 S3_BUCKET 配置 ({raw})"
+    return f"对象存储写入失败: {raw}"
 
 
 def put_bytes(
@@ -168,9 +187,12 @@ def put_bytes(
     content_type: str | None = None,
     cache_control: str | None = None,
 ) -> str:
-    return get_storage().put_bytes(
-        key, data, content_type=content_type, cache_control=cache_control
-    )
+    try:
+        return get_storage().put_bytes(
+            key, data, content_type=content_type, cache_control=cache_control
+        )
+    except Exception as exc:
+        raise RuntimeError(_storage_put_error_message(exc)) from exc
 
 
 def get_bytes(key: str) -> bytes | None:
@@ -206,8 +228,7 @@ def upload_page_images(job_id: str | None, page_paths: list[Path]) -> tuple[list
             stored = storage.put_file(key, path, content_type=ctype)
             keys.append(stored)
             urls.append(storage.url_for(stored))
-        except Exception:
-            keys.append(rel)
-            urls.append(rel)
+        except Exception as exc:
+            raise RuntimeError(_storage_put_error_message(exc)) from exc
 
     return local_rels, keys, urls

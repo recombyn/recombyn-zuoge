@@ -2,7 +2,7 @@
 
 You can run the full product on your own machine or server: web canvas, Design Agent, API, collab, and a database.
 
-Docker Compose is the default (**MySQL** + Redis + web + API + **Yjs**). Local npm + empty `DATABASE_URL` uses **SQLite**. Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite) / **Cloud** (same API as the browser).
+Docker Compose is the default (**MySQL** + **MinIO** + Redis + web + API + **Yjs**). Local npm dev uses the same **MySQL + MinIO** stack via `npm run dev:infra`. Empty `DATABASE_URL` (without MySQL in `.env`) falls back to **SQLite**. Desktop (Tauri): **[desktop.md](./desktop.md)** — **Local** (sidecar + SQLite) / **Cloud** (same API as the browser).
 
 ## What you get
 
@@ -17,6 +17,7 @@ Docker Compose is the default (**MySQL** + Redis + web + API + **Yjs**). Local n
 | ClamAV (optional) | `docker compose --profile av -f docker-compose.yml -f docker-compose.av.yml up -d --build` |
 | Agent seeds | prompt packs + skills + **AgentProfile** YAML from `apps/api/seeds/` |
 | **MySQL 8** | compose service + volume `mysql_data` |
+| **MinIO** (S3 API) | compose service + volume `minio_data` · console http://127.0.0.1:9001 |
 | Redis | Celery / queues |
 | Optional IntelligenceProvider | `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml --profile intelligence up` · HTTP only · see [ADR 0017](./adr/0017-intelligence-provider-boundary.md) |
 
@@ -28,7 +29,10 @@ Host tools can reach MySQL at `127.0.0.1:3306` (same user/password). Change via 
 
 **Quality gates (Pytest / Playwright / k6 / Prometheus):** [quality-gates.md](./quality-gates.md).
 
-**Dev without Docker MySQL:** leave `DATABASE_URL` empty → SQLite at `storage/recombyn.db`.
+**Dev without Docker MySQL:** leave `DATABASE_URL` empty → SQLite at `storage/recombyn.db`.  
+**Recommended local dev:** `npm run dev:infra` then set `DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn` and MinIO vars in `apps/api/.env` (see `apps/api/.env.selfhost.example`).
+
+Object storage defaults to **MinIO** (`S3_ENABLED=true`). Bucket `recombyn` is created on first boot; public read URLs use `S3_PUBLIC_BASE_URL` (local: `http://127.0.0.1:9000/recombyn`). Do not use Tencent COS unless you intentionally switch back.
 
 Default config loads from seed JSON under `apps/api/seeds/` on first API start.
 
@@ -330,23 +334,38 @@ Optional when billing is on:
 - Issue card keys (admin + `CARD_KEY_SALT` / `CARD_KEY_OPS_PASSWORD`)
 
 
-## Dev path (SQLite, no compose MySQL)
+## Dev path (MySQL + MinIO, npm on host)
+
+```bash
+npm run dev:infra   # mysql + redis + minio (+ bucket init)
+cp apps/api/.env.selfhost.example apps/api/.env   # merge LLM keys
+# Profile A in .env.selfhost.example: DATABASE_URL + S3_* → 127.0.0.1
+npm install
+npm run dev:api
+npm run dev:worker
+npm run dev:web
+```
+
+MinIO console: http://127.0.0.1:9001 (`minioadmin` / `minioadmin` by default).
+
+## Dev path (SQLite only, no MinIO)
 
 ```bash
 docker compose up -d redis
 cp apps/api/.env.example apps/api/.env
-# DATABASE_URL empty → SQLite
+# DATABASE_URL empty → SQLite; S3_ENABLED=false
 npm install
 npm run dev:api
 npm run dev:web
 ```
 
-To use compose MySQL from host uvicorn:
+To use compose MySQL from host uvicorn without MinIO (disk storage):
 
 ```bash
 docker compose up -d mysql redis
 # apps/api/.env:
 # DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn
+# S3_ENABLED=false
 ```
 
 ## Canvas multiplayer (Yjs / WSS)
