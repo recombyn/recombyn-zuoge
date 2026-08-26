@@ -15,6 +15,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sanitizePublicCommitMessage } from './sanitize-public-commit-msg.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dryRun = process.argv.includes('--dry-run');
@@ -86,13 +87,14 @@ function copyTreeUnix(src, dest) {
 }
 
 function buildCommitMessage() {
+  // Prefer an explicit product message when rebuilding history.
+  const override = String(process.env.PUBLIC_COMMIT_MESSAGE || '').trim();
+  if (override) return sanitizePublicCommitMessage(override);
+
   const subject = run('git', ['log', '-1', '--format=%s'], { cwd: repoRoot, quiet: true });
   const body = run('git', ['log', '-1', '--format=%b'], { cwd: repoRoot, quiet: true });
-  const sha = run('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoRoot, quiet: true });
-  const lines = [subject];
-  if (body.trim()) lines.push('', body.trim());
-  lines.push('', `Sync-source: recombyn-dev@${sha}`);
-  return lines.join('\n');
+  const raw = body.trim() ? `${subject}\n\n${body.trim()}` : subject;
+  return sanitizePublicCommitMessage(raw);
 }
 
 function main() {

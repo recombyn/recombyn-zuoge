@@ -17,7 +17,9 @@ On each push to `recombyn-dev` `main`, `sync-public.yml`:
 2. **`sync-public-strip.mjs`** — hard-deletes paths in `src/commercial/oss-exclude.paths`
 3. Overlays **`scripts/oss-stubs/`** — empty commercial wiring for the public tree
 4. Verifies `src/commercial/` is gone before push
-5. Commits to `zuoge` with the **same message as the private commit** (plus `Sync-source: recombyn-dev@<sha>` footer)
+5. Commits to `zuoge` with a **sanitized** copy of the private commit message
+   (no `sync` / `mirror` / `recombyn-dev` / `Sync-source` wording — outsiders should
+   not be able to tell this is a publish pipeline)
 
 Intelligence lives at `src/commercial/intelligence/`.
 
@@ -45,14 +47,21 @@ Secret on **recombyn-dev**: `PUBLIC_REPO_TOKEN` (write access to `recombyn/zuoge
 
 ## One-shot history reset (zuoge)
 
-When the public mirror commit log is unusable (generic `chore: sync…` spam), rebuild from a clean orphan commit:
+When the public commit log is unusable, rebuild from a clean orphan commit:
 
 ```bash
 # Disable zuoge branch ruleset briefly (allow force-push), then:
-GH_TOKEN=… REBUILD_PUSH=1 node scripts/rebuild-public-mirror.mjs
+PUBLIC_COMMIT_MESSAGE="$(cat <<'EOF'
+fix: upload jobs, strict storage errors, and relocate OSS stubs
+
+Share upload job temp dir with the worker volume.
+Surface object-storage failures instead of silent local fallback.
+Unify local API port config and add self-host helpers.
+EOF
+)" GH_TOKEN=… REBUILD_PUSH=1 node scripts/rebuild-public-mirror.mjs
 ```
 
-This strips commercial code, creates **one** commit with the current private `HEAD` message (+ `Sync-source:` footer), and force-pushes `main`. Stars/forks stay on the repo; fork owners should `git fetch upstream && git reset --hard upstream/main`.
+Messages are sanitized (no sync/mirror/recombyn-dev). Stars/forks stay on the repo.
 
 ## Adding a closed feature
 

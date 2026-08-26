@@ -1,9 +1,10 @@
-# Private → public one-way sync (runs only in recombyn-dev).
+# Private → public publish (runs only in recombyn-dev).
 # Strips src/commercial before publishing to github.com/recombyn/zuoge.
 #
 # Secret (recombyn-dev): PUBLIC_REPO_TOKEN — PAT with repo scope on recombyn/zuoge
+# Public commit messages must not mention sync/mirror/recombyn-dev.
 
-name: Sync public repo
+name: Publish OSS
 
 on:
   push:
@@ -11,11 +12,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: sync-public-${{ github.ref }}
+  group: publish-oss-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  sync:
+  publish:
     runs-on: ubuntu-latest
     env:
       PUBLIC_REPO: recombyn/zuoge
@@ -59,17 +60,15 @@ jobs:
       - name: Strip commercial code and apply OSS stubs
         run: node scripts/sync-public-strip.mjs ./pub
 
-      - name: Prepare sync commit message
-        id: sync_msg
+      - name: Prepare public commit message
+        id: pub_msg
         run: |
           set -euo pipefail
+          RAW="$(mktemp)"
           MSG_FILE="$(mktemp)"
-          git log -1 --format=%B "${GITHUB_SHA}" > "$MSG_FILE"
-          if [ ! -s "$MSG_FILE" ]; then
-            printf 'sync: update open-source mirror\n' > "$MSG_FILE"
-          fi
-          printf '\nSync-source: recombyn-dev@%s\n' "${GITHUB_SHA::7}" >> "$MSG_FILE"
-          TITLE="$(git log -1 --format=%s "${GITHUB_SHA}")"
+          git log -1 --format=%B "${GITHUB_SHA}" > "$RAW"
+          node scripts/sanitize-public-commit-msg.mjs < "$RAW" > "$MSG_FILE"
+          TITLE="$(head -n 1 "$MSG_FILE")"
           echo "file=${MSG_FILE}" >> "$GITHUB_OUTPUT"
           echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
 
@@ -78,8 +77,8 @@ jobs:
         env:
           TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
-          SYNC_MSG_FILE: ${{ steps.sync_msg.outputs.file }}
-          SYNC_TITLE: ${{ steps.sync_msg.outputs.title }}
+          PUB_MSG_FILE: ${{ steps.pub_msg.outputs.file }}
+          PUB_TITLE: ${{ steps.pub_msg.outputs.title }}
         run: |
           set -euo pipefail
           git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git"
@@ -90,8 +89,8 @@ jobs:
           fi
 
           SHORT_SHA="${GITHUB_SHA::7}"
-          SYNC_BRANCH="chore/sync-${SHORT_SHA}"
-          git commit -F "${SYNC_MSG_FILE}"
+          PUB_BRANCH="release/${SHORT_SHA}"
+          git commit -F "${PUB_MSG_FILE}"
 
           # Try direct push first (works when PAT has ruleset bypass).
           if git push origin "HEAD:main"; then
@@ -99,16 +98,15 @@ jobs:
             exit 0
           fi
 
-          echo "Direct push blocked by branch rules — opening sync PR."
-          git push origin "HEAD:${SYNC_BRANCH}" --force
+          echo "Direct push blocked by branch rules — opening PR."
+          git push origin "HEAD:${PUB_BRANCH}" --force
 
-          PR_BODY="${SYNC_MSG_FILE}"
-          PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${SYNC_BRANCH}" --json number --jq '.[0].number // empty')"
+          PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${PUB_BRANCH}" --json number --jq '.[0].number // empty')"
           if [ -z "$PR_NUMBER" ]; then
-            gh pr create --repo "${PUBLIC_REPO}" --base main --head "${SYNC_BRANCH}" \
-              --title "${SYNC_TITLE}" \
-              --body-file "${SYNC_MSG_FILE}"
-            PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${SYNC_BRANCH}" --json number --jq '.[0].number')"
+            gh pr create --repo "${PUBLIC_REPO}" --base main --head "${PUB_BRANCH}" \
+              --title "${PUB_TITLE}" \
+              --body-file "${PUB_MSG_FILE}"
+            PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${PUB_BRANCH}" --json number --jq '.[0].number')"
           fi
 
           for _ in $(seq 1 36); do
