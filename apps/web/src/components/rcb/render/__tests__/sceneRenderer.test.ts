@@ -1003,6 +1003,12 @@ describe('hitTestWithSpatialIndex', () => {
       },
     } as unknown as SceneDocument;
     const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: ['front', 'back'],
+      reloadToken: 1,
+      aabbPad: 0,
+    });
     expect(
       hitTestWithSpatialIndex(
         {

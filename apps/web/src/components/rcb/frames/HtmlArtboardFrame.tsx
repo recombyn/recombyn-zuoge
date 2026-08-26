@@ -145,7 +145,7 @@ function paintFramePlate(
       };
 
   if (generating && root) {
-    appendProcessPlatePaths(g, root, frame.id, clipD, stroke || undefined);
+    appendProcessPlatePaths(g, root, frame.id, clipD, w, h, stroke || undefined);
   } else {
     let bg = '#FFFFFF';
     if (frame.backgroundColor && frame.backgroundColor !== 'transparent') {

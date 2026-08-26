@@ -1429,7 +1429,7 @@ export async function nodeToSvgElement(
 
     if (processing) {
       const g = appendChild(parent, svgEl('g'));
-      appendProcessPlatePaths(g, root, nodeId, clipD, {
+      appendProcessPlatePaths(g, root, nodeId, clipD, boxW, boxH, {
         color: PROCESS_PLATE_STROKE,
         width: editorChromeStrokeSceneWidth(1.5),
       });
@@ -1511,7 +1511,7 @@ export async function nodeToSvgElement(
 
     // Same process plate as image/video — shimmer chrome overlays this node.
     if (processing) {
-      appendProcessPlatePaths(g, root, nodeId, clipD, {
+      appendProcessPlatePaths(g, root, nodeId, clipD, boxW, boxH, {
         color: PROCESS_PLATE_STROKE,
         width: editorChromeStrokeSceneWidth(1.5),
       });
@@ -1686,7 +1686,7 @@ export async function nodeToSvgElement(
         );
         setSvgImageHref(img, preview);
       } else {
-        appendProcessPlatePaths(g, root, nodeId, clipD, {
+        appendProcessPlatePaths(g, root, nodeId, clipD, boxW, boxH, {
           color: PROCESS_PLATE_STROKE,
           width: editorChromeStrokeSceneWidth(1.5),
         });
@@ -1782,10 +1782,10 @@ export async function nodeToSvgElement(
     const plateFill = resolveThemeSurfaceFill(node.attrs?.['fill-color']);
 
     if (processing) {
-      const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, PROCESS_PLATE_FILL);
-      setStroke(plate, { color: PROCESS_PLATE_STROKE, width: editorChromeStrokeSceneWidth(1.5) });
-      setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
+      appendProcessPlatePaths(g, root, nodeId, clipD, boxW, boxH, {
+        color: PROCESS_PLATE_STROKE,
+        width: editorChromeStrokeSceneWidth(1.5),
+      });
       rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'audio', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });

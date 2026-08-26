@@ -15,6 +15,7 @@ import {
   FrameMoveFeature,
   HtmlArtboardFrame,
   getSharedNodeEls,
+  getSharedSceneSpatialRuntime,
   shapeHostRevealsOverflow,
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';

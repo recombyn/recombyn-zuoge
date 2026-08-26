@@ -1740,7 +1740,7 @@ export function paintCanvasIdleNode(
     }
     if (isMedia) {
       if (isImageProcessRunning(node)) {
-        paintProcessPlateCanvas(ctx, w, h, opacity);
+        paintProcessPlateCanvas(ctx, w, h, opacity, String(node.id || ''));
         return;
       }
       if (key === 'image' || key === 'video') {
