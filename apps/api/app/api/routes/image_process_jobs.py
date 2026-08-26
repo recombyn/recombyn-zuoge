@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 from typing import Any
@@ -41,6 +42,8 @@ class ImageProcessJobStatusResponse(BaseModel):
 
 async def execute_image_process(job: dict[str, Any]) -> dict[str, Any]:
     """Run toolbar image tool; credits must already be charged."""
+    import asyncio
+
     from app.services.llm.image_tools import process_image_tool
 
     job_id = str(job.get("job_id") or "")
@@ -58,20 +61,35 @@ async def execute_image_process(job: dict[str, Any]) -> dict[str, Any]:
             progress=max(15, min(85, 15 + int(pct * 0.7))),
         )
 
+    async def _heartbeat_progress() -> None:
+        """Slowly advance progress for long ILP jobs without granular callbacks."""
+        pct = 15
+        while pct < 84:
+            await asyncio.sleep(3)
+            pct = min(84, pct + 4)
+            if job_id:
+                update_job(job_id, kind=_KIND, progress=pct)
+
     if job_id:
         update_job(job_id, kind=_KIND, progress=15)
 
-    result = await process_image_tool(
-        kind=tool_kind,
-        image=image,
-        meta=job.get("meta") if isinstance(job.get("meta"), dict) else None,
-        aspect_ratio=job.get("aspect_ratio"),
-        quality=job.get("quality"),
-        resolution=job.get("resolution"),
-        model=job.get("model"),
-        user_id=user_id,
-        on_progress=_ilp_progress if tool_kind == "editElements" else None,
-    )
+    heartbeat = asyncio.create_task(_heartbeat_progress())
+    try:
+        result = await process_image_tool(
+            kind=tool_kind,
+            image=image,
+            meta=job.get("meta") if isinstance(job.get("meta"), dict) else None,
+            aspect_ratio=job.get("aspect_ratio"),
+            quality=job.get("quality"),
+            resolution=job.get("resolution"),
+            model=job.get("model"),
+            user_id=user_id,
+            on_progress=_ilp_progress if tool_kind == "editElements" else None,
+        )
+    finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
 
     if job_id:
         update_job(job_id, kind=_KIND, progress=90)

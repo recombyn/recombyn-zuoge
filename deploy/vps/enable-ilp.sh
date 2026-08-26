@@ -40,6 +40,16 @@ set_kv IMAGE_LAYER_PIPELINE_API_KEY "$KEY"
 set_kv IMAGE_LAYER_PIPELINE_MODE ilp
 set_kv IMAGE_LAYER_PIPELINE_TIMEOUT_SEC 300
 
+INTEL_ENV="${RECOMBYN_INTELLIGENCE_CONTEXT:-/opt/recombyn-intelligence}/.env"
+if [ -f "$INTEL_ENV" ]; then
+  if grep -q '^INTELLIGENCE_SERVICE_API_KEY=' "$INTEL_ENV"; then
+    sed -i "s|^INTELLIGENCE_SERVICE_API_KEY=.*|INTELLIGENCE_SERVICE_API_KEY=${KEY}|" "$INTEL_ENV"
+  else
+    echo "INTELLIGENCE_SERVICE_API_KEY=${KEY}" >> "$INTEL_ENV"
+  fi
+  echo "[enable-ilp] synced INTELLIGENCE_SERVICE_API_KEY in ${INTEL_ENV}"
+fi
+
 COMPOSE=(sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.override.yml)
 "${COMPOSE[@]}" up -d api worker
 
