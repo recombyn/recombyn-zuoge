@@ -66,16 +66,6 @@ SUPER_ADMIN_TEST_CODE=888888 node scripts/ci-mint-token.mjs
 
 **Project id**: open a project in the editor — id is in the URL, or list via `GET /api/v1/projects`.
 
-## Smoke test
-
-With API running and `MCP_CANVAS_ENABLED=true`:
-
-```bash
-SUPER_ADMIN_TEST_CODE=888888 node scripts/mcp/test-canvas-e2e.mjs
-```
-
-Covers `/tools`, `get_scene_summary`, `create_shape`, and the stdio bridge.
-
 ## Key tools
 
 | Tool | Purpose |

@@ -60,7 +60,7 @@ Cursor — add to `.cursor/mcp.json`:
 }
 ```
 
-Smoke test: `SUPER_ADMIN_TEST_CODE=… node scripts/mcp/test-canvas-e2e.mjs` · [docs/mcp-canvas.md](docs/mcp-canvas.md)
+→ [docs/mcp-canvas.md](docs/mcp-canvas.md)
 
 ---
 
