@@ -417,6 +417,59 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
   --rcb-glow-soft: rgba(210, 225, 240, 0.32);
 }
 
+/**
+ * Publish dialog cover — stronger bloom on white modal (--surface).
+ * Scoped so home / project list skeletons keep the default pastel.
+ */
+.rcb-publish-cover-panel .rcb-soft-glow {
+  background-color: #e4e9f1;
+}
+
+.rcb-publish-cover-panel .rcb-soft-glow::before {
+  background-image:
+    radial-gradient(
+      ellipse 48% 54% at 58% 38%,
+      var(--rcb-glow-core, rgba(255, 150, 185, 0.78)),
+      transparent 68%
+    ),
+    radial-gradient(
+      ellipse 44% 48% at 32% 68%,
+      var(--rcb-glow-soft, rgba(130, 175, 255, 0.52)),
+      transparent 70%
+    );
+}
+
+.rcb-publish-cover-panel .rcb-soft-glow[data-glow='rose'] {
+  --rcb-glow-core: rgba(255, 140, 175, 0.82);
+  --rcb-glow-soft: rgba(255, 185, 205, 0.48);
+}
+
+.rcb-publish-cover-panel .rcb-soft-glow[data-glow='sky'] {
+  --rcb-glow-core: rgba(110, 165, 255, 0.8);
+  --rcb-glow-soft: rgba(160, 200, 255, 0.5);
+}
+
+.rcb-publish-cover-panel .rcb-soft-glow[data-glow='peach'] {
+  --rcb-glow-core: rgba(255, 170, 120, 0.78);
+  --rcb-glow-soft: rgba(255, 200, 155, 0.48);
+}
+
+.rcb-publish-cover-panel .rcb-soft-glow[data-glow='lilac'] {
+  --rcb-glow-core: rgba(185, 150, 255, 0.78);
+  --rcb-glow-soft: rgba(210, 185, 255, 0.48);
+}
+
+.rcb-publish-cover-panel .rcb-soft-glow[data-glow='mint'] {
+  --rcb-glow-core: rgba(110, 205, 175, 0.78);
+  --rcb-glow-soft: rgba(155, 220, 195, 0.48);
+}
+
+.rcb-publish-cover-panel .rcb-soft-glow[data-glow='canvas'] {
+  background-color: #dde5f0;
+  --rcb-glow-core: rgba(120, 165, 220, 0.72);
+  --rcb-glow-soft: rgba(170, 200, 235, 0.5);
+}
+
 html[data-theme='dark'] .rcb-soft-glow {
   background-color: #1c1e24;
   --rcb-glow-core: rgba(255, 140, 180, 0.22);

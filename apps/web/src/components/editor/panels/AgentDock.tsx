@@ -38,6 +38,7 @@ import {
   contextsFromBoot,
 } from '@/utils/homeAgentBoot';
 import { isMarkContextKey, syncMarkPinRemoved, syncMarkPinRestored } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
+import { enrichChipsForAgentVision, enrichMarkComposerContext } from '@/components/editor/nodes/ImageNode/mark/markChipVision';
 import {
   setDocument,
   patchDocumentNode,
@@ -1256,12 +1257,18 @@ function AgentDock({
     pendingAgentContextsLockRef.current = token;
     const list = pendingAgentContexts.slice();
     dispatch(consumePendingAgentContexts());
-    for (const ctx of list) {
-      pinnedContextKeysRef.current.add(ctx.key);
-      contextDismissedKeyRef.current = null;
-    }
-    insertPendingComposerChips(() => inputRef.current, list, { focus: 'caret' });
-  }, [open, pendingAgentContexts, dispatch]);
+    void (async () => {
+      const doc = store.getState().editor?.document;
+      const enriched = doc
+        ? await Promise.all(list.map((ctx) => enrichMarkComposerContext(doc, ctx)))
+        : list;
+      for (const ctx of enriched) {
+        pinnedContextKeysRef.current.add(ctx.key);
+        contextDismissedKeyRef.current = null;
+      }
+      insertPendingComposerChips(() => inputRef.current, enriched, { focus: 'caret' });
+    })();
+  }, [open, pendingAgentContexts, dispatch, store]);
 
   useEffect(() => {
     listRef.current?.scrollToBottom();
@@ -2235,6 +2242,8 @@ function AgentDock({
     setEditDraft('');
     setPendingReview(null);
     dispatch(setHoveredMarkPin(null));
+    const docForSend = store.getState().editor?.document;
+    const chipsForSend = await enrichChipsForAgentVision(docForSend, contextChips);
     const {
       frameChip,
       chipFrameId: chipFrameIdFromContext,
@@ -2242,13 +2251,13 @@ function AgentDock({
       attachedImages,
       mentionImageSrcs,
       skillRefs,
-    } = collectSendChipContext(contextChips);
+    } = collectSendChipContext(chipsForSend);
     // Build API prompt while chips still exist — clearing first drops [Target element]
     // so the backend never sees @ and may create a new artboard instead of edit/delete.
     const userMessageForApi = options.raw
       ? sendText
       : buildUserMessage(sendText);
-    const docForFill = store.getState().editor?.document;
+    const docForFill = docForSend;
     const {
       imageGenCount,
       imageGenAspect,

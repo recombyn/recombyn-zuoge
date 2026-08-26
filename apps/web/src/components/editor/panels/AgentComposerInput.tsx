@@ -1563,25 +1563,39 @@ export function buildComposerContext(
   };
 }
 
-/** Attach a live shape/group/frame raster when the chip has no image `src` yet. */
+/** Attach a live shape/group/frame raster when the chip has no image `src` yet.
+ *  `thumbUrl` = small chip preview; `dataUrl` = vision-quality PNG for the agent send bag.
+ */
 export async function enrichComposerContextThumb(
   document: SceneDocument,
   ctx: ComposerContext | null,
   opts: { nodeIds?: string[]; frameId?: string | null } = {}
 ): Promise<ComposerContext | null> {
   if (!ctx) return null;
-  if (String(ctx.thumbUrl || '').trim()) return ctx;
+  let next = ctx;
   try {
-    const thumb = await renderComposerChipThumb({
-      document,
-      nodeIds: opts.nodeIds,
-      frameId: opts.frameId,
-    });
-    if (thumb) return { ...ctx, thumbUrl: thumb };
+    if (!String(next.thumbUrl || '').trim()) {
+      const thumb = await renderComposerChipThumb({
+        document,
+        nodeIds: opts.nodeIds,
+        frameId: opts.frameId,
+      });
+      if (thumb) next = { ...next, thumbUrl: thumb };
+    }
+    if (!String(next.dataUrl || '').trim()) {
+      const nodeIds = (opts.nodeIds || []).filter(Boolean);
+      if (nodeIds.length) {
+        const dataUrl = await rasterizeNodesToPngDataUrl(document, nodeIds);
+        if (dataUrl) next = { ...next, dataUrl };
+      } else if (opts.frameId) {
+        const dataUrl = await rasterizeFrameToPngDataUrl(document, opts.frameId);
+        if (dataUrl) next = { ...next, dataUrl };
+      }
+    }
   } catch {
-    /* best-effort preview */
+    /* best-effort preview / vision raster */
   }
-  return ctx;
+  return next;
 }
 
 /** Same path as selection export — flatten nodes to one PNG data-URL. */
@@ -1598,6 +1612,38 @@ export async function rasterizeNodesToPngDataUrl(
       multiplier: 2,
       selectionOnly: true,
       nodeIds: ids,
+    });
+    if (rendered?.kind !== 'raster' || !rendered.dataUrl) return null;
+    return rendered.dataUrl;
+  } catch {
+    return null;
+  }
+}
+
+/** Vision-quality artboard crop for composer / agent send. */
+export async function rasterizeFrameToPngDataUrl(
+  document: SceneDocument,
+  frameId: string
+): Promise<string | null> {
+  const id = String(frameId || '').trim();
+  if (!document || !id) return null;
+  try {
+    const frames = Array.isArray(document.frames) ? document.frames : [];
+    const frame = frames.find((f) => f?.id === id);
+    if (!frame) return null;
+    const w = Math.max(1, Number(frame.width) || 1);
+    const h = Math.max(1, Number(frame.height) || 1);
+    const rendered = await renderExport({
+      document,
+      format: 'png',
+      multiplier: Math.min(2, Math.max(0.5, 1024 / Math.max(w, h))),
+      crop: {
+        x: Number(frame.x) || 0,
+        y: Number(frame.y) || 0,
+        width: w,
+        height: h,
+      },
+      backgroundColor: String(frame.backgroundColor || '#FFFFFF'),
     });
     if (rendered?.kind !== 'raster' || !rendered.dataUrl) return null;
     return rendered.dataUrl;
