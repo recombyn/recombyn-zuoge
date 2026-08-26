@@ -43,6 +43,17 @@ git push origin main
 
 Secret on **recombyn-dev**: `PUBLIC_REPO_TOKEN` (write access to `recombyn/zuoge`).
 
+## One-shot history reset (zuoge)
+
+When the public mirror commit log is unusable (generic `chore: sync…` spam), rebuild from a clean orphan commit:
+
+```bash
+# Disable zuoge branch ruleset briefly (allow force-push), then:
+GH_TOKEN=… REBUILD_PUSH=1 node scripts/rebuild-public-mirror.mjs
+```
+
+This strips commercial code, creates **one** commit with the current private `HEAD` message (+ `Sync-source:` footer), and force-pushes `main`. Stars/forks stay on the repo; fork owners should `git fetch upstream && git reset --hard upstream/main`.
+
 ## Adding a closed feature
 
 1. Implement under `src/commercial/web/…` or `intelligence/`
