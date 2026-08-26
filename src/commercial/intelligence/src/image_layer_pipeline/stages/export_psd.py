@@ -45,6 +45,34 @@ def save_png_layers(
     return paths
 
 
+def try_export_psd(
+    path: Path,
+    *,
+    original_rgb: np.ndarray,
+    far_background_rgb: np.ndarray,
+    behind_subject_rgb: np.ndarray,
+    foreground_rgba: np.ndarray,
+    mid_mask: np.ndarray,
+    subject_mask: np.ndarray | None = None,
+    nondestructive: bool = True,
+) -> Path | None:
+    """Export PSD when pytoshop is available; otherwise skip (PNG layers remain)."""
+    try:
+        return export_psd(
+            path,
+            original_rgb=original_rgb,
+            far_background_rgb=far_background_rgb,
+            behind_subject_rgb=behind_subject_rgb,
+            foreground_rgba=foreground_rgba,
+            mid_mask=mid_mask,
+            subject_mask=subject_mask,
+            nondestructive=nondestructive,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[export] PSD skipped: {exc}")
+        return None
+
+
 def export_psd(
     path: Path,
     *,

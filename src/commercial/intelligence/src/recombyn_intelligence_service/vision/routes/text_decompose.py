@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+from recombyn_intelligence_service.vision.async_offload import run_sync
 from recombyn_intelligence_service.vision.deps import require_auth
 from recombyn_intelligence_service.vision.services.text_decompose_service import (
     decompose_text_image_bytes,
@@ -24,7 +25,8 @@ async def text_decompose(
 ):
     """OCR text layers + inpainted background for editText."""
     raw = await file.read()
-    return decompose_text_image_bytes(
+    return await run_sync(
+        decompose_text_image_bytes,
         raw,
         lang=lang.strip() or "ch",
         min_confidence=max(0.0, min(1.0, float(min_confidence))),

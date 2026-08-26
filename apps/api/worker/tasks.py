@@ -475,7 +475,7 @@ def _run_chat_media_job(
             kind=kind,
             status="failed",
             progress=100,
-            error=str(exc),
+            error=str(exc) or type(exc).__name__,
         )
         observe_job(kind, "failed")
         _log.error(
@@ -483,10 +483,10 @@ def _run_chat_media_job(
             kind,
             job_id,
             trace_id,
-            exc,
+            exc or type(exc).__name__,
             extra={"job_id": job_id, "trace_id": trace_id, "event": "failed"},
         )
-        return {"job_id": job_id, "status": "failed", "error": str(exc)}
+        return {"job_id": job_id, "status": "failed", "error": str(exc) or type(exc).__name__}
 
 
 @celery.task(

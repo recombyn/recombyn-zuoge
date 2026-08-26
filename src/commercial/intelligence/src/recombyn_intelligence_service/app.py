@@ -70,18 +70,15 @@ mount_mockup_routes(app, auth_check=_check_auth)
 
 @app.get("/health")
 async def health() -> dict:
+    from image_layer_pipeline.ort_providers import preferred_ort_providers
+    from image_layer_pipeline.stages.inpainting.flux import flux_available
     from image_layer_pipeline.vision_capabilities import vision_model_status, vision_ready_for_production
     from mockup_pipeline.loader import list_templates
     from recombyn_intelligence_service.mockup.config import settings as mockup_settings
-    from image_layer_pipeline.stages.inpainting.flux import flux_available
     from recombyn_intelligence_service.vision.infra.job_executor import queue_stats
 
-    models = vision_model_status()
     blocker = vision_ready_for_production()
-    ort_providers: list[str] = []
     try:
-        from image_layer_pipeline.ort_providers import preferred_ort_providers
-
         ort_providers = preferred_ort_providers()
     except Exception:
         ort_providers = []
@@ -93,7 +90,7 @@ async def health() -> dict:
             "enabled": True,
             "queue": queue_stats(),
             "flux": flux_available(),
-            "models": models,
+            "models": vision_model_status(),
             "ort_providers": ort_providers,
         },
         "mockup": {

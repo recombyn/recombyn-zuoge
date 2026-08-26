@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import Response
 
+from recombyn_intelligence_service.vision.async_offload import run_sync
 from recombyn_intelligence_service.vision.deps import require_auth
 from recombyn_intelligence_service.vision.services.upscale_service import upscale_image_bytes
 
@@ -23,7 +24,8 @@ async def upscale_image(
 ):
     """Return upscaled RGB PNG — Real-ESRGAN (ONNX) with tiled feather stitching."""
     raw = await file.read()
-    png, meta = upscale_image_bytes(
+    png, meta = await run_sync(
+        upscale_image_bytes,
         raw,
         resolution=resolution.strip() or "4K",
         target_long_edge=target_long_edge,

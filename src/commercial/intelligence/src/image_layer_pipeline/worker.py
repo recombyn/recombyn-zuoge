@@ -7,8 +7,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from image_layer_pipeline.depth import depth_to_uint8
-from image_layer_pipeline.export_psd import export_psd, save_png_layers
+from image_layer_pipeline.stages.depth import depth_to_uint8
+from image_layer_pipeline.stages.export_psd import save_png_layers, try_export_psd
 from image_layer_pipeline.jobs import JobStatus, JobStore
 from image_layer_pipeline.pipeline import composite_layers, load_rgb, run_pipeline
 from image_layer_pipeline.types import PipelineConfig
@@ -26,7 +26,6 @@ def run_job(
     store.update_status(job_id, JobStatus.running)
     cfg = config or PipelineConfig()
     cfg.output_dir = job.output_dir
-    cfg.write_psd = True
     cfg.write_png_layers = True
 
     try:
@@ -52,18 +51,19 @@ def run_job(
             subject_repair_mask=bundle.subject_repair_mask,
         )
 
-        psd_path = out_dir / f"{stem}_layers.psd"
-        export_psd(
-            psd_path,
-            original_rgb=bundle.original_rgb,
-            far_background_rgb=bundle.far_background_rgb,
-            behind_subject_rgb=bundle.behind_subject_rgb,
-            foreground_rgba=bundle.foreground_rgba,
-            mid_mask=bundle.mid_mask,
-            subject_mask=bundle.binary_mask,
-            nondestructive=True,
-        )
-        artifacts["psd"] = psd_path
+        if cfg.write_psd:
+            psd = try_export_psd(
+                out_dir / f"{stem}_layers.psd",
+                original_rgb=bundle.original_rgb,
+                far_background_rgb=bundle.far_background_rgb,
+                behind_subject_rgb=bundle.behind_subject_rgb,
+                foreground_rgba=bundle.foreground_rgba,
+                mid_mask=bundle.mid_mask,
+                subject_mask=bundle.binary_mask,
+                nondestructive=True,
+            )
+            if psd is not None:
+                artifacts["psd"] = psd
 
         preview = composite_layers(
             bundle.far_background_rgb,
@@ -74,7 +74,6 @@ def run_job(
         Image.fromarray(preview, mode="RGB").save(preview_path)
         artifacts["preview"] = preview_path
 
-        # 2.5D 视差预设参数（AE / Web / Blender 可读）
         parallax = {
             "version": 1,
             "depth_convention": "larger_means_nearer",

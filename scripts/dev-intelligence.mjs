@@ -25,23 +25,25 @@ if (!existsSync(venvPy)) {
 const env = {
   ...process.env,
   INTELLIGENCE_SERVICE_API_KEY: process.env.INTELLIGENCE_SERVICE_API_KEY || 'dev-key',
+  PYTHONPATH: [path.join(intelligenceRoot, 'src'), process.env.PYTHONPATH || '']
+    .filter(Boolean)
+    .join(path.delimiter),
 };
 
-const child = spawn(
-  py,
-  [
-    '-m',
-    'uvicorn',
-    'recombyn_intelligence_service.app:app',
-    '--reload',
-    '--host',
-    '127.0.0.1',
-    '--port',
-    '8091',
-  ],
-  { cwd: intelligenceRoot, stdio: 'inherit', env, shell: win }
-);
+// Windows: skip --reload (orphan spawn workers can ghost-listen on :8091).
+const args = [
+  '-m',
+  'uvicorn',
+  'recombyn_intelligence_service.app:app',
+  '--host',
+  '127.0.0.1',
+  '--port',
+  '8091',
+];
+if (!win || process.env.ILP_RELOAD === '1') args.push('--reload');
 
+console.log(`[dev:intelligence] ${py} ${args.join(' ')}`);
+const child = spawn(py, args, { cwd: intelligenceRoot, stdio: 'inherit', env, shell: win });
 child.on('exit', (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   process.exit(code ?? 1);

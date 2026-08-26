@@ -8,9 +8,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { apiRoot, loadApiDotEnv } from './load-api-env.mjs';
 
-const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../apps/api');
 const win = process.platform === 'win32';
 const venvPy = path.join(apiRoot, '.venv', win ? 'Scripts/python.exe' : 'bin/python');
 const py = existsSync(venvPy) ? venvPy : 'python';
@@ -24,8 +23,9 @@ if (!existsSync(venvPy)) {
 const args = ['-m', 'celery', '-A', 'worker.celery_app.celery', 'worker', '-l', 'info', '--concurrency=1'];
 if (win) args.push('--pool=solo');
 
+const env = { ...process.env, ...loadApiDotEnv(), RECOMBYN_API_ROOT: apiRoot };
 console.log(`[dev:worker] ${py} ${args.join(' ')}`);
-const child = spawn(py, args, { cwd: apiRoot, stdio: 'inherit', env: process.env });
+const child = spawn(py, args, { cwd: apiRoot, stdio: 'inherit', env });
 child.on('exit', (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   process.exit(code ?? 1);

@@ -5,12 +5,12 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from image_layer_pipeline.runtime import hold_inference
-from image_layer_pipeline.ort_providers import preferred_ort_providers
-
 import numpy as np
 from PIL import Image
 from rembg import new_session, remove
+
+from image_layer_pipeline.ort_providers import preferred_ort_providers
+from image_layer_pipeline.runtime import hold_inference
 
 
 @lru_cache(maxsize=8)
@@ -30,11 +30,10 @@ def _onnx_matting_session(onnx_path: str):
     opts = ort.SessionOptions()
     opts.enable_cpu_mem_arena = False
     opts.enable_mem_pattern = False
-    preferred = preferred_ort_providers()
     return ort.InferenceSession(
         onnx_path,
         sess_options=opts,
-        providers=preferred,
+        providers=preferred_ort_providers(),
     )
 
 
@@ -71,13 +70,6 @@ def _segment_custom_onnx(pil: Image.Image, onnx_path: str) -> Image.Image:
     return rgba
 
 
-def _is_onnx_oom(exc: BaseException) -> bool:
-    msg = str(exc).lower()
-    if "allocation" in msg or "allocate" in msg:
-        return True
-    return exc.__class__.__name__ in {"Fail", "RuntimeException"}
-
-
 def _segment_rembg(pil: Image.Image, model_name: str, onnx_path: str = "") -> Image.Image:
     session = _session(model_name, onnx_path)
     rgba = remove(pil, session=session)
@@ -92,11 +84,7 @@ def segment_foreground(
     *,
     custom_onnx: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Return foreground RGBA and binary mask.
-
-    ``custom_onnx`` is used when ``model_name == ben_custom`` (fine-tuned BiRefNet ONNX).
-    """
+    """Return foreground RGBA and binary mask."""
     if image_rgb.ndim != 3 or image_rgb.shape[2] != 3:
         raise ValueError("image_rgb must be HxWx3")
 
@@ -105,13 +93,7 @@ def segment_foreground(
 
     with hold_inference("matting"):
         if model_name == "ben_custom" and onnx_path:
-            try:
-                rgba = _segment_custom_onnx(pil, onnx_path)
-            except Exception as exc:  # noqa: BLE001
-                if not _is_onnx_oom(exc):
-                    raise
-                _onnx_matting_session.cache_clear()
-                rgba = _segment_rembg(pil, "birefnet-general")
+            rgba = _segment_custom_onnx(pil, onnx_path)
         else:
             rgba = _segment_rembg(pil, model_name, onnx_path)
 

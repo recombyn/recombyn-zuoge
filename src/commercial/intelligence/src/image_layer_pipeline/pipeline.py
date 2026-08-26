@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 from image_layer_pipeline.subject_pipeline import run_subject_layer_pipeline
-from image_layer_pipeline.stages.export_psd import export_psd, save_png_layers
+from image_layer_pipeline.stages.export_psd import save_png_layers, try_export_psd
 from image_layer_pipeline.stages.depth import depth_to_uint8
 from image_layer_pipeline.types import LayerBundle, PipelineConfig
 
@@ -58,21 +58,18 @@ def process_file(
         )
 
     if cfg.write_psd:
-        psd_path = out_dir / f"{stem}_layers.psd"
-        try:
-            export_psd(
-                psd_path,
-                original_rgb=bundle.original_rgb,
-                far_background_rgb=bundle.far_background_rgb,
-                behind_subject_rgb=bundle.behind_subject_rgb,
-                foreground_rgba=bundle.foreground_rgba,
-                mid_mask=bundle.mid_mask,
-                subject_mask=bundle.binary_mask,
-                nondestructive=True,
-            )
-            results["psd"] = psd_path
-        except Exception as exc:  # noqa: BLE001
-            print(f"[export] PSD 写出失败（PNG 图层仍可用）: {exc}")
+        psd = try_export_psd(
+            out_dir / f"{stem}_layers.psd",
+            original_rgb=bundle.original_rgb,
+            far_background_rgb=bundle.far_background_rgb,
+            behind_subject_rgb=bundle.behind_subject_rgb,
+            foreground_rgba=bundle.foreground_rgba,
+            mid_mask=bundle.mid_mask,
+            subject_mask=bundle.binary_mask,
+            nondestructive=True,
+        )
+        if psd is not None:
+            results["psd"] = psd
 
     preview = composite_layers(
         bundle.far_background_rgb,

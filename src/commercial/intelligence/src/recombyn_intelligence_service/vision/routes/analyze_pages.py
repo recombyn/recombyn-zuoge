@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+from recombyn_intelligence_service.vision.async_offload import run_sync
 from recombyn_intelligence_service.vision.deps import require_auth
 from recombyn_intelligence_service.vision.services.analyze_pages_service import analyze_pages
 
@@ -28,7 +29,8 @@ async def analyze_pages_route(
         raw = await upload.read()
         if raw:
             pages.append(raw)
-    return analyze_pages(
+    return await run_sync(
+        analyze_pages,
         pages,
         lang=lang,
         target_width=target_width,

@@ -7,9 +7,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from image_layer_pipeline.stages.depth import depth_to_uint8
-from image_layer_pipeline.stages.export_psd import export_psd, save_png_layers
 from image_layer_pipeline.pipeline import composite_layers, load_rgb, run_pipeline
+from image_layer_pipeline.stages.depth import depth_to_uint8
+from image_layer_pipeline.stages.export_psd import save_png_layers, try_export_psd
 from image_layer_pipeline.types import PipelineConfig
 from recombyn_intelligence_service.vision.config import settings
 from recombyn_intelligence_service.vision.infra.job_store import get_job, update_job
@@ -47,18 +47,19 @@ def execute_pipeline_job(job_id: str) -> None:
             subject_repair_mask=bundle.subject_repair_mask,
         )
 
-        psd_path = out_dir / f"{stem}_layers.psd"
-        export_psd(
-            psd_path,
-            original_rgb=bundle.original_rgb,
-            far_background_rgb=bundle.far_background_rgb,
-            behind_subject_rgb=bundle.behind_subject_rgb,
-            foreground_rgba=bundle.foreground_rgba,
-            mid_mask=bundle.mid_mask,
-            subject_mask=bundle.binary_mask,
-            nondestructive=True,
-        )
-        artifacts["psd"] = psd_path
+        if cfg.write_psd:
+            psd = try_export_psd(
+                out_dir / f"{stem}_layers.psd",
+                original_rgb=bundle.original_rgb,
+                far_background_rgb=bundle.far_background_rgb,
+                behind_subject_rgb=bundle.behind_subject_rgb,
+                foreground_rgba=bundle.foreground_rgba,
+                mid_mask=bundle.mid_mask,
+                subject_mask=bundle.binary_mask,
+                nondestructive=True,
+            )
+            if psd is not None:
+                artifacts["psd"] = psd
 
         preview = composite_layers(
             bundle.far_background_rgb,

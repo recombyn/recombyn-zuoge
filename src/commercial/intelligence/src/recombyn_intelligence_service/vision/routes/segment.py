@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import Response
 
+from recombyn_intelligence_service.vision.async_offload import run_sync
 from recombyn_intelligence_service.vision.deps import require_auth
 from recombyn_intelligence_service.vision.services.segment_service import segment_foreground_rgba
 
@@ -27,7 +28,8 @@ async def segment_image(
     raw = await file.read()
     inc_raw = await include_mask.read() if include_mask else b""
     exc_raw = await exclude_mask.read() if exclude_mask else b""
-    png, engines = segment_foreground_rgba(
+    png, engines = await run_sync(
+        segment_foreground_rgba,
         raw,
         model_name=model,
         decontaminate=decontaminate,
