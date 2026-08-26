@@ -150,24 +150,106 @@ def _append_root_child(doc: dict[str, Any], node_id: str) -> None:
     delta = _ensure_delta(doc)
     root = delta["ROOT"]
     children = list(root.get("children") or [])
-    page_children = list(doc.get("pageChildren") or children)
+    pages = doc.get("pages")
+    if isinstance(pages, list) and pages and isinstance(pages[0], dict):
+        page_children = list(pages[0].get("children") or [])
+    else:
+        page_children = list(doc.get("pageChildren") or children)
     if node_id not in children:
         children.append(node_id)
     if node_id not in page_children:
         page_children.append(node_id)
     root["children"] = children
     doc["pageChildren"] = page_children
+    if isinstance(pages, list) and pages and isinstance(pages[0], dict):
+        pages[0] = {**pages[0], "children": page_children}
+        doc["pages"] = pages
 
 
-def _append_frame_child(doc: dict[str, Any], frame_id: str, node_id: str) -> None:
+def _frame_by_id(doc: dict[str, Any], frame_id: str) -> dict[str, Any] | None:
+    for frame in doc.get("frames") or []:
+        if isinstance(frame, dict) and str(frame.get("id") or "") == frame_id:
+            return frame
+    return None
+
+
+def _next_frame_order(doc: dict[str, Any], frame_id: str) -> int:
+    orders: list[int] = []
+    for node in (_ensure_delta(doc).values()):
+        if not isinstance(node, dict):
+            continue
+        attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
+        if str(attrs.get("frameId") or "") != frame_id:
+            continue
+        try:
+            orders.append(int(attrs.get("frameOrder")))
+        except (TypeError, ValueError):
+            continue
+    return max(orders) + 1 if orders else 0
+
+
+def _fit_into_frame(
+    frame: dict[str, Any] | None,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> tuple[float, float, float, float]:
+    """Promote frame-local coords to world coords (mirrors FE designTools.fitIntoFrame)."""
+    if not frame:
+        return x, y, max(1.0, width), max(1.0, height)
+    fx = _num(frame.get("x"))
+    fy = _num(frame.get("y"))
+    fw = max(1.0, _num(frame.get("width"), 1))
+    fh = max(1.0, _num(frame.get("height"), 1))
+    w = max(1.0, min(width, fw))
+    h = max(1.0, min(height, fh))
+    wx, wy = x, y
+    if x >= 0 and x <= fw and y >= 0 and y <= fh:
+        wx = fx + x
+        wy = fy + y
+    max_x = fx + fw - w
+    max_y = fy + fh - h
+    nx = min(max(wx, fx), max(fx, max_x))
+    ny = min(max(wy, fy), max(fy, max_y))
+    return nx, ny, w, h
+
+
+def _place_node_args_for_frame(doc: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    frame_id = str(args.get("frameId") or "").strip()
+    if not frame_id:
+        return args
+    frame = _frame_by_id(doc, frame_id)
+    if not frame:
+        return args
+    x = _pick_num(args, "x", default=40)
+    y = _pick_num(args, "y", default=40)
+    width = max(1, _pick_num(args, "width", "w", default=120))
+    height = max(1, _pick_num(args, "height", "h", default=80))
+    px, py, pw, ph = _fit_into_frame(frame, x, y, width, height)
+    return {**args, "x": px, "y": py, "width": pw, "height": ph}
+
+
+def _append_frame_child(
+    doc: dict[str, Any],
+    frame_id: str,
+    node_id: str,
+    *,
+    frame_order: int | None = None,
+) -> None:
+    if node_id == frame_id:
+        return
     delta = _ensure_delta(doc)
     frame_node = delta.get(frame_id)
     if not isinstance(frame_node, dict):
         _append_root_child(doc, node_id)
         return
-    children = list(frame_node.get("children") or [])
+    # Frame-bound nodes still live in page/ROOT children for rendering (see addNodeToDocument).
+    _append_root_child(doc, node_id)
+    children = [c for c in list(frame_node.get("children") or []) if str(c) != frame_id]
     if node_id not in children:
         children.append(node_id)
+    frame_node = dict(frame_node)
     frame_node["children"] = children
     delta[frame_id] = frame_node
     node = delta.get(node_id)
@@ -175,8 +257,91 @@ def _append_frame_child(doc: dict[str, Any], frame_id: str, node_id: str) -> Non
         node = dict(node)
         attrs = dict(node.get("attrs") or {})
         attrs["frameId"] = frame_id
+        attrs["frameOrder"] = (
+            frame_order if frame_order is not None else _next_frame_order(doc, frame_id)
+        )
         node["attrs"] = attrs
         delta[node_id] = node
+
+
+def _assign_group_id(doc: dict[str, Any], node_ids: list[str]) -> str:
+    group_id = _new_node_id("g_")
+    delta = _ensure_delta(doc)
+    for node_id in node_ids:
+        node = delta.get(node_id)
+        if not isinstance(node, dict):
+            continue
+        patched = dict(node)
+        attrs = dict(patched.get("attrs") or {})
+        attrs["groupId"] = group_id
+        patched["attrs"] = attrs
+        delta[node_id] = patched
+    return group_id
+
+
+def _reindex_frame_children(doc: dict[str, Any], frame_id: str) -> None:
+    delta = _ensure_delta(doc)
+    frame_node = delta.get(frame_id)
+    if not isinstance(frame_node, dict):
+        return
+    siblings = [
+        nid
+        for nid, node in delta.items()
+        if nid not in ("ROOT", frame_id)
+        and isinstance(node, dict)
+        and str((node.get("attrs") or {}).get("frameId") or "") == frame_id
+    ]
+
+    def _order_key(nid: str) -> tuple[int, int]:
+        node = delta.get(nid)
+        if not isinstance(node, dict):
+            return (0, 0)
+        attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
+        try:
+            explicit = int(attrs.get("frameOrder"))
+        except (TypeError, ValueError):
+            explicit = 0
+        try:
+            listed = list(frame_node.get("children") or []).index(nid)
+        except ValueError:
+            listed = 0
+        return (explicit, listed)
+
+    siblings.sort(key=_order_key)
+    for index, node_id in enumerate(siblings):
+        node = delta.get(node_id)
+        if not isinstance(node, dict):
+            continue
+        patched = dict(node)
+        attrs = dict(patched.get("attrs") or {})
+        attrs["frameId"] = frame_id
+        attrs["frameOrder"] = index
+        patched["attrs"] = attrs
+        delta[node_id] = patched
+    frame_node = dict(frame_node)
+    frame_node["children"] = siblings
+    delta[frame_id] = frame_node
+
+
+def _finalize_frame_batches(
+    doc: dict[str, Any],
+    *,
+    created_by_frame: dict[str, list[str]],
+    upsert: dict[str, Any],
+) -> None:
+    for frame_id, created_ids in created_by_frame.items():
+        unique_ids = [nid for nid in dict.fromkeys(created_ids) if nid]
+        _reindex_frame_children(doc, frame_id)
+        if len(unique_ids) >= 2:
+            _assign_group_id(doc, unique_ids)
+        delta = _ensure_delta(doc)
+        upsert[frame_id] = delta[frame_id]
+        for node_id in unique_ids:
+            if node_id in delta:
+                upsert[node_id] = delta[node_id]
+        for node_id in list(delta.get(frame_id, {}).get("children") or []):
+            if node_id in delta and node_id not in upsert:
+                upsert[node_id] = delta[node_id]
 
 
 def _create_frame(doc: dict[str, Any], args: dict[str, Any]) -> str:
@@ -278,6 +443,13 @@ def ops_to_document_patch(
     frames_patch: list[Any] | None = None
     canvas_patch: dict[str, Any] | None = None
     touched = False
+    frame_order_next: dict[str, int] = {}
+    created_by_frame: dict[str, list[str]] = {}
+
+    def _next_batch_frame_order(frame_id: str) -> int:
+        order = frame_order_next.get(frame_id, _next_frame_order(working, frame_id))
+        frame_order_next[frame_id] = order + 1
+        return order
 
     for op in ops or []:
         if not isinstance(op, dict):
@@ -289,26 +461,45 @@ def ops_to_document_patch(
 
         if name in ("create_shape", "create_path"):
             nid = _new_node_id()
-            node = _shape_node_from_args(
+            placed_args = _place_node_args_for_frame(
+                working,
                 {**args, "shapeType": args.get("shapeType") or ("path" if name == "create_path" else "rect")},
-                nid,
             )
-            upsert[nid] = node
+            node = _shape_node_from_args(placed_args, nid)
+            working["deltaSetLike"][nid] = node
             frame_id = str(args.get("frameId") or "").strip()
             if frame_id:
-                _append_frame_child(working, frame_id, nid)
+                _append_frame_child(
+                    working,
+                    frame_id,
+                    nid,
+                    frame_order=_next_batch_frame_order(frame_id),
+                )
+                created_by_frame.setdefault(frame_id, []).append(nid)
+                upsert[frame_id] = working["deltaSetLike"][frame_id]
             else:
                 _append_root_child(working, nid)
+            upsert[nid] = working["deltaSetLike"][nid]
             upsert["ROOT"] = working["deltaSetLike"]["ROOT"]
             touched = True
         elif name == "create_text":
             nid = _new_node_id()
-            upsert[nid] = _text_node_from_args(args, nid)
+            placed_args = _place_node_args_for_frame(working, args)
+            node = _text_node_from_args(placed_args, nid)
+            working["deltaSetLike"][nid] = node
             frame_id = str(args.get("frameId") or "").strip()
             if frame_id:
-                _append_frame_child(working, frame_id, nid)
+                _append_frame_child(
+                    working,
+                    frame_id,
+                    nid,
+                    frame_order=_next_batch_frame_order(frame_id),
+                )
+                created_by_frame.setdefault(frame_id, []).append(nid)
+                upsert[frame_id] = working["deltaSetLike"][frame_id]
             else:
                 _append_root_child(working, nid)
+            upsert[nid] = working["deltaSetLike"][nid]
             upsert["ROOT"] = working["deltaSetLike"]["ROOT"]
             touched = True
         elif name == "update_node":
@@ -355,6 +546,10 @@ def ops_to_document_patch(
 
     if not touched:
         return {}
+
+    _finalize_frame_batches(working, created_by_frame=created_by_frame, upsert=upsert)
+    if "ROOT" in working.get("deltaSetLike", {}):
+        upsert["ROOT"] = working["deltaSetLike"]["ROOT"]
 
     patch: dict[str, Any] = {}
     if upsert:

@@ -1,0 +1,52 @@
+{
+  "id": "create_shape_in_frame",
+  "doc": {
+    "pageChildren": ["f1"],
+    "frames": [
+      {
+        "id": "f1",
+        "x": 100,
+        "y": 50,
+        "width": 400,
+        "height": 600,
+        "name": "Board"
+      }
+    ],
+    "deltaSetLike": {
+      "ROOT": { "id": "ROOT", "key": "entry", "children": ["f1"] },
+      "f1": {
+        "id": "f1",
+        "key": "frame",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 600,
+        "attrs": { "name": "Board" },
+        "children": []
+      }
+    }
+  },
+  "ops": [
+    {
+      "name": "create_shape",
+      "args": {
+        "frameId": "f1",
+        "shapeType": "rect",
+        "x": 10,
+        "y": 20,
+        "width": 80,
+        "height": 40,
+        "fill": "#3366FF"
+      }
+    }
+  ],
+  "expect": {
+    "shapeCount": 1,
+    "frameId": "f1",
+    "worldX": 110,
+    "worldY": 70,
+    "frameOrder": 0,
+    "grouped": false,
+    "inRoot": true
+  }
+}

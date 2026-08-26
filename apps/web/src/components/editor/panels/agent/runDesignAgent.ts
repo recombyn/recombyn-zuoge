@@ -45,14 +45,17 @@ import {
 } from '@/components/editor/panels/agent/designTools';
 import {
   beginAiSceneMutation,
+  beginCanvasApplyLock,
   cancelImportPlaceholder,
   clearArtboardGenerating,
   endAiSceneMutation,
+  endCanvasApplyLock,
   pushEditorHistory,
   setDocument,
   undo,
   setAiOperationState,
 } from '@/store/modules/editor';
+import { resolveToolOpsInterOpDelayMs } from '@/components/editor/panels/agent/toolOpsApplyPolicy';
 import { store } from '@/store';
 
 export type ToolOpResult = {
@@ -357,6 +360,11 @@ export async function applyAgentToolOps(opts: {
   transactionId?: string;
   baseRevision?: number;
   currentRevision?: number;
+  /** Stagger between successful ops (Figma-like reveal). 0 disables. */
+  delayMs?: number;
+  /** When false, canvas stays interactive during apply. Default true. */
+  lockCanvas?: boolean;
+  onProgress?: (info: { done: number; total: number }) => void;
 }): Promise<{
   created: number;
   updated: number;
@@ -370,6 +378,12 @@ export async function applyAgentToolOps(opts: {
 }> {
   const { ops, dispatch, getDocument, frameId, signal, userImages, appliedOpIds } =
     opts;
+  const delayMs = resolveToolOpsInterOpDelayMs({
+    opCount: ops.length,
+    overrideMs: opts.delayMs,
+  });
+  const lockCanvas = opts.lockCanvas !== false;
+  if (lockCanvas) dispatch(beginCanvasApplyLock());
   const toolCtx = {
     dispatch,
     getDocument,
@@ -422,6 +436,7 @@ export async function applyAgentToolOps(opts: {
     return best?.id || null;
   };
 
+  try {
   const mutation = await applySceneMutation({
     source: opts.source || 'ai',
     transactionId: opts.transactionId,
@@ -456,6 +471,7 @@ export async function applyAgentToolOps(opts: {
         ok: false,
         error: `${name}_deferred: host auto-groups at end of run; omit mid-stream group/ungroup`,
       });
+      opts.onProgress?.({ done: i + 1, total: allowed.length });
       continue;
     }
     const opId = String((op as { op_id?: string })?.op_id || '');
@@ -494,6 +510,7 @@ export async function applyAgentToolOps(opts: {
         error: String(res.summary || 'failed').slice(0, 200),
         actual_node_ids: [],
       });
+      opts.onProgress?.({ done: i + 1, total: allowed.length });
       continue;
     }
     const actualNodeIds = artifactNodeIds(res.artifacts);
@@ -502,8 +519,10 @@ export async function applyAgentToolOps(opts: {
       ok: true,
       actual_node_ids: actualNodeIds.length ? actualNodeIds : receiptBase.expected_node_ids,
     });
+    let mutated = false;
     if (name === 'update_node' || name === 'outline_text') {
       updated += 1;
+      mutated = true;
       const outlined = Array.isArray(res.artifacts?.nodeIds)
         ? (res.artifacts!.nodeIds as unknown[]).map((x) => String(x)).filter(Boolean)
         : [];
@@ -514,13 +533,24 @@ export async function applyAgentToolOps(opts: {
       }
     } else if (name === 'delete_nodes') {
       deleted += 1;
+      mutated = true;
     } else if (name === 'delete_frame') {
       deleted += 1;
+      mutated = true;
     } else {
       const id = res.artifacts?.nodeId != null ? String(res.artifacts.nodeId) : '';
       if (id) {
         nodeIds.push(id);
         created += 1;
+        mutated = true;
+      }
+    }
+    opts.onProgress?.({ done: i + 1, total: allowed.length });
+    if (mutated && delayMs > 0 && i < allowed.length - 1) {
+      try {
+        await sleep(delayMs, signal);
+      } catch {
+        break;
       }
     }
   }
@@ -552,6 +582,9 @@ export async function applyAgentToolOps(opts: {
     historyPushed: mutation.historyPushed,
     revisionAction: mutation.revisionAction,
   };
+  } finally {
+    if (lockCanvas) dispatch(endCanvasApplyLock());
+  }
 }
 
 
@@ -1368,7 +1401,11 @@ export async function applyDesignSvgToDocumentProgressive(opts: {
     prevIds,
     fingerprintById: opts.fingerprintById,
     forceFullReplace: Boolean(opts.forceFullReplace),
-    delayMs: isFirstPaint ? Math.max(16, opts.delayMs ?? 48) : Math.max(8, opts.delayMs ?? 24),
+    delayMs: resolveToolOpsInterOpDelayMs({
+      opCount: ops.length,
+      firstPaint: isFirstPaint,
+      overrideMs: opts.delayMs,
+    }),
     signal: opts.signal,
     onProgress: opts.onProgress,
   });
@@ -2875,6 +2912,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
             transactionId: chunkTxId || undefined,
             baseRevision: aiQueue.baseRevision,
             currentRevision: sceneRevisionNow(),
+            onProgress: (info) => {
+              params.onEvent({
+                type: 'drawing',
+                active: true,
+                done: info.done,
+                total: info.total,
+              });
+            },
           });
           // The host can create the target artboard before its matching
           // create_frame command arrives. Record that as an explicit receipt

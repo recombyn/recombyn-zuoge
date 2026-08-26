@@ -1,0 +1,62 @@
+{
+  "id": "auto_group_frame_batch",
+  "doc": {
+    "pageChildren": ["f1"],
+    "frames": [
+      {
+        "id": "f1",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 600,
+        "name": "Board"
+      }
+    ],
+    "deltaSetLike": {
+      "ROOT": { "id": "ROOT", "key": "entry", "children": ["f1"] },
+      "f1": {
+        "id": "f1",
+        "key": "frame",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 600,
+        "attrs": { "name": "Board" },
+        "children": []
+      }
+    }
+  },
+  "ops": [
+    {
+      "name": "create_shape",
+      "args": {
+        "frameId": "f1",
+        "shapeType": "rect",
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 80,
+        "fill": "#111111"
+      }
+    },
+    {
+      "name": "create_text",
+      "args": {
+        "frameId": "f1",
+        "text": "Title",
+        "x": 10,
+        "y": 10,
+        "width": 80,
+        "fontSize": 24,
+        "fill": "#ffffff"
+      }
+    }
+  ],
+  "expect": {
+    "createdCount": 2,
+    "frameId": "f1",
+    "grouped": true,
+    "frameOrders": [0, 1],
+    "inRoot": true
+  }
+}

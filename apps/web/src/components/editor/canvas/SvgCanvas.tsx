@@ -267,6 +267,10 @@ function SvgCanvas({
   const collabViewOnly = isCollabViewOnly();
   // Collab share viewers: block mutations while still allowing pan/zoom/select chrome.
   readOnly = Boolean(readOnly || collabViewOnly);
+  const canvasApplyLock = useSelector(
+    (s: RootState) => (s.editor.canvasApplyLock || 0) as number
+  );
+  const applyLocked = canvasApplyLock > 0;
   const activeTool = useSelector((s: RootState) => s.editor.activeTool);
   const shapeKind = useSelector((s: RootState) => s.editor.shapeKind);
   const pendingImageSrc = useSelector((s: RootState) => s.editor.pendingImageSrc);
@@ -1996,7 +2000,7 @@ function SvgCanvas({
             still pass through to chrome / shapes. */}
         <div className="absolute left-0 top-0 z-[1000001] h-0 w-0 overflow-visible">
           <SelectionFeature
-            enabled={selectMode}
+            enabled={selectMode && !applyLocked}
             readOnly={readOnly}
             attachPickActive={Boolean(canvasAttachPick)}
             imageToolSessionNodeId={imageToolSessionNodeId}

@@ -371,6 +371,8 @@ const initialState = {
   sceneRevision: 0,
   /** >0 while an AI DesignTransaction is applying (PR7 Scene Mutation). */
   aiMutationLock: 0,
+  /** >0 while tool_ops are visibly applying — block select/edit; pan/zoom stay enabled. */
+  canvasApplyLock: 0,
   sceneReloadToken: 0,
   documentPatchToken: 0,
   /** Node ids last touched by `patchDocumentNode` — SvgCanvas refreshes these even with no selection. */
@@ -1126,6 +1128,12 @@ const editorSlice = createSlice({
       if (state.aiMutationLock === 0) {
         state.sceneRevision = (state.sceneRevision || 0) + 1;
       }
+    },
+    beginCanvasApplyLock(state) {
+      state.canvasApplyLock = (state.canvasApplyLock || 0) + 1;
+    },
+    endCanvasApplyLock(state) {
+      state.canvasApplyLock = Math.max(0, (state.canvasApplyLock || 0) - 1);
     },
     renameTemplate(state, action) {
       const item = state.templates.find((t) => t.id === state.currentId);
@@ -2519,6 +2527,8 @@ export const {
   pushEditorHistory,
   beginAiSceneMutation,
   endAiSceneMutation,
+  beginCanvasApplyLock,
+  endCanvasApplyLock,
   renameTemplate,
   persistCurrent,
   clearEditorDirty,

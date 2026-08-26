@@ -966,6 +966,16 @@ def _apply_canvas_meta(doc: dict[str, Any], patch: dict[str, Any]) -> None:
             doc[key] = canvas[key]
 
 
+def _node_bound_to_frame(delta: dict[str, Any], node_id: str) -> bool:
+    node = delta.get(node_id)
+    if not isinstance(node, dict):
+        return False
+    attrs = node.get("attrs")
+    if not isinstance(attrs, dict):
+        return False
+    return bool(str(attrs.get("frameId") or "").strip())
+
+
 def _reconcile_stack_order(doc: dict[str, Any], delta: dict[str, Any]) -> None:
     """Drop deleted stack keys; append newly upserted nodes/frames."""
     pages = doc.get("pages")
@@ -978,6 +988,8 @@ def _reconcile_stack_order(doc: dict[str, Any], delta: dict[str, Any]) -> None:
         root = delta.get("ROOT")
         if isinstance(root, dict) and isinstance(root.get("children"), list):
             node_ids = [str(x) for x in root["children"] if str(x or "").strip()]
+    # Frame-bound nodes render via attrs.frameId; they never get world stack slots.
+    node_ids = [nid for nid in node_ids if not _node_bound_to_frame(delta, nid)]
     node_set = set(node_ids)
     frame_ids: list[str] = []
     frames = doc.get("frames")

@@ -429,6 +429,9 @@ function EditorStageWorld({
   const aiOperationState = useSelector(
     (state: RootState) => state.editor.aiOperationState
   );
+  const canvasApplyLock = useSelector(
+    (state: RootState) => (state.editor.canvasApplyLock || 0) as number
+  );
   const frameChromeMode = useSelector(
     (state: RootState) => state.editor.frameChromeMode as 'soft' | 'full'
   );
@@ -738,6 +741,7 @@ function EditorStageWorld({
     canvasBgOpen && canvasFillValue.fillType === 'diffuse';
   const showFrameToolbar =
     !isDevMode &&
+    canvasApplyLock <= 0 &&
     frameChromeMode === 'full' &&
     selectedFrames.length >= 1 &&
     selectedNodeIds.length === 0 &&
@@ -760,7 +764,7 @@ function EditorStageWorld({
         camera={camera}
         onCameraChange={onCameraChange}
         panMode={panMode}
-        emptyDragPans={false}
+        emptyDragPans={canvasApplyLock > 0}
         panBlockSelector={EDITOR_PAN_BLOCK_SELECTOR}
         background={stageBackground}
         stageRef={stageRef}

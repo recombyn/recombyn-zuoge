@@ -1,17 +1,15 @@
 /**
  * Live editor bridge for MCP canvas control:
  * - heartbeat → server routes ops to live queue (full designTools parity)
- * - pending batches → executeDesignToolAsync
+ * - pending batches → applyAgentToolOps (same stagger + canvas lock as Design Agent)
  * - revision fallback reload when headless writes land
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import {
-  executeDesignToolAsync,
-  type DesignToolContext,
-} from '@/components/editor/panels/agent/designTools';
-import { importDocument, pushEditorHistory } from '@/store/modules/editor';
+import { applyAgentToolOps } from '@/components/editor/panels/agent/runDesignAgent';
+import type { DesignToolContext } from '@/components/editor/panels/agent/designTools';
+import { importDocument } from '@/store/modules/editor';
 import {
   fetchProject,
 } from '@/service/projects';
@@ -91,15 +89,14 @@ export function McpCanvasBridge({
       for (const batch of batches) {
         const bid = String(batch.batchId || '').trim();
         const ops = Array.isArray(batch.ops) ? batch.ops : [];
-        for (const op of ops) {
-          const name = String(op?.name || '').trim();
-          if (!name) continue;
-          const args = (op?.args && typeof op.args === 'object' ? op.args : {}) as Record<
-            string,
-            unknown
-          >;
-          dispatch(pushEditorHistory());
-          await executeDesignToolAsync(name, JSON.stringify(args), ctx);
+        if (ops.length) {
+          await applyAgentToolOps({
+            ops,
+            dispatch,
+            getDocument: ctx.getDocument,
+            frameId: activeFrameId || null,
+            source: 'ai',
+          });
         }
         if (bid) ackIds.push(bid);
       }
@@ -109,7 +106,7 @@ export function McpCanvasBridge({
     } finally {
       applying.current = false;
     }
-  }, [buildCtx, dispatch]);
+  }, [buildCtx, dispatch, activeFrameId]);
 
   useEffect(() => {
     const pid = String(projectId || '').trim();

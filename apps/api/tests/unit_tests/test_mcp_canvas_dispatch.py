@@ -86,6 +86,105 @@ def test_ops_to_document_patch_create_frame():
     assert patch["frames"][0]["width"] == 375
 
 
+def test_ops_to_document_patch_create_shape_in_frame():
+    doc = _empty_doc()
+    doc["frames"] = [{"id": "f1", "x": 100, "y": 50, "width": 400, "height": 600, "name": "Board"}]
+    doc["deltaSetLike"]["f1"] = {
+        "id": "f1",
+        "key": "frame",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 600,
+        "attrs": {"name": "Board"},
+        "children": [],
+    }
+    doc["deltaSetLike"]["ROOT"]["children"] = ["f1"]
+    doc["pageChildren"] = ["f1"]
+    patch = ops_to_document_patch(
+        doc,
+        [
+            {
+                "name": "create_shape",
+                "args": {
+                    "frameId": "f1",
+                    "shapeType": "rect",
+                    "x": 10,
+                    "y": 20,
+                    "width": 80,
+                    "height": 40,
+                    "fill": "#3366FF",
+                },
+            }
+        ],
+    )
+    upsert = patch.get("upsertNodes") or {}
+    shape = next(v for k, v in upsert.items() if k not in ("ROOT", "f1"))
+    assert shape["attrs"]["frameId"] == "f1"
+    assert shape["attrs"]["frameOrder"] == 0
+    assert shape["x"] == 110
+    assert shape["y"] == 70
+    root_children = upsert["ROOT"]["children"]
+    assert shape["id"] in root_children
+    frame_children = upsert["f1"]["children"]
+    assert shape["id"] in frame_children
+    assert shape["id"] in (patch.get("pageChildren") or [])
+
+
+def test_ops_to_document_patch_auto_groups_multiple_frame_nodes():
+    doc = _empty_doc()
+    doc["frames"] = [{"id": "f1", "x": 0, "y": 0, "width": 400, "height": 600, "name": "Board"}]
+    doc["deltaSetLike"]["f1"] = {
+        "id": "f1",
+        "key": "frame",
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 600,
+        "attrs": {"name": "Board"},
+        "children": [],
+    }
+    doc["deltaSetLike"]["ROOT"]["children"] = ["f1"]
+    doc["pageChildren"] = ["f1"]
+    patch = ops_to_document_patch(
+        doc,
+        [
+            {
+                "name": "create_shape",
+                "args": {
+                    "frameId": "f1",
+                    "shapeType": "rect",
+                    "x": 0,
+                    "y": 0,
+                    "width": 100,
+                    "height": 80,
+                    "fill": "#111111",
+                },
+            },
+            {
+                "name": "create_text",
+                "args": {
+                    "frameId": "f1",
+                    "text": "Title",
+                    "x": 10,
+                    "y": 10,
+                    "width": 80,
+                    "fontSize": 24,
+                    "fill": "#ffffff",
+                },
+            },
+        ],
+    )
+    upsert = patch.get("upsertNodes") or {}
+    created = [v for k, v in upsert.items() if k not in ("ROOT", "f1")]
+    assert len(created) == 2
+    group_ids = {node["attrs"].get("groupId") for node in created}
+    assert len(group_ids) == 1
+    assert None not in group_ids
+    orders = sorted(int(node["attrs"]["frameOrder"]) for node in created)
+    assert orders == [0, 1]
+
+
 def test_ops_to_document_patch_skips_live_only():
     doc = _empty_doc()
     patch = ops_to_document_patch(doc, [{"name": "set_viewport", "args": {"action": "fit"}}])
