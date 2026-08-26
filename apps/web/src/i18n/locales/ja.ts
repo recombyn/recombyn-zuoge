@@ -1276,6 +1276,7 @@ const ja = {
     resizeLayersDock: 'レイヤーパネルの幅を調整',
     searchLayers: 'レイヤーを検索',
     noLayers: 'レイヤーがありません',
+    pasteboard: 'ペーストボード',
     history: '履歴',
     noHistory: '履歴はまだありません',
     historyStep: '編集 {{n}}',

@@ -1,10 +1,6 @@
 import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
 import { SoftGlowSurface } from '@/components/base';
-import {
-  PROCESS_GLOW_SHELL_BG,
-  PROCESS_PILL_BOTTOM_PAD_PX,
-  PROCESS_PILL_CLASS,
-} from './processGlow';
+import { PROCESS_PILL_BOTTOM_PAD_PX, PROCESS_PILL_CLASS } from './processGlow';
 
 export type ProcessGlowShellProps = {
   seed: string;
@@ -45,7 +41,6 @@ export function ProcessGlowShell({
       overflow: 'hidden',
       borderRadius,
       pointerEvents: 'none',
-      background: PROCESS_GLOW_SHELL_BG,
     }),
     [borderRadius]
   );
@@ -74,10 +69,11 @@ export function ProcessGlowShell({
     <div className={className} style={shellStyle}>
       <SoftGlowSurface
         {...{ [shimmerDataAttr]: true }}
-        tone="random"
+        tone="canvas"
         seed={seed}
         className="absolute inset-0"
         style={shimmerStyle}
+        data-rcb-process="1"
         aria-hidden
       />
       <div {...{ [labelDataAttr]: true }} className={PROCESS_PILL_CLASS} style={pillStyle}>

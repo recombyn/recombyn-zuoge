@@ -8,12 +8,14 @@ import {
   LuPanelLeft,
   LuPencil,
   LuFilm,
+  LuHexagon,
   LuImagePlus,
 } from 'react-icons/lu';
 import { RiClapperboardFill, RiVideoAiLine } from 'react-icons/ri';
 import { RxText } from 'react-icons/rx';
 import {
   HiOutlineChevronDown,
+  HiOutlineChevronLeft,
   HiOutlineChevronUp,
   HiOutlineEye,
   HiOutlineEyeSlash,
@@ -23,7 +25,7 @@ import {
   HiOutlinePhoto,
   HiOutlineStop,
 } from 'react-icons/hi2';
-import { TbArrowUpRight, TbCircle, TbPolygon, TbStar, TbTriangle } from 'react-icons/tb';
+import { TbArrowUpRight, TbCircle, TbStar, TbTriangle } from 'react-icons/tb';
 import Tooltip from '@/components/base/tooltip';
 import { VirtualList, type VirtualListHandle } from '@/components/base/VirtualList';
 import {
@@ -37,8 +39,10 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   listSceneNodes,
-  parseStackKey
+  parseStackKey,
+  stackNodeKey,
 } from '@/components/rcb/scene/document/sceneDocument';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { cn } from '@/utils/classnames';
 import {
   patchDocumentNode,
@@ -51,7 +55,75 @@ import {
 
 type LayerStackRow = { kind: 'frame' | 'node'; id: string };
 
-const LAYER_ROW_ESTIMATE_PX = 40;
+function listRootLayerRows(opts: {
+  document: any;
+  frameById: Map<string, any>;
+  frames: any[];
+}): LayerStackRow[] {
+  const { document, frameById, frames } = opts;
+  const order = Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
+  const rows: LayerStackRow[] = [];
+  if (order.length) {
+    for (const key of [...order].reverse()) {
+      const parsed = parseStackKey(key);
+      if (parsed?.kind === 'frame' && frameById.has(parsed.id)) {
+        rows.push(parsed);
+      }
+    }
+    return rows;
+  }
+  for (const f of [...frames].reverse()) {
+    if (f?.id) rows.push({ kind: 'frame', id: String(f.id) });
+  }
+  return rows;
+}
+
+function listPasteboardLayerRows(opts: {
+  document: any;
+  nodeById: Map<string, any>;
+  nodes: Array<{ id: string; node: any }>;
+}): LayerStackRow[] {
+  const { document, nodeById, nodes } = opts;
+  const order = Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
+  const rows: LayerStackRow[] = [];
+  if (order.length) {
+    for (const key of [...order].reverse()) {
+      const parsed = parseStackKey(key);
+      if (parsed?.kind === 'node' && nodeById.has(parsed.id)) {
+        rows.push(parsed);
+      }
+    }
+    return rows;
+  }
+  for (const { id, node } of [...nodes].reverse()) {
+    if (String(node?.attrs?.frameId || '').trim()) continue;
+    rows.push({ kind: 'node', id });
+  }
+  return rows;
+}
+
+function listFrameChildLayerRows(
+  document: any,
+  frameId: string,
+  nodeById: Map<string, any>
+): LayerStackRow[] {
+  if (!document || !frameId) return [];
+  const ids = nodeIdsBoundToFrames(document, [frameId]);
+  const sorted = [...ids].sort((a, b) => {
+    const ao = Number(nodeById.get(a)?.attrs?.frameOrder);
+    const bo = Number(nodeById.get(b)?.attrs?.frameOrder);
+    const aOrder = Number.isFinite(ao) ? ao : 0;
+    const bOrder = Number.isFinite(bo) ? bo : 0;
+    if (aOrder !== bOrder) return bOrder - aOrder;
+    const order = Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
+    return order.indexOf(stackNodeKey(b)) - order.indexOf(stackNodeKey(a));
+  });
+  return sorted.map((id) => ({ kind: 'node' as const, id }));
+}
+
+type LayerScope = 'root' | 'frame' | 'pasteboard';
+
+const LAYER_ROW_ESTIMATE_PX = 36;
 
 const LAYER_DOCK_WIDTH_KEY = 'layer-dock-width';
 const LAYER_DOCK_MIN_W = 180;
@@ -90,7 +162,7 @@ export function getLayerDockWidth(): number {
 type LayerIconComponent = ComponentType<{ className?: string }>;
 
 const LAYER_ICON_SLOT =
-  'inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)]';
+  'inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded text-[var(--muted)]';
 
 const layerIconByKind: Record<string, LayerIconComponent> = {
   text: RxText,
@@ -101,7 +173,7 @@ const layerIconByKind: Record<string, LayerIconComponent> = {
   circle: TbCircle,
   triangle: TbTriangle,
   star: TbStar,
-  polygon: TbPolygon,
+  polygon: LuHexagon,
   pen: FiPenTool,
   pencil: LuPencil,
   path: FiPenTool,
@@ -123,8 +195,10 @@ const layerIconSizeByKind: Record<string, string> = {
 };
 
 function resolveLayerIconKind(node: { key: string; attrs?: { shapeType?: string } }) {
-  if (node.key === 'shape') return node.attrs?.shapeType || 'rect';
-  return node.key;
+  const shapeType = String(node.attrs?.shapeType || '').trim().toLowerCase();
+  if (shapeType) return shapeType;
+  if (node.key === 'shape') return 'rect';
+  return String(node.key || 'rect').trim().toLowerCase() || 'rect';
 }
 
 function readLayerMediaSrc(attrs: Record<string, unknown> | undefined) {
@@ -293,9 +367,10 @@ function layerLabel(
     };
   },
   imageGeneratorLabel: string,
-  videoGeneratorLabel?: string,
-  lottieGeneratorLabel?: string,
-  audioGeneratorLabel?: string
+  videoGeneratorLabel: string | undefined,
+  lottieGeneratorLabel: string | undefined,
+  audioGeneratorLabel: string | undefined,
+  t: (key: string, opts?: { defaultValue?: string }) => string
 ) {
   if (isImageGeneratorNode(node)) return imageGeneratorLabel;
   if (isVideoGeneratorNode(node)) return videoGeneratorLabel || 'Video Generator';
@@ -305,22 +380,16 @@ function layerLabel(
   if (node.key === 'lottie') return String(node.attrs?.name || 'Lottie');
   if (node.key === 'audio') return String(node.attrs?.name || 'Audio');
   const kind = resolveLayerIconKind(node);
+  if (kind === 'triangle') return t('editor.tools.polygon');
+  const toolLabel = t(`editor.tools.${kind}`, { defaultValue: '' });
+  if (toolLabel) return toolLabel;
   const map: Record<string, string> = {
     text: '文字',
     image: '图片',
-    rect: '矩形',
-    line: '线条',
-    arrow: '箭头',
-    circle: '椭圆',
-    triangle: '多边形',
-    polygon: '多边形',
-    star: '星形',
     pen: '钢笔',
     pencil: '画笔',
     path: '路径',
     svg: 'SVG',
-    lottie: 'Lottie',
-    audio: '音频',
   };
   return map[kind] || kind;
 }
@@ -358,10 +427,10 @@ function LayerStackRowView({
     return (
       <div
         className={cn(
-          'group flex min-h-[40px] w-full items-center gap-1 px-2 py-1 text-[13px] transition-colors',
+          'group flex min-h-[36px] w-full items-center gap-1 px-2 py-0.5 text-[13px] transition-colors',
           selected
             ? 'bg-[var(--accent-soft)] text-[var(--ink)]'
-            : 'text-[var(--ink)] hover:bg-[var(--accent-soft)]'
+            : 'text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]'
         )}
       >
         <button
@@ -460,10 +529,10 @@ function LayerStackRowView({
   return (
     <div
       className={cn(
-        'group flex min-h-[40px] w-full items-center gap-1 px-2 py-1 text-[13px] transition-colors',
+        'group flex min-h-[36px] w-full items-center gap-1 px-2 py-0.5 text-[13px] transition-colors',
         selected
           ? 'bg-[var(--accent-soft)] text-[var(--ink)]'
-          : 'text-[var(--ink)] hover:bg-[var(--accent-soft)]'
+          : 'text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]'
       )}
     >
       <button
@@ -484,7 +553,8 @@ function LayerStackRowView({
             t('editor.tools.imageGenerator'),
             t('editor.tools.videoGenerator'),
             t('editor.tools.lottieGenerator'),
-            t('editor.tools.audioGenerator', { defaultValue: '音频生成器' })
+            t('editor.tools.audioGenerator', { defaultValue: '音频生成器' }),
+            t
           )}
         </span>
       </button>
@@ -597,28 +667,37 @@ function LayerPanel({
     for (const { id, node } of nodes) map.set(id, node);
     return map;
   }, [nodes]);
+  const selectedNodeFrameId = useMemo(() => {
+    if (!selectedNodeId) return null;
+    const node = nodeById.get(selectedNodeId);
+    const frameId = String(node?.attrs?.frameId || '').trim();
+    return frameId && frameById.has(frameId) ? frameId : null;
+  }, [selectedNodeId, nodeById, frameById]);
+  const selectedNodeIsPasteboard = useMemo(() => {
+    if (!selectedNodeId || selectedNodeFrameId) return false;
+    return nodeById.has(selectedNodeId);
+  }, [selectedNodeId, selectedNodeFrameId, nodeById]);
+  const [forceRootScope, setForceRootScope] = useState(false);
+  const layerScope: LayerScope = forceRootScope
+    ? 'root'
+    : selectedNodeFrameId
+      ? 'frame'
+      : selectedNodeIsPasteboard
+        ? 'pasteboard'
+        : 'root';
   const layerRows = useMemo(() => {
-    const order = Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
-    const rows: LayerStackRow[] = [];
-    if (order.length) {
-      for (const key of [...order].reverse()) {
-        const parsed = parseStackKey(key);
-        if (!parsed) continue;
-        if (parsed.kind === 'frame' && frameById.has(parsed.id)) {
-          rows.push(parsed);
-        } else if (parsed.kind === 'node' && nodeById.has(parsed.id)) {
-          rows.push(parsed);
-        }
-      }
-      return rows;
+    if (layerScope === 'frame' && selectedNodeFrameId) {
+      return listFrameChildLayerRows(document, selectedNodeFrameId, nodeById);
     }
-    // Fallback before stackOrder migrates
-    for (const f of [...frames].reverse()) {
-      if (f?.id) rows.push({ kind: 'frame', id: String(f.id) });
+    if (layerScope === 'pasteboard') {
+      return listPasteboardLayerRows({ document, nodeById, nodes });
     }
-    for (const { id } of [...nodes].reverse()) rows.push({ kind: 'node', id });
-    return rows;
-  }, [document?.stackOrder, frameById, nodeById, frames, nodes]);
+    return listRootLayerRows({ document, frameById, frames });
+  }, [document, layerScope, selectedNodeFrameId, frameById, nodeById, frames, nodes]);
+  const scopedFrame =
+    layerScope === 'frame' && selectedNodeFrameId
+      ? frameById.get(selectedNodeFrameId)
+      : undefined;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dockWidth, setDockWidth] = useState(LAYER_DOCK_DEFAULT_W);
   const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -643,18 +722,22 @@ function LayerPanel({
   );
 
   useEffect(() => {
+    if (selectedNodeFrameId || selectedNodeIsPasteboard) setForceRootScope(false);
+  }, [selectedNodeFrameId, selectedNodeIsPasteboard, selectedNodeId]);
+
+  useEffect(() => {
     if (!layerRows.length) return;
     let index = -1;
     if (selectedNodeId) {
       index = layerRows.findIndex((r) => r.kind === 'node' && r.id === selectedNodeId);
-    } else if (selectedFrameIds.length) {
+    } else if (layerScope === 'root' && selectedFrameIds.length) {
       const fid = selectedFrameIds[0];
       index = layerRows.findIndex((r) => r.kind === 'frame' && r.id === fid);
-    } else if (activeFrameId) {
+    } else if (layerScope === 'root' && activeFrameId) {
       index = layerRows.findIndex((r) => r.kind === 'frame' && r.id === activeFrameId);
     }
     if (index >= 0) layerListRef.current?.scrollToIndex(index, { align: 'auto' });
-  }, [selectedNodeId, selectedFrameIds, activeFrameId, layerRows]);
+  }, [selectedNodeId, selectedFrameIds, activeFrameId, layerRows, layerScope]);
 
   const persistDockWidth = (width: number) => {
     const next = clampLayerDockWidth(width);
@@ -786,6 +869,26 @@ function LayerPanel({
           </div>
         ) : null}
       </div>
+
+      {layerScope === 'frame' || layerScope === 'pasteboard' ? (
+        <div className="flex shrink-0 items-center gap-0.5 px-3 py-2">
+          <Tooltip tip={t('common.back')} placement="bottom">
+            <button
+              type="button"
+              aria-label={t('common.back')}
+              onClick={() => setForceRootScope(true)}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+            >
+              <HiOutlineChevronLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          </Tooltip>
+          <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--muted)]">
+            {layerScope === 'pasteboard'
+              ? t('editor.pasteboard')
+              : String(scopedFrame?.name || t('editor.tools.frame') || 'Frame')}
+          </span>
+        </div>
+      ) : null}
 
       {/* Layer rows — top of list = front of stack (virtualized) */}
       <VirtualList

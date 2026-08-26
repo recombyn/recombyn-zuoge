@@ -15,6 +15,7 @@ import { createCameraTransform, worldToScreen } from '@/components/rcb/camera/tr
 import { getShapeBaseline } from '@/components/rcb/core/geometry';
 import { effectivePaintBox } from '@/components/rcb/core/transformPreview';
 import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
+import { PROCESS_PLATE_FILL } from '@/components/rcb/process/processGlow';
 import {
   hitTestSceneAtPoint,
   type SceneHitBox,
@@ -1742,7 +1743,7 @@ export function paintCanvasIdleNode(
       if (isImageProcessRunning(node)) {
         ctx.save();
         ctx.globalAlpha = opacity;
-        ctx.fillStyle = '#D5DEE6';
+        ctx.fillStyle = PROCESS_PLATE_FILL;
         ctx.fillRect(0, 0, w, h);
         ctx.restore();
         return;

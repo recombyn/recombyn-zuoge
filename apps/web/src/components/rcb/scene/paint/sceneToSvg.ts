@@ -52,6 +52,7 @@ import {
 import {
   PROCESS_PLATE_FILL,
   PROCESS_PLATE_STROKE,
+  processGlowForeignObjectBounds,
 } from '@/components/rcb/process/processGlow';
 import {
   resolveThemeSurfaceFill
@@ -2431,14 +2432,15 @@ export function syncProcessGlowForeignObject(
   height: number
 ): void {
   if (!host) return;
-  const w = Math.max(1, width);
-  const h = Math.max(1, height);
+  const box = processGlowForeignObjectBounds(width, height);
   const fo = host.querySelector(
     'foreignObject[data-rcb-process-glow]'
   ) as SVGForeignObjectElement | null;
   if (!fo) return;
-  fo.setAttribute('width', String(w));
-  fo.setAttribute('height', String(h));
+  fo.setAttribute('x', String(box.x));
+  fo.setAttribute('y', String(box.y));
+  fo.setAttribute('width', String(box.width));
+  fo.setAttribute('height', String(box.height));
 }
 
 function syncTextFrameForeignObject(

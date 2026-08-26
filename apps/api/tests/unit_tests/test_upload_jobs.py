@@ -59,6 +59,42 @@ def test_create_upload_job_enqueues(monkeypatch: pytest.MonkeyPatch, tmp_path):
         delay.assert_called_once()
 
 
+def test_create_upload_job_rejects_oversized_file(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    from app.api.routes import upload_jobs as route_mod
+    from app.core.config import settings
+
+    monkeypatch.setattr(route_mod, "_upload_job_temp_dir", lambda: tmp_path)
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    monkeypatch.setattr(settings, "max_video_upload_mb", 2)
+
+    with _auth_client(monkeypatch) as client:
+        res = client.post(
+            "/api/v1/uploads/jobs",
+            files={"file": ("big.png", b"x" * (1024 * 1024 + 1), "image/png")},
+        )
+        assert res.status_code == 413, res.text
+        assert "max 1MB" in res.json()["detail"]
+
+
+def test_create_upload_job_allows_larger_video(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    from app.api.routes import upload_jobs as route_mod
+    from app.core.config import settings
+
+    monkeypatch.setattr(route_mod, "_upload_job_temp_dir", lambda: tmp_path)
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    monkeypatch.setattr(settings, "max_video_upload_mb", 3)
+    monkeypatch.setattr(route_mod, "save_job", lambda *a, **k: None)
+    monkeypatch.setattr(route_mod.run_upload_job, "delay", MagicMock())
+
+    payload = b"v" * (2 * 1024 * 1024)
+    with _auth_client(monkeypatch) as client:
+        res = client.post(
+            "/api/v1/uploads/jobs",
+            files={"file": ("clip.mp4", payload, "video/mp4")},
+        )
+        assert res.status_code == 200, res.text
+
+
 def test_get_upload_job_ok(monkeypatch: pytest.MonkeyPatch):
     from app.api.routes import upload_jobs as route_mod
 

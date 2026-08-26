@@ -339,6 +339,19 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
   position: relative;
   overflow: hidden;
   background-color: #f7f8fa;
+  /* Static base gradient — drift layer animates above; never exposes canvas gray. */
+  background-image:
+    radial-gradient(
+      ellipse 42% 48% at 58% 38%,
+      var(--rcb-glow-core, rgba(255, 176, 196, 0.52)),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 38% 42% at 32% 68%,
+      var(--rcb-glow-soft, rgba(170, 200, 255, 0.28)),
+      transparent 72%
+    );
+  background-repeat: no-repeat;
 }
 
 .rcb-soft-glow::before {
@@ -370,10 +383,9 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
   animation-name: soft-glow-drift;
 }
 
-/** Static fill while scaling/moving — avoids drift bloom exposing canvas below. */
+/** Static drift layer while transforming selection — base gradient still fills below. */
 [data-rcb-selection-transforming='1'] [data-image-process-shimmer].rcb-soft-glow::before,
-[data-rcb-selection-transforming='1'] [data-artboard-process-shimmer].rcb-soft-glow::before,
-.rcb-soft-glow[data-rcb-glow-paused='1']::before {
+[data-rcb-selection-transforming='1'] [data-artboard-process-shimmer].rcb-soft-glow::before {
   animation: none !important;
   transform: none !important;
   inset: 0 !important;
@@ -413,8 +425,47 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
 /** Fixed node / artboard plate — not random. */
 .rcb-soft-glow[data-glow='canvas'] {
   background-color: #eef2f7;
+  --rcb-glow-base: #eef2f7;
   --rcb-glow-core: rgba(175, 200, 230, 0.5);
   --rcb-glow-soft: rgba(210, 225, 240, 0.32);
+}
+
+/**
+ * Canvas processing chrome (upload / generate / remove-bg) — one unified plate for
+ * every node + artboard. Opaque base so zoom never exposes --canvas gray below.
+ */
+.rcb-soft-glow[data-rcb-process='1'] {
+  --rcb-glow-base: #eef2f7;
+  background-color: var(--rcb-glow-base);
+  background-image:
+    radial-gradient(
+      ellipse 130% 130% at 58% 38%,
+      var(--rcb-glow-core, rgba(175, 200, 230, 0.55)),
+      var(--rcb-glow-base) 82%
+    ),
+    radial-gradient(
+      ellipse 120% 120% at 32% 68%,
+      var(--rcb-glow-soft, rgba(210, 225, 240, 0.38)),
+      var(--rcb-glow-base) 84%
+    );
+  background-repeat: no-repeat;
+  background-size: cover;
+  isolation: isolate;
+}
+
+.rcb-soft-glow[data-rcb-process='1']::before {
+  background-image:
+    radial-gradient(
+      ellipse 130% 130% at 58% 38%,
+      var(--rcb-glow-core, rgba(175, 200, 230, 0.55)),
+      var(--rcb-glow-base) 82%
+    ),
+    radial-gradient(
+      ellipse 120% 120% at 32% 68%,
+      var(--rcb-glow-soft, rgba(210, 225, 240, 0.38)),
+      var(--rcb-glow-base) 84%
+    );
+  background-size: cover;
 }
 
 /**
@@ -503,8 +554,14 @@ html[data-theme='dark'] .rcb-soft-glow[data-glow='mint'] {
 
 html[data-theme='dark'] .rcb-soft-glow[data-glow='canvas'] {
   background-color: #1a1e26;
+  --rcb-glow-base: #1a1e26;
   --rcb-glow-core: rgba(120, 160, 210, 0.26);
   --rcb-glow-soft: rgba(150, 180, 220, 0.12);
+}
+
+html[data-theme='dark'] .rcb-soft-glow[data-rcb-process='1'] {
+  --rcb-glow-base: #1a1e26;
+  background-color: var(--rcb-glow-base);
 }
 
 /**

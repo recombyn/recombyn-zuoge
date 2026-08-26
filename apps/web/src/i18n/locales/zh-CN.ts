@@ -1395,6 +1395,7 @@ const zhCN = {
     resizeLayersDock: '调整图层面板宽度',
     searchLayers: '搜索图层',
     noLayers: '暂无图层',
+    pasteboard: '粘贴板',
     history: '历史记录',
     noHistory: '暂无历史记录',
     historyStep: '编辑 {{n}}',

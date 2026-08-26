@@ -14,6 +14,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.storage import delete_object, get_storage, put_bytes
+from app.services.upload_limits import upload_max_bytes_for_mime
 
 _log = logging.getLogger(__name__)
 
@@ -262,12 +263,9 @@ def upload_user_file(
     ext, mime = _reconcile_claimed_and_magic(data, claimed_ext=ext, claimed_mime=mime)
     _run_av_hook(data, filename=filename or f"upload.{ext}")
 
-    max_mb = max(1, int(settings.max_upload_mb or 20))
-    # Videos / audio need a higher ceiling than stills (default 100MB unless configured higher).
-    if mime.startswith("video/") or mime.startswith("audio/"):
-        max_mb = max(max_mb, int(getattr(settings, "max_video_upload_mb", None) or 100))
-    max_bytes = max_mb * 1024 * 1024
+    max_bytes = upload_max_bytes_for_mime(mime)
     if len(data) > max_bytes:
+        max_mb = max_bytes // (1024 * 1024)
         raise ValueError(f"file too large (max {max_mb}MB)")
 
     now = time.gmtime()

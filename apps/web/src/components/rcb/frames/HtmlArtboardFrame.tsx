@@ -26,6 +26,7 @@ import {
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import NodeTitleLabel from '../selection/chrome/NodeTitleLabel';
 import { ProcessGlowShell } from '@/components/rcb/process/ProcessGlowShell';
+import { processGlowForeignObjectBounds, PROCESS_PLATE_FILL } from '@/components/rcb/process/processGlow';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
   FRAME_HIGHLIGHT_STROKE,
@@ -102,7 +103,7 @@ function paintFramePlate(
   const w = Math.max(1, Number(frame.width) || 1);
   const h = Math.max(1, Number(frame.height) || 1);
   let bg = '#FFFFFF';
-  if (generating) bg = '#e4ecf4';
+  if (generating) bg = PROCESS_PLATE_FILL;
   else if (frame.backgroundColor && frame.backgroundColor !== 'transparent') {
     bg = frame.backgroundColor;
   }
@@ -292,13 +293,14 @@ function HtmlArtboardFrame({
     if (!generating) return null;
     const mount = getSceneSelectionChromeMount();
     if (!mount) return null;
+    const foBox = processGlowForeignObjectBounds(frame.width, frame.height);
     return createPortal(
       <g data-artboard-process-layer={frame.id} pointerEvents="none">
         <foreignObject
-          x={frame.x}
-          y={frame.y}
-          width={frame.width}
-          height={frame.height}
+          x={frame.x + foBox.x}
+          y={frame.y + foBox.y}
+          width={foBox.width}
+          height={foBox.height}
           pointerEvents="none"
           style={{ overflow: 'hidden' }}
         >

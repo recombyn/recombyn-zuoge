@@ -1405,6 +1405,7 @@ const en = {
     resizeLayersDock: 'Resize layers panel',
     searchLayers: 'Search layers',
     noLayers: 'No layers yet',
+    pasteboard: 'Pasteboard',
     history: 'History',
     noHistory: 'No history yet',
     historyStep: 'Edit {{n}}',

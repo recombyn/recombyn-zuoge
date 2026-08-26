@@ -366,7 +366,8 @@ class DesignTask(SQLModel, table=True):
     canvas_size: Optional[str] = Field(default=None, max_length=64)
     result_svg: Optional[str] = Field(default=None)
     error_message: Optional[str] = Field(default=None)
-    meta_json: Optional[str] = Field(default=None)
+    # MySQL maps bare str → VARCHAR(255); worker_snapshot JSON exceeds that.
+    meta_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: float = Field(default=0.0)
     updated_at: float = Field(default=0.0)
 

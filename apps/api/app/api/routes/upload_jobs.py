@@ -14,6 +14,7 @@ from app.api.deps import CurrentUser
 from app.api.routes.chat_job_sse import streaming_media_job_events
 from app.core.config import settings
 from app.services.job_store import get_job, save_job
+from app.services.upload_limits import upload_max_bytes_for_mime, upload_max_mb_for_mime
 from worker.tasks import run_upload_job
 
 router = APIRouter(tags=["upload-jobs"])
@@ -55,9 +56,10 @@ async def create_upload_job(
         raise HTTPException(status_code=400, detail="file required")
 
     raw = await file.read()
-    max_bytes = int(getattr(settings, "max_upload_mb", 50) or 50) * 1024 * 1024
+    max_bytes = upload_max_bytes_for_mime(file.content_type)
     if len(raw) > max_bytes:
-        raise HTTPException(status_code=413, detail="file too large")
+        max_mb = upload_max_mb_for_mime(file.content_type)
+        raise HTTPException(status_code=413, detail=f"file too large (max {max_mb}MB)")
     if not raw:
         raise HTTPException(status_code=400, detail="empty file")
 

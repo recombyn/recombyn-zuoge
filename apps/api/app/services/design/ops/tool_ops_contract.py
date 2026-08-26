@@ -8,6 +8,10 @@ import logging
 import re
 from typing import Any
 
+from app.services.design.ops.text_node_attrs import (
+    validate_create_text_op_args,
+    validate_text_style_op_args,
+)
 from app.services.design.ops.validate import extract_json
 
 logger = logging.getLogger(__name__)
@@ -405,6 +409,24 @@ def _validate_single_op(
         fill_err = _validate_shape_fill_args(name, args)
         if fill_err:
             return fill_err
+        if any(
+            key in args and args[key] is not None
+            for key in (
+                "text",
+                "fill",
+                "fontSize",
+                "fontWeight",
+                "fontFamily",
+                "fontStyle",
+                "textAlign",
+                "lineHeight",
+                "letterSpacing",
+                "textDecoration",
+            )
+        ):
+            text_err = validate_text_style_op_args(args, op_name="update_node")
+            if text_err:
+                return format_op_error(text_err[0], fix=text_err[1], detail=text_err[2])
         return None
     if name == "delete_nodes":
         ids = args.get("nodeIds")
@@ -481,12 +503,9 @@ def _validate_single_op(
             return fill_err
         return None
     if name == "create_text":
-        if args.get("text") is None:
-            if args.get("x") is None or args.get("y") is None:
-                return format_op_error(
-                    "create_text_missing_text_or_position",
-                    fix="re-emit create_text with args.text and x/y",
-                )
+        text_err = validate_create_text_op_args(args)
+        if text_err:
+            return format_op_error(text_err[0], fix=text_err[1], detail=text_err[2])
         text_s = str(args.get("text") or "")
         if _EMOJI_AS_ICON_RE.search(text_s):
             stripped = _EMOJI_AS_ICON_RE.sub("", text_s).strip()

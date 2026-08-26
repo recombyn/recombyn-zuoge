@@ -5,6 +5,7 @@ from typing import Any
 
 from app.services.design.ops.tool_ops_contract import extract_and_validate_tool_ops
 from app.services.mcp.apply_headless import ops_to_document_patch
+from app.services.design.ops.text_node_attrs import validate_headless_patch
 from app.services.mcp.auth import load_writable_project, project_revision
 from app.services.mcp.push.channel import publish_pending_ops, publish_project_revision
 from app.services.mcp.scene import (
@@ -97,6 +98,14 @@ def _persist_ops(user_id: str, project_id: str, ops: list[dict[str, Any]]) -> di
                 "ops": [{"name": o.get("name"), "args": o.get("args")} for o in validated],
             }
         raise McpCanvasError("ops produced no document changes", code="empty_patch")
+
+    schema_errors = validate_headless_patch(patch)
+    if schema_errors:
+        raise McpCanvasError(
+            "; ".join(schema_errors[:8]),
+            code="schema_invalid",
+        )
+    patch.pop("schemaWarnings", None)
 
     try:
         updated = project_store.patch_project(

@@ -1269,6 +1269,7 @@ const zhTW = {
     resizeLayersDock: '調整圖層面板寬度',
     searchLayers: '搜尋圖層',
     noLayers: '暫無圖層',
+    pasteboard: '貼板',
     history: '歷史記錄',
     noHistory: '暫無歷史記錄',
     historyStep: '編輯 {{n}}',

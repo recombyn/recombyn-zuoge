@@ -1,11 +1,26 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-/** Opaque underlay for SVG process plates — SoftGlow animates on the HTML layer above. */
-export const PROCESS_PLATE_FILL = '#D5DEE6';
-export const PROCESS_PLATE_STROKE = '#A8C5E4';
+/** Opaque underlay for SVG process plates — matches canvas process SoftGlow base. */
+export const PROCESS_PLATE_FILL = '#eef2f7';
+export const PROCESS_PLATE_STROKE = '#c5d3e4';
 
-/** Same opaque shell as NodeProcessGlow foreignObject host. */
-export const PROCESS_GLOW_SHELL_BG = '#D5DEE6';
+/** Scene-unit bleed so foreignObject covers the plate during camera zoom (subpixel gaps). */
+export const PROCESS_GLOW_BLEED_PX = 3;
+
+export function processGlowForeignObjectBounds(
+  width: number,
+  height: number
+): { x: number; y: number; width: number; height: number } {
+  const bleed = PROCESS_GLOW_BLEED_PX;
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  return {
+    x: -bleed,
+    y: -bleed,
+    width: w + bleed * 2,
+    height: h + bleed * 2,
+  };
+}
 
 export const PROCESS_PILL_BOTTOM_PAD_PX = 14;
 
