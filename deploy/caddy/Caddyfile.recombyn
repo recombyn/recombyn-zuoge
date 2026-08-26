@@ -4,6 +4,12 @@ http://43.143.230.24 {
 	reverse_proxy 127.0.0.1:3000
 }
 
+# MinIO public object URLs (S3 path-style: /recombyn/<key>)
+files.recombyn.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:9000
+}
+
 recombyn.com, www.recombyn.com {
 	encode gzip
 

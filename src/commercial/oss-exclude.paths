@@ -1,8 +1,12 @@
 # Paths removed from the public recombyn mirror (no stub replacement).
 # One path per line; # comments and blank lines ignored.
-# Sync: rsync → delete these → overlay oss-stubs/ → verify.
+# Sync: rsync → delete these → overlay scripts/oss-stubs/ → verify.
 
 src/commercial
+
+# Sync tooling + legacy root stub tree (never ship on public mirror)
+oss-stubs
+scripts/oss-stubs
 
 .github/workflows/sync-public.yml
 .github/workflows/protocol-compat.yml

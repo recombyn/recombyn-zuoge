@@ -20,7 +20,6 @@ from app.api.routes import (
     chat_audio_jobs,
     chat_lottie_jobs,
     image_process_jobs,
-    upload_jobs,
     me,
     mockup,
     notices,
@@ -48,7 +47,6 @@ api_router.include_router(collab.router)
 api_router.include_router(fonts.router)
 api_router.include_router(assets.router)
 api_router.include_router(uploads.router)
-api_router.include_router(upload_jobs.router)
 api_router.include_router(chat_sessions.router)
 api_router.include_router(import_image.router)
 api_router.include_router(import_jobs.router)

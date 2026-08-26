@@ -3,7 +3,7 @@
  * Post-rsync strip for recombyn-dev → recombyn OSS mirror.
  *
  * 1. Delete paths listed in src/commercial/oss-exclude.paths
- * 2. Overlay oss-stubs/ (OSS-safe replacements — no runtime commercial checks)
+ * 2. Overlay scripts/oss-stubs/ (OSS-safe replacements — no runtime commercial checks)
  * 3. Fail if any excluded tree still exists on the public copy
  */
 
@@ -20,7 +20,7 @@ if (!existsSync(pubRoot)) {
 }
 
 const manifest = path.join(repoRoot, 'src/commercial/oss-exclude.paths');
-const stubsRoot = path.join(repoRoot, 'oss-stubs');
+const stubsRoot = path.join(repoRoot, 'scripts/oss-stubs');
 
 function loadExcludePaths() {
   if (!existsSync(manifest)) {
@@ -47,7 +47,7 @@ for (const rel of excluded) {
 
 if (existsSync(stubsRoot)) {
   cpSync(stubsRoot, pubRoot, { recursive: true, force: true });
-  console.log('[sync-strip] applied oss-stubs overlay');
+  console.log('[sync-strip] applied scripts/oss-stubs overlay');
 }
 
 const leftovers = excluded.filter((rel) => existsSync(path.join(pubRoot, rel)));

@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.services.job_store import get_job, save_job
 from worker.tasks import run_upload_job
 
-router = APIRouter(prefix="/uploads", tags=["upload-jobs"])
+router = APIRouter(tags=["upload-jobs"])
 _log = logging.getLogger(__name__)
 _KIND = "upload"
 
@@ -35,7 +35,11 @@ class UploadJobStatusResponse(BaseModel):
 
 
 def _upload_job_temp_dir() -> Path:
-    root = Path(getattr(settings, "workspace", Path.cwd()) or Path.cwd())
+    """Shared with Celery worker via compose volume ``storage/uploads``."""
+    root = Path(getattr(settings, "upload_dir", None) or "storage/uploads")
+    if not root.is_absolute():
+        # Match API cwd layout in Docker: /app/apps/api/storage/uploads
+        root = (Path.cwd() / root).resolve()
     dest = root / "upload_jobs"
     dest.mkdir(parents=True, exist_ok=True)
     return dest
@@ -123,7 +127,10 @@ def execute_upload_job(job: dict[str, Any]) -> dict[str, Any]:
     user_id = str(job.get("user_id") or "").strip()
     temp_path = Path(str(job.get("temp_path") or ""))
     if not user_id or not temp_path.is_file():
-        raise RuntimeError("upload job missing temp file")
+        raise RuntimeError(
+            "上传作业缺少临时文件（API 与 worker 未共享 storage/uploads；"
+            "或临时文件已过期被清理）"
+        )
 
     try:
         raw = temp_path.read_bytes()

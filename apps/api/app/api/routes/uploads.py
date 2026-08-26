@@ -288,3 +288,8 @@ def delete_uploaded_file(
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
+
+
+from app.api.routes import upload_jobs
+
+router.include_router(upload_jobs.router)
