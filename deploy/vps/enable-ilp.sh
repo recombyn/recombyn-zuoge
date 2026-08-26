@@ -10,43 +10,35 @@ if [ -z "$KEY" ]; then
   exit 1
 fi
 
-if ! grep -q '^IMAGE_LAYER_PIPELINE_URL=' .env; then
-  cat >> .env <<EOF
-
-# Closed-source ILP (removeBg / upscale / editElements) via intelligence
-IMAGE_LAYER_PIPELINE_URL=http://intelligence:8091
-IMAGE_LAYER_PIPELINE_API_KEY=${KEY}
-IMAGE_LAYER_PIPELINE_MODE=ilp
-IMAGE_LAYER_PIPELINE_TIMEOUT_SEC=300
-EOF
-fi
-
-API_ENV=apps/api/.env
-touch "$API_ENV"
 set_kv() {
-  local k="$1" v="$2"
-  if grep -q "^${k}=" "$API_ENV"; then
-    sed -i "s|^${k}=.*|${k}=${v}|" "$API_ENV"
+  local file="$1" key="$2" val="$3"
+  touch "$file"
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$file"
   else
-    echo "${k}=${v}" >> "$API_ENV"
+    echo "${key}=${val}" >> "$file"
   fi
 }
 
-set_kv RECOMBYN_INTELLIGENCE_MODE cloud
-set_kv RECOMBYN_INTELLIGENCE_URL http://intelligence:8091
-set_kv RECOMBYN_INTELLIGENCE_API_KEY "$KEY"
-set_kv IMAGE_LAYER_PIPELINE_URL http://intelligence:8091
-set_kv IMAGE_LAYER_PIPELINE_API_KEY "$KEY"
-set_kv IMAGE_LAYER_PIPELINE_MODE ilp
-set_kv IMAGE_LAYER_PIPELINE_TIMEOUT_SEC 300
-
+API_ENV=apps/api/.env
 INTEL_ENV="${RECOMBYN_INTELLIGENCE_CONTEXT:-/opt/recombyn-intelligence}/.env"
+ILP_VARS=(
+  "RECOMBYN_INTELLIGENCE_MODE=cloud"
+  "RECOMBYN_INTELLIGENCE_URL=http://intelligence:8091"
+  "RECOMBYN_INTELLIGENCE_API_KEY=${KEY}"
+  "IMAGE_LAYER_PIPELINE_URL=http://intelligence:8091"
+  "IMAGE_LAYER_PIPELINE_API_KEY=${KEY}"
+  "IMAGE_LAYER_PIPELINE_MODE=ilp"
+  "IMAGE_LAYER_PIPELINE_TIMEOUT_SEC=300"
+)
+
+for entry in "${ILP_VARS[@]}"; do
+  set_kv .env "${entry%%=*}" "${entry#*=}"
+  set_kv "$API_ENV" "${entry%%=*}" "${entry#*=}"
+done
+
 if [ -f "$INTEL_ENV" ]; then
-  if grep -q '^INTELLIGENCE_SERVICE_API_KEY=' "$INTEL_ENV"; then
-    sed -i "s|^INTELLIGENCE_SERVICE_API_KEY=.*|INTELLIGENCE_SERVICE_API_KEY=${KEY}|" "$INTEL_ENV"
-  else
-    echo "INTELLIGENCE_SERVICE_API_KEY=${KEY}" >> "$INTEL_ENV"
-  fi
+  set_kv "$INTEL_ENV" INTELLIGENCE_SERVICE_API_KEY "$KEY"
   echo "[enable-ilp] synced INTELLIGENCE_SERVICE_API_KEY in ${INTEL_ENV}"
 fi
 
@@ -54,7 +46,7 @@ COMPOSE=(sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f
 "${COMPOSE[@]}" up -d api worker
 
 echo "waiting..."
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:8000/api/v1/image/tools >/tmp/tools.json 2>/dev/null; then
     break
   fi
@@ -66,4 +58,6 @@ python3 -c "import json; print(json.load(open('/tmp/tools.json')).get('ilp'))"
 echo "=== container env ==="
 sudo docker exec recombyn-api-1 printenv | grep -E 'IMAGE_LAYER|INTELLIGENCE' | sort
 echo "=== public tools.ilp ==="
-curl -fsS https://recombyn.com/api/v1/image/tools | python3 -c "import sys,json; print(json.load(sys.stdin).get('ilp'))"
+curl -fsS https://recombyn.com/api/v1/image/tools 2>/dev/null \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('ilp'))" \
+  || echo "(public check skipped)"
