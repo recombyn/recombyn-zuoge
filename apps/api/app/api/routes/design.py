@@ -21,7 +21,6 @@ from app.services.design.runtime.orchestrator import run_design_job_from_snapsho
 from app.services.design.runtime.pipeline_support import _run_error_code
 from app.services.design.runtime.pipeline_progress import PipelineSseState
 from app.services.design.runtime.sse_transport import local_run_sse as _transport_local_run_sse, worker_run_sse as _worker_run_sse
-from app.services.design.prompts.rules_text import _safe_print
 
 router = APIRouter(prefix="/design", tags=["design"])
 _log = logging.getLogger("design.run_api")

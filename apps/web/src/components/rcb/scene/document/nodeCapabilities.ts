@@ -178,19 +178,6 @@ export function isEphemeralUploadNode(node: SceneNodeRef): boolean {
 }
 
 /**
- * @deprecated Delete is always allowed for processing nodes. Kept for callers;
- * always returns false for node targets. Frame process no longer blocks delete either.
- */
-export function deletionTargetHasProcessing(
-  _document: SceneDocument | null | undefined,
-  _nodeIds: string[],
-  _frameIds: string[] = [],
-  _opts?: { expandFrameChildren?: boolean }
-): boolean {
-  return false;
-}
-
-/**
  * True when any selected node / artboard is still showing process SoftGlow.
  * Blocks copy / duplicate / reorder / hide / lock — not delete.
  */
@@ -269,16 +256,6 @@ function isClosedPathNode(node: SceneNodeRef): boolean {
   return /z\s*$/i.test(d);
 }
 
-/** @deprecated internal alias */
-function isClosedFilletPath(node: SceneNodeRef): boolean {
-  return isClosedPathNode(node);
-}
-
-/**
- * Outlined text / multi-glyph paths: many M…Z rings. Selection R-dots would
- * carpet every silhouette corner — edit anchors only in path-edit mode.
- * Same threshold as `requestEnterPathEdit` (skip auto-enter).
- */
 function isMultiGlyphOutlinePath(node: SceneNodeRef): boolean {
   const d = String(node?.attrs?.path || '').trim();
   if (!d) return false;
@@ -294,7 +271,7 @@ export function isOutlinedPath(node: SceneNodeRef): boolean {
 
 function pathAllowsCornerRadius(node: SceneNodeRef): boolean {
   if (isOutlinedPath(node)) return false;
-  return isClosedFilletPath(node) && !isMultiGlyphOutlinePath(node);
+  return isClosedPathNode(node) && !isMultiGlyphOutlinePath(node);
 }
 
 /** Nodes that expose corner-radius toolbar + on-canvas handles. */

@@ -97,8 +97,7 @@ def upsert_skill(payload: dict[str, Any]) -> dict[str, Any]:
         NS_EXT,
         NS_USER,
         SOURCE_ADMIN,
-        SOURCE_FILE,
-            _CORE_RESERVED_KEYS,
+        _CORE_RESERVED_KEYS,
         qualify_skill_key,
         save_skill_revision,
         split_namespace_key,
@@ -2969,7 +2968,6 @@ def get_decision_log(task_id: str) -> dict[str, Any] | None:
     """Full decision/execution payload for one task (detail drawer)."""
     from sqlmodel import Session
 
-    from app import crud
     from app.core.db import engine
     from app.services.design.readpath.catalog import catalog_ready, ensure_design_catalog
 

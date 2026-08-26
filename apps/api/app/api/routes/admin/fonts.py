@@ -8,7 +8,6 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from app.api.deps import AdminUser
 from app.api.routes.admin.common import *  # noqa: F403
-from app.core.config import settings
 
 router = APIRouter()
 

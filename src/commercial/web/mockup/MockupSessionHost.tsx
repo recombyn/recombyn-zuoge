@@ -20,7 +20,7 @@ import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { liveShapeGeomBox } from '@/components/rcb/selection/HostPathChrome';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import { isMockupEnabled, mockupErrorMessage } from '@/service/mockupTools';
-import { uploadImageFromSrcWithLocalFallback } from '@/utils/uploadImage';
+import { uploadImageFromSrc } from '@/utils/uploadImage';
 import { cn } from '@/utils/classnames';
 import {
   patchDocumentNode,
@@ -740,7 +740,7 @@ function MockupPlate({
       void (async () => {
         try {
           if (!previewRef.current?.hasDesignBound()) return;
-          const uploaded = await uploadImageFromSrcWithLocalFallback(
+          const uploaded = await uploadImageFromSrc(
             livePreviewUrl,
             'mockup.png'
           );

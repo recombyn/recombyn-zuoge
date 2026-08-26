@@ -25,7 +25,7 @@ import {
   useRcbDevicePixelRatio,
   rcbSceneToScreen,
 } from '@/components/rcb';
-import { uploadImageFromSrcWithLocalFallback } from '@/utils/uploadImage';
+import { uploadImageFromSrc } from '@/utils/uploadImage';
 import { isIntelligenceVisionEnabled } from '@/service/imageTools';
 import {
   layerOpacityToPct,
@@ -80,7 +80,7 @@ async function confirmEraserAsNewNode(opts: {
   if (!processId) throw new Error('橡皮失败');
   opts.onSpawned?.();
   try {
-    const uploaded = await uploadImageFromSrcWithLocalFallback(erased, 'eraser.png');
+    const uploaded = await uploadImageFromSrc(erased, 'eraser.png');
     const url = String(uploaded?.url || erased).trim() || erased;
     opts.dispatch(
       finishImageProcess({

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
 from app.api.routes.chat_job_sse import streaming_media_job_events
-from app.services.job_store import get_job, update_job
+from app.services.job_store import get_job
 from app.services import upload_job_store as job_store
 from worker.tasks import run_upload_job
 

@@ -8,7 +8,6 @@ from typing import Any
 from sqlalchemy import or_
 from sqlmodel import Session, col, delete, select
 
-from app import crud
 from app.core.db import engine
 from app.models import DesignDict
 

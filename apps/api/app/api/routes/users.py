@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from app.api.deps import CurrentUser
 
 from app.services.users_directory import get_users_by_ids, search_users

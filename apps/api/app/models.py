@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import BigInteger, Column, LargeBinary, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Column, LargeBinary, Text
 from sqlmodel import Field, SQLModel
 
 

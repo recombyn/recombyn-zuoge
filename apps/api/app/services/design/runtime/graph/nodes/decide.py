@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -37,9 +35,6 @@ from app.services.design.runtime.graph.llm_io import (
 )
 from app.services.design.runtime.graph.scene_log import (
     _bump,
-    _commit,
-    _goto_cmd,
-    _persist_progress,
 )
 from app.services.design.runtime.graph.turns import (
     _absorb_ask_choices,

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.deps import AdminUser, audit_admin_mutation, require_permission
 from app.api.routes.admin.common import *  # noqa: F403
 from app.api.routes.admin.common import _require_card_key_ops_password
-from app.core.config import settings
 from app.services.auth import SessionUser
 
 router = APIRouter()

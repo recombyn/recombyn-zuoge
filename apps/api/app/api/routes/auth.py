@@ -6,7 +6,6 @@ import getpass
 import hmac
 import logging
 import re
-import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request

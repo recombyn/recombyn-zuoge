@@ -17,7 +17,6 @@ from app.services.design.runtime.host import (
 from app.services.design.runtime.llm_step import stream_skill_step
 from app.services.design.runtime.models_route import (
     resolve_model_for_skill,
-    router_model_id,
 )
 from app.services.design.runtime.graph.state import AgentRunState
 

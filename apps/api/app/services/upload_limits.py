@@ -29,11 +29,6 @@ def upload_max_bytes_for_mime(mime: str | None) -> int | None:
     return max_mb * 1024 * 1024
 
 
-def upload_multipart_max_part_bytes() -> int:
-    """Largest multipart part we accept (matches chunk part size)."""
-    return upload_chunk_part_bytes()
-
-
 def upload_chunk_part_bytes() -> int:
     mb = max(1, int(getattr(settings, "upload_chunk_size_mb", None) or 8))
     return mb * 1024 * 1024

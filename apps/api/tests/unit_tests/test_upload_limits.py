@@ -34,11 +34,10 @@ def test_upload_max_mb_for_mime_video_uses_video_ceiling(monkeypatch: pytest.Mon
     assert upload_max_bytes_for_mime("audio/mpeg") == 120 * 1024 * 1024
 
 
-def test_upload_multipart_max_part_bytes_uses_chunk_size(monkeypatch: pytest.MonkeyPatch):
+def test_upload_chunk_part_bytes(monkeypatch: pytest.MonkeyPatch):
     from app.core.config import settings
-    from app.services.upload_limits import upload_chunk_part_bytes, upload_multipart_max_part_bytes
+    from app.services.upload_limits import upload_chunk_part_bytes
 
     monkeypatch.setattr(settings, "upload_chunk_size_mb", 8)
 
     assert upload_chunk_part_bytes() == 8 * 1024 * 1024
-    assert upload_multipart_max_part_bytes() == 8 * 1024 * 1024

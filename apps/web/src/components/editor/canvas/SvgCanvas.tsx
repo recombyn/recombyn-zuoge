@@ -14,12 +14,7 @@ import {
   parseLottieAnimationData,
   prepareVideoUploadPreview,
 } from '@/components/rcb/scene/document/nodeFactories';
-import {
-  expandSelectionWithGroups,
-} from '@/components/rcb/scene/document/sceneGroups';
-import {
-  deletionTargetHasProcessing,
-} from '@/components/rcb/scene/document/nodeCapabilities';
+import { expandSelectionWithGroups } from '@/components/rcb/scene/document/sceneGroups';
 import { listProcessingNodeIds } from '@/components/rcb/process/processGlow';
 import {
   nodeIdsBoundToFrames,
@@ -1435,15 +1430,6 @@ function SvgCanvas({
       // use visible overlap so all content belonging to the artboard is removed.
       const bound = frameIds.length ? nodeIdsBoundToFrames(doc0, frameIds) : [];
       const allNodes = [...new Set([...nodeIds, ...bound])];
-      if (
-        !frameIds.length &&
-        deletionTargetHasProcessing(doc0, allNodes, frameIds, { expandFrameChildren: false })
-      ) {
-        message.warning(
-          t('editor.cannotDeleteWhileProcessing', { defaultValue: '处理中无法删除' })
-        );
-        return false;
-      }
       allNodes.forEach((id) => abortNodeUpload(id));
 
       dispatch(removeDocumentNodes({ nodeIds: allNodes, frameIds }));

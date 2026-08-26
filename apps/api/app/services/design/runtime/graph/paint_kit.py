@@ -8,8 +8,6 @@ from typing import Any
 from app.services.design.ops.tool_ops_contract import format_canvas_tools_details
 from app.services.design.runtime.host import (
     assemble_stage_system,
-    interaction_mode_rules_pack,
-    require_prompt_pack,
 )
 from app.services.design.runtime.host.ops_gate import _op_name
 from app.services.design.runtime.host.placement import (

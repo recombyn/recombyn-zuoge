@@ -358,15 +358,6 @@ export async function uploadImageFromSrc(
   });
 }
 
-/** @deprecated Use uploadImageFromSrc — local preview fallback removed. */
-export async function uploadImageFromSrcWithLocalFallback(
-  src: string,
-  filename = 'processed.png',
-  opts?: { signal?: AbortSignal; uploadKey?: string | null }
-): Promise<UploadedFileItem> {
-  return uploadImageFromSrc(src, filename, opts);
-}
-
 /**
  * COS / CDN display URLs often lack browser CORS — WaveSurfer `fetch` fails.
  * Resolve via authenticated upload pipeline into a same-origin blob: URL.

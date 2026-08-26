@@ -27,7 +27,7 @@ import RailRecentList from '@/components/layout/RailRecentList';
 import InspirationSection from '@/components/home/InspirationSection';
 import MoreSection from '@/components/home/MoreSection';
 import SkillsLibraryPanel from '@/components/home/SkillsLibraryPanel';
-import { HOME_MAIN_SHELL, HOME_MAIN_SCROLL, HOME_PROJECT_GRID } from '@/components/home/homeLayout';
+import { HOME_MAIN_SHELL, HOME_MAIN_SCROLL, HOME_FLOW_GRID } from '@/components/home/homeLayout';
 import type { HomeAgentSubmitPayload } from '@/components/home/HomeAgentComposer';
 import type { OfficialCaseMeta } from '@/utils/officialCases';
 import TemplateGrid from '@/components/templates/TemplateGrid';
@@ -916,7 +916,7 @@ function HomeTemplateList({
               onCreate={onCreate}
               createDisabled={importing}
               orgOptions={orgOptions}
-              gridClassName={HOME_PROJECT_GRID}
+              gridClassName={HOME_FLOW_GRID}
             />
           </div>
         </main>
