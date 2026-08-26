@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { FiPenTool } from 'react-icons/fi';
@@ -10,6 +10,7 @@ import {
   LuFilm,
   LuHexagon,
   LuImagePlus,
+  LuLayoutGrid,
 } from 'react-icons/lu';
 import { RiClapperboardFill, RiVideoAiLine } from 'react-icons/ri';
 import { RxText } from 'react-icons/rx';
@@ -53,7 +54,13 @@ import {
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
 
-type LayerStackRow = { kind: 'frame' | 'node'; id: string };
+type LayerStackRow =
+  | { kind: 'frame' | 'node'; id: string }
+  | { kind: 'pasteboard' };
+
+function getStackOrder(document: any): string[] {
+  return Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
+}
 
 function listRootLayerRows(opts: {
   document: any;
@@ -61,7 +68,7 @@ function listRootLayerRows(opts: {
   frames: any[];
 }): LayerStackRow[] {
   const { document, frameById, frames } = opts;
-  const order = Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
+  const order = getStackOrder(document);
   const rows: LayerStackRow[] = [];
   if (order.length) {
     for (const key of [...order].reverse()) {
@@ -70,11 +77,12 @@ function listRootLayerRows(opts: {
         rows.push(parsed);
       }
     }
-    return rows;
+  } else {
+    for (const f of [...frames].reverse()) {
+      if (f?.id) rows.push({ kind: 'frame', id: String(f.id) });
+    }
   }
-  for (const f of [...frames].reverse()) {
-    if (f?.id) rows.push({ kind: 'frame', id: String(f.id) });
-  }
+  rows.push({ kind: 'pasteboard' });
   return rows;
 }
 
@@ -84,7 +92,7 @@ function listPasteboardLayerRows(opts: {
   nodes: Array<{ id: string; node: any }>;
 }): LayerStackRow[] {
   const { document, nodeById, nodes } = opts;
-  const order = Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
+  const order = getStackOrder(document);
   const rows: LayerStackRow[] = [];
   if (order.length) {
     for (const key of [...order].reverse()) {
@@ -115,13 +123,193 @@ function listFrameChildLayerRows(
     const aOrder = Number.isFinite(ao) ? ao : 0;
     const bOrder = Number.isFinite(bo) ? bo : 0;
     if (aOrder !== bOrder) return bOrder - aOrder;
-    const order = Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
+    const order = getStackOrder(document);
     return order.indexOf(stackNodeKey(b)) - order.indexOf(stackNodeKey(a));
   });
   return sorted.map((id) => ({ kind: 'node' as const, id }));
 }
 
 type LayerScope = 'root' | 'frame' | 'pasteboard';
+
+type LayerNav =
+  | { scope: 'root'; pinned?: boolean }
+  | { scope: 'frame'; frameId: string }
+  | { scope: 'pasteboard' };
+
+function resolveLayerView(
+  nav: LayerNav,
+  selectedNodeFrameId: string | null,
+  selectedNodeIsPasteboard: boolean
+): { scope: LayerScope; frameId: string | null } {
+  if (nav.scope === 'root' && nav.pinned) {
+    return { scope: 'root', frameId: null };
+  }
+  if (nav.scope === 'frame') {
+    return { scope: 'frame', frameId: nav.frameId };
+  }
+  if (nav.scope === 'pasteboard') {
+    return { scope: 'pasteboard', frameId: null };
+  }
+  if (selectedNodeFrameId) {
+    return { scope: 'frame', frameId: selectedNodeFrameId };
+  }
+  if (selectedNodeIsPasteboard) {
+    return { scope: 'pasteboard', frameId: null };
+  }
+  return { scope: 'root', frameId: null };
+}
+
+function syncLayerNavFromSelection(
+  setLayerNav: (value: LayerNav | ((prev: LayerNav) => LayerNav)) => void,
+  setEditingFrameId: (value: string | null) => void,
+  opts: {
+    selectedNodeFrameId: string | null;
+    selectedNodeIsPasteboard: boolean;
+    selectedNodeId: string | null;
+    selectedFrameIds: string[];
+    activeFrameId: string | null | undefined;
+  }
+) {
+  if (opts.selectedNodeFrameId) {
+    setLayerNav({ scope: 'frame', frameId: opts.selectedNodeFrameId });
+    return;
+  }
+  if (opts.selectedNodeIsPasteboard) {
+    setLayerNav({ scope: 'pasteboard' });
+    return;
+  }
+  if (
+    isCanvasDeselected(opts.selectedNodeId, opts.selectedFrameIds, opts.activeFrameId)
+  ) {
+    setEditingFrameId(null);
+    setLayerNav((prev) => (prev.scope === 'root' ? prev : { scope: 'root', pinned: true }));
+  }
+}
+
+function listRowsForScope(
+  scope: LayerScope,
+  frameId: string | null,
+  opts: {
+    document: any;
+    frameById: Map<string, any>;
+    frames: any[];
+    nodeById: Map<string, any>;
+    nodes: Array<{ id: string; node: any }>;
+  }
+): LayerStackRow[] {
+  if (scope === 'frame' && frameId) {
+    return listFrameChildLayerRows(opts.document, frameId, opts.nodeById);
+  }
+  if (scope === 'pasteboard') {
+    return listPasteboardLayerRows({
+      document: opts.document,
+      nodeById: opts.nodeById,
+      nodes: opts.nodes,
+    });
+  }
+  return listRootLayerRows({
+    document: opts.document,
+    frameById: opts.frameById,
+    frames: opts.frames,
+  });
+}
+
+function isNestedLayerScope(scope: LayerScope): boolean {
+  return scope === 'frame' || scope === 'pasteboard';
+}
+
+function layerScopeTitle(
+  scope: LayerScope,
+  scopedFrame: { name?: string } | undefined,
+  t: (key: string, opts?: { defaultValue?: string }) => string
+): string {
+  if (scope === 'pasteboard') return t('editor.pasteboard');
+  return String(scopedFrame?.name || t('editor.tools.frame') || 'Frame');
+}
+
+function isCanvasDeselected(
+  selectedNodeId: string | null,
+  selectedFrameIds: string[],
+  activeFrameId: string | null | undefined
+): boolean {
+  return !selectedNodeId && selectedFrameIds.length === 0 && !activeFrameId;
+}
+
+function isLayerRowSelected(
+  row: LayerStackRow,
+  selectedNodeId: string | null,
+  selectedFrameIds: string[],
+  activeFrameId: string | null | undefined
+): boolean {
+  if (row.kind === 'frame') {
+    return (
+      selectedFrameIds.includes(row.id) ||
+      (!selectedFrameIds.length && activeFrameId === row.id)
+    );
+  }
+  if (row.kind === 'node') return selectedNodeId === row.id;
+  return false;
+}
+
+function findLayerScrollIndex(
+  layerRows: LayerStackRow[],
+  layerScope: LayerScope,
+  selectedNodeId: string | null,
+  selectedFrameIds: string[],
+  activeFrameId: string | null | undefined
+): number {
+  if (selectedNodeId) {
+    return layerRows.findIndex((r) => r.kind === 'node' && r.id === selectedNodeId);
+  }
+  if (layerScope !== 'root') return -1;
+  const frameId = selectedFrameIds[0] || activeFrameId;
+  if (!frameId) return -1;
+  return layerRows.findIndex((r) => r.kind === 'frame' && r.id === frameId);
+}
+
+function layerRowKey(row: LayerStackRow): string {
+  return row.kind === 'pasteboard' ? 'pasteboard' : `${row.kind}-${row.id}`;
+}
+
+const LAYER_ROW_SURFACE =
+  'group flex min-h-[36px] w-full items-center gap-1 px-2 py-0.5 text-[13px] transition-colors';
+
+function layerRowSurfaceClass(selected: boolean): string {
+  return cn(
+    LAYER_ROW_SURFACE,
+    selected
+      ? 'bg-[var(--accent-soft)] text-[var(--ink)]'
+      : 'text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]'
+  );
+}
+
+const LAYER_ROW_ACTION =
+  'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--ink)]';
+
+function layerRowActionClass(active: boolean, selected: boolean, disabled = false): string {
+  return cn(
+    LAYER_ROW_ACTION,
+    disabled &&
+      'disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--muted)]',
+    !disabled && !active && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+    !disabled && selected && !active && 'opacity-100'
+  );
+}
+
+function stopDblClick(e: ReactMouseEvent, fn: () => void) {
+  e.preventDefault();
+  e.stopPropagation();
+  fn();
+}
+
+function selectContentEditable(el: HTMLElement) {
+  el.focus();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
 
 const LAYER_ROW_ESTIMATE_PX = 36;
 
@@ -142,8 +330,12 @@ function clampLayerDockWidth(width: number): number {
   );
 }
 
-function readStoredLayerDockWidth(): number {
-  return getLayerDockWidth();
+function writeLayerDockWidth(width: number) {
+  try {
+    localStorage.setItem(LAYER_DOCK_WIDTH_KEY, String(width));
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Current layer dock width (for offsetting overlapping chrome). */
@@ -246,6 +438,11 @@ function LayerGlyphFallback({ children }: { children: ReactNode }) {
   return <span className={LAYER_ICON_SLOT}>{children}</span>;
 }
 
+function renderVideoLayerThumb(src: string, poster: string) {
+  if (!poster && !src) return null;
+  return <LayerMediaThumb kind="video" src={src} poster={poster} />;
+}
+
 function LayerIcon({
   node,
   filled,
@@ -278,8 +475,7 @@ function LayerIcon({
   }
 
   if (isVideoGeneratorNode(node)) {
-    const thumb =
-      poster || src ? <LayerMediaThumb kind="video" src={src} poster={poster} /> : null;
+    const thumb = renderVideoLayerThumb(src, poster);
     if (thumb) return thumb;
     return (
       <LayerGlyphFallback>
@@ -313,8 +509,7 @@ function LayerIcon({
   }
 
   if (node.key === 'video') {
-    const thumb =
-      poster || src ? <LayerMediaThumb kind="video" src={src} poster={poster} /> : null;
+    const thumb = renderVideoLayerThumb(src, poster);
     if (thumb) return thumb;
     return (
       <LayerGlyphFallback>
@@ -394,6 +589,88 @@ function layerLabel(
   return map[kind] || kind;
 }
 
+function VisibilityIcon({ hidden }: { hidden: boolean }) {
+  const props = { className: 'h-3.5 w-3.5', strokeWidth: 1.75 as const };
+  return hidden ? <HiOutlineEyeSlash {...props} /> : <HiOutlineEye {...props} />;
+}
+
+function LockIcon({ locked }: { locked: boolean }) {
+  const props = { className: 'h-3.5 w-3.5', strokeWidth: 1.75 as const };
+  return locked ? <HiOutlineLockClosed {...props} /> : <HiOutlineLockOpen {...props} />;
+}
+
+function LayerRowVisibilityButton({
+  hidden,
+  selected,
+  disabled,
+  showLabel,
+  hideLabel,
+  onToggle,
+}: {
+  hidden: boolean;
+  selected: boolean;
+  disabled?: boolean;
+  showLabel: string;
+  hideLabel: string;
+  onToggle: () => void;
+}) {
+  const label = hidden ? showLabel : hideLabel;
+  return (
+    <Tooltip tip={label} placement="top">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={label}
+        aria-pressed={hidden}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (disabled) return;
+          onToggle();
+        }}
+        className={layerRowActionClass(hidden, selected, disabled)}
+      >
+        <VisibilityIcon hidden={hidden} />
+      </button>
+    </Tooltip>
+  );
+}
+
+function LayerRowLockButton({
+  locked,
+  selected,
+  disabled,
+  lockLabel,
+  unlockLabel,
+  onToggle,
+}: {
+  locked: boolean;
+  selected: boolean;
+  disabled?: boolean;
+  lockLabel: string;
+  unlockLabel: string;
+  onToggle: () => void;
+}) {
+  const label = locked ? unlockLabel : lockLabel;
+  return (
+    <Tooltip tip={label} placement="top">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={label}
+        aria-pressed={locked}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (disabled) return;
+          onToggle();
+        }}
+        className={layerRowActionClass(locked, selected, disabled)}
+      >
+        <LockIcon locked={locked} />
+      </button>
+    </Tooltip>
+  );
+}
+
 function hiddenAttrPatch(nextHidden: boolean) {
   return { attrs: { hidden: nextHidden ? 'true' : 'false' } };
 }
@@ -402,145 +679,178 @@ function lockedAttrPatch(nextLocked: boolean) {
   return { attrs: { locked: nextLocked ? 'true' : 'false' } };
 }
 
-function LayerStackRowView({
-  row,
+function PasteboardRootRow({ onEnter }: { onEnter: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onDoubleClick={(e) => stopDblClick(e, onEnter)}
+      className="group flex min-h-[36px] w-full items-center gap-2.5 px-2 py-0.5 text-left text-[13px] text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+    >
+      <span className={LAYER_ICON_SLOT}>
+        <LuLayoutGrid className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{t('editor.pasteboard')}</span>
+    </button>
+  );
+}
+
+function FrameLayerRow({
+  frameId,
   frame,
+  selected,
+  editingFrameId,
+  onSelectFrame,
+  onEnterFrame,
+  onStartFrameRename,
+  onCommitFrameRename,
+}: {
+  frameId: string;
+  frame: any;
+  selected: boolean;
+  editingFrameId?: string | null;
+  onSelectFrame?: (frameId: string) => void;
+  onEnterFrame?: (frameId: string) => void;
+  onStartFrameRename?: (frameId: string) => void;
+  onCommitFrameRename?: (frameId: string, name: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
+  const titleEditRef = useRef<HTMLDivElement | null>(null);
+  const editingTitleRef = useRef(false);
+  const locked = Boolean(frame.locked);
+  const hidden = Boolean(frame.hidden);
+  const isEditing = editingFrameId === frameId;
+  const frameName = String(frame.name || t('editor.tools.frame') || 'Frame');
+
+  const selectFrame = () => {
+    if (onSelectFrame) onSelectFrame(frameId);
+    else {
+      dispatch(setActiveFrameId(frameId));
+      dispatch(setFrameChromeMode('full'));
+    }
+  };
+
+  useEffect(() => {
+    if (!isEditing) return;
+    editingTitleRef.current = true;
+    const el = titleEditRef.current;
+    if (!el) return;
+    el.textContent = frameName;
+    selectContentEditable(el);
+  }, [isEditing, frameName]);
+
+  const finishTitleEdit = (commit: boolean) => {
+    if (!editingTitleRef.current) return;
+    editingTitleRef.current = false;
+    if (!commit) {
+      onCommitFrameRename?.(frameId, null);
+      return;
+    }
+    const raw = titleEditRef.current?.textContent ?? '';
+    const next = raw.replace(/\s+/g, ' ').trim() || frameName;
+    onCommitFrameRename?.(frameId, next === frameName ? null : next);
+  };
+
+  return (
+    <div className={layerRowSurfaceClass(selected)}>
+      <button
+        type="button"
+        onClick={selectFrame}
+        onDoubleClick={(e) => stopDblClick(e, () => onEnterFrame?.(frameId))}
+        className={cn(LAYER_ICON_SLOT, hidden && 'opacity-50')}
+        aria-label={frameName}
+      >
+        <LuFrame className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+      </button>
+      {isEditing ? (
+        <div
+          ref={titleEditRef}
+          role="textbox"
+          aria-label={t('home.rename', { defaultValue: 'Rename' })}
+          contentEditable
+          suppressContentEditableWarning
+          className={cn(
+            'min-w-0 flex-1 truncate rounded-sm px-1 py-1 text-left text-[13px] text-[var(--ink)] outline-none',
+            'overflow-hidden text-ellipsis whitespace-nowrap ring-1 ring-[var(--line)]',
+            hidden && 'opacity-50'
+          )}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={() => finishTitleEdit(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              finishTitleEdit(true);
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              finishTitleEdit(false);
+            }
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={selectFrame}
+          onDoubleClick={(e) => stopDblClick(e, () => onStartFrameRename?.(frameId))}
+          className={cn(
+            'min-w-0 flex-1 truncate rounded-md px-1 py-1 text-left',
+            hidden && 'opacity-50'
+          )}
+        >
+          {frameName}
+        </button>
+      )}
+      <LayerRowVisibilityButton
+        hidden={hidden}
+        selected={selected}
+        showLabel={t('editor.contextMenu.show')}
+        hideLabel={t('editor.contextMenu.hide')}
+        onToggle={() => {
+          const nextHidden = !hidden;
+          dispatch(updateArtboardFrame({ id: frameId, patch: { hidden: nextHidden } }));
+          if (nextHidden && selected) dispatch(setActiveFrameId(null));
+        }}
+      />
+      <LayerRowLockButton
+        locked={locked}
+        selected={selected}
+        lockLabel={t('editor.contextMenu.lock')}
+        unlockLabel={t('editor.contextMenu.unlock')}
+        onToggle={() => {
+          dispatch(updateArtboardFrame({ id: frameId, patch: { locked: !locked } }));
+        }}
+      />
+    </div>
+  );
+}
+
+function NodeLayerRow({
+  nodeId,
   node,
   selected,
-  onSelectFrame,
   onSelectNode,
 }: {
-  row: LayerStackRow;
-  frame?: any;
-  node?: any;
+  nodeId: string;
+  node: any;
   selected: boolean;
-  onSelectFrame?: (frameId: string) => void;
   onSelectNode?: (nodeId: string) => void;
 }) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-
-  if (row.kind === 'frame') {
-    if (!frame) return null;
-    const locked = Boolean(frame.locked);
-    const hidden = Boolean(frame.hidden);
-    return (
-      <div
-        className={cn(
-          'group flex min-h-[36px] w-full items-center gap-1 px-2 py-0.5 text-[13px] transition-colors',
-          selected
-            ? 'bg-[var(--accent-soft)] text-[var(--ink)]'
-            : 'text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]'
-        )}
-      >
-        <button
-          type="button"
-          onClick={() => {
-            if (onSelectFrame) onSelectFrame(row.id);
-            else {
-              dispatch(setActiveFrameId(row.id));
-              dispatch(setFrameChromeMode('full'));
-            }
-          }}
-          className={cn(
-            'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left',
-            hidden && 'opacity-50'
-          )}
-        >
-          <span className={LAYER_ICON_SLOT}>
-            <LuFrame className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
-          </span>
-          <span className="min-w-0 flex-1 truncate">
-            {String(frame.name || t('editor.tools.frame') || 'Frame')}
-          </span>
-        </button>
-        <Tooltip
-          tip={hidden ? t('editor.contextMenu.show') : t('editor.contextMenu.hide')}
-          placement="top"
-        >
-          <button
-            type="button"
-            aria-label={hidden ? t('editor.contextMenu.show') : t('editor.contextMenu.hide')}
-            aria-pressed={hidden}
-            onClick={(e) => {
-              e.stopPropagation();
-              const nextHidden = !hidden;
-              dispatch(
-                updateArtboardFrame({
-                  id: row.id,
-                  patch: { hidden: nextHidden },
-                })
-              );
-              if (nextHidden && selected) {
-                dispatch(setActiveFrameId(null));
-              }
-            }}
-            className={cn(
-              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--ink)]',
-              !hidden && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-              selected && !hidden && 'opacity-100'
-            )}
-          >
-            {hidden ? (
-              <HiOutlineEyeSlash className="h-3.5 w-3.5" strokeWidth={1.75} />
-            ) : (
-              <HiOutlineEye className="h-3.5 w-3.5" strokeWidth={1.75} />
-            )}
-          </button>
-        </Tooltip>
-        <Tooltip
-          tip={locked ? t('editor.contextMenu.unlock') : t('editor.contextMenu.lock')}
-          placement="top"
-        >
-          <button
-            type="button"
-            aria-label={locked ? t('editor.contextMenu.unlock') : t('editor.contextMenu.lock')}
-            aria-pressed={locked}
-            onClick={(e) => {
-              e.stopPropagation();
-              dispatch(
-                updateArtboardFrame({
-                  id: row.id,
-                  patch: { locked: !locked },
-                })
-              );
-            }}
-            className={cn(
-              'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--ink)]',
-              !locked && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-              selected && !locked && 'opacity-100'
-            )}
-          >
-            {locked ? (
-              <HiOutlineLockClosed className="h-3.5 w-3.5" strokeWidth={1.75} />
-            ) : (
-              <HiOutlineLockOpen className="h-3.5 w-3.5" strokeWidth={1.75} />
-            )}
-          </button>
-        </Tooltip>
-      </div>
-    );
-  }
-
-  if (!node) return null;
   const hidden = isNodeHidden(node);
   const locked = isNodeLocked(node);
   const generator = isGeneratorNode(node);
+
+  const selectNode = () => {
+    if (onSelectNode) onSelectNode(nodeId);
+    else dispatch(setSelectedNodeId(nodeId));
+  };
+
   return (
-    <div
-      className={cn(
-        'group flex min-h-[36px] w-full items-center gap-1 px-2 py-0.5 text-[13px] transition-colors',
-        selected
-          ? 'bg-[var(--accent-soft)] text-[var(--ink)]'
-          : 'text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]'
-      )}
-    >
+    <div className={layerRowSurfaceClass(selected)}>
       <button
         type="button"
-        onClick={() => {
-          if (onSelectNode) onSelectNode(row.id);
-          else dispatch(setSelectedNodeId(row.id));
-        }}
+        onClick={selectNode}
         className={cn(
           'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 text-left',
           hidden && 'opacity-50'
@@ -558,75 +868,95 @@ function LayerStackRowView({
           )}
         </span>
       </button>
-      <Tooltip
-        tip={hidden ? t('editor.contextMenu.show') : t('editor.contextMenu.hide')}
-        placement="top"
-      >
-        <button
-          type="button"
-          disabled={generator}
-          aria-label={hidden ? t('editor.contextMenu.show') : t('editor.contextMenu.hide')}
-          aria-pressed={hidden}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (generator) return;
-            const nextHidden = !hidden;
-            dispatch(
-              patchDocumentNode({
-                nodeId: row.id,
-                patch: hiddenAttrPatch(nextHidden),
-              })
-            );
-            if (nextHidden && selected) {
-              dispatch(setSelectedNodeId(null));
-            }
-          }}
-          className={cn(
-            'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--muted)]',
-            !generator && !hidden && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-            !generator && selected && !hidden && 'opacity-100'
-          )}
-        >
-          {hidden ? (
-            <HiOutlineEyeSlash className="h-3.5 w-3.5" strokeWidth={1.75} />
-          ) : (
-            <HiOutlineEye className="h-3.5 w-3.5" strokeWidth={1.75} />
-          )}
-        </button>
-      </Tooltip>
-      <Tooltip
-        tip={locked ? t('editor.contextMenu.unlock') : t('editor.contextMenu.lock')}
-        placement="top"
-      >
-        <button
-          type="button"
-          disabled={generator}
-          aria-label={locked ? t('editor.contextMenu.unlock') : t('editor.contextMenu.lock')}
-          aria-pressed={locked}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (generator) return;
-            dispatch(
-              patchDocumentNode({
-                nodeId: row.id,
-                patch: lockedAttrPatch(!locked),
-              })
-            );
-          }}
-          className={cn(
-            'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--muted)]',
-            !generator && !locked && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-            !generator && selected && !locked && 'opacity-100'
-          )}
-        >
-          {locked ? (
-            <HiOutlineLockClosed className="h-3.5 w-3.5" strokeWidth={1.75} />
-          ) : (
-            <HiOutlineLockOpen className="h-3.5 w-3.5" strokeWidth={1.75} />
-          )}
-        </button>
-      </Tooltip>
+      <LayerRowVisibilityButton
+        hidden={hidden}
+        selected={selected}
+        disabled={generator}
+        showLabel={t('editor.contextMenu.show')}
+        hideLabel={t('editor.contextMenu.hide')}
+        onToggle={() => {
+          const nextHidden = !hidden;
+          dispatch(
+            patchDocumentNode({
+              nodeId,
+              patch: hiddenAttrPatch(nextHidden),
+            })
+          );
+          if (nextHidden && selected) dispatch(setSelectedNodeId(null));
+        }}
+      />
+      <LayerRowLockButton
+        locked={locked}
+        selected={selected}
+        disabled={generator}
+        lockLabel={t('editor.contextMenu.lock')}
+        unlockLabel={t('editor.contextMenu.unlock')}
+        onToggle={() => {
+          dispatch(
+            patchDocumentNode({
+              nodeId,
+              patch: lockedAttrPatch(!locked),
+            })
+          );
+        }}
+      />
     </div>
+  );
+}
+
+function LayerStackRowView({
+  row,
+  frame,
+  node,
+  selected,
+  editingFrameId,
+  onSelectFrame,
+  onSelectNode,
+  onEnterFrame,
+  onEnterPasteboard,
+  onStartFrameRename,
+  onCommitFrameRename,
+}: {
+  row: LayerStackRow;
+  frame?: any;
+  node?: any;
+  selected: boolean;
+  editingFrameId?: string | null;
+  onSelectFrame?: (frameId: string) => void;
+  onSelectNode?: (nodeId: string) => void;
+  onEnterFrame?: (frameId: string) => void;
+  onEnterPasteboard?: () => void;
+  onStartFrameRename?: (frameId: string) => void;
+  onCommitFrameRename?: (frameId: string, name: string | null) => void;
+}) {
+  if (row.kind === 'pasteboard') {
+    return <PasteboardRootRow onEnter={() => onEnterPasteboard?.()} />;
+  }
+
+  if (row.kind === 'frame') {
+    if (!frame) return null;
+    return (
+      <FrameLayerRow
+        frameId={row.id}
+        frame={frame}
+        selected={selected}
+        editingFrameId={editingFrameId}
+        onSelectFrame={onSelectFrame}
+        onEnterFrame={onEnterFrame}
+        onStartFrameRename={onStartFrameRename}
+        onCommitFrameRename={onCommitFrameRename}
+      />
+    );
+  }
+
+  if (!node) return null;
+  return (
+    <NodeLayerRow
+      nodeId={row.id}
+      node={node}
+      selected={selected}
+      onSelectNode={onSelectNode}
+    />
   );
 }
 
@@ -648,6 +978,9 @@ function LayerPanel({
   const dispatch = useDispatch();
   const document = useSelector((state: any) => state.editor.document);
   const selectedNodeId = useSelector((state: any) => state.editor.selectedNodeId);
+  const selectedNodeIds = useSelector(
+    (state: any) => (state.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
+  );
   const activeFrameId = useSelector((state: any) => state.editor.document?.activeFrameId);
   const selectedFrameIds = useSelector(
     (state: any) => (state.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
@@ -677,34 +1010,34 @@ function LayerPanel({
     if (!selectedNodeId || selectedNodeFrameId) return false;
     return nodeById.has(selectedNodeId);
   }, [selectedNodeId, selectedNodeFrameId, nodeById]);
-  const [forceRootScope, setForceRootScope] = useState(false);
-  const layerScope: LayerScope = forceRootScope
-    ? 'root'
-    : selectedNodeFrameId
-      ? 'frame'
-      : selectedNodeIsPasteboard
-        ? 'pasteboard'
-        : 'root';
-  const layerRows = useMemo(() => {
-    if (layerScope === 'frame' && selectedNodeFrameId) {
-      return listFrameChildLayerRows(document, selectedNodeFrameId, nodeById);
-    }
-    if (layerScope === 'pasteboard') {
-      return listPasteboardLayerRows({ document, nodeById, nodes });
-    }
-    return listRootLayerRows({ document, frameById, frames });
-  }, [document, layerScope, selectedNodeFrameId, frameById, nodeById, frames, nodes]);
-  const scopedFrame =
-    layerScope === 'frame' && selectedNodeFrameId
-      ? frameById.get(selectedNodeFrameId)
-      : undefined;
+  const [layerNav, setLayerNav] = useState<LayerNav>({ scope: 'root' });
+  const [editingFrameId, setEditingFrameId] = useState<string | null>(null);
+  const { scope: layerScope, frameId: scopedFrameId } = useMemo(
+    () => resolveLayerView(layerNav, selectedNodeFrameId, selectedNodeIsPasteboard),
+    [layerNav, selectedNodeFrameId, selectedNodeIsPasteboard]
+  );
+  const layerRows = useMemo(
+    () =>
+      listRowsForScope(layerScope, scopedFrameId, {
+        document,
+        frameById,
+        frames,
+        nodeById,
+        nodes,
+      }),
+    [document, layerScope, scopedFrameId, frameById, nodeById, frames, nodes]
+  );
+  const scopedFrame = scopedFrameId ? frameById.get(scopedFrameId) : undefined;
+  const scopeTitle = isNestedLayerScope(layerScope)
+    ? layerScopeTitle(layerScope, scopedFrame, t)
+    : null;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dockWidth, setDockWidth] = useState(LAYER_DOCK_DEFAULT_W);
   const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
   const layerListRef = useRef<VirtualListHandle | null>(null);
 
   useEffect(() => {
-    setDockWidth(readStoredLayerDockWidth());
+    setDockWidth(getLayerDockWidth());
   }, []);
 
   useEffect(() => {
@@ -722,31 +1055,65 @@ function LayerPanel({
   );
 
   useEffect(() => {
-    if (selectedNodeFrameId || selectedNodeIsPasteboard) setForceRootScope(false);
-  }, [selectedNodeFrameId, selectedNodeIsPasteboard, selectedNodeId]);
+    syncLayerNavFromSelection(setLayerNav, setEditingFrameId, {
+      selectedNodeFrameId,
+      selectedNodeIsPasteboard,
+      selectedNodeId,
+      selectedFrameIds,
+      activeFrameId,
+    });
+  }, [
+    selectedNodeFrameId,
+    selectedNodeIsPasteboard,
+    selectedNodeId,
+    selectedNodeIds,
+    selectedFrameIds,
+    activeFrameId,
+  ]);
+
+  const enterFrame = (frameId: string) => {
+    setEditingFrameId(null);
+    setLayerNav({ scope: 'frame', frameId });
+    if (onSelectFrame) onSelectFrame(frameId);
+    else {
+      dispatch(setActiveFrameId(frameId));
+      dispatch(setFrameChromeMode('full'));
+    }
+  };
+
+  const enterPasteboard = () => {
+    setEditingFrameId(null);
+    setLayerNav({ scope: 'pasteboard' });
+  };
+
+  const goRoot = () => {
+    setEditingFrameId(null);
+    setLayerNav({ scope: 'root', pinned: true });
+  };
+
+  const commitFrameRename = (frameId: string, name: string | null) => {
+    setEditingFrameId(null);
+    if (name === null) return;
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return;
+    dispatch(updateArtboardFrame({ id: frameId, patch: { name: trimmed } }));
+  };
 
   useEffect(() => {
-    if (!layerRows.length) return;
-    let index = -1;
-    if (selectedNodeId) {
-      index = layerRows.findIndex((r) => r.kind === 'node' && r.id === selectedNodeId);
-    } else if (layerScope === 'root' && selectedFrameIds.length) {
-      const fid = selectedFrameIds[0];
-      index = layerRows.findIndex((r) => r.kind === 'frame' && r.id === fid);
-    } else if (layerScope === 'root' && activeFrameId) {
-      index = layerRows.findIndex((r) => r.kind === 'frame' && r.id === activeFrameId);
-    }
+    const index = findLayerScrollIndex(
+      layerRows,
+      layerScope,
+      selectedNodeId,
+      selectedFrameIds,
+      activeFrameId
+    );
     if (index >= 0) layerListRef.current?.scrollToIndex(index, { align: 'auto' });
   }, [selectedNodeId, selectedFrameIds, activeFrameId, layerRows, layerScope]);
 
   const persistDockWidth = (width: number) => {
     const next = clampLayerDockWidth(width);
     setDockWidth(next);
-    try {
-      localStorage.setItem(LAYER_DOCK_WIDTH_KEY, String(next));
-    } catch {
-      /* ignore */
-    }
+    writeLayerDockWidth(next);
   };
 
   const onDockResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -776,11 +1143,7 @@ function LayerPanel({
       /* ignore */
     }
     setDockWidth((w) => {
-      try {
-        localStorage.setItem(LAYER_DOCK_WIDTH_KEY, String(w));
-      } catch {
-        /* ignore */
-      }
+      writeLayerDockWidth(w);
       return w;
     });
   };
@@ -870,22 +1233,20 @@ function LayerPanel({
         ) : null}
       </div>
 
-      {layerScope === 'frame' || layerScope === 'pasteboard' ? (
-        <div className="flex shrink-0 items-center gap-0.5 px-3 py-2">
+      {scopeTitle ? (
+        <div className="flex shrink-0 items-center gap-0.5 px-3 py-[3px]">
           <Tooltip tip={t('common.back')} placement="bottom">
             <button
               type="button"
               aria-label={t('common.back')}
-              onClick={() => setForceRootScope(true)}
+              onClick={goRoot}
               className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
             >
               <HiOutlineChevronLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
           </Tooltip>
           <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--muted)]">
-            {layerScope === 'pasteboard'
-              ? t('editor.pasteboard')
-              : String(scopedFrame?.name || t('editor.tools.frame') || 'Frame')}
+            {scopeTitle}
           </span>
         </div>
       ) : null}
@@ -896,7 +1257,7 @@ function LayerPanel({
         items={layerRows}
         estimateSize={LAYER_ROW_ESTIMATE_PX}
         overscan={10}
-        getItemKey={(row) => `${row.kind}-${row.id}`}
+        getItemKey={layerRowKey}
         className="py-1"
         empty={
           <p className="px-3 py-2 text-left text-[12px] text-[var(--muted)]">
@@ -904,23 +1265,21 @@ function LayerPanel({
           </p>
         }
       >
-        {(row) => {
-          const selected =
-            row.kind === 'frame'
-              ? selectedFrameIds.includes(row.id) ||
-                (!selectedFrameIds.length && activeFrameId === row.id)
-              : selectedNodeId === row.id;
-          return (
-            <LayerStackRowView
-              row={row}
-              frame={row.kind === 'frame' ? frameById.get(row.id) : undefined}
-              node={row.kind === 'node' ? nodeById.get(row.id) : undefined}
-              selected={selected}
-              onSelectFrame={onSelectFrame}
-              onSelectNode={onSelectNode}
-            />
-          );
-        }}
+        {(row) => (
+          <LayerStackRowView
+            row={row}
+            frame={row.kind === 'frame' ? frameById.get(row.id) : undefined}
+            node={row.kind === 'node' ? nodeById.get(row.id) : undefined}
+            selected={isLayerRowSelected(row, selectedNodeId, selectedFrameIds, activeFrameId)}
+            editingFrameId={editingFrameId}
+            onSelectFrame={onSelectFrame}
+            onSelectNode={onSelectNode}
+            onEnterFrame={enterFrame}
+            onEnterPasteboard={enterPasteboard}
+            onStartFrameRename={setEditingFrameId}
+            onCommitFrameRename={commitFrameRename}
+          />
+        )}
       </VirtualList>
     </aside>
   );
