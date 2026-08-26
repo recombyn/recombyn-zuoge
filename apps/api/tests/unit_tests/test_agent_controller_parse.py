@@ -248,6 +248,43 @@ def test_chat_fallback_fills_persona():
     assert "zuoge 设计助手" in text
 
 
+def test_classify_clears_blind_chat_reply_when_images(monkeypatch):
+    """Text-only intent LLM must not author final replies when images are attached."""
+    import asyncio
+
+    from app.services.design.runtime import models_route as mr
+
+    async def _fake_ainvoke_structured(**_kwargs):
+        return {
+            "structured": mr.IntentClassifyDecision(
+                intent="chat",
+                paint_lane="",
+                reply="目前还没有看到具体的问题哦",
+                rationale="no_question",
+            )
+        }
+
+    monkeypatch.setattr(
+        "app.services.llm.agent.ainvoke_structured",
+        _fake_ainvoke_structured,
+    )
+    monkeypatch.setattr(
+        "app.services.design.prompts.prompt_pack_store.render_prompt_body",
+        lambda *_a, **_k: "system",
+    )
+    monkeypatch.setattr(mr, "router_model_id", lambda _r: "test-model")
+
+    decision = asyncio.run(
+        mr.classify_user_intent(
+            prompt="告诉我答案",
+            has_images=True,
+            rules={},
+        )
+    )
+    assert decision.intent == "chat"
+    assert decision.reply == ""
+
+
 def test_heuristic_user_intent_gate():
 
     from app.services.design.runtime.models_route import (

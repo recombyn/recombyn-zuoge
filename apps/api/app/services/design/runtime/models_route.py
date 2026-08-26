@@ -982,6 +982,9 @@ async def classify_user_intent(
         reply_s = str(reply or "").strip()
         if intent != "chat" and action != "dismiss" and not session_action:
             reply_s = ""
+        # Classifier never sees pixels — blind chat replies must not answer for the user.
+        if intent == "chat" and has_images and not session_action and action != "dismiss":
+            reply_s = ""
         # Confirm held ops — do not short-circuit as chat.
         if action == "apply":
             intent = "design"

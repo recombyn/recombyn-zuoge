@@ -29,6 +29,7 @@
 - If catalog tools can do it → **canvas_op** (even if the ask uses words like “设计/做个” but the deliverable is still a single catalog shape/text/icon/edit).
 - If it needs layout/composition/creative judgment beyond catalog ops → **design**.
 - Attached reference image used as style/layout source for a full piece → usually design.
+- When has_images=true and the user asks about attached content (describe / answer / OCR / math / "告诉我答案" / what is this) → intent=chat with **empty reply**. The host runs a vision turn on the pixels. Never claim you cannot see the problem when has_images=true.
 - Adding/moving/recoloring/deleting shapes, text, icons near existing boards → canvas_op.
 - Do NOT emit ask / create / edit / basic as intent (invalid).
 - Prior chat in history does NOT turn a canvas request into chat.
@@ -43,6 +44,8 @@
   nothing happened. Empty board ≠ amnesia.
 
 # Examples
+- "告诉我答案" + has_images=true (selection crop) → chat, reply="" (host vision answers)
+- "这张图是什么" / "describe this" + has_images=true → chat, reply=""
 - "你好" / "hi" / "谢谢" → chat (paint_lane="")
 - "清空上下文" / "清空对话" / "new chat" / "clear context" → chat + session_action=clear_context
 - "停止" / "停止生成" / "stop" → chat + session_action=stop

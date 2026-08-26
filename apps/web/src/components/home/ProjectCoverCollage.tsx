@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode, memo } from 'react';
+import { SoftGlowSurface } from '@/components/base';
 import TemplateThumbnail from '@/components/templates/TemplateThumbnail';
 import LazyTemplateThumb from '@/components/home/LazyTemplateThumb';
 import {
@@ -136,7 +137,13 @@ function ProjectCoverCollage({
     <div className={projectThumbFrameClass(className)}>
       {collage ? (
         <div className={cn('absolute inset-0', projectThumbZoomLayerClass)}>{collage}</div>
-      ) : null}
+      ) : (
+        <SoftGlowSurface
+          className="absolute inset-0 h-full w-full !rounded-none"
+          seed="cover-empty"
+          aria-hidden
+        />
+      )}
       {children}
     </div>
   );
@@ -145,14 +152,26 @@ function ProjectCoverCollage({
 /** Grid cell: min-h-0 so tall imgs cannot blow past the 170px frame; overflow clips. */
 function ImgTile({ src, className }: { src: string; className?: string }) {
   const [errored, setErrored] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   if (errored) return null;
   return (
     <div className={cn('relative min-h-0 min-w-0 overflow-hidden', className)}>
+      {!loaded ? (
+        <SoftGlowSurface
+          className="absolute inset-0 h-full w-full !rounded-none"
+          seed={src}
+          aria-hidden
+        />
+      ) : null}
       <img
         src={src}
         alt=""
-        className="absolute inset-0 h-full w-full bg-[var(--canvas)] object-cover"
+        className={cn(
+          'absolute inset-0 h-full w-full object-cover transition-opacity duration-200',
+          loaded ? 'opacity-100' : 'opacity-0'
+        )}
         loading="lazy"
+        onLoad={() => setLoaded(true)}
         onError={() => setErrored(true)}
       />
     </div>
