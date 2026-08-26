@@ -17,6 +17,7 @@ On each push to `recombyn-dev` `main`, `sync-public.yml`:
 2. **`sync-public-strip.mjs`** — hard-deletes paths in `src/commercial/oss-exclude.paths`
 3. Overlays **`scripts/oss-stubs/`** — empty commercial wiring for the public tree
 4. Verifies `src/commercial/` is gone before push
+5. Commits to `zuoge` with the **same message as the private commit** (plus `Sync-source: recombyn-dev@<sha>` footer)
 
 Intelligence lives at `src/commercial/intelligence/`.
 

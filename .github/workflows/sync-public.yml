@@ -59,11 +59,27 @@ jobs:
       - name: Strip commercial code and apply OSS stubs
         run: node scripts/sync-public-strip.mjs ./pub
 
+      - name: Prepare sync commit message
+        id: sync_msg
+        run: |
+          set -euo pipefail
+          MSG_FILE="$(mktemp)"
+          git log -1 --format=%B "${GITHUB_SHA}" > "$MSG_FILE"
+          if [ ! -s "$MSG_FILE" ]; then
+            printf 'sync: update open-source mirror\n' > "$MSG_FILE"
+          fi
+          printf '\nSync-source: recombyn-dev@%s\n' "${GITHUB_SHA::7}" >> "$MSG_FILE"
+          TITLE="$(git log -1 --format=%s "${GITHUB_SHA}")"
+          echo "file=${MSG_FILE}" >> "$GITHUB_OUTPUT"
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+
       - name: Publish to public repo
         working-directory: ./pub
         env:
           TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
           GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          SYNC_MSG_FILE: ${{ steps.sync_msg.outputs.file }}
+          SYNC_TITLE: ${{ steps.sync_msg.outputs.title }}
         run: |
           set -euo pipefail
           git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git"
@@ -75,7 +91,7 @@ jobs:
 
           SHORT_SHA="${GITHUB_SHA::7}"
           SYNC_BRANCH="chore/sync-${SHORT_SHA}"
-          git commit -m "chore: sync from recombyn-dev @ ${SHORT_SHA}"
+          git commit -F "${SYNC_MSG_FILE}"
 
           # Try direct push first (works when PAT has ruleset bypass).
           if git push origin "HEAD:main"; then
@@ -86,11 +102,12 @@ jobs:
           echo "Direct push blocked by branch rules — opening sync PR."
           git push origin "HEAD:${SYNC_BRANCH}" --force
 
+          PR_BODY="${SYNC_MSG_FILE}"
           PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${SYNC_BRANCH}" --json number --jq '.[0].number // empty')"
           if [ -z "$PR_NUMBER" ]; then
             gh pr create --repo "${PUBLIC_REPO}" --base main --head "${SYNC_BRANCH}" \
-              --title "chore: sync from recombyn-dev @ ${SHORT_SHA}" \
-              --body "Automated sync from recombyn-dev. Do not edit manually."
+              --title "${SYNC_TITLE}" \
+              --body-file "${SYNC_MSG_FILE}"
             PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${SYNC_BRANCH}" --json number --jq '.[0].number')"
           fi
 
