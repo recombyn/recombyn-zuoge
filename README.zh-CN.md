@@ -24,7 +24,13 @@
   <p><strong>做个，设计从未如此简单</strong></p>
 </div>
 
-**左格**是开源 AI 设计工作台：无限矢量画布、LangGraph Design Agent，以及 **MCP 服务**——Cursor 等外部工具可读写同一项目。Docker Compose 自托管；本地开发默认 SQLite（可选 [PostgreSQL](docs/postgres-switch.md)）。
+**左格**是开源 AI 设计工作台：无限矢量画布、LangGraph Design Agent，以及 **MCP 服务**——Cursor 等外部工具可读写同一项目。Docker Compose 自托管。
+
+## 在 GitHub 上给我们点个赞 ⭐
+
+开源不易，如果觉得左格对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
+
+→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## MCP 画布
 
@@ -61,14 +67,6 @@ Cursor — 写入 `.cursor/mcp.json`：
 ```
 
 → [docs/mcp-canvas.md](docs/mcp-canvas.md)
-
----
-
-## 帮忙点个 ⭐ Star
-
-开源不易，如果觉得左格对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
-
-→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## 画布
 

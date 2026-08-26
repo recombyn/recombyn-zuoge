@@ -24,7 +24,13 @@
   <p><strong>Make it — design has never been this simple</strong></p>
 </div>
 
-**zuoge** is an open-source AI design workspace: infinite vector canvas, LangGraph Design Agent, and an **MCP server** so tools like Cursor can read and edit the same projects. Self-host with Docker Compose; local dev defaults to SQLite ([PostgreSQL](docs/postgres-switch.md) optional).
+**zuoge** is an open-source AI design workspace: infinite vector canvas, LangGraph Design Agent, and an **MCP server** so tools like Cursor can read and edit the same projects. Self-host with Docker Compose.
+
+## Star us on GitHub ⭐
+
+Open source takes time. If zuoge helps you, please hit **⭐ Star** in the top-right of the GitHub repo.
+
+→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## MCP canvas
 
@@ -61,14 +67,6 @@ Cursor — add to `.cursor/mcp.json`:
 ```
 
 → [docs/mcp-canvas.md](docs/mcp-canvas.md)
-
----
-
-## Star us on GitHub ⭐
-
-Open source takes time. If zuoge helps you, please hit **⭐ Star** in the top-right of the GitHub repo.
-
-→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## Canvas
 

@@ -24,7 +24,13 @@
   <p><strong>作ろう、デザインがこんなに簡単だったことはない</strong></p>
 </div>
 
-**zuoge** はオープンソースの AI デザインワークスペースです。無限ベクターキャンバス、LangGraph Design Agent、**MCP サーバー**（Cursor など外部クライアントが同一プロジェクトを編集）を備えます。Docker Compose でセルフホスト。ローカル開発は SQLite 既定（[PostgreSQL](docs/postgres-switch.md) 可）。
+**zuoge** はオープンソースの AI デザインワークスペースです。無限ベクターキャンバス、LangGraph Design Agent、**MCP サーバー**（Cursor など外部クライアントが同一プロジェクトを編集）を備えます。Docker Compose でセルフホスト。
+
+## GitHub で ⭐ Star を
+
+オープンソースは時間がかかります。zuoge が役に立ったら、右上の **⭐ Star** をお願いします。
+
+→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## MCP キャンバス
 
@@ -61,14 +67,6 @@ Cursor — `.cursor/mcp.json` に追加:
 ```
 
 → [docs/mcp-canvas.md](docs/mcp-canvas.md)
-
----
-
-## GitHub で ⭐ Star を
-
-オープンソースは時間がかかります。zuoge が役に立ったら、右上の **⭐ Star** をお願いします。
-
-→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
 ## キャンバス
 
