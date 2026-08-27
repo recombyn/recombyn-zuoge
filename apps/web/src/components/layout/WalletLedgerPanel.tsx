@@ -19,7 +19,6 @@ import {
   type LedgerEntry,
   type PlanId,
 } from '@/utils/wallet';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 import ProgressBar from '@/components/base/progress';
 import { SegmentedControl } from '@/components/base';
@@ -158,7 +157,6 @@ function WalletLedgerPanel({
   onRequestRedeem,
 }: Props = {}) {
   const { t, i18n } = useTranslation();
-  const desktopLocal = isDesktopLocal();
   const [searchParams, setSearchParams] = useSearchParams();
   const { credits: walletCredits, planId: walletPlanId, planLocked: walletPlanLocked, planExpiresAt: walletExpires } =
     useWalletSnapshot();
@@ -189,24 +187,22 @@ function WalletLedgerPanel({
     planExpiresAt: walletExpires,
   });
 
-  /** Deep-link ?redeem=1 still opens redeem; skip when embedded / local desktop. */
+  /** Deep-link ?redeem=1 still opens redeem; skip when embedded. */
   useEffect(() => {
-    if (embedded || desktopLocal) return;
+    if (embedded) return;
     const flag = (searchParams.get('redeem') || '').trim();
     if (!flag || flag === '0' || flag.toLowerCase() === 'false') return;
     setRedeemOpen(true);
     const next = new URLSearchParams(searchParams);
     next.delete('redeem');
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, embedded, desktopLocal]);
+  }, [searchParams, setSearchParams, embedded]);
 
   const openPlans = () => {
-    if (desktopLocal) return;
     if (embedded && onRequestPlans) onRequestPlans();
     else setPlansOpen(true);
   };
   const openRedeem = () => {
-    if (desktopLocal) return;
     if (embedded && onRequestRedeem) onRequestRedeem();
     else setRedeemOpen(true);
   };
@@ -282,11 +278,9 @@ function WalletLedgerPanel({
               <p className="pt-1 text-[12px] text-[var(--muted)]">{t('wallet.planExpiresUnknown')}</p>
             ) : null}
           </div>
-          {!desktopLocal ? (
-            <button type="button" onClick={openPlans} className={ghostBtn}>
-              {isTopOfferedPlan(planId) ? t('wallet.adjustPlan') : t('wallet.upgrade')}
-            </button>
-          ) : null}
+          <button type="button" onClick={openPlans} className={ghostBtn}>
+            {isTopOfferedPlan(planId) ? t('wallet.adjustPlan') : t('wallet.upgrade')}
+          </button>
         </Card>
 
         {/* Plan credits (included) */}
@@ -351,8 +345,7 @@ function WalletLedgerPanel({
         </Card>
 
         {/* Card-key redeem — cloud payment channel only */}
-        {!desktopLocal ? (
-          <Card className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <Card className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
             <div className="min-w-0">
               <div className="text-[15px] font-medium text-[var(--ink)]">{t('wallet.redeemTitle')}</div>
               <p className="mt-1 text-[13px] leading-relaxed text-[var(--muted)]">
@@ -363,7 +356,6 @@ function WalletLedgerPanel({
               {t('wallet.redeem')}
             </button>
           </Card>
-        ) : null}
 
         {/* Ledger */}
         <Card className="overflow-hidden">

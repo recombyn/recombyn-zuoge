@@ -20,7 +20,6 @@ import AccountProfilePanel from '@/components/layout/AccountProfilePanel';
 import { useBillingEnabled } from '@/service/wallet';
 import AccountNotificationsPanel from '@/components/layout/AccountNotificationsPanel';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
 /** Content tabs inside the shell (plans / top-up open as separate dialogs). */
@@ -143,9 +142,8 @@ function AccountSettingsDialog({
   initialTab = 'profile',
 }: Props) {
   const { t } = useTranslation();
-  const desktopLocal = isDesktopLocal();
   const billingEnabled = useBillingEnabled();
-  const hideBillingUi = desktopLocal || !billingEnabled;
+  const hideBillingUi = !billingEnabled;
   const [tab, setTab] = useState<ContentTab>(toContentTab(initialTab));
   const [plansOpen, setPlansOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
@@ -162,13 +160,10 @@ function AccountSettingsDialog({
     if (hideBillingUi && nextTab === 'billing') {
       nextTab = 'profile';
     }
-    if (desktopLocal && nextTab === 'notices') {
-      nextTab = 'profile';
-    }
     setTab(toContentTab(nextTab));
     setPlansOpen(false);
     setRedeemOpen(false);
-  }, [open, initialTab, desktopLocal, hideBillingUi]);
+  }, [open, initialTab, hideBillingUi]);
 
 
   const dismiss = useCallback(() => {
@@ -183,9 +178,7 @@ function AccountSettingsDialog({
     ...(!hideBillingUi
       ? [{ id: 'billing' as const, label: t('wallet.settingsNavBilling') }]
       : []),
-    ...(!desktopLocal
-      ? [{ id: 'notices' as const, label: t('wallet.settingsNavNotices') }]
-      : []),
+    { id: 'notices' as const, label: t('wallet.settingsNavNotices') },
   ];
 
 
@@ -326,7 +319,7 @@ function AccountSettingsDialog({
                         />
                       ) : null}
 
-                      {tab === 'notices' && !desktopLocal ? <AccountNotificationsPanel /> : null}
+                      {tab === 'notices' ? <AccountNotificationsPanel /> : null}
                     </div>
                   </div>
                   </div>

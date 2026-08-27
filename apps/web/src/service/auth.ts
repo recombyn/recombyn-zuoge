@@ -66,7 +66,7 @@ export type SliderCaptchaChallenge = {
   expiresIn: number;
 };
 
-/** Create a slider captcha challenge (self-hosted). */
+/** Create a slider captcha challenge. */
 export const createSliderCaptcha = () =>
   apiClient.authCaptchaCreate() as Promise<SliderCaptchaChallenge>;
 
@@ -107,12 +107,3 @@ export const updateProfile = (payload: {
 /** Logout and invalidate the session. */
 export const logout = () =>
   apiClient.authAuthLogout() as Promise<{ message: string }>;
-
-/**
- * Desktop-local auto login (OS user → local SQLite account).
- * Only when API has DESKTOP_LOCAL_AUTO_LOGIN=true (Tauri local sidecar).
- */
-export const loginDesktopLocal = (payload?: { username?: string }) =>
-  apiClient.authDesktopLocalLogin({
-    body: payload || {},
-  }) as Promise<{ user: AuthUserDto; token: string }>;

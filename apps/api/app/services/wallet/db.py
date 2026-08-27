@@ -71,17 +71,10 @@ __all__ = [
 
 
 def is_wallet_billing_enabled() -> bool:
-    """Master switch for platform credit holds / charges.
+    """Master switch for platform credit holds / charges (``WALLET_BILLING_ENABLED``)."""
+    from app.core.config import settings
 
-    - Default / ``WALLET_BILLING_ENABLED=false`` → off (self-host)
-    - Desktop local auto-login → always off (BYOK / no cloud wallet)
-    - Cloud / SaaS → set ``WALLET_BILLING_ENABLED=true``
-    """
-    from app.core.config import is_desktop_local, settings
-
-    if is_desktop_local():
-        return False
-    return bool(getattr(settings, "wallet_billing_enabled", False))
+    return bool(getattr(settings, "wallet_billing_enabled", True))
 
 
 

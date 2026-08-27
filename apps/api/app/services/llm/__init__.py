@@ -129,8 +129,8 @@ def _provider_unlocked(
 ) -> bool:
     """True when env has a key or the user saved a platform BYOK credential.
 
-    ``strict=True`` (desktop-local): do not fall back to “show doubao when no
-    deepseek key” — only real env keys or user BYOK unlock a provider.
+    ``strict=True``: only count providers with real env keys or user BYOK
+    (no cross-provider fallback when listing catalog models).
     """
     p = (provider or "doubao").strip().lower()
     if p in byok_platforms:

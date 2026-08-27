@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -59,18 +60,10 @@ def main() -> int:
     status, auth_cfg = http_json("GET", "/api/v1/auth/config")
     print(f"auth/config -> {status}: {auth_cfg}")
 
-    status, login = http_json("POST", "/api/v1/auth/desktop-local", body=b"{}", content_type="application/json")
-    if status != 200:
-        print(f"desktop-local login failed ({status}): {login}")
-        print("Cannot test authenticated upload without token.")
-        return 1
-
-    token = login.get("token") if isinstance(login, dict) else None
+    token = (os.environ.get("SMOKE_BEARER_TOKEN") or "").strip()
     if not token:
-        print(f"No token in login response: {login}")
+        print("Set SMOKE_BEARER_TOKEN to a valid session JWT (email login or admin).")
         return 1
-
-    print(f"Logged in as: {login.get('user', {}).get('email')}")
 
     name = "LiveSmokeDupFont.ttf"
     first_status, first = multipart_upload(name, FAKE_TTF + b"x", token)

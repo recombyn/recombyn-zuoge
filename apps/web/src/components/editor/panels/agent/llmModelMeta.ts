@@ -1,12 +1,11 @@
 ﻿/**
- * LLM catalog helpers for Agent UI (not HTTP 鈥?lives next to model pickers).
+ * LLM catalog helpers for Agent UI (not HTTP — lives next to model pickers).
  */
 
 import type { LlmModel, ModelReferenceType } from '@/service/chat';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { FREE_IMAGE_MODEL_ID } from '@/utils/wallet';
 
-/** Cloud default Seedance id (empty on local via `cloudVideoFallbackId`). */
+/** Cloud default Seedance id. */
 export const DEFAULT_CLOUD_VIDEO_MODEL_ID = 'or-seedance-2-0-fast';
 
 export function isImageKind(m: Pick<LlmModel, 'kind' | 'id'> | null | undefined): boolean {
@@ -30,31 +29,24 @@ export function dedupeModelsById(models: LlmModel[]): LlmModel[] {
   });
 }
 
-/**
- * Local desktop 鈫?BYOK vault only; cloud 鈫?catalog buckets + BYOK, then filter.
- */
+/** Catalog buckets + BYOK, then filter. */
 export function buildByokAwareModelList(opts: {
   byok: LlmModel[];
   catalogs?: Array<LlmModel[] | null | undefined>;
   filter: (m: LlmModel) => boolean;
 }): LlmModel[] {
-  const pool = isDesktopLocal()
-    ? opts.byok
-    : [...(opts.catalogs || []).flatMap((c) => c || []), ...opts.byok];
+  const pool = [...(opts.catalogs || []).flatMap((c) => c || []), ...opts.byok];
   return dedupeModelsById(pool.filter(opts.filter));
 }
 
-/** Cloud catalog id, or empty string on local desktop (BYOK-only). */
 export function cloudOnlyModelId(cloudId: string): string {
-  return isDesktopLocal() ? '' : cloudId;
+  return cloudId;
 }
 
-/** Cloud free-tier Seedream id; empty on local desktop (BYOK-only). */
 export function cloudImageFallbackId(): string {
   return cloudOnlyModelId(FREE_IMAGE_MODEL_ID);
 }
 
-/** Cloud default Seedance id; empty on local desktop. */
 export function cloudVideoFallbackId(): string {
   return cloudOnlyModelId(DEFAULT_CLOUD_VIDEO_MODEL_ID);
 }
@@ -62,29 +54,22 @@ export function cloudVideoFallbackId(): string {
 export function pickPreferredImageModelId(models: LlmModel[], currentId?: string): string {
   const images = models.filter((m) => isImageKind(m));
   if (currentId && images.some((m) => m.id === currentId)) return currentId;
-  if (!isDesktopLocal()) {
-    const free = images.find((m) => m.id === FREE_IMAGE_MODEL_ID);
-    if (free) return free.id;
-    const seedream = images.find((m) => /seedream/i.test(m.id));
-    if (seedream) return seedream.id;
-  }
+  const free = images.find((m) => m.id === FREE_IMAGE_MODEL_ID);
+  if (free) return free.id;
+  const seedream = images.find((m) => /seedream/i.test(m.id));
+  if (seedream) return seedream.id;
   return images[0]?.id || '';
 }
 
 export function pickPreferredVideoModelId(models: LlmModel[], currentId?: string): string {
   const videos = models.filter((m) => isVideoKind(m));
   if (currentId && videos.some((m) => m.id === currentId)) return currentId;
-  if (!isDesktopLocal()) {
-    const def = videos.find((m) => m.id === DEFAULT_CLOUD_VIDEO_MODEL_ID);
-    if (def) return def.id;
-  }
+  const def = videos.find((m) => m.id === DEFAULT_CLOUD_VIDEO_MODEL_ID);
+  if (def) return def.id;
   return videos[0]?.id || '';
 }
 
-/**
- * Merge catalog + image/video buckets + BYOK; normalize kind.
- * Local desktop 鈫?BYOK vault only (no platform Seedream / OpenRouter catalog).
- */
+/** Merge catalog + image/video buckets + BYOK; normalize kind. */
 export function mergeSelectableModels(opts: {
   models?: LlmModel[] | null;
   imageModels?: LlmModel[] | null;
@@ -101,10 +86,6 @@ export function mergeSelectableModels(opts: {
     if (m.kind === 'svg') return { ...base, kind: 'text' as const };
     return { ...base, kind: (m.kind || 'text') as LlmModel['kind'] };
   };
-
-  if (isDesktopLocal()) {
-    return opts.customModels.map(mapKind);
-  }
 
   const byId = new Map<string, LlmModel>();
   for (const m of opts.models || []) {
@@ -183,7 +164,7 @@ export function maxAttachmentsFor(
 
 /**
  * Composer attach ceiling (Dock + Home share this).
- * Image mode 鈫?current image model; Agent/Ask 鈫?routed image model.
+ * Image mode → current image model; Agent/Ask → routed image model.
  */
 export function agentAttachmentLimit(opts: {
   models: LlmModel[];

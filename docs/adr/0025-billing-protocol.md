@@ -64,6 +64,7 @@ Public must **not** put `user_price` / `credits_per_token` on Model.
 - Wallet estimate / authorize / capture helpers
 - Admin-facing pricing version CRUD for **provider** sheets (not host markup)
 - Optional remote quote adapter for cloud hosts (credits only on the wire)
+- Runtime wallet switch in the app: `WALLET_BILLING_ENABLED` (default **on** — self-host matches cloud; see [deployment-modes.md](../deployment-modes.md))
 
 ## Consequences
 

@@ -58,7 +58,6 @@ import {
   runRailHelpAction,
   type RailHelpItemKey,
 } from '@/components/layout/railHelp';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 import {
   HOME_NAV_KEYS,
@@ -208,7 +207,7 @@ import {
 const HOME_MAIN_SCROLL =
   'relative min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-transparent [scrollbar-gutter:stable]';
 const HOME_MAIN_SHELL =
-  'relative mx-auto box-border w-full min-w-0 max-w-[1300px] px-4 pb-10 pt-[25px] lg:px-0';
+  'relative mx-auto box-border w-full min-w-0 max-w-[1300px] px-4 pb-16 pt-[25px] lg:px-0';
 
 const RAIL_HELP_LABEL_KEYS: Record<RailHelpItemKey, string> = {
   guide: 'home.railHelpGuide',
@@ -231,9 +230,8 @@ function railItemTone(active: boolean) {
 /** Guest footer — help + login in one panel (expanded sidebar only). */
 function RailGuestFooterPanel({ onLogin }: { onLogin: () => void }) {
   const { t } = useTranslation();
-  const desktopLocal = isDesktopLocal();
   const [helpOpen, setHelpOpen] = useState(false);
-  const helpKeys = railHelpItemKeys(desktopLocal);
+  const helpKeys = railHelpItemKeys();
 
   return (
     <div className="overflow-hidden rounded-xl bg-[var(--surface)] ring-1 ring-[var(--line)]">
@@ -539,7 +537,7 @@ function RailSidebarFooter({ expanded }: { expanded: boolean }) {
   const authed = Boolean(user && getToken());
   const { credits, planId } = useWalletSnapshot();
   const billingEnabled = useBillingEnabled();
-  const hideBillingUi = isDesktopLocal() || !billingEnabled;
+  const hideBillingUi = !billingEnabled;
   const [accountOpen, setAccountOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
   const planLabel = t(planLabelKey(planId));
@@ -943,7 +941,7 @@ function HomeTemplateList({
         </main>
       ) : null}
 
-      {showInspiration && !isDesktopLocal() ? (
+      {showInspiration ? (
         <main className={HOME_MAIN_SCROLL}>
           <div className={HOME_MAIN_INSET}>
             <InspirationSection onOpenCase={onOpenCase} disabled={importing} />

@@ -24,7 +24,18 @@
   <p><strong>作ろう、デザインがこんなに簡単だったことはない</strong></p>
 </div>
 
-**zuoge** はオープンソースの AI デザインワークスペースです。無限ベクターキャンバス、LangGraph Design Agent、**MCP サーバー**（Cursor など外部クライアントが同一プロジェクトを編集）を備えます。Docker Compose でセルフホスト。
+**zuoge** はオープンソースの AI デザインワークスペースです。無限ベクターキャンバス、LangGraph Design Agent、**MCP サーバー**（Cursor など外部クライアントが同一プロジェクトを編集）を備えます。Docker Compose でセルフホスト — [recombyn.com](https://recombyn.com) と同一コードベース。
+
+## デプロイモード
+
+| モード | 説明 |
+|--------|------|
+| **Cloud** | [recombyn.com](https://recombyn.com) — マネージド SaaS |
+| **セルフホスト** | 自サーバーで `docker compose` — 環境を揃えれば Cloud と同等 |
+| **ローカル開発** | `npm run dev:api` + `dev:web` — 開発用（別 SKU ではない） |
+| **デスクトップ** | Tauri シェル — ブラウザと同じ API（[docs/desktop.md](docs/desktop.md)） |
+
+認証: メール OTP（Tencent SES）と/または Google OAuth。クレジット: `WALLET_BILLING_ENABLED` はデフォルト **オン**（セルフホストも Cloud と同じ）。→ [docs/deployment-modes.md](docs/deployment-modes.md)
 
 ## GitHub で ⭐ Star を
 
@@ -130,15 +141,10 @@ Canvas Live / WSS: **[docs/self-hosting.md § Canvas multiplayer](docs/self-host
 **[docs/desktop.md](docs/desktop.md)** を参照。**Rust** と OS ビルドツールが必要です。
 
 ```bash
-# ローカル — API sidecar + SQLite 同梱
+# デスクトップ — ブラウザと同じ API（:8000 / .env）
 npm run dev:desktop
-npm run build:desktop:sidecar
 npm run build:desktop
-
-# クラウド — ブラウザと同じ本機 API（:8000 / .env）
 # 公開デプロイ時は VITE_API_BASE_URL
-npm run dev:desktop:cloud
-npm run build:desktop:cloud
 ```
 
 成果物: `apps/web/src-tauri/target/release/bundle/`（インストーラ）；本体 `…/target/release/recombyn.exe`。
@@ -152,7 +158,7 @@ apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket サーバー（y-websocket）
 plugins/           拡張（skills + canvas）— Compose マウント
 packages/          共有ビルダー & スキーマ
-docs/              セルフホスト、Agent、プラグイン、デスクトップ、キャンバス
+docs/              セルフホスト、デプロイ、課金、Agent、プラグイン、デスクトップ、キャンバス
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
@@ -166,6 +172,8 @@ e2e/               Playwright
 | ユーザー向け | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | MCP キャンバス（Cursor / 外部 AI） | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
 | セルフホスト / 構成 | [docs/self-hosting.md](docs/self-hosting.md) |
+| デプロイモード | [docs/deployment-modes.md](docs/deployment-modes.md) |
+| 課金・クレジット | [docs/billing.md](docs/billing.md) |
 | Skill 拡張 | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | Canvas プラグイン | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
 | プラグインパック（`.recombyn-plugin`） | [docs/plugin-packs.md](docs/plugin-packs.md) |

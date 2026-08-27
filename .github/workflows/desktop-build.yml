@@ -1,19 +1,10 @@
 name: Desktop build (Tauri)
 
-# Unsigned Windows installer for smoke / self-host testing (ADR 0010).
-# Signed releases need org secrets — see docs/desktop.md § Code signing.
+# Unsigned Windows installer for smoke testing (ADR 0010).
 # Not part of CI / gate (too slow).
 
 on:
   workflow_dispatch:
-    inputs:
-      flavor:
-        description: 'local (sidecar) or cloud'
-        type: choice
-        options:
-          - local
-          - cloud
-        default: local
 
 permissions:
   contents: read
@@ -33,37 +24,19 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install JS workspaces
         run: npm ci
 
-      - name: Install API desktop extras (sidecar)
-        if: inputs.flavor == 'local'
-        working-directory: apps/api
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e "../../packages/scene-builder-py"
-          pip install -e ".[desktop]"
-
       - name: Build desktop
         env:
-          # Optional updater signing (Tauri). Leave unset for unsigned.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          if ("${{ inputs.flavor }}" -eq "cloud") {
-            npm run build:desktop:cloud
-          } else {
-            npm run build:desktop
-          }
+        run: npm run build:desktop
 
       - name: Upload bundle artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: recombyn-desktop-${{ inputs.flavor }}-windows
+          name: recombyn-desktop-windows
           path: |
             apps/web/src-tauri/target/release/bundle/**
           if-no-files-found: warn

@@ -47,7 +47,6 @@ import {
   pushEditorHistory,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateAudioCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl, uploadComposerAttachment } from '@/utils/uploadImage';
 import store from '@/store';
@@ -418,7 +417,7 @@ function AudioQuickEditComposer({
 
         <div className="mt-1 flex items-center gap-1.5 px-2.5 pb-2">
           <div className="flex-1" />
-          {!readyAudioAtt && !isDesktopLocal() && models.length > 0 ? (
+          {!readyAudioAtt && models.length > 0 ? (
             <Dropdown
               trigger="click"
               placement="top-end"

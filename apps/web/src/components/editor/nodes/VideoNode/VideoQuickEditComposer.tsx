@@ -40,7 +40,6 @@ import {
   pushEditorHistory,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateVideoCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
 import { cloudVideoFallbackId, DEFAULT_CLOUD_VIDEO_MODEL_ID } from '@/components/editor/panels/agent/llmModelMeta';
@@ -404,7 +403,7 @@ function VideoQuickEditComposer({
 
           <div className="flex-1" />
 
-          {!isDesktopLocal() && models.length > 0 ? (
+          {models.length > 0 ? (
             <Dropdown
               trigger="click"
               placement="top-end"
@@ -450,7 +449,7 @@ function VideoQuickEditComposer({
             className="inline-flex h-8 items-center gap-1 rounded-full bg-[var(--ink)] px-2.5 text-[var(--on-brand)] disabled:opacity-40"
           >
             <HiArrowUp className="h-4 w-4" strokeWidth={2} />
-            {!isDesktopLocal() && creditCost > 0 ? (
+            {creditCost > 0 ? (
               <span className="text-[12px] tabular-nums">{creditCost}</span>
             ) : null}
           </button>

@@ -1,14 +1,9 @@
 /**
- * Desktop build flavors bake API host at compile time.
+ * Desktop build bakes API host at compile time.
  * Browser / self-host web keeps relative `/api/...` (Vite proxy or nginx).
- *
- * - local + prod Tauri → http://127.0.0.1:8000 (sidecar)
- * - local + dev Tauri → '' (Vite proxy on :3000)
- * - cloud desktop → VITE_API_BASE_URL if set; else '' (same as browser — Vite/nginx proxy)
- * - Never hardcode a public host; hosted API is opt-in via env when deployed
  */
 
-export type DesktopMode = 'local' | 'cloud';
+export type DesktopMode = 'cloud';
 
 declare const __DESKTOP_MODE__: string;
 declare const __API_BASE_URL__: string;
@@ -24,7 +19,7 @@ function readBaked(name: 'mode' | 'base'): string {
   }
 }
 
-/** `local` | `cloud` when this is a desktop flavor build; otherwise null (browser web). */
+/** `cloud` when this is a desktop build; otherwise null (browser web). */
 export function getDesktopMode(): DesktopMode | null {
   const raw = (
     import.meta.env.VITE_DESKTOP_MODE ||
@@ -33,16 +28,11 @@ export function getDesktopMode(): DesktopMode | null {
   )
     .trim()
     .toLowerCase();
-  if (raw === 'local' || raw === 'cloud') return raw;
+  if (raw === 'cloud') return 'cloud';
   return null;
 }
 
-/** Local desktop: OS auto-login + SQLite — no cloud plans / redeem / billing UI. */
-export function isDesktopLocal(): boolean {
-  return getDesktopMode() === 'local';
-}
-
-/** Browser on loopback — internal dev stack (Vite :3000 + API :8000); hide SaaS credit chips. */
+/** Browser on loopback — internal dev stack (Vite :3000 + API :8000). */
 export function isLocalDevHost(): boolean {
   if (typeof window === 'undefined') return false;
   const host = window.location.hostname.toLowerCase();
@@ -62,7 +52,7 @@ export function getLocalDevApiOrigin(): string {
   return `http://127.0.0.1:${port}`;
 }
 
-/** Tauri desktop shell (local or cloud flavor). */
+/** Tauri desktop shell. */
 export function isDesktopShell(): boolean {
   return getDesktopMode() !== null;
 }
@@ -77,13 +67,6 @@ export function getApiBaseUrl(): string {
     .trim()
     .replace(/\/$/, '');
   if (explicit) return explicit;
-
-  const mode = getDesktopMode();
-  // Only local desktop production uses the sidecar loopback (no Vite proxy).
-  if (mode === 'local' && import.meta.env.PROD) {
-    return 'http://127.0.0.1:8000';
-  }
-  // Browser + cloud desktop: relative `/api/...` (dev proxy or nginx).
   return '';
 }
 

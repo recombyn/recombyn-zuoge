@@ -16,7 +16,6 @@ import { useBillingEnabled, useWalletSnapshot } from '@/service/wallet';
 import { setSession, type AuthUser } from '@/store/modules/auth';
 import { getToken } from '@/utils/token';
 import { readReturnToParam } from '@/utils/authReturnTo';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
 const ACCOUNT_TABS = ['profile', 'usage', 'agent', 'org'] as const;
@@ -65,7 +64,7 @@ function AccountSettingsPage(): ReactNode {
   const user = useSelector((s: any) => s.auth.user as AuthUser | null);
   const { credits, creditsIncluded } = useWalletSnapshot();
   const billingEnabled = useBillingEnabled();
-  const hideBillingUi = isDesktopLocal() || !billingEnabled;
+  const hideBillingUi = !billingEnabled;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const setTab = (next: AccountTab) => {

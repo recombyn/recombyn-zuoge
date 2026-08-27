@@ -23,7 +23,7 @@ from app.services.llm import (
     user_byok_platforms,
     uses_user_platform_byok,
 )
-from app.core.config import is_desktop_local
+from app.core.config import settings
 from app.services.llm.agent import stream_agent_turn, stream_official_agent
 from app.services.llm.chat import stream_chat
 from app.services.llm.design_tools import design_tool_definitions
@@ -125,7 +125,7 @@ def _charge_image(
     Free plan: force Seedream 5.0 Lite; use 积分 or today's free daily run.
     Returns (model id to call, credits actually charged).
     """
-    if is_desktop_local() or is_byok_model_ref(requested_model) or uses_user_platform_byok(
+    if is_byok_model_ref(requested_model) or uses_user_platform_byok(
         user_id, requested_model
     ):
         # BYOK / platform key uses the user's own quota — never platform credits.
@@ -164,7 +164,7 @@ def _charge_video(
 ) -> tuple[str | None, int]:
     """Charge video gen from 积分 (reuses image-credit balance for now)."""
     requested = (requested_model or "").strip() or None
-    if is_desktop_local() or uses_user_platform_byok(user_id, requested):
+    if uses_user_platform_byok(user_id, requested):
         return requested, 0
     cost = (
         image_model_credit_cost(requested, count=1, resolution=resolution)
@@ -179,7 +179,7 @@ def _charge_video(
 def _charge_audio(user_id: str, requested_model: str | None) -> tuple[str | None, int]:
     """Charge audio/TTS from 积分 (flat default for now)."""
     requested = (requested_model or "").strip() or None
-    if is_desktop_local() or uses_user_platform_byok(user_id, requested):
+    if uses_user_platform_byok(user_id, requested):
         return requested, 0
     cost = max(DEFAULT_IMAGE_CREDITS, int(DEFAULT_IMAGE_CREDITS or 1))
     _charge(user_id, cost, "AI audio generation")
@@ -198,20 +198,6 @@ def get_models(
     uid = str(getattr(current_user, "id", "") or "").strip() or None
     platforms = user_byok_platforms(uid)
     platforms_payload = list_byok_platforms()
-
-    # Local desktop: no platform catalog (even if machine .env has provider keys).
-    # End users add OpenAI-style BYOK in Agent settings; FE merges vault models.
-    if is_desktop_local():
-        return {
-            "models": [],
-            "available": True,
-            "imageModels": [],
-            "videoModels": [],
-            "audioModels": [],
-            "clientRegion": "local",
-            "openrouterAvailable": False,
-            "byokPlatforms": platforms_payload,
-        }
 
     from app.services.geoip import (
         filter_catalog_models_for_region,

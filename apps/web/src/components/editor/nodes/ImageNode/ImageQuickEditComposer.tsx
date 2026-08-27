@@ -81,7 +81,6 @@ import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/fly
 import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
 import { useShowCreditCosts, useWalletSnapshot } from '@/service/wallet';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { estimateImageCredits } from '@/utils/imageCredits';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
 import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
@@ -102,12 +101,10 @@ function nextQuickEditImageModelId(
     return fallback;
   }
   if (!models.length || models.some((m) => m.id === currentId)) return null;
-  if (!isDesktopLocal()) {
-    const preferred =
+  const preferred =
       models.find((m) => m.id === FREE_IMAGE_MODEL_ID) ||
       models.find((m) => /seedream/i.test(m.id));
     if (preferred) return preferred.id;
-  }
   return models[0]?.id ?? null;
 }
 

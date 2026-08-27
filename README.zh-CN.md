@@ -24,7 +24,18 @@
   <p><strong>做个，设计从未如此简单</strong></p>
 </div>
 
-**左格**是开源 AI 设计工作台：无限矢量画布、LangGraph Design Agent，以及 **MCP 服务**——Cursor 等外部工具可读写同一项目。Docker Compose 自托管。
+**左格**是开源 AI 设计工作台：无限矢量画布、LangGraph Design Agent，以及 **MCP 服务**——Cursor 等外部工具可读写同一项目。Docker Compose 自托管，与 [recombyn.com](https://recombyn.com) 同一套代码。
+
+## 部署方式
+
+| 方式 | 说明 |
+|------|------|
+| **云端** | [recombyn.com](https://recombyn.com) — 官方托管 |
+| **自托管** | 自有服务器 `docker compose` — 配置对齐后与云端功能一致 |
+| **本地开发** | `npm run dev:api` + `dev:web` — 开发流程，非独立产品 |
+| **桌面端** | Tauri 壳 — 与浏览器同一 API（[docs/desktop.md](docs/desktop.md)） |
+
+登录：邮件验证码（腾讯云 SES）和/或 Google OAuth。积分：`WALLET_BILLING_ENABLED` 默认 **开启**（自托管与云端一致）。→ [docs/deployment-modes.md](docs/deployment-modes.md)
 
 ## 在 GitHub 上给我们点个赞 ⭐
 
@@ -130,15 +141,10 @@ Canvas Live / WSS：**[docs/self-hosting.md § Canvas multiplayer](docs/self-hos
 详见 **[docs/desktop.md](docs/desktop.md)**。需要 **Rust** 与平台工具链。
 
 ```bash
-# 单机 — 内嵌 API sidecar + SQLite
+# 桌面端 — 与浏览器同一套 API（:8000 / .env）
 npm run dev:desktop
-npm run build:desktop:sidecar
 npm run build:desktop
-
-# 云端桌面 — 与浏览器同一套本机 API（:8000 / .env）
 # 有公网部署时再设 VITE_API_BASE_URL
-npm run dev:desktop:cloud
-npm run build:desktop:cloud
 ```
 
 打包产物：`apps/web/src-tauri/target/release/bundle/`（安装包）；主程序 `…/target/release/recombyn.exe`。
@@ -152,7 +158,7 @@ apps/api/          FastAPI（含 collab room-token）
 apps/collab/       Yjs WebSocket 服务（y-websocket）
 plugins/           扩展（skills + canvas）— Compose 已挂载
 packages/          共享协议
-docs/              自托管、Agent、插件、桌面端、画布
+docs/              自托管、部署方式、计费、Agent、插件、桌面端、画布
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```
@@ -166,6 +172,8 @@ e2e/               Playwright
 | 用户文档 | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | MCP 画布（Cursor / 外部 AI） | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
 | 自托管 / 架构 | [docs/self-hosting.md](docs/self-hosting.md) |
+| 部署方式（云端 / 自托管 / 开发 / 桌面） | [docs/deployment-modes.md](docs/deployment-modes.md) |
+| 积分与计费（`WALLET_BILLING_ENABLED`） | [docs/billing.md](docs/billing.md) |
 | Skill 扩展 | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | 画布插件 | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
 | 插件包（`.recombyn-plugin`） | [docs/plugin-packs.md](docs/plugin-packs.md) |

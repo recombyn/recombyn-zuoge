@@ -122,7 +122,6 @@ def _reserve_design_hold(
     """
     Authorize ``hold`` credits, or free daily when balance is short.
     Returns (hold_to_settle, free_daily). free_daily ⇒ hold 0 and force Auto.
-    Local desktop / wallet-off → no platform hold.
     BYOK still authorizes Agent fee (provider $ waived at settle).
     """
     if not is_wallet_billing_enabled():

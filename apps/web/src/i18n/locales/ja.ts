@@ -352,7 +352,6 @@ const ja = {
     resendIn: '{{seconds}}秒後に再送信',
     resent: '確認コードを再送信しました',
     codeSent: '確認コードをメールに送信しました',
-    codeSentConsole: '確認コードは API サーバーのコンソールに出力されました（セルフホスト）',
     passwordTitle: 'パスワードを設定',
     passwordSubtitle: 'ログイン用パスワードを設定して登録を完了',
     nickname: 'ニックネーム（任意）',

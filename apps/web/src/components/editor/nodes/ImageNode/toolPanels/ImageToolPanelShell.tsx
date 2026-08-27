@@ -18,7 +18,7 @@ const panelBtn =
 /**
  * Image-tool 积分 costs — sync with apps/api `image_tools.py` `_KIND_CREDIT_COST`.
  * No LLM (removeBg / editText / editElements / CSS adjust) → 0.
- * Local desktop / BYOK also skip platform credits on the server.
+ * BYOK also skip platform credits on the server.
  */
 export const IMAGE_TOOL_CREDIT_COST = {
   upscale: 0,
@@ -142,7 +142,7 @@ function PanelConfirmCost({
     : Number.isFinite(amount)
       ? Math.round(amount!)
       : 0;
-  // Free tools, local desktop, loopback dev, or wallet billing off — no credit chip.
+  // Free tools, BYOK, or wallet billing off — no credit chip.
   if (n <= 0 || !showCreditCosts) return null;
   const display = String(n);
   const tip = t('wallet.creditCostTip', { count: display });

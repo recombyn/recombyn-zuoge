@@ -362,7 +362,6 @@ const zhCN = {
     resendIn: '{{seconds}}s 后可重发',
     resent: '验证码已重新发送',
     codeSent: '验证码已发送，请查收邮件',
-    codeSentConsole: '验证码已打印到 API 服务端控制台（自托管）',
     linkInvalid: '登录链接无效或已过期',
     activating: '正在登录…',
     checkEmailTitle: '查收登录邮件',

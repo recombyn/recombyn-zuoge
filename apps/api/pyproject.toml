@@ -84,10 +84,6 @@ otel = [
   "opentelemetry-instrumentation-httpx>=0.48b0",
   "opentelemetry-instrumentation-celery>=0.48b0",
 ]
-# Desktop local installer sidecar (PyInstaller onedir → Tauri resources)
-desktop = [
-  "pyinstaller>=6.0.0",
-]
 
 [tool.setuptools.packages.find]
 where = ["."]

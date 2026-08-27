@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 import hmac
 import logging
 import re
@@ -12,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, SessionDep, TokenDep
-from app.core.config import is_desktop_local, settings
+from app.core.config import settings
 from app.models import AuthConfigOut, AuthMeOut, AuthSessionOut, Message
 from app.services.auth import SessionUser, create_session, revoke_session
 from app.services.auth.admin import (
@@ -72,44 +71,6 @@ _SUPER_ADMIN_NAME = "Super Admin"
 def _super_admin_test_code() -> str:
     """Local .env SUPER_ADMIN_TEST_CODE via settings (not bare os.environ)."""
     return (getattr(settings, "super_admin_test_code", None) or "").strip()
-
-
-def _console_login_code_enabled() -> bool:
-    """Opt-in self-host path — Cloud / prod must keep AUTH_CONSOLE_LOGIN_CODE off."""
-    return bool(getattr(settings, "auth_console_login_code", False))
-
-
-def _desktop_local_auto_login_enabled() -> bool:
-    return is_desktop_local()
-
-
-def _is_loopback_client(request: Request) -> bool:
-    host = (request.client.host if request.client else "") or ""
-    return host in ("127.0.0.1", "::1", "localhost")
-
-
-def _sanitize_desktop_username(raw: str) -> str:
-    safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", (raw or "").strip()).strip("-._")
-    return (safe[:64] or "user").lower()
-
-
-class DesktopLocalLoginIn(BaseModel):
-    """Optional hint; server prefers the process OS user when empty."""
-
-    username: str | None = Field(default=None, max_length=80)
-
-
-def _issue_console_login_code(email: str) -> dict[str, Any]:
-    """Self-host without SES: store OTP and print it to API logs."""
-    code = generate_code()
-    store_code(email, code)
-    logger.warning(
-        "LOGIN CODE (AUTH_CONSOLE_LOGIN_CODE) email=%s code=%s — "
-        "enter this in the UI; configure SES for real mail, or disable the flag",
-        email,
-        code,
-    )
-    return {"ok": True, "expiresIn": 300, "mode": "console"}
 
 
 def _normalize_email(raw: str) -> str:
@@ -303,11 +264,13 @@ def email_send_code(body: EmailSendCodeIn, request: Request) -> dict[str, Any]:
         )
 
     if not ses_configured():
-        if _console_login_code_enabled():
-            return _issue_console_login_code(email)
         raise HTTPException(
             status_code=503,
-            detail="Email signup is temporarily unavailable. Try again later or use another sign-in method.",
+            detail=(
+                "Email login is not configured. Set TENCENT_SECRET_ID, "
+                "TENCENT_SECRET_KEY, SES_FROM_EMAIL, and SES_TEMPLATE_ID "
+                "in apps/api/.env, or use Google sign-in."
+            ),
         )
 
     code = generate_code()
@@ -345,47 +308,6 @@ def email_activate(body: EmailActivateIn, request: Request) -> dict[str, Any]:
         id=user.id,
         email=user.email,
         name=user.name,
-        avatar=user.avatar,
-        provider="email",
-        role=getattr(user, "role", None) or "user",
-        status=getattr(user, "status", None) or "active",
-    )
-    session, token = create_session(session)
-    return {"user": _user_payload(session), "token": token}
-
-
-@router.post("/desktop-local", response_model=AuthSessionOut)
-def desktop_local_login(
-    request: Request,
-    body: DesktopLocalLoginIn = DesktopLocalLoginIn(),
-) -> dict[str, Any]:
-    """
-    Desktop-local auto login — provision a user from the OS account name.
-    Enabled only when DESKTOP_LOCAL_AUTO_LOGIN=true and caller is loopback.
-    """
-    if not _desktop_local_auto_login_enabled():
-        raise HTTPException(status_code=404, detail="Desktop local login is disabled")
-    if not _is_loopback_client(request):
-        raise HTTPException(status_code=403, detail="Desktop local login is loopback-only")
-
-    hint = body.username or ""
-    try:
-        os_user = getpass.getuser()
-    except Exception:
-        os_user = ""
-    display = (hint.strip() or os_user.strip() or "Local User")[:80]
-    local_part = _sanitize_desktop_username(display)
-    email = f"{local_part}@local.desktop"
-
-    user = ensure_email_user(email=email)
-    try:
-        update_profile(user_id=user.id, name=display)
-    except Exception:
-        logger.debug("desktop-local name sync skipped", exc_info=True)
-    session = SessionUser(
-        id=user.id,
-        email=user.email,
-        name=display,
         avatar=user.avatar,
         provider="email",
         role=getattr(user, "role", None) or "user",

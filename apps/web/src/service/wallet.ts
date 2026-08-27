@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiQuery, queryClient } from '@/service/client';
 import type { WalletDto } from '@/models/wallet';
 import { normalizePlanId, PLAN_CATALOG, type PlanDef, type PlanId } from '@/utils/wallet';
-import { getApiBaseUrl, isDesktopLocal } from '@/utils/apiBase';
+import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 
 export type WalletSnapshot = {
@@ -100,16 +100,12 @@ export function walletDtoToSnapshot(
   if (dto.planExpiresAt != null && Number.isFinite(Number(dto.planExpiresAt))) {
     planExpiresAt = Number(dto.planExpiresAt);
   }
-  let billingEnabled = billingFallback;
-  if (dto.billingEnabled !== undefined) {
-    billingEnabled = Boolean(dto.billingEnabled);
-  }
   return {
     credits: Math.max(0, Math.round(Number(dto.credits) || 0)),
     planId,
     planExpiresAt,
     planLocked: Boolean(dto.planLocked) && planId !== 'free',
-    billingEnabled,
+    billingEnabled: billingFallback,
     creditsIncluded: (catalog[planId] || catalog.free).creditsIncluded,
   };
 }
@@ -167,34 +163,26 @@ export function useAuthBillingConfigQuery() {
   });
 }
 
-/** Prefer wallet.me when logged in; else public auth config. */
+/** Sole UI switch: API `WALLET_BILLING_ENABLED` from `/auth/config` (not wallet errors). */
 export function useBillingEnabled(): boolean {
-  const authed = Boolean(getToken());
   const configQuery = useAuthBillingConfigQuery();
-  const walletQuery = useWalletMeQuery(authed);
-  const fromWallet = (walletQuery.data as WalletDto | undefined)?.billingEnabled;
-  if (typeof fromWallet === 'boolean') return fromWallet;
-  return Boolean((configQuery.data as { billingEnabled?: boolean } | undefined)?.billingEnabled);
+  const fromConfig = (configQuery.data as { billingEnabled?: boolean } | undefined)?.billingEnabled;
+  if (typeof fromConfig === 'boolean') return fromConfig;
+  return true;
 }
 
 /** Show per-action credit costs when platform billing is on (incl. local dev against cloud wallet). */
 export function useShowCreditCosts(): boolean {
   const billingEnabled = useBillingEnabled();
-  // Desktop local = BYOK / no cloud wallet — never show platform credit chips.
-  return billingEnabled && !isDesktopLocal();
+  return billingEnabled;
 }
 
 /** Convenience snapshot for chips / plans / ledger header. */
 export function useWalletSnapshot(): WalletSnapshot {
   const authed = Boolean(getToken());
-  const configQuery = useAuthBillingConfigQuery();
   const walletQuery = useWalletMeQuery(authed);
   const catalog = usePlanCatalog();
-  const fromWallet = (walletQuery.data as WalletDto | undefined)?.billingEnabled;
-  const billingEnabled =
-    typeof fromWallet === 'boolean'
-      ? fromWallet
-      : Boolean((configQuery.data as { billingEnabled?: boolean } | undefined)?.billingEnabled);
+  const billingEnabled = useBillingEnabled();
   return walletDtoToSnapshot(
     walletQuery.data as WalletDto | undefined,
     billingEnabled,

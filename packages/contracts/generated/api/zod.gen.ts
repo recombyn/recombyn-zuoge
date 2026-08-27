@@ -98,7 +98,7 @@ export const zAuthConfigOut = z.object({
     googleEnabled: z.boolean(),
     googleClientId: z.string().nullish(),
     emailEnabled: z.boolean(),
-    billingEnabled: z.boolean().optional().default(false)
+    billingEnabled: z.boolean().optional().default(true)
 });
 
 /**
@@ -354,15 +354,6 @@ export const zDesignSkillIn = z.object({
     maxRetries: z.number().int().optional().default(2),
     outputFormat: z.string().optional().default('json'),
     allowUserModelOverride: z.boolean().optional().default(false)
-});
-
-/**
- * DesktopLocalLoginIn
- *
- * Optional hint; server prefers the process OS user when empty.
- */
-export const zDesktopLocalLoginIn = z.object({
-    username: z.string().max(80).nullish()
 });
 
 /**
@@ -1242,13 +1233,6 @@ export const zAuthEmailActivateBody = zEmailActivateIn;
  * Successful Response
  */
 export const zAuthEmailActivateResponse = zAuthSessionOut;
-
-export const zAuthDesktopLocalLoginBody = zDesktopLocalLoginIn.default({});
-
-/**
- * Successful Response
- */
-export const zAuthDesktopLocalLoginResponse = zAuthSessionOut;
 
 export const zAuthEmailVerifyCodeBody = zEmailVerifyCodeIn;
 

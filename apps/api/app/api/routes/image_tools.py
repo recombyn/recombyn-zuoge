@@ -119,7 +119,7 @@ async def post_image_process(
     kind = body.kind.strip()
     cost = credit_cost_for_kind(kind, body.model, user_id=current_user.id)
     # Charge before the model call so insufficient balance fails fast.
-    # cost is 0 when no LLM / local desktop / BYOK / wallet billing off.
+    # cost is 0 when no LLM / BYOK / wallet billing off.
     _charge(current_user.id, cost, f"AI image tool: {kind}")
 
     try:

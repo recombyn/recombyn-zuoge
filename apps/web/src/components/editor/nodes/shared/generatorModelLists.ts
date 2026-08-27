@@ -6,7 +6,6 @@ import {
   modelSupportsVisionInput,
 } from '@/components/editor/panels/agent/llmModelMeta';
 import { customProvidersAsModels } from '@/components/editor/panels/agent/customLlmProviders';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { FREE_IMAGE_MODEL_ID } from '@/utils/wallet';
 
 const DEFAULT_AUDIO_MODEL_ID = 'or-gemini-3-1-flash-tts';
@@ -30,7 +29,6 @@ export function modelIsAgentChat(model?: Pick<LlmModel, 'kind' | 'id'> | null): 
   return !/seedance|seedream|t2i|i2i/i.test(model.id);
 }
 
-/** Local desktop: BYOK only. Cloud/web: platform image catalog + BYOK. */
 export function buildImageGeneratorModelList(res?: {
   models?: LlmModel[] | null;
   imageModels?: LlmModel[] | null;
@@ -74,28 +72,22 @@ export function buildLottieChatModelList(res?: { models?: LlmModel[] | null } | 
 
 export function nextImageModelId(models: LlmModel[], currentId: string): string | null {
   if (!models.length || models.some((m) => m.id === currentId)) return null;
-  if (!isDesktopLocal()) {
-    const free = models.find((m) => m.id === FREE_IMAGE_MODEL_ID);
-    if (free) return free.id;
-  }
+  const free = models.find((m) => m.id === FREE_IMAGE_MODEL_ID);
+  if (free) return free.id;
   return models[0]?.id ?? null;
 }
 
 export function nextVideoModelId(models: LlmModel[], currentId: string): string | null {
   if (!models.length || models.some((m) => m.id === currentId)) return null;
-  if (!isDesktopLocal()) {
-    const preferred = models.find((m) => m.id === DEFAULT_CLOUD_VIDEO_MODEL_ID);
-    if (preferred) return preferred.id;
-  }
+  const preferred = models.find((m) => m.id === DEFAULT_CLOUD_VIDEO_MODEL_ID);
+  if (preferred) return preferred.id;
   return models[0]?.id ?? null;
 }
 
 export function nextAudioModelId(models: LlmModel[], currentId: string): string | null {
   if (!models.length || models.some((m) => m.id === currentId)) return null;
-  if (!isDesktopLocal()) {
-    const preferred = models.find((m) => m.id === DEFAULT_AUDIO_MODEL_ID);
-    if (preferred) return preferred.id;
-  }
+  const preferred = models.find((m) => m.id === DEFAULT_AUDIO_MODEL_ID);
+  if (preferred) return preferred.id;
   return models[0]?.id ?? null;
 }
 

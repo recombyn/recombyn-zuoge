@@ -139,9 +139,10 @@ infra/langfuse/
 # sync strip dry-run scratch
 pub-test/
 
-# local sqlite sidecars
+# SQLite WAL side files (local dev fallback only)
 apps/api/storage/*.db-shm
 apps/api/storage/*.db-wal
+apps/web/src-tauri/sidecars/
 
 
 # Local runtime artifacts if mistakenly created under app/

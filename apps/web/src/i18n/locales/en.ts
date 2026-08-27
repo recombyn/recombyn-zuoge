@@ -364,7 +364,6 @@ const en = {
     resendIn: 'Resend in {{seconds}}s',
     resent: 'Code resent',
     codeSent: 'Verification code sent — check your email',
-    codeSentConsole: 'Verification code printed in the API server console (self-host)',
     linkInvalid: 'Login link is invalid or expired',
     activating: 'Signing you in…',
     checkEmailTitle: 'Check your email',

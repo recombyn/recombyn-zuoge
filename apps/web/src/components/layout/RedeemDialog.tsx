@@ -8,7 +8,6 @@ import { apiQuery, getHttpErrorDetail, getHttpErrorMessage, getHttpStatus } from
 import { invalidateWalletCache } from '@/service/wallet';
 import { normalizePlanId, type PlanId } from '@/utils/wallet';
 import { buildLoginUrl } from '@/utils/authReturnTo';
-import { isDesktopLocal } from '@/utils/apiBase';
 
 type RedeemPanelProps = {
   active?: boolean;
@@ -142,7 +141,6 @@ type DialogProps = {
 /** Standalone redeem dialog. Prefer AccountSettingsDialog. */
 function RedeemDialog({ open, onClose, onRedeemed }: DialogProps) {
   const { t } = useTranslation();
-  if (isDesktopLocal()) return null;
   const dismiss = () => {
     // Blur before hide — cancel/redeem call parent setState and skip Dialog.onClose blur.
     const active = document.activeElement;

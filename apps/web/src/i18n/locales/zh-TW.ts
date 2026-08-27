@@ -351,7 +351,6 @@ const zhTW = {
     resendIn: '{{seconds}}s 後可重發',
     resent: '已重新發送驗證碼',
     codeSent: '驗證碼已發送到信箱',
-    codeSentConsole: '驗證碼已列印到 API 伺服器主控台（自託管）',
     passwordTitle: '設定密碼',
     passwordSubtitle: '設定登入密碼以完成信箱註冊',
     nickname: '暱稱（選填）',

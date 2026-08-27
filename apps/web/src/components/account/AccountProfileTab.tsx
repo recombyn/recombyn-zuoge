@@ -10,7 +10,6 @@ import { setUser, type AuthUser } from '@/store/modules/auth';
 import { useBillingEnabled } from '@/service/wallet';
 import { formatCredits } from '@/utils/wallet';
 import { docsUrl } from '@/utils/docsUrl';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 
 const NAME_RE = /^[\p{L}\p{N}\s.'\-_]{1,40}$/u;
@@ -76,7 +75,7 @@ function AccountProfileTab({
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const billingEnabled = useBillingEnabled();
-  const hideBillingUi = isDesktopLocal() || !billingEnabled;
+  const hideBillingUi = !billingEnabled;
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');

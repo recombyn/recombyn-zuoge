@@ -51,7 +51,6 @@ import { docsUrl, openExternalUrl } from '@/utils/docsUrl';
 import { SUPPORTED_LANGS } from '@/i18n';
 import { buildLocaleSwitchUrl, normalizeI18nLang, writeStoredI18nLang } from '@/i18n/localePath';
 import { applyTheme, getStoredThemeMode, type ThemeMode } from '@/theme';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 import {
   railHelpItemKeys,
@@ -299,10 +298,8 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
   const { credits, planId } = useWalletSnapshot();
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const desktopLocal = isDesktopLocal();
   const billingEnabled = useBillingEnabled();
-  /** Hide plans / redeem / balance when local desktop or WALLET_BILLING_ENABLED=false. */
-  const hideBillingUi = desktopLocal || !billingEnabled;
+  const hideBillingUi = !billingEnabled;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<AccountSettingsTab>(
     hideBillingUi ? 'profile' : 'billing'
@@ -402,20 +399,17 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
   const themeLabel = themeOption.label;
   const planLabel = t(planLabelKey(planId as PlanId));
 
-  const doLogout = () => {
+  const doLogout = async () => {
+    try {
+      await logoutRemote();
+    } catch {
+      /* token may already be invalid */
+    }
     dispatch(logout());
     dispatch(clearProjectsLibrary());
     clearSessionCaches();
     clearProjectsListCache();
     clearWalletCache();
-    async function logoutRemoteSession() {
-      try {
-        await logoutRemote();
-      } catch {
-        /* ignore */
-      }
-    }
-    logoutRemoteSession();
     message.success(t('home.loggedOut'));
     close();
     navigate('/home', { replace: true });
@@ -453,7 +447,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
     setPlansOpen(true);
   };
 
-  const helpKeys = railHelpItemKeys(desktopLocal);
+  const helpKeys = railHelpItemKeys();
 
   const helpItemLabel = (key: RailHelpItemKey) => {
     if (key === 'guide') return t('home.railHelpGuide');

@@ -10,7 +10,7 @@ Phase 4 asks for signed Tauri builds. Signing needs org-owned certificates (Wind
 ## Decision
 
 1. **Document** the local/CI signing checklist in [desktop.md](../desktop.md) (env vars, secret names, never commit `.p12` / `.pem`).
-2. **CI:** `.github/workflows/desktop-build.yml` is **`workflow_dispatch` only** — builds **unsigned** Windows local flavor, uploads bundle artifacts. If repository secrets for updater signing are present, pass them through; Authenticode/notarization remain operator-run until secrets exist.
+2. **CI:** `.github/workflows/desktop-build.yml` is **`workflow_dispatch` only** — builds **unsigned** Windows desktop bundle, uploads artifacts. If repository secrets for updater signing are present, pass them through; Authenticode/notarization remain operator-run until secrets exist.
 3. **Do not** block PR `CI / gate` on desktop builds (too slow / platform-specific).
 4. **k8s manifests** stay out of scope (compose + GHCR is the OSS default).
 

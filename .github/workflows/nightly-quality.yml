@@ -60,7 +60,6 @@ jobs:
           DATABASE_URL: ''
           SQLITE_DB_PATH: storage/ci-nightly.db
           REDIS_URL: redis://127.0.0.1:6379/0
-          AUTH_CONSOLE_LOGIN_CODE: 'true'
           SUPER_ADMIN_TEST_CODE: ${{ env.SUPER_ADMIN_TEST_CODE }}
           COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}
         run: |
