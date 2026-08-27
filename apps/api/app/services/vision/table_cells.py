@@ -11,7 +11,6 @@ from app.services.vision.ocr import ocr_image
 
 
 def _crop_bgr(img_bgr, block: dict[str, Any], pad: int = 2):
-    import cv2
 
     h, w = img_bgr.shape[:2]
     x = int(max(0, float(block.get("x") or 0) - pad))

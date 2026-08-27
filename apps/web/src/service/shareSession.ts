@@ -1,11 +1,30 @@
-/**
- * Share dialog session — reuse share rows per project, dedupe in-flight creates.
- */
-
 import type { ShareDto } from '@/models/shares';
 import { apiClient } from '@/service/client';
 
-const shareRecordByProjectId = new Map<string, ShareDto>();
+const STORAGE_KEY = 'rcb:share-record-by-project';
+
+function loadPersistedShares(): Map<string, ShareDto> {
+  if (typeof sessionStorage === 'undefined') return new Map();
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return new Map();
+    const obj = JSON.parse(raw) as Record<string, ShareDto>;
+    return new Map(Object.entries(obj));
+  } catch {
+    return new Map();
+  }
+}
+
+function persistShares(map: Map<string, ShareDto>): void {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(map)));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+const shareRecordByProjectId = loadPersistedShares();
 const createShareInflightByProjectId = new Map<string, Promise<{ share: ShareDto }>>();
 
 export function getCachedShareRecord(projectId: string): ShareDto | undefined {
@@ -15,41 +34,51 @@ export function getCachedShareRecord(projectId: string): ShareDto | undefined {
 
 export function cacheShareRecord(projectId: string, share: ShareDto): void {
   const id = String(projectId || '').trim();
-  if (id) shareRecordByProjectId.set(id, share);
+  if (!id) return;
+  shareRecordByProjectId.set(id, share);
+  persistShares(shareRecordByProjectId);
 }
 
-/** Sync latest editor document to an existing share row (non-blocking). */
-export function syncShareDocumentQuiet(shareId: string, document: unknown): void {
+export function isLinkedProjectShare(
+  share: ShareDto | null | undefined,
+  projectId?: string | null
+): boolean {
+  const src = String(share?.sourceProjectId || projectId || '').trim();
+  return Boolean(src);
+}
+
+export async function syncShareDocument(
+  shareId: string,
+  document: unknown
+): Promise<void> {
   const sid = String(shareId || '').trim();
   if (!sid || document == null || typeof document !== 'object') return;
-  void apiClient
-    .sharesSharesUpdateDocument({
-      params: { share_id: sid },
-      body: { document: document as Record<string, unknown> },
-    })
-    .catch(() => {});
+  await apiClient.sharesSharesUpdateDocument({
+    params: { share_id: sid },
+    body: { document: document as Record<string, unknown> },
+  });
+}
+
+export function syncShareDocumentQuiet(shareId: string, document: unknown): void {
+  void syncShareDocument(shareId, document).catch(() => {});
 }
 
 export type EnsureShareRecordInput = {
   projectId: string;
   projectName: string;
-  /** Latest editor document — synced in background after fast create. */
   document: unknown;
   sourceProjectId?: string;
 };
 
-/**
- * Ensure a share row exists for this project.
- * When `sourceProjectId` is set, create uses server-side project document (fast).
- */
 export async function ensureShareRecord(
   input: EnsureShareRecordInput
-): Promise<{ share: ShareDto; fromCache: boolean }> {
+): Promise<{ share: ShareDto }> {
   const projectId = String(input.projectId || input.sourceProjectId || '').trim();
+  const linked = Boolean(String(input.sourceProjectId || projectId || '').trim());
+
   const cached = projectId ? shareRecordByProjectId.get(projectId) : undefined;
   if (cached) {
-    syncShareDocumentQuiet(cached.id, input.document);
-    return { share: cached, fromCache: true };
+    return { share: cached };
   }
 
   const inflightKey = projectId || '__no_project__';
@@ -64,8 +93,7 @@ export async function ensureShareRecord(
       viewerUserIds: [],
       linkPublic: true,
     };
-    // Owned cloud project → server loads document from DB (no multi-MB upload).
-    if (src) {
+    if (linked) {
       body.document = {};
     } else if (input.document != null && typeof input.document === 'object') {
       body.document = input.document as Record<string, unknown>;
@@ -80,16 +108,15 @@ export async function ensureShareRecord(
 
   try {
     const res = await inflight;
-    if (projectId) shareRecordByProjectId.set(projectId, res.share);
-    syncShareDocumentQuiet(res.share.id, input.document);
-    return { share: res.share, fromCache: false };
+    if (projectId) cacheShareRecord(projectId, res.share);
+    if (!linked) syncShareDocumentQuiet(res.share.id, input.document);
+    return { share: res.share };
   } finally {
     createShareInflightByProjectId.delete(inflightKey);
   }
 }
 
-/** Fire-and-forget before the dialog opens so the first paint is often instant. */
 export function prefetchShareRecord(input: EnsureShareRecordInput): void {
-  if (!input.document || typeof input.document !== 'object') return;
+  if (!input.projectId && !input.sourceProjectId) return;
   void ensureShareRecord(input).catch(() => {});
 }

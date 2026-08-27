@@ -2,6 +2,8 @@
 
 You can run the full product on your own machine or server: web canvas, Design Agent, API, collab, and a database.
 
+**Deployment modes (cloud vs self-host vs local dev vs desktop):** [deployment-modes.md](./deployment-modes.md)
+
 **Two supported paths (same stack: MySQL + MinIO + Redis):**
 
 | | Command |
@@ -9,7 +11,7 @@ You can run the full product on your own machine or server: web canvas, Design A
 | **Local** | `npm run setup:local` → `npm run dev:api` / `dev:worker` / `dev:web` |
 | **Production** | `bash deploy/vps/deploy.sh` — see [deploy/vps/README.zh-CN.md](../deploy/vps/README.zh-CN.md) |
 
-Docker Compose is the infra for both. Desktop (Tauri): **[desktop.md](./desktop.md)** (sidecar / cloud API — separate from web deploy).
+Docker Compose is the infra for both. Desktop (Tauri): **[desktop.md](./desktop.md)** — same API as browser; separate from web deploy.
 
 ## What you get
 
@@ -65,7 +67,7 @@ AgentProfile / sub-agents: [agent-profile.md](./agent-profile.md).
 | `apps/collab` | Yjs WebSocket (`/collab/`) |
 | `packages/scene-schema` · `packages/scene-builder-py` | Scene JSON protocol / builders |
 
-Desktop flavors: [desktop.md](./desktop.md). Postgres switch: [postgres-switch.md](./postgres-switch.md).
+Desktop app: [desktop.md](./desktop.md). Postgres switch: [postgres-switch.md](./postgres-switch.md).
 
 ### API layers
 
@@ -306,33 +308,36 @@ docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
 
 Images: `ghcr.io/<owner>/<repo>/{api,web,collab}` (default `ghcr.io/recombyn/recombyn/...`). Private packages need `docker login ghcr.io`. Compose override needs **Compose ≥ 2.24** (`build: !reset`).
 
-### First login (no mail provider)
+### Email login (configure SES)
 
-Self-host only (`AUTH_CONSOLE_LOGIN_CODE=true`, set by default in `docker-compose.yml`).  
-When SES is unset, email login prints the OTP to API logs — **do not enable this on Cloud / public production**.
+Email OTP requires Tencent Cloud SES (or compatible mail setup via the same env vars):
 
-1. Open the web UI → sign in with any email you control.
-2. Request a code — the UI says to check API logs.
-3. Read `LOGIN CODE (AUTH_CONSOLE_LOGIN_CODE) … code=######` in the API container / `npm run dev:api` terminal.
-4. Enter that 6-digit code in the UI.
+```bash
+TENCENT_SECRET_ID=…
+TENCENT_SECRET_KEY=…
+SES_REGION=ap-hongkong
+SES_FROM_EMAIL=no-reply@your.domain
+SES_FROM_NAME=YourApp
+SES_TEMPLATE_ID=…
+SES_ACTIVATE_BASE_URL=https://your.domain/activate
+```
 
-Dev without compose: set `AUTH_CONSOLE_LOGIN_CODE=true` in `apps/api/.env`.  
-Configure SES (`TENCENT_SECRET_*`, `SES_FROM_EMAIL`, `SES_TEMPLATE_ID`, …) for real email. Google OAuth is optional (`GOOGLE_CLIENT_ID`).
+Without SES, email login returns **503** with a configuration hint — use **Google OAuth** (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) as an alternative.
 
 Bring your own LLM keys. Without keys, Agent features will not call models.
 
 ### Credits & membership (self-host)
 
-Platform credits are controlled by **`WALLET_BILLING_ENABLED`** (API env; **default off** in app settings and docker-compose):
+Platform credits are controlled by **`WALLET_BILLING_ENABLED`** (API env; **default on** — same as cloud):
 
 | Value | Behavior |
 |-------|----------|
-| `false` (default) | No holds/charges. UI hides balance chip, Plans, redeem, Usage & billing, and send-button credit chips. Bring your own LLM keys. |
-| `true` | SaaS-style wallet (plans, card keys, daily free quota, credit estimates in the editor). |
+| `true` (default) | SaaS-style wallet (plans, card keys, daily free quota, credit estimates in the editor). |
+| `false` | No holds/charges. UI hides balance chip, Plans, redeem, Usage & billing, and send-button credit chips. |
 
-This is **not** a zuoge Cloud subscription — you own the switch on your instance. Local desktop (`DESKTOP_LOCAL_AUTO_LOGIN`) always skips billing regardless of the env flag.
+Set `WALLET_BILLING_ENABLED=false` only when you explicitly want billing off.
 
-Cloud / SaaS deploys must set `WALLET_BILLING_ENABLED=true` explicitly.
+**UI visibility:** the web app reads `GET /api/v1/auth/config` → `billingEnabled` only. A failing `/wallet` request does **not** hide credits — see [deployment-modes.md](./deployment-modes.md#credits--billing-all-modes).
 
 Optional when billing is on:
 
@@ -355,7 +360,7 @@ MinIO console: http://127.0.0.1:9001 (`minioadmin` / `minioadmin`).
 
 (`npm run dev:infra` is the same compose up without the wait helper.)
 
-SQLite / disk-only is **not** a supported deploy path (desktop sidecar may still use it — see [desktop.md](./desktop.md)).
+Use MySQL (or Postgres) for production and local dev — see [Dev path](#dev-path-mysql--minio) below.
 
 ## Canvas multiplayer (Yjs / WSS)
 
@@ -405,7 +410,7 @@ Do this **before** exposing port 3000 / 8000 to the internet:
 8. Restrict CORS (`CORS_ORIGINS`) to your real origins.
 9. Confirm Redis/MySQL are host-only (`127.0.0.1:…` in compose — do not publish them publicly).
 10. Confirm DB backups (`DB_BACKUP_*`) or cloud automated backups.
-11. Set `AUTH_CONSOLE_LOGIN_CODE=false` (or unset) once SES/Google auth is configured — never leave log OTPs on a public host.
+11. Configure SES (see above) or Google OAuth before exposing email login publicly.
 
 API startup logs **warnings** if admin password, collab secret, default MySQL password, card salt, or BYOK key look like local defaults.
 
@@ -474,4 +479,4 @@ Third-party images you may run alongside (Redis, MySQL, …) keep **their own** 
 
 ## Related
 
-- [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · [Desktop](./desktop.md) · [Postgres](./postgres-switch.md)
+- [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · [Deployment modes](./deployment-modes.md) · [Desktop](./desktop.md) · [Billing](./billing.md) · [Postgres](./postgres-switch.md)

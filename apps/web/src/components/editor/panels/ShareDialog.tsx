@@ -9,14 +9,9 @@ import LoadingDots from '@/components/base/LoadingDots';
 import { UserAvatar } from '@/components/layout/UserAccountPanel';
 import { PlazaPublishForm } from '@/components/templates/PlazaPublishDialog';
 import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
-import {
-  refreshProjectsListAfterMutation,
-  syncProjectRowFromServer,
-  type ProjectSummaryDto,
-} from '@/service/projects';
 import { useProjectListRow } from '@/hooks/useProjectListRow';
 import { coverDocumentHasContent } from '@/utils/plazaCover';
-import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
+import { projectThumbnailUrlsFromApi } from '@/utils/projectThumb';
 import { cn } from '@/utils/classnames';
 import { isOwnedTemplate } from '@/utils/templatesStorage';
 import { getToken } from '@/utils/token';
@@ -28,7 +23,8 @@ import {
   cacheShareRecord,
   ensureShareRecord,
   getCachedShareRecord,
-  syncShareDocumentQuiet,
+  isLinkedProjectShare,
+  syncShareDocument,
 } from '@/service/shareSession';
 type Props = {
   open: boolean;
@@ -186,10 +182,11 @@ function ShareDialog({ open, onClose }: Props) {
     documentName: document?.name,
     fallback: t('home.untitled', { defaultValue: '未命名作品' }),
   });
-  const coverUrls = normalizeProjectThumbnailUrls(
-    listRow.data?.thumbnailUrl,
-    listRow.data?.updatedAt
+  const coverUrls = useMemo(
+    () => projectThumbnailUrlsFromApi(listRow.data?.thumbnailUrl),
+    [listRow.data?.thumbnailUrl]
   );
+  const coverVersion = listRow.data?.updatedAt;
 
   const [tab, setTab] = useState<DialogTab>('share');
   const [publishPhase, setPublishPhase] = useState<'confirm' | 'success'>('confirm');
@@ -209,9 +206,6 @@ function ShareDialog({ open, onClose }: Props) {
   const noDocWarnedRef = useRef(false);
   /** Only the latest open-session applies results / clears busy. */
   const createGenRef = useRef(0);
-  /** Dedupe cover extract (StrictMode / rapid Publish tab clicks). */
-  const coversInflightRef = useRef<Promise<void> | null>(null);
-  const coversGenRef = useRef(0);
   const documentRef = useRef(document);
   const projectNameRef = useRef(projectName);
   documentRef.current = document;
@@ -286,32 +280,6 @@ function ShareDialog({ open, onClose }: Props) {
       })) as { share: ShareDto },
   });
 
-  const updateShareDocMutation = useMutation({
-    mutationFn: async (opts: { shareId: string; document: Record<string, unknown> }) => {
-      await apiClient.sharesSharesUpdateDocument({
-        params: { share_id: opts.shareId },
-        body: { document: opts.document },
-      });
-    },
-  });
-
-  const extractCoversMutation = useMutation({
-    mutationFn: async (opts: {
-      projectId: string;
-      document: Record<string, unknown> | undefined;
-    }) =>
-      (await apiClient.projectsExtractCovers({
-        params: { project_id: opts.projectId },
-        body: opts.document != null ? { document: opts.document } : undefined,
-      })) as {
-        project?: {
-          thumbnailUrl?: string | string[] | null;
-          updatedAt?: number;
-          thumbnailCustom?: boolean;
-        };
-      },
-  });
-
   const plazaSubmitMutation = useMutation({
     mutationFn: async (body: {
       projectId: string;
@@ -323,30 +291,6 @@ function ShareDialog({ open, onClose }: Props) {
       await apiClient.plazaPlazaSubmit({ body });
     },
   });
-
-  /** Server builds ≤4 element cover tiles from the live document (Publish tab). */
-  const refreshCoversFromApi = useCallback(() => {
-    if (!currentId || !getToken() || !document) return;
-    const gen = ++coversGenRef.current;
-    async function refreshCovers() {
-      try {
-        const res = await extractCoversMutation.mutateAsync({
-          projectId: currentId!,
-          document: document != null ? (document as Record<string, unknown>) : undefined,
-        });
-        if (gen !== coversGenRef.current) return;
-        if (res.project) {
-          syncProjectRowFromServer(res.project as ProjectSummaryDto);
-        }
-        await refreshProjectsListAfterMutation(currentId!);
-      } catch {
-        message.warning(t('plaza.coverExtractFailed', { defaultValue: '封面生成失败，请稍后重试' }));
-      } finally {
-        if (gen === coversGenRef.current) coversInflightRef.current = null;
-      }
-    }
-    coversInflightRef.current = refreshCovers();
-  }, [currentId, document, extractCoversMutation.mutateAsync, t]);
 
   useEffect(() => {
     if (!open) {
@@ -383,7 +327,6 @@ function ShareDialog({ open, onClose }: Props) {
     if (cached) {
       hydrateRecord(cached);
       setBusy(false);
-      syncShareDocumentQuiet(cached.id, doc);
       return;
     }
 
@@ -428,14 +371,6 @@ function ShareDialog({ open, onClose }: Props) {
     }
     createShareRecord();
   }, [open, currentId, patchShareMutation.mutateAsync, t]);
-
-  /** Reset share session when switching projects while the dialog stays mounted. */
-  useEffect(() => {
-    if (!open) return;
-    const projectId = String(currentId || '').trim();
-    if (projectId && getCachedShareRecord(projectId)) return;
-    setRecord(null);
-  }, [open, currentId]);
 
   const patchMeta = async (next: SharePatchBody) => {
     if (!record?.id) return null;
@@ -532,12 +467,12 @@ function ShareDialog({ open, onClose }: Props) {
 
   const onCopyLink = async () => {
     if (!record || !linkEnabled) return;
-    if (document) {
+    if (
+      !isLinkedProjectShare(record, currentId) &&
+      document
+    ) {
       try {
-        await updateShareDocMutation.mutateAsync({
-          shareId: record.id,
-          document: document as Record<string, unknown>,
-        });
+        await syncShareDocument(record.id, document);
       } catch {
         /* still copy current link */
       }
@@ -629,7 +564,6 @@ function ShareDialog({ open, onClose }: Props) {
                   setTab(item.id);
                   if (item.id === 'publish') {
                     setPublishPhase('confirm');
-                    refreshCoversFromApi();
                   }
                 }}
                 className={cn(
@@ -654,8 +588,7 @@ function ShareDialog({ open, onClose }: Props) {
           projectName={projectName}
           document={document}
           coverUrls={coverUrls}
-          coverVersion={listRow.data?.updatedAt}
-          coverRefreshing={extractCoversMutation.isPending}
+          coverVersion={coverVersion}
           onCancel={onClose}
           onSubmit={commitPublish}
           onSuccessDone={onClose}

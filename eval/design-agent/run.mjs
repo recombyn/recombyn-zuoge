@@ -16,7 +16,7 @@
  *
  * System issues → prompt packs; design issues → skills.
  * Load / concurrency → perf/k6 (docs/quality-gates.md).
- * Prefer cloud API stack (MySQL + platform catalog), not desktop-local sidecar.
+ * Use MySQL + platform catalog (same stack as production).
  */
 import fs from 'node:fs';
 import path from 'node:path';

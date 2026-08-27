@@ -1,4 +1,4 @@
-"""Shared upload size limits (multipart + stored objects)."""
+"""Shared upload size limits."""
 
 from __future__ import annotations
 
@@ -6,22 +6,38 @@ from app.core.config import settings
 
 
 def upload_max_mb_for_mime(mime: str | None) -> int:
-    """Per-file ceiling from Content-Type (video/audio may use a higher cap)."""
-    max_mb = max(1, int(settings.max_upload_mb or 20))
+    """Per-file ceiling in MB; 0 means unlimited."""
+    image_mb = int(settings.max_upload_mb or 0)
+    video_mb = int(getattr(settings, "max_video_upload_mb", None) or 0)
     m = (mime or "").split(";")[0].strip().lower()
     if m.startswith("video/") or m.startswith("audio/"):
-        max_mb = max(max_mb, int(getattr(settings, "max_video_upload_mb", None) or 100))
-    return max_mb
+        if video_mb <= 0 and image_mb <= 0:
+            return 0
+        if video_mb <= 0:
+            return image_mb
+        if image_mb <= 0:
+            return video_mb
+        return max(image_mb, video_mb)
+    return image_mb
 
 
-def upload_max_bytes_for_mime(mime: str | None) -> int:
-    return upload_max_mb_for_mime(mime) * 1024 * 1024
-
-
-def upload_multipart_max_part_bytes() -> int:
-    """Largest multipart part we accept (matches the highest single-file cap)."""
-    max_mb = max(
-        max(1, int(settings.max_upload_mb or 20)),
-        int(getattr(settings, "max_video_upload_mb", None) or 100),
-    )
+def upload_max_bytes_for_mime(mime: str | None) -> int | None:
+    """None when uploads are uncapped."""
+    max_mb = upload_max_mb_for_mime(mime)
+    if max_mb <= 0:
+        return None
     return max_mb * 1024 * 1024
+
+
+def upload_chunk_part_bytes() -> int:
+    mb = max(1, int(getattr(settings, "upload_chunk_size_mb", None) or 8))
+    return mb * 1024 * 1024
+
+
+def assert_upload_size_allowed(size: int, mime: str | None) -> None:
+    max_bytes = upload_max_bytes_for_mime(mime)
+    if max_bytes is None:
+        return
+    if size > max_bytes:
+        max_mb = max_bytes // (1024 * 1024)
+        raise ValueError(f"file too large (max {max_mb}MB)")

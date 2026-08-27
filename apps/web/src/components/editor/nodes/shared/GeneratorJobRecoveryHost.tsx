@@ -11,10 +11,6 @@ import {
 import { resumePendingImageProcess } from '@/store/modules/editor';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-/**
- * After refresh, resume in-flight generator / quick-edit jobs from persisted job ids.
- * SoftGlow without job ids (or Lottie) is cleared so loading cannot stick forever.
- */
 function GeneratorJobRecoveryHost() {
   const dispatch = useDispatch();
   const { t } = useTranslation();

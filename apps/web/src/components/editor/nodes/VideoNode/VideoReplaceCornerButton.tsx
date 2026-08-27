@@ -5,7 +5,7 @@ import {
   captureVideoPosterFrame,
   measureVideoNaturalSize
 } from '@/components/rcb/scene/document/nodeFactories';
-import { finishImageProcess, patchDocumentNode, resumePendingImageProcess } from '@/store/modules/editor';
+import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
 
 type DispatchLike = (action: unknown) => unknown;
 
@@ -64,7 +64,6 @@ export async function replaceVideoNodeFromFile(opts: {
       })
     );
 
-    dispatch(resumePendingImageProcess({ nodeId }));
     const signal = beginNodeUpload(nodeId);
     try {
       const uploaded = await uploadImageFile(file, {

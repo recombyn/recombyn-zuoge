@@ -38,7 +38,7 @@ function HomeHero({ onSubmit }: Props): ReactNode {
   const title = t('home.heroStartTitle');
 
   return (
-    <section className="home-hero-chat relative mx-auto flex w-full max-w-[820px] flex-col items-center">
+    <section className="home-hero-chat relative mx-auto flex w-full max-w-[720px] flex-col items-center">
       <h1
         className="mb-8 flex items-baseline justify-center gap-1.5 text-center text-[clamp(1.5rem,4vw,1.875rem)] font-normal tracking-[-0.02em] text-[var(--ink)]"
         aria-label={t('home.heroStartTitleAria')}

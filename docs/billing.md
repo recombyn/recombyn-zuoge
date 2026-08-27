@@ -3,6 +3,8 @@
 本仓库提供两样东西：**Billing Protocol**（怎么记账）和 **任务制积分地板**（默认预扣多少）。  
 它们不是完整的 Cloud 套餐产品；加价、促销、list SKU 由宿主自己决定。
 
+**部署与开关：** 云端 / 自托管 / 本地开发共用同一套代码。运行时开关只有 **`WALLET_BILLING_ENABLED`**（默认 `true`，与云端一致）。详见 [deployment-modes.md](./deployment-modes.md)。
+
 协议包 pin：`recombyn-protocol >= 0.1.3`。
 
 ## 安装协议包
@@ -99,30 +101,52 @@ estimate → authorize → execute → settle
 
 账本真值用整数 **micros**；Credits 用 `int`。结算行要带 `pricing_version_id`，历史不改写。
 
+## WALLET_BILLING_ENABLED（运行时开关）
+
+| 项 | 说明 |
+|----|------|
+| **环境变量** | `WALLET_BILLING_ENABLED`（`apps/api/.env` 或 Compose / k8s） |
+| **默认值** | `true` — 自托管与 `recombyn.com` 一致，无需额外配置 |
+| **关闭** | 仅当明确不需要平台积分时设 `false` |
+| **公开 API** | `GET /api/v1/auth/config` → `billingEnabled` |
+| **前端规则** | `useBillingEnabled()` 只读 `auth/config`；`/wallet` 报错 **不会** 隐藏积分 UI |
+
+```bash
+# apps/api/.env — 默认即可，一般不用写
+# WALLET_BILLING_ENABLED=true
+
+# 明确关闭平台积分（UI 藏余额 / Plans / Usage）
+# WALLET_BILLING_ENABLED=false
+```
+
+| 值 | API 行为 | UI |
+|----|----------|-----|
+| `true`（默认） | 预扣 / 结算、日免费额度、卡密兑换 | 显示余额、套餐、用量 |
+| `false` | 跳过 hold/charge | 隐藏积分相关入口 |
+
 ## 自托管怎么开
 
-默认关闭，不挡 BYOK 使用：
+默认已开启（与云端一致）：
 
 ```bash
 # apps/api/.env
-WALLET_BILLING_ENABLED=false   # 默认：不预扣、UI 藏余额 / Plans / Usage
-# WALLET_BILLING_ENABLED=true  # 打开本机钱包、日额度、编辑器估价
+# WALLET_BILLING_ENABLED=true   # 默认：预扣积分、显示余额 / Plans / Usage
+# WALLET_BILLING_ENABLED=false  # 仅当明确不需要平台积分时关闭
 ```
 
 | 值 | 行为 |
 |----|------|
-| `false`（默认） | 无 hold/charge；自带 LLM key 即可 |
-| `true` | SaaS 风格钱包（plans、卡密、日免费额度等） |
+| `true`（默认） | SaaS 风格钱包（plans、卡密、日免费额度等） |
+| `false` | 无 hold/charge；UI 隐藏积分相关入口 |
 
-这不是 zuoge Cloud 订阅——开关在你自己的实例上。  
-桌面本地登录（`DESKTOP_LOCAL_AUTO_LOGIN`）始终跳过计费。
+这不是 zuoge Cloud 订阅——开关在你自己的实例上；默认行为与云端相同。
 
 打开后可选：
 
 - 调整日免费额度（`FREE_DAILY_LIMIT`）
 - 发卡密（admin + `CARD_KEY_SALT` / `CARD_KEY_OPS_PASSWORD`）
 
-细节见 [self-hosting.md](./self-hosting.md#credits--membership-self-host)。
+细节见 [self-hosting.md](./self-hosting.md#credits--membership-self-host) · [deployment-modes.md](./deployment-modes.md)。
 
 ## 二者分别有啥用
 

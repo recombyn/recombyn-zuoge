@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  deletionTargetHasProcessing,
-  selectionHasProcessing,
-} from '../nodeCapabilities';
+import { selectionHasProcessing } from '../nodeCapabilities';
 
 describe('processing delete vs mutation guards', () => {
   const doc = {
@@ -38,13 +35,6 @@ describe('processing delete vs mutation guards', () => {
     },
     frames: [{ id: 'frame-running', processStatus: 'running' }],
   } as any;
-
-  it('never blocks delete for processing nodes or frames', () => {
-    expect(deletionTargetHasProcessing(doc, ['img-running'], [])).toBe(false);
-    expect(deletionTargetHasProcessing(doc, ['img-generator-running'], [])).toBe(false);
-    expect(deletionTargetHasProcessing(doc, ['img-multi'], [])).toBe(false);
-    expect(deletionTargetHasProcessing(doc, [], ['frame-running'])).toBe(false);
-  });
 
   it('flags SoftGlow nodes for mutation blocking', () => {
     expect(selectionHasProcessing(doc, ['img-running'], [])).toBe(true);

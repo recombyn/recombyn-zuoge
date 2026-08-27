@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
 
 from app.services.design.prompts.rules_text import _as_text, _rule_text
 

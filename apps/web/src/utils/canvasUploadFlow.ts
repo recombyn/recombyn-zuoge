@@ -67,7 +67,7 @@ function finishPlaceholderUpload(
   );
 }
 
-/** Upload a file for a spawned placeholder node; persists job id when dispatch is provided. */
+/** Upload a file for a spawned placeholder node. */
 export async function uploadCanvasPlaceholderFile(opts: {
   dispatch: DispatchLike;
   nodeId: string;

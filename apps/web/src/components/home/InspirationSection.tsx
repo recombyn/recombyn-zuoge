@@ -23,7 +23,7 @@ import {
 import InspirationCasePreview from '@/components/home/InspirationCasePreview';
 import EmptyState from '@/components/home/EmptyState';
 import PlazaCoverThumb from '@/components/home/PlazaCoverThumb';
-import { FlowScrollSection, FlowFeedSkeleton } from '@/components/home/FlowScrollSection';
+import { FlowScrollSection, FlowFeedSkeleton, FLOW_COLUMNS_CLASS } from '@/components/home/FlowScrollSection';
 import SegmentTabs from '@/components/home/SegmentTabs';
 import { Dropdown, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
@@ -31,8 +31,6 @@ import { apiQuery } from '@/service/client';
 import { cn } from '@/utils/classnames';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { imageSrcToFile } from '@/utils/uploadImage';
-
-import { HOME_FLOW_GRID } from '@/components/home/homeLayout';
 
 type Props = {
   onOpenCase: (meta: OfficialCaseMeta) => void;
@@ -588,7 +586,7 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
         onLoadMore={onLoadMore}
         isEmpty={!loading && cases.length === 0}
         empty={<EmptyState hint={t('home.cases.empty')} />}
-        columnsClassName={HOME_FLOW_GRID}
+        columnsClassName={FLOW_COLUMNS_CLASS}
         skeleton={<FlowFeedSkeleton />}
       >
         {cases.map((c) => {

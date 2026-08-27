@@ -41,3 +41,27 @@ export function isStaleProcessJob(node: SceneNodeInput | null | undefined): bool
 export function stripProcessProgressLabel(label: string, fallback = '处理中'): string {
   return String(label || fallback).replace(/\s+\d+%$/, '').trim() || fallback;
 }
+
+/** Omit `0%` — queued jobs should not look stuck at zero. */
+export function formatProcessProgressLabel(labelBase: string, pct: number, fallback = '处理中'): string {
+  const base = stripProcessProgressLabel(labelBase, fallback);
+  const rounded = Math.round(pct);
+  if (!Number.isFinite(rounded) || rounded <= 0) return base;
+  return `${base} ${rounded}%`;
+}
+
+export type UploadRecoveryBlockReason = 'no_job' | 'stale';
+
+export function uploadRecoveryBlockReason(
+  node: SceneNodeInput | null | undefined
+): UploadRecoveryBlockReason | null {
+  const jobIds = readProcessJobIds(node);
+  if (!jobIds.length) return 'no_job';
+  if (isStaleProcessJob(node)) return 'stale';
+  return null;
+}
+
+export function uploadRecoveryFailMessage(reason: UploadRecoveryBlockReason): string {
+  if (reason === 'stale') return '上传任务已过期，请重新上传';
+  return '上传已中断，请重新选择文件';
+}

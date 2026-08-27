@@ -91,16 +91,12 @@ import ImageToolbarMoreDownload, {
   type ToolbarMoreItem,
 } from '@/components/editor/nodes/ImageNode/ImageToolbarMoreDownload';
 import ImageFullscreenPreviewButton from '@/components/editor/nodes/ImageNode/ImageFullscreenPreviewButton';
-import {
-  VideoDownloadButton,
-  VideoFullscreenPreviewButton,
-  VideoToolbarEditTools,
-  getVideoHoverHost,
-} from '@/components/editor/nodes/VideoNode';
-import {
-  AudioToolbarEditTools,
-  getAudioHost,
-} from '@/components/editor/nodes/AudioNode';
+import VideoDownloadButton from '@/components/editor/nodes/VideoNode/VideoDownloadButton';
+import VideoFullscreenPreviewButton from '@/components/editor/nodes/VideoNode/VideoFullscreenPreviewButton';
+import VideoToolbarEditTools from '@/components/editor/nodes/VideoNode/VideoToolbarEditTools';
+import { getVideoHoverHost } from '@/components/editor/nodes/VideoNode/VideoHoverPlayback';
+import AudioToolbarEditTools from '@/components/editor/nodes/AudioNode/AudioToolbarEditTools';
+import { getAudioHost } from '@/components/editor/nodes/AudioNode/AudioNodeOverlay';
 import ShapeSelectionToolbar from '@/components/editor/nodes/ShapeNode/ShapeSelectionToolbar';
 import { SelectionToolbarShell } from './SelectionToolbarShell';
 import {

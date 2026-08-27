@@ -74,6 +74,7 @@ dev = [
   "httpx>=0.27.0",
   "numpy>=1.26.0",
   "opencv-python-headless>=4.10.0",
+  "ruff>=0.9.0",
 ]
 otel = [
   "opentelemetry-api>=1.27.0",
@@ -82,10 +83,6 @@ otel = [
   "opentelemetry-instrumentation-fastapi>=0.48b0",
   "opentelemetry-instrumentation-httpx>=0.48b0",
   "opentelemetry-instrumentation-celery>=0.48b0",
-]
-# Desktop local installer sidecar (PyInstaller onedir → Tauri resources)
-desktop = [
-  "pyinstaller>=6.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -108,3 +105,10 @@ omit = ["tests/*", "app/alembic/*"]
 [tool.coverage.report]
 show_missing = true
 skip_empty = true
+
+[tool.ruff.lint]
+select = ["F401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401"]
+"app/services/design/runtime/graph/state.py" = ["F401"]  # protocol schema re-export hub

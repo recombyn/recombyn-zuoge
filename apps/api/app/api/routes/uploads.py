@@ -1,4 +1,4 @@
-"""Multipart image upload → Tencent COS / local object storage."""
+"""Upload file serving, proxy, and delete — uploads go through /uploads/jobs."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, HTTPException, Query
 from app.api.deps import CurrentUser, OptionalUser
 from fastapi.responses import Response
 
@@ -199,36 +199,6 @@ def _proxy_remote_image(url: str) -> Response:
             )
 
     raise HTTPException(status_code=404, detail="Not found")
-
-
-@router.post("")
-async def upload_files(
-    current_user: CurrentUser,
-    files: list[UploadFile] = File(..., description="One or more image files"),
-) -> dict[str, Any]:
-    """
-    Upload image file(s) to object storage (Tencent COS when ``S3_ENABLED``).
-
-    Form field name: ``files`` (repeatable).
-    Returns ``{ items: [{ url, key, mime, name, size, width?, height? }] }``.
-    Frontend should display ``url`` directly.
-    """
-    if not files:
-        raise HTTPException(status_code=400, detail="files required")
-
-    batch: list[tuple[bytes, str | None, str | None]] = []
-    for f in files:
-        raw = await f.read()
-        batch.append((raw, f.filename, f.content_type))
-
-    try:
-        items = upload_store.upload_user_files(current_user.id, batch)
-    except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
-    except Exception as err:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"upload failed: {err}") from err
-
-    return {"items": items}
 
 
 @router.get("/content")

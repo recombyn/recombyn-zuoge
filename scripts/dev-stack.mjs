@@ -1,6 +1,6 @@
 /**
  * Local stack: API (8000) + Vite web (3000) + collab WS (1234).
- * When src/commercial/intelligence exists, also starts Intelligence (8091).
+ * When apps/intelligence exists, also starts Intelligence (8091).
  *
  *   npm run dev:stack
  */
@@ -14,7 +14,7 @@ const win = process.platform === 'win32';
 const npm = win ? 'npm.cmd' : 'npm';
 const intelligenceMarker = path.join(
   root,
-  'src/commercial/intelligence/src/recombyn_intelligence_service'
+  'apps/intelligence/src/recombyn_intelligence_service'
 );
 const hasIntelligence = existsSync(intelligenceMarker);
 
@@ -44,7 +44,7 @@ run('collab', ['run', 'dev', '--workspace=apps/collab']);
 if (hasIntelligence) {
   run('intelligence', ['run', 'dev:intelligence']);
 } else {
-  console.log('[dev:stack] skip intelligence (src/commercial/intelligence missing)');
+  console.log('[dev:stack] skip intelligence (apps/intelligence missing)');
 }
 
 function shutdown() {

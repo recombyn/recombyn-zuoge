@@ -4,7 +4,6 @@
 
 import { listModels } from '@/service/chat';
 import { fetchDesignCatalog } from '@/service/design';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { isCustomModelId } from './customLlmProviders';
 
 export type AgentRoutePreset = 'platform' | 'economy' | 'balanced' | 'quality' | 'custom';
@@ -187,28 +186,6 @@ export function seedCustomLaneFromPrefs(prefs: AgentRoutePrefs): AgentRoutePrefs
 }
 
 export function loadAgentRoutePrefs(rules?: Record<string, string> | null): AgentRoutePrefs {
-  // Local desktop: no platform catalog — only custom/BYOK lane picks.
-  if (isDesktopLocal()) {
-    try {
-      const raw = localStorage.getItem(ROUTE_PREFS_KEY);
-      if (!raw) return emptyCustomRoutePrefs();
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (!parsed || typeof parsed !== 'object') return emptyCustomRoutePrefs();
-      const migrated = migrateLegacyRouteKeys(parsed);
-      const keep = (id: string | undefined) =>
-        isCustomModelId(String(id || '').trim()) ? String(id).trim() : '';
-      return remapRetiredRoutePrefs({
-        preset: 'custom',
-        fast: keep(migrated.fast),
-        standard: keep(migrated.standard),
-        reasoning: keep(migrated.reasoning),
-        vision: keep(migrated.vision),
-        image: keep(migrated.image),
-      });
-    } catch {
-      return emptyCustomRoutePrefs();
-    }
-  }
   try {
     const raw = localStorage.getItem(ROUTE_PREFS_KEY);
     if (!raw) return { preset: 'platform' };

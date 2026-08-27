@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from langgraph.types import Command
+from recombyn_protocol import ReferenceIntelligenceTurnSchema
 
 from app.services.design.runtime.graph.state import (
     AgentRunState,
     AgentRuntime,
     GraphState,
     _DEFAULT_MAX_ROUNDS,
-    ReferenceIntelligenceTurnSchema,
     compile_reference_intelligence,
     design_brief_p0_missing,
     format_design_brief_for_paint,
@@ -26,7 +24,6 @@ from app.services.design.runtime.graph.emit_sse import (
     _emit,
 )
 from app.services.design.runtime.graph.llm_io import (
-    _chat_fallback_text,
     _clip_llm_raw,
     _emit_ux_tip,
     _interaction_mode_rules_pack,
@@ -37,9 +34,6 @@ from app.services.design.runtime.graph.llm_io import (
 )
 from app.services.design.runtime.graph.scene_log import (
     _bump,
-    _commit,
-    _goto_cmd,
-    _persist_progress,
 )
 from app.services.design.runtime.graph.turns import (
     _absorb_ask_choices,
@@ -624,8 +618,7 @@ async def _decide_turn_from_llm(
     round_i: int,
 ) -> dict[str, Any]:
     """One structured call; retry once on timeout / empty / schema failure."""
-    last_turn: dict[str, Any] = _turn_from_structured(None)
-    last_turn["tool_ops_raw"] = None
+    last_turn: dict[str, Any] = {"tool_ops_raw": None}
     for attempt in (0, 1):
         try:
             turn, raw = await _ainvoke_decide_structured(
@@ -643,7 +636,7 @@ async def _decide_turn_from_llm(
         last_turn = turn
         if _raw_decide_filled(raw):
             return turn
-    return last_turn
+    raise RuntimeError("decide_structured: empty or invalid structured output after retries")
 
 
 async def _node_design_agent(state: GraphState) -> Command:
@@ -668,6 +661,7 @@ async def _node_design_agent(state: GraphState) -> Command:
         scene=rt.scene_key,
         attempt=st.round,
         has_images=bool(rt.images),
+        route_lane=str(rt.flags.get("route_lane") or st.task_tier or "").strip() or None,
     )
     rt.last_reason = reason
     from app.services.design.intelligence_runtime import get_design_intelligence_client
@@ -919,7 +913,9 @@ async def _node_design_agent(state: GraphState) -> Command:
                 st.reply = reply
             return Command(update=_bump(rt), goto="paint_ops")
 
-        text = reply or _chat_fallback_text(rt)
+        text = reply
+        if not text:
+            raise RuntimeError("decide_agent: chat turn ended without reply")
         if text:
             st.reply = text
             _emit({"type": "token", "text": text})
@@ -938,7 +934,6 @@ async def _node_design_agent(state: GraphState) -> Command:
 
     rt.terminal = True
     if not st.reply:
-        st.reply = _chat_fallback_text(rt)
-        _emit({"type": "token", "text": st.reply})
+        raise RuntimeError("decide_agent: rounds exhausted without reply")
     return Command(update=_bump(rt), goto="__settle__")
 

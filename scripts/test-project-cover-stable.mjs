@@ -2,7 +2,7 @@
  * Live test: cover URL must stay stable when document unchanged.
  *   node scripts/test-project-cover-stable.mjs
  *
- * Fails if server mints new thumb-* URLs on no-op PATCH / extract.
+ * Fails if server mints new thumb-* URLs on no-op PATCH.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -96,13 +96,6 @@ const rev2 = putSame.json.project.revision;
 console.log('PUT same doc thumb:', thumb2);
 if (thumb2 !== thumb0) fail(`thumb changed on same-document PUT: ${thumb0} -> ${thumb2}`);
 
-const extract = await api('POST', `/projects/${id}/covers`, { document: doc });
-if (extract.status !== 200) fail(`extract ${extract.status} ${JSON.stringify(extract.json)}`);
-
-const thumb3 = sig(extract.json.project.thumbnailUrl);
-console.log('POST extract thumb:', thumb3);
-if (thumb3 !== thumb0) fail(`thumb changed on extract same doc: ${thumb0} -> ${thumb3}`);
-
 const list = await api('GET', '/projects?page=1&pageSize=50');
 const row = list.json.projects?.find((p) => p.id === id);
 const thumb4 = sig(row?.thumbnailUrl);
@@ -110,5 +103,5 @@ console.log('LIST thumb:', thumb4);
 if (thumb4 !== thumb0) fail(`list thumb mismatch: ${thumb0} -> ${thumb4}`);
 
 await api('DELETE', `/projects/${id}`);
-console.log('PASS: cover URL stable across name PATCH, same PUT, extract, and list');
+console.log('PASS: cover URL stable across name PATCH, same PUT, and list');
 process.exit(0);

@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def resolve_api_root() -> Path:
-    """apps/api root — source tree, RECOMBYN_API_ROOT, or PyInstaller bundle."""
+    """apps/api root — source tree or RECOMBYN_API_ROOT."""
     raw = (os.environ.get("RECOMBYN_API_ROOT") or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
@@ -55,8 +55,10 @@ class Settings(BaseSettings):
     )
     upload_dir: str = "storage/uploads"
     result_dir: str = "storage/results"
-    max_upload_mb: int = 50
-    max_video_upload_mb: int = 100
+    # 0 = no per-file size cap (chunked upload handles large bodies).
+    max_upload_mb: int = 0
+    max_video_upload_mb: int = 0
+    upload_chunk_size_mb: int = 8
     # Reject uploads whose magic bytes disagree with claimed image/video/audio type.
     upload_require_magic_match: bool = True
     # Optional external scanner (e.g. clamscan); off by default.
@@ -234,9 +236,7 @@ class Settings(BaseSettings):
     google_oauth_http_proxy: str = ""
 
     super_admin_test_code: str = ""
-    auth_console_login_code: bool = False
-    desktop_local_auto_login: bool = False
-    wallet_billing_enabled: bool = False
+    wallet_billing_enabled: bool = True
 
     card_key_salt: str = ""
     card_key_ops_password: str = ""
@@ -258,10 +258,6 @@ class Settings(BaseSettings):
     mcp_canvas_enabled: bool = False
 
 settings = Settings()
-
-
-def is_desktop_local() -> bool:
-    return bool(getattr(settings, "desktop_local_auto_login", False))
 
 
 def api_seeds_dir() -> Path:

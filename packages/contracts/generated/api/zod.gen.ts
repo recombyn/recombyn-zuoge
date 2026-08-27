@@ -98,7 +98,7 @@ export const zAuthConfigOut = z.object({
     googleEnabled: z.boolean(),
     googleClientId: z.string().nullish(),
     emailEnabled: z.boolean(),
-    billingEnabled: z.boolean().optional().default(false)
+    billingEnabled: z.boolean().optional().default(true)
 });
 
 /**
@@ -357,15 +357,6 @@ export const zDesignSkillIn = z.object({
 });
 
 /**
- * DesktopLocalLoginIn
- *
- * Optional hint; server prefers the process OS user when empty.
- */
-export const zDesktopLocalLoginIn = z.object({
-    username: z.string().max(80).nullish()
-});
-
-/**
  * DlqReplayIn
  */
 export const zDlqReplayIn = z.object({
@@ -434,15 +425,6 @@ export const zExportJobStatusResponse = z.object({
     result: z.record(z.unknown()).nullish(),
     error: z.string().nullish(),
     trace_id: z.string().nullish()
-});
-
-/**
- * ExtractCoversIn
- *
- * Optional live document; otherwise server uses the stored project document.
- */
-export const zExtractCoversIn = z.object({
-    document: z.record(z.unknown()).nullish()
 });
 
 /**
@@ -811,8 +793,6 @@ export const zOkOut = z.object({
 export const zPatchProjectIn = z.object({
     name: z.string().max(255).nullish(),
     baseRevision: z.number().int().nullish(),
-    thumbnailDataUrl: z.string().nullish(),
-    thumbnailDataUrls: z.array(z.string()).nullish(),
     thumbnailUrls: z.array(z.string()).nullish(),
     thumbnailCustom: z.boolean().nullish(),
     upsertNodes: z.record(z.unknown()).nullish(),
@@ -1038,8 +1018,6 @@ export const zUpsertProjectIn = z.object({
     id: z.string().max(64).nullish(),
     name: z.string().max(255).optional().default('Untitled'),
     document: z.record(z.unknown()).nullish(),
-    thumbnailDataUrl: z.string().nullish(),
-    thumbnailDataUrls: z.array(z.string()).nullish(),
     thumbnailUrls: z.array(z.string()).nullish(),
     thumbnailCustom: z.boolean().nullish(),
     baseRevision: z.number().int().nullish(),
@@ -1255,13 +1233,6 @@ export const zAuthEmailActivateBody = zEmailActivateIn;
  * Successful Response
  */
 export const zAuthEmailActivateResponse = zAuthSessionOut;
-
-export const zAuthDesktopLocalLoginBody = zDesktopLocalLoginIn.default({});
-
-/**
- * Successful Response
- */
-export const zAuthDesktopLocalLoginResponse = zAuthSessionOut;
 
 export const zAuthEmailVerifyCodeBody = zEmailVerifyCodeIn;
 
@@ -2675,20 +2646,6 @@ export const zProjectsPatchOnePath = z.object({
  * Successful Response
  */
 export const zProjectsPatchOneResponse = zProjectOneOut;
-
-/**
- * Body
- */
-export const zProjectsExtractCoversBody = zExtractCoversIn.nullable();
-
-export const zProjectsExtractCoversPath = z.object({
-    project_id: z.string()
-});
-
-/**
- * Successful Response
- */
-export const zProjectsExtractCoversResponse = zProjectOneOut;
 
 export const zProjectsSetProjectOrgBody = zSetProjectOrgIn;
 

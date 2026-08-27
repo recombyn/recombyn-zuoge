@@ -20,12 +20,6 @@ import { type DesignCatalog } from '@/service/design';
 import { apiQuery } from '@/service/client';
 import { Dropdown, SegmentedControl, Select } from '@/components/base';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
-import { getToken } from '@/utils/token';
-import {
-  customProvidersAsModels,
-  hydrateCustomLlmProviders,
-} from '../customLlmProviders';
 import {
   AGENT_ROUTE_POPOVER_PANEL,
   AGENT_ROUTE_SUBMENU_PANEL,
@@ -79,12 +73,10 @@ export function splitByokRouteModels(byok: LlmModel[]): { text: LlmModel[]; imag
   };
 }
 
-/** Local desktop → BYOK lanes only; otherwise platform catalog. */
 export function routeCatalogFromListModels(res?: {
   models?: LlmModel[] | null;
   imageModels?: LlmModel[] | null;
 } | null): { text: LlmModel[]; image: LlmModel[] } {
-  if (isDesktopLocal()) return splitByokRouteModels(customProvidersAsModels());
   return {
     text: res?.models || [],
     image: res?.imageModels || [],
@@ -244,11 +236,7 @@ function AgentRoutePrefsEditorImpl({
   autoOnly = false,
 }: AgentRoutePrefsEditorProps): ReactNode {
   const { t } = useTranslation();
-  const desktopLocal = isDesktopLocal();
-  const catalogFromParent = sharedCatalog !== undefined;
-  const [routePrefs, setRoutePrefs] = useState<AgentRoutePrefs>(() =>
-    desktopLocal ? emptyCustomRoutePrefs() : { preset: 'platform' }
-  );
+  const [routePrefs, setRoutePrefs] = useState<AgentRoutePrefs>(() => ({ preset: 'platform' }));
   const [designIntensity, setDesignIntensity] = useState<DesignIntensity>(() =>
     loadDesignIntensity()
   );
@@ -257,6 +245,7 @@ function AgentRoutePrefsEditorImpl({
   const [submenu, setSubmenu] = useState<CompactSubmenu>(null);
   const [openrouterAvailable, setOpenrouterAvailable] = useState<boolean | null>(() => getCachedOpenrouterAvailability());
   const narrow = useNarrowViewport();
+  const catalogFromParent = sharedCatalog !== undefined;
 
   useEffect(() => {
     setRoutePrefs(loadAgentRoutePrefs());
@@ -284,12 +273,6 @@ function AgentRoutePrefsEditorImpl({
     ...apiQuery.chatGetModels.queryOptions(),
     staleTime: 60_000,
     enabled: !catalogFromParent,
-  });
-
-  const byokListQuery = useQuery({
-    ...apiQuery.meMeByokList.queryOptions(),
-    staleTime: 30_000,
-    enabled: !catalogFromParent && desktopLocal && Boolean(getToken()),
   });
 
   useEffect(() => {
@@ -325,24 +308,6 @@ function AgentRoutePrefsEditorImpl({
       setRoutePrefs(loadAgentRoutePrefs(getCachedPresetRules()));
     }
   }, [catalogFromParent, sharedCatalog, modelsQuery.data, modelsQuery.isFetched]);
-
-  // Standalone popover on local desktop: refresh BYOK lanes (Account tab parent hydrates).
-  useEffect(() => {
-    if (!desktopLocal || catalogFromParent) return;
-    if (getToken() && !byokListQuery.isFetched) return;
-    let cancelled = false;
-    async function refreshByokRouteModels() {
-      await hydrateCustomLlmProviders();
-      if (cancelled) return;
-      const { text, image } = splitByokRouteModels(customProvidersAsModels());
-      setTextModels(text);
-      setImageModels(image);
-    }
-    refreshByokRouteModels();
-    return () => {
-      cancelled = true;
-    };
-  }, [desktopLocal, catalogFromParent, byokListQuery.isFetched, byokListQuery.dataUpdatedAt]);
 
   const patchRouteField = (key: keyof AgentRoutePrefs, value: string) => {
     setRoutePrefs((prev) => {

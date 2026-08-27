@@ -114,7 +114,7 @@ export type ComposerContext = {
   dataUrl?: string;
   /** Chip thumbnail (image node `src` or local data-URL preview). */
   thumbUrl?: string;
-  /** Object storage key from POST /api/v1/uploads — used to delete on remove. */
+  /** Object storage key from upload job — used to delete on remove. */
   uploadKey?: string;
   /**
    * Composer attachment upload lifecycle.

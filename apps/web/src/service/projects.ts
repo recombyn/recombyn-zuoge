@@ -36,8 +36,6 @@ export type UpsertProjectBody = {
   id?: string;
   name: string;
   document?: unknown;
-  thumbnailDataUrl?: string | null;
-  thumbnailDataUrls?: string[] | null;
   thumbnailUrls?: string[] | null;
   thumbnailCustom?: boolean;
   baseRevision?: number;
@@ -47,8 +45,6 @@ export type UpsertProjectBody = {
 export type PatchProjectBody = {
   baseRevision: number;
   name?: string;
-  thumbnailDataUrl?: string | null;
-  thumbnailDataUrls?: string[] | null;
   thumbnailUrls?: string[] | null;
   thumbnailCustom?: boolean;
   upsertNodes?: Record<string, unknown>;
@@ -66,16 +62,6 @@ export const fetchProject = (id: string) =>
   apiClient.projectsGetOne({
     params: { project_id: id },
   }) as Promise<{ project: ProjectDto }>;
-
-export async function extractProjectCoversApi(
-  id: string,
-  document?: unknown
-): Promise<{ project: ProjectSummaryDto }> {
-  return apiClient.projectsExtractCovers({
-    params: { project_id: id },
-    body: document != null ? { document: document as Record<string, unknown> } : undefined,
-  }) as Promise<{ project: ProjectSummaryDto }>;
-}
 
 export async function upsertProjectApi(
   data: UpsertProjectBody,
@@ -183,7 +169,7 @@ export async function invalidateProjectListRow(projectId: string) {
   await queryClient.invalidateQueries({ queryKey: projectListRowQueryKey(id) });
 }
 
-/** After create/update/delete/rename/cover — refetch list + optional row. */
+/** After create/update/delete/rename — refetch list + optional row. */
 export async function refreshProjectsListAfterMutation(projectId?: string) {
   await invalidateProjectsListCache();
   if (projectId) await invalidateProjectListRow(projectId);

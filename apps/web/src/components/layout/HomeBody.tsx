@@ -27,7 +27,7 @@ import RailRecentList from '@/components/layout/RailRecentList';
 import InspirationSection from '@/components/home/InspirationSection';
 import MoreSection from '@/components/home/MoreSection';
 import SkillsLibraryPanel from '@/components/home/SkillsLibraryPanel';
-import { HOME_MAIN_SHELL, HOME_MAIN_SCROLL, HOME_PROJECT_GRID } from '@/components/home/homeLayout';
+import { FLOW_COLUMNS_CLASS } from '@/components/home/FlowScrollSection';
 import type { HomeAgentSubmitPayload } from '@/components/home/HomeAgentComposer';
 import type { OfficialCaseMeta } from '@/utils/officialCases';
 import TemplateGrid from '@/components/templates/TemplateGrid';
@@ -42,7 +42,7 @@ import {
   type PaginatedProjects,
   type ProjectSummaryDto,
 } from '@/service/projects';
-import { normalizeProjectThumbnailUrls, collageOrSingleThumb } from '@/utils/projectThumb';
+import { normalizeProjectThumbnailUrls, collageOrSingleThumb, projectThumbnailUrlsFromApi } from '@/utils/projectThumb';
 import { getToken } from '@/utils/token';
 import { buildLoginUrl } from '@/utils/authReturnTo';
 import { useGoEditor } from '@/utils/goEditor';
@@ -58,7 +58,6 @@ import {
   runRailHelpAction,
   type RailHelpItemKey,
 } from '@/components/layout/railHelp';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { cn } from '@/utils/classnames';
 import {
   HOME_NAV_KEYS,
@@ -96,7 +95,7 @@ type ProjectListItem = {
 };
 
 function projectSummaryToListItem(row: ProjectSummaryDto): ProjectListItem {
-  const thumbs = normalizeProjectThumbnailUrls(row.thumbnailUrl, row.updatedAt);
+  const thumbs = projectThumbnailUrlsFromApi(row.thumbnailUrl);
   return {
     id: row.id,
     name: row.name || 'Untitled',
@@ -205,6 +204,11 @@ import {
   type HomeRailNavId,
 } from '@/components/layout/homeRailIcons';
 
+const HOME_MAIN_SCROLL =
+  'relative min-h-0 w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-transparent [scrollbar-gutter:stable]';
+const HOME_MAIN_SHELL =
+  'relative mx-auto box-border w-full min-w-0 max-w-[1300px] px-4 pb-16 pt-[25px] lg:px-0';
+
 const RAIL_HELP_LABEL_KEYS: Record<RailHelpItemKey, string> = {
   guide: 'home.railHelpGuide',
   contact: 'home.railHelpContact',
@@ -226,9 +230,8 @@ function railItemTone(active: boolean) {
 /** Guest footer — help + login in one panel (expanded sidebar only). */
 function RailGuestFooterPanel({ onLogin }: { onLogin: () => void }) {
   const { t } = useTranslation();
-  const desktopLocal = isDesktopLocal();
   const [helpOpen, setHelpOpen] = useState(false);
-  const helpKeys = railHelpItemKeys(desktopLocal);
+  const helpKeys = railHelpItemKeys();
 
   return (
     <div className="overflow-hidden rounded-xl bg-[var(--surface)] ring-1 ring-[var(--line)]">
@@ -534,7 +537,7 @@ function RailSidebarFooter({ expanded }: { expanded: boolean }) {
   const authed = Boolean(user && getToken());
   const { credits, planId } = useWalletSnapshot();
   const billingEnabled = useBillingEnabled();
-  const hideBillingUi = isDesktopLocal() || !billingEnabled;
+  const hideBillingUi = !billingEnabled;
   const [accountOpen, setAccountOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
   const planLabel = t(planLabelKey(planId));
@@ -753,8 +756,6 @@ function HomeTemplateList({
   const [skillsMountKey, setSkillsMountKey] = useState(0);
   /** Filter "我的项目" by team org (empty = all accessible). */
   const [filterOrgId, setFilterOrgId] = useState('');
-  /** Tracks Home/Projects surface enter/leave so we refetch after editor. */
-  const onProjectsSurfaceRef = useRef(false);
 
   /** Guest must not stay on Projects / Skills / More sub-pages — bounce home + open login. */
   useEffect(() => {
@@ -825,19 +826,9 @@ function HomeTemplateList({
     if (!authed) {
       dispatch(clearProjectsLibrary());
       clearProjectsListCache();
-      onProjectsSurfaceRef.current = false;
       return;
     }
-    const onSurface = showHome || showMine;
-    if (!onSurface) {
-      onProjectsSurfaceRef.current = false;
-      return;
-    }
-    const entering = !onProjectsSurfaceRef.current;
-    onProjectsSurfaceRef.current = true;
-    if (!entering) return;
-    void refreshProjectsList({ flush: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh on surface enter
+    // List uses refetchOnMount:'always'; editor exit invalidates via prepareProjectsListNavigation.
   }, [authed, dispatch, showHome, showMine]);
 
   const loadMoreProjects = useCallback(() => {
@@ -928,7 +919,7 @@ function HomeTemplateList({
               onCreate={onCreate}
               createDisabled={importing}
               orgOptions={orgOptions}
-              gridClassName={HOME_PROJECT_GRID}
+              gridClassName={FLOW_COLUMNS_CLASS}
             />
           </div>
         </main>
@@ -950,7 +941,7 @@ function HomeTemplateList({
         </main>
       ) : null}
 
-      {showInspiration && !isDesktopLocal() ? (
+      {showInspiration ? (
         <main className={HOME_MAIN_SCROLL}>
           <div className={HOME_MAIN_INSET}>
             <InspirationSection onOpenCase={onOpenCase} disabled={importing} />

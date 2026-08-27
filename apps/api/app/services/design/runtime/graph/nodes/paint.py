@@ -36,7 +36,6 @@ from app.services.design.runtime.graph.llm_io import (
     _llm_io_fields,
     _require_prompt_pack,
     _resolve_and_log_model,
-    _stream_llm_text,
 )
 from app.services.design.runtime.graph.paint_kit import (
     _ensure_paint_tool_details,
@@ -48,9 +47,6 @@ from app.services.design.runtime.graph.paint_kit import (
 )
 from app.services.design.runtime.graph.scene_log import (
     _bump,
-    _commit,
-    _goto_cmd,
-    _persist_progress,
 )
 from app.services.design.runtime.graph.turns import _resolve_paint_want
 

@@ -8,10 +8,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.core.config import resolve_seed_dir, resolve_seed_file
+from app.core.config import resolve_seed_dir
 from app import crud
 from app.core.db import engine
-from app.services.design.readpath.catalog import ensure_design_catalog
 from sqlmodel import Session
 
 _PACKS_READY = False

@@ -76,12 +76,9 @@ const list1 = await api('GET', '/projects?page=1&pageSize=50');
 const row1 = list1.json.projects.find((p) => p.id === id);
 console.log('LIST thumb:', sig(row1?.thumbnailUrl));
 
-const extract = await api('POST', `/projects/${id}/covers`, { document: doc });
-console.log('EXTRACT thumb:', sig(extract.json?.project?.thumbnailUrl), 'status', extract.status);
-
 const list2 = await api('GET', '/projects?page=1&pageSize=50');
 const row2 = list2.json.projects.find((p) => p.id === id);
-console.log('LIST after extract:', sig(row2?.thumbnailUrl));
+console.log('LIST after save:', sig(row2?.thumbnailUrl));
 
 await api('DELETE', `/projects/${id}`);
 const hasCover = Boolean(sig(row2?.thumbnailUrl) && sig(row2?.thumbnailUrl) !== '(empty)');

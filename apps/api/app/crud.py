@@ -374,29 +374,6 @@ def update_project_covers(
     return int(getattr(result, "rowcount", 0) or 0) > 0
 
 
-def update_project_covers_by_id(
-    *,
-    session: Session,
-    project_id: str,
-    thumbnail_key: str | None,
-    thumbnail_custom: bool,
-    updated_at: float,
-) -> bool:
-    """Cover update by id (caller already authorized for org/shared access)."""
-    stmt = (
-        sa_update(Project)
-        .where(Project.id == project_id)
-        .values(
-            thumbnail_key=thumbnail_key,
-            thumbnail_custom=1 if thumbnail_custom else 0,
-            updated_at=updated_at,
-        )
-    )
-    result = session.execute(stmt)
-    session.commit()
-    return int(getattr(result, "rowcount", 0) or 0) > 0
-
-
 def delete_project_for_user(
     *,
     session: Session,

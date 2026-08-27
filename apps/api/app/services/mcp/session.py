@@ -1,7 +1,6 @@
 """Live editor session tracking for MCP (avoid double-apply headless + FE)."""
 from __future__ import annotations
 
-import time
 
 from app.services.mcp.tool_registry import live_session_ttl_sec
 

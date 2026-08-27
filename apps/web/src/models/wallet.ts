@@ -20,7 +20,7 @@ export type WalletDto = {
   planExpiresAt?: number | null;
   /** True while a paid plan is still within its term. */
   planLocked?: boolean;
-  /** Platform credit billing (WALLET_BILLING_ENABLED); false on self-host / local. */
+  /** Platform credit billing (`WALLET_BILLING_ENABLED` on API). */
   billingEnabled?: boolean;
   ledger: WalletLedgerDto[];
 };

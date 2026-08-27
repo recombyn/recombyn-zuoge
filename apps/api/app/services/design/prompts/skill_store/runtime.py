@@ -20,21 +20,16 @@ from .constants import (
     SOURCE_ADMIN,
     SOURCE_FILE,
     _ALWAYS_ALLOW_OPS,
-    _DISK_SIGNATURE,
     _INTERNAL_RESOURCE_KINDS,
-    _RUNTIME_SKILL_INDEX,
-    _RUNTIME_SKILL_KEYS,
     _SKILL_CATEGORY_BUDGET,
     _SKILL_CATEGORY_ORDER,
     _SKILL_GRAPH,
-    _SKILLS_READY,
     _SOURCE_TO_NS,
 )
 from .keys import (
     _normalize_namespace,
     _normalize_source,
     parse_skill_pin,
-    qualify_skill_key,
     skill_kind_for_namespace,
     split_namespace_key,
 )

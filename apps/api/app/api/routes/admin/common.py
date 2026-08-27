@@ -6,7 +6,7 @@ import hmac
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import File, Form, HTTPException, UploadFile
 
 from pydantic import BaseModel, Field
 
@@ -14,88 +14,22 @@ from app.api.deps import AdminUser
 
 from app.core.config import settings
 
-from app.services.admin.users import (
-    adjust_credits,
-    ensure_super_admin_role,
-    get_user,
-    list_users,
-    update_user,
-    user_ledger,
-)
 
-from app.services.admin.content import (
-    delete_asset_admin,
-    delete_like_admin,
-    list_all_assets,
-    list_all_likes,
-    list_all_projects,
-    list_plaza_feed_admin,
-    list_plaza_published,
-)
 
-from app.services.auth import SessionUser
 
-from app.services.auth.admin import is_admin_user
 
-from app.services.plaza import (
-    approve_submission,
-    delete_submission,
-    get_submission,
-    list_admin,
-    reject_submission,
-    set_cover_image,
-    set_submission_visible,
-    update_submission_title,
-)
 
 from app.services.plaza.store import PlazaError
 
-from app.services.wallet.card_keys import generate_card_keys, list_card_keys, revoke_card_keys
-
-from app.services.notices import (
-    delete_notice,
-    get_notice,
-    list_notices_admin,
-    upsert_notice,
-)
-
-from app.services.llm.catalog_store import (
-    delete_model,
-    list_admin_models,
-    upsert_model,
-)
-
-from app.services.design.admin.dict_store import (
-    delete_dict_type,
-    hard_delete_dict,
-    list_dict_types,
-    list_dicts,
-    soft_delete_dict,
-    upsert_dict,
-    upsert_dict_type,
-)
 
 
 
-from app.services.design.prompts.content_pack import resync_design_content
 
-from app.services.design.admin.admin_store import (
-    apply_optimize_patch,
-    clear_decision_logs,
-    dismiss_optimize_patch,
-    generate_usage_optimize_patches,
-    list_decision_logs,
-    get_decision_log,
-    list_canvas_tools_admin,
-    list_optimize_patches,
-    skill_metrics_summary,
-    upsert_canvas_tool,
-    upsert_global_rule,
-)
 
-from app.services.design.readpath.catalog import get_global_rules
 
-from app.services.design.admin.stage_review_store import list_stage_reviews
+
+
+
 
 
 def _plaza_http(err: PlazaError) -> HTTPException:

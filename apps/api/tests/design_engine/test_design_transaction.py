@@ -1,13 +1,13 @@
 """PR5 — DesignTransaction emit / chunk / rollback / pack ACK."""
 from __future__ import annotations
 
+from recombyn_protocol import new_design_transaction, resolve_transaction_phase
+
 from app.services.design.runtime.decision_log import DesignRunDecision
 from app.services.design.runtime.graph.nodes import apply as apply_mod
 from app.services.design.runtime.graph.state import (
     AgentRunState,
     AgentRuntime,
-    new_design_transaction,
-    resolve_transaction_phase,
 )
 from app.services.design.runtime.scene_feedback import _pack_payload, _unpack_payload
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services import projects as project_store
-from app.services.projects import ProjectForbiddenError, ProjectNotFoundError
+from app.services.projects import ProjectNotFoundError
 
 
 def load_writable_project(user_id: str, project_id: str) -> dict[str, Any]:

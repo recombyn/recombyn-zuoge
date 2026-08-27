@@ -1,18 +1,18 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Recombyn",
+  "productName": "Recombyn Cloud",
   "version": "0.1.0",
-  "identifier": "com.recombyn.app",
+  "identifier": "com.recombyn.app.cloud",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "npm run dev -- --mode cloud",
+    "beforeBuildCommand": "npm run build -- --mode cloud"
   },
   "app": {
     "windows": [
       {
-        "title": "Recombyn",
+        "title": "Recombyn Cloud",
         "width": 1440,
         "height": 900,
         "resizable": true,

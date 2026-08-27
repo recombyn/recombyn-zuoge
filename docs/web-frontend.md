@@ -31,6 +31,18 @@ useInfiniteQuery({
 
 **Source of truth for lists is Query cache**, not a Redux library mirror. On fetch error, home projects render empty (same idea as Me published: do not keep showing stale cards). Logout / 401 clears project + wallet query caches.
 
+## Wallet & billing UI
+
+| Hook / helper | Role |
+|---------------|------|
+| `useAuthBillingConfigQuery()` | Public `GET /auth/config` — includes `billingEnabled` |
+| `useBillingEnabled()` | **Sole UI switch** — reads `auth/config` only; defaults `true` while loading / on error |
+| `useWalletSnapshot()` | Balance + plan from `/wallet/me`; `billingEnabled` from `useBillingEnabled()`, not wallet errors |
+| `useWalletMeQuery()` | Authed balance row — may fail independently of billing visibility |
+
+`hideBillingUi = !useBillingEnabled()` in account panels, composer credit chips, generator cards, etc.  
+Runtime API switch: `WALLET_BILLING_ENABLED` (default `true`). See [billing.md](./billing.md) · [deployment-modes.md](./deployment-modes.md).
+
 Vite: include `nuqs` and `nuqs/adapters/react-router/v6` in `optimizeDeps.include` so the adapter prebundles (missing prebundle previously 504’d and blanked the app).
 
 ## Writes: mutations
@@ -73,4 +85,6 @@ Editor **document**, selection, tools, camera-ish UI — local canvas SoT. Do no
 
 - [canvas-architecture.md](./canvas-architecture.md) — paint / Path2D / viewport cull + Canvas idle
 - [scene-json-spec.md](./scene-json-spec.md) — persisted document JSON
+- [billing.md](./billing.md) — `WALLET_BILLING_ENABLED` + `useBillingEnabled`
+- [deployment-modes.md](./deployment-modes.md) — cloud / self-host / dev / desktop
 - [self-hosting.md](./self-hosting.md) — deploy + collab WSS

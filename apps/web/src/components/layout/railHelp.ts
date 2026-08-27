@@ -5,8 +5,8 @@ export const RAIL_HELP_WIKI =
 
 export type RailHelpItemKey = 'guide' | 'contact' | 'updates';
 
-export function railHelpItemKeys(desktopLocal: boolean): RailHelpItemKey[] {
-  return desktopLocal ? ['guide', 'contact'] : ['guide', 'contact', 'updates'];
+export function railHelpItemKeys(): RailHelpItemKey[] {
+  return ['guide', 'contact', 'updates'];
 }
 
 export function runRailHelpAction(key: string) {

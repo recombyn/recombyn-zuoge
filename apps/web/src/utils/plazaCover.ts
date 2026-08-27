@@ -60,7 +60,7 @@ export function listArtboardFrames(document: unknown): PlazaCoverFrame[] {
 }
 
 /**
- * Frame used for Plaza list cards / publish preview.
+ * Frame used for Plaza list cards.
  * Prefer activeFrameId, then「封面」, then the first artboard.
  */
 export function findPlazaCoverFrame(document: unknown): PlazaCoverFrame | null {
@@ -247,7 +247,7 @@ export function coverDocumentHasContent(document: unknown): boolean {
   return Array.isArray(children) && children.length > 0;
 }
 
-/** Lightweight doc for Plaza list / publish preview (active or first artboard, else full doc). */
+/** Lightweight doc for Plaza list (active or first artboard, else full doc). */
 export function extractPlazaCoverDocument(
   document: unknown,
   opts?: ExtractFrameOptions

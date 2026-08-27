@@ -4,7 +4,7 @@ import { uploadImageFile, readFileAsDataUrl, beginNodeUpload, finishNodeUpload, 
 import {
   measureImageNaturalSize
 } from '@/components/rcb/scene/document/nodeFactories';
-import { finishImageProcess, patchDocumentNode, resumePendingImageProcess } from '@/store/modules/editor';
+import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
 
 type DispatchLike = (action: unknown) => unknown;
 
@@ -42,6 +42,7 @@ export async function replaceImageNodeFromFile(opts: {
             processStatus: 'running',
             processKind: 'upload',
             processLabel: '上传中',
+            processStartedAt: String(Date.now()),
             // Local replace — drop AI prompt / multi-gen stack so Quick Edit stays empty.
             genPrompt: '',
             imageVariants: '',
@@ -50,7 +51,6 @@ export async function replaceImageNodeFromFile(opts: {
       })
     );
 
-    dispatch(resumePendingImageProcess({ nodeId }));
     const signal = beginNodeUpload(nodeId);
     try {
       const uploaded = await uploadImageFile(file, {

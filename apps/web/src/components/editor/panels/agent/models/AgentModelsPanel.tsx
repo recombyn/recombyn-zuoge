@@ -16,7 +16,6 @@ import { apiQuery } from '@/service/client';
 import { Select } from '@/components/base';
 import AccountSettingsDialog from '@/components/layout/AccountSettingsDialog';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
 import { useWalletSnapshot } from '@/service/wallet';
@@ -282,8 +281,7 @@ function AgentModelsPanel({
 }: Props): ReactNode {
   const { t } = useTranslation();
   const { planId } = useWalletSnapshot();
-  // Local desktop: BYOK is always allowed (no cloud membership).
-  const canCustom = isDesktopLocal() || planAllowsCustomModels(planId);
+  const canCustom = planAllowsCustomModels(planId);
   const [providers, setProviders] = useState<CustomLlmProvider[]>([]);
   const [platforms, setPlatforms] = useState<ByokPlatform[]>([]);
   /** Shared with RoutePrefsEditor — one GET /chat/models for the whole Agent tab. */
@@ -316,7 +314,6 @@ function AgentModelsPanel({
   const isManualProvider = presetId === MANUAL_PROVIDER_ID;
 
   const askUpgrade = () => {
-    if (isDesktopLocal()) return;
     if (onRequestUpgrade) onRequestUpgrade();
     else setSettingsOpen(true);
   };
@@ -379,11 +376,6 @@ function AgentModelsPanel({
       warmOpenrouterAvailability(orOk);
       const { text, image } = routeCatalogFromListModels(res);
       setSharedCatalog({ text, image, openrouterAvailable: orOk });
-      return;
-    }
-    if (isDesktopLocal()) {
-      const { text, image } = splitByokRouteModels(customProvidersAsModels(providers));
-      setSharedCatalog({ text, image, openrouterAvailable: getCachedOpenrouterAvailability() });
       return;
     }
     setSharedCatalog({ text: [], image: [], openrouterAvailable: null });

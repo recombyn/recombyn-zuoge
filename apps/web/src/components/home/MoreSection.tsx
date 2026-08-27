@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import EmptyState from '@/components/home/EmptyState';
 import InspirationCasePreview from '@/components/home/InspirationCasePreview';
 import { InspirationCaseCard } from '@/components/home/InspirationSection';
-import { FlowScrollSection, FlowFeedSkeleton } from '@/components/home/FlowScrollSection';
+import { FlowScrollSection, FlowFeedSkeleton, FLOW_COLUMNS_CLASS } from '@/components/home/FlowScrollSection';
 import {
   UserAssetCard,
   UserAssetCardSkeleton,
@@ -23,7 +23,6 @@ import {
   type OfficialCaseMeta,
 } from '@/utils/officialCases';
 import { buildLoginUrl } from '@/utils/authReturnTo';
-import { HOME_FLOW_GRID } from '@/components/home/homeLayout';
 import type { HomeMoreKey } from '@/components/layout/homeNav';
 
 const PAGE_SIZE = 20;
@@ -411,7 +410,7 @@ function MoreSection({ section, onOpenCase }: Props): ReactNode {
             }}
             isEmpty={assets.length === 0}
             empty={<EmptyState hint={t('home.moreEmptyAssets')} />}
-            columnsClassName={HOME_FLOW_GRID}
+            columnsClassName={FLOW_COLUMNS_CLASS}
             skeleton={
               <>
                 {Array.from({ length: 12 }, (_, i) => (
@@ -446,7 +445,7 @@ function MoreSection({ section, onOpenCase }: Props): ReactNode {
           }}
           isEmpty={liked.length === 0}
           empty={<EmptyState hint={t('home.moreEmptyLiked')} />}
-          columnsClassName={HOME_FLOW_GRID}
+          columnsClassName={FLOW_COLUMNS_CLASS}
           skeleton={<FlowFeedSkeleton />}
         >
           {liked.map((c) => (

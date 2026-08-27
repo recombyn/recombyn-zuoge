@@ -57,7 +57,6 @@ import {
   pushEditorHistory,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
-import { isDesktopLocal } from '@/utils/apiBase';
 import { readFileAsDataUrl } from '@/utils/uploadImage';
 import store from '@/store';
 
@@ -340,7 +339,7 @@ function LottieQuickEditComposer({
 
           <div className="flex-1" />
 
-          {!isDesktopLocal() && models.length > 0 ? (
+          {models.length > 0 ? (
             <Dropdown
               trigger="click"
               placement="top-end"

@@ -18,7 +18,7 @@ from recombyn_agent_sdk import KERNEL_CANVAS_REQUIRED
 
 from app.services.design.readpath.canvas_scene import resolve_agent_scene, scene_key as _scene_key
 from app.services.design.runtime.decision_log import DesignRunDecision
-from app.services.design.runtime.host import assemble_stage_system, require_prompt_pack
+from app.services.design.runtime.host import assemble_stage_system
 from app.services.design.runtime.graph.llm_io import (
     _flag_on,
     _int_rule,
@@ -26,11 +26,6 @@ from app.services.design.runtime.graph.llm_io import (
     _resolve_agent_persona,
 )
 from app.services.design.runtime.graph.scene_log import (
-    _bump,
-    _commit,
-    _goto_cmd,
-    _log_graph_hop,
-    _persist_progress,
     _persist_task_meta,
     _resolve_wh,
 )

@@ -1,6 +1,5 @@
 /**
  * Debounced project sync: IndexedDB draft → incremental PATCH (or PUT) for document.
- * Covers are generated on the API from the saved document (≤4 element tiles).
  */
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -66,20 +65,14 @@ let flushChain: Promise<void> = Promise.resolve();
 let flushRunner: ((opts?: FlushProjectOptions) => Promise<FlushProjectResult>) | null = null;
 
 export type FlushProjectOptions = {
-  /**
-   * Leave-editor / Home: always push document + regenerate auto cover,
-   * even when Redux dirty is false or the local draft looks already synced.
-   */
+  /** Leave-editor / Home: push document even when dirty is false or draft looks synced. */
   force?: boolean;
 };
 
 /** Outcome of a single flush pass — manual save uses this for user feedback. */
 export type FlushProjectResult = 'saved' | 'local' | 'unchanged' | 'failed' | 'conflict' | 'skipped';
 
-/**
- * Force an immediate project sync (document + auto cover) and wait until it settles.
- * Safe to call from Home / leave-editor even when the hook is unmounted.
- */
+/** Force an immediate project sync and wait until it settles. */
 export function flushCurrentProjectNow(opts?: FlushProjectOptions): Promise<FlushProjectResult> {
   const run = flushRunner;
   if (!run) return Promise.resolve('skipped');
@@ -158,22 +151,16 @@ async function tryCloudApi<T>(fn: () => Promise<T>): Promise<
 }
 
 type ThumbUpload = {
-  thumbnailDataUrl?: string;
-  thumbnailDataUrls?: string[];
   thumbnailUrls?: string[];
 };
 
 function applyThumbUpload(
   data: {
-    thumbnailDataUrl?: string | null;
-    thumbnailDataUrls?: string[] | null;
     thumbnailUrls?: string[] | null;
   },
   thumb: ThumbUpload
 ) {
   if (thumb.thumbnailUrls?.length) data.thumbnailUrls = thumb.thumbnailUrls;
-  if (thumb.thumbnailDataUrls?.length) data.thumbnailDataUrls = thumb.thumbnailDataUrls;
-  if (thumb.thumbnailDataUrl) data.thumbnailDataUrl = thumb.thumbnailDataUrl;
 }
 
 function clearDirtyIfSameDoc(
@@ -227,7 +214,6 @@ async function applyCloudAck(opts: {
     opts.ack?.revision ?? null
   );
   clearDirtyIfSameDoc(opts.dispatch, opts.pushedDoc);
-  void refreshProjectsListAfterMutation(opts.projectId);
 }
 
 export function asCloudRevision(value: unknown): number | null {
@@ -737,7 +723,7 @@ export function useProjectCloudSync() {
     };
   }, [t]);
 
-  // Leave / hide: force doc + cover once (not every debounce). Unmount same.
+  // Leave / hide: force sync once (not every debounce). Unmount same.
   useEffect(() => {
     const onHide = () => {
       if (!dirtyRef.current) return;
@@ -765,7 +751,6 @@ export async function applyProjectRevisionConflictChoice(_opts: {
   name: string;
   localDocument?: unknown;
   mode?: 'solo' | 'collab';
-  thumb?: ThumbUpload;
 }): Promise<'adopted' | 'failed'> {
   return 'failed';
 }

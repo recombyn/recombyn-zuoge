@@ -6,7 +6,7 @@ Create Date: 2026-08-08
 
 ``0001_baseline`` used ``create_all``, which does not ALTER existing tables.
 Local SQLite DBs stamped at 0001 can lack columns added to SQLModel later
-(e.g. ``users.default_avatar``), breaking desktop-local auto-login.
+(e.g. ``users.default_avatar``).
 """
 
 from __future__ import annotations

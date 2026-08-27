@@ -60,18 +60,18 @@ secrets/
 apps/web/agent-skills/
 !apps/web/agent-skills.example/
 
-# Closed-source local overrides (optional; prefer src/commercial/ in recombyn-dev)
+# Closed-source local overrides (optional; commercial mockup lives under apps/web/src/commercial/)
 apps/web/src/private/
 
 # API closed eval corpora (Intelligence checkout — never publish)
 apps/api/private-eval/
 
-# Vendored intelligence runtime (src/commercial/intelligence)
-src/commercial/intelligence/.venv/
-src/commercial/intelligence/models/
-src/commercial/intelligence/data/
-src/commercial/intelligence/workspace/
-src/commercial/intelligence/.ocr-install.log
+# Vendored intelligence runtime (apps/intelligence)
+apps/intelligence/.venv/
+apps/intelligence/models/
+apps/intelligence/data/
+apps/intelligence/workspace/
+apps/intelligence/.ocr-install.log
 
 # Local API startup scratch logs
 apps/api/startup*.log
@@ -139,9 +139,10 @@ infra/langfuse/
 # sync strip dry-run scratch
 pub-test/
 
-# local sqlite sidecars
+# SQLite WAL side files (local dev fallback only)
 apps/api/storage/*.db-shm
 apps/api/storage/*.db-wal
+apps/web/src-tauri/sidecars/
 
 
 # Local runtime artifacts if mistakenly created under app/

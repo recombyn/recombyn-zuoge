@@ -67,6 +67,8 @@ jobs:
           pip install -e "../../packages/plugin-sdk"
           pip install -e "../../packages/billing-sdk"
           pip install -e ".[dev]"
+      - name: Ruff unused imports
+        run: python -m ruff check app worker --select F401
       - name: Alembic single head
         run: python -m pytest tests/unit_tests/test_llm_facade_adr0006.py::test_alembic_single_head -q
       - name: Hydrate route coverage floor

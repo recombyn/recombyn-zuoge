@@ -8,10 +8,6 @@ from app.services.design.ops.tool_ops_contract import normalize_need_tools
 from app.services.design.ops.validate import extract_json_object
 from app.services.design.prompts.prompt_build import _edit_context_block
 from app.services.design.prompts.rules_text import _as_text
-from app.services.design.runtime.host import (
-    interaction_mode_rules_pack,
-    require_prompt_pack,
-)
 from app.services.design.runtime.models_route import (
     CANVAS_WORK_INTENTS,
     normalize_user_intent,

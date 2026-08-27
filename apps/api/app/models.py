@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import BigInteger, Column, LargeBinary, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Column, LargeBinary, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -24,8 +24,7 @@ class AuthConfigOut(SQLModel):
     googleEnabled: bool
     googleClientId: str | None = None
     emailEnabled: bool
-    # Platform credit wallet (WALLET_BILLING_ENABLED); default off until Cloud sets true.
-    billingEnabled: bool = False
+    billingEnabled: bool = True
 
 
 

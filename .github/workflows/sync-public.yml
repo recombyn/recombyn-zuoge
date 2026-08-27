@@ -1,5 +1,5 @@
 # Private → public publish (runs only in recombyn-dev).
-# Strips src/commercial before publishing to github.com/recombyn/zuoge.
+# Strips commercial paths before publishing to github.com/recombyn/zuoge.
 #
 # Secret (recombyn-dev): PUBLIC_REPO_TOKEN — PAT with repo scope on recombyn/zuoge
 # Public commit messages must not mention sync/mirror/recombyn-dev.

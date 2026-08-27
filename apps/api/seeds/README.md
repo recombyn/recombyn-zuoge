@@ -33,9 +33,9 @@ Owner docs: [self-hosting.md](../../../docs/self-hosting.md) · AgentProfile: [a
 Runner (API must be up; token via `STRESS_TOKEN` or repo-root `.tmp-token.txt`):
 
 ```bash
-npm run stress:agent                 # all category cases
-npm run stress:agent -- poster       # subset
-npm run stress:agent -- --system     # system_cases pool
+npm run test:agent:concurrency                 # all category cases
+npm run test:agent:concurrency -- poster       # subset
+npm run test:agent:concurrency -- --system     # system_cases pool
 ```
 
 Writes `.tmp-design-agent-stress-result.json` (gitignored).

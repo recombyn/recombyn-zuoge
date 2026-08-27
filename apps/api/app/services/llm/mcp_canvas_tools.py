@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def mcp_canvas_langchain_tools(*, user_id: str, project_id: str | None = None) -> list[Any]:

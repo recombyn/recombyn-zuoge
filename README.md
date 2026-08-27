@@ -24,7 +24,18 @@
   <p><strong>Make it — design has never been this simple</strong></p>
 </div>
 
-**zuoge** is an open-source AI design workspace: infinite vector canvas, LangGraph Design Agent, and an **MCP server** so tools like Cursor can read and edit the same projects. Self-host with Docker Compose.
+**zuoge** is an open-source AI design workspace: infinite vector canvas, LangGraph Design Agent, and an **MCP server** so tools like Cursor can read and edit the same projects. Self-host with Docker Compose — same codebase as [recombyn.com](https://recombyn.com).
+
+## Deployment modes
+
+| Mode | How |
+|------|-----|
+| **Cloud** | [recombyn.com](https://recombyn.com) — managed SaaS |
+| **Self-host** | `docker compose` on your server — same features when env matches cloud |
+| **Local dev** | `npm run dev:api` + `dev:web` — developer workflow, not a separate product |
+| **Desktop** | Tauri shell — same API as browser ([docs/desktop.md](docs/desktop.md)) |
+
+Auth: email OTP (Tencent SES) and/or Google OAuth. Credits: `WALLET_BILLING_ENABLED` defaults **on** (self-host matches cloud). → [docs/deployment-modes.md](docs/deployment-modes.md)
 
 ## Star us on GitHub ⭐
 
@@ -159,15 +170,10 @@ Canvas Live / WSS setup: **[docs/self-hosting.md § Canvas multiplayer](docs/sel
 See **[docs/desktop.md](docs/desktop.md)**. Needs **Rust** + platform toolchain.
 
 ```bash
-# Local — bundled API sidecar + SQLite
+# Desktop — same API as browser (:8000 / .env)
 npm run dev:desktop
-npm run build:desktop:sidecar
 npm run build:desktop
-
-# Cloud — same API as browser (:8000 / .env)
-# Optional: VITE_API_BASE_URL when hosted
-npm run dev:desktop:cloud
-npm run build:desktop:cloud
+# Optional: VITE_API_BASE_URL=https://your.host
 ```
 
 Build output: `apps/web/src-tauri/target/release/bundle/` (installers); main binary `…/target/release/recombyn.exe`.
@@ -181,7 +187,7 @@ apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
 apps/collab/       Yjs WebSocket server (y-websocket)
 plugins/           Extensions (skills + canvas) — Compose-mounted
 packages/          Shared builders & schemas
-docs/              self-hosting, agent-profile, plugins, desktop, canvas
+docs/              self-hosting, deployment-modes, billing, agent-profile, plugins, desktop, canvas
 deploy/            Dockerfiles / Nginx
 e2e/               Playwright
 ```
@@ -195,6 +201,8 @@ User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) 
 | User docs | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | MCP canvas (Cursor / external AI) | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
 | Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
+| Deployment modes (cloud / self-host / dev / desktop) | [docs/deployment-modes.md](docs/deployment-modes.md) |
+| Billing & credits (`WALLET_BILLING_ENABLED`) | [docs/billing.md](docs/billing.md) |
 | Skill extensions | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | Canvas plugins | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
 | Plugin packs (`.recombyn-plugin`) | [docs/plugin-packs.md](docs/plugin-packs.md) |

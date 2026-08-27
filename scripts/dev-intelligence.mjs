@@ -4,21 +4,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const intelligenceRoot = path.join(root, 'src/commercial/intelligence');
+const intelligenceRoot = path.join(root, 'apps/intelligence');
 const win = process.platform === 'win32';
 const venvPy = path.join(intelligenceRoot, '.venv', win ? 'Scripts/python.exe' : 'bin/python');
 const py = existsSync(venvPy) ? venvPy : 'python';
 
 if (!existsSync(path.join(intelligenceRoot, 'src/recombyn_intelligence_service'))) {
   console.error(
-    '[dev:intelligence] src/commercial/intelligence not found — install the Design Intelligence service tree.'
+    '[dev:intelligence] apps/intelligence not found — install the Design Intelligence service tree.'
   );
   process.exit(1);
 }
 
 if (!existsSync(venvPy)) {
   console.warn(
-    `[dev:intelligence] .venv missing — run: cd src/commercial/intelligence && python scripts/bootstrap_protocol.py`
+    `[dev:intelligence] .venv missing — run: cd apps/intelligence && python scripts/bootstrap_protocol.py`
   );
 }
 

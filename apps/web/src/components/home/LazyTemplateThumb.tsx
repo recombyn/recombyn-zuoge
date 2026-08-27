@@ -8,6 +8,13 @@ import {
 import { nearestScrollRoot } from '@/components/home/InfiniteScroll';
 import { cn } from '@/utils/classnames';
 
+/** Dialogs/portals sit outside the editor scroll pane — observe the viewport instead. */
+function intersectionRoot(el: HTMLElement): Element | null {
+  if (el.closest('[role="dialog"], [data-headlessui-portal]')) return null;
+  const scrollRoot = nearestScrollRoot(el);
+  return scrollRoot && scrollRoot.contains(el) ? scrollRoot : null;
+}
+
 type Props = {
   document?: unknown;
   fit?: 'contain' | 'cover';
@@ -44,7 +51,7 @@ function LazyTemplateThumb({
           setActive(false);
         }
       },
-      { root: nearestScrollRoot(el), rootMargin: '200px 0px', threshold: 0 }
+      { root: intersectionRoot(el), rootMargin: '200px 0px', threshold: 0 }
     );
     io.observe(el);
     return () => io.disconnect();

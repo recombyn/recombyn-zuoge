@@ -15,7 +15,7 @@ export const projectThumbFrameClass = (extra?: string) =>
 export const projectThumbZoomLayerClass =
   'h-full w-full origin-center transition-transform duration-300 ease-out will-change-transform group-hover:scale-[1.06]';
 
-/** Project list/publish covers served publicly via uploads route (no Bearer). */
+/** Project list covers served publicly via uploads route (no Bearer). */
 const PROJECT_COVER_PATH =
   /^projects\/[^/]+\/[^/]+\/thumb[^/]*\.(?:jpe?g|png|webp|gif)$/i;
 
@@ -97,6 +97,29 @@ export function projectThumbnailUrlsFromApi(
     .map((u) => toBrowserThumbUrl(String(u || '').trim()))
     .filter(Boolean)
     .slice(0, 4);
+}
+
+/** Same object path = same raster; ignore ?v= bust params on fixed keys. */
+export function stableThumbnailSrcKey(url: string | null | undefined): string {
+  const raw = toBrowserThumbUrl(url);
+  if (!raw) return '';
+  if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+  if (/\/thumb-\d+\.(webp|png|jpe?g)(?:\?|$)/i.test(raw)) {
+    try {
+      const u = new URL(raw, typeof window !== 'undefined' ? window.location.origin : 'http://local');
+      return u.pathname;
+    } catch {
+      return raw.split('?')[0]?.split('#')[0] || raw;
+    }
+  }
+  try {
+    const u = new URL(raw, typeof window !== 'undefined' ? window.location.origin : 'http://local');
+    u.searchParams.delete('v');
+    u.searchParams.delete('_');
+    return `${u.pathname}${u.search}`;
+  } catch {
+    return raw.replace(/([?&])(v|_)=\d+/g, '$1').replace(/[?&]$/, '');
+  }
 }
 
 /** Normalize project `thumbnailUrl` (string | string[]) with optional cache-bust. */

@@ -466,16 +466,14 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
     const trimmed = email.trim().toLowerCase();
     const body: { email: string; captchaToken?: string } = { email: trimmed };
     if (captchaToken) body.captchaToken = captchaToken;
-    const res = await sendEmailCode(body);
+    await sendEmailCode(body);
     setPendingCaptchaToken(null);
     setShowCaptcha(false);
     setCaptchaResume(null);
     setEmail(trimmed);
     setCodeSent(true);
     startResendCooldown();
-    message.success(
-      res?.mode === 'console' ? t('auth.codeSentConsole') : t('auth.codeSent')
-    );
+    message.success(t('auth.codeSent'));
   };
 
   const onGoogleContinue = () => {

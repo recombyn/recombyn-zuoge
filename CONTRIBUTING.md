@@ -2,7 +2,9 @@
 
 Thanks for considering a contribution to zuoge. Please read the [Code of Conduct](./CODE_OF_CONDUCT.md). Security issues go to [SECURITY.md](./SECURITY.md) — don’t file a public issue.
 
-How to run locally: [README.md](./README.md) · [docs/self-hosting.md](./docs/self-hosting.md) · desktop [docs/desktop.md](./docs/desktop.md).
+How to run locally: [README.md](./README.md) · [docs/deployment-modes.md](./docs/deployment-modes.md) · [docs/self-hosting.md](./docs/self-hosting.md) · desktop [docs/desktop.md](./docs/desktop.md).
+
+**Local login:** configure Tencent SES in `apps/api/.env` for email OTP, or set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. **Credits** default on (`WALLET_BILLING_ENABLED=true` — usually no change needed).
 
 ## Setup
 
@@ -29,8 +31,7 @@ Useful scripts:
 | `npm run check` | Web ESLint + contracts typecheck |
 | `npm run ci:gate` | Local mirror of GitHub `CI / gate` (check + web/API unit) |
 | `npm run lint` / `typecheck` | Turbo across JS packages |
-| `npm run dev:desktop` / `build:desktop` | Tauri **local** (SQLite API sidecar) |
-| `npm run dev:desktop:cloud` / `build:desktop:cloud` | Tauri **cloud** UI ([docs/desktop.md](./docs/desktop.md)) |
+| `npm run dev:desktop` / `build:desktop` | Tauri cloud desktop ([docs/desktop.md](./docs/desktop.md)) |
 | `npm run test` | Web + API tests |
 | `npm run test:web` / `test:api` | Scoped tests |
 | `npm run test:e2e` | Playwright (under `e2e/`) |

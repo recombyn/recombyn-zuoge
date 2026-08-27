@@ -5,17 +5,11 @@ import { BiEditAlt } from 'react-icons/bi';
 import {
   HiOutlineCheck,
   HiOutlineEllipsisHorizontal,
-  HiOutlineGlobeAlt,
   HiOutlinePlus,
 } from 'react-icons/hi2';
 import { RiDeleteBinLine } from 'react-icons/ri';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
-import {
-  plazaDisplayCoverUrls,
-  type PlazaSubmissionDto,
-  type PlazaStatus,
-} from '@/models/plaza';
 import ProjectCoverThumb from '@/components/home/ProjectCoverThumb';
 import { SoftGlowSurface } from '@/components/base';
 import { useGoEditor } from '@/utils/goEditor';
@@ -46,12 +40,6 @@ export function formatProjectUpdatedAt(
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function statusLabelKey(status: PlazaStatus): string {
-  if (status === 'pending') return 'plaza.statusPending';
-  if (status === 'approved') return 'plaza.statusApproved';
-  return 'plaza.statusRejected';
 }
 
 /** Shared card skeleton — soft-glow cover (list random) + title lines. */
@@ -120,9 +108,6 @@ type Props = {
   disabled?: boolean;
   selected?: boolean;
   selectMode?: boolean;
-  /** Mine grid: show Publish to Plaza. Recent: omit. */
-  showPublish?: boolean;
-  plazaStatus?: PlazaSubmissionDto | null;
   /** Orgs the current user can attach this project to. */
   orgOptions?: { id: string; name: string }[];
   onToggle?: () => void;
@@ -131,7 +116,6 @@ type Props = {
   onRename: () => void;
   /** Title inline contentEditable commit. */
   onCommitRename: (name: string) => void;
-  onPublish?: () => void;
   onSetOrg?: (orgId: string | null) => void;
 };
 
@@ -141,14 +125,11 @@ function ProjectCard({
   disabled = false,
   selected = false,
   selectMode = false,
-  showPublish = false,
-  plazaStatus,
   orgOptions = [],
   onToggle,
   onDelete,
   onRename,
   onCommitRename,
-  onPublish,
   onSetOrg,
 }: Props): ReactNode {
   const { t, i18n } = useTranslation();
@@ -160,14 +141,7 @@ function ProjectCard({
   const titleEditRef = useRef<HTMLDivElement | null>(null);
   const editingTitleRef = useRef(false);
   const [editingTitle, setEditingTitle] = useState(false);
-  const hasProjectThumb = Array.isArray(item.thumbnail)
-    ? item.thumbnail.some(Boolean)
-    : Boolean(String(item.thumbnail || '').trim());
-  const coverThumbnail = hasProjectThumb
-    ? item.thumbnail
-    : plazaStatus
-      ? plazaDisplayCoverUrls(plazaStatus)
-      : item.thumbnail;
+  const coverThumbnail = item.thumbnail;
 
   useEffect(() => {
     if (!editingTitle) return;
@@ -213,21 +187,6 @@ function ProjectCard({
         </span>
       ),
     },
-    ...(showPublish
-      ? [
-          {
-            key: 'publish',
-            label: (
-              <span className="inline-flex items-center gap-2">
-                <HiOutlineGlobeAlt className="h-3.5 w-3.5" />
-                {t('plaza.publish')}
-              </span>
-            ),
-            disabled:
-              plazaStatus?.status === 'pending' || plazaStatus?.status === 'approved',
-          } satisfies MenuItemType,
-        ]
-      : []),
     ...(onSetOrg && orgOptions.length > 0
       ? [
           ...orgOptions.map(
@@ -274,7 +233,6 @@ function ProjectCard({
   const onMenu = (key: string) => {
     if (key === 'rename') onRename();
     if (key === 'delete') onDelete();
-    if (key === 'publish') onPublish?.();
     if (key === 'org:none') onSetOrg?.(null);
     if (key.startsWith('org:') && key !== 'org:none') {
       onSetOrg?.(key.slice(4));
@@ -324,19 +282,6 @@ function ProjectCard({
           >
             <HiOutlineCheck className="h-2.5 w-2.5" strokeWidth={3} />
           </button>
-        ) : null}
-
-        {plazaStatus?.status ? (
-          <span
-            className={cn(
-              'absolute right-1.5 top-1.5 z-10 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide shadow-sm',
-              plazaStatus.status === 'pending' && 'bg-amber-500 text-white',
-              plazaStatus.status === 'approved' && 'bg-emerald-500 text-white',
-              plazaStatus.status === 'rejected' && 'bg-rose-500 text-white'
-            )}
-          >
-            {t(statusLabelKey(plazaStatus.status))}
-          </span>
         ) : null}
       </div>
 

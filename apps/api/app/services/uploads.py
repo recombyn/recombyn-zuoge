@@ -14,7 +14,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.storage import delete_object, get_storage, put_bytes
-from app.services.upload_limits import upload_max_bytes_for_mime
+from app.services.upload_limits import assert_upload_size_allowed
 
 _log = logging.getLogger(__name__)
 
@@ -232,6 +232,95 @@ def _probe_image_size(data: bytes, mime: str) -> tuple[int | None, int | None]:
         return None, None
 
 
+def _probe_image_size_from_path(path: Path, mime: str) -> tuple[int | None, int | None]:
+    if not mime.startswith("image/") or mime == "image/svg+xml":
+        return None, None
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return int(im.width), int(im.height)
+    except Exception:
+        return None, None
+
+
+def upload_user_file_from_path(
+    user_id: str,
+    *,
+    path: Path,
+    filename: str | None = None,
+    content_type: str | None = None,
+) -> dict[str, Any]:
+    """Store a file from disk without loading all bytes into memory."""
+    file_path = Path(path)
+    if not file_path.is_file():
+        raise ValueError("empty file")
+
+    size = file_path.stat().st_size
+    if size <= 0:
+        raise ValueError("empty file")
+
+    head = file_path.read_bytes()[: min(size, 512 * 1024)]
+    ext, mime = _ext_mime(filename, content_type)
+    if not (
+        mime.startswith("image/")
+        or mime.startswith("video/")
+        or mime.startswith("audio/")
+    ):
+        sniffed = _sniff_media(head)
+        if sniffed is None:
+            raise ValueError("only image, video, or audio uploads are supported")
+        ext, mime = sniffed
+
+    ext, mime = _reconcile_claimed_and_magic(head, claimed_ext=ext, claimed_mime=mime)
+    _run_av_hook(head, filename=filename or f"upload.{ext}")
+
+    assert_upload_size_allowed(size, mime)
+
+    now = time.gmtime()
+    file_id = uuid.uuid4().hex
+    object_key = f"uploads/{user_id}/{now.tm_year:04d}/{now.tm_mon:02d}/{file_id}.{ext}"
+    from app.services.storage import put_file
+
+    put_file(object_key, file_path, content_type=mime)
+
+    storage = get_storage()
+    url = storage.url_for(object_key)
+    if not storage.enabled_remote():
+        url = f"/api/v1/uploads/files/{object_key}"
+
+    width, height = _probe_image_size_from_path(file_path, mime)
+    thumb_b64 = ""
+    thumb_key = ""
+    if mime.startswith("image/") and size <= 64 * 1024 * 1024:
+        try:
+            from app.services.design.admin.blob_codec import make_webp_thumb
+            import base64
+
+            thumb = make_webp_thumb(file_path.read_bytes(), max_edge=512, quality=70)
+            thumb_key = f"{object_key.rsplit('.', 1)[0]}.thumb.webp"
+            try:
+                put_bytes(thumb_key, thumb, content_type="image/webp")
+            except Exception:
+                thumb_key = ""
+            thumb_b64 = base64.b64encode(thumb).decode("ascii")
+        except Exception:
+            thumb_key = ""
+
+    return {
+        "url": url,
+        "key": object_key,
+        "originPath": object_key,
+        "mime": mime,
+        "name": _safe_filename(filename),
+        "size": size,
+        "width": width,
+        "height": height,
+        "thumbKey": thumb_key or None,
+        "thumbWebpBase64": thumb_b64 or None,
+    }
+
+
 def upload_user_file(
     user_id: str,
     *,
@@ -263,10 +352,7 @@ def upload_user_file(
     ext, mime = _reconcile_claimed_and_magic(data, claimed_ext=ext, claimed_mime=mime)
     _run_av_hook(data, filename=filename or f"upload.{ext}")
 
-    max_bytes = upload_max_bytes_for_mime(mime)
-    if len(data) > max_bytes:
-        max_mb = max_bytes // (1024 * 1024)
-        raise ValueError(f"file too large (max {max_mb}MB)")
+    assert_upload_size_allowed(len(data), mime)
 
     now = time.gmtime()
     file_id = uuid.uuid4().hex
@@ -310,26 +396,6 @@ def upload_user_file(
         "thumbKey": thumb_key or None,
         "thumbWebpBase64": thumb_b64 or None,
     }
-
-
-def upload_user_files(
-    user_id: str,
-    files: list[tuple[bytes, str | None, str | None]],
-) -> list[dict[str, Any]]:
-    """``files`` items: (bytes, filename, content_type)."""
-    if not files:
-        raise ValueError("files required")
-    out: list[dict[str, Any]] = []
-    for data, filename, content_type in files:
-        out.append(
-            upload_user_file(
-                user_id,
-                data=data,
-                filename=filename,
-                content_type=content_type,
-            )
-        )
-    return out
 
 
 def delete_user_file(user_id: str, object_key: str) -> bool:

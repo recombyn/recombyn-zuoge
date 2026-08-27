@@ -17,7 +17,7 @@ from app.services.design.runtime.graph.llm_io import (
     _emit_ux_tip,
     _stream_llm_text,
 )
-from app.services.design.runtime.graph.scene_log import _bump, _goto_cmd
+from app.services.design.runtime.graph.scene_log import _goto_cmd
 from app.services.design.runtime.models_route import (
     build_design_plan,
     classify_user_intent,

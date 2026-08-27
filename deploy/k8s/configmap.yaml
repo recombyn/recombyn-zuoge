@@ -10,5 +10,5 @@ data:
   COLLAB_PUBLIC_WS_URL: ws://collab:1234
   OTEL_ENABLED: "false"
   LOG_JSON: "true"
-  WALLET_BILLING_ENABLED: "false"
+  WALLET_BILLING_ENABLED: "true"
   RATE_LIMIT_ENABLED: "true"

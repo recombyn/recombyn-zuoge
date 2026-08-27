@@ -1,28 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import time
-from typing import Any
 
 from langgraph.types import Command
 
 from app.services.agent_memory.service import memory_service
-from app.services.design.runtime.graph.nodes.bootstrap import _apply_task_route_flags
-from app.services.design.runtime.graph.state import AgentRunState, AgentRuntime, GraphState
+from app.services.design.runtime.graph.state import GraphState
 from app.services.design.runtime.graph.llm_io import _clip_llm_raw
 from app.services.design.runtime.graph.scene_log import (
-    _bump,
-    _commit,
     _goto_cmd,
-    _persist_progress,
 )
+from app.services.design.runtime.models_route import apply_classified_model_route
 
 
 async def _node_memory(state: GraphState) -> Command:
     rt = state["rt"]
     st = rt.run
-    _apply_task_route_flags(rt)
+    await apply_classified_model_route(rt)
     mem_bundle = await asyncio.to_thread(
         memory_service.load,
         user_id=rt.user_id,

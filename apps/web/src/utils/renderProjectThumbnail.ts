@@ -1,9 +1,8 @@
 /**
- * Rasterize project covers for list cards / Publish / cloud sync.
- * Up to 4 tiles: per-artboard or per-element snapshots — never raw node src.
+ * Client-side cover rasterization for list-card fallbacks (TemplateThumbnail / doc collage).
  */
 
-import { inlineSvgImages, rasterizeSvgString, renderExport } from '@/components/rcb/scene/paint/exportImage';
+import { inlineSvgImages, rasterizeSvgString } from '@/components/rcb/scene/paint/exportImage';
 import { createSvgBoard, loadSceneOntoSvg } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   isExportableSceneNode
@@ -14,16 +13,12 @@ import {
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   coverDocumentHasContent,
-  extractFrameDocument,
-  extractPlazaCoverDocument,
   findPlazaCoverFrame,
-  listArtboardFrames,
   type PlazaCoverFrame,
 } from '@/utils/plazaCover';
 
 const MAX_EDGE = 480;
 const MAX_TILES = 4;
-const TILE_MAX_EDGE = 360;
 const WEBP_QUALITY = 0.82;
 /** Skip decorative noise smaller than ~1% of the artboard (or 40px edge). */
 const MIN_ELEMENT_EDGE = 40;
@@ -32,7 +27,6 @@ export const PREVIEW_PNG_MAX_EDGE = 1600;
 
 export type ThumbRasterOptions = {
   allowEmpty?: boolean;
-  /** Prefer png for HD previews; webp/jpeg for compact list thumbs. */
   format?: 'webp' | 'png' | 'jpeg';
   maxEdge?: number;
 };
@@ -44,13 +38,6 @@ function paperBackground(document: SceneDocument): string {
   const fromDoc = String(document?.backgroundColor || '').trim();
   if (fromDoc && fromDoc !== 'none' && fromDoc !== 'transparent') return fromDoc;
   return '#ffffff';
-}
-
-/** Build a full-board WebP for project list / publish preview (contain, not cropped). */
-export async function renderProjectThumbnail(document: unknown): Promise<string | null> {
-  if (!document || typeof document !== 'object') return null;
-  const cover = extractPlazaCoverDocument(document, { contentFit: true }) || document;
-  return renderDocumentThumbnail(cover, { allowEmpty: true });
 }
 
 function num(value: unknown, fallback = 0): number {
@@ -151,7 +138,7 @@ export function pickCoverElementIds(document: unknown): string[] {
  * Mini document with one element on a white board — same finite-board path as list thumbs.
  * Avoids infinite-canvas selection export (shapes often rasterized to empty/gray tiles).
  */
-function extractElementCoverDocument(document: unknown, nodeId: string): unknown | null {
+export function extractElementCoverDocument(document: unknown, nodeId: string): unknown | null {
   const dsl = (document as { deltaSetLike?: Record<string, unknown> })?.deltaSetLike;
   const raw = dsl?.[nodeId];
   if (!raw || typeof raw !== 'object') return null;
@@ -192,147 +179,6 @@ function extractElementCoverDocument(document: unknown, nodeId: string): unknown
       },
     },
   };
-}
-
-/** Rasterize one element (cropped to its bbox) for a collage tile. */
-async function rasterizeElementTile(
-  document: unknown,
-  nodeId: string,
-  opts?: { maxEdge?: number; format?: 'webp' | 'png' | 'jpeg'; compress?: boolean }
-): Promise<string | null> {
-  const slice = extractElementCoverDocument(document, nodeId);
-  if (!slice) return null;
-
-  const maxEdge = Math.max(64, Math.round(opts?.maxEdge || TILE_MAX_EDGE));
-  let format: 'webp' | 'png' | 'jpeg' = 'webp';
-  if (opts?.format === 'png' || opts?.format === 'jpeg') format = opts.format;
-
-  try {
-    const viaThumb = await renderDocumentThumbnail(slice, {
-      allowEmpty: true,
-      format,
-      maxEdge,
-    });
-    if (viaThumb) return viaThumb;
-  } catch {
-    /* fall through to export */
-  }
-
-  // Fallback: selection export (images with remote src sometimes need inline pass).
-  try {
-    const exportFormat = format === 'webp' ? 'png' : format;
-    const result = await renderExport({
-      document: slice as SceneDocument,
-      selectionOnly: true,
-      nodeIds: [nodeId],
-      multiplier: 1,
-      format: exportFormat,
-      compress: opts?.compress ?? exportFormat === 'jpeg',
-      backgroundColor: '#ffffff',
-    });
-    if (result?.kind === 'raster' && result.dataUrl) return result.dataUrl;
-  } catch {
-    /* best-effort per tile */
-  }
-  return null;
-}
-
-export type ProjectCoverTiles = {
-  /** Already-hosted image URLs — rare passthrough. */
-  urls?: string[];
-  /** Raster data URLs to upload as project thumbs. */
-  dataUrls?: string[];
-};
-
-export type ProjectCoverTileOptions = {
-  /** Longest edge for each tile (default list-card 360). Publish modal should pass ~960+. */
-  maxEdge?: number;
-  format?: 'webp' | 'png' | 'jpeg';
-  /** JPEG only — list cards compress; HD previews should pass false. */
-  compress?: boolean;
-  /** Full-board fallback max edge (default 480 list / use PREVIEW_PNG_MAX_EDGE for modal). */
-  fullBoardMaxEdge?: number;
-};
-
-/** List thumbs use webp; jpeg callers map to webp. PNG kept for HD publish preview. */
-function resolveCoverTileRasterOpts(opts?: ProjectCoverTileOptions) {
-  let format: 'webp' | 'png' = 'webp';
-  if (opts?.format === 'png') format = 'png';
-
-  const tileMax = opts?.maxEdge ?? TILE_MAX_EDGE;
-
-  let fullMax = MAX_EDGE;
-  if (opts?.fullBoardMaxEdge != null) fullMax = opts.fullBoardMaxEdge;
-  else if (opts?.maxEdge != null) fullMax = opts.maxEdge;
-
-  return { format, tileMax, fullMax };
-}
-
-/**
- * Up to 4 cover tiles for list collage / Publish / cloud sync.
- * 2+ artboards → one snapshot each; else up to 4 per-element rasters; else full board.
- */
-export async function buildProjectCoverTiles(
-  document: unknown,
-  opts?: ProjectCoverTileOptions
-): Promise<ProjectCoverTiles> {
-  if (!document || typeof document !== 'object') return {};
-
-  const { format: thumbFormat, tileMax } = resolveCoverTileRasterOpts(opts);
-  const frames = listArtboardFrames(document).slice(0, MAX_TILES);
-
-  if (frames.length >= 2) {
-    const slices = frames
-      .map((frame) => extractFrameDocument(document, frame, { contentFit: true }))
-      .filter(Boolean);
-    const rendered = await Promise.all(
-      slices.map((slice) =>
-        renderDocumentThumbnail(slice, {
-          allowEmpty: true,
-          format: thumbFormat,
-          maxEdge: tileMax,
-        })
-      )
-    );
-    const dataUrls = rendered.filter((u): u is string => Boolean(u));
-    if (dataUrls.length) return { dataUrls };
-  }
-
-  // Single board: up to 4 element tiles (square / image / circle each as one cover).
-  const ids = pickCoverElementIds(document);
-  if (ids.length) {
-    const rendered = await Promise.all(
-      ids.map((id) =>
-        rasterizeElementTile(document, id, {
-          maxEdge: opts?.maxEdge ?? tileMax,
-          format: opts?.format ?? thumbFormat,
-          compress: opts?.compress,
-        })
-      )
-    );
-    const dataUrls = rendered.filter((u): u is string => Boolean(u));
-    if (dataUrls.length) return { dataUrls };
-  }
-
-  return buildProjectCoverSingle(document, opts);
-}
-
-/** Fallback: one full-board cover when collage tiles are unavailable. */
-export async function buildProjectCoverSingle(
-  document: unknown,
-  opts?: ProjectCoverTileOptions
-): Promise<ProjectCoverTiles> {
-  if (!document || typeof document !== 'object') return {};
-  const { format: thumbFormat, fullMax } = resolveCoverTileRasterOpts(opts);
-  const one = await renderDocumentThumbnail(
-    extractPlazaCoverDocument(document, { contentFit: true }) || document,
-    {
-      allowEmpty: true,
-      format: thumbFormat,
-      maxEdge: fullMax,
-    }
-  );
-  return one ? { dataUrls: [one] } : {};
 }
 
 /**

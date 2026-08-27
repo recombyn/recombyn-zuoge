@@ -81,6 +81,7 @@ async function executeRequest<T>(config: RequestConfig, key: string | null): Pro
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const isForm = typeof FormData !== 'undefined' && config.data instanceof FormData;
+  const isBlob = typeof Blob !== 'undefined' && config.data instanceof Blob;
   const options: Options = {
     method,
     headers,
@@ -96,6 +97,7 @@ async function executeRequest<T>(config: RequestConfig, key: string | null): Pro
   };
   if (config.data != null && method !== 'GET' && method !== 'HEAD') {
     if (isForm) options.body = config.data as FormData;
+    else if (isBlob) options.body = config.data as Blob;
     else options.json = config.data as Options['json'];
   }
 

@@ -1,20 +1,16 @@
-"""Async media upload jobs — survive refresh after the API has received the file."""
-
 from __future__ import annotations
 
 import logging
-import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
 from app.api.routes.chat_job_sse import streaming_media_job_events
-from app.core.config import settings
-from app.services.job_store import get_job, save_job
-from app.services.upload_limits import upload_max_bytes_for_mime, upload_max_mb_for_mime
+from app.services.job_store import get_job
+from app.services import upload_job_store as job_store
 from worker.tasks import run_upload_job
 
 router = APIRouter(tags=["upload-jobs"])
@@ -22,9 +18,23 @@ _log = logging.getLogger(__name__)
 _KIND = "upload"
 
 
-class UploadJobCreateResponse(BaseModel):
+class UploadSessionCreate(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=512)
+    content_type: str | None = None
+    total_size: int = Field(..., gt=0)
+
+
+class UploadSessionResponse(BaseModel):
     job_id: str
-    status: str = "queued"
+    part_size: int
+    part_count: int
+
+
+class UploadPartResponse(BaseModel):
+    part_number: int
+    received: int
+    part_count: int
+    progress: int
 
 
 class UploadJobStatusResponse(BaseModel):
@@ -33,68 +43,73 @@ class UploadJobStatusResponse(BaseModel):
     progress: int = 0
     result: dict[str, Any] | None = None
     error: str | None = None
+    received_parts: list[int] | None = None
+    part_count: int | None = None
+    part_size: int | None = None
 
 
-def _upload_job_temp_dir() -> Path:
-    """Shared with Celery worker via compose volume ``storage/uploads``."""
-    root = Path(getattr(settings, "upload_dir", None) or "storage/uploads")
-    if not root.is_absolute():
-        # Match API cwd layout in Docker: /app/apps/api/storage/uploads
-        root = (Path.cwd() / root).resolve()
-    dest = root / "upload_jobs"
-    dest.mkdir(parents=True, exist_ok=True)
-    return dest
+def _http_value_error(exc: ValueError) -> HTTPException:
+    msg = str(exc)
+    if "too large" in msg:
+        return HTTPException(status_code=413, detail=msg)
+    return HTTPException(status_code=400, detail=msg)
 
 
-@router.post("/jobs", response_model=UploadJobCreateResponse)
-async def create_upload_job(
-    current_user: CurrentUser,
-    file: UploadFile = File(...),
-):
-    """Accept one file, persist to temp storage, enqueue worker to push to object storage."""
-    if not file:
-        raise HTTPException(status_code=400, detail="file required")
-
-    raw = await file.read()
-    max_bytes = upload_max_bytes_for_mime(file.content_type)
-    if len(raw) > max_bytes:
-        max_mb = upload_max_mb_for_mime(file.content_type)
-        raise HTTPException(status_code=413, detail=f"file too large (max {max_mb}MB)")
-    if not raw:
-        raise HTTPException(status_code=400, detail="empty file")
-
-    job_id = uuid.uuid4().hex
-    temp_path = _upload_job_temp_dir() / job_id
-    temp_path.write_bytes(raw)
-
-    payload = {
-        "job_id": job_id,
-        "kind": _KIND,
-        "status": "queued",
-        "progress": 0,
-        "user_id": current_user.id,
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "temp_path": str(temp_path),
-        "size": len(raw),
-        "result": None,
-        "error": None,
-    }
+@router.post("/jobs/session", response_model=UploadSessionResponse)
+def create_upload_session(current_user: CurrentUser, body: UploadSessionCreate):
     try:
-        save_job(job_id, payload, kind=_KIND)
+        out = job_store.create_upload_session(
+            current_user.id,
+            filename=body.filename.strip(),
+            content_type=body.content_type,
+            total_size=int(body.total_size),
+        )
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+    return UploadSessionResponse(**out)
+
+
+@router.put("/jobs/{job_id}/parts/{part_number}", response_model=UploadPartResponse)
+async def upload_job_part(
+    current_user: CurrentUser,
+    job_id: str,
+    part_number: int,
+    request: Request,
+):
+    data = await request.body()
+    try:
+        out = job_store.save_upload_part(current_user.id, job_id, part_number, data)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="job not found") from exc
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+    return UploadPartResponse(**out)
+
+
+@router.post("/jobs/{job_id}/complete")
+def complete_upload_job(current_user: CurrentUser, job_id: str):
+    try:
+        assembled = job_store.assemble_upload_job(current_user.id, job_id)
+        job_store.mark_upload_job_queued(current_user.id, job_id, assembled)
         run_upload_job.delay(job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="job not found") from exc
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
     except Exception as exc:  # noqa: BLE001
-        try:
-            temp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        job_store.abort_upload_job(current_user.id, job_id)
         raise HTTPException(
             status_code=503,
             detail=f"Job queue unavailable (start Redis + worker). {exc}",
         ) from exc
+    _log.info("upload_job event=enqueued job_id=%s", job_id)
+    return {"job_id": job_id, "status": "queued"}
 
-    _log.info("upload_job event=enqueued job_id=%s bytes=%s", job_id, len(raw))
-    return UploadJobCreateResponse(job_id=job_id, status="queued")
+
+@router.delete("/jobs/{job_id}")
+def abort_upload_job(current_user: CurrentUser, job_id: str):
+    job_store.abort_upload_job(current_user.id, job_id)
+    return {"ok": True}
 
 
 @router.get("/jobs/{job_id}", response_model=UploadJobStatusResponse)
@@ -108,12 +123,16 @@ def get_upload_job(current_user: CurrentUser, job_id: str):
     if str(job.get("user_id") or "") != str(current_user.id):
         raise HTTPException(status_code=404, detail="Job not found")
     result = job.get("result") if isinstance(job.get("result"), dict) else None
+    received = job.get("received_parts")
     return UploadJobStatusResponse(
         job_id=job_id,
         status=str(job.get("status") or "queued"),
         progress=int(job.get("progress") or 0),
         result=result,
         error=job.get("error"),
+        received_parts=list(received) if isinstance(received, list) else None,
+        part_count=int(job["part_count"]) if job.get("part_count") else None,
+        part_size=int(job["part_size"]) if job.get("part_size") else None,
     )
 
 
@@ -123,32 +142,24 @@ async def stream_upload_job_events(current_user: CurrentUser, job_id: str):
 
 
 def execute_upload_job(job: dict[str, Any]) -> dict[str, Any]:
-    """Push temp bytes to object storage; returns first uploaded item dict."""
     from app.services import uploads as upload_store
 
     user_id = str(job.get("user_id") or "").strip()
+    job_id = str(job.get("job_id") or "").strip()
     temp_path = Path(str(job.get("temp_path") or ""))
-    if not user_id or not temp_path.is_file():
-        raise RuntimeError(
-            "上传作业缺少临时文件（API 与 worker 未共享 storage/uploads；"
-            "或临时文件已过期被清理）"
-        )
+    if not user_id or not job_id or not temp_path.is_file():
+        raise RuntimeError("upload job missing assembled file")
 
     try:
-        raw = temp_path.read_bytes()
-        items = upload_store.upload_user_files(
+        item = upload_store.upload_user_file_from_path(
             user_id,
-            [(raw, job.get("filename"), job.get("content_type"))],
+            path=temp_path,
+            filename=str(job.get("filename") or "upload.bin"),
+            content_type=str(job.get("content_type") or "") or None,
         )
     finally:
-        try:
-            temp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        job_store.cleanup_upload_job_files(user_id, job_id)
 
-    if not items:
-        raise RuntimeError("upload returned no items")
-    item = items[0]
     if not isinstance(item, dict) or not item.get("url"):
         raise RuntimeError("upload returned no url")
     return {"item": item}

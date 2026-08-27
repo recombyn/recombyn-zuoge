@@ -1,44 +1,24 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HiCheck, HiOutlineSparkles } from 'react-icons/hi2';
-import { Button, Dialog, message, SoftGlowSurface } from '@/components/base';
+import { Button, message } from '@/components/base';
 import ProjectCoverCollage from '@/components/home/ProjectCoverCollage';
 import { checkPlazaCoverForPublish, coverDocumentHasContent } from '@/utils/plazaCover';
-import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
-
-function canUseAsImgSrc(url: string): boolean {
-  const raw = String(url || '').trim();
-  if (!raw) return false;
-  if (raw.startsWith('data:') || raw.startsWith('blob:')) return true;
-  if (raw.startsWith('/')) return true;
-  try {
-    const u = new URL(raw, typeof window !== 'undefined' ? window.location.origin : 'http://local');
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
+import { projectThumbnailUrlsFromApi } from '@/utils/projectThumb';
 
 type PlazaPublishFormProps = {
   publishing: boolean;
   projectId?: string;
   projectName: string;
   document?: unknown;
-  /** Saved project cover tiles (拼贴) — preferred when list has no live document. */
   coverUrls?: string | string[] | null;
   coverVersion?: number | string | null;
-  /** True while Publish tab is extracting server covers. */
-  coverRefreshing?: boolean;
   onCancel: () => void;
   onSubmit: () => Promise<void> | void;
   onSuccessDone?: () => void;
   onPhaseChange?: (phase: 'confirm' | 'success') => void;
 };
 
-/**
- * Shared publish-to-plaza body — cover matches 首页 ProjectCoverCollage
- * (rewrite API/base hosts on tab enter; live-raster tiles when URLs missing).
- */
 function PlazaPublishForm({
   publishing,
   projectId,
@@ -46,7 +26,6 @@ function PlazaPublishForm({
   document,
   coverUrls,
   coverVersion,
-  coverRefreshing = false,
   onCancel,
   onSubmit,
   onSuccessDone,
@@ -54,40 +33,21 @@ function PlazaPublishForm({
 }: PlazaPublishFormProps): ReactNode {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<'confirm' | 'success'>('confirm');
-  const [resolvedUrls, setResolvedUrls] = useState<string[]>([]);
 
   const coverCheck = useMemo(() => checkPlazaCoverForPublish(document), [document]);
-  const propUrls = useMemo(
-    () =>
-      normalizeProjectThumbnailUrls(coverUrls, coverVersion).filter(canUseAsImgSrc),
-    [coverUrls, coverVersion]
+  const thumbUrls = useMemo(
+    () => projectThumbnailUrlsFromApi(coverUrls),
+    [coverUrls]
   );
-  const hasThumbCollage = resolvedUrls.length > 0;
-  const canvasEmpty = !hasThumbCollage && !coverDocumentHasContent(document);
-  const [coverGlowTimedOut, setCoverGlowTimedOut] = useState(false);
-
-  useEffect(() => {
-    if (!coverRefreshing) {
-      setCoverGlowTimedOut(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setCoverGlowTimedOut(true), 12_000);
-    return () => window.clearTimeout(timer);
-  }, [coverRefreshing, projectId]);
-
-  const showCoverGlow = coverRefreshing && !hasThumbCollage && !coverGlowTimedOut;
-  const canSubmit = (coverCheck.ok || hasThumbCollage) && !canvasEmpty && !showCoverGlow;
+  const hasServerCover = thumbUrls.length > 0;
+  const canvasEmpty = !hasServerCover && !coverDocumentHasContent(document);
+  const canSubmit = coverCheck.ok && !canvasEmpty;
 
   useEffect(() => {
     setPhase('confirm');
     onPhaseChange?.('confirm');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
-
-  // Prefer server cover URLs (from /covers). Fallback: live document collage.
-  useEffect(() => {
-    setResolvedUrls(propUrls);
-  }, [propUrls]);
 
   const goPhase = (next: 'confirm' | 'success') => {
     setPhase(next);
@@ -155,16 +115,13 @@ function PlazaPublishForm({
     <div>
       <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--canvas)]">
         <div className="rcb-publish-cover-panel aspect-[680/385] w-full overflow-hidden bg-[var(--canvas)]">
-          {showCoverGlow ? (
-            <SoftGlowSurface className="h-full w-full !rounded-none" seed="plaza-cover" aria-hidden />
-          ) : (
-            <ProjectCoverCollage
-              urls={resolvedUrls}
-              version={coverVersion}
-              document={document}
-              className="!h-full !rounded-none !border-0 !shadow-none"
-            />
-          )}
+          <ProjectCoverCollage
+            urls={thumbUrls}
+            version={coverVersion}
+            document={document}
+            eager
+            className="!h-full !rounded-none !border-0 !shadow-none"
+          />
         </div>
       </div>
 
@@ -191,72 +148,6 @@ function PlazaPublishForm({
     </div>
   );
 }
-
-type PlazaPublishDialogProps = {
-  open: boolean;
-  publishing: boolean;
-  projectId?: string;
-  projectName: string;
-  document?: unknown;
-  coverUrls?: string | string[] | null;
-  coverVersion?: number | string | null;
-  onClose: () => void;
-  onSubmit: () => Promise<void> | void;
-};
-
-/** Standalone Publish-to-plaza dialog (Projects grid). */
-function PlazaPublishDialog({
-  open,
-  publishing,
-  projectId,
-  projectName,
-  document,
-  coverUrls,
-  coverVersion,
-  onClose,
-  onSubmit,
-}: PlazaPublishDialogProps): ReactNode {
-  const { t } = useTranslation();
-  const [phase, setPhase] = useState<'confirm' | 'success'>('confirm');
-
-  useEffect(() => {
-    if (open) setPhase('confirm');
-  }, [open, projectId]);
-
-  const handleClose = () => {
-    if (publishing) return;
-    onClose();
-  };
-
-  return (
-    <Dialog
-      show={open}
-      onClose={handleClose}
-      width={440}
-      title={phase === 'confirm' ? t('plaza.publish') : undefined}
-      titleClassName="!px-5 !text-[16px] !font-semibold !pb-2"
-      className="!overflow-hidden !rounded-2xl !bg-[var(--surface)] !px-0 !pb-4 !pt-5"
-      bodyClassName="!px-0 !py-0"
-    >
-      <div className="px-5 pb-1 pt-1">
-        <PlazaPublishForm
-          publishing={publishing}
-          projectId={projectId}
-          projectName={projectName}
-          document={document}
-          coverUrls={coverUrls}
-          coverVersion={coverVersion}
-          onCancel={handleClose}
-          onSubmit={onSubmit}
-          onSuccessDone={handleClose}
-          onPhaseChange={setPhase}
-        />
-      </div>
-    </Dialog>
-  );
-}
-
-export default memo(PlazaPublishDialog);
 
 const MemoizedPlazaPublishForm = memo(PlazaPublishForm);
 export { MemoizedPlazaPublishForm as PlazaPublishForm };

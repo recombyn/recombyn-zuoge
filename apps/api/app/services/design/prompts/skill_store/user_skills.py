@@ -21,7 +21,6 @@ from .constants import (
     NS_EXT,
     NS_USER,
     SOURCE_ADMIN,
-    SOURCE_FILE,
     _MAX_USER_SKILL_ZIP_BYTES,
     _MAX_USER_SKILL_ZIP_UNCOMPRESSED,
     _ZIP_LOGO_EXTS,

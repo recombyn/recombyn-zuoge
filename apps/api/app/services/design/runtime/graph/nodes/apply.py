@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import time
 from typing import Any
 
 from langgraph.types import Command
+from recombyn_protocol import new_design_transaction, resolve_transaction_phase
 
 from app.services.design.ops.tool_ops_contract import (
-    TOOL_OPS_SCHEMA_VERSION,
     tool_ops_activity_events as _tool_ops_activity_events,
     tool_ops_for_sse,
     validation_failure_reason,
@@ -19,8 +18,6 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     GraphState,
     _SCENE_WAIT_SEC,
-    new_design_transaction,
-    resolve_transaction_phase,
 )
 from app.services.design.runtime.graph.emit_sse import (
     _emit,
@@ -35,10 +32,7 @@ from app.services.design.runtime.graph.paint_kit import (
 )
 from app.services.design.runtime.graph.scene_log import (
     _bump,
-    _commit,
-    _goto_cmd,
     _hydrate_log_kwargs,
-    _persist_progress,
 )
 from app.services.design.runtime.graph.turns import (
     _ask_propose_user_text,
