@@ -4,26 +4,14 @@ name: Release Docker (GHCR)
 # Example: git tag v0.1.0 && git push origin v0.1.0
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Image tag (e.g. v0.1.0 or sha-abc1234)'
-        required: true
-        default: 'dev'
-
-permissions:
-  contents: read
-  packages: write
-
-env:
-  REGISTRY: ghcr.io
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:

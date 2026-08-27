@@ -7,6 +7,11 @@ import {
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import type { MarkRegion } from './MarkRegionOverlay';
 
+/** On-image mark rubber-band (must stay below composer so cancel/toggle stays clickable). */
+export const MARK_REGION_OVERLAY_Z = 34;
+/** Floating composer / generator shell while mark mode is active. */
+export const MARK_COMPOSER_Z = 40;
+
 export type SceneBox = { left: number; top: number; width: number; height: number };
 
 export type MarkSessionTarget = {

@@ -153,18 +153,6 @@ export function isFrameProcessRunning(
   return Boolean(frame) && String(frame?.processStatus || '') === 'running';
 }
 
-/** Generator bottom composer — hide while upload / generate / AI shimmer is active. */
-export function shouldShowGeneratorComposer(opts: {
-  node: SceneNodeRef;
-  hidden?: boolean;
-  selected?: boolean;
-  attachPickActive?: boolean;
-}): boolean {
-  if (opts.hidden) return false;
-  if (isImageProcessRunning(opts.node)) return false;
-  return Boolean(opts.selected || opts.attachPickActive);
-}
-
 /**
  * Spawned upload / import / AI-tool clone — used for history scrub on delete
  * (Ctrl+Z must not resurrect an unfinished placeholder). Never used to block delete.

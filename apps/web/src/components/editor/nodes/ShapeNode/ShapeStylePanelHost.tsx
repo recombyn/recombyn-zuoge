@@ -242,7 +242,14 @@ function readStrokeValue(attrs: Record<string, unknown> | undefined): StrokePane
  * Fill / stroke editor docked to the right of the selection.
  * Top selection toolbar is suppressed while this is open (see SvgCanvas suppressChrome).
  */
-function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNode {
+function ShapeStylePanelHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  /** Hide docked side panel while selection is transforming (drag/resize). */
+  hidden?: boolean;
+}): ReactNode {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const camera = useRcbCamera();
@@ -589,7 +596,13 @@ function ShapeStylePanelHost({ document }: { document: SceneDocument }): ReactNo
       <RcbOverlayPortal>
         <div
           className="pointer-events-auto"
-          style={panelStyleTopRight(camera, box)}
+          style={{
+            ...panelStyleTopRight(camera, box),
+            ...(hidden
+              ? { visibility: 'hidden' as const, pointerEvents: 'none' as const }
+              : null),
+          }}
+          aria-hidden={hidden}
           data-shape-style-panel
           onPointerDown={(e) => e.stopPropagation()}
         >

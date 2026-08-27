@@ -43,13 +43,16 @@ import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/
 import {
   buildMarkdownTextAttrs,
   buildTextAttrsPreservingMarkdown,
+  defaultTextWrapWidthForFontSize,
   isTextBold,
   isTextItalic,
   isTextOverline,
   isTextStrike,
   isTextUnderline,
   measurePlainTextSize,
+  measureTextFrameExitBox,
   measureTextNodeBoxAfterStyleChange,
+  measureWrappedTextSize,
   normalizeTextFontSize,
   parseNodeMarkdown,
   parseNodeText,
@@ -57,7 +60,7 @@ import {
   toggleTextDecoration,
 } from '@/components/rcb/scene/document/sceneText';
 import { markdownToPlain } from '@/components/rcb/scene/document/sceneMarkdown';
-import { TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
+import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
@@ -70,6 +73,10 @@ import {
   isVideoGeneratorNode,
   supportsCornerRadius,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import ImageGeneratorCard from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
+import VideoGeneratorCard from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorCard';
+import LottieGeneratorCard from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorCard';
+import AudioGeneratorCard from '@/components/editor/nodes/AudioGeneratorNode/AudioGeneratorCard';
 import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
 import ToolbarMenuSelect from './ToolbarMenuSelect';
 import { BlendModeIcon, OpacityControl } from './BlendModeControl';
@@ -473,6 +480,24 @@ function SelectionContextToolbar(props: Props): ReactNode {
   if (!node || !box) return null;
 
   const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
+  const genBox = { x: box.left, y: box.top, width: box.width, height: box.height };
+
+  // Same mount gate as image/video toolbars (SelectionFeature). Content only differs.
+  if (isImageGeneratorNode(node)) {
+    return <ImageGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+  if (isVideoGeneratorNode(node)) {
+    return <VideoGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+  if (isLottieGeneratorNode(node)) {
+    return <LottieGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+  if (isAudioGeneratorNode(node)) {
+    return <AudioGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+
+  if (isImageProcessRunning(node)) return null;
+  if (imageSidePanelOpen) return null;
 
   if (quickEditComposerOpen || lottieEditOpen) {
     if (kind === 'image') return null;
@@ -486,17 +511,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
       return <LottieQuickEditComposer document={document} nodeId={nodeId} box={box} />;
     }
   }
-
-  if (isImageProcessRunning(node)) return null;
-  if (
-    isImageGeneratorNode(node) ||
-    isVideoGeneratorNode(node) ||
-    isLottieGeneratorNode(node) ||
-    isAudioGeneratorNode(node)
-  ) {
-    return null;
-  }
-  if (imageSidePanelOpen) return null;
 
   const fontSizePx = normalizeTextFontSize(style?.fontSize);
 
@@ -570,20 +584,33 @@ function SelectionContextToolbar(props: Props): ReactNode {
     if (!node || !style) return;
     const plain = parseNodeText(node.attrs || {}) || ' ';
     if (isTextBoxMode) {
-      const measured = measurePlainTextSize(plain, style);
+      const measured = measureTextFrameExitBox(node, style);
       dispatch(
         patchDocumentNode({
           nodeId,
           patch: {
-            attrs: { textFrame: null, autoSize: 'true' },
-            width: Math.max(8, Math.round(measured.width)),
-            height: Math.max(8, Math.round(measured.height)),
+            attrs: { textFrame: null, autoSize: 'false', lockAspect: null },
+            width: measured.width,
+            height: measured.height,
           },
         })
       );
       return;
     }
-    const side = Math.max(120, Math.round(Math.max(Number(node.width) || 240, Number(node.height) || 240)));
+    const fs = Math.max(1, Number(style.fontSize) || 14);
+    const wrapW = defaultTextWrapWidthForFontSize(fs);
+    const content = measureWrappedTextSize(plain, style, wrapW);
+    const pad = TEXT_FRAME_PADDING * 2;
+    const side = Math.min(
+      wrapW * 4,
+      Math.max(
+        wrapW,
+        content.width + pad,
+        content.height + pad,
+        Number(node.width) || 0,
+        Number(node.height) || 0
+      )
+    );
     const titleName =
       String(node.attrs?.name || '').trim() ||
       plain.replace(/\s+/g, ' ').trim().slice(0, 48) ||
@@ -603,8 +630,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
             radiusBL: TEXT_FRAME_RADIUS,
             radiusLinked: 'true',
           },
-          width: side,
-          height: side,
+          width: Math.round(side),
+          height: Math.round(side),
         },
       })
     );

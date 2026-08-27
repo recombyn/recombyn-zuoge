@@ -49,12 +49,18 @@ def resolve_output_locale(
     client_locale: str | None = None,
     profile_locale: str | None = None,
     prompt: str = "",
+    llm_locale: str | None = None,
     default: str = "zh-CN",
 ) -> str:
-    """Language Context Layer: client UI → prompt script → AgentProfile → default."""
-    client = normalize_locale(client_locale, default="") if client_locale else ""
-    if client:
-        return client
+    """Language layer: intent LLM → prompt script → profile → default.
+
+    UI ``client_locale`` is ignored for agent output — reply language follows
+    the user's message (intent classifier), not editor i18n settings.
+    """
+    del client_locale  # kept for call-site compat; not used for agent prose
+    llm = normalize_locale(llm_locale, default="") if llm_locale else ""
+    if llm:
+        return llm
     detected = detect_locale_from_text(prompt)
     if detected:
         return detected
@@ -83,13 +89,13 @@ def locale_for_runtime(rt: Any | None = None, *, explicit: str | None = None) ->
 
 
 def language_directive(locale: str) -> str:
-    """Inject into every stage system prompt — agents must not pick English by default."""
+    """Inject into every stage system prompt — match the user's message language."""
     loc = normalize_locale(locale)
     return (
         "OUTPUT LANGUAGE\n"
         f"- output_language: {loc}\n"
-        "- Always answer the user in output_language.\n"
-        "- Do not switch to English unless the user explicitly asks for English.\n"
+        "- Always answer the user in the same language they use in their message.\n"
+        "- Infer language from the user prompt and dialogue — do not default to English.\n"
         "- Keep tool schemas / op names / hex colors as-is; user-facing prose follows output_language."
     )
 

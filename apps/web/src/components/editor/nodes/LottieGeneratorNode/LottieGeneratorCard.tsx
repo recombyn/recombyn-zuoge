@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Lottie generator composer under the empty plate.
- * On-plate generate 鈫?POST /design/lottie/generate 鈫?promote to Lottie node.
+ * On-plate generate → POST /api/v1/chat/lottie/jobs → promote to Lottie node.
  */
 import {
   memo,
@@ -26,9 +26,7 @@ import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  SelectionToolbarShell,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
   chipBaseKey,
@@ -95,7 +93,6 @@ import store from '@/store';
 type Props = {
   nodeId: string;
   sceneBox: { x: number; y: number; width: number; height: number };
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -143,12 +140,10 @@ function plateSizeForAspect(
 function LottieGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled = false,
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const chromePointer = useChromePointerActivate();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const contextsRef = useRef<ComposerContext[]>([]);
@@ -185,6 +180,7 @@ function LottieGeneratorCard({
   const [prompt, setPrompt] = useState('');
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [aspectRatio, setAspectRatio] = useState(
@@ -215,11 +211,17 @@ function LottieGeneratorCard({
     mentionIx,
   } = useComposerMentionPanel(inputRef);
 
+  const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) return;
+    if (!composerVisible || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
+  }, [composerVisible, disabled]);
 
   useEffect(() => {
     const nextAspect = readGenAttrString(genAttrs, 'lottieGenAspect');
@@ -535,10 +537,6 @@ function LottieGeneratorCard({
     }
   };
 
-  if (!showComposer) return null;
-
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
-
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
       pickingFromCanvas,
@@ -570,17 +568,19 @@ function LottieGeneratorCard({
 
   return (
     <>
-    <WorldScreenChromeRoot
-      left={composerPlacement.left}
-      railWidth={composerPlacement.railWidth}
-      top={composerPlacement.top}
-      anchor={composerPlacement.anchor}
-      edgeGapPx={composerPlacement.edgeGapPx}
+    {composerVisible ? (
+    <SelectionToolbarShell
+      box={{
+        left: sceneBox.x,
+        top: sceneBox.y,
+        width: sceneBox.width,
+        height: sceneBox.height,
+      }}
+      bare
+      dock="below"
+      zIndexClassName="z-[32]"
       data-lottie-generator
-      data-sel-toolbar
       data-scene-node-id={nodeId}
-      className="pointer-events-auto z-[32] overflow-visible"
-      {...chromePointer}
     >
       <CanvasMediaComposerShell
         panelOverflow="visible"
@@ -765,9 +765,10 @@ function LottieGeneratorCard({
           </ComposerFooterBar>
         }
       />
-    </WorldScreenChromeRoot>
+    </SelectionToolbarShell>
+    ) : null}
 
-    {showComposer && mentionOpen ? (
+    {composerVisible && mentionOpen ? (
       <FloatingPortal>
         <div
           ref={mentionFloating.refs.setFloating}
@@ -787,7 +788,7 @@ function LottieGeneratorCard({
       </FloatingPortal>
     ) : null}
 
-    {showComposer && skillOpen ? (
+    {composerVisible && skillOpen ? (
       <FloatingPortal>
         <div
           ref={skillFloating.refs.setFloating}

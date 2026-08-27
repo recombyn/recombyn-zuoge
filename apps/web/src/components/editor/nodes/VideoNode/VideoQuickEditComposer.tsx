@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Floating quick-edit chat under a selected video (toolbar → 快速编辑).
- * Regenerates video in place via POST /chat/video.
+ * Regenerates video in place via POST /api/v1/chat/video/jobs.
  */
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,12 +11,8 @@ import { generateVideo, type LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  RcbOverlayPortal,
-  rcbScreenPxToScene,
-  useRcbCamera,
-  useRcbScreenToolbarStyle,
-} from '@/components/rcb';
-import { SELECTION_TOOLBAR_BELOW_BOX_GAP_PX } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+  SelectionToolbarShell,
+} from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
   type AgentComposerHandle,
   type ComposerContext,
@@ -64,8 +60,6 @@ function VideoQuickEditComposer({
 }): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const camera = useRcbCamera();
-  const zoom = Math.max(0.05, camera.zoom || 1);
   const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -125,12 +119,6 @@ function VideoQuickEditComposer({
         : null,
     [nodeId, src, poster, t]
   );
-
-  const composerStyle = useRcbScreenToolbarStyle({
-    left: box.left + box.width / 2,
-    top: box.top + box.height + rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom),
-    anchor: 'top',
-  });
 
   const removeContext = (key: string) => {
     setContexts((prev) => prev.filter((c) => c.key !== key));
@@ -251,18 +239,21 @@ function VideoQuickEditComposer({
   if (!node || !src) return null;
 
   return (
-    <RcbOverlayPortal>
+    <SelectionToolbarShell
+      box={box}
+      bare
+      dock="below"
+      zIndexClassName="z-[32]"
+      data-video-quick-edit
+      {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
+      data-scene-node-id={nodeId}
+    >
       <div
-        data-video-quick-edit
-        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
-        data-sel-toolbar
-        data-scene-node-id={nodeId}
         className={cn(
-          'pointer-events-auto absolute z-[32] flex h-[200px] w-[500px] flex-col overflow-visible',
+          'pointer-events-auto flex h-[200px] w-[500px] flex-col overflow-visible',
           'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
           'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
         )}
-        style={composerStyle}
         onPointerDown={(e) => {
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation?.();
@@ -455,7 +446,7 @@ function VideoQuickEditComposer({
           </button>
         </div>
       </div>
-    </RcbOverlayPortal>
+    </SelectionToolbarShell>
   );
 }
 

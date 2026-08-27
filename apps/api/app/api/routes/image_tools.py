@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from app.api.deps import CurrentUser
 from pydantic import BaseModel, Field
 

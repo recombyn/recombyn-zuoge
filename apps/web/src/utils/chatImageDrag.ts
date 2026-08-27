@@ -1,8 +1,30 @@
+import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
+
 /** Custom MIME for dragging agent chat gallery images onto the canvas. */
 export const CHAT_IMAGE_DRAG_MIME = 'application/x-recombyn-chat-image';
 
 /** Hosted library assets (image / video / audio) from the Assets dock. */
 export const MEDIA_ASSET_DRAG_MIME = 'application/x-recombyn-media-asset';
+
+/** Placeholder src when Lottie JSON is only in memory (list API inline). */
+export const LOTTIE_INLINE_DRAG_SRC = 'lottie:inline';
+
+function lottieDragAnimationData(
+  animationData: unknown
+): Record<string, unknown> | null {
+  return parseLottieAnimationData(animationData);
+}
+
+function mediaAssetDragHasPayload(payload: MediaAssetDragPayload): boolean {
+  const src = String(payload.src || '').trim();
+  const uploadKey = String(payload.uploadKey || '').trim();
+  const kind = payload.kind;
+  if (kind !== 'image' && kind !== 'video' && kind !== 'audio' && kind !== 'lottie') {
+    return false;
+  }
+  if (src || uploadKey) return true;
+  return kind === 'lottie' && Boolean(lottieDragAnimationData(payload.animationData));
+}
 
 export type MediaAssetDragPayload = {
   kind: 'image' | 'video' | 'audio' | 'lottie';
@@ -95,14 +117,15 @@ export function setMediaAssetDragData(
   const src = String(payload.src || '').trim();
   const uploadKey = String(payload.uploadKey || '').trim();
   const kind = payload.kind;
-  if (
-    (!src && !uploadKey) ||
-    (kind !== 'image' && kind !== 'video' && kind !== 'audio' && kind !== 'lottie')
-  ) {
+  if (!mediaAssetDragHasPayload({ ...payload, src, uploadKey, kind })) {
     return;
   }
 
-  const resolvedSrc = src || `/api/v1/uploads/files/${encodeURIComponent(uploadKey)}`;
+  const lottieData = kind === 'lottie' ? lottieDragAnimationData(payload.animationData) : null;
+  const resolvedSrc =
+    src ||
+    (uploadKey ? `/api/v1/uploads/files/${encodeURIComponent(uploadKey)}` : '') ||
+    (lottieData ? LOTTIE_INLINE_DRAG_SRC : '');
   pendingMediaAssetDrag = {
     kind,
     src: resolvedSrc,
@@ -112,8 +135,7 @@ export function setMediaAssetDragData(
     prompt: payload.prompt || undefined,
     name: payload.name || undefined,
     duration: payload.duration || undefined,
-    // Keep in memory only — too large for DataTransfer JSON.
-    ...(payload.animationData ? { animationData: payload.animationData } : {}),
+    ...(lottieData ? { animationData: lottieData } : {}),
   };
 
   const slimSrc = slimDragSrc(pendingMediaAssetDrag);
@@ -121,7 +143,7 @@ export function setMediaAssetDragData(
     MEDIA_ASSET_DRAG_MIME,
     JSON.stringify({
       kind,
-      src: slimSrc || 'pending',
+      src: slimSrc || (lottieData ? LOTTIE_INLINE_DRAG_SRC : 'pending'),
       uploadKey: pendingMediaAssetDrag.uploadKey,
       width: pendingMediaAssetDrag.width,
       height: pendingMediaAssetDrag.height,
@@ -166,9 +188,11 @@ export function readMediaAssetDragPayload(
     const kind = String(parsed?.kind || '').trim();
     if (
       !src ||
-      src === 'pending' ||
       (kind !== 'image' && kind !== 'video' && kind !== 'audio' && kind !== 'lottie')
     ) {
+      return null;
+    }
+    if (src === 'pending' || src === LOTTIE_INLINE_DRAG_SRC) {
       return null;
     }
     return {

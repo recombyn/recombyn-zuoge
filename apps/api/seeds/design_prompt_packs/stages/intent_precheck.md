@@ -43,6 +43,12 @@
   earlier turns removed nodes — do NOT pretend you never touched the canvas or invent that
   nothing happened. Empty board ≠ amnesia.
 
+# output_locale (required every turn)
+- zh-CN | zh-TW | en | ja — the language the user is writing in this turn.
+- Infer from user_prompt + RECENT_DIALOGUE only — **not** from UI/settings assumptions.
+- Chinese simplified → zh-CN; traditional / HK → zh-TW; Japanese → ja; otherwise en.
+- Example: user writes 「添加一个矩形」 → output_locale=zh-CN even if the app UI is English.
+
 # Examples
 - "告诉我答案" + has_images=true (selection crop) → chat, reply="" (host vision answers)
 - "这张图是什么" / "describe this" + has_images=true → chat, reply=""

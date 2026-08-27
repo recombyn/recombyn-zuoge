@@ -23,7 +23,6 @@ type Props = {
   inspectOpen: boolean;
   agentOpen: boolean;
   layersOpen?: boolean;
-  assetsOpen?: boolean;
   onRename: (name: string) => void;
   onProjectList: () => void;
   onNewProject: () => void;
@@ -52,7 +51,6 @@ function EditorTopChrome({
   inspectOpen,
   agentOpen,
   layersOpen = false,
-  assetsOpen = false,
   onRename,
   onProjectList,
   onNewProject,
@@ -63,7 +61,7 @@ function EditorTopChrome({
 }: Props) {
   const { t } = useTranslation();
   const desktop = useIsDesktopShell();
-  const leftTitleInsetPx = useLeftDockInset(layersOpen, assetsOpen);
+  const leftTitleInsetPx = useLeftDockInset(layersOpen);
   const rightHudInsetPx = useRightDockInset(agentOpen, inspectOpen, workspaceMode);
   const setTitlebarLeading = useSetDesktopTitlebarLeading();
   const titleInputRef = useRef<HTMLInputElement>(null);

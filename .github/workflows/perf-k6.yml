@@ -1,42 +1,21 @@
 name: Perf k6 (Gate B)
 
+# Manual — k6 needs Redis/API and blocks the sole self-hosted runner.
+
 on:
-  push:
-    branches: [main, master, develop]
-    paths:
-      - 'perf/k6/**'
-      - 'apps/api/**'
-      - 'apps/collab/**'
-      - 'deploy/observability/**'
-      - '.github/workflows/perf-k6.yml'
-  pull_request:
-    paths:
-      - 'perf/k6/**'
-      - 'apps/api/app/core/metrics.py'
-      - 'apps/api/app/main.py'
-      - 'apps/collab/**'
-      - 'deploy/observability/**'
-      - '.github/workflows/perf-k6.yml'
   workflow_dispatch:
 
 jobs:
   k6-gate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     env:
       SUPER_ADMIN_TEST_CODE: ciperf01
       SUPER_ADMIN_EMAIL: admin@recombyn.com
       COLLAB_TOKEN_SECRET: ci-collab-secret
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +30,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Ensure Redis on localhost:6379
+        run: |
+          if command -v redis-cli >/dev/null 2>&1 && redis-cli ping 2>/dev/null | grep -qi pong; then
+            echo "Redis already up"
+            exit 0
+          fi
+          if command -v docker >/dev/null 2>&1; then
+            docker rm -f ci-redis 2>/dev/null || true
+            docker run -d --name ci-redis -p 6379:6379 redis:7-alpine
+            for i in $(seq 1 30); do
+              docker exec ci-redis redis-cli ping 2>/dev/null | grep -qi pong && exit 0
+              sleep 1
+            done
+          fi
+          echo "Redis required on self-hosted runner (local install or Docker)." >&2
+          exit 1
 
       - name: Install API
         working-directory: apps/api
@@ -107,11 +103,16 @@ jobs:
 
       - name: Install k6
         run: |
-          sudo gpg -k
-          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-          sudo apt-get update
-          sudo apt-get install -y k6
+          if command -v k6 >/dev/null 2>&1; then
+            k6 version
+            exit 0
+          fi
+          VER=v0.54.0
+          curl -fsSL "https://github.com/grafana/k6/releases/download/${VER}/k6-${VER}-windows-amd64.zip" -o /tmp/k6.zip
+          mkdir -p "${RUNNER_TEMP}/k6"
+          unzip -o /tmp/k6.zip -d "${RUNNER_TEMP}/k6"
+          echo "${RUNNER_TEMP}/k6/k6-${VER}-windows-amd64" >> "$GITHUB_PATH"
+          "${RUNNER_TEMP}/k6/k6-${VER}-windows-amd64/k6.exe" version
 
       - name: Mint PERF_TOKEN
         run: |

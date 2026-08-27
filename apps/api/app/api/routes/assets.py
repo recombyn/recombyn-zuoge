@@ -28,16 +28,21 @@ class RegisterAssetIn(BaseModel):
     source: str | None = Field(default=None, max_length=32)
 
 
+class UpdateAssetIn(BaseModel):
+    prompt: str | None = Field(default=None, max_length=500)
+
 @router.get("")
 def list_my_assets(
     current_user: CurrentUser,
     page: int = 1,
     pageSize: int = 24,
     kind: str | None = None,
+    q: str | None = None,
 ) -> dict[str, Any]:
     return asset_store.list_assets(
         current_user.id,
         kind=kind,
+        q=q,
         page=page,
         page_size=pageSize,
     )
@@ -67,6 +72,20 @@ def register_my_asset(
             width=body.width,
             height=body.height,
         )
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
+
+
+@router.patch("/{asset_id}")
+def update_my_asset(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    asset_id: str,
+    body: UpdateAssetIn,
+) -> dict[str, Any]:
+    prompt = (body.prompt or "").strip() or None
+    try:
+        return asset_store.update_asset(current_user.id, asset_id, prompt=prompt)
     except ValueError as err:
         raise value_error_http(err, locale) from err
 

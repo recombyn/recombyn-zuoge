@@ -9,8 +9,8 @@ import {
 } from 'react-icons/hi2';
 import { Dropdown, Tooltip, Button, Dialog, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
+import { useProjectDeleteRunner } from '@/hooks/useProjectDeleteRunner';
 import {
-  removeProjectFromCloud,
   renameProjectOnCloud,
   requestProjectFlush,
 } from '@/components/editor/useProjectCloudSync';
@@ -67,6 +67,7 @@ function RailRecentList({
   const [editDraft, setEditDraft] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<RailRecentProject | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const runDelete = useProjectDeleteRunner();
   const editInputRef = useRef<HTMLInputElement>(null);
   const cancelingEditRef = useRef(false);
 
@@ -125,33 +126,24 @@ function RailRecentList({
     setEditingId(null);
   }, []);
 
-  const commitDelete = useCallback(
-    async (item: RailRecentProject) => {
-      const id = String(item.id || '');
-      if (!id) return;
-      try {
-        await removeProjectFromCloud(id);
+  const confirmDelete = useCallback(() => {
+    if (!deleteTarget) return;
+    const id = String(deleteTarget.id || '').trim();
+    if (!id) return;
+    void runDelete({
+      ids: [id],
+      deleting,
+      setDeleting,
+      t,
+      onSuccess: () => {
         dispatch(deleteTemplate(id));
         invalidateProjectsListCache();
         onProjectDeleted?.();
         message.destructive(t('common.delete'));
-      } catch {
-        message.error(t('home.batchDeleteFailed'));
-      }
-    },
-    [dispatch, onProjectDeleted, t]
-  );
-
-  const confirmDelete = useCallback(async () => {
-    if (!deleteTarget || deleting) return;
-    setDeleting(true);
-    try {
-      await commitDelete(deleteTarget);
-      setDeleteTarget(null);
-    } finally {
-      setDeleting(false);
-    }
-  }, [commitDelete, deleteTarget, deleting]);
+        setDeleteTarget(null);
+      },
+    });
+  }, [deleteTarget, deleting, dispatch, onProjectDeleted, runDelete, t]);
 
   if (!expanded) return null;
 

@@ -265,7 +265,7 @@ function MarkSessionHost({
             activeRegionId={
               activePrompt?.nodeId === nodeId ? activePrompt.regionId : null
             }
-            blocked={blocked}
+            blocked={blocked && nodeId !== sessionNodeId}
             onDraftChange={(next) =>
               setDraftByNode((prev) => ({ ...prev, [nodeId]: next }))
             }

@@ -8,6 +8,7 @@ from typing import Any
 
 from app.services.llm import (
     _api_key_for,
+    _normalize_openrouter_rel_path,
     build_async_openai_client,
     list_video_models,
     openai_json_get,
@@ -74,17 +75,10 @@ async def _poll_video_job(
     signal_deadline: float,
 ) -> dict[str, Any]:
     """Poll OpenRouter job until completed / failed / timeout."""
-    path = (polling_url or "").strip()
-    if path.startswith("http://") or path.startswith("https://"):
-        # Absolute polling URL — use httpx via raw client base.
-        from urllib.parse import urlparse
-
-        parsed = urlparse(path)
-        rel = parsed.path or path
-        if parsed.query:
-            rel = f"{rel}?{parsed.query}"
-        path = rel
-    elif not path.startswith("/"):
+    path = _normalize_openrouter_rel_path(polling_url)
+    if not path:
+        raise RuntimeError("missing polling_url")
+    if not path.startswith("/"):
         path = f"/videos/{path}"
 
     elapsed = 0.0
@@ -166,12 +160,7 @@ async def generate_video(
         api_model=api_model,
         timeout=max(180.0, _POLL_MAX_S + 30.0),
     )
-    try:
-        submitted = await openai_json_post(client, "/videos", body)
-    except Exception as err:  # noqa: BLE001
-        raise RuntimeError(f"OpenRouter video submit failed: {err}") from err
-
-    status = str(submitted.get("status") or "").lower()
+    submitted = await openai_json_post(client, "/videos", body)
     url = _pick_video_url(submitted)
     if url and status in ("completed", "complete", "succeeded", "success", ""):
         return {"videos": [url], "model": catalog_id, "text": None}

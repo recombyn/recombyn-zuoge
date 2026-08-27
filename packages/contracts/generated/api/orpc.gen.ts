@@ -3,7 +3,7 @@
 import { oc } from '@orpc/contract';
 import { z } from 'zod';
 
-import { zAdminAdminAdjustCreditsBody, zAdminAdminAdjustCreditsPath, zAdminAdminApplyOptimizePatchPath, zAdminAdminApprovePricingVersionPath, zAdminAdminBillingQuoteBody, zAdminAdminDeleteAssetPath, zAdminAdminDeleteDesignDictPath, zAdminAdminDeleteDesignDictQuery, zAdminAdminDeleteDesignDictTypePath, zAdminAdminDeleteDesignSkillPath, zAdminAdminDeleteFontFacePath, zAdminAdminDeleteFontPath, zAdminAdminDeleteKgTriplePath, zAdminAdminDeleteLikeQuery, zAdminAdminDeleteModelPath, zAdminAdminDeleteNoticePath, zAdminAdminDesignContentResyncQuery, zAdminAdminDesignDecisionLogDetailPath, zAdminAdminDesignDecisionLogsQuery, zAdminAdminDesignDictsQuery, zAdminAdminDesignDictTypesQuery, zAdminAdminDesignSkillsQuery, zAdminAdminDesignStageReviewsQuery, zAdminAdminDesignSystemPromptsQuery, zAdminAdminDiscardExportDlqPath, zAdminAdminDiscardHydrateDlqPath, zAdminAdminDismissOptimizePatchPath, zAdminAdminFontsUploadBody, zAdminAdminGenerateCardKeysBody, zAdminAdminGetNoticePath, zAdminAdminGetPricingVersionPath, zAdminAdminGetUserPath, zAdminAdminListAssetsQuery, zAdminAdminListCardKeysQuery, zAdminAdminListExportDlqQuery, zAdminAdminListFontsQuery, zAdminAdminListHydrateDlqQuery, zAdminAdminListKgTriplesQuery, zAdminAdminListLikesQuery, zAdminAdminListModelsQuery, zAdminAdminListNoticesQuery, zAdminAdminListOptimizePatchesQuery, zAdminAdminListPricingVersionsQuery, zAdminAdminListProjectsQuery, zAdminAdminListUsersQuery, zAdminAdminMarginSummaryQuery, zAdminAdminModelUsageListQuery, zAdminAdminModelUsageSummaryQuery, zAdminAdminPatchUserBody, zAdminAdminPatchUserPath, zAdminAdminPlazaApprovePath, zAdminAdminPlazaCoverBody, zAdminAdminPlazaCoverPath, zAdminAdminPlazaDeletePath, zAdminAdminPlazaDetailPath, zAdminAdminPlazaFeedQuery, zAdminAdminPlazaListQuery, zAdminAdminPlazaPublishedQuery, zAdminAdminPlazaRejectBody, zAdminAdminPlazaRejectPath, zAdminAdminPlazaTitleBody, zAdminAdminPlazaTitlePath, zAdminAdminPlazaVisibilityBody, zAdminAdminPlazaVisibilityPath, zAdminAdminRejectPricingVersionBody, zAdminAdminRejectPricingVersionPath, zAdminAdminReplayExportDlqBody, zAdminAdminReplayHydrateDlqBody, zAdminAdminRevokeCardKeysBody, zAdminAdminRunColdArchiveQuery, zAdminAdminSubmitPricingVersionPath, zAdminAdminSyncModelPricesBody, zAdminAdminUpsertDesignCanvasToolBody, zAdminAdminUpsertDesignDictBody, zAdminAdminUpsertDesignDictTypeBody, zAdminAdminUpsertDesignRuntimeSettingBody, zAdminAdminUpsertDesignSkillBody, zAdminAdminUpsertDesignSystemPromptBody, zAdminAdminUpsertFontBody, zAdminAdminUpsertModelBody, zAdminAdminUpsertNoticeBody, zAdminAdminUpsertPricingVersionBody, zAdminAdminUserLedgerPath, zAdminAdminUserLedgerQuery, zAssetsDeleteMyAssetPath, zAssetsListMyAssetsQuery, zAssetsRegisterMyAssetBody, zAuthAuthGoogleBody, zAuthAuthPatchProfileBody, zAuthCaptchaVerifyBody, zAuthEmailActivateBody, zAuthEmailLoginBody, zAuthEmailSendCodeBody, zAuthEmailVerifyCodeBody, zChatAudioJobsCreateAudioJobBody, zChatAudioJobsGetAudioJobPath, zChatAudioJobsStreamAudioJobEventsPath, zChatImageJobsCreateImageJobBody, zChatImageJobsGetImageJobPath, zChatImageJobsStreamImageJobEventsPath, zChatLottieJobsCreateLottieJobBody, zChatLottieJobsGetLottieJobPath, zChatLottieJobsStreamLottieJobEventsPath, zChatPostAgentTurnBody, zChatPostAudioBody, zChatPostImageBody, zChatPostMessageBody, zChatPostVideoBody, zChatSessionsGetSessionsQuery, zChatSessionsPutSessionBody, zChatSessionsRemoveSessionPath, zChatVideoJobsCreateVideoJobBody, zChatVideoJobsGetVideoJobPath, zChatVideoJobsStreamVideoJobEventsPath, zCollabCollabRoomTokenBody, zDesignDesignLongMemoryBody, zDesignDesignLottieGenerateBody, zDesignDesignPluginsInstallBody, zDesignDesignRunBody, zDesignDesignRunCancelPath, zDesignDesignRunCommandsAckBody, zDesignDesignRunCommandsAckPath, zDesignDesignRunCommandsPath, zDesignDesignRunCommandsQuery, zDesignDesignRunEventsPath, zDesignDesignRunEventsQuery, zDesignDesignRunPausePath, zDesignDesignRunResumeBody, zDesignDesignRunResumePath, zDesignDesignRunSceneFeedbackBody, zDesignDesignRunSceneFeedbackPath, zDesignDesignRunStatusPath, zDesignDesignSkillsDeletePath, zDesignDesignSkillsImportZipBody, zDesignDesignSkillsPickerQuery, zDesignDesignSkillsSetEnabledBody, zDesignDesignSkillsSetEnabledPath, zDesignDesignSkillsUpsertBody, zDesignExportJobsCreateExportJobBody, zDesignExportJobsDownloadExportJobPath, zDesignExportJobsGetExportJobPath, zDesignHydrateJobsCreateHydrateJobBody, zDesignHydrateJobsGetHydrateJobPath, zFontsListFontsEndpointQuery, zFontsRegisterFontBody, zFontsUploadFontFileBody, zImageToolsPostImageProcessBody, zImportImportImageBody, zImportJobsCreateImportJobBody, zImportJobsGetImportJobPath, zMeMeByokDeletePath, zMeMeByokUpsertBody, zMeMeLikedListQuery, zMeMeLikedSyncBody, zMeMeLikePath, zMeMeUnlikePath, zMockupPostMockupBatchRenderBody, zMockupPostMockupRenderBody, zNoticesNoticesListQuery, zOrgsAcceptInvitePath, zOrgsCreateOrgBody, zOrgsDeclineInvitePath, zOrgsGetOrgPath, zOrgsInviteMemberBody, zOrgsInviteMemberPath, zOrgsListMembersPath, zOrgsListOrgPendingInvitesPath, zOrgsRemoveMemberPath, zOrgsRenameOrgBody, zOrgsRenameOrgPath, zPlazaPlazaAdminApprovePath, zPlazaPlazaAdminListQuery, zPlazaPlazaAdminRejectBody, zPlazaPlazaAdminRejectPath, zPlazaPlazaFeedQuery, zPlazaPlazaItemPath, zPlazaPlazaItemUsePath, zPlazaPlazaSubmitBody, zProjectsBatchRemoveBody, zProjectsGetOnePath, zProjectsListMyProjectsQuery, zProjectsPatchOneBody, zProjectsPatchOneHeaders, zProjectsPatchOnePath, zProjectsRemovePath, zProjectsSetProjectOrgBody, zProjectsSetProjectOrgPath, zProjectsUpsertBody, zProjectsUpsertHeaders, zSharesSharesCreateBody, zSharesSharesGetPath, zSharesSharesPatchBody, zSharesSharesPatchPath, zSharesSharesUpdateDocumentBody, zSharesSharesUpdateDocumentPath, zUploadsDeleteUploadedFilePath, zUploadsGetUploadContentByUrlQuery, zUploadsGetUploadedFilePath, zUploadsUploadFilesBody, zUsersUsersLookupQuery, zUsersUsersSearchQuery, zWalletWalletLedgerQuery, zWalletWalletRedeemBody } from './zod.gen';
+import { zAdminAdminAdjustCreditsBody, zAdminAdminAdjustCreditsPath, zAdminAdminApplyOptimizePatchPath, zAdminAdminApprovePricingVersionPath, zAdminAdminBillingQuoteBody, zAdminAdminDeleteAssetPath, zAdminAdminDeleteDesignDictPath, zAdminAdminDeleteDesignDictQuery, zAdminAdminDeleteDesignDictTypePath, zAdminAdminDeleteDesignSkillPath, zAdminAdminDeleteFontFacePath, zAdminAdminDeleteFontPath, zAdminAdminDeleteKgTriplePath, zAdminAdminDeleteLikeQuery, zAdminAdminDeleteModelPath, zAdminAdminDeleteNoticePath, zAdminAdminDesignContentResyncQuery, zAdminAdminDesignDecisionLogDetailPath, zAdminAdminDesignDecisionLogsQuery, zAdminAdminDesignDictsQuery, zAdminAdminDesignDictTypesQuery, zAdminAdminDesignSkillsQuery, zAdminAdminDesignStageReviewsQuery, zAdminAdminDesignSystemPromptsQuery, zAdminAdminDiscardExportDlqPath, zAdminAdminDiscardHydrateDlqPath, zAdminAdminDismissOptimizePatchPath, zAdminAdminFontsUploadBody, zAdminAdminGenerateCardKeysBody, zAdminAdminGetNoticePath, zAdminAdminGetPricingVersionPath, zAdminAdminGetUserPath, zAdminAdminListAssetsQuery, zAdminAdminListCardKeysQuery, zAdminAdminListExportDlqQuery, zAdminAdminListFontsQuery, zAdminAdminListHydrateDlqQuery, zAdminAdminListKgTriplesQuery, zAdminAdminListLikesQuery, zAdminAdminListModelsQuery, zAdminAdminListNoticesQuery, zAdminAdminListOptimizePatchesQuery, zAdminAdminListPricingVersionsQuery, zAdminAdminListProjectsQuery, zAdminAdminListUsersQuery, zAdminAdminMarginSummaryQuery, zAdminAdminModelUsageListQuery, zAdminAdminModelUsageSummaryQuery, zAdminAdminPatchUserBody, zAdminAdminPatchUserPath, zAdminAdminPlazaApprovePath, zAdminAdminPlazaCoverBody, zAdminAdminPlazaCoverPath, zAdminAdminPlazaDeletePath, zAdminAdminPlazaDetailPath, zAdminAdminPlazaFeedQuery, zAdminAdminPlazaListQuery, zAdminAdminPlazaPublishedQuery, zAdminAdminPlazaRejectBody, zAdminAdminPlazaRejectPath, zAdminAdminPlazaTitleBody, zAdminAdminPlazaTitlePath, zAdminAdminPlazaVisibilityBody, zAdminAdminPlazaVisibilityPath, zAdminAdminRejectPricingVersionBody, zAdminAdminRejectPricingVersionPath, zAdminAdminReplayExportDlqBody, zAdminAdminReplayHydrateDlqBody, zAdminAdminRevokeCardKeysBody, zAdminAdminRunColdArchiveQuery, zAdminAdminSubmitPricingVersionPath, zAdminAdminSyncModelPricesBody, zAdminAdminUpsertDesignCanvasToolBody, zAdminAdminUpsertDesignDictBody, zAdminAdminUpsertDesignDictTypeBody, zAdminAdminUpsertDesignRuntimeSettingBody, zAdminAdminUpsertDesignSkillBody, zAdminAdminUpsertDesignSystemPromptBody, zAdminAdminUpsertFontBody, zAdminAdminUpsertModelBody, zAdminAdminUpsertNoticeBody, zAdminAdminUpsertPricingVersionBody, zAdminAdminUserLedgerPath, zAdminAdminUserLedgerQuery, zAssetsDeleteMyAssetPath, zAssetsListMyAssetsQuery, zAssetsRegisterMyAssetBody, zAuthAuthGoogleBody, zAuthAuthPatchProfileBody, zAuthCaptchaVerifyBody, zAuthEmailActivateBody, zAuthEmailLoginBody, zAuthEmailSendCodeBody, zAuthEmailVerifyCodeBody, zChatAudioJobsCreateAudioJobBody, zChatAudioJobsGetAudioJobPath, zChatAudioJobsStreamAudioJobEventsPath, zChatImageJobsCreateImageJobBody, zChatImageJobsGetImageJobPath, zChatImageJobsStreamImageJobEventsPath, zChatLottieJobsCreateLottieJobBody, zChatLottieJobsGetLottieJobPath, zChatLottieJobsStreamLottieJobEventsPath, zChatPostAgentTurnBody, zChatPostAudioBody, zChatPostImageBody, zChatPostMessageBody, zChatPostVideoBody, zChatSessionsGetSessionsQuery, zChatSessionsPutSessionBody, zChatSessionsRemoveSessionPath, zChatVideoJobsCreateVideoJobBody, zChatVideoJobsGetVideoJobPath, zChatVideoJobsStreamVideoJobEventsPath, zCollabCollabRoomTokenBody, zDesignDesignLongMemoryBody, zDesignDesignLottieGenerateBody, zDesignDesignPluginsInstallBody, zDesignDesignRunBody, zDesignDesignRunCancelPath, zDesignDesignRunCommandsAckBody, zDesignDesignRunCommandsAckPath, zDesignDesignRunCommandsPath, zDesignDesignRunCommandsQuery, zDesignDesignRunEventsPath, zDesignDesignRunEventsQuery, zDesignDesignRunPausePath, zDesignDesignRunResumeBody, zDesignDesignRunResumePath, zDesignDesignRunSceneFeedbackBody, zDesignDesignRunSceneFeedbackPath, zDesignDesignRunStatusPath, zDesignDesignRunTracePath, zDesignDesignRunTraceQuery, zDesignDesignSkillsDeletePath, zDesignDesignSkillsImportZipBody, zDesignDesignSkillsPickerQuery, zDesignDesignSkillsSetEnabledBody, zDesignDesignSkillsSetEnabledPath, zDesignDesignSkillsUpsertBody, zDesignExportJobsCreateExportJobBody, zDesignExportJobsDownloadExportJobPath, zDesignExportJobsGetExportJobPath, zDesignHydrateJobsCreateHydrateJobBody, zDesignHydrateJobsGetHydrateJobPath, zFontsDeleteMyFontPath, zFontsListFontsEndpointQuery, zFontsRegisterFontBody, zFontsUploadFontFileBody, zImageProcessJobsCreateImageProcessJobBody, zImageProcessJobsGetImageProcessJobPath, zImageProcessJobsStreamImageProcessJobEventsPath, zImageToolsPostImageProcessBody, zImportImportImageBody, zImportJobsCreateImportJobBody, zImportJobsGetImportJobPath, zMcpCanvasAckPendingBody, zMcpCanvasCallToolBody, zMcpCanvasListPendingQuery, zMcpCanvasSessionHeartbeatBody, zMeMeByokDeletePath, zMeMeByokUpsertBody, zMeMeLikedListQuery, zMeMeLikedSyncBody, zMeMeLikePath, zMeMeUnlikePath, zMockupGetMockupTemplateKitPath, zMockupGetMockupTemplateKitQuery, zMockupPostMockupAutoBakeBody, zMockupPostMockupBatchRenderBody, zMockupPostMockupRenderBody, zNoticesNoticesListQuery, zOrgsAcceptInvitePath, zOrgsCreateOrgBody, zOrgsDeclineInvitePath, zOrgsGetOrgPath, zOrgsInviteMemberBody, zOrgsInviteMemberPath, zOrgsListMembersPath, zOrgsListOrgPendingInvitesPath, zOrgsRemoveMemberPath, zOrgsRenameOrgBody, zOrgsRenameOrgPath, zPlazaPlazaAdminApprovePath, zPlazaPlazaAdminListQuery, zPlazaPlazaAdminRejectBody, zPlazaPlazaAdminRejectPath, zPlazaPlazaFeedQuery, zPlazaPlazaItemPath, zPlazaPlazaItemUsePath, zPlazaPlazaSubmitBody, zProjectsBatchRemoveBody, zProjectsGetOnePath, zProjectsListMyProjectsQuery, zProjectsPatchOneBody, zProjectsPatchOneHeaders, zProjectsPatchOnePath, zProjectsRemovePath, zProjectsSetProjectOrgBody, zProjectsSetProjectOrgPath, zProjectsUpsertBody, zProjectsUpsertHeaders, zSharesSharesCreateBody, zSharesSharesGetPath, zSharesSharesPatchBody, zSharesSharesPatchPath, zSharesSharesUpdateDocumentBody, zSharesSharesUpdateDocumentPath, zUploadsAbortUploadJobPath, zUploadsCompleteUploadJobPath, zUploadsCreateUploadSessionBody, zUploadsDeleteUploadedFilePath, zUploadsGetUploadContentByUrlQuery, zUploadsGetUploadedFilePath, zUploadsGetUploadJobPath, zUploadsStreamUploadJobEventsPath, zUploadsUploadJobPartPath, zUsersUsersLookupQuery, zUsersUsersSearchQuery, zWalletWalletLedgerQuery, zWalletWalletRedeemBody } from './zod.gen';
 
 /**
  * Health
@@ -1585,27 +1585,14 @@ export const plazaPlazaSubmit = oc.route({
 }).input(z.object({ body: zPlazaPlazaSubmitBody }));
 
 /**
- * Plaza Mine
- */
-export const plazaPlazaMine = oc.route({
-    inputStructure: 'detailed',
-    method: 'GET',
-    operationId: 'plaza-plaza_mine',
-    path: '/plaza/mine',
-    summary: 'Plaza Mine',
-    tags: ['plaza']
-});
-
-/**
  * Plaza Feed
  *
  * Public plaza feed (no login required).
- * tab=recommended|latest (use authorIds to filter by creator)
+ * tab=recommended|latest
  * category=optional category filter (website|mobile|image|poster|video)
- * authorIds=comma-separated user ids to filter works by creator.
  */
 export const plazaPlazaFeed = oc.route({
-    description: 'Public plaza feed (no login required).\ntab=recommended|latest (use authorIds to filter by creator)\ncategory=optional category filter (website|mobile|image|poster|video)\nauthorIds=comma-separated user ids to filter works by creator.',
+    description: 'Public plaza feed (no login required).\ntab=recommended|latest\ncategory=optional category filter (website|mobile|image|poster|video)',
     inputStructure: 'detailed',
     method: 'GET',
     operationId: 'plaza-plaza_feed',
@@ -1868,6 +1855,18 @@ export const fontsUploadFontFile = oc.route({
 }).input(z.object({ body: zFontsUploadFontFileBody }));
 
 /**
+ * Delete My Font
+ */
+export const fontsDeleteMyFont = oc.route({
+    inputStructure: 'detailed',
+    method: 'DELETE',
+    operationId: 'fonts-delete_my_font',
+    path: '/fonts/mine/{family}',
+    summary: 'Delete My Font',
+    tags: ['fonts']
+}).input(z.object({ params: zFontsDeleteMyFontPath }));
+
+/**
  * List My Assets
  */
 export const assetsListMyAssets = oc.route({
@@ -1904,25 +1903,6 @@ export const assetsDeleteMyAsset = oc.route({
 }).input(z.object({ params: zAssetsDeleteMyAssetPath }));
 
 /**
- * Upload Files
- *
- * Upload image file(s) to object storage (Tencent COS when ``S3_ENABLED``).
- *
- * Form field name: ``files`` (repeatable).
- * Returns ``{ items: [{ url, key, mime, name, size, width?, height? }] }``.
- * Frontend should display ``url`` directly.
- */
-export const uploadsUploadFiles = oc.route({
-    description: 'Upload image file(s) to object storage (Tencent COS when ``S3_ENABLED``).\n\nForm field name: ``files`` (repeatable).\nReturns ``{ items: [{ url, key, mime, name, size, width?, height? }] }``.\nFrontend should display ``url`` directly.',
-    inputStructure: 'detailed',
-    method: 'POST',
-    operationId: 'uploads-upload_files',
-    path: '/uploads',
-    summary: 'Upload Files',
-    tags: ['uploads']
-}).input(z.object({ body: zUploadsUploadFilesBody }));
-
-/**
  * Get Upload Content By Url
  *
  * Resolve an image display URL to bytes (same-origin for canvas crop/export).
@@ -1943,10 +1923,10 @@ export const uploadsGetUploadContentByUrl = oc.route({
 /**
  * Delete Uploaded File
  *
- * Delete a previously uploaded object owned by the current current_user.
+ * Delete a previously uploaded object owned by the current user.
  */
 export const uploadsDeleteUploadedFile = oc.route({
-    description: 'Delete a previously uploaded object owned by the current current_user.',
+    description: 'Delete a previously uploaded object owned by the current user.',
     inputStructure: 'detailed',
     method: 'DELETE',
     operationId: 'uploads-delete_uploaded_file',
@@ -1972,6 +1952,78 @@ export const uploadsGetUploadedFile = oc.route({
     summary: 'Get Uploaded File',
     tags: ['uploads']
 }).input(z.object({ params: zUploadsGetUploadedFilePath }));
+
+/**
+ * Create Upload Session
+ */
+export const uploadsCreateUploadSession = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'uploads-create_upload_session',
+    path: '/uploads/jobs/session',
+    summary: 'Create Upload Session',
+    tags: ['uploads', 'upload-jobs']
+}).input(z.object({ body: zUploadsCreateUploadSessionBody }));
+
+/**
+ * Upload Job Part
+ */
+export const uploadsUploadJobPart = oc.route({
+    inputStructure: 'detailed',
+    method: 'PUT',
+    operationId: 'uploads-upload_job_part',
+    path: '/uploads/jobs/{job_id}/parts/{part_number}',
+    summary: 'Upload Job Part',
+    tags: ['uploads', 'upload-jobs']
+}).input(z.object({ params: zUploadsUploadJobPartPath }));
+
+/**
+ * Complete Upload Job
+ */
+export const uploadsCompleteUploadJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'uploads-complete_upload_job',
+    path: '/uploads/jobs/{job_id}/complete',
+    summary: 'Complete Upload Job',
+    tags: ['uploads', 'upload-jobs']
+}).input(z.object({ params: zUploadsCompleteUploadJobPath }));
+
+/**
+ * Abort Upload Job
+ */
+export const uploadsAbortUploadJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'DELETE',
+    operationId: 'uploads-abort_upload_job',
+    path: '/uploads/jobs/{job_id}',
+    summary: 'Abort Upload Job',
+    tags: ['uploads', 'upload-jobs']
+}).input(z.object({ params: zUploadsAbortUploadJobPath }));
+
+/**
+ * Get Upload Job
+ */
+export const uploadsGetUploadJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'uploads-get_upload_job',
+    path: '/uploads/jobs/{job_id}',
+    summary: 'Get Upload Job',
+    tags: ['uploads', 'upload-jobs']
+}).input(z.object({ params: zUploadsGetUploadJobPath }));
+
+/**
+ * Stream Upload Job Events
+ */
+export const uploadsStreamUploadJobEvents = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'uploads-stream_upload_job_events',
+    path: '/uploads/jobs/{job_id}/events',
+    summary: 'Stream Upload Job Events',
+    tags: ['uploads', 'upload-jobs']
+}).input(z.object({ params: zUploadsStreamUploadJobEventsPath }));
 
 /**
  * Get Sessions
@@ -2382,6 +2434,45 @@ export const imageToolsPostImageProcess = oc.route({
 }).input(z.object({ body: zImageToolsPostImageProcessBody }));
 
 /**
+ * Create Image Process Job
+ */
+export const imageProcessJobsCreateImageProcessJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'image-process-jobs-create_image_process_job',
+    path: '/image/process/jobs',
+    summary: 'Create Image Process Job',
+    tags: ['image-process-jobs']
+}).input(z.object({ body: zImageProcessJobsCreateImageProcessJobBody }));
+
+/**
+ * Get Image Process Job
+ */
+export const imageProcessJobsGetImageProcessJob = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'image-process-jobs-get_image_process_job',
+    path: '/image/process/jobs/{job_id}',
+    summary: 'Get Image Process Job',
+    tags: ['image-process-jobs']
+}).input(z.object({ params: zImageProcessJobsGetImageProcessJobPath }));
+
+/**
+ * Stream Image Process Job Events
+ *
+ * SSE push for toolbar image job status (progress / done / failed).
+ */
+export const imageProcessJobsStreamImageProcessJobEvents = oc.route({
+    description: 'SSE push for toolbar image job status (progress / done / failed).',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'image-process-jobs-stream_image_process_job_events',
+    path: '/image/process/jobs/{job_id}/events',
+    summary: 'Stream Image Process Job Events',
+    tags: ['image-process-jobs']
+}).input(z.object({ params: zImageProcessJobsStreamImageProcessJobEventsPath }));
+
+/**
  * List Mockup Tools
  */
 export const mockupListMockupTools = oc.route({
@@ -2392,6 +2483,38 @@ export const mockupListMockupTools = oc.route({
     summary: 'List Mockup Tools',
     tags: ['mockup']
 });
+
+/**
+ * Get Mockup Template Kit
+ *
+ * Proxy Intelligence template kit (UV/mask/base) for FE WebGL preview.
+ */
+export const mockupGetMockupTemplateKit = oc.route({
+    description: 'Proxy Intelligence template kit (UV/mask/base) for FE WebGL preview.',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'mockup-get_mockup_template_kit',
+    path: '/mockup/templates/{template_id}/kit',
+    summary: 'Get Mockup Template Kit',
+    tags: ['mockup']
+}).input(z.object({ params: zMockupGetMockupTemplateKitPath, query: zMockupGetMockupTemplateKitQuery.optional() }));
+
+/**
+ * Post Mockup Auto Bake
+ *
+ * Full-auto: product photo → printable zones + UV + shadow/highlight kit.
+ *
+ * Called when the user enables 样机 on a product image.
+ */
+export const mockupPostMockupAutoBake = oc.route({
+    description: 'Full-auto: product photo → printable zones + UV + shadow/highlight kit.\n\nCalled when the user enables 样机 on a product image.',
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'mockup-post_mockup_auto_bake',
+    path: '/mockup/auto-bake',
+    summary: 'Post Mockup Auto Bake',
+    tags: ['mockup']
+}).input(z.object({ body: zMockupPostMockupAutoBakeBody }));
 
 /**
  * Post Mockup Render
@@ -2583,6 +2706,21 @@ export const designDesignRunEvents = oc.route({
 }).input(z.object({ params: zDesignDesignRunEventsPath, query: zDesignDesignRunEventsQuery.optional() }));
 
 /**
+ * Design Run Trace
+ *
+ * Model-lane session trace for eval/debug (no canvas payloads).
+ */
+export const designDesignRunTrace = oc.route({
+    description: 'Model-lane session trace for eval/debug (no canvas payloads).',
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'design-design_run_trace',
+    path: '/design/run/{task_id}/trace',
+    summary: 'Design Run Trace',
+    tags: ['design']
+}).input(z.object({ params: zDesignDesignRunTracePath, query: zDesignDesignRunTraceQuery.optional() }));
+
+/**
  * Design Run Commands
  */
 export const designDesignRunCommands = oc.route({
@@ -2674,6 +2812,66 @@ export const designDesignLongMemory = oc.route({
     summary: 'Design Long Memory',
     tags: ['design']
 }).input(z.object({ body: zDesignDesignLongMemoryBody }));
+
+/**
+ * List Tools
+ */
+export const mcpCanvasListTools = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'mcp-canvas-list_tools',
+    path: '/mcp/canvas/tools',
+    summary: 'List Tools',
+    tags: ['mcp-canvas']
+});
+
+/**
+ * Call Tool
+ */
+export const mcpCanvasCallTool = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'mcp-canvas-call_tool',
+    path: '/mcp/canvas/call',
+    summary: 'Call Tool',
+    tags: ['mcp-canvas']
+}).input(z.object({ body: zMcpCanvasCallToolBody }));
+
+/**
+ * Session Heartbeat
+ */
+export const mcpCanvasSessionHeartbeat = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'mcp-canvas-session_heartbeat',
+    path: '/mcp/canvas/session/heartbeat',
+    summary: 'Session Heartbeat',
+    tags: ['mcp-canvas']
+}).input(z.object({ body: zMcpCanvasSessionHeartbeatBody }));
+
+/**
+ * List Pending
+ */
+export const mcpCanvasListPending = oc.route({
+    inputStructure: 'detailed',
+    method: 'GET',
+    operationId: 'mcp-canvas-list_pending',
+    path: '/mcp/canvas/pending',
+    summary: 'List Pending',
+    tags: ['mcp-canvas']
+}).input(z.object({ query: zMcpCanvasListPendingQuery }));
+
+/**
+ * Ack Pending
+ */
+export const mcpCanvasAckPending = oc.route({
+    inputStructure: 'detailed',
+    method: 'POST',
+    operationId: 'mcp-canvas-ack_pending',
+    path: '/mcp/canvas/pending/ack',
+    summary: 'Ack Pending',
+    tags: ['mcp-canvas']
+}).input(z.object({ body: zMcpCanvasAckPendingBody }));
 
 /**
  * Metrics
@@ -2828,7 +3026,6 @@ export const contract = {
     orgsRemoveMember,
     orgsListOrgPendingInvites,
     plazaPlazaSubmit,
-    plazaPlazaMine,
     plazaPlazaFeed,
     plazaPlazaItem,
     plazaPlazaItemUse,
@@ -2850,13 +3047,19 @@ export const contract = {
     fontsListFontsEndpoint,
     fontsRegisterFont,
     fontsUploadFontFile,
+    fontsDeleteMyFont,
     assetsListMyAssets,
     assetsRegisterMyAsset,
     assetsDeleteMyAsset,
-    uploadsUploadFiles,
     uploadsGetUploadContentByUrl,
     uploadsDeleteUploadedFile,
     uploadsGetUploadedFile,
+    uploadsCreateUploadSession,
+    uploadsUploadJobPart,
+    uploadsCompleteUploadJob,
+    uploadsAbortUploadJob,
+    uploadsGetUploadJob,
+    uploadsStreamUploadJobEvents,
     chatSessionsGetSessions,
     chatSessionsPutSession,
     chatSessionsRemoveSession,
@@ -2889,7 +3092,12 @@ export const contract = {
     chatPostAudio,
     imageToolsListImageTools,
     imageToolsPostImageProcess,
+    imageProcessJobsCreateImageProcessJob,
+    imageProcessJobsGetImageProcessJob,
+    imageProcessJobsStreamImageProcessJobEvents,
     mockupListMockupTools,
+    mockupGetMockupTemplateKit,
+    mockupPostMockupAutoBake,
     mockupPostMockupRender,
     mockupPostMockupBatchRender,
     designDesignCatalog,
@@ -2904,6 +3112,7 @@ export const contract = {
     designDesignRunSceneFeedback,
     designDesignRunStatus,
     designDesignRunEvents,
+    designDesignRunTrace,
     designDesignRunCommands,
     designDesignRunCommandsAck,
     designDesignRunPause,
@@ -2911,6 +3120,11 @@ export const contract = {
     designDesignRunResume,
     designDesignLottieGenerate,
     designDesignLongMemory,
+    mcpCanvasListTools,
+    mcpCanvasCallTool,
+    mcpCanvasSessionHeartbeat,
+    mcpCanvasListPending,
+    mcpCanvasAckPending,
     healthMetrics,
     apiRoot
 };

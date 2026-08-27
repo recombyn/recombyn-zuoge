@@ -19,6 +19,8 @@ export type ChatSessionMessage = {
   steps?: ChatUiMessage['steps'];
   images?: string[];
   videos?: string[];
+  audios?: string[];
+  lotties?: ChatUiMessage['lotties'];
   imageModelId?: string;
   imageModelLabel?: string;
   imageAspectRatio?: string;
@@ -140,6 +142,8 @@ function messageWorthPersisting(m: ChatUiMessage): boolean {
       m.steps?.length ||
       m.images?.length ||
       m.videos?.length ||
+      m.audios?.length ||
+      m.lotties?.length ||
       m.proposedOps?.length
   );
 }
@@ -163,6 +167,19 @@ function toPersistedMessage(m: ChatUiMessage): ChatSessionMessage {
   }
   if (m.images?.length) out.images = m.images;
   if (m.videos?.length) out.videos = m.videos;
+  if (m.audios?.length) out.audios = m.audios;
+  if (m.lotties?.length) {
+    out.lotties = m.lotties
+      .map((item) => {
+        const url = String(item.url || '').trim();
+        if (url) return { url, w: item.w, h: item.h };
+        if (item.animationData && typeof item.animationData === 'object') {
+          return { animationData: item.animationData, w: item.w, h: item.h };
+        }
+        return null;
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)) as ChatUiMessage['lotties'];
+  }
   if (m.imageModelId) out.imageModelId = m.imageModelId;
   if (m.imageModelLabel) out.imageModelLabel = m.imageModelLabel;
   if (m.imageAspectRatio) out.imageAspectRatio = m.imageAspectRatio;
@@ -191,6 +208,8 @@ function pickOptionalMessageFields(m: {
   steps?: ChatUiMessage['steps'];
   images?: string[];
   videos?: string[];
+  audios?: string[];
+  lotties?: ChatUiMessage['lotties'];
   imageModelId?: string;
   imageModelLabel?: string;
   imageAspectRatio?: string;
@@ -204,6 +223,8 @@ function pickOptionalMessageFields(m: {
   if (m.steps?.length) out.steps = m.steps;
   if (m.images?.length) out.images = m.images;
   if (m.videos?.length) out.videos = m.videos;
+  if (m.audios?.length) out.audios = m.audios;
+  if (m.lotties?.length) out.lotties = m.lotties;
   if (m.imageModelId) out.imageModelId = m.imageModelId;
   if (m.imageModelLabel) out.imageModelLabel = m.imageModelLabel;
   if (m.imageAspectRatio) out.imageAspectRatio = m.imageAspectRatio;

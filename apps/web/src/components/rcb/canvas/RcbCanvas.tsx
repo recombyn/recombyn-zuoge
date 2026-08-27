@@ -41,7 +41,7 @@ import type { SceneDocument } from '../sceneNode';
 import { setInfiniteSvgPaintCamera } from '../scene/paint/sceneToSvg';
 import { notifyShapeHostGeometry, setSceneWorldRoot } from '../shapes/shapeHostRegistry';
 import { DEFAULT_GRID_SIZE, shouldShowPixelGrid } from '../selection/alignGuides';
-import { wheelShouldStayLocal } from './wheelScrollOwners';
+import { textFrameBlocksBrowserZoom, wheelShouldStayLocal } from './wheelScrollOwners';
 
 const EMPTY_SCENE_DOC: SceneDocument = {
   deltaSetLike: {
@@ -330,10 +330,15 @@ function RcbCanvas({
 
     const onWheel = (e: WheelEvent) => {
       const target = e.target as Element | null;
-      // Scrollable panels/menus own wheel — do not pan/zoom or preventDefault.
-      // Do not blanket-block `[data-rcb-overlay]`; mockup, variants, selection chrome must zoom.
-      if (wheelShouldStayLocal(target, e)) return;
-      e.preventDefault();
+      // Text-frame + pinch: prevent browser page-zoom, then fall through to canvas zoom.
+      if (textFrameBlocksBrowserZoom(target, e)) {
+        e.preventDefault();
+      } else if (wheelShouldStayLocal(target, e)) {
+        // Scrollable panels/menus own wheel — do not pan/zoom or preventDefault.
+        return;
+      } else {
+        e.preventDefault();
+      }
       const local = rcbClientToStageLocal(el, e.clientX, e.clientY);
       const cam = cameraRef.current;
       markCameraMoving();

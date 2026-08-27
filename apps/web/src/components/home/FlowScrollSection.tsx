@@ -8,7 +8,7 @@ import {
 import { useDeferredBusy } from '@/utils/useDeferredBusy';
 
 export const FLOW_COLUMNS_CLASS =
-  'grid w-full grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4';
+  'grid w-full grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5';
 
 /** Each card in a CSS-columns flow must avoid breaking across columns. */
 export const FLOW_ITEM_CLASS = 'mb-5 break-inside-avoid';

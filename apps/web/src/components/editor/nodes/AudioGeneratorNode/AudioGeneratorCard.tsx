@@ -1,6 +1,6 @@
 /**
  * Audio generator composer under the empty plate.
- * Prompt → OpenRouter TTS (`POST /chat/audio`); optional local upload shortcut.
+ * Prompt → OpenRouter TTS via POST /api/v1/chat/audio/jobs; optional local upload shortcut.
  * Attachments use the same strip + `@` mention chips as image/video generators.
  */
 import type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -23,9 +23,7 @@ import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, message, Tooltip } from '@/components/base';
 import {
-  useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  SelectionToolbarShell,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
   chipBaseKey,
@@ -73,7 +71,6 @@ import store from '@/store';
 type Props = {
   nodeId: string;
   sceneBox: { x: number; y: number; width: number; height: number };
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -82,18 +79,17 @@ const DEFAULT_AUDIO_MODEL_ID = 'or-gemini-3-1-flash-tts';
 function AudioGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled,
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const chromePointer = useChromePointerActivate();
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [prompt, setPrompt] = useState('');
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending;
   const [modelId, setModelId] = useState(() => cloudOnlyModelId(DEFAULT_AUDIO_MODEL_ID));
   const { models, status: modelsStatus } = useGeneratorModelsCatalog({
     buildList: buildAudioGeneratorModelList,
@@ -134,13 +130,19 @@ function AudioGeneratorCard({
     [attachments]
   );
 
+  const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) return;
+    if (!composerVisible || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
+  }, [composerVisible, disabled]);
 
   useEffect(() => {
     return () => {
@@ -434,25 +436,24 @@ function AudioGeneratorCard({
     }
   };
 
-  if (!showComposer) return null;
-
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
   const canSubmit = Boolean(readyAudioAtt || prompt.trim()) && !attachmentsUploading;
 
   return (
     <>
-      <WorldScreenChromeRoot
-        left={composerPlacement.left}
-        railWidth={composerPlacement.railWidth}
-        top={composerPlacement.top}
-        anchor={composerPlacement.anchor}
-        edgeGapPx={composerPlacement.edgeGapPx}
-        data-audio-generator
-        data-sel-toolbar
-        data-scene-node-id={nodeId}
-        className="pointer-events-auto z-[32] overflow-visible"
-        {...chromePointer}
-      >
+      {composerVisible ? (
+        <SelectionToolbarShell
+          box={{
+            left: sceneBox.x,
+            top: sceneBox.y,
+            width: sceneBox.width,
+            height: sceneBox.height,
+          }}
+          bare
+          dock="below"
+          zIndexClassName="z-[32]"
+          data-audio-generator
+          data-scene-node-id={nodeId}
+        >
         <CanvasMediaComposerShell
           panelSize="compact"
           attachment={
@@ -581,9 +582,10 @@ function AudioGeneratorCard({
             </ComposerFooterBar>
           }
         />
-      </WorldScreenChromeRoot>
+        </SelectionToolbarShell>
+      ) : null}
 
-      {mentionOpen ? (
+      {composerVisible && mentionOpen ? (
         <FloatingPortal>
           <div
             ref={mentionFloating.refs.setFloating}
@@ -603,7 +605,7 @@ function AudioGeneratorCard({
         </FloatingPortal>
       ) : null}
 
-      {skillOpen ? (
+      {composerVisible && skillOpen ? (
         <FloatingPortal>
           <div
             ref={skillFloating.refs.setFloating}

@@ -982,7 +982,6 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     if str(subagents_catalog or "").strip():
         decide_catalogs.append(subagents_catalog)
     out_locale = resolve_output_locale(
-        client_locale=locale_in,
         profile_locale=get_active_agent_profile().locale,
         prompt=prompt,
     )

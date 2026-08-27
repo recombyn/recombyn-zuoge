@@ -1,5 +1,5 @@
 import { markdownToPlain } from './sceneMarkdown';
-import { normalizeColor } from './sceneEffects';
+import { normalizeColor, TEXT_FRAME_PADDING } from './sceneEffects';
 
 const APP_FONT_FAMILY = 'Alibaba PuHuiTi';
 const FABRIC_FONT_FAMILY = APP_FONT_FAMILY;
@@ -93,8 +93,26 @@ export function toggleTextDecoration(
     .join(' ');
 }
 
-/** Default text-box width when placing / typing (wrap instead of growing sideways). */
+/** Default text-box width when placing / typing (wrap instead of growing sideways).
+ *  Scene px at place font (~18 screen px). Scale with `defaultTextWrapWidthForFontSize`. */
 export const DEFAULT_TEXT_BOX_WIDTH = 240;
+
+/** Place-font reference matching `RCB_PLACE_TEXT_SCREEN_PX` (keep in sync with layout). */
+const PLACE_TEXT_FONT_REF = 18;
+
+/** On-screen wrap target for fixed text (CSS px) — wider than place glyph for readable columns. */
+const TEXT_WRAP_SCREEN_PX = 400;
+
+/**
+ * Fixed wrap width in scene px for the node's fontSize — same on-screen ratio as
+ * TEXT_WRAP_SCREEN_PX at the default place size (zoom-fitted fonts included).
+ * Floor ≈ 8 CJK cells so paste/unfix never collapses to one glyph.
+ */
+export function defaultTextWrapWidthForFontSize(fontSize: number): number {
+  const fs = Math.max(1, Number(fontSize) || DEFAULT_TEXT_STYLE.fontSize);
+  const ratio = TEXT_WRAP_SCREEN_PX / PLACE_TEXT_FONT_REF;
+  return Math.max(Math.ceil(fs * 8), Math.round(fs * ratio));
+}
 
 /** Toolbar / attrs font size — always a positive integer (no 162.77 in UI). */
 export function normalizeTextFontSize(raw: unknown, fallback = DEFAULT_TEXT_STYLE.fontSize): number {
@@ -145,6 +163,33 @@ export function measureTextNodeBoxAfterStyleChange(
       8,
       Math.round(Math.max(wrapped.height, merged.fontSize * merged.lineHeight))
     ),
+  };
+}
+
+/**
+ * Box when leaving fixed text-frame mode — font-scaled wrap width + height to ink.
+ */
+export function measureTextFrameExitBox(
+  node: { width?: number; height?: number; attrs?: Record<string, unknown> },
+  style: Partial<TextStyle> = {}
+): { width: number; height: number } {
+  const merged: TextStyle = {
+    ...parseNodeTextStyle(node.attrs || {}),
+    ...style,
+    fontSize: normalizeTextFontSize(
+      style.fontSize ?? parseNodeTextStyle(node.attrs || {}).fontSize
+    ),
+  };
+  const plain = parseNodeText(node.attrs || {}) || ' ';
+  const fontSize = Math.max(1, Number(merged.fontSize) || 14);
+  const frameW = Math.max(1, Number(node.width) || DEFAULT_TEXT_BOX_WIDTH);
+  const innerW = Math.max(fontSize, frameW - TEXT_FRAME_PADDING * 2);
+  const preferred = defaultTextWrapWidthForFontSize(fontSize);
+  const wrapW = Math.min(preferred * 2, Math.max(preferred, innerW));
+  const wrapped = measureWrappedTextSize(plain, merged, wrapW);
+  return {
+    width: Math.max(8, Math.round(wrapW)),
+    height: Math.max(8, Math.round(Math.max(wrapped.height, fontSize * (merged.lineHeight || 1.4)))),
   };
 }
 

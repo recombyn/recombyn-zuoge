@@ -30,6 +30,7 @@ import {
 } from '@/utils/sessionCamera';
 import { store } from '@/store';
 import { useProjectCloudSync, flushCurrentProjectNow, ProjectRevisionConflictDialog, renameProjectOnCloud } from '@/components/editor/useProjectCloudSync';
+import { useOpenProjectSession } from '@/hooks/useOpenProjectSession';
 import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvider';
 import { McpCanvasBridge } from '@/components/editor/mcp/McpCanvasBridge';
 import { isCollabActive } from '@/components/editor/collab/collabRuntime';
@@ -54,7 +55,6 @@ import {
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
 import LayerPanel from '@/components/editor/panels/LayerPanel';
-import AssetPanel from '@/components/editor/panels/AssetPanel';
 import EditorToolStrip from '@/components/editor/chrome/EditorToolStrip';
 import type { PathEditSubtool } from '@/components/editor/chrome/PathEditToolbar';
 import { getDocumentGridSize } from '@/components/rcb/selection/alignGuides';
@@ -276,9 +276,11 @@ function editorHasFitContent(doc: SceneDocument, frames: ArtboardFrame[]): boole
 
 function resolveHomeAgentInteractionMode(
   mode: unknown
-): 'agent' | 'ask' | 'image' | 'video' | null {
+): 'agent' | 'ask' | 'image' | 'video' | 'audio' | 'lottie' | null {
   if (mode === 'image') return 'image';
   if (mode === 'video') return 'video';
+  if (mode === 'audio') return 'audio';
+  if (mode === 'lottie') return 'lottie';
   if (mode === 'ask') return 'ask';
   if (mode === 'agent') return 'agent';
   return null;
@@ -559,7 +561,7 @@ function EditorPage() {
   const [agentDraftContexts, setAgentDraftContexts] = useState<ComposerContext[]>([]);
   const [agentDraftModelId, setAgentDraftModelId] = useState<string | null>(null);
   const [agentDraftInteractionMode, setAgentDraftInteractionMode] = useState<
-    'agent' | 'ask' | 'image' | 'video' | null
+    'agent' | 'ask' | 'image' | 'video' | 'audio' | 'lottie' | null
   >(null);
   const [agentDraftImageAspect, setAgentDraftImageAspect] = useState<string | null>(null);
   const [agentDraftScene, setAgentDraftScene] = useState<
@@ -624,6 +626,7 @@ function EditorPage() {
     (state: any) => (state.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
   const currentId = useSelector((state: any) => state.editor.currentId as string | null);
+  useOpenProjectSession(currentId || routeProjectId);
   const authUserId = useSelector((s: any) => s.auth?.user?.id as string | undefined);
   const templates = useSelector((state: any) => state.editor.templates as any[]);
   const currentTemplate = useSelector((state: any) =>
@@ -1094,21 +1097,83 @@ function EditorPage() {
 
   const closeLayersPanel = useCallback(() => setLayersOpen(false), []);
 
-  const selectLayerOnMobile = useCallback(
-    (nodeId: string) => {
-      dispatch(setSelectedNodeId(nodeId));
-      setLayersOpen(false);
+  /** Layer list click — pan/zoom so the target sits in view. */
+  const locateSceneBounds = useCallback(
+    (bounds: { x: number; y: number; width: number; height: number } | null) => {
+      if (!bounds) return;
+      const el = stageRef.current;
+      const vw = el?.clientWidth || 0;
+      const vh = el?.clientHeight || 0;
+      if (vw < 40 || vh < 40) return;
+      cameraUserTouchedRef.current = true;
+      setZoomFitActive(false);
+      setCamera(
+        rcbFitCamera(
+          { width: vw, height: vh },
+          {
+            x: bounds.x,
+            y: bounds.y,
+            width: Math.max(1, bounds.width),
+            height: Math.max(1, bounds.height),
+          },
+          96,
+          2
+        )
+      );
     },
-    [dispatch]
+    []
   );
 
-  const selectFrameOnMobile = useCallback(
+  const locateNodeById = useCallback(
+    (nodeId: string) => {
+      const doc = (store.getState() as any).editor?.document as SceneDocument | null;
+      const node = doc?.deltaSetLike?.[nodeId];
+      if (!doc || !node) return;
+      const { left, top } = nodeLeftTop(doc, node);
+      locateSceneBounds({
+        x: left,
+        y: top,
+        width: Math.max(1, Number(node.width) || 1),
+        height: Math.max(1, Number(node.height) || 1),
+      });
+    },
+    [locateSceneBounds]
+  );
+
+  const locateFrameById = useCallback(
+    (frameId: string) => {
+      const doc = (store.getState() as any).editor?.document as SceneDocument | null;
+      const frame = (Array.isArray(doc?.frames) ? doc.frames : []).find(
+        (f: ArtboardFrame) => String(f?.id) === frameId
+      );
+      if (!frame) return;
+      locateSceneBounds({
+        x: Number(frame.x) || 0,
+        y: Number(frame.y) || 0,
+        width: Math.max(1, Number(frame.width) || 1),
+        height: Math.max(1, Number(frame.height) || 1),
+      });
+    },
+    [locateSceneBounds]
+  );
+
+  const selectLayerFromPanel = useCallback(
+    (nodeId: string) => {
+      dispatch(setSelectedNodeId(nodeId));
+      locateNodeById(nodeId);
+      if (isMobileViewport) setLayersOpen(false);
+    },
+    [dispatch, isMobileViewport, locateNodeById]
+  );
+
+  const selectFrameFromPanel = useCallback(
     (frameId: string) => {
       dispatch(setActiveFrameId(frameId));
       dispatch(setFrameChromeMode('full'));
-      setLayersOpen(false);
+      locateFrameById(frameId);
+      if (isMobileViewport) setLayersOpen(false);
     },
-    [dispatch]
+    [dispatch, isMobileViewport, locateFrameById]
   );
 
   useEffect(() => {
@@ -1551,7 +1616,6 @@ function EditorPage() {
               inspectOpen={inspectOpen}
               agentOpen={agentOpen}
               layersOpen={layersOpen}
-              assetsOpen={assetsOpen}
               onProjectList={goProjectsFromEditor}
               onNewProject={newProjectFromEditor}
               onDuplicateProject={duplicateProjectFromEditor}
@@ -1675,15 +1739,11 @@ function EditorPage() {
           {layersOpen && !isMobileViewport ? (
             <div className="pointer-events-none absolute inset-y-0 left-0 z-30">
               <div className="pointer-events-auto h-full">
-                <LayerPanel onClose={closeLayersPanel} />
-              </div>
-            </div>
-          ) : null}
-
-          {assetsOpen && !isMobileViewport ? (
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-30">
-              <div className="pointer-events-auto h-full">
-                <AssetPanel onClose={() => setAssetsOpen(false)} />
+                <LayerPanel
+                  onClose={closeLayersPanel}
+                  onSelectNode={selectLayerFromPanel}
+                  onSelectFrame={selectFrameFromPanel}
+                />
               </div>
             </div>
           ) : null}
@@ -1715,25 +1775,8 @@ function EditorPage() {
               <LayerPanel
                 mobile
                 onClose={closeLayersPanel}
-                onSelectNode={selectLayerOnMobile}
-                onSelectFrame={selectFrameOnMobile}
-              />
-            </div>
-          </>
-        ) : null}
-
-        {isMobileViewport && assetsOpen ? (
-          <>
-            <button
-              type="button"
-              aria-label={t('editor.closePanel')}
-              className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]"
-              onClick={() => setAssetsOpen(false)}
-            />
-            <div className="fixed inset-y-0 left-0 z-50">
-              <AssetPanel
-                mobile
-                onClose={() => setAssetsOpen(false)}
+                onSelectNode={selectLayerFromPanel}
+                onSelectFrame={selectFrameFromPanel}
               />
             </div>
           </>

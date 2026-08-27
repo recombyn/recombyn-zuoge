@@ -883,16 +883,16 @@ function EditorStageWorld({
         <ImageProcessWatcher />
         <UploadJobWatcher />
         <GeneratorJobRecoveryHost />
-        <ImageToolPanelHost document={document} />
-        <ShapeStylePanelHost document={document} />
-        <CropExpandSessionHost document={document} />
-        <UpscaleSessionHost document={document} />
+        <ImageToolPanelHost document={document} hidden={selectionTransforming} />
+        <ShapeStylePanelHost document={document} hidden={selectionTransforming} />
+        <CropExpandSessionHost document={document} hidden={selectionTransforming} />
+        <UpscaleSessionHost document={document} hidden={selectionTransforming} />
         <CommercialEditorHosts document={document} selectionTransforming={selectionTransforming} />
         <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
         <MarkPinHost document={document} hidden={selectionTransforming} />
-        <VideoTrimSessionHost document={document} />
-        <AudioTrimSessionHost document={document} />
-        <AudioSpeedSessionHost document={document} />
+        <VideoTrimSessionHost document={document} hidden={selectionTransforming} />
+        <AudioTrimSessionHost document={document} hidden={selectionTransforming} />
+        <AudioSpeedSessionHost document={document} hidden={selectionTransforming} />
 
         {showCanvasDiffuseMesh ? (
           <MeshHandlesOverlay

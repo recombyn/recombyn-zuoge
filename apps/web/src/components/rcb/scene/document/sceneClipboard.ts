@@ -2,6 +2,11 @@ import { nanoid } from '@reduxjs/toolkit';
 import { z } from 'zod';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
+  getDocumentGridSize,
+  snapBoxToGrid,
+  snapCoordToGrid,
+} from '@/components/rcb/selection/alignGuides';
+import {
   addNodeToDocument,
   cloneSceneValue,
   getActivePage,
@@ -10,6 +15,7 @@ import {
   reconcileStackOrder,
   stackFrameKey,
 } from './sceneDocument';
+import { strokeVisualOutset } from './sceneEffects';
 import {
   SceneNodeSchema,
   type SceneDocument,
@@ -257,6 +263,7 @@ export function snapshotFramesForClipboard(
  * Paste clipboard nodes + artboards with new ids.
  * - Default: nudge by offset (keyboard paste).
  * - `anchor`: place union top-left at that scene point (context-menu paste).
+ * Final path/artboard origins snap to the document grid (same lattice as move).
  */
 export function pasteClipboardIntoDocument(
   doc: SceneDocument,
@@ -274,6 +281,7 @@ export function pasteClipboardIntoDocument(
     return { document: doc, ids: [], frameIds: [] };
   }
   let next = normalizeDocument(doc);
+  const gridSize = getDocumentGridSize(next);
   const idMap = new Map<string, string>();
   const groupMap = new Map<string, string>();
   const frameIdMap = new Map<string, string>();
@@ -285,8 +293,8 @@ export function pasteClipboardIntoDocument(
   if (opts?.anchor) {
     const bounds = clipboardNodesBounds(clip);
     if (bounds) {
-      ox = opts.anchor.x - bounds.left;
-      oy = opts.anchor.y - bounds.top;
+      ox = snapCoordToGrid(opts.anchor.x, gridSize) - bounds.left;
+      oy = snapCoordToGrid(opts.anchor.y, gridSize) - bounds.top;
     }
   }
 
@@ -297,6 +305,23 @@ export function pasteClipboardIntoDocument(
     node.id = newId;
     node.x = (Number(node.x) || 0) + ox;
     node.y = (Number(node.y) || 0) + oy;
+    const outset = strokeVisualOutset(node);
+    if (outset > 0) {
+      const visual = snapBoxToGrid(
+        {
+          left: node.x - outset,
+          top: node.y - outset,
+          width: Math.max(1, Number(node.width) || 1) + outset * 2,
+          height: Math.max(1, Number(node.height) || 1) + outset * 2,
+        },
+        gridSize
+      );
+      node.x = visual.left + outset;
+      node.y = visual.top + outset;
+    } else {
+      node.x = snapCoordToGrid(node.x, gridSize);
+      node.y = snapCoordToGrid(node.y, gridSize);
+    }
     const gid = String(node.attrs?.groupId || '').trim();
     if (gid) {
       if (!groupMap.has(gid)) groupMap.set(gid, nanoid(8));
@@ -322,8 +347,8 @@ export function pasteClipboardIntoDocument(
       const frame = cloneSceneValue(raw);
       const newId = frameIdMap.get(id)!;
       frame.id = newId;
-      frame.x = (Number(frame.x) || 0) + ox;
-      frame.y = (Number(frame.y) || 0) + oy;
+      frame.x = snapCoordToGrid((Number(frame.x) || 0) + ox, gridSize);
+      frame.y = snapCoordToGrid((Number(frame.y) || 0) + oy, gridSize);
       // Drop transient chrome that should not clone with the artboard.
       delete frame.processStatus;
       delete frame.processLabel;

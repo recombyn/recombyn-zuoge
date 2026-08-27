@@ -12,9 +12,7 @@ import { generateImageBatch } from '@/service/generateImageBatch';
 import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  SelectionToolbarShell,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
   chipBaseKey,
@@ -116,8 +114,6 @@ type Props = {
   nodeId: string;
   /** Scene plate box 鈥?composer anchors under it; promote keeps document geometry. */
   sceneBox: { x: number; y: number; width: number; height: number };
-  /** Composer only shows while the generator node is selected. */
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -160,12 +156,10 @@ function plateSizeForAspect(
 function ImageGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled,
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const chromePointer = useChromePointerActivate();
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -215,6 +209,7 @@ function ImageGeneratorCard({
     promptForImageSrc(genAttrs, mainSrc)
   );
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending && !nodeProcessing;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [resolution, setResolution] = useState<string>(() => {
@@ -294,14 +289,20 @@ function ImageGeneratorCard({
     genAttrs?.imageVariantPrompts,
   ]);
 
-  // Auto-focus when the generator composer appears (select plate / show again).
+  // Auto-focus once when the composer first becomes visible — skip remount churn.
+  const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) return;
+    if (!composerVisible || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
+  }, [composerVisible, disabled]);
 
   useEffect(() => {
     return () => {
@@ -700,12 +701,6 @@ function ImageGeneratorCard({
     );
   };
 
-  // Same placement contract as selection toolbars: world-layer under the box.
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
-
-  // Hide as soon as send starts — no compact loading bar; node glow shows progress.
-  const composerVisible = showComposer && !sending && !nodeProcessing;
-
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
       pickingFromCanvas,
@@ -737,17 +732,19 @@ function ImageGeneratorCard({
   return (
     <>
       {composerVisible ? (
-        <WorldScreenChromeRoot
-          left={composerPlacement.left}
-          railWidth={composerPlacement.railWidth}
-          top={composerPlacement.top}
-          anchor={composerPlacement.anchor}
-          edgeGapPx={composerPlacement.edgeGapPx}
+        <SelectionToolbarShell
+          box={{
+            left: sceneBox.x,
+            top: sceneBox.y,
+            width: sceneBox.width,
+            height: sceneBox.height,
+          }}
+          bare
+          dock="below"
+          zIndexClassName={markActive ? 'z-[40]' : 'z-[32]'}
           data-image-generator
-          data-sel-toolbar
+          {...(markActive ? { 'data-mark-composer': true } : {})}
           data-scene-node-id={nodeId}
-          className="pointer-events-auto z-[32] overflow-visible"
-          {...chromePointer}
         >
           <CanvasMediaComposerShell
             attachment={
@@ -773,7 +770,14 @@ function ImageGeneratorCard({
                         disabled={disabled || sending || !markReady}
                         aria-label={t('editor.imageToolbar.mark')}
                         aria-pressed={markActive}
-                        onClick={onMark}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.nativeEvent.stopImmediatePropagation?.();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onMark();
+                        }}
                         className={composerAttachActionClass(markActive)}
                       >
                         <PiSelectionPlus className="h-4 w-4" />
@@ -954,7 +958,7 @@ function ImageGeneratorCard({
               </ComposerFooterBar>
             }
           />
-        </WorldScreenChromeRoot>
+        </SelectionToolbarShell>
       ) : null}
 
       {composerVisible && mentionOpen ? (

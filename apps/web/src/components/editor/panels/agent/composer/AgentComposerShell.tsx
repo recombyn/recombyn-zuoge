@@ -27,7 +27,7 @@ import {
   HiChevronUp,
   HiChevronDown,
 } from 'react-icons/hi2';
-import { LuInfinity, LuMessageSquare } from 'react-icons/lu';
+import { LuFilm, LuInfinity, LuMessageSquare } from 'react-icons/lu';
 import { RiVideoLine } from 'react-icons/ri';
 import { Dropdown, DropdownPanel, DropdownPanelItem } from '@/components/base';
 import { Icon } from '@/components/base/icon';
@@ -43,6 +43,7 @@ import ImageAspectRatioPicker, {
   AspectRatioGlyph,
 } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import { VideoSettingsPanel } from '@/components/editor/panels/agent/shared/VideoSettingsPanel';
+import { LottieSettingsPanel } from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
 import {
   isCanvasSizeAutoHint,
 } from '@/components/editor/chrome/SizePresetPanel';
@@ -52,10 +53,16 @@ import { cn } from '@/utils/classnames';
 /** Run mode — Auto toggle = agent; image/video models still use composerMode for gen UI. */
 export type ComposerRunMode = 'agent' | 'image' | 'video';
 
-/** Agent = edit canvas; Ask = propose / clarify first; Image / Video = direct gen in chat. */
-export type ComposerInteractionMode = 'agent' | 'ask' | 'image' | 'video';
+/** Agent = edit canvas; Ask = propose / clarify first; Image / Video / Audio / Lottie = direct gen in chat. */
+export type ComposerInteractionMode = 'agent' | 'ask' | 'image' | 'video' | 'audio' | 'lottie';
 
-const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'image', 'video'];
+const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = [
+  'agent',
+  'image',
+  'video',
+  'audio',
+  'lottie',
+];
 
 /** Controls shown when `interactionMode === 'image'` (mirrors ImageGeneratorCard footer). */
 export type ImageModeComposerControls = {
@@ -82,6 +89,30 @@ export type VideoModeComposerControls = {
   aspectRatio: string;
   duration: number;
   onResolutionChange: (resolution: string) => void;
+  onAspectRatioChange: (ratio: string) => void;
+  onDurationChange: (duration: number) => void;
+  creditCost: number;
+  modelLabel: string;
+  modelIcon?: ReactNode;
+  modelPanel: ReactNode;
+  modelOpen: boolean;
+  onModelOpenChange: (open: boolean) => void;
+};
+
+/** Controls shown when `interactionMode === 'audio'`. */
+export type AudioModeComposerControls = {
+  creditCost: number;
+  modelLabel: string;
+  modelIcon?: ReactNode;
+  modelPanel: ReactNode;
+  modelOpen: boolean;
+  onModelOpenChange: (open: boolean) => void;
+};
+
+/** Controls shown when `interactionMode === 'lottie'`. */
+export type LottieModeComposerControls = {
+  aspectRatio: string;
+  duration: number;
   onAspectRatioChange: (ratio: string) => void;
   onDurationChange: (duration: number) => void;
   creditCost: number;
@@ -149,8 +180,12 @@ type Props = {
   allowedInteractionModes?: ComposerInteractionMode[];
   /** Image-mode settings / model / credit send (Image Generator鈥搒tyle chrome). */
   imageModeControls?: ImageModeComposerControls | null;
-  /** Video-mode settings / model / credit send (Video Generator鈥搒tyle chrome). */
+  /** Video-mode settings / model / credit send (Video Generator-style chrome). */
   videoModeControls?: VideoModeComposerControls | null;
+  /** Audio-mode model / credit send. */
+  audioModeControls?: AudioModeComposerControls | null;
+  /** Lottie-mode settings / model / credit send. */
+  lottieModeControls?: LottieModeComposerControls | null;
   modelButtonProps: {
     open: boolean;
     /** Preferred: Dropdown-hosted primary panel (flip / shift, stable anchor). */
@@ -698,6 +733,8 @@ function interactionModeLabel(
   mode: ComposerInteractionMode,
   t: (key: string) => string
 ): string {
+  if (mode === 'lottie') return t('agent.interactionLottie');
+  if (mode === 'audio') return t('agent.interactionAudio');
   if (mode === 'video') return t('agent.interactionVideo');
   if (mode === 'image') return t('agent.interactionImage');
   if (mode === 'ask') return t('agent.interactionAsk');
@@ -705,6 +742,12 @@ function interactionModeLabel(
 }
 
 function interactionModeIcon(mode: ComposerInteractionMode): ReactNode {
+  if (mode === 'lottie') {
+    return <LuFilm className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />;
+  }
+  if (mode === 'audio') {
+    return <HiOutlineMusicalNote className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />;
+  }
   if (mode === 'video') {
     return <RiVideoLine className="h-3.5 w-3.5 shrink-0" />;
   }
@@ -741,6 +784,16 @@ function buildInteractionModeOptions(
       key: 'video',
       label: t('agent.interactionVideo'),
       icon: <RiVideoLine className="h-3.5 w-3.5 shrink-0" />,
+    },
+    {
+      key: 'audio',
+      label: t('agent.interactionAudio'),
+      icon: <HiOutlineMusicalNote className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />,
+    },
+    {
+      key: 'lottie',
+      label: t('agent.interactionLottie'),
+      icon: <LuFilm className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />,
     },
   ];
   return all.filter((item) => allowedModes.includes(item.key));
@@ -920,6 +973,8 @@ function AgentComposerShell({
   allowedInteractionModes,
   imageModeControls = null,
   videoModeControls = null,
+  audioModeControls = null,
+  lottieModeControls = null,
   modelButtonProps,
   className,
   submitLabel,
@@ -938,6 +993,7 @@ function AgentComposerShell({
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [imageSettingsOpen, setImageSettingsOpen] = useState(false);
   const [videoSettingsOpen, setVideoSettingsOpen] = useState(false);
+  const [lottieSettingsOpen, setLottieSettingsOpen] = useState(false);
   const allowedModes =
     allowedInteractionModes && allowedInteractionModes.length
       ? allowedInteractionModes
@@ -954,7 +1010,9 @@ function AgentComposerShell({
       : contexts.filter((c) => c.kind !== 'attachment');
   const isImageMode = interactionMode === 'image' && Boolean(imageModeControls);
   const isVideoMode = interactionMode === 'video' && Boolean(videoModeControls);
-  const isGenMediaMode = isImageMode || isVideoMode;
+  const isAudioMode = interactionMode === 'audio' && Boolean(audioModeControls);
+  const isLottieMode = interactionMode === 'lottie' && Boolean(lottieModeControls);
+  const isGenMediaMode = isImageMode || isVideoMode || isAudioMode || isLottieMode;
   // Top attach strip (image/video mode always, or agent/ask after upload) must not steal typing height.
   const hasTopAttachRow = isGenMediaMode || attachments.length > 0;
   const inputMinClass = compact
@@ -978,6 +1036,12 @@ function AgentComposerShell({
 
   const videoSettingsSummary = videoModeControls
     ? `${videoModeControls.resolution} · ${videoModeControls.aspectRatio} · ${videoModeControls.duration}s`
+    : '';
+
+  const lottieSettingsSummary = lottieModeControls
+    ? `${lottieModeControls.aspectRatio} · ${t('editor.tools.lottieDurationNs', {
+        n: lottieModeControls.duration,
+      })}`
     : '';
 
   const aspectFloating = useFloating({
@@ -1014,7 +1078,8 @@ function AgentComposerShell({
   useEffect(() => {
     if (!isImageMode) setImageSettingsOpen(false);
     if (!isVideoMode) setVideoSettingsOpen(false);
-  }, [isImageMode, isVideoMode]);
+    if (!isLottieMode) setLottieSettingsOpen(false);
+  }, [isImageMode, isVideoMode, isLottieMode]);
 
   const removeAttachment = (key: string) => {
     onContextsChange(contexts.filter((c) => c.key !== key));
@@ -1034,9 +1099,12 @@ function AgentComposerShell({
 
   let fileAccept =
     'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,video/*,audio/*,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
-  if (isVideoMode) {
+  if (isVideoMode || isLottieMode) {
     fileAccept =
       'image/*,video/*,audio/*,application/json,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
+  } else if (isAudioMode) {
+    fileAccept =
+      'audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac';
   } else if (interactionMode === 'ask' || isImageMode) {
     fileAccept =
       'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,.png,.jpg,.jpeg,.webp,.gif,.svg';
@@ -1138,7 +1206,13 @@ function AgentComposerShell({
           <Tooltip
             tip={
               attachTooltip ||
-              (isVideoMode ? t('editor.tools.videoGenRef') : t('agent.uploadImage'))
+              (isVideoMode
+                ? t('editor.tools.videoGenRef')
+                : isLottieMode
+                  ? t('editor.tools.lottieGenRef', { defaultValue: t('agent.uploadImage') })
+                  : isAudioMode
+                    ? t('editor.tools.audioGenRef', { defaultValue: t('agent.uploadAttach') })
+                    : t('agent.uploadImage'))
             }
             placement="top"
           >
@@ -1307,6 +1381,52 @@ function AgentComposerShell({
               )}
             >
               <span className="truncate">{videoSettingsSummary}</span>
+            </button>
+          </Dropdown>
+        ) : null}
+
+        {isLottieMode && lottieModeControls ? (
+          <Dropdown
+            trigger="click"
+            placement="top-start"
+            strategy="fixed"
+            offset={8}
+            open={lottieSettingsOpen}
+            onOpenChange={setLottieSettingsOpen}
+            items={[]}
+            floatingClassName="z-[120]"
+            referenceClassName="inline-flex min-w-0"
+            popupRender={() => (
+              <DropdownPanel
+                className="w-[min(26rem,calc(100vw-2rem))] p-3 shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-[color-mix(in_srgb,var(--ink)_10%,var(--line))]"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <p className="mb-2.5 text-[13px] font-semibold text-[var(--ink)]">
+                  {t('editor.tools.lottieSettings', { defaultValue: 'Lottie settings' })}
+                </p>
+                <LottieSettingsPanel
+                  aspectRatio={lottieModeControls.aspectRatio}
+                  duration={lottieModeControls.duration}
+                  onAspectRatioChange={lottieModeControls.onAspectRatioChange}
+                  onDurationChange={lottieModeControls.onDurationChange}
+                  disabled={disabled || sending}
+                />
+              </DropdownPanel>
+            )}
+          >
+            <button
+              type="button"
+              disabled={disabled || sending}
+              aria-label={t('editor.tools.lottieSettings', { defaultValue: 'Lottie settings' })}
+              aria-expanded={lottieSettingsOpen}
+              className={cn(
+                'inline-flex h-7 max-w-[min(100%,12rem)] shrink-0 items-center gap-1 truncate rounded-xl px-2 text-[12px] font-medium tabular-nums transition-colors disabled:opacity-40',
+                lottieSettingsOpen
+                  ? 'bg-[var(--accent-soft)] text-[var(--ink)]'
+                  : 'text-[var(--muted)] hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]'
+              )}
+            >
+              <span className="truncate">{lottieSettingsSummary}</span>
             </button>
           </Dropdown>
         ) : null}
@@ -1558,6 +1678,142 @@ function AgentComposerShell({
                 >
                   <HiOutlineBolt className="h-3.5 w-3.5" strokeWidth={2} />
                   <span className="tabular-nums">{videoModeControls.creditCost}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={t('agent.send')}
+                  title={sendButtonTitle}
+                  disabled={!canSend}
+                  onClick={onSubmit}
+                  className={cn(iconSendBtn, 'hover:opacity-90 disabled:opacity-35')}
+                >
+                  <HiArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </button>
+              )}
+            </>
+          ) : isAudioMode && audioModeControls ? (
+            <>
+              <Dropdown
+                trigger="click"
+                placement="top-end"
+                strategy="fixed"
+                offset={8}
+                open={audioModeControls.modelOpen}
+                onOpenChange={audioModeControls.onModelOpenChange}
+                items={[]}
+                floatingClassName="z-[90]"
+                referenceClassName="inline-flex"
+                popupRender={() => (
+                  <div className="max-w-full" onPointerDown={(e) => e.stopPropagation()}>
+                    {audioModeControls.modelPanel}
+                  </div>
+                )}
+              >
+                <button
+                  type="button"
+                  disabled={disabled || sending}
+                  title={audioModeControls.modelLabel}
+                  aria-label={audioModeControls.modelLabel}
+                  className={cn(TOOL_ICON_BTN, 'disabled:opacity-40')}
+                >
+                  {audioModeControls.modelIcon}
+                </button>
+              </Dropdown>
+              {sending ? (
+                <button
+                  type="button"
+                  aria-label={t('agent.stop')}
+                  title={t('agent.stop')}
+                  onClick={() => onStop?.()}
+                  className={billingEnabled ? creditSendBtn : cn(iconSendBtn, 'hover:opacity-90')}
+                >
+                  <span className="h-2.5 w-2.5 rounded-[2px] bg-current" aria-hidden />
+                </button>
+              ) : billingEnabled ? (
+                <button
+                  type="button"
+                  aria-label={t('agent.send')}
+                  disabled={!canSend}
+                  onClick={onSubmit}
+                  title={
+                    sendDisabledReason ||
+                    t('wallet.creditCostTip', {
+                      count: audioModeControls.creditCost,
+                    })
+                  }
+                  className={creditSendBtn}
+                >
+                  <HiOutlineBolt className="h-3.5 w-3.5" strokeWidth={2} />
+                  <span className="tabular-nums">{audioModeControls.creditCost}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={t('agent.send')}
+                  title={sendButtonTitle}
+                  disabled={!canSend}
+                  onClick={onSubmit}
+                  className={cn(iconSendBtn, 'hover:opacity-90 disabled:opacity-35')}
+                >
+                  <HiArrowUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </button>
+              )}
+            </>
+          ) : isLottieMode && lottieModeControls ? (
+            <>
+              <Dropdown
+                trigger="click"
+                placement="top-end"
+                strategy="fixed"
+                offset={8}
+                open={lottieModeControls.modelOpen}
+                onOpenChange={lottieModeControls.onModelOpenChange}
+                items={[]}
+                floatingClassName="z-[90]"
+                referenceClassName="inline-flex"
+                popupRender={() => (
+                  <div className="max-w-full" onPointerDown={(e) => e.stopPropagation()}>
+                    {lottieModeControls.modelPanel}
+                  </div>
+                )}
+              >
+                <button
+                  type="button"
+                  disabled={disabled || sending}
+                  title={lottieModeControls.modelLabel}
+                  aria-label={lottieModeControls.modelLabel}
+                  className={cn(TOOL_ICON_BTN, 'disabled:opacity-40')}
+                >
+                  {lottieModeControls.modelIcon}
+                </button>
+              </Dropdown>
+              {sending ? (
+                <button
+                  type="button"
+                  aria-label={t('agent.stop')}
+                  title={t('agent.stop')}
+                  onClick={() => onStop?.()}
+                  className={billingEnabled ? creditSendBtn : cn(iconSendBtn, 'hover:opacity-90')}
+                >
+                  <span className="h-2.5 w-2.5 rounded-[2px] bg-current" aria-hidden />
+                </button>
+              ) : billingEnabled ? (
+                <button
+                  type="button"
+                  aria-label={t('agent.send')}
+                  disabled={!canSend}
+                  onClick={onSubmit}
+                  title={
+                    sendDisabledReason ||
+                    t('wallet.creditCostTip', {
+                      count: lottieModeControls.creditCost,
+                    })
+                  }
+                  className={creditSendBtn}
+                >
+                  <HiOutlineBolt className="h-3.5 w-3.5" strokeWidth={2} />
+                  <span className="tabular-nums">{lottieModeControls.creditCost}</span>
                 </button>
               ) : (
                 <button

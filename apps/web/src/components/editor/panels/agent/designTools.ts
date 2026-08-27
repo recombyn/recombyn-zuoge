@@ -75,6 +75,7 @@ import {
   outlineNodePatch,
 } from '@/components/rcb/scene/paint/outlineToPath';
 import { isCustomPathShape } from '@/components/rcb/scene/document/pathScale';
+import { rcbPlaceTextFontSize } from '@/components/rcb/core/layout';
 import {
   polylinePathD,
   simplifyPencilCenterline,
@@ -2208,7 +2209,17 @@ function execCreateText(
   const boxMode = args.width != null && args.height != null;
   const baseStyle = parseNodeTextStyle({});
   const nextStyle: Record<string, unknown> = { ...baseStyle };
-  if (args.fontSize != null) nextStyle.fontSize = num(args.fontSize, 14);
+  if (args.fontSize != null) {
+    nextStyle.fontSize = num(args.fontSize, 14);
+  } else {
+    const zoom = Math.max(0.05, ctx.canvasUi?.getZoom?.() ?? 1);
+    const docW = Math.max(0, Number(doc.width) || 0);
+    const vp = ctx.canvasUi?.getViewportSceneBounds?.();
+    nextStyle.fontSize = rcbPlaceTextFontSize(zoom, undefined, {
+      viewportWidth: vp?.width,
+      docWidth: docW > 0 ? docW : undefined,
+    });
+  }
   const textFill = args.fill;
   if (textFill != null) nextStyle.fill = String(textFill);
   if (args.fontWeight != null) nextStyle.fontWeight = String(args.fontWeight);

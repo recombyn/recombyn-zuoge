@@ -2,6 +2,8 @@
 /**
  * Sanitize a private commit message before publishing to the OSS repo.
  * Strips wording that reveals private→public mirroring.
+ * Unwraps "Merge pull request #N" so the public history shows what changed.
+ * Appends [skip ci] so zuoge does not re-run Actions on publish.
  *
  *   node scripts/sanitize-public-commit-msg.mjs < raw.txt > clean.txt
  */
@@ -14,7 +16,7 @@ const LEAK_ZH = /同步|镜像|私有仓库|公开镜像/;
 /** @param {string} raw */
 export function sanitizePublicCommitMessage(raw) {
   let text = String(raw || '').replace(/\r\n/g, '\n').trim();
-  if (!text) return 'chore: update project';
+  if (!text) return 'chore: update project\n\n[skip ci]';
 
   text = text
     .split('\n')
@@ -25,6 +27,22 @@ export function sanitizePublicCommitMessage(raw) {
   const lines = text.split('\n');
   let subject = (lines[0] || '').trim();
   let body = lines.slice(1).join('\n').trim();
+
+  // Public history should describe the change, not the private PR merge wrapper.
+  if (/^Merge (pull request|branch)\b/i.test(subject)) {
+    const bodyLines = body
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .filter((l) => !/^Merge (pull request|branch)\b/i.test(l));
+    if (bodyLines.length) {
+      subject = bodyLines[0];
+      body = bodyLines.slice(1).join('\n').trim();
+    } else {
+      subject = 'chore: update project';
+      body = '';
+    }
+  }
 
   subject = subject
     .replace(/^chore\s*\(\s*sync\s*\)\s*:?\s*/i, 'chore: ')
@@ -47,10 +65,11 @@ export function sanitizePublicCommitMessage(raw) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  if (!body || /^[\s.·\-–—]*$/.test(body)) {
-    return subject;
+  let out = !body || /^[\s.·\-–—]*$/.test(body) ? subject : `${subject}\n\n${body}`;
+  if (!/\[skip\s*ci\]|\[ci\s*skip\]/i.test(out)) {
+    out = `${out.trim()}\n\n[skip ci]`;
   }
-  return `${subject}\n\n${body}`;
+  return out;
 }
 
 async function main() {

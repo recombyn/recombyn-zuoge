@@ -67,7 +67,13 @@ function parseClock(text: string): number | null {
   return min * 60 + sec;
 }
 
-function AudioTrimSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function AudioTrimSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const { zoom } = useRcbCamera();
@@ -188,7 +194,7 @@ function AudioTrimSessionHost({ document }: { document: SceneDocument }): ReactN
     }
   };
 
-  if (!open || !node || !src) return null;
+  if (!open || !node || !src || hidden) return null;
 
   return (
     <RcbOverlayPortal>

@@ -9,9 +9,7 @@ import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  SelectionToolbarShell,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
   chipBaseKey,
@@ -67,6 +65,7 @@ import {
   consumePendingCanvasAttach,
   finishVideoGenerator,
   patchDocumentNode,
+  setSelectedNodeIds,
   startCanvasAttachPick,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
@@ -79,10 +78,8 @@ import store from '@/store';
 
 type Props = {
   nodeId: string;
-  /** Scene plate box 鈥?composer anchors under it; promote keeps document geometry. */
+  /** Scene plate box — composer anchors under it; promote keeps document geometry. */
   sceneBox: { x: number; y: number; width: number; height: number };
-  /** Composer only shows while the generator node is selected. */
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -126,12 +123,10 @@ function plateSizeForVideoAspect(
 function VideoGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled,
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const chromePointer = useChromePointerActivate();
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -141,6 +136,7 @@ function VideoGeneratorCard({
       | Record<string, unknown>
       | undefined
   );
+  const nodeProcessing = String(genAttrs?.processStatus || '') === 'running';
   const editorDocument = useSelector((state: any) => state.editor?.document);
   const canvasAttachPick = useSelector(
     (state: any) => state.editor?.canvasAttachPick as null | { target: string }
@@ -163,6 +159,7 @@ function VideoGeneratorCard({
 
   const [prompt, setPrompt] = useState('');
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending && !nodeProcessing;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [resolution, setResolution] = useState<string>(() => {
@@ -235,15 +232,6 @@ function VideoGeneratorCard({
     genAttrs?.videoGenDuration,
     genAttrs?.videoGenModel,
   ]);
-
-  // Auto-focus when the generator composer appears (select plate / show again).
-  useEffect(() => {
-    if (!showComposer || disabled) return;
-    const id = requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
-    return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
 
   useEffect(() => {
     return () => {
@@ -453,6 +441,7 @@ function VideoGeneratorCard({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    dispatch(setSelectedNodeIds([]));
     setSending(true);
     registerGeneratorSession(nodeId);
     let finished = false;
@@ -579,8 +568,20 @@ function VideoGeneratorCard({
     );
   };
 
-  // Same placement contract as selection toolbars: world-layer under the box.
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
+  // Auto-focus once when the composer first becomes visible — skip remount churn.
+  const wasComposerVisibleRef = useRef(false);
+  useEffect(() => {
+    if (!composerVisible || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [composerVisible, disabled]);
 
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
@@ -613,21 +614,21 @@ function VideoGeneratorCard({
 
   return (
     <>
-      {showComposer ? (
-        <WorldScreenChromeRoot
-          left={composerPlacement.left}
-          railWidth={composerPlacement.railWidth}
-          top={composerPlacement.top}
-          anchor={composerPlacement.anchor}
-          edgeGapPx={composerPlacement.edgeGapPx}
+      {composerVisible ? (
+        <SelectionToolbarShell
+          box={{
+            left: sceneBox.x,
+            top: sceneBox.y,
+            width: sceneBox.width,
+            height: sceneBox.height,
+          }}
+          bare
+          dock="below"
+          zIndexClassName="z-[32]"
           data-video-generator
-          data-sel-toolbar
           data-scene-node-id={nodeId}
-          className="pointer-events-auto z-[32] overflow-visible"
-          {...chromePointer}
         >
           <CanvasMediaComposerShell
-            panelOverflow="visible"
             attachment={
               <ComposerAttachmentStrip
                 attachments={attachments}
@@ -813,10 +814,10 @@ function VideoGeneratorCard({
               </ComposerFooterBar>
             }
           />
-        </WorldScreenChromeRoot>
+        </SelectionToolbarShell>
       ) : null}
 
-      {showComposer && mentionOpen ? (
+      {composerVisible && mentionOpen ? (
         <FloatingPortal>
           <div
             ref={mentionFloating.refs.setFloating}
@@ -836,7 +837,7 @@ function VideoGeneratorCard({
         </FloatingPortal>
       ) : null}
 
-      {showComposer && skillOpen ? (
+      {composerVisible && skillOpen ? (
         <FloatingPortal>
           <div
             ref={skillFloating.refs.setFloating}

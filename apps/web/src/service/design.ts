@@ -678,9 +678,6 @@ export const postDesignSceneFeedback = (
     { signal: abortAfter(30_000, signal) }
   ) as Promise<{ ok?: boolean; count?: number; frames?: number }>;
 
-/** Lottie jobs — SSE via @/service/chat (re-export for legacy imports). */
-export { generateLottie, type GenerateLottieInput, type GenerateLottieResult } from '@/service/chat';
-
 export type DesignSkillImportExisting = {
   id: number;
   name: string;

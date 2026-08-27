@@ -9,6 +9,7 @@ from app.services.llm import (
     _api_key_for,
     build_async_openai_client,
     list_audio_models,
+    openai_binary_post,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,45 +67,6 @@ def default_voice_for_api_model(api_model: str) -> str:
     return _DEFAULT_VOICE
 
 
-async def _post_speech_bytes(
-    client: Any,
-    body: dict[str, Any],
-) -> tuple[bytes, str]:
-    """POST /audio/speech → (audio_bytes, content_type)."""
-    raw = await client.with_raw_response.post(
-        "/audio/speech",
-        body=dict(body),
-        cast_to=object,
-    )
-    http_resp = getattr(raw, "http_response", None)
-    if http_resp is None:
-        raise RuntimeError("OpenRouter speech returned no HTTP response")
-    status = int(getattr(http_resp, "status_code", 0) or 0)
-    content = getattr(http_resp, "content", None) or b""
-    if status >= 400:
-        detail = ""
-        try:
-            detail = http_resp.text
-        except Exception:
-            detail = str(content[:400])
-        raise RuntimeError(f"OpenRouter speech failed ({status}): {detail[:500]}")
-    if not content:
-        raise RuntimeError("OpenRouter speech returned empty audio")
-    ctype = ""
-    headers = getattr(http_resp, "headers", None)
-    if headers is not None:
-        try:
-            ctype = str(headers.get("content-type") or "").split(";")[0].strip()
-        except Exception:
-            ctype = ""
-    if not ctype or "json" in ctype or "text/" in ctype:
-        # Some errors arrive as JSON with 200 — surface them.
-        if content[:1] in (b"{", b"["):
-            raise RuntimeError(f"OpenRouter speech returned JSON: {content[:400]!r}")
-        ctype = "audio/mpeg"
-    return bytes(content), ctype
-
-
 async def generate_audio(
     *,
     prompt: str,
@@ -116,8 +78,7 @@ async def generate_audio(
     """
     Text-to-speech via OpenRouter Audio Speech API.
 
-    Returns ``{ audios: [url], model, voice, mime?, bytes? }`` where ``audios``
-    may be data URLs until the route rehosts to assets.
+    Returns ``{ bytes, model, voice, mime }`` for asset persistence.
     """
     text = (prompt or "").strip()
     if not text:
@@ -155,22 +116,17 @@ async def generate_audio(
         api_model=api_model,
         timeout=180.0,
     )
-    try:
-        audio_bytes, ctype = await _post_speech_bytes(client, body)
-    except Exception as err:  # noqa: BLE001
-        raise RuntimeError(f"OpenRouter audio speech failed: {err}") from err
-
-    import base64
-
-    mime = ctype if ctype.startswith("audio/") else (
-        "audio/mpeg" if fmt == "mp3" else f"audio/{fmt}"
+    default_ct = "audio/mpeg" if fmt == "mp3" else f"audio/{fmt}"
+    audio_bytes, ctype = await openai_binary_post(
+        client,
+        "/audio/speech",
+        body,
+        default_content_type=default_ct,
     )
-    b64 = base64.b64encode(audio_bytes).decode("ascii")
-    data_url = f"data:{mime};base64,{b64}"
+    mime = ctype if ctype.startswith("audio/") else default_ct
     return {
-        "audios": [data_url],
+        "bytes": audio_bytes,
         "model": catalog_id,
         "voice": voice_id,
         "mime": mime,
-        "bytes": audio_bytes,
     }

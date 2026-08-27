@@ -69,7 +69,13 @@ function nodeBox(document: SceneDocument, node: SceneNodeInput) {
  * Upscale session: compact bar under the image (same chrome as expand).
  * Resolution dropdown keeps the prior panel style; confirm + credits live on the bar.
  */
-function UpscaleSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function UpscaleSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const camera = useRcbCamera();
@@ -117,7 +123,7 @@ function UpscaleSessionHost({ document }: { document: SceneDocument }): ReactNod
     anchor: 'top',
   });
 
-  if (!active || !nodeId || !box) return null;
+  if (!active || !nodeId || !box || hidden) return null;
 
   const selected =
     UPSCALE_PRESETS.find((p) => p.key === selectedKey) ?? UPSCALE_PRESETS[1] ?? UPSCALE_PRESETS[0];

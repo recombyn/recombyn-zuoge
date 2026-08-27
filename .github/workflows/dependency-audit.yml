@@ -1,20 +1,11 @@
 name: Dependency audit
 
 on:
-  pull_request:
-    paths:
-      - 'apps/api/pyproject.toml'
-      - 'apps/web/package.json'
-      - 'package-lock.json'
-      - 'package.json'
-      - '.github/workflows/dependency-audit.yml'
-  schedule:
-    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 jobs:
   pip-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     defaults:
       run:
         working-directory: apps/api
@@ -37,7 +28,7 @@ jobs:
         continue-on-error: true
 
   npm-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

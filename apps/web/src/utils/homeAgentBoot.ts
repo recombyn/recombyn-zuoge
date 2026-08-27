@@ -8,7 +8,7 @@ export type HomeAgentBoot = {
   autoSubmit: boolean;
   modelId?: string | null;
   /** Home Agent / Ask / Image switch. */
-  interactionMode?: 'agent' | 'ask' | 'image' | 'video' | null;
+  interactionMode?: 'agent' | 'ask' | 'image' | 'video' | 'audio' | 'lottie' | null;
   imageAspectRatio?: string | null;
   scene?: 'website' | 'mobile' | 'image' | 'poster' | 'drawing' | 'video' | null;
   stylePackId?: number | null;

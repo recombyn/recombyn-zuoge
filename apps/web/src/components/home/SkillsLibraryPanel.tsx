@@ -20,7 +20,7 @@ import { apiClient, apiQuery, getHttpErrorMessage } from '@/service/client';
 import { useDeferredBusy } from '@/utils/useDeferredBusy';
 import { cn } from '@/utils/classnames';
 
-const DEFAULT_SKILL_GRID = 'grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3';
+const DEFAULT_SKILL_GRID = 'grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4';
 
 /**
  * Loading placeholders only (same idea as GRID_SKELETON_COUNT on Me / feed).

@@ -1,3 +1,5 @@
+import { rcbCameraCssZoom } from './math';
+import type { RcbCamera } from './types';
 import type { RcbVec } from './types';
 
 export type RcbBoxLike = {
@@ -239,15 +241,51 @@ export function generatorEmptyIconSize(boxW: number, boxH: number): number {
   return side * 0.28;
 }
 
+/** On-screen target when placing new text (T-tool, paste, agent). ~18 CSS px ≈ readable body copy. */
+export const RCB_PLACE_TEXT_SCREEN_PX = 18;
+
 /**
  * Default font size when placing text with the T tool.
  * Targets ~`screenPx` CSS pixels on screen so high zoom does not spawn
- * document-14px glyphs that fill half the viewport.
+ * tiny document glyphs and zoom-out does not spawn invisible text.
  */
-export function rcbDefaultPlaceFontSize(zoom: number, screenPx = 14): number {
+export function rcbDefaultPlaceFontSize(
+  zoom: number,
+  screenPx = RCB_PLACE_TEXT_SCREEN_PX
+): number {
   const z = Math.max(0.05, Number(zoom) || 1);
-  const target = Math.max(1, Number(screenPx) || 14);
+  const target = Math.max(1, Number(screenPx) || RCB_PLACE_TEXT_SCREEN_PX);
   const raw = target / z;
   // Half-pixel steps (same lattice as odd center strokes); never below 1 scene px.
   return Math.max(1, Math.round(raw * 2) / 2);
+}
+
+export type RcbPlaceTextFontSizeOpts = {
+  /** Stage viewport width in CSS px. */
+  viewportWidth?: number;
+  /** Document / artboard width in scene px. */
+  docWidth?: number;
+};
+
+/**
+ * Scene font size for a newly placed text node (~`screenPx` on screen).
+ * Uses CSS zoom and, when the whole artboard fits in view, infers zoom from
+ * viewport vs document width (guards stale camera.zoom).
+ */
+export function rcbPlaceTextFontSize(
+  zoom: number,
+  screenPx = RCB_PLACE_TEXT_SCREEN_PX,
+  opts?: RcbPlaceTextFontSizeOpts
+): number {
+  const cam = { x: 0, y: 0, zoom: Number(zoom) || 1 } satisfies RcbCamera;
+  let z = Math.max(0.05, rcbCameraCssZoom(cam));
+  const vw = opts?.viewportWidth;
+  const dw = opts?.docWidth;
+  if (vw != null && vw > 40 && dw != null && dw > vw + 1) {
+    const visibleSceneW = vw / z;
+    if (visibleSceneW >= dw * 0.85 && visibleSceneW <= dw * 1.15) {
+      z = Math.max(0.05, vw / dw);
+    }
+  }
+  return rcbDefaultPlaceFontSize(z, screenPx);
 }

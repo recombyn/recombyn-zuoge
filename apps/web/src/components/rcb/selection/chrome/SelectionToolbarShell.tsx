@@ -98,48 +98,6 @@ export const SELECTION_TOOLBAR_BELOW_BOX_GAP_PX = 20;
 /** Half knob + air outside the chrome edge (must clear 10px resize hit). */
 export const SELECTION_HANDLE_CLEARANCE_PX = 14;
 
-/** Screen px inset from stage edge when clamping floating chrome. */
-export const CHROME_VIEWPORT_INSET_PX = 16;
-
-/** Shift pill horizontally so it stays inside the overlay with a fixed inset. */
-export function clampChromeShiftX(
-  pillRect: DOMRectReadOnly,
-  overlayRect: DOMRectReadOnly,
-  insetPx = CHROME_VIEWPORT_INSET_PX
-): number {
-  const margin = Math.max(0, insetPx);
-  const minLeft = overlayRect.left + margin;
-  const maxRight = overlayRect.right - margin;
-  if (pillRect.left < minLeft) return minLeft - pillRect.left;
-  if (pillRect.right > maxRight) return maxRight - pillRect.right;
-  return 0;
-}
-
-/** Shift pill vertically so it stays inside the overlay with a fixed inset. */
-export function clampChromeShiftY(
-  pillRect: DOMRectReadOnly,
-  overlayRect: DOMRectReadOnly,
-  insetPx = CHROME_VIEWPORT_INSET_PX
-): number {
-  const margin = Math.max(0, insetPx);
-  const minTop = overlayRect.top + margin;
-  const maxBottom = overlayRect.bottom - margin;
-  if (pillRect.top < minTop) return minTop - pillRect.top;
-  if (pillRect.bottom > maxBottom) return maxBottom - pillRect.bottom;
-  return 0;
-}
-
-export function clampChromeShift(
-  pillRect: DOMRectReadOnly,
-  overlayRect: DOMRectReadOnly,
-  insetPx = CHROME_VIEWPORT_INSET_PX
-): { x: number; y: number } {
-  return {
-    x: clampChromeShiftX(pillRect, overlayRect, insetPx),
-    y: clampChromeShiftY(pillRect, overlayRect, insetPx),
-  };
-}
-
 /**
  * Scene distance from the **control-box** edge outward for chrome UI
  * (title / toolbar / generator composers).
@@ -239,6 +197,9 @@ export function toolbarAboveScreenGapPx(
  *
  * `edgeGapPx` is screen-constant air between the selection edge and the pill.
  * Outer stays height-0 / pe:none so the layout box cannot cover resize knobs.
+ *
+ * Uses `position: fixed` (no viewport-edge clamp) so chrome follows the
+ * selection even past the stage overflow — can sit over editor HUD / off-canvas.
  */
 export function WorldScreenChromeRoot({
   left,
@@ -261,8 +222,7 @@ export function WorldScreenChromeRoot({
   edgeGapPx?: number;
   /**
    * Scene width of the selection. When > 0, `left` is the left edge and the
-   * pill is flex-aligned inside this rail (preferred for selection toolbars
-   * and generator composers).
+   * pill is flex-aligned inside this rail (selection toolbars).
    */
   railWidth?: number;
   className?: string;
@@ -279,60 +239,53 @@ export function WorldScreenChromeRoot({
   const alignEnd = hAlign === 'right';
   const { x: screenLeft, y: screenTop } = rcbSceneToScreen(camera, left, top, dpr);
   const railScreen = rail * zoom;
+  const hostRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLDivElement>(null);
-  const shiftRef = useRef({ x: 0, y: 0 });
-  const [shift, setShift] = useState({ x: 0, y: 0 });
-  shiftRef.current = shift;
+  /** Hide until first non-zero layout — avoids spawn flash at 0×0. */
+  const [placed, setPlaced] = useState(false);
+  const [fixedOrigin, setFixedOrigin] = useState({ left: 0, top: 0 });
 
   useLayoutEffect(() => {
+    const host = hostRef.current;
     const pill = pillRef.current;
-    const overlay = pill?.closest('[data-rcb-overlay="1"]') as HTMLElement | null;
-    if (!pill || !overlay) {
-      shiftRef.current = { x: 0, y: 0 };
-      setShift({ x: 0, y: 0 });
+    const overlay = host?.closest('[data-rcb-overlay="1"]') as HTMLElement | null;
+    if (!host || !pill || !overlay) {
+      setPlaced(false);
       return;
     }
-    const apply = () => {
-      const pillRect = pill.getBoundingClientRect();
-      const overlayRect = overlay.getBoundingClientRect();
-      const { x: shiftX, y: shiftY } = shiftRef.current;
-      const natural = {
-        left: pillRect.left - shiftX,
-        right: pillRect.right - shiftX,
-        top: pillRect.top - shiftY,
-        bottom: pillRect.bottom - shiftY,
-        width: pillRect.width,
-        height: pillRect.height,
-        x: pillRect.left - shiftX,
-        y: pillRect.top - shiftY,
-        toJSON: () => ({}),
-      } as DOMRectReadOnly;
-      const next = clampChromeShift(natural, overlayRect);
-      setShift((prev) => {
-        if (Math.abs(prev.x - next.x) < 0.5 && Math.abs(prev.y - next.y) < 0.5) return prev;
-        shiftRef.current = next;
-        return next;
-      });
+    const sync = () => {
+      const o = overlay.getBoundingClientRect();
+      const next = { left: o.left + screenLeft, top: o.top + screenTop };
+      setFixedOrigin((prev) =>
+        Math.abs(prev.left - next.left) < 0.5 && Math.abs(prev.top - next.top) < 0.5
+          ? prev
+          : next
+      );
+      const r = pill.getBoundingClientRect();
+      if (r.width >= 1 && r.height >= 1) setPlaced(true);
     };
-    apply();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+    sync();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
     ro?.observe(pill);
     ro?.observe(overlay);
-    window.addEventListener('resize', apply);
+    window.addEventListener('resize', sync);
+    window.addEventListener('scroll', sync, true);
     return () => {
       ro?.disconnect();
-      window.removeEventListener('resize', apply);
+      window.removeEventListener('resize', sync);
+      window.removeEventListener('scroll', sync, true);
     };
-  }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y, children]);
+  }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y]);
 
   return (
     <RcbOverlayPortal>
       <div
-        className={cn('pointer-events-none absolute overflow-visible', className)}
+        ref={hostRef}
+        className={cn('pointer-events-none overflow-visible', className)}
         style={{
-          position: 'absolute',
-          left: screenLeft + shift.x,
-          top: screenTop + shift.y,
+          position: 'fixed',
+          left: fixedOrigin.left,
+          top: fixedOrigin.top,
           width: railScreen,
           height: 0,
           display: 'flex',
@@ -341,7 +294,9 @@ export function WorldScreenChromeRoot({
           alignItems: 'flex-start',
           justifyContent: alignEnd ? 'flex-end' : 'center',
           pointerEvents: 'none',
+          zIndex: 40,
           ...style,
+          opacity: placed ? (style?.opacity as number | undefined) ?? 1 : 0,
         }}
       >
         <div
@@ -426,6 +381,8 @@ export function useSelectionToolbarPlacement(opts: {
   edgePadScene?: number;
   /** Control-box rotation (degrees) — dock to visual AABB, toolbar stays upright. */
   angle?: number;
+  /** `auto` picks above/below; composers always use `below`. */
+  dock?: 'auto' | 'below' | 'above';
 }): {
   preferAbove: boolean;
   left: number;
@@ -438,6 +395,7 @@ export function useSelectionToolbarPlacement(opts: {
   const zoom = rcbCameraCssZoom(camera);
   const extraPx = Math.max(0, Number(opts.edgePadScene) || 0);
   const angle = Number(opts.angle) || 0;
+  const dock = opts.dock || 'auto';
   const aboveScreen = opts.hasTitleLabel
     ? toolbarAboveClearancePx(true) + extraPx
     : chromeUiOutsideScreenPx(zoom, toolbarAboveClearancePx(false), extraPx);
@@ -458,6 +416,27 @@ export function useSelectionToolbarPlacement(opts: {
     };
   }
 
+  if (dock === 'below') {
+    return {
+      preferAbove: false,
+      left: dockBox.left,
+      railWidth: Math.max(0, dockBox.width),
+      top: dockBox.top + dockBox.height,
+      anchor: 'top',
+      edgeGapPx: belowScreen,
+    };
+  }
+  if (dock === 'above') {
+    return {
+      preferAbove: true,
+      left: dockBox.left,
+      railWidth: Math.max(0, dockBox.width),
+      top: dockBox.top,
+      anchor: 'bottom',
+      edgeGapPx: aboveScreen,
+    };
+  }
+
   const aboveGapScene = aboveScreen / Math.max(0.05, zoom);
   const preferAbove = dockBox.top >= aboveGapScene;
   return {
@@ -470,31 +449,6 @@ export function useSelectionToolbarPlacement(opts: {
   };
 }
 
-/** Generator composers always dock below the plate, centered on its width. */
-export function useGeneratorComposerPlacement(
-  sceneBox: { x: number; y: number; width: number; height: number } | null | undefined
-): {
-  left: number;
-  railWidth: number;
-  top: number;
-  anchor: 'top';
-  edgeGapPx: number;
-} {
-  const camera = useRcbCamera();
-  const zoom = rcbCameraCssZoom(camera);
-  if (!sceneBox) {
-    return { left: 0, railWidth: 0, top: 0, anchor: 'top', edgeGapPx: 0 };
-  }
-  const belowScreen = chromeUiOutsideScreenPx(zoom, SELECTION_TOOLBAR_BELOW_BOX_GAP_PX);
-  return {
-    left: sceneBox.x,
-    railWidth: Math.max(0, sceneBox.width),
-    top: sceneBox.y + sceneBox.height,
-    anchor: 'top',
-    edgeGapPx: belowScreen,
-  };
-}
-
 type ShellProps = {
   box: SelectionToolbarBox | null | undefined;
   hasTitleLabel?: boolean;
@@ -502,30 +456,35 @@ type ShellProps = {
   edgePadScene?: number;
   /** Control-box rotation — dock to visual AABB; toolbar stays screen-upright. */
   angle?: number;
+  /** Force dock side; default auto (toolbars). Composers use `below`. */
+  dock?: 'auto' | 'below' | 'above';
   children: ReactNode;
   className?: string;
   isFrameToolbar?: boolean;
   bare?: boolean;
   zIndexClassName?: string;
-};
+} & Omit<HTMLAttributes<HTMLDivElement>, 'style' | 'children' | 'className'>;
 
-/** Overlay selection toolbars (clears titles; aligns Frame / Image / Shape). */
+/** Overlay selection toolbars + on-canvas composers (one placement shell). */
 function SelectionToolbarShell({
   box,
   hasTitleLabel = false,
   edgePadScene = 0,
   angle = 0,
+  dock = 'auto',
   children,
   className,
   isFrameToolbar = false,
   bare = false,
   zIndexClassName = 'z-30',
+  ...rest
 }: ShellProps) {
   const { left, railWidth, top, anchor, edgeGapPx } = useSelectionToolbarPlacement({
     box,
     hasTitleLabel,
     edgePadScene,
     angle,
+    dock,
   });
   const chromePointer = useChromePointerActivate();
   if (!box) return null;
@@ -542,6 +501,7 @@ function SelectionToolbarShell({
       {...(isFrameToolbar ? { 'data-frame-toolbar': true } : {})}
       className={zIndexClassName}
       {...chromePointer}
+      {...rest}
     >
       <FloatingToolbar bare={bare} className={className}>
         {children}

@@ -1,36 +1,13 @@
 name: Skill eval regression
 
-# PR19 — skill changed → dataset shape + compare vs baseline
-# Live eval is optional (EVAL_TOKEN). Always fail the compare unit fixtures
-# when average drop > 3 or a key task drops > 5.
+# Manual — avoid auto-queue on the single self-hosted runner.
 
 on:
-  pull_request:
-    paths:
-      - 'skills/foundation/**'
-      - 'skills/domains/**'
-      - 'apps/api/seeds/design_skills/**'
-      - 'apps/api/tests/design_engine/**'
-      - 'eval/design-agent/**'
-      - '.github/workflows/skill-regression.yml'
-  push:
-    branches: [main, master, develop]
-    paths:
-      - 'skills/foundation/**'
-      - 'skills/domains/**'
-      - 'apps/api/seeds/design_skills/**'
-      - 'apps/api/tests/design_engine/**'
-      - 'eval/design-agent/**'
-      - '.github/workflows/skill-regression.yml'
   workflow_dispatch:
-
-concurrency:
-  group: skill-regression-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   dataset-and-compare:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -67,8 +44,7 @@ jobs:
         run: node eval/design-agent/compare.mjs
 
   live-eval:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 180
     needs: dataset-and-compare
     env:

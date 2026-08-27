@@ -19,15 +19,17 @@ describe('markNodeGate', () => {
   });
 
   it('disables vectors / frames / video', () => {
-    expect(markNodeGate({ key: 'shape', attrs: {} } as any, { ilpEnabled: true }).reason).toBe(
-      'not_image'
-    );
-    expect(markNodeGate({ key: 'path', attrs: {} } as any, { ilpEnabled: true }).reason).toBe(
-      'not_image'
-    );
-    expect(markNodeGate({ key: 'video', attrs: { src: 'v.mp4' } } as any, { ilpEnabled: true }).reason).toBe(
-      'not_image'
-    );
+    expect(markNodeGate({ key: 'shape', attrs: {} } as any, { ilpEnabled: true })).toEqual({
+      status: 'disabled',
+      reason: 'not_image',
+    });
+    expect(markNodeGate({ key: 'path', attrs: {} } as any, { ilpEnabled: true })).toEqual({
+      status: 'disabled',
+      reason: 'not_image',
+    });
+    expect(
+      markNodeGate({ key: 'video', attrs: { src: 'v.mp4' } } as any, { ilpEnabled: true })
+    ).toEqual({ status: 'disabled', reason: 'not_image' });
   });
 
   it('disables when ILP is off, processing, or missing src', () => {
@@ -40,11 +42,10 @@ describe('markNodeGate', () => {
       markNodeGate(
         { key: 'image', attrs: { src: 'https://x/a.png', processStatus: 'running' } } as any,
         { ilpEnabled: true }
-      ).reason
-    ).toBe('processing');
+      )
+    ).toEqual({ status: 'disabled', reason: 'processing' });
     expect(
       markNodeGate({ key: 'image', attrs: { imageGenerator: true } } as any, { ilpEnabled: true })
-        .reason
-    ).toBe('unavailable');
+    ).toEqual({ status: 'disabled', reason: 'unavailable' });
   });
 });

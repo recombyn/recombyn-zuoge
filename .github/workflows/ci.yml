@@ -1,20 +1,15 @@
 name: CI
 
-# Umbrella PR gate — ADR 0009
-# Required check name for branch protection: "CI / gate"
+# Required check for branch protection: "CI / gate"
+# Lint + typecheck + unit + build only. E2E / skill / k6 are workflow_dispatch.
+# Self-hosted Windows — docs/self-hosted-ci-windows.md
 
 on:
-  pull_request:
-  push:
-    branches: [main, master, develop]
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_dispatch:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,7 +25,7 @@ jobs:
         run: npm run typecheck:web
 
   web-unit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,7 +39,7 @@ jobs:
         run: npm run test:web
 
   api-unit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     defaults:
       run:
         working-directory: apps/api
@@ -56,6 +51,7 @@ jobs:
           cache: pip
           cache-dependency-path: apps/api/pyproject.toml
       - name: Install API (+ test extras)
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install -e "../../packages/scene-builder-py"
@@ -83,7 +79,7 @@ jobs:
         run: python scripts/test_ilp_bff_smoke.py --mock
 
   build-web:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -97,17 +93,18 @@ jobs:
         run: npm run build
 
   gate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     needs: [check, web-unit, api-unit, build-web]
     if: always()
     steps:
       - name: Require upstream jobs
+        shell: bash
         run: |
           echo "check=${{ needs.check.result }}"
           echo "web-unit=${{ needs.web-unit.result }}"
           echo "api-unit=${{ needs.api-unit.result }}"
           echo "build-web=${{ needs.build-web.result }}"
-          test "${{ needs.check.result }}" = "success"
-          test "${{ needs.web-unit.result }}" = "success"
-          test "${{ needs.api-unit.result }}" = "success"
-          test "${{ needs.build-web.result }}" = "success"
+          test "${{ needs.check.result }}" = "success" || exit 1
+          test "${{ needs.web-unit.result }}" = "success" || exit 1
+          test "${{ needs.api-unit.result }}" = "success" || exit 1
+          test "${{ needs.build-web.result }}" = "success" || exit 1

@@ -19,12 +19,8 @@ import { generateAudio, type LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, message, Tooltip } from '@/components/base';
 import {
-  RcbOverlayPortal,
-  rcbScreenPxToScene,
-  useRcbCamera,
-  useRcbScreenToolbarStyle,
-} from '@/components/rcb';
-import { SELECTION_TOOLBAR_BELOW_BOX_GAP_PX } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+  SelectionToolbarShell,
+} from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
   chipBaseKey,
   composerAttachmentMediaKind,
@@ -66,8 +62,6 @@ function AudioQuickEditComposer({
 }): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const camera = useRcbCamera();
-  const zoom = Math.max(0.05, camera.zoom || 1);
   const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -122,11 +116,6 @@ function AudioQuickEditComposer({
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const selectedModel = models.find((m) => m.id === modelId);
-  const composerStyle = useRcbScreenToolbarStyle({
-    left: box.left + box.width / 2,
-    top: box.top + box.height + rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom),
-    anchor: 'top',
-  });
 
   const removeContext = (key: string) =>
     setContexts((prev) =>
@@ -344,18 +333,21 @@ function AudioQuickEditComposer({
   const canSubmit = Boolean(readyAudioAtt || prompt.trim()) && !attachmentsUploading;
 
   return (
-    <RcbOverlayPortal>
+    <SelectionToolbarShell
+      box={box}
+      bare
+      dock="below"
+      zIndexClassName="z-[32]"
+      data-audio-quick-edit
+      {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
+      data-scene-node-id={nodeId}
+    >
       <div
-        data-audio-quick-edit
-        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
-        data-sel-toolbar
-        data-scene-node-id={nodeId}
         className={cn(
-          'pointer-events-auto absolute z-[32] flex h-[180px] w-[440px] flex-col overflow-visible',
+          'pointer-events-auto flex h-[180px] w-[440px] flex-col overflow-visible',
           'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
           'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
         )}
-        style={composerStyle}
         onPointerDown={(e) => {
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation?.();
@@ -467,7 +459,7 @@ function AudioQuickEditComposer({
           </button>
         </div>
       </div>
-    </RcbOverlayPortal>
+    </SelectionToolbarShell>
   );
 }
 
