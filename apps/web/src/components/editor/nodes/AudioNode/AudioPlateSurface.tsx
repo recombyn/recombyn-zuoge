@@ -55,25 +55,39 @@ function useWaveColors(): WaveColors {
 /** `compact` = asset card; `node` = canvas plate. */
 export type AudioPlateDensity = 'compact' | 'node';
 
-/** Canvas node chrome — shell pad is screen-px (counter-scaled to scene 15px). */
+/** Design chrome (screen px in counter-scale box) — same idea as VIDEO_PLAYBACK_BAR_H. */
+const AUDIO_TRANSPORT_H = 32;
+const AUDIO_BTN = 28;
+const AUDIO_ICON = 14;
+const AUDIO_TIME = 11;
+
+/**
+ * Canvas node chrome. Grows with a short plate, but never past design size
+ * (video bar uses `fit = min(1, …)` the same way).
+ */
 function nodeChrome(boxH: number, zoom: number) {
   const h = Math.max(1, boxH);
   const z = Math.max(0.001, zoom);
+  const fit = Math.min(1, h / (AUDIO_TRANSPORT_H * 5));
+  const transportH = AUDIO_TRANSPORT_H * fit;
+  const btn = AUDIO_BTN * fit;
+  const icon = AUDIO_ICON * fit;
+  const time = AUDIO_TIME * fit;
   return {
     shell: {
-      padding: 20 * z,
-      gap: h * 0.015,
-      borderRadius: 16 * z,
+      padding: 10 * z,
+      gap: 6 * fit,
+      borderRadius: 12 * z,
     } satisfies CSSProperties,
     track: {
-      borderRadius: 12 * z,
-      paddingLeft: h * 0.02,
-      paddingRight: h * 0.02,
+      borderRadius: 8 * z,
+      paddingLeft: 8 * fit,
+      paddingRight: 8 * fit,
     } satisfies CSSProperties,
-    transport: { height: h * 0.1 } satisfies CSSProperties,
-    time: { fontSize: h * 0.032 } satisfies CSSProperties,
-    button: { width: h * 0.09, height: h * 0.09 } satisfies CSSProperties,
-    icon: h * 0.045,
+    transport: { height: transportH } satisfies CSSProperties,
+    time: { fontSize: time } satisfies CSSProperties,
+    button: { width: btn, height: btn } satisfies CSSProperties,
+    icon,
   };
 }
 
@@ -84,11 +98,11 @@ export type AudioPlateSurfaceProps = {
   density?: AudioPlateDensity;
   className?: string;
   /**
-   * Counter-scaled screen height of the canvas plate (`layoutH * zoom`).
-   * When set with density=node, chrome sizes are % of this — zoom/resize shrinks as a whole.
+   * Counter-scaled screen height (`layoutH * zoom`). With density=node, chrome
+   * uses design px capped by fit≤1 (like the video playback bar).
    */
   boxHeight?: number;
-  /** Canvas zoom — with boxHeight, shell pad maps to fixed scene px. */
+  /** Canvas zoom — shell pad stays fixed in scene px. */
   zoom?: number;
   /** Asset cards — clock only; play lives in card hover chrome. */
   hideTransportPlayButton?: boolean;
