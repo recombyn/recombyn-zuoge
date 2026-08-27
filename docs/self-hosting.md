@@ -2,7 +2,7 @@
 
 You can run the full product on your own machine or server: web canvas, Design Agent, API, collab, and a database.
 
-**Deployment modes (cloud vs self-host vs local dev vs desktop):** [deployment-modes.md](./deployment-modes.md)
+**Deployment modes (self-host / local dev / desktop):** [deployment-modes.md](./deployment-modes.md)
 
 **Two supported paths (same stack: MySQL + MinIO + Redis):**
 
@@ -328,7 +328,7 @@ Bring your own LLM keys. Without keys, Agent features will not call models.
 
 ### Credits & membership (self-host)
 
-Platform credits are controlled by **`WALLET_BILLING_ENABLED`** (API env; **default on** — same as cloud):
+Platform credits are controlled by **`WALLET_BILLING_ENABLED`** (API env; **default on**):
 
 | Value | Behavior |
 |-------|----------|

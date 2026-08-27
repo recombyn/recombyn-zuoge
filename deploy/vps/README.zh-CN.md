@@ -4,7 +4,7 @@ Only production path for VPS. Local see root docs / `npm run setup:local`.
 
 Target: `43.143.230.24` · `recombyn.com` · files `files.recombyn.com`
 
-Same codebase as cloud — `WALLET_BILLING_ENABLED=true` by default in `deploy/vps/.env.production.example`. Configure Tencent SES in `apps/api/.env` for email login.
+`WALLET_BILLING_ENABLED=true` by default in `deploy/vps/.env.production.example`. Configure Tencent SES in `apps/api/.env` for email login.
 
 ## Steps
 

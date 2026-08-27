@@ -1,34 +1,19 @@
 # Deployment modes
 
-One codebase — same product whether you use our cloud, self-host, or develop locally.
+How to run zuoge on your own infrastructure or machine.
 
-| Mode | Who runs it | Typical URL | How |
-|------|-------------|-------------|-----|
-| **Cloud SaaS** | recombyn.com | https://recombyn.com | Managed by the team |
-| **Self-host** | You / your org | https://your.domain | `docker compose` on your server |
-| **Local dev** | Developers | http://localhost:3000 | `npm run dev:api` + `dev:web` (not a separate SKU) |
-
-**Desktop (Tauri)** is not a fourth product mode. It is the same web app in a native window, using the same API as the browser.
+| Mode | Typical URL | How |
+|------|-------------|-----|
+| **Self-host** | https://your.domain | `docker compose` on your server |
+| **Local dev** | http://localhost:3000 | `npm run dev:api` + `dev:web` |
+| **Desktop (Tauri)** | Native window | Same web app + API — [desktop.md](./desktop.md) |
 
 | | Command | API |
 |--|---------|-----|
-| Dev | `npm run dev:desktop` | Local `:8000` + `apps/api/.env` (same as browser dev) |
+| Dev | `npm run dev:desktop` | Local `:8000` + `apps/api/.env` |
 | Release build | `npm run build:desktop` | Optional `VITE_API_BASE_URL=https://your.host` |
 
-→ [desktop.md](./desktop.md)
-
-## Self-host = cloud parity
-
-Self-hosted instances run **the same API and web** as `recombyn.com`. You operate the server and data; feature flags and billing defaults match cloud unless you override env vars.
-
-Out of the box (no extra billing config):
-
-- `WALLET_BILLING_ENABLED` defaults to **`true`** (app settings, Compose, k8s ConfigMap)
-- Credits UI, plans, redeem, and usage tabs are **on** — same as cloud
-
-Set `WALLET_BILLING_ENABLED=false` only when you explicitly want platform billing off.
-
-## Authentication (all modes)
+## Authentication
 
 | Method | Required env | Notes |
 |--------|--------------|-------|
@@ -39,7 +24,7 @@ Without SES, `POST /auth/login` (email) returns **503** with a configuration hin
 
 → [self-hosting.md § Email login](./self-hosting.md#email-login-configure-ses)
 
-## Credits & billing (all modes)
+## Credits & billing
 
 | Piece | Detail |
 |-------|--------|
@@ -47,6 +32,8 @@ Without SES, `POST /auth/login` (email) returns **503** with a configuration hin
 | **Public flag** | `GET /api/v1/auth/config` → `billingEnabled` |
 | **UI rule** | Frontend shows/hides credits UI from **`billingEnabled` only** — `/wallet` errors do **not** hide balance or plans |
 | **Protocol** | Task-centric credits + Billing Protocol — [billing.md](./billing.md) |
+
+Set `WALLET_BILLING_ENABLED=false` only when you explicitly want platform billing off.
 
 Optional when billing is on: daily free quota (`FREE_DAILY_LIMIT`), card keys (`CARD_KEY_SALT`, `CARD_KEY_OPS_PASSWORD`).
 

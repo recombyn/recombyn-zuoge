@@ -31,7 +31,7 @@ kubectl apply -f deploy/k8s/networkpolicy.yaml
 
 MySQL is **not** included — point `DATABASE_URL` at a managed instance or an in-cluster operator of your choice.
 
-`deploy/k8s/configmap.yaml` sets `WALLET_BILLING_ENABLED: "true"` by default (same as Compose / cloud). Override in ConfigMap only if you want billing off.
+`deploy/k8s/configmap.yaml` sets `WALLET_BILLING_ENABLED: "true"` by default. Override in ConfigMap only if you want billing off.
 
 HPA targets require metrics-server. Ingress example assumes ingress-nginx; edit host / TLS before apply.
 PDB keeps `minAvailable: 1` for api/web/collab/worker/redis. NetworkPolicy defaults to deny-ingress in-namespace with allowlists for web→api and */redis.
