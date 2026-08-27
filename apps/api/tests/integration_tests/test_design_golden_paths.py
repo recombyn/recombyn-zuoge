@@ -89,6 +89,15 @@ def _wallet(monkeypatch):
         0.05,
     )
 
+    async def _fake_apply_route(rt: Any) -> None:
+        rt.flags["route_lane"] = "standard"
+        rt.run.task_tier = "standard"
+
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.nodes.memory.apply_classified_model_route",
+        _fake_apply_route,
+    )
+
 
 def _run(**kwargs):
     return asyncio.run(
@@ -138,7 +147,7 @@ def test_permission_gate_denies_when_broke(monkeypatch):
     assert perms[0].get("can_call_llm") is False
     errs = events_by_type(events, "error")
     assert errs
-    assert errs[0].get("message") in (
+    assert errs[0].get("code") in (
         "insufficient_credits",
         "free_daily_exhausted",
     )

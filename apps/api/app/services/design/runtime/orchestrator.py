@@ -70,6 +70,24 @@ from app.services.wallet.db import (
 
 _log = logging.getLogger(__name__)
 
+
+def _localized_error_event(
+    code: str,
+    locale: str | None,
+    **extra: Any,
+) -> dict[str, Any]:
+    from app.services.design.runtime.host.prompts import normalize_locale
+    from app.services.i18n.errors import localize_error
+
+    key = str(code or "").strip().lower() or "internal_error"
+    return {
+        "type": "error",
+        "code": key,
+        "message": localize_error(key, normalize_locale(locale)),
+        **extra,
+    }
+
+
 # Fallback authorize ceilings if TaskPricing import fails.
 AGENT_HOLD = 30
 PARTIAL_HOLD = 10
@@ -245,9 +263,12 @@ async def run_design_job(
 ) -> AsyncIterator[dict[str, Any]]:
     """LangGraph agent loop. Chat vs design from model intent / ops."""
     del is_premium  # reserved
+    from app.services.design.runtime.host.prompts import normalize_locale
+
+    out_locale = normalize_locale(locale)
     mode = _as_text(run_mode or "agent").strip().lower()
     if mode not in ("agent", "single_model", "partial"):
-        yield {"type": "error", "code": "invalid_run_mode", "message": "invalid_run_mode"}
+        yield _localized_error_event("invalid_run_mode", out_locale)
         return
 
     ui_mode = _as_text(interaction_mode or "agent").strip().lower()
@@ -265,7 +286,7 @@ async def run_design_job(
 
     prompt = _as_text(prompt).strip()
     if not prompt and not apply_ops:
-        yield {"type": "error", "code": "prompt_required", "message": "prompt_required"}
+        yield _localized_error_event("prompt_required", out_locale)
         return
     if not prompt and apply_ops:
         prompt = "确认执行"
@@ -303,21 +324,17 @@ async def run_design_job(
         }
 
         if not can:
-            yield {
-                "type": "error",
-                "code": (
-                    "free_daily_exhausted"
-                    if bal < hold_need
-                    else "insufficient_credits"
-                ),
-                "message": (
-                    "free_daily_exhausted"
-                    if bal < hold_need
-                    else "insufficient_credits"
-                ),
-                "balance": bal,
-                "need": hold_need,
-            }
+            code = (
+                "free_daily_exhausted"
+                if bal < hold_need
+                else "insufficient_credits"
+            )
+            yield _localized_error_event(
+                code,
+                out_locale,
+                balance=bal,
+                need=hold_need,
+            )
             exec_trace(t0, "DONE", mode="permission", can_call_llm=False, balance=bal)
             return
 
@@ -344,21 +361,17 @@ async def run_design_job(
                 user_id, hold_need, mode=mode, model=user_selected_model
             )
         except ValueError:
-            yield {
-                "type": "error",
-                "code": (
-                    "free_daily_exhausted"
-                    if bal < hold_need
-                    else "insufficient_credits"
-                ),
-                "message": (
-                    "free_daily_exhausted"
-                    if bal < hold_need
-                    else "insufficient_credits"
-                ),
-                "balance": bal,
-                "need": hold_need,
-            }
+            code = (
+                "free_daily_exhausted"
+                if bal < hold_need
+                else "insufficient_credits"
+            )
+            yield _localized_error_event(
+                code,
+                out_locale,
+                balance=bal,
+                need=hold_need,
+            )
             return
         if free_daily:
             from app.services.llm import is_byok_model_ref
@@ -532,11 +545,12 @@ async def run_design_job(
             pid=pid,
             decision=decision,
             t0=t0,
+            locale=out_locale,
             task_id=task_id,
         ):
             yield ev
         return
-    yield {"type": "error", "code": "invalid_run_mode", "message": "invalid_run_mode"}
+    yield _localized_error_event("invalid_run_mode", out_locale)
 
 
 async def run_design_job_from_snapshot(
@@ -546,8 +560,10 @@ async def run_design_job_from_snapshot(
     task_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Execute the versioned request DTO shared by HTTP and Celery adapters."""
+    snap_locale = snapshot.get("locale")
+    snap_locale = snap_locale if isinstance(snap_locale, str) else None
     if int(snapshot.get("version") or 0) != 2:
-        yield {"type": "error", "code": "snapshot_unavailable", "message": "snapshot_unavailable"}
+        yield _localized_error_event("internal_error", snap_locale)
         return
 
     def value(name: str, expected: type) -> Any:
@@ -610,6 +626,7 @@ async def _run_partial(
     decision: DesignRunDecision,
     t0: float,
     task_id: str | None = None,
+    locale: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     hold_need = _authorize_need("partial", model=user_selected_model, rules=rules)
     bal = get_user_credits(user_id)
@@ -619,21 +636,17 @@ async def _run_partial(
             user_id, hold_need, mode="partial", model=user_selected_model
         )
     except ValueError:
-        yield {
-            "type": "error",
-            "code": (
-                "free_daily_exhausted"
-                if bal < hold_need
-                else "insufficient_credits"
-            ),
-            "message": (
-                "free_daily_exhausted"
-                if bal < hold_need
-                else "insufficient_credits"
-            ),
-            "balance": bal,
-            "need": hold_need,
-        }
+        code = (
+            "free_daily_exhausted"
+            if bal < hold_need
+            else "insufficient_credits"
+        )
+        yield _localized_error_event(
+            code,
+            locale,
+            balance=bal,
+            need=hold_need,
+        )
         return
     if free_daily:
         user_selected_model = "auto"
@@ -857,7 +870,7 @@ async def _run_partial(
         yield {
             "type": "error",
             "code": _run_error_code(err),
-            "message": _user_facing_run_error(err, rules=rules),
+            "message": _user_facing_run_error(err, rules=rules, locale=locale),
             "task_id": task_id,
             "refunded_credits": hold,
         }

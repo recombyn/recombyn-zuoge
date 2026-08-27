@@ -4,9 +4,12 @@ from recombyn_agent_sdk import (
     DEFAULT_CONTRACT_IDS,
     KERNEL_CANVAS_REQUIRED,
     KERNEL_STAGES,
+    MODEL_TRACE_EVENT_TYPES,
     PROFILE_KIND,
+    SessionEventKind,
     is_kernel_stage,
     is_paint_mutating_stage,
+    model_event,
 )
 
 
@@ -38,3 +41,12 @@ def test_contract_ids_and_profile_kind():
     assert PROFILE_KIND == "AgentProfile"
     assert is_kernel_stage("intent")
     assert not is_kernel_stage("unknown")
+
+
+def test_session_events_vocabulary():
+    assert SessionEventKind.LLM_REQUEST.value == "llm/request"
+    assert "stage/decision" in MODEL_TRACE_EVENT_TYPES
+    ev = model_event(SessionEventKind.TURN_START, trace_id="abc")
+    assert ev["type"] == "turn/start"
+    assert ev["trace_id"] == "abc"
+    assert "missing" not in ev

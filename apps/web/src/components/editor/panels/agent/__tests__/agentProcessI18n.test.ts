@@ -10,10 +10,6 @@ const messages: Record<string, string> = {
   'agent.activityRefIntelDone': '参考图分析完成',
   'agent.activityKernelWorking': '正在运行 {{name}}…',
   'agent.activityKernelSkipped': '{{name}} 未完成，已跳过',
-  'agent.uxTipDecideFailed': '决策失败，请重试一次。',
-  'agent.uxTipPaintFailed': '未能生成有效画布操作',
-  'agent.uxTipObserveOpsFailed': '部分操作未能应用（{{count}}）：{{notes}}',
-  'agent.uxTipObserveCritiqueFailed': '画布结构校验未通过：{{issues}}',
   'agent.requestFailed': '请求失败',
   'agent.activityVisionFallback': '视觉回退',
 };
@@ -27,50 +23,29 @@ function t(key: string, opts?: Record<string, unknown>) {
 }
 
 describe('localizeAgentProcessCopy', () => {
-  it('maps reference intel English + codes', () => {
+  it('shows backend text as-is when present', () => {
     expect(
       localizeAgentProcessCopy(t, 'REFERENCE_INTEL: skipped (analyze failed)')
-    ).toBe('参考图分析未完成，已跳过');
-    expect(localizeAgentProcessCopy(t, '', 'reference_intel_running')).toBe(
-      '正在分析参考图…'
+    ).toBe('REFERENCE_INTEL: skipped (analyze failed)');
+    expect(localizeAgentProcessCopy(t, 'Decision failed. Please try again.')).toBe(
+      'Decision failed. Please try again.'
     );
-    expect(localizeAgentProcessCopy(t, 'REFERENCE_DNA: poster')).toBe(
-      '参考图分析完成'
-    );
-  });
-
-  it('maps decide tip English used in process column', () => {
-    expect(
-      localizeAgentProcessCopy(t, 'Decision failed. Please try again.')
-    ).toBe('决策失败，请重试一次。');
-    expect(localizeAgentProcessCopy(t, 'x', 'decide_failed')).toBe(
-      '决策失败，请重试一次。'
-    );
-  });
-
-  it('maps DESIGN_* kernel dumps', () => {
-    expect(
-      localizeAgentProcessCopy(t, 'DESIGN_STRATEGY: skipped (failed)')
-    ).toBe('STRATEGY 未完成，已跳过');
-    expect(
-      localizeAgentProcessCopy(t, 'DESIGN_SWARM: Art Director → leads')
-    ).toBe('正在运行 SWARM…');
-  });
-
-  it('passes through paint activity detail', () => {
     expect(localizeAgentProcessCopy(t, '+rect (#E0E0E0)')).toBe('+rect (#E0E0E0)');
   });
 
-  it('maps parameterized tip English', () => {
-    expect(
-      localizeAgentProcessCopy(
-        t,
-        'Some ops failed to apply (2): missing receipts. Retry on a specific element.'
-      )
-    ).toBe('部分操作未能应用（2）：missing receipts');
-    expect(
-      localizeAgentProcessCopy(t, 'Canvas structure check failed: bad size')
-    ).toBe('画布结构校验未通过：bad size');
+  it('uses FE i18n only for code-only activity labels', () => {
+    expect(localizeAgentProcessCopy(t, '', 'reference_intel_running')).toBe(
+      '正在分析参考图…'
+    );
+    expect(localizeAgentProcessCopy(t, '', 'reference_intel_skipped')).toBe(
+      '参考图分析未完成，已跳过'
+    );
+  });
+
+  it('returns empty string when neither text nor known code is provided', () => {
+    expect(localizeAgentProcessCopy(t, '')).toBe('');
+    expect(localizeAgentProcessCopy(t, undefined)).toBe('');
+    expect(localizeAgentProcessCopy(t, '', 'unknown_code')).toBe('');
   });
 });
 

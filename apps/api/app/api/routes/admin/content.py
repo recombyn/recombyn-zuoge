@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from app.api.deps import AdminUser
 from app.api.routes.admin.common import *  # noqa: F403
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter()
 
@@ -20,17 +22,20 @@ def admin_plaza_list(
 
 @router.post("/plaza/{submission_id}/approve")
 def admin_plaza_approve(
+    locale: LocaleDep,
     admin: AdminUser,
     submission_id: str,
 ) -> dict[str, Any]:
     try:
         item = approve_submission(submission_id, admin.id)
     except PlazaError as err:
-        raise _plaza_http(err) from err
+        raise _plaza_http(err, locale) from err
     return {"item": item}
+
 
 @router.post("/plaza/{submission_id}/reject")
 def admin_plaza_reject(
+    locale: LocaleDep,
     admin: AdminUser,
     submission_id: str,
     body: RejectIn | None = None,
@@ -42,11 +47,13 @@ def admin_plaza_reject(
             reason=(body.reason if body else None),
         )
     except PlazaError as err:
-        raise _plaza_http(err) from err
+        raise _plaza_http(err, locale) from err
     return {"item": item}
+
 
 @router.post("/plaza/{submission_id}/visibility")
 def admin_plaza_visibility(
+    locale: LocaleDep,
     _admin: AdminUser,
     submission_id: str,
     body: PlazaVisibilityIn,
@@ -55,11 +62,13 @@ def admin_plaza_visibility(
     try:
         item = set_submission_visible(submission_id, body.visible)
     except PlazaError as err:
-        raise _plaza_http(err) from err
+        raise _plaza_http(err, locale) from err
     return {"item": item}
+
 
 @router.post("/plaza/{submission_id}/cover")
 def admin_plaza_cover(
+    locale: LocaleDep,
     _admin: AdminUser,
     submission_id: str,
     body: PlazaCoverIn,
@@ -68,11 +77,13 @@ def admin_plaza_cover(
     try:
         item = set_cover_image(submission_id, body.url)
     except PlazaError as err:
-        raise _plaza_http(err) from err
+        raise _plaza_http(err, locale) from err
     return {"item": item}
+
 
 @router.post("/plaza/{submission_id}/title")
 def admin_plaza_title(
+    locale: LocaleDep,
     _admin: AdminUser,
     submission_id: str,
     body: PlazaTitleIn,
@@ -81,11 +92,13 @@ def admin_plaza_title(
     try:
         item = update_submission_title(submission_id, body.title)
     except PlazaError as err:
-        raise _plaza_http(err) from err
+        raise _plaza_http(err, locale) from err
     return {"item": item}
+
 
 @router.delete("/plaza/{submission_id}")
 def admin_plaza_delete(
+    locale: LocaleDep,
     _admin: AdminUser,
     submission_id: str,
 ) -> dict[str, Any]:
@@ -93,7 +106,7 @@ def admin_plaza_delete(
     try:
         delete_submission(submission_id)
     except PlazaError as err:
-        raise _plaza_http(err) from err
+        raise _plaza_http(err, locale) from err
     return {"ok": True}
 
 @router.get("/plaza/feed")
@@ -123,13 +136,14 @@ def admin_plaza_published(
 
 @router.get("/plaza/{submission_id}")
 def admin_plaza_detail(
+    locale: LocaleDep,
     _admin: AdminUser,
     submission_id: str,
 ) -> dict[str, Any]:
     """Full submission including document — for admin canvas preview."""
     item = get_submission(submission_id, include_document=True)
     if not item:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"item": item}
 
 @router.get("/likes")
@@ -143,13 +157,14 @@ def admin_list_likes(
 
 @router.delete("/likes")
 def admin_delete_like(
+    locale: LocaleDep,
     _admin: AdminUser,
     userId: str = Query(...),
     submissionId: str = Query(...),
 ) -> dict[str, Any]:
     ok = delete_like_admin(userId, submissionId)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
 
 @router.get("/projects")
@@ -173,11 +188,12 @@ def admin_list_assets(
 
 @router.delete("/assets/{asset_id}")
 def admin_delete_asset(
+    locale: LocaleDep,
     _admin: AdminUser,
     asset_id: str,
 ) -> dict[str, Any]:
     ok = delete_asset_admin(asset_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
 

@@ -19,32 +19,10 @@ from app.core.config import settings
 
 
 
+from app.services.i18n.errors import http_error
+from app.services.i18n.plaza import plaza_http as _plaza_http
+
 from app.services.plaza.store import PlazaError
-
-
-
-
-
-
-
-
-
-
-
-
-def _plaza_http(err: PlazaError) -> HTTPException:
-    status = {
-        "not_found": 404,
-        "already_pending": 409,
-        "already_published": 409,
-        "document_too_large": 413,
-        "invalid_project": 400,
-        "invalid_document": 400,
-        "cover_required": 400,
-        "cover_aspect_invalid": 400,
-        "artboard_required": 400,
-    }.get(err.code, 400)
-    return HTTPException(status_code=status, detail=err.message)
 
 class UserPatchIn(BaseModel):
     role: Literal["user", "admin"] | None = None
@@ -66,17 +44,14 @@ class GenerateCardKeysIn(BaseModel):
     # Dedicated generate password (CARD_KEY_OPS_PASSWORD), not the login password.
     password: str = Field(..., min_length=1, max_length=128)
 
-def _require_card_key_ops_password(password: str) -> None:
+def _require_card_key_ops_password(password: str, locale: str | None = None) -> None:
     """Verify the dedicated card-key generate password from env."""
     ops = (settings.card_key_ops_password or "").strip()
     if not ops:
-        raise HTTPException(
-            status_code=503,
-            detail="CARD_KEY_OPS_PASSWORD is not configured",
-        )
+        raise http_error(503, "card_key_ops_password_not_configured", locale)
     pw = (password or "").strip()
     if not pw or not hmac.compare_digest(pw, ops):
-        raise HTTPException(status_code=403, detail="Generate password incorrect")
+        raise http_error(403, "generate_password_incorrect", locale)
 
 class RevokeCardKeysIn(BaseModel):
     ids: list[str] = Field(..., min_length=1, max_length=200)
@@ -319,6 +294,7 @@ async def admin_upload_font_file(
     family: str | None = Form(default=None),
     displayName: str | None = Form(default=None),
     weight: int = Form(default=400),
+    locale: str | None = None,
 ) -> dict[str, Any]:
     """Upload a font file and register/merge as a catalog face."""
     import re
@@ -331,14 +307,14 @@ async def admin_upload_font_file(
 
     raw = await file.read()
     if not raw:
-        raise HTTPException(status_code=400, detail="empty file")
+        raise http_error(400, "empty_file", locale)
     if len(raw) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="font file too large (max 20MB)")
+        raise http_error(400, "font_file_too_large", locale)
 
     name = (file.filename or "font.ttf").strip()
     lower = name.lower()
     if not lower.endswith((".ttf", ".otf", ".woff", ".woff2")):
-        raise HTTPException(status_code=400, detail="Only ttf/otf/woff/woff2 supported")
+        raise http_error(400, "font_format_unsupported", locale)
 
     if lower.endswith(".woff2"):
         mime, fmt, ext = "font/woff2", "woff2", "woff2"

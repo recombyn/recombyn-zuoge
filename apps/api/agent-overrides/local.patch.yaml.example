@@ -1,0 +1,11 @@
+# Copy to local.patch.yaml (gitignored) to patch the active AgentProfile at runtime.
+# Merged after seeds/agents/profiles/{id}.yaml and seeds/agents/overlays/*.patch.yaml.
+#
+# Example — enable skill handler short-circuit locally:
+# runtime:
+#   flags:
+#     review_mode: auto
+#
+# Or patch routing policy:
+# routing:
+#   router_model: doubao

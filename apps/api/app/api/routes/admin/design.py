@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from app.api.deps import AdminUser
 from app.api.routes.admin.common import *  # noqa: F403
 from app.api.routes.admin.common import _RUNTIME_SETTING_KEYS
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter()
 
@@ -43,6 +45,7 @@ def admin_design_runtime_settings(
 
 @router.put("/design/runtime-settings")
 def admin_upsert_design_runtime_setting(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: RuntimeSettingIn,
 ) -> dict[str, Any]:
@@ -50,16 +53,13 @@ def admin_upsert_design_runtime_setting(
 
     key = (body.key or "").strip()
     if is_system_prompt_key(key):
-        raise HTTPException(
-            status_code=400,
-            detail="prompt keys moved to /admin/design/system-prompts",
-        )
+        raise http_error(400, "system_prompts_moved", locale)
     if key not in _RUNTIME_SETTING_KEYS:
-        raise HTTPException(status_code=400, detail=f"unsupported setting: {key}")
+        raise http_error(400, "unsupported_setting", locale, key=key)
     try:
         item = upsert_global_rule(rule_key=key, rule_value=body.value or "")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": {"key": item.get("ruleKey") or key, "value": item.get("ruleValue") or ""}}
 
 @router.get("/design/system-prompts")
@@ -79,6 +79,7 @@ def admin_design_system_prompts(
 
 @router.put("/design/system-prompts")
 def admin_upsert_design_system_prompt(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: SystemPromptIn,
 ) -> dict[str, Any]:
@@ -95,8 +96,8 @@ def admin_upsert_design_system_prompt(
             sort_order=body.sortOrder,
             enabled=body.enabled,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 @router.post("/design/content/resync")
@@ -127,6 +128,7 @@ def admin_design_canvas_tools(_admin: AdminUser) -> dict[str, Any]:
 
 @router.put("/design/canvas-tools")
 def admin_upsert_design_canvas_tool(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: CanvasToolIn,
 ) -> dict[str, Any]:
@@ -140,8 +142,8 @@ def admin_upsert_design_canvas_tool(
             enabled=body.enabled,
             sort_order=body.sortOrder,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 @router.get("/design/metrics")
@@ -178,12 +180,13 @@ def admin_design_decision_logs(
 
 @router.get("/design/decision-logs/{task_id}")
 def admin_design_decision_log_detail(
+    locale: LocaleDep,
     _admin: AdminUser,
     task_id: str,
 ) -> dict[str, Any]:
     row = get_decision_log(task_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="decision log not found")
+        raise http_error(404, "decision_log_not_found", locale)
     return {"item": row}
 
 @router.post("/design/decision-logs/clear")
@@ -227,23 +230,25 @@ def admin_generate_optimize_patches(
 
 @router.post("/design/optimize/patches/{patch_id}/apply")
 def admin_apply_optimize_patch(
+    locale: LocaleDep,
     _admin: AdminUser,
     patch_id: int,
 ) -> dict[str, Any]:
     try:
         return apply_optimize_patch(int(patch_id))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
 
 @router.post("/design/optimize/patches/{patch_id}/dismiss")
 def admin_dismiss_optimize_patch(
+    locale: LocaleDep,
     _admin: AdminUser,
     patch_id: int,
 ) -> dict[str, Any]:
     try:
         return dismiss_optimize_patch(int(patch_id))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
 
 @router.get("/design/dict-types")
 def admin_design_dict_types(
@@ -254,23 +259,25 @@ def admin_design_dict_types(
 
 @router.put("/design/dict-types")
 def admin_upsert_design_dict_type(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: DesignDictTypeIn,
 ) -> dict[str, Any]:
     try:
         item = upsert_dict_type(body.model_dump())
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 @router.delete("/design/dict-types/{type_id}")
 def admin_delete_design_dict_type(
+    locale: LocaleDep,
     _admin: AdminUser,
     type_id: int,
 ) -> dict[str, Any]:
     ok = delete_dict_type(type_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
 
 @router.get("/design/dicts")
@@ -283,24 +290,26 @@ def admin_design_dicts(
 
 @router.put("/design/dicts")
 def admin_upsert_design_dict(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: DesignDictIn,
 ) -> dict[str, Any]:
     try:
         item = upsert_dict(body.model_dump())
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 @router.delete("/design/dicts/{item_id}")
 def admin_delete_design_dict(
+    locale: LocaleDep,
     _admin: AdminUser,
     item_id: int,
     hard: bool = Query(default=False),
 ) -> dict[str, Any]:
     ok = hard_delete_dict(item_id) if hard else soft_delete_dict(item_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
 
 @router.get("/design/skills")
@@ -322,6 +331,7 @@ def admin_design_skills(
 
 @router.put("/design/skills")
 def admin_upsert_design_skill(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: DesignSkillIn,
 ) -> dict[str, Any]:
@@ -329,12 +339,13 @@ def admin_upsert_design_skill(
 
     try:
         item = upsert_skill(body.model_dump())
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 @router.delete("/design/skills/{skill_id}")
 def admin_delete_design_skill(
+    locale: LocaleDep,
     _admin: AdminUser,
     skill_id: int,
 ) -> dict[str, Any]:
@@ -343,10 +354,10 @@ def admin_delete_design_skill(
 
     try:
         ok = soft_delete_skill(skill_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     invalidate_skill_key_cache()
     return {"ok": True}
 
@@ -374,6 +385,7 @@ def admin_list_kg_triples(
 
 @router.delete("/design/kg-triples/{triple_id}")
 def admin_delete_kg_triple(
+    locale: LocaleDep,
     _admin: AdminUser,
     triple_id: str,
 ) -> dict[str, Any]:
@@ -381,7 +393,7 @@ def admin_delete_kg_triple(
 
     ok = soft_delete_triple(triple_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
 
 

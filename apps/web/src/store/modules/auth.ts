@@ -18,7 +18,6 @@ const SESSION_STORAGE_KEYS = [
 
 const SESSION_KEY_PREFIXES = [
   'recombyn-liked-cases-v1:',
-  'recombyn-editor-tour-v3',
 ] as const;
 
 export type AuthUser = {
@@ -73,7 +72,7 @@ function removeStorageByPrefixes(storage: Storage, prefixes: readonly string[]) 
 
 /**
  * Clear account-bound caches after logout / 401.
- * Keeps device prefs (theme, dock widths, language).
+ * Keeps device prefs (theme, dock widths, language, editor tour completion).
  */
 export function clearSessionCaches() {
   removeStorageKeys(localStorage, SESSION_STORAGE_KEYS);

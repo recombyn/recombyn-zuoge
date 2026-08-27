@@ -221,72 +221,29 @@ function patchDesignDoneAssistant(
   });
 }
 
-/** Map structured design error `code` → i18n. Message text is ignored. */
-const DESIGN_ERROR_I18N: Record<string, string> = {
-  free_daily_exhausted: 'agent.freeDailyExhausted',
-  insufficient_credits: 'agent.insufficientCredits',
-  prompt_required: 'agent.requestFailed',
-  invalid_run_mode: 'agent.requestFailed',
-  invalid_canvas_size: 'agent.requestFailed',
-  paint_ops_failed: 'agent.designExecFailed',
-  validate_failed: 'agent.designExecFailed',
-  vision_unavailable: 'agent.designExecFailed',
-  blocked: 'agent.requestFailed',
-  timeout: 'agent.requestFailed',
-  scene_unconfirmed: 'agent.uxTipObserveSceneTimeout',
-  cancelled: 'agent.stopped',
-  task_not_found: 'agent.requestFailed',
-  auth_forbidden: 'agent.requestFailed',
-  forbidden: 'agent.requestFailed',
-  resume_token_mismatch: 'agent.requestFailed',
-  checkpoint_empty: 'agent.requestFailed',
-  checkpoint_corrupt: 'agent.requestFailed',
-  checkpoint_unavailable: 'agent.requestFailed',
-  lease_held: 'agent.requestFailed',
-  not_resumable: 'agent.requestFailed',
-  internal_error: 'agent.designExecFailed',
-  missing_tool_ops: 'agent.designOpsMissing',
-  design_failed: 'agent.requestFailed',
-};
-
-/** Fixed UX tips from kernel (`token.code`) → FE i18n. */
-const DESIGN_UX_TIP_I18N: Record<string, string> = {
-  decide_failed: 'agent.uxTipDecideFailed',
-  paint_failed: 'agent.uxTipPaintFailed',
-  observe_ops_failed: 'agent.uxTipObserveOpsFailed',
-  apply_confirm_failed: 'agent.uxTipApplyConfirmFailed',
-  observe_scene_timeout: 'agent.uxTipObserveSceneTimeout',
-  observe_critique_failed: 'agent.uxTipObserveCritiqueFailed',
-  review_must_fix: 'agent.uxTipReviewMustFix',
-  apply_ops_applied: 'agent.uxTipApplyOpsApplied',
-  ask_dismissed: 'agent.uxTipAskDismissed',
-};
-
+/** Display backend SSE/REST error text; FE fallback only when message is absent. */
 export function humanizeDesignError(
   t: (key: string, opts?: Record<string, unknown>) => string,
-  code?: string | null
+  code?: string | null,
+  message?: string | null
 ): string {
-  const codeKey = String(code || '').trim().toLowerCase();
-  const i18nKey = codeKey ? DESIGN_ERROR_I18N[codeKey] : undefined;
-  return t(i18nKey || 'agent.requestFailed');
+  const detail = String(message || '').trim();
+  if (detail) return detail;
+  return t('agent.requestFailed');
 }
 
+/** Display backend UX tip text; FE fallback only when text is absent. */
 export function humanizeDesignUxTip(
   t: (key: string, opts?: Record<string, unknown>) => string,
   code?: string | null,
   params?: Record<string, string> | null,
   fallbackText?: string | null
 ): string {
-  const codeKey = String(code || '').trim().toLowerCase();
-  const i18nKey = codeKey ? DESIGN_UX_TIP_I18N[codeKey] : undefined;
-  if (i18nKey) {
-    try {
-      return String(t(i18nKey, { ...(params || {}) }));
-    } catch {
-      /* fall through */
-    }
-  }
-  return String(fallbackText || '').trim() || t('agent.requestFailed');
+  void code;
+  void params;
+  const text = String(fallbackText || '').trim();
+  if (text) return text;
+  return t('agent.requestFailed');
 }
 
 export function assistantDurationMs(
@@ -550,7 +507,7 @@ export function createDesignAgentEventRouter(opts: {
   };
 
   const handleUiError = (ev: Extract<AgentStepEvent, { type: 'error' }>) => {
-    const friendly = humanizeDesignError(opts.t, ev.code);
+    const friendly = humanizeDesignError(opts.t, ev.code, ev.message);
     message.error(friendly);
     opts.setMessages((prev) =>
       prev.map((m) =>
@@ -569,11 +526,16 @@ export function createDesignAgentEventRouter(opts: {
   };
 
   const handleUiPaused = (ev: Extract<AgentStepEvent, { type: 'paused' }>) => {
+    const isErrorPause = String(ev.interruptKind || '').trim().toLowerCase() === 'error';
+    const detail = String(ev.message || '').trim();
+    if (isErrorPause && detail) {
+      message.error(detail);
+    }
     opts.setMessages((prev) =>
       prev.map((m) =>
         m.id === opts.assistantId
           ? opts.finishAssistantPatch(m, {
-              content: (m.content || '').trim(),
+              content: isErrorPause && detail ? detail : (m.content || '').trim(),
               thinking: undefined,
               pipeline: undefined,
               drawing: undefined,

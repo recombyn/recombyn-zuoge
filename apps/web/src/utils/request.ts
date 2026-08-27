@@ -6,6 +6,8 @@
 import ky, { HTTPError, type Options } from 'ky';
 import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken, setToken } from '@/utils/token';
+import { acceptLanguageHeader } from '@/i18n/apiLocale';
+import { extractApiDetailMessage } from '@/service/client';
 
 export type RequestConfig = {
   url: string;
@@ -19,18 +21,7 @@ export type RequestConfig = {
 };
 
 function detailToText(detail: unknown): string {
-  if (typeof detail === 'string') return detail;
-  if (!Array.isArray(detail)) return '';
-  return detail
-    .map((d) => {
-      if (typeof d === 'string') return d;
-      if (d && typeof d === 'object' && 'msg' in d) {
-        return String((d as { msg?: unknown }).msg || '');
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join(' ');
+  return extractApiDetailMessage(detail);
 }
 
 async function clearSessionOnAuthDead(res: Response): Promise<void> {
@@ -77,7 +68,7 @@ function getInflightKey(config: RequestConfig): string | null {
 async function executeRequest<T>(config: RequestConfig, key: string | null): Promise<T> {
   const method = (config.method || 'get').toUpperCase();
   const token = getToken();
-  const headers: Record<string, string> = { ...(config.headers || {}) };
+  const headers: Record<string, string> = { ...acceptLanguageHeader(), ...(config.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const isForm = typeof FormData !== 'undefined' && config.data instanceof FormData;

@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from app.api.deps import CurrentUser
 from pydantic import BaseModel, Field
 
 from app.services import chat_store
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter(prefix="/chat-sessions", tags=["chat-sessions"])
-
-
-
-
 
 
 class ChatMessageIn(BaseModel):
@@ -65,10 +63,11 @@ def put_session(
 
 @router.delete("/sessions/{session_id}")
 def remove_session(
+    locale: LocaleDep,
     current_user: CurrentUser,
     session_id: str,
 ) -> dict[str, Any]:
     ok = chat_store.delete_session(current_user.id, session_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "session_not_found", locale)
     return {"ok": True}

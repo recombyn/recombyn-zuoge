@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LLM catalog helpers for Agent UI (not HTTP — lives next to model pickers).
  */
 

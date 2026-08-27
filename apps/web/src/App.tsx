@@ -1,4 +1,4 @@
-﻿import { useEffect, memo } from 'react';
+import { useEffect, memo } from 'react';
 import { useDispatch } from 'react-redux';
 import { apiQuery, queryClient } from '@/service/client';
 import { clearProjectsListCache } from '@/service/projects';

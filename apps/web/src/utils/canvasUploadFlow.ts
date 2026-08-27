@@ -2,8 +2,9 @@
  * Shared canvas upload-placeholder flow (spawn node → upload → finish SoftGlow).
  */
 
+import { formatProcessProgressLabel } from '@/components/rcb/scene/document/processJobAttrs';
 import type { UploadedFileItem } from '@/service/upload';
-import { finishImageProcess } from '@/store/modules/editor';
+import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
 import {
   beginNodeUpload,
   finishNodeUpload,
@@ -80,11 +81,29 @@ export async function uploadCanvasPlaceholderFile(opts: {
   if (!id) return false;
   const waitDecode = opts.waitDecode !== false;
 
+  let lastProgress = -1;
   const done = await withManagedNodeUpload(id, async (signal) => {
     const uploaded = await uploadImageFile(opts.file, {
       signal,
       dispatch: opts.dispatch,
       nodeId: id,
+      onProgress: (pct) => {
+        if (signal.aborted) return;
+        const rounded = Math.round(pct);
+        if (rounded === lastProgress) return;
+        lastProgress = rounded;
+        opts.dispatch(
+          patchDocumentNode({
+            nodeId: id,
+            skipHistory: true,
+            patch: {
+              attrs: {
+                processLabel: formatProcessProgressLabel('上传中', rounded, '上传中'),
+              },
+            },
+          })
+        );
+      },
     });
     if (signal.aborted) return false;
 

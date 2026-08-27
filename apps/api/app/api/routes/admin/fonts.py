@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, Query,  UploadFile
 
 from app.api.deps import AdminUser
 from app.api.routes.admin.common import *  # noqa: F403
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter()
+
+_FONT_KNOWN: dict[str, tuple[int, str]] = {
+    "family required": (400, "font_family_required"),
+    "font name already exists": (400, "font_name_exists"),
+}
+
 
 @router.get("/fonts")
 def admin_list_fonts(
@@ -21,8 +29,10 @@ def admin_list_fonts(
 
     return fonts_store.list_fonts(page=page, page_size=pageSize)
 
+
 @router.post("/fonts")
 def admin_upsert_font(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: AdminFontUpsertIn,
 ) -> dict[str, Any]:
@@ -30,7 +40,7 @@ def admin_upsert_font(
 
     family = (body.family or "").strip()
     if not family:
-        raise HTTPException(status_code=400, detail="family required")
+        raise http_error(400, "font_family_required", locale)
     incoming = _normalize_admin_faces(
         family,
         body.faces,
@@ -46,7 +56,7 @@ def admin_upsert_font(
     else:
         children = incoming
     if not children:
-        raise HTTPException(status_code=400, detail="At least one face with url is required")
+        raise http_error(400, "font_face_url_required", locale)
     try:
         item = fonts_store.upsert_font(
             family=family,
@@ -55,12 +65,13 @@ def admin_upsert_font(
             sort_order=body.sortOrder,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale, known=_FONT_KNOWN) from err
     return {"item": item}
 
 
 @router.post("/fonts/upload")
 async def admin_fonts_upload(
+    locale: LocaleDep,
     admin: AdminUser,
     file: UploadFile = File(..., description="ttf / otf / woff / woff2"),
     family: str | None = Form(default=None),
@@ -69,12 +80,18 @@ async def admin_fonts_upload(
 ) -> dict[str, Any]:
     """Upload a font file and register/merge as a catalog face."""
     return await admin_upload_font_file(
-        admin, file=file, family=family, displayName=displayName, weight=weight
+        admin,
+        file=file,
+        family=family,
+        displayName=displayName,
+        weight=weight,
+        locale=locale,
     )
 
 
 @router.delete("/fonts/{family}")
 def admin_delete_font(
+    locale: LocaleDep,
     _admin: AdminUser,
     family: str,
 ) -> dict[str, Any]:
@@ -83,15 +100,16 @@ def admin_delete_font(
 
     fam = urllib.parse.unquote(family).strip()
     if not fam:
-        raise HTTPException(status_code=400, detail="family required")
+        raise http_error(400, "font_family_required", locale)
     ok = fonts_store.delete_font(fam)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
 
 
 @router.delete("/fonts/{family}/faces/{weight}")
 def admin_delete_font_face(
+    locale: LocaleDep,
     _admin: AdminUser,
     family: str,
     weight: int,
@@ -102,7 +120,7 @@ def admin_delete_font_face(
     fam = urllib.parse.unquote(family).strip()
     existing = fonts_store.get_font_by_family(fam)
     if not existing:
-        raise HTTPException(status_code=404, detail="Family not found")
+        raise http_error(404, "font_not_found", locale)
     children = [
         c
         for c in (existing.get("children") or [])
@@ -118,4 +136,3 @@ def admin_delete_font_face(
         sort_order=existing.get("sortOrder"),
     )
     return {"ok": True, "item": item}
-

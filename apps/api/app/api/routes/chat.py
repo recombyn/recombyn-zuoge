@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from app.api.deps import CurrentUser, OptionalUser
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -36,6 +36,8 @@ from app.services.wallet.db import (
 )
 
 from app.services.wallet.billing import DEFAULT_IMAGE_CREDITS, image_model_credit_cost
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -101,15 +103,15 @@ class AudioGenerateIn(BaseModel):
     speed: float | None = None
 
 
-def _charge(user_id: str, amount: int, detail: str) -> None:
+def _charge(user_id: str, amount: int, detail: str, *, locale: str | None = None) -> None:
     if amount <= 0 or not is_wallet_billing_enabled():
         return
     try:
         spend_credits(user_id, amount, detail)
     except ValueError as err:
         if str(err) == "insufficient_credits":
-            raise HTTPException(status_code=402, detail="Insufficient credits") from err
-        raise HTTPException(status_code=400, detail=str(err)) from err
+            raise http_error(402, "insufficient_credits", locale) from err
+        raise http_error(400, "request_failed", locale) from err
 
 
 def _charge_image(
@@ -118,6 +120,7 @@ def _charge_image(
     *,
     resolution: str | None = None,
     count: int = 1,
+    locale: str | None = None,
 ) -> tuple[str, int]:
     """
     Charge image gen from 积分 balance (厂商按张 / 按分辨率估算).
@@ -137,21 +140,18 @@ def _charge_image(
         cost = image_model_credit_cost(mid, count=n, resolution=resolution)
         bal = get_user_credits(user_id)
         if bal >= cost:
-            _charge(user_id, cost, "AI image generation")
+            _charge(user_id, cost, "AI image generation", locale=locale)
             return mid, cost
         if consume_free_daily_quota(user_id):
             return mid, 0
-        raise HTTPException(
-            status_code=402,
-            detail="free_daily_exhausted",
-        )
+        raise http_error(402, "free_daily_exhausted", locale)
     mid = (requested_model or "").strip() or None
     cost = (
         image_model_credit_cost(mid, count=n, resolution=resolution)
         if mid
         else DEFAULT_IMAGE_CREDITS * n
     )
-    _charge(user_id, cost, "AI image generation")
+    _charge(user_id, cost, "AI image generation", locale=locale)
     return mid, cost
 
 
@@ -160,6 +160,7 @@ def _charge_video(
     requested_model: str | None,
     *,
     resolution: str | None = None,
+    locale: str | None = None,
 ) -> tuple[str | None, int]:
     """Charge video gen from 积分 (reuses image-credit balance for now)."""
     requested = (requested_model or "").strip() or None
@@ -171,17 +172,22 @@ def _charge_video(
         else DEFAULT_IMAGE_CREDITS
     )
     cost = max(DEFAULT_IMAGE_CREDITS, int(cost or DEFAULT_IMAGE_CREDITS))
-    _charge(user_id, cost, "AI video generation")
+    _charge(user_id, cost, "AI video generation", locale=locale)
     return requested, cost
 
 
-def _charge_audio(user_id: str, requested_model: str | None) -> tuple[str | None, int]:
+def _charge_audio(
+    user_id: str,
+    requested_model: str | None,
+    *,
+    locale: str | None = None,
+) -> tuple[str | None, int]:
     """Charge audio/TTS from 积分 (flat default for now)."""
     requested = (requested_model or "").strip() or None
     if uses_user_platform_byok(user_id, requested):
         return requested, 0
     cost = max(DEFAULT_IMAGE_CREDITS, int(DEFAULT_IMAGE_CREDITS or 1))
-    _charge(user_id, cost, "AI audio generation")
+    _charge(user_id, cost, "AI audio generation", locale=locale)
     return requested, cost
 
 
@@ -236,19 +242,17 @@ def get_models(
 
 @router.post("/message")
 async def post_message(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: ChatMessageIn,
 ):
     if not body.message.strip():
-        raise HTTPException(status_code=400, detail="empty message")
+        raise http_error(400, "empty_message", locale)
 
     # Image models should use /image, not text stream.
     image_ids = {m["id"] for m in list_image_models()}
     if body.model and body.model in image_ids:
-        raise HTTPException(
-            status_code=400,
-            detail="Selected model is an image model. Use POST /api/v1/chat/image instead.",
-        )
+        raise http_error(400, "image_model_use_image_endpoint", locale)
 
     # BYOK / local / wallet-off → no platform credits (upstream uses user's key).
     msg_cost = (
@@ -258,7 +262,7 @@ async def post_message(
         else _MESSAGE_CREDIT_COST
     )
 
-    _charge(current_user.id, msg_cost, "AI chat message")
+    _charge(current_user.id, msg_cost, "AI chat message", locale=locale)
     bind_usage_context(
         user_id=current_user.id,
         source="chat",
@@ -303,6 +307,7 @@ def get_agent_tools() -> dict[str, Any]:
 
 @router.post("/agent")
 async def post_agent_turn(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: AgentTurnIn,
 ):
@@ -313,11 +318,11 @@ async def post_agent_turn(
     - mode=react: official LangChain create_agent (server tools loop).
     """
     if not body.messages:
-        raise HTTPException(status_code=400, detail="empty messages")
+        raise http_error(400, "empty_message", locale)
 
     mode = (body.mode or "turn").strip().lower()
     if mode not in ("turn", "react"):
-        raise HTTPException(status_code=400, detail="mode must be turn|react")
+        raise http_error(400, "invalid_agent_mode", locale)
 
     agent_cost = (
         0
@@ -326,7 +331,7 @@ async def post_agent_turn(
         else _AGENT_CREDIT_COST
     )
 
-    _charge(current_user.id, agent_cost, "AI agent turn")
+    _charge(current_user.id, agent_cost, "AI agent turn", locale=locale)
     bind_usage_context(
         user_id=current_user.id,
         source="agent",
@@ -383,17 +388,19 @@ async def post_agent_turn(
 
 @router.post("/image")
 async def post_image(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: ImageGenerateIn,
 ) -> dict[str, Any]:
     if not body.prompt.strip():
-        raise HTTPException(status_code=400, detail="empty prompt")
+        raise http_error(400, "empty_prompt", locale)
 
     model_id, credits_charged = _charge_image(
         current_user.id,
         body.model,
         resolution=body.resolution,
         count=int(body.n or 1),
+        locale=locale,
     )
 
     from app.api.routes.chat_image_jobs import execute_image_generate
@@ -411,24 +418,26 @@ async def post_image(
         )
     except RuntimeError as err:
         msg = str(err)
-        if "No LLM API key" in msg:
-            raise HTTPException(status_code=503, detail=msg) from err
-        raise HTTPException(status_code=502, detail=msg) from err
+        if "No LLM API key" in msg or "No OpenRouter" in msg:
+            raise http_error(503, "service_unavailable", locale) from err
+        raise http_error(502, "service_unavailable", locale) from err
 
 
 @router.post("/video")
 async def post_video(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: VideoGenerateIn,
 ) -> dict[str, Any]:
     """Sync convenience. Editor uses POST /chat/video/jobs (ADR 0005)."""
     if not body.prompt.strip():
-        raise HTTPException(status_code=400, detail="empty prompt")
+        raise http_error(400, "empty_prompt", locale)
 
     model_id, credits_charged = _charge_video(
         current_user.id,
         body.model,
         resolution=body.resolution,
+        locale=locale,
     )
 
     from app.api.routes.chat_video_jobs import execute_video_generate
@@ -447,20 +456,25 @@ async def post_video(
     except RuntimeError as err:
         msg = str(err)
         if "No LLM API key" in msg or "No OpenRouter" in msg:
-            raise HTTPException(status_code=503, detail=msg) from err
-        raise HTTPException(status_code=502, detail=msg) from err
+            raise http_error(503, "service_unavailable", locale) from err
+        raise http_error(502, "service_unavailable", locale) from err
 
 
 @router.post("/audio")
 async def post_audio(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: AudioGenerateIn,
 ) -> dict[str, Any]:
     """Sync convenience. Editor uses POST /chat/audio/jobs (ADR 0005)."""
     if not body.prompt.strip():
-        raise HTTPException(status_code=400, detail="empty prompt")
+        raise http_error(400, "empty_prompt", locale)
 
-    model_id, credits_charged = _charge_audio(current_user.id, body.model)
+    model_id, credits_charged = _charge_audio(
+        current_user.id,
+        body.model,
+        locale=locale,
+    )
 
     from app.api.routes.chat_audio_jobs import execute_audio_generate
 
@@ -477,7 +491,7 @@ async def post_audio(
     except RuntimeError as err:
         msg = str(err)
         if "No LLM API key" in msg or "No OpenRouter" in msg:
-            raise HTTPException(status_code=503, detail=msg) from err
-        raise HTTPException(status_code=502, detail=msg) from err
+            raise http_error(503, "service_unavailable", locale) from err
+        raise http_error(502, "service_unavailable", locale) from err
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise http_error(400, "request_failed", locale) from err

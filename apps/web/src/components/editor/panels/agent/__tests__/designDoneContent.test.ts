@@ -116,17 +116,23 @@ describe('hasStructuredProcess', () => {
 });
 
 describe('humanizeDesignError', () => {
-  it('maps known codes to i18n keys', () => {
-    expect(humanizeDesignError(t, 'free_daily_exhausted')).toBe('agent.freeDailyExhausted');
-    expect(humanizeDesignError(t, 'insufficient_credits')).toBe('agent.insufficientCredits');
-    expect(humanizeDesignError(t, 'paint_ops_failed')).toBe('agent.designExecFailed');
-    expect(humanizeDesignError(t, 'cancelled')).toBe('agent.stopped');
-    expect(humanizeDesignError(t, 'timeout')).toBe('agent.requestFailed');
-    expect(humanizeDesignError(t, 'scene_unconfirmed')).toBe('agent.uxTipObserveSceneTimeout');
-    expect(humanizeDesignError(t, 'internal_error')).toBe('agent.designExecFailed');
+  it('prefers backend message when present', () => {
+    expect(humanizeDesignError(t, 'free_daily_exhausted', '今日免费执行次数已用完')).toBe(
+      '今日免费执行次数已用完'
+    );
+    expect(humanizeDesignError(t, 'insufficient_credits', '积分不足，请充值后重试。')).toBe(
+      '积分不足，请充值后重试。'
+    );
   });
 
-  it('falls back for missing or unknown codes', () => {
+  it('uses backend message over code when both are provided', () => {
+    expect(
+      humanizeDesignError(t, 'internal_error', 'intent_classify: prompt pack missing')
+    ).toBe('intent_classify: prompt pack missing');
+  });
+
+  it('falls back to FE i18n when message is absent', () => {
+    expect(humanizeDesignError(t, 'free_daily_exhausted')).toBe('agent.requestFailed');
     expect(humanizeDesignError(t, undefined)).toBe('agent.requestFailed');
     expect(humanizeDesignError(t, '')).toBe('agent.requestFailed');
     expect(humanizeDesignError(t, 'skill_failed:boom')).toBe('agent.requestFailed');

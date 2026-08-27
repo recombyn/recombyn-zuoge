@@ -8,15 +8,15 @@ import type { ChatUiMessage } from '@/components/editor/panels/agent/messages/Ch
 const t = (key: string) => key;
 
 describe('formatChatMediaError', () => {
-  it('maps free daily quota exhaustion', () => {
+  it('passes through free_daily_exhausted message text', () => {
     expect(formatChatMediaError(t, new Error('free_daily_exhausted'))).toBe(
-      'agent.freeDailyExhausted'
+      'free_daily_exhausted'
     );
   });
 
-  it('maps insufficient credits', () => {
+  it('passes through insufficient credits message text', () => {
     expect(formatChatMediaError(t, new Error('Insufficient credits'))).toBe(
-      'agent.insufficientCredits'
+      'Insufficient credits'
     );
   });
 

@@ -214,12 +214,44 @@ function translateRing(ring: Ring, dx: number, dy: number): Ring {
   return ring.map(([x, y]) => [x + dx, y + dy] as [number, number]);
 }
 
-function ringAbsArea(ring: Ring): number {
+function ringSignedArea(ring: Ring): number {
   let a = 0;
   for (let i = 0; i < ring.length - 1; i += 1) {
     a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
   }
-  return Math.abs(a) / 2;
+  return a / 2;
+}
+
+function ringAbsArea(ring: Ring): number {
+  return Math.abs(ringSignedArea(ring));
+}
+
+/** Ray-cast; used to decide which subpaths are holes vs sibling islands. */
+function pointInRing(pt: [number, number], ring: Ring): boolean {
+  const x = pt[0];
+  const y = pt[1];
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0];
+    const yi = ring[i][1];
+    const xj = ring[j][0];
+    const yj = ring[j][1];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function ringCentroid(ring: Ring): [number, number] {
+  let sx = 0;
+  let sy = 0;
+  const n = Math.max(1, ring.length - (ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? 1 : 0));
+  for (let i = 0; i < n; i += 1) {
+    sx += ring[i][0];
+    sy += ring[i][1];
+  }
+  return [sx / n, sy / n];
 }
 
 function dedupeRingPts(pts: Array<[number, number]>, eps = 0.05): Array<[number, number]> {
@@ -613,7 +645,17 @@ function sampleLocalPathToRings(d: string, stepPx = SAMPLE_STEP_PX): Ring[] {
   }
 
   if (rings.length <= 1) return rings;
-  return rings.sort((a, b) => ringAbsArea(b) - ringAbsArea(a));
+  // Largest = outer; reverse *contained* rings so GeoJSON treats them as holes
+  // (SVG evenodd compounds often share winding). Disjoint islands stay as-is.
+  const sorted = rings.sort((a, b) => ringAbsArea(b) - ringAbsArea(a));
+  const outer = sorted[0];
+  const outerCW = ringSignedArea(outer) < 0;
+  return sorted.map((ring, i) => {
+    if (i === 0) return ring;
+    if (!pointInRing(ringCentroid(ring), outer)) return ring;
+    const holeCW = ringSignedArea(ring) < 0;
+    return holeCW === outerCW ? [...ring].reverse() : ring;
+  });
 }
 
 /**
@@ -749,12 +791,6 @@ function multipolygonToPath(mp: MultiPolygon, originX: number, originY: number):
 
 function multipolygonHasHoles(mp: MultiPolygon): boolean {
   return mp.some((poly) => poly.length > 1);
-}
-
-function multipolygonRingCount(mp: MultiPolygon): number {
-  let n = 0;
-  for (const poly of mp) n += poly.length;
-  return n;
 }
 
 function clipShapes(
@@ -903,13 +939,12 @@ export function computeShapeBoolean(
       y: minY,
       width,
       height,
-      // Holes / multi-ring results (donut operands, subtract pockets) need
-      // evenodd — polygon-clipping may emit holes as sibling polys, not
-      // only as poly[1+] rings, so ring count > 1 is the reliable signal.
+      // Nested holes (poly[1+]) and XOR need evenodd so pockets stay open.
+      // Do NOT key off total ring count: disjoint union is multiple solid
+      // outers (ringCount>1, no holes) and must stay nonzero — evenodd on
+      // overlapping sibling rings paints like subtract (Hub “并集→镂空” bug).
       fillRule:
-        multipolygonHasHoles(mp) || multipolygonRingCount(mp) > 1 || mode === 'exclude'
-          ? 'evenodd'
-          : 'nonzero',
+        mode === 'exclude' || multipolygonHasHoles(mp) ? 'evenodd' : 'nonzero',
     },
     usedFallback: false,
     hasNonRect,

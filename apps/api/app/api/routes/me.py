@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
 from app.models import IdsOut, ItemOut, ItemsOut, OkOut
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 from app.services.me import likes as likes_store
 from app.services.security import (
     delete_byok_provider,
@@ -30,7 +32,6 @@ class ByokProviderIn(BaseModel):
     baseUrl: str = ""
     apiModel: str = ""
     modelKind: str = "text"
-    # Omit or empty on update to keep existing encrypted key.
     apiKey: str | None = None
 
 
@@ -50,15 +51,16 @@ def me_liked_ids(current_user: CurrentUser) -> dict[str, Any]:
 
 @router.put("/liked/{submission_id}")
 def me_like(
+    locale: LocaleDep,
     current_user: CurrentUser,
     submission_id: str,
 ) -> dict[str, Any]:
     try:
         return likes_store.like_submission(current_user.id, submission_id)
     except LookupError:
-        raise HTTPException(status_code=404, detail="Submission not found") from None
+        raise http_error(404, "submission_not_found", locale) from None
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
 
 
 @router.delete("/liked/{submission_id}")
@@ -86,6 +88,7 @@ def me_byok_list(current_user: CurrentUser) -> dict[str, Any]:
 
 @router.put("/byok/providers", response_model=ItemOut)
 def me_byok_upsert(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: ByokProviderIn,
 ) -> dict[str, Any]:
@@ -101,16 +104,17 @@ def me_byok_upsert(
             api_model=body.apiModel,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 
 @router.delete("/byok/providers/{provider_id}", response_model=OkOut)
 def me_byok_delete(
+    locale: LocaleDep,
     current_user: CurrentUser,
     provider_id: str,
 ) -> dict[str, Any]:
     ok = delete_byok_provider(current_user.id, provider_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Provider not found")
+        raise http_error(404, "provider_not_found", locale)
     return {"ok": True}

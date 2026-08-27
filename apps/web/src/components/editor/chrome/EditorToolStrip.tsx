@@ -25,11 +25,7 @@ import { RiImageUploadLine, RiVideoUploadLine } from 'react-icons/ri';
 import { Dropdown, Tooltip, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
-import {
-  readFileAsDataUrl,
-  isUploadAbortError,
-  uploadImageFile,
-} from '@/utils/uploadImage';
+import { readFileAsDataUrl, isUploadAbortError } from '@/utils/uploadImage';
 import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import store from '@/store';
 import {
@@ -37,7 +33,7 @@ import {
   setShapeKind,
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
-  spawnAudio,
+  startAudioUploadPlaceholder,
   spawnLottie,
   spawnImageGenerator,
   spawnVideoGenerator,
@@ -831,25 +827,40 @@ function EditorToolStrip({
       const duration = await new Promise<number | undefined>((resolve) => {
         const audio = new Audio();
         audio.preload = 'metadata';
-        audio.onloadedmetadata = () => resolve(Number.isFinite(audio.duration) ? audio.duration : undefined);
+        audio.onloadedmetadata = () =>
+          resolve(Number.isFinite(audio.duration) ? audio.duration : undefined);
         audio.onerror = () => resolve(undefined);
         audio.src = preview;
       });
-      const uploaded = await uploadImageFile(file);
       const { width, height, x, y } = placeAtViewportCenter({ width: 720, height: 400 });
       dispatch(
-        spawnAudio({
-          src: uploaded.url || preview,
+        startAudioUploadPlaceholder({
+          src: preview,
           width,
           height: Math.max(140, height),
           x,
           y,
+          label: L.uploading,
           name: file.name?.replace(/\.[^.]+$/, '') || 'Audio',
           duration,
-          uploadKey: uploaded.key,
         })
       );
+      const spawnedId = String(
+        (store.getState() as any).editor?.pendingImageProcessId || ''
+      );
+      await uploadCanvasPlaceholderFile({
+        dispatch,
+        nodeId: spawnedId,
+        file,
+        waitDecode: false,
+        extraAttrs: {
+          ...(duration ? { duration } : {}),
+          assetKind: 'audio',
+        },
+      });
     } catch (err: any) {
+      if (isUploadAbortError(err)) return;
+      dispatch(failImageProcess({}));
       message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };

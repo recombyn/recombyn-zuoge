@@ -19,7 +19,7 @@ import {
   type ChatModelsResponse,
   type LlmModel,
 } from '@/service/chat';
-import { apiQuery } from '@/service/client';
+import { apiQuery, getHttpErrorMessage } from '@/service/client';
 import {
   agentAttachmentLimit,
   cloudImageFallbackId,
@@ -63,6 +63,7 @@ import {
   deleteUploadedFile,
   imageSrcToFile,
   readFileAsDataUrl,
+  resolveComposerMediaAfterUpload,
   uploadComposerAttachment,
 } from '@/utils/uploadImage';
 import { message } from '@/components/base';
@@ -1448,9 +1449,6 @@ function AgentDock({
   };
 
   const handleAttachFiles = async (files: File[], opts?: { mention?: boolean }) => {
-    const MAX_IMAGE = 10 * 1024 * 1024;
-    const MAX_VIDEO = 100 * 1024 * 1024;
-    const MAX_AUDIO = 100 * 1024 * 1024;
     const pickedModel = models.find((m) => m.id === model);
     const isVideoMode =
       interactionMode === 'video' ||
@@ -1494,13 +1492,7 @@ function AgentDock({
         message.warning(t('agent.attachImageOnly', { name: file.name }));
         continue;
       }
-      let maxBytes = MAX_IMAGE;
-      if (isVideo) maxBytes = MAX_VIDEO;
-      else if (isAudio) maxBytes = MAX_AUDIO;
-      if (file.size > maxBytes) {
-        message.warning(t('agent.attachTooLarge', { name: file.name }));
-        continue;
-      }
+      // No byte ceiling — oversized media is soft-compressed in uploadComposerAttachment.
       accepted.push(file);
       remaining -= 1;
     }
@@ -1594,8 +1586,14 @@ function AgentDock({
                 ? poster
                 : preview,
           });
-          const imageRef = String(uploaded.imageRef || '').trim();
-          const localPreview = String(uploaded.previewDataUrl || poster || preview).trim();
+          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
+            serverUrl: uploaded.url,
+            localPreview: String(uploaded.previewDataUrl || poster || preview).trim(),
+            stillPreview:
+              file.type.startsWith('video/') && poster.startsWith('data:image/')
+                ? poster
+                : undefined,
+          });
           setContextChips((prev) => {
             if (!prev.some((c) => c.key === key)) {
               if (uploaded.uploadKey) {
@@ -1614,25 +1612,23 @@ function AgentDock({
               c.key === key
                 ? {
                     ...c,
-                    dataUrl: imageRef || localPreview,
-                    thumbUrl:
-                      (c.thumbUrl && c.thumbUrl.startsWith('data:image/')
-                        ? c.thumbUrl
-                        : null) ||
-                      (localPreview.startsWith('data:image/') ? localPreview : null) ||
-                      c.thumbUrl ||
-                      localPreview ||
-                      imageRef,
+                    dataUrl,
+                    thumbUrl,
                     uploadKey: uploaded.uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
             );
           });
-        } catch {
+        } catch (err: unknown) {
           pinnedContextKeysRef.current.delete(key);
           setContextChips((prev) => prev.filter((c) => c.key !== key));
-          message.error(t('agent.uploadFailed', { name: file.name }));
+          const detail = getHttpErrorMessage(err, '');
+          message.error(
+            detail
+              ? `${t('agent.uploadFailed', { name: file.name })}: ${detail}`
+              : t('agent.uploadFailed', { name: file.name })
+          );
         }
       })
     );
@@ -2442,7 +2438,7 @@ function AgentDock({
           (m) => m.id === assistantId,
           (m) =>
             finishAssistantPatch(m, {
-              content: humanizeDesignError(t, 'internal_error'),
+              content: formatChatMediaError(t, err),
               imagePendingCount: undefined,
               steps: [],
             })

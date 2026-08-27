@@ -1672,25 +1672,11 @@ export async function nodeToSvgElement(
 
     if (processing) {
       const g = appendChild(parent, svgEl('g'));
-      const preview = poster || (src && !String(src).startsWith('blob:') ? '' : poster);
-      if (preview) {
-        const img = appendChild(
-          g,
-          svgEl('image', {
-            width: boxW,
-            height: boxH,
-            x: 0,
-            y: 0,
-            preserveAspectRatio: 'none',
-          })
-        );
-        setSvgImageHref(img, preview);
-      } else {
-        appendProcessPlatePaths(g, root, nodeId, clipD, boxW, boxH, {
-          color: PROCESS_PLATE_STROKE,
-          width: editorChromeStrokeSceneWidth(1.5),
-        });
-      }
+      // Match image upload SoftGlow — always show process plate (not poster-only).
+      appendProcessPlatePaths(g, root, nodeId, clipD, boxW, boxH, {
+        color: PROCESS_PLATE_STROKE,
+        width: editorChromeStrokeSceneWidth(1.5),
+      });
       tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
       setAttrs(g, { 'data-export-ignore': '1', 'data-rcb-process-plate': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);

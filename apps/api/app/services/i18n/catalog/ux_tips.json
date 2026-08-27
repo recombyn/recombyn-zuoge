@@ -1,0 +1,50 @@
+{
+  "paint_failed": {
+    "zh-CN": "未能生成有效画布操作，请描述更具体的修改。",
+    "zh-TW": "未能產生有效畫布操作，請描述更具體的修改。",
+    "en": "Could not produce valid canvas ops. Please describe a more specific edit.",
+    "ja": "有効なキャンバス操作を生成できませんでした。より具体的な編集内容を指定してください。"
+  },
+  "observe_ops_failed": {
+    "zh-CN": "部分操作未能应用（{count}）：{notes}。请针对具体元素重试。",
+    "zh-TW": "部分操作未能套用（{count}）：{notes}。請針對具體元素重試。",
+    "en": "Some ops failed to apply ({count}): {notes}. Retry on a specific element.",
+    "ja": "一部の操作を適用できませんでした（{count}）：{notes}。対象を指定して再試行してください。"
+  },
+  "apply_confirm_failed": {
+    "zh-CN": "确认的方案无法安全应用（{error}），请换一种说法或重试。",
+    "zh-TW": "確認的方案無法安全套用（{error}），請換一種說法或重試。",
+    "en": "Confirmed plan could not be applied safely ({error}). Rephrase or retry.",
+    "ja": "確認したプランを安全に適用できませんでした（{error}）。言い換えて再試行してください。"
+  },
+  "observe_scene_timeout": {
+    "zh-CN": "画布回传超时，已按操作已应用继续，未触发自动重绘。",
+    "zh-TW": "畫布回傳逾時，已按操作已套用繼續，未觸發自動重繪。",
+    "en": "Canvas feedback timed out. Continuing without auto-repaint.",
+    "ja": "キャンバスからの応答がタイムアウトしました。自動再描画は行いません。"
+  },
+  "observe_critique_failed": {
+    "zh-CN": "画布结构校验未通过：{issues}",
+    "zh-TW": "畫布結構校驗未通過：{issues}",
+    "en": "Canvas structure check failed: {issues}",
+    "ja": "キャンバス構造チェックに失敗しました：{issues}"
+  },
+  "review_must_fix": {
+    "zh-CN": "评审未通过：{issues}",
+    "zh-TW": "評審未通過：{issues}",
+    "en": "Review did not pass: {issues}",
+    "ja": "レビュー不合格：{issues}"
+  },
+  "apply_ops_applied": {
+    "zh-CN": "已应用 {count} 项修改",
+    "zh-TW": "已套用 {count} 項修改",
+    "en": "Applied {count} canvas change(s).",
+    "ja": "{count} 件の変更を適用しました。"
+  },
+  "ask_dismissed": {
+    "zh-CN": "已取消",
+    "zh-TW": "已取消",
+    "en": "Cancelled.",
+    "ja": "キャンセルしました。"
+  }
+}

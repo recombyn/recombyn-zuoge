@@ -5,9 +5,13 @@ from __future__ import annotations
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from app.api.deps import AdminUser, CurrentUser
 from pydantic import BaseModel, Field
+
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep, locale_from_request
+from app.services.i18n.plaza import plaza_http as _plaza_http
 
 from app.services.plaza import (
     approve_submission,
@@ -23,37 +27,20 @@ from app.services.plaza.store import PlazaError
 router = APIRouter(prefix="/plaza", tags=["plaza"])
 
 
-
-
-
-
-
-
-def _plaza_http(err: PlazaError) -> HTTPException:
-    status = {
-        "not_found": 404,
-        "already_pending": 409,
-        "already_published": 409,
-        "document_too_large": 413,
-        "invalid_project": 400,
-        "invalid_document": 400,
-        "cover_required": 400,
-        "cover_aspect_invalid": 400,
-        "artboard_required": 400,
-    }.get(err.code, 400)
-    return HTTPException(status_code=status, detail=err.message)
-
-
 _T = TypeVar("_T")
 
 
 def _plaza_route(handler: Callable[..., _T]) -> Callable[..., _T]:
     @wraps(handler)
     def wrapper(*args: Any, **kwargs: Any) -> _T:
+        locale = kwargs.get("locale")
+        if locale is None:
+            request = kwargs.get("request")
+            locale = locale_from_request(request) if request is not None else None
         try:
             return handler(*args, **kwargs)
         except PlazaError as err:
-            raise _plaza_http(err) from err
+            raise _plaza_http(err, locale) from err
 
     return wrapper
 
@@ -74,6 +61,7 @@ class RejectIn(BaseModel):
 @router.post("/submit")
 @_plaza_route
 def plaza_submit(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: SubmitIn,
 ) -> dict[str, Any]:
@@ -90,14 +78,14 @@ def plaza_submit(
     return {"item": item}
 
 
-def _require_public_plaza_item(submission_id: str) -> dict[str, Any]:
+def _require_public_plaza_item(submission_id: str, locale: str | None = None) -> dict[str, Any]:
     item = get_submission(submission_id, include_document=True)
     if (
         not item
         or item.get("status") != "approved"
         or item.get("isVisible") is False
     ):
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return item
 
 
@@ -124,13 +112,13 @@ def plaza_feed(
 
 
 @router.get("/items/{submission_id}")
-def plaza_item(submission_id: str) -> dict[str, Any]:
-    return {"item": _require_public_plaza_item(submission_id)}
+def plaza_item(locale: LocaleDep, submission_id: str) -> dict[str, Any]:
+    return {"item": _require_public_plaza_item(submission_id, locale)}
 
 
 @router.post("/items/{submission_id}/use")
 @_plaza_route
-def plaza_item_use(submission_id: str) -> dict[str, Any]:
+def plaza_item_use(locale: LocaleDep, submission_id: str) -> dict[str, Any]:
     """Public (or auth-optional): bump use_count when someone applies a plaza case."""
     use_count = increment_use_count(submission_id)
     return {"ok": True, "useCount": use_count}
@@ -147,6 +135,7 @@ def plaza_admin_list(
 @router.post("/admin/{submission_id}/approve")
 @_plaza_route
 def plaza_admin_approve(
+    locale: LocaleDep,
     current_user: AdminUser,
     submission_id: str,
 ) -> dict[str, Any]:
@@ -157,6 +146,7 @@ def plaza_admin_approve(
 @router.post("/admin/{submission_id}/reject")
 @_plaza_route
 def plaza_admin_reject(
+    locale: LocaleDep,
     current_user: AdminUser,
     submission_id: str,
     body: RejectIn | None = None,

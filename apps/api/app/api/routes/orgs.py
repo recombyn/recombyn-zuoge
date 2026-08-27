@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, SessionUser, require_org_permission
 from app.services.auth import orgs as org_store
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 
@@ -49,7 +51,7 @@ def list_my_pending_invites(current_user: CurrentUser) -> dict[str, Any]:
 
 
 @router.post("/invites/{invite_id}/accept")
-def accept_invite(current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
+def accept_invite(locale: LocaleDep, current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
     try:
         row = org_store.accept_org_invite(
             invite_id=invite_id,
@@ -57,20 +59,16 @@ def accept_invite(current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
             email=getattr(current_user, "email", None),
         )
     except LookupError:
-        raise HTTPException(
-            status_code=404, detail={"code": "invite_not_found"}
-        ) from None
+        raise http_error(404, "invite_not_found", locale) from None
     except PermissionError:
-        raise HTTPException(
-            status_code=403, detail={"code": "invite_not_for_user"}
-        ) from None
+        raise http_error(403, "invite_not_for_user", locale) from None
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+        raise value_error_http(exc, locale) from exc
     return row
 
 
 @router.post("/invites/{invite_id}/decline")
-def decline_invite(current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
+def decline_invite(locale: LocaleDep, current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
     try:
         row = org_store.decline_org_invite(
             invite_id=invite_id,
@@ -78,32 +76,30 @@ def decline_invite(current_user: CurrentUser, invite_id: str) -> dict[str, Any]:
             email=getattr(current_user, "email", None),
         )
     except LookupError:
-        raise HTTPException(
-            status_code=404, detail={"code": "invite_not_found"}
-        ) from None
+        raise http_error(404, "invite_not_found", locale) from None
     except PermissionError:
-        raise HTTPException(
-            status_code=403, detail={"code": "invite_not_for_user"}
-        ) from None
+        raise http_error(403, "invite_not_for_user", locale) from None
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+        raise value_error_http(exc, locale) from exc
     return row
 
 
 @router.get("/{org_id}")
 def get_org(
+    locale: LocaleDep,
     org_id: str,
     current_user: SessionUser = Depends(require_org_permission("org:project:read")),
 ) -> dict[str, Any]:
     _ = current_user
     row = org_store.get_org(org_id=org_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "org_not_found", locale)
     return {"org": row}
 
 
 @router.patch("/{org_id}")
 def rename_org(
+    locale: LocaleDep,
     org_id: str,
     body: RenameOrgIn,
     current_user: SessionUser = Depends(require_org_permission("org:settings:write")),
@@ -112,9 +108,9 @@ def rename_org(
     try:
         row = org_store.rename_org(org_id=org_id, name=body.name)
     except LookupError:
-        raise HTTPException(status_code=404, detail="Not found") from None
+        raise http_error(404, "org_not_found", locale) from None
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+        raise value_error_http(exc, locale) from exc
     return {"org": row}
 
 
@@ -129,6 +125,7 @@ def list_members(
 
 @router.delete("/{org_id}/members/{user_id}")
 def remove_member(
+    locale: LocaleDep,
     org_id: str,
     user_id: str,
     current_user: SessionUser = Depends(require_org_permission("org:members:write")),
@@ -140,11 +137,9 @@ def remove_member(
             actor_user_id=current_user.id,
         )
     except LookupError:
-        raise HTTPException(
-            status_code=404, detail={"code": "member_not_found"}
-        ) from None
+        raise http_error(404, "member_not_found", locale) from None
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+        raise value_error_http(exc, locale) from exc
 
 
 @router.get("/{org_id}/invites")
@@ -158,6 +153,7 @@ def list_org_pending_invites(
 
 @router.post("/{org_id}/members")
 def invite_member(
+    locale: LocaleDep,
     org_id: str,
     body: InviteMemberIn,
     current_user: SessionUser = Depends(require_org_permission("org:members:write")),
@@ -172,11 +168,9 @@ def invite_member(
             role=body.role,
         )
     except LookupError as exc:
-        code = str(exc) or "not_found"
-        raise HTTPException(status_code=404, detail={"code": code}) from None
+        code = str(exc) or "org_not_found"
+        mapped = code if code in ("org_not_found", "member_not_found", "invite_not_found") else "org_not_found"
+        raise http_error(404, mapped, locale) from None
     except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": str(exc)},
-        ) from exc
+        raise value_error_http(exc, locale) from exc
     return {"invite": row}

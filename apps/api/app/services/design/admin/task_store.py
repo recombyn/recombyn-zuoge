@@ -49,6 +49,20 @@ _REPLAYABLE_EVENT_TYPES = frozenset(
 _EVENT_LOG_DROP_KEYS = frozenset(
     {"svg", "ops", "scene_nodes", "scene_frames", "images", "preview_image"}
 )
+_TRACE_EVENT_TYPES = frozenset(
+    {
+        "turn/start",
+        "turn/end",
+        "step/start",
+        "stage/decision",
+        "llm/request",
+        "llm/response",
+        "tool/ops_emit",
+        "scene/feedback",
+    }
+)
+_TRACE_LOG_MAX_BYTES = 24_000
+_TRACE_LOG_MAX_ITEMS = 256
 _WORKER_SNAPSHOT_MAX_ITEMS = 120
 _WORKER_SNAPSHOT_MAX_FRAMES = 32
 _WORKER_SNAPSHOT_MAX_IMAGES = 8
@@ -231,10 +245,16 @@ def build_worker_snapshot(
     }
 
 
-def _safe_replay_event(event: dict[str, Any]) -> dict[str, Any] | None:
-    """Keep a bounded UI timeline, never canvas payloads or model token streams."""
+def _safe_lane_event(
+    event: dict[str, Any],
+    *,
+    allowed: frozenset[str],
+    max_bytes: int,
+    omit_code: str,
+) -> dict[str, Any] | None:
+    """Strip canvas payloads and bound size for UI or model-lane persistence."""
     event_type = str(event.get("type") or "").strip()
-    if event_type not in _REPLAYABLE_EVENT_TYPES:
+    if event_type not in allowed:
         return None
     safe = {
         str(key): value
@@ -246,9 +266,120 @@ def _safe_replay_event(event: dict[str, Any]) -> dict[str, Any] | None:
         encoded = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
     except (TypeError, ValueError):
         return None
-    if len(encoded.encode("utf-8")) > _EVENT_LOG_MAX_BYTES:
-        return {"type": event_type, "code": "event_payload_omitted"}
+    if len(encoded.encode("utf-8")) > max_bytes:
+        return {"type": event_type, "code": omit_code}
     return safe
+
+
+def _safe_replay_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep a bounded UI timeline, never canvas payloads or model token streams."""
+    return _safe_lane_event(
+        event,
+        allowed=_REPLAYABLE_EVENT_TYPES,
+        max_bytes=_EVENT_LOG_MAX_BYTES,
+        omit_code="event_payload_omitted",
+    )
+
+
+def _safe_trace_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Persist model-lane trace events (no canvas payloads)."""
+    return _safe_lane_event(
+        event,
+        allowed=_TRACE_EVENT_TYPES,
+        max_bytes=_TRACE_LOG_MAX_BYTES,
+        omit_code="trace_payload_omitted",
+    )
+
+
+def _clamp_seq(after_seq: int, *, default: int = 0) -> int:
+    try:
+        return max(0, int(after_seq))
+    except (TypeError, ValueError):
+        return default
+
+
+def _clamp_limit(limit: int, *, max_items: int) -> int:
+    try:
+        return max(1, min(int(limit), max_items))
+    except (TypeError, ValueError):
+        return max_items
+
+
+def _append_task_event_json(task_id: str, safe: dict[str, Any]) -> int | None:
+    tid = str(task_id or "").strip()
+    if not tid or not safe:
+        return None
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    with Session(engine) as session:
+        if not design_tasks.get_design_task(session=session, task_id=tid):
+            return None
+        return design_tasks.append_design_task_event(
+            session=session,
+            task_id=tid,
+            event_json=json.dumps(safe, ensure_ascii=False),
+            created_at=time.time(),
+        )
+
+
+def append_trace_event(task_id: str, event: dict[str, Any]) -> int | None:
+    """Persist a model-lane session trace event."""
+    safe = _safe_trace_event(event)
+    if safe is None:
+        return None
+    return _append_task_event_json(task_id, safe)
+
+
+def _list_lane_events(
+    task_id: str,
+    *,
+    after_seq: int,
+    limit: int,
+    max_items: int,
+    allowed: frozenset[str],
+) -> dict[str, Any]:
+    tid = str(task_id or "").strip()
+    cursor = _clamp_seq(after_seq)
+    lim = _clamp_limit(limit, max_items=max_items)
+    from sqlmodel import Session
+    from app.repositories import design_tasks
+    from app.core.db import engine
+
+    with Session(engine) as session:
+        rows = design_tasks.list_design_task_events(
+            session=session, task_id=tid, after_id=cursor, limit=lim * 4
+        )
+    items: list[dict[str, Any]] = []
+    last_scanned = cursor
+    for row in rows:
+        last_scanned = int(row.id or 0)
+        event = parse_task_meta(row.event_json)
+        if not event or str(event.get("type") or "") not in allowed:
+            continue
+        items.append({"seq": last_scanned, "at": row.created_at, "event": event})
+        if len(items) >= lim:
+            break
+    # next_seq is the after_seq cursor (exclusive id > after_seq). Advance past
+    # scanned other-lane rows so empty UI windows cannot stall SSE/pollers.
+    return {"items": items, "next_seq": last_scanned if rows else cursor}
+
+
+def get_task_trace(
+    task_id: str,
+    *,
+    after_seq: int = 0,
+    limit: int = 256,
+) -> dict[str, Any]:
+    """Read model-lane trace events for eval/debug."""
+    return _list_lane_events(
+        task_id,
+        after_seq=after_seq,
+        limit=limit,
+        max_items=_TRACE_LOG_MAX_ITEMS,
+        allowed=_TRACE_EVENT_TYPES,
+    )
 
 
 def _event_seq(item: dict[str, Any]) -> int:
@@ -260,20 +391,10 @@ def _event_seq(item: dict[str, Any]) -> int:
 
 def append_task_event(task_id: str, event: dict[str, Any]) -> int | None:
     """Persist a compact, monotonically sequenced event for reconnect replay."""
-    tid = str(task_id or "").strip()
     safe = _safe_replay_event(event)
-    if not tid or safe is None:
+    if safe is None:
         return None
-    from sqlmodel import Session
-    from app.repositories import design_tasks
-    from app.core.db import engine
-
-    with Session(engine) as session:
-        if not design_tasks.get_design_task(session=session, task_id=tid):
-            return None
-        return design_tasks.append_design_task_event(
-            session=session, task_id=tid, event_json=json.dumps(safe, ensure_ascii=False), created_at=time.time()
-        )
+    return _append_task_event_json(task_id, safe)
 
 
 def get_task_events(
@@ -282,28 +403,14 @@ def get_task_events(
     after_seq: int = 0,
     limit: int = 96,
 ) -> dict[str, Any]:
-    """Read a compact event tail for a reconnecting client."""
-    tid = str(task_id or "").strip()
-    try:
-        cursor = max(0, int(after_seq))
-    except (TypeError, ValueError):
-        cursor = 0
-    try:
-        lim = max(1, min(int(limit), _EVENT_LOG_MAX_ITEMS))
-    except (TypeError, ValueError):
-        lim = _EVENT_LOG_MAX_ITEMS
-    from sqlmodel import Session
-    from app.repositories import design_tasks
-    from app.core.db import engine
-
-    with Session(engine) as session:
-        rows = design_tasks.list_design_task_events(session=session, task_id=tid, after_id=cursor, limit=lim)
-    items = []
-    for row in rows:
-        event = parse_task_meta(row.event_json)
-        if event:
-            items.append({"seq": int(row.id or 0), "at": row.created_at, "event": event})
-    return {"items": items, "next_seq": (items[-1]["seq"] + 1) if items else cursor + 1}
+    """Read UI-lane events only (model_request/response stay on /trace)."""
+    return _list_lane_events(
+        task_id,
+        after_seq=after_seq,
+        limit=limit,
+        max_items=_EVENT_LOG_MAX_ITEMS,
+        allowed=_REPLAYABLE_EVENT_TYPES,
+    )
 
 
 def append_canvas_command(task_id: str, event: dict[str, Any]) -> int | None:

@@ -994,7 +994,7 @@ async def ainvoke_structured(
     timeout: float | None = None,
     stream_chunk_timeout: float | None = None,
 ) -> dict[str, Any]:
-    """Structured output via ``with_structured_output``, then create_agent fallback.
+    """Structured output via ``with_structured_output`` only — no silent downgrade.
 
     ``timeout`` / ``stream_chunk_timeout`` bound request + inter-chunk stall so a
     half-open stream cannot burn the full graph node budget (default chunk 120s).
@@ -1031,65 +1031,22 @@ async def ainvoke_structured(
         source=source,
         catalog_model_id=model or model_id,
     )
+    errors: list[str] = []
     for method in ("function_calling", "json_schema"):
         try:
             structured_llm = llm.with_structured_output(schema, method=method)
             got = await structured_llm.ainvoke(lc_messages, config=cfg)
-            # Doubao function_calling often returns None without raising — do not
-            # treat that as success or intent_classify falls back to heuristic.
             if got is None:
-                _log.warning(
-                    "with_structured_output(method=%s) returned None; trying next",
-                    method,
-                )
+                errors.append(f"{method}: returned None")
                 continue
             return {"structured": got, "text": "", "messages": lc_messages}
         except Exception as direct_err:
-            _log.debug(
-                "with_structured_output(method=%s) failed (%s); trying next",
-                method,
-                type(direct_err).__name__,
-            )
+            errors.append(f"{method}: {type(direct_err).__name__}: {direct_err}")
 
-    # Fallback: create_agent + response_format.
-    import uuid
-
-    from langgraph.checkpoint.memory import InMemorySaver
-
-    agent = build_official_agent(
-        model=model,
-        system=sys_text,
-        tools=[],
-        source=source,
-        response_format=schema,
-        checkpointer=InMemorySaver(),
-        summarize=False,
-        with_long_term_store=False,
+    detail = "; ".join(errors) or "no methods attempted"
+    raise RuntimeError(
+        f"structured_output_failed source={source} schema={getattr(schema, '__name__', schema)}: {detail}"
     )
-    # InMemorySaver still requires configurable.thread_id.
-    agent_cfg = merge_tracing_config(
-        agent_thread_config(f"structured:{uuid.uuid4().hex[:16]}"),
-        run_name=run_name or f"structured:{source}",
-        metadata=metadata,
-        tags=tags or [source, "structured"],
-    )
-    result = await agent.ainvoke({"messages": lc_messages}, config=agent_cfg)
-    structured = None
-    out_msgs: list[Any] = []
-    if isinstance(result, dict):
-        structured = result.get("structured_response")
-        out_msgs = result.get("messages") or []
-    text = ""
-    if out_msgs:
-        last = out_msgs[-1]
-        text = content_text_from_chunk(last) or (
-            str(last.content)
-            if isinstance(getattr(last, "content", None), str)
-            else ""
-        )
-    if structured is None:
-        raise RuntimeError("create_agent returned no structured_response")
-    return {"structured": structured, "text": text, "messages": out_msgs}
 
 
 

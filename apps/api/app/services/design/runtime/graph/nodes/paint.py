@@ -9,14 +9,15 @@ from langgraph.types import Command
 
 import logging
 
-from app.services.design.ops.tool_ops_contract import (
-    assess_tool_ops_result,
-    validation_failure_reason,
-)
+from app.services.design.ops.tool_ops_contract import validation_failure_reason
 from app.services.design.prompts.rules_text import _as_text
-from app.services.design.runtime.agent_profile import (
-    resolve_contract_schema,
-    resolve_tool_host,
+from app.services.design.runtime.agent_profile import resolve_contract_schema
+from app.services.design.runtime.seams.context import pipeline_context_from_runtime
+from app.services.design.runtime.seams.tool_pipeline import run_pipeline
+from app.services.design.runtime.session_log import (
+    log_llm_request,
+    log_llm_response,
+    log_tool_ops_emit,
 )
 from app.services.design.runtime.graph.state import (
     AgentRunState,
@@ -88,41 +89,83 @@ def _finish_paint_ops_success(
     return Command(update=_bump(rt), goto="action")
 
 
-def _validate_and_density_gate(
+def _run_paint_pipeline(
     rt: AgentRuntime,
     st: AgentRunState,
     ops_raw: Any,
     *,
     intent: str,
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """Validate tool_ops then clear sparse create batches."""
-    if not ops_raw:
-        return [], []
-    step_ops, op_errors = resolve_tool_host().validate_ops(
-        ops_raw,
-        scene_nodes=rt.scene_nodes,
-        scene_frames=rt.scene_frames,
-        rules=rt.rules,
-        skill_keys=list(st.skills_loaded or []),
-        scene=rt.scene_key or "",
-        runtime=rt,
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
+    """Validate tool_ops via zuoge Harness pipeline (skill pre-hook + density gate)."""
+    ctx = pipeline_context_from_runtime(rt, st, stage="paint_ops", intent=intent)
+    step_ops, op_errors, metadata = run_pipeline(ctx, ops_raw)
+    if not step_ops and op_errors and ops_raw:
+        for err in op_errors:
+            text = str(err or "")
+            if "density" in text.lower():
+                st.note_error(f"paint_ops density: {text}")
+                break
+    return step_ops, list(op_errors or []), metadata
+
+
+def _try_skill_ops_short_circuit(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    *,
+    intent: str,
+) -> Command | None:
+    """Run skill handler.py via pipeline; return Command on success, else None for LLM."""
+    pipe_ctx = pipeline_context_from_runtime(rt, st, stage="paint_ops", intent=intent)
+    try:
+        runner_ops, runner_errors, runner_meta = run_pipeline(pipe_ctx, None)
+    except Exception as exc:
+        _log.warning("skill ops pipeline failed: %s", exc)
+        return None
+
+    runner_skill = runner_meta.get("skill_ops_runner")
+    if not runner_skill:
+        return None
+
+    step_ops = list(runner_ops or [])
+    op_errors = list(runner_errors or [])
+    rt.step_ops = step_ops
+    rt.op_errors = op_errors
+    st.push_log(
+        phase="paint_ops",
+        intent=intent,
+        summary=(
+            f"skill_ops_runner skill={runner_skill} "
+            f"ops={len(step_ops)} err={runner_meta.get('skill_ops_runner_error') or ''}"
+        ),
+        model="skill_ops_runner",
+        ops_count=len(step_ops),
+        attempt=0,
+        **({"errors": _op_errors_for_log(op_errors)} if op_errors else {}),
     )
     if not step_ops:
-        return [], list(op_errors or [])
-    dense_ok, dense_reason = assess_tool_ops_result(
-        step_ops,
-        intent=intent,
-        scene=rt.scene_key or "",
-        nodes=rt.scene_nodes,
-        rules=rt.rules,
-        skill_keys=list(st.skills_loaded or []),
+        _log.info(
+            "skill ops runner produced no valid ops skill=%s errors=%s — LLM paint",
+            runner_skill,
+            op_errors[:3],
+        )
+        return None
+
+    log_tool_ops_emit(
+        st.task_id,
+        stage="paint_ops",
+        ops_count=len(step_ops),
+        source="skill_ops_runner",
+        skill=runner_skill,
     )
-    if dense_ok:
-        return step_ops, list(op_errors or [])
-    errs = list(op_errors or []) + [dense_reason]
-    st.note_error(f"paint_ops density: {dense_reason}")
-    # Never silent-settle a sparse create (dashboard one-rect case).
-    return [], errs
+    return _finish_paint_ops_success(
+        rt,
+        st,
+        intent=intent,
+        step_ops=step_ops,
+        reply="",
+        tool_ops_raw=runner_ops,
+        extra_turn={"skill_ops_runner": runner_skill},
+    )
 
 
 async def _await_or_abandon(coro: Any, *, timeout_sec: float, label: str) -> Any:
@@ -164,6 +207,7 @@ async def _node_paint_ops(state: GraphState) -> Command:
         scene=rt.scene_key,
         attempt=st.round,
         has_images=bool(rt.images),
+        route_lane=str(rt.flags.get("route_lane") or st.task_tier or "").strip() or None,
     )
     rt.last_reason = reason
     _ensure_paint_tool_details(rt)
@@ -193,64 +237,9 @@ async def _node_paint_ops(state: GraphState) -> Command:
     )
 
     # Opt-in skill handler.py → tool_ops (before LLM). Falls through on miss/error.
-    try:
-        from app.services.design.prompts.skill_store.ops_runner import (
-            try_skill_ops_for_paint,
-        )
-
-        runner_ops, runner_skill, runner_err = try_skill_ops_for_paint(
-            skill_keys=list(st.skills_loaded or []),
-            prompt=str(rt.prompt or ""),
-            scene_key=str(rt.scene_key or ""),
-            scene_nodes=list(rt.scene_nodes or []),
-            scene_frames=list(rt.scene_frames or []),
-            design_brief=rt.design_brief
-            if isinstance(rt.design_brief, dict)
-            else None,
-        )
-    except Exception as exc:
-        _log.warning("skill ops runner failed: %s", exc)
-        runner_ops, runner_skill, runner_err = None, None, str(exc)
-
-    if runner_ops is not None:
-        step_ops, op_errors = resolve_tool_host().validate_ops(
-            runner_ops,
-            scene_nodes=rt.scene_nodes,
-            scene_frames=rt.scene_frames,
-            rules=rt.rules,
-            skill_keys=list(st.skills_loaded or []),
-            scene=rt.scene_key or "",
-            runtime=rt,
-        )
-        rt.step_ops = step_ops
-        rt.op_errors = list(op_errors or [])
-        st.push_log(
-            phase="paint_ops",
-            intent=want,
-            summary=(
-                f"skill_ops_runner skill={runner_skill or '?'} "
-                f"ops={len(step_ops)} err={runner_err or ''}"
-            ),
-            model="skill_ops_runner",
-            ops_count=len(step_ops),
-            attempt=0,
-            **({"errors": _op_errors_for_log(op_errors)} if op_errors else {}),
-        )
-        if step_ops:
-            return _finish_paint_ops_success(
-                rt,
-                st,
-                intent=want,
-                step_ops=step_ops,
-                reply="",
-                tool_ops_raw=runner_ops,
-                extra_turn={"skill_ops_runner": runner_skill},
-            )
-        _log.info(
-            "skill ops runner produced no valid ops skill=%s errors=%s — LLM paint",
-            runner_skill,
-            (op_errors or [])[:3],
-        )
+    skill_cmd = _try_skill_ops_short_circuit(rt, st, intent=want)
+    if skill_cmd is not None:
+        return skill_cmd
 
     for attempt in range(max_attempts):
         round_i = st.round
@@ -285,6 +274,14 @@ async def _node_paint_ops(state: GraphState) -> Command:
                 f"{_require_prompt_pack(rt.rules, 'agent.prompt.paint_retry')}"
             )
         t_llm = time.perf_counter()
+        log_llm_request(
+            st.task_id,
+            "paint_ops",
+            model=st.family,
+            attempt=attempt,
+            round=round_i,
+            intent=want,
+        )
         try:
             from app.core.config import settings as _paint_settings
 
@@ -344,10 +341,8 @@ async def _node_paint_ops(state: GraphState) -> Command:
             structured = structured_out.get("structured")
             if hasattr(structured, "model_dump"):
                 raw_obj = structured.model_dump()
-            elif isinstance(structured, dict):
-                raw_obj = structured
             else:
-                raw_obj = {}
+                raw_obj = structured if isinstance(structured, dict) else {}
             ops_raw = raw_obj.get("tool_ops")
             reply = _as_text(raw_obj.get("reply")).strip()
             intent = str(raw_obj.get("intent") or want).strip().lower()
@@ -357,6 +352,14 @@ async def _node_paint_ops(state: GraphState) -> Command:
             used_hint = max(1, len(content) // 3)
             st.total_tokens += used_hint
             st.note_tokens(used_hint, model_id=str(getattr(st, "family", "") or ""), source="paint")
+            log_llm_response(
+                st.task_id,
+                "paint_ops",
+                model=st.family,
+                attempt=attempt,
+                ops_raw=len(ops_raw) if isinstance(ops_raw, list) else 0,
+                reply_chars=len(reply or ""),
+            )
             _log.debug(
                 "paint_ops LLM ok task=%s attempt=%s model=%s elapsed=%.2fs "
                 "ops_raw=%s reply_chars=%s",
@@ -398,9 +401,20 @@ async def _node_paint_ops(state: GraphState) -> Command:
             continue
 
         st.intent = intent
-        step_ops, op_errors = _validate_and_density_gate(rt, st, ops_raw, intent=intent)
+        step_ops, op_errors, _pipe_meta = _run_paint_pipeline(
+            rt, st, ops_raw, intent=intent
+        )
         rt.step_ops = step_ops
         rt.op_errors = list(op_errors or [])
+        if step_ops:
+            log_tool_ops_emit(
+                st.task_id,
+                stage="paint_ops",
+                ops_count=len(step_ops),
+                source="llm",
+                model=st.family,
+                attempt=attempt,
+            )
         if not step_ops:
             _log.warning(
                 "paint_ops empty/invalid task=%s attempt=%s model=%s errors=%s",

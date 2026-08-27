@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from app.api.deps import CurrentUser
 
 from app.services import assets as asset_store
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -43,19 +45,16 @@ def list_my_assets(
 
 @router.post("/register")
 def register_my_asset(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: RegisterAssetIn,
 ) -> dict[str, Any]:
     kind = (body.kind or "").strip().lower()
     if kind not in ("image", "video", "audio", "lottie"):
-        raise HTTPException(status_code=400, detail="kind must be image|video|audio|lottie")
+        raise http_error(400, "invalid_asset_kind", locale)
     source = (body.source or "").strip().lower()
-    # Assets dock is AI-generated only — reject user canvas uploads.
     if not source.startswith("ai_"):
-        raise HTTPException(
-            status_code=400,
-            detail="assets are AI-generated only; user uploads are not registered",
-        )
+        raise http_error(400, "assets_ai_only", locale)
     try:
         return asset_store.create_asset_from_stored(
             current_user.id,
@@ -69,17 +68,16 @@ def register_my_asset(
             height=body.height,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
 
 
 @router.delete("/{asset_id}")
 def delete_my_asset(
+    locale: LocaleDep,
     current_user: CurrentUser,
     asset_id: str,
 ) -> dict[str, Any]:
     ok = asset_store.delete_asset(current_user.id, asset_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
-
-

@@ -16,6 +16,7 @@ import { HTTPError } from 'ky';
 import { apiRouterContract } from '@recombyn/contracts';
 import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken, setToken } from '@/utils/token';
+import { acceptLanguageHeader } from '@/i18n/apiLocale';
 
 /** HTTP status from oRPC or ky errors (replaces axios.isAxiosError). */
 export function getHttpStatus(err: unknown): number | undefined {
@@ -54,37 +55,53 @@ export function getHttpErrorDetail(err: unknown): unknown {
   return undefined;
 }
 
-/** User-facing message from oRPC / ky / axios-family errors. */
+/** Extract user-facing message from FastAPI ``detail`` (string | array | { message }). */
+export function extractApiDetailMessage(detail: unknown): string {
+  if (typeof detail === 'string' && detail.trim()) return detail.trim();
+  if (detail && typeof detail === 'object' && detail !== null && 'message' in detail) {
+    const msg = (detail as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+  }
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((d) => {
+        if (typeof d === 'string') return d.trim();
+        if (d && typeof d === 'object' && 'msg' in d) {
+          const msg = (d as { msg?: unknown }).msg;
+          return typeof msg === 'string' ? msg.trim() : '';
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join(' ');
+  }
+  return '';
+}
+
+/** User-facing message from oRPC / ky / axios-family errors. Prefers backend ``message``. */
 export function getHttpErrorMessage(err: unknown, fallback = ''): string {
   const status = getHttpStatus(err);
   if (status === 502 || status === 503 || status === 504) {
     if (fallback.trim()) return fallback;
   }
-  if (status === 413) {
-    const detail = getHttpErrorDetail(err);
-    if (typeof detail === 'string' && /max\s+\d+MB/i.test(detail)) return detail;
-    if (fallback.trim()) return fallback;
-    return '文件过大，请压缩后重试';
-  }
 
   const detail = getHttpErrorDetail(err);
-  if (typeof detail === 'string' && detail.trim()) return detail;
-  if (Array.isArray(detail) && detail.length) {
-    const first = detail[0];
-    if (typeof first === 'string' && first.trim()) return first;
-    if (first && typeof first === 'object' && 'msg' in first) {
-      const msg = (first as { msg?: unknown }).msg;
-      if (typeof msg === 'string' && msg.trim()) return msg;
-    }
-  }
-  if (detail && typeof detail === 'object' && detail !== null && 'message' in detail) {
-    const msg = (detail as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
-  }
+  const fromDetail = extractApiDetailMessage(detail);
+  if (fromDetail) return fromDetail;
+
   if (err instanceof Error && err.message.trim()) {
     const raw = err.message.trim();
     if (/^(bad gateway|gateway timeout|service unavailable)$/i.test(raw) && fallback.trim()) {
       return fallback;
+    }
+    if (raw.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(raw) as { detail?: unknown };
+        const nested = extractApiDetailMessage(parsed.detail);
+        if (nested) return nested;
+      } catch {
+        /* not JSON */
+      }
     }
     return raw;
   }
@@ -108,18 +125,7 @@ function apiV1BaseUrl(): string {
 }
 
 function detailToText(detail: unknown): string {
-  if (typeof detail === 'string') return detail;
-  if (!Array.isArray(detail)) return '';
-  return detail
-    .map((d) => {
-      if (typeof d === 'string') return d;
-      if (d && typeof d === 'object' && 'msg' in d) {
-        return String((d as { msg?: unknown }).msg || '');
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join(' ');
+  return extractApiDetailMessage(detail);
 }
 
 async function clearSessionOnAuthDead(res: Response): Promise<void> {
@@ -171,7 +177,10 @@ const link = new OpenAPILink(apiRouterContract, {
   url: apiV1BaseUrl,
   headers: () => {
     const token = getToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    return {
+      ...acceptLanguageHeader(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
   },
   fetch: async (input, init) => {
     const res = await globalThis.fetch(input, init);

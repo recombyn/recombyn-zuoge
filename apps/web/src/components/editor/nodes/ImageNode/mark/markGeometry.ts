@@ -1,6 +1,9 @@
 import { rcbSceneToScreen, type RcbCamera } from '@/components/rcb';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { isImageGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  isImageGeneratorNode,
+  isNodeHidden,
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import type { MarkRegion } from './MarkRegionOverlay';
 
@@ -14,10 +17,65 @@ export type MarkSessionTarget = {
   blocked: boolean;
 };
 
+export type MarkGateReason = 'not_image' | 'no_ilp' | 'processing' | 'unavailable';
+
+export type MarkNodeGate =
+  | { status: 'ready' }
+  | { status: 'disabled'; reason: MarkGateReason };
+
 const MARK_BLOCKED_MEDIA = new Set(['video', 'audio', 'lottie']);
+
+/** Scene keys that are never mark targets (containers / chrome). */
+const MARK_SKIP_KEYS = new Set(['group', 'frame', 'artboard']);
 
 export function isMarkBlockedMediaKey(key: unknown): boolean {
   return MARK_BLOCKED_MEDIA.has(String(key || ''));
+}
+
+/**
+ * Single gate for toolbar / composer / session: only ready raster images mark.
+ * Everything else is disabled (vectors, frames-as-nodes, video, empty generators…).
+ */
+export function markNodeGate(
+  node: SceneNodeInput | null | undefined,
+  opts: { ilpEnabled: boolean }
+): MarkNodeGate {
+  if (!node || String(node.key || '') !== 'image') {
+    return { status: 'disabled', reason: 'not_image' };
+  }
+  if (!opts.ilpEnabled) {
+    return { status: 'disabled', reason: 'no_ilp' };
+  }
+  if (String(node.attrs?.processStatus || '') === 'running') {
+    return { status: 'disabled', reason: 'processing' };
+  }
+  const hasSrc = Boolean(String(node.attrs?.src || '').trim());
+  if (!hasSrc) {
+    return { status: 'disabled', reason: 'unavailable' };
+  }
+  return { status: 'ready' };
+}
+
+export function canMarkNode(
+  node: SceneNodeInput | null | undefined,
+  opts: { ilpEnabled: boolean }
+): boolean {
+  return markNodeGate(node, opts).status === 'ready';
+}
+
+export function markGateTipKey(gate: MarkNodeGate): string {
+  if (gate.status === 'ready') return 'editor.imageToolbar.mark';
+  switch (gate.reason) {
+    case 'no_ilp':
+      return 'editor.imageToolbar.markNeedsIntelligence';
+    case 'processing':
+      return 'editor.imageToolbar.markBlockedProcessing';
+    case 'not_image':
+      return 'editor.imageToolbar.markBlockedNotImage';
+    case 'unavailable':
+    default:
+      return 'editor.imageToolbar.markBlockedUnavailable';
+  }
 }
 
 export function nodeSceneBox(
@@ -42,37 +100,39 @@ export function listCanvasImageNodes(
     .map(({ nodeId, box, node }) => ({ nodeId, box, node }));
 }
 
-function imageMarkBlocked(node: SceneNodeInput): boolean | null {
-  if (String(node.attrs?.processStatus || '') === 'running') return true;
-  const hasSrc = Boolean(String(node.attrs?.src || '').trim());
-  if (hasSrc) return false;
-  return isImageGeneratorNode(node) ? true : null;
-}
-
-/** Image plates + non-image media in mark mode.
- * Images: markable or blocked (processing / empty generator).
- * Video / audio / lottie: always blocked.
+/**
+ * While Mark is active: every visible scene node is a target.
+ * - Ready images → interactive
+ * - Everything else (vectors, text, video, processing images…) → blocked overlay
  */
 export function listMarkSessionTargets(document: SceneDocument): MarkSessionTarget[] {
   const out: MarkSessionTarget[] = [];
   const dsl = document?.deltaSetLike || {};
 
   for (const nodeId of Object.keys(dsl)) {
+    if (nodeId === 'ROOT') continue;
     const node = dsl[nodeId];
     if (!node) continue;
     const key = String(node.key || '');
+    if (MARK_SKIP_KEYS.has(key)) continue;
+    if (isNodeHidden(node)) continue;
     const box = nodeSceneBox(document, node);
     if (!box) continue;
 
-    if (isMarkBlockedMediaKey(key)) {
-      out.push({ nodeId, box, node, blocked: true });
+    if (key === 'image') {
+      const gate = markNodeGate(node, { ilpEnabled: true });
+      if (gate.status === 'ready') {
+        out.push({ nodeId, box, node, blocked: false });
+      } else {
+        // Empty non-generator plates are not on canvas as real images — skip.
+        if (gate.reason === 'unavailable' && !isImageGeneratorNode(node)) continue;
+        out.push({ nodeId, box, node, blocked: true });
+      }
       continue;
     }
-    if (key !== 'image') continue;
 
-    const blocked = imageMarkBlocked(node);
-    if (blocked == null) continue;
-    out.push({ nodeId, box, node, blocked });
+    // Vectors / text / video / audio / lottie / … — show blocked plate, cannot mark.
+    out.push({ nodeId, box, node, blocked: true });
   }
   return out;
 }

@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
 from app.core.config import settings
+from app.services.i18n.errors import http_error, service_error_http
+from app.services.i18n.locale import LocaleDep
 from app.services.mcp.dispatch import McpCanvasError, call_mcp_canvas_tool
 from app.services.mcp.push.channel import ack_pending_batches, fetch_pending_batches
 from app.services.mcp.session import touch_live_session
@@ -31,37 +33,39 @@ class McpPendingAckIn(BaseModel):
     batch_ids: list[str] = Field(default_factory=list)
 
 
-def _mcp_http_error(exc: Exception) -> HTTPException:
+def _mcp_http_error(exc: Exception, locale: str | None = None) -> HTTPException:
     if isinstance(exc, McpCanvasError):
-        status = 400
-        if exc.code in ("not_found",):
-            status = 404
-        elif exc.code in ("forbidden",):
-            status = 403
-        elif exc.code in ("revision_conflict",):
-            status = 412
-        return HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)})
+        raw_code = str(exc.code or "request_failed")
+        mapped = {
+            "not_found": (404, "project_not_found"),
+            "forbidden": (403, "forbidden"),
+            "revision_conflict": (412, "project_revision_conflict"),
+        }.get(raw_code)
+        if mapped:
+            status, code = mapped
+            return http_error(status, code, locale)
+        return service_error_http(raw_code, locale, status=400, message=str(exc).strip())
     if isinstance(exc, ProjectNotFoundError):
-        return HTTPException(status_code=404, detail="Project not found")
+        return http_error(404, "project_not_found", locale)
     if isinstance(exc, ProjectForbiddenError):
-        return HTTPException(status_code=403, detail="Forbidden")
-    return HTTPException(status_code=500, detail=str(exc))
+        return http_error(403, "forbidden", locale)
+    return http_error(500, "internal_error", locale)
 
 
-def _require_enabled() -> None:
+def _require_enabled(locale: str | None = None) -> None:
     if not settings.mcp_canvas_enabled:
-        raise HTTPException(status_code=503, detail="MCP canvas control is disabled")
+        raise http_error(503, "mcp_disabled", locale)
 
 
 @router.get("/tools")
-def list_tools(current_user: CurrentUser) -> dict[str, Any]:
-    _require_enabled()
+def list_tools(locale: LocaleDep, current_user: CurrentUser) -> dict[str, Any]:
+    _require_enabled(locale)
     return {"tools": list_mcp_tool_definitions()}
 
 
 @router.post("/call")
-def call_tool(current_user: CurrentUser, body: McpToolCallIn) -> dict[str, Any]:
-    _require_enabled()
+def call_tool(locale: LocaleDep, current_user: CurrentUser, body: McpToolCallIn) -> dict[str, Any]:
+    _require_enabled(locale)
     try:
         result = call_mcp_canvas_tool(
             user_id=current_user.id,
@@ -70,23 +74,28 @@ def call_tool(current_user: CurrentUser, body: McpToolCallIn) -> dict[str, Any]:
         )
         return {"ok": True, "result": result}
     except Exception as exc:
-        raise _mcp_http_error(exc) from exc
+        raise _mcp_http_error(exc, locale) from exc
 
 
 @router.post("/session/heartbeat")
-def session_heartbeat(current_user: CurrentUser, body: McpHeartbeatIn) -> dict[str, Any]:
-    _require_enabled()
+def session_heartbeat(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    body: McpHeartbeatIn,
+) -> dict[str, Any]:
+    _require_enabled(locale)
     touch_live_session(body.project_id, user_id=current_user.id)
     return {"ok": True, "projectId": body.project_id}
 
 
 @router.get("/pending")
 def list_pending(
+    locale: LocaleDep,
     current_user: CurrentUser,
     project_id: str = Query(..., min_length=1, max_length=128),
     limit: int = Query(8, ge=1, le=32),
 ) -> dict[str, Any]:
-    _require_enabled()
+    _require_enabled(locale)
     # ACL: must be able to read project
     from app.services.mcp.auth import load_writable_project
 
@@ -96,8 +105,12 @@ def list_pending(
 
 
 @router.post("/pending/ack")
-def ack_pending(current_user: CurrentUser, body: McpPendingAckIn) -> dict[str, Any]:
-    _require_enabled()
+def ack_pending(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    body: McpPendingAckIn,
+) -> dict[str, Any]:
+    _require_enabled(locale)
     from app.services.mcp.auth import load_writable_project
 
     load_writable_project(current_user.id, body.project_id)

@@ -7,14 +7,23 @@ function docWith(nodes: Record<string, any>) {
     activeFrameId: null,
     frames: [],
     deltaSetLike: {
-      ROOT: { id: 'ROOT', key: 'group', children: Object.keys(nodes), x: 0, y: 0, width: 0, height: 0, attrs: {} },
+      ROOT: {
+        id: 'ROOT',
+        key: 'group',
+        children: Object.keys(nodes),
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        attrs: {},
+      },
       ...nodes,
     },
   } as any;
 }
 
 describe('listMarkSessionTargets', () => {
-  it('marks video / audio / lottie as blocked so Mark cannot interact with them', () => {
+  it('allows ready images and blocks video / audio / lottie / vectors', () => {
     const targets = listMarkSessionTargets(
       docWith({
         img1: {
@@ -22,6 +31,8 @@ describe('listMarkSessionTargets', () => {
           key: 'image',
           width: 100,
           height: 80,
+          x: 0,
+          y: 0,
           attrs: { src: 'https://example.com/a.png' },
         },
         vid1: {
@@ -29,6 +40,8 @@ describe('listMarkSessionTargets', () => {
           key: 'video',
           width: 120,
           height: 90,
+          x: 0,
+          y: 0,
           attrs: { src: 'https://example.com/a.mp4' },
         },
         aud1: {
@@ -36,6 +49,8 @@ describe('listMarkSessionTargets', () => {
           key: 'audio',
           width: 200,
           height: 60,
+          x: 0,
+          y: 0,
           attrs: { src: 'https://example.com/a.mp3' },
         },
         lot1: {
@@ -43,7 +58,27 @@ describe('listMarkSessionTargets', () => {
           key: 'lottie',
           width: 100,
           height: 100,
+          x: 0,
+          y: 0,
           attrs: { src: 'https://example.com/a.json' },
+        },
+        shape1: {
+          id: 'shape1',
+          key: 'shape',
+          width: 80,
+          height: 80,
+          x: 10,
+          y: 10,
+          attrs: { shapeType: 'circle' },
+        },
+        path1: {
+          id: 'path1',
+          key: 'path',
+          width: 60,
+          height: 40,
+          x: 20,
+          y: 20,
+          attrs: { path: 'M0 0L10 0L10 10Z', closed: 'true' },
         },
       })
     );
@@ -53,6 +88,8 @@ describe('listMarkSessionTargets', () => {
     expect(byId.vid1?.blocked).toBe(true);
     expect(byId.aud1?.blocked).toBe(true);
     expect(byId.lot1?.blocked).toBe(true);
+    expect(byId.shape1?.blocked).toBe(true);
+    expect(byId.path1?.blocked).toBe(true);
   });
 
   it('keeps image generators without src blocked', () => {
@@ -63,6 +100,8 @@ describe('listMarkSessionTargets', () => {
           key: 'image',
           width: 100,
           height: 100,
+          x: 0,
+          y: 0,
           attrs: { imageGenerator: true },
         },
       })

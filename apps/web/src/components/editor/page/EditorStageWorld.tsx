@@ -72,6 +72,8 @@ import {
   setSelectedNodeIds,
   setDocumentFromCanvas,
   pushEditorHistory,
+  clearCanvasAttachPick,
+  setPendingCanvasAttach,
   type AiOperationState,
 } from '@/store/modules/editor';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
@@ -305,7 +307,8 @@ function canvasDiffuseMeshGradient(
   };
 }
 
-/** Per-frame label handlers — undefined in inspect/dev so chrome stays inert. */
+/** Per-frame label handlers — undefined in inspect/dev so chrome stays inert.
+ *  During composer「从画布选择」, skip drag-move so a title click only attaches. */
 function frameLabelInteractionProps(
   frameId: string,
   isDevMode: boolean,
@@ -320,7 +323,8 @@ function frameLabelInteractionProps(
     ) => void;
     onFrameMoveStart: (id: string) => void;
     onFrameMoveEnd: () => void;
-  }
+  },
+  attachPickActive = false
 ) {
   if (isDevMode) {
     return {
@@ -333,16 +337,21 @@ function frameLabelInteractionProps(
   }
   return {
     // Title click always promotes to full chrome (toolbar + handles + drag).
+    // In attach-pick mode this completes `frame:<id>` via onSelectFrame.
     onSelect: () => handlers.onSelectFrame(frameId, { chrome: 'full' }),
     onRename: (name: string, options?: { skipHistory?: boolean }) =>
       handlers.onRenameFrame(frameId, name, options),
-    onMove: (x: number, y: number, opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }) =>
-      handlers.onMoveFrame(frameId, x, y, opts),
-    onMoveStart: () => {
-      handlers.onSelectFrame(frameId, { chrome: 'full' });
-      handlers.onFrameMoveStart(frameId);
-    },
-    onMoveEnd: handlers.onFrameMoveEnd,
+    onMove: attachPickActive
+      ? undefined
+      : (x: number, y: number, opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }) =>
+          handlers.onMoveFrame(frameId, x, y, opts),
+    onMoveStart: attachPickActive
+      ? undefined
+      : () => {
+          handlers.onSelectFrame(frameId, { chrome: 'full' });
+          handlers.onFrameMoveStart(frameId);
+        },
+    onMoveEnd: attachPickActive ? undefined : handlers.onFrameMoveEnd,
   };
 }
 
@@ -439,6 +448,13 @@ function EditorStageWorld({
   const activeFrameId = useSelector(
     (state: RootState) => state.editor.document?.activeFrameId as string | null
   );
+  const canvasAttachPick = useSelector(
+    (state: RootState) =>
+      state.editor.canvasAttachPick as null | { target: string; accept?: 'image' | 'media' }
+  );
+  const attachPickActive = Boolean(canvasAttachPick?.target);
+  const onAddToChatRef = useRef(onAddToChat);
+  onAddToChatRef.current = onAddToChat;
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
   const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
   const [selectionTransforming, setSelectionTransforming] = useState(false);
@@ -709,10 +725,24 @@ function EditorStageWorld({
 
   const onSelectFrame = useCallback(
     (id: string, opts?: { chrome?: 'soft' | 'full' }) => {
+      // Mirror SvgCanvas.onSelectFrame — title label must complete attach-pick.
+      // Without this, clicking a vector artboard title only shows chrome while
+      //「从画布选择」stays armed and nothing lands in the composer.
+      const pick = canvasAttachPick;
+      if (pick?.target) {
+        const payload = `frame:${id}`;
+        if (pick.target === 'agent') {
+          onAddToChatRef.current?.(payload);
+        } else {
+          dispatch(setPendingCanvasAttach({ target: pick.target, payload }));
+        }
+        dispatch(clearCanvasAttachPick());
+        return;
+      }
       dispatch(setActiveFrameId(id));
       dispatch(setFrameChromeMode(opts?.chrome === 'soft' ? 'soft' : 'full'));
     },
-    [dispatch]
+    [dispatch, canvasAttachPick]
   );
 
   const onRenameFrame = useCallback(
@@ -902,13 +932,18 @@ function EditorStageWorld({
                   frameChromeMode === 'full' &&
                   selectedFrameIds.includes(frame.id))
               }
-              {...frameLabelInteractionProps(frame.id, isDevMode, {
-                onSelectFrame,
-                onRenameFrame,
-                onMoveFrame,
-                onFrameMoveStart,
-                onFrameMoveEnd,
-              })}
+              {...frameLabelInteractionProps(
+                frame.id,
+                isDevMode,
+                {
+                  onSelectFrame,
+                  onRenameFrame,
+                  onMoveFrame,
+                  onFrameMoveStart,
+                  onFrameMoveEnd,
+                },
+                attachPickActive
+              )}
               layer="label"
             />
           )

@@ -147,6 +147,20 @@ def _run_error_code(err: BaseException | str) -> str:
         return "blocked"
     if "timeout" in low:
         return "timeout"
+    if "intent_classify" in low:
+        return "intent_classify_failed"
+    if "model_route" in low:
+        return "model_route_failed"
+    if "structured_output_failed" in low:
+        return "structured_output_failed"
+    if "vision_chat_failed" in low:
+        return "vision_chat_failed"
+    if "review_agent_llm_failed" in low or "review_lanes_unavailable" in low:
+        return "review_failed"
+    if "decide_agent" in low or "decide_structured" in low:
+        return "decide_failed"
+    if "agent_turn" in low:
+        return "decide_failed"
     if low.startswith("skill_failed:") or re.match(
         r"name\s+['`].+['`]\s+is not defined", low
     ):
@@ -160,8 +174,29 @@ def _run_error_code(err: BaseException | str) -> str:
             "invalid_run_mode",
             "invalid_canvas_size",
             "cancelled",
+            "intent_classify",
+            "model_route",
+            "structured_output_failed",
+            "vision_chat_failed",
+            "review_agent_llm_failed",
+            "review_lanes_unavailable",
+            "decide_agent",
+            "decide_structured",
+            "agent_turn",
+            "vision_unavailable",
         }:
-            return head
+            return {
+                "intent_classify": "intent_classify_failed",
+                "model_route": "model_route_failed",
+                "structured_output_failed": "structured_output_failed",
+                "vision_chat_failed": "vision_chat_failed",
+                "review_agent_llm_failed": "review_failed",
+                "review_lanes_unavailable": "review_failed",
+                "decide_agent": "decide_failed",
+                "decide_structured": "decide_failed",
+                "agent_turn": "decide_failed",
+                "vision_unavailable": "vision_unavailable",
+            }.get(head, head)
         return "internal_error"
     return "internal_error"
 
@@ -170,59 +205,12 @@ def _user_facing_run_error(
     err: BaseException | str,
     *,
     rules: dict[str, str] | None = None,
+    locale: str | None = None,
 ) -> str:
-    """SSE / chat-facing error text from content-pack rules."""
-    raw = _as_text(err).strip()
-    reason = raw
-    if raw.lower().startswith("skill_failed:"):
-        parts = raw.split(":", 2)
-        reason = parts[2].strip() if len(parts) >= 3 else raw
-    low = reason.lower()
+    """SSE / chat-facing error text — localized on the backend."""
+    from app.services.i18n.errors import localize_run_error
 
-    def msg(key: str, fallback: str) -> str:
-        return _rule_text(rules, key, fallback).strip() or fallback
-
-    if "missing_tool_ops" in low:
-        return msg(
-            "error.missing_tool_ops",
-            "这次没能执行画布操作。请把要修改或删除的对象说清楚后重试。",
-        )
-    if "tool_ops_invalid" in low:
-        return msg("error.tool_ops_invalid", "画布操作未通过校验，请重试一次。")
-    if "insufficient" in low or "credit" in low:
-        return msg("error.insufficient_credits", "积分不足，请充值后重试。")
-    if "validate_failed" in low or "final_validate" in low or "sparse_svg" in low:
-        return msg("error.validate_failed", "结果校验未通过，请换一种描述重试。")
-    if "no_vision_model" in low:
-        return msg(
-            "error.no_vision_model",
-            "Auto 需要可用的看图模型才能处理附图。请在 Admin 预检配置 precheck.vision_model。",
-        )
-    if "vision_rejected" in low:
-        return msg(
-            "error.vision_rejected",
-            "看图模型拒绝了附图。请检查 Admin 看图模型，或换一张更小的参考图后重试。",
-        )
-    if low.startswith("blocked:") or raw.lower().startswith("blocked:"):
-        return msg("error.blocked", "请求被安全策略拦截。")
-    # Prefer provider ``message`` over raw JSON / ``LLM HTTP N: {...}``.
-    http_body = reason
-    m_http = re.match(r"^LLM HTTP\s+\d+:\s*(.*)$", reason, re.I | re.S)
-    if m_http:
-        http_body = m_http.group(1).strip()
-    extracted = _json_error_message(http_body) or _json_error_message(reason)
-    if extracted:
-        return extracted[:300]
-    if m_http and http_body and not http_body.startswith("{"):
-        return http_body[:300]
-    generic = msg("error.generic", "执行失败，请重试或把需求说得更清楚一些。")
-    if raw.lower().startswith("skill_failed:") or re.match(
-        r"^[a-z][a-z0-9_]*(:|$)", low
-    ):
-        return generic
-    if http_body.startswith("{") or reason.startswith("{"):
-        return generic
-    return raw[:300] if raw else generic
+    return localize_run_error(err, rules=rules, locale=locale)
 
 
 def _precheck_block(

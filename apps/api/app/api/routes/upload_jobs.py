@@ -4,11 +4,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
 from app.api.routes.chat_job_sse import streaming_media_job_events
+from app.services.i18n.errors import http_error, upload_value_error_code
+from app.services.i18n.locale import LocaleDep
 from app.services.job_store import get_job
 from app.services import upload_job_store as job_store
 from worker.tasks import run_upload_job
@@ -48,15 +50,22 @@ class UploadJobStatusResponse(BaseModel):
     part_size: int | None = None
 
 
-def _http_value_error(exc: ValueError) -> HTTPException:
-    msg = str(exc)
-    if "too large" in msg:
-        return HTTPException(status_code=413, detail=msg)
-    return HTTPException(status_code=400, detail=msg)
+def _http_value_error(exc: ValueError, locale: str):
+    code = upload_value_error_code(str(exc))
+    status = 413 if code == "upload_too_large" else 400
+    return http_error(status, code, locale)
+
+
+def _job_not_found(locale: str):
+    return http_error(404, "job_not_found", locale)
 
 
 @router.post("/jobs/session", response_model=UploadSessionResponse)
-def create_upload_session(current_user: CurrentUser, body: UploadSessionCreate):
+def create_upload_session(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    body: UploadSessionCreate,
+):
     try:
         out = job_store.create_upload_session(
             current_user.id,
@@ -65,45 +74,86 @@ def create_upload_session(current_user: CurrentUser, body: UploadSessionCreate):
             total_size=int(body.total_size),
         )
     except ValueError as exc:
-        raise _http_value_error(exc) from exc
+        raise _http_value_error(exc, locale) from exc
     return UploadSessionResponse(**out)
 
 
 @router.put("/jobs/{job_id}/parts/{part_number}", response_model=UploadPartResponse)
 async def upload_job_part(
+    request: Request,
+    locale: LocaleDep,
     current_user: CurrentUser,
     job_id: str,
     part_number: int,
-    request: Request,
 ):
     data = await request.body()
     try:
         out = job_store.save_upload_part(current_user.id, job_id, part_number, data)
     except LookupError as exc:
-        raise HTTPException(status_code=404, detail="job not found") from exc
+        raise _job_not_found(locale) from exc
     except ValueError as exc:
-        raise _http_value_error(exc) from exc
+        raise _http_value_error(exc, locale) from exc
     return UploadPartResponse(**out)
 
 
 @router.post("/jobs/{job_id}/complete")
-def complete_upload_job(current_user: CurrentUser, job_id: str):
+def complete_upload_job(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    job_id: str,
+):
     try:
         assembled = job_store.assemble_upload_job(current_user.id, job_id)
         job_store.mark_upload_job_queued(current_user.id, job_id, assembled)
-        run_upload_job.delay(job_id)
+        status = _enqueue_or_run_upload_inline(job_id)
     except LookupError as exc:
-        raise HTTPException(status_code=404, detail="job not found") from exc
+        raise _job_not_found(locale) from exc
     except ValueError as exc:
-        raise _http_value_error(exc) from exc
+        raise _http_value_error(exc, locale) from exc
     except Exception as exc:  # noqa: BLE001
         job_store.abort_upload_job(current_user.id, job_id)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Job queue unavailable (start Redis + worker). {exc}",
-        ) from exc
-    _log.info("upload_job event=enqueued job_id=%s", job_id)
-    return {"job_id": job_id, "status": "queued"}
+        raise http_error(503, "job_queue_unavailable", locale) from exc
+    _log.info("upload_job event=enqueued job_id=%s status=%s", job_id, status)
+    return {"job_id": job_id, "status": status}
+
+
+def _celery_has_workers(timeout: float = 0.5) -> bool:
+    try:
+        from worker.celery_app import celery
+
+        ping = celery.control.inspect(timeout=timeout).ping()
+        return bool(ping)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _finish_upload_inline(job_id: str) -> None:
+    from app.services.job_store import update_job
+
+    job = get_job(job_id, kind=_KIND)
+    if not job:
+        raise LookupError("job not found")
+    update_job(job_id, kind=_KIND, status="processing", progress=85, error=None)
+    result = execute_upload_job(job)
+    update_job(job_id, kind=_KIND, status="done", progress=100, result=result, error=None)
+
+
+def _enqueue_or_run_upload_inline(job_id: str) -> str:
+    """Prefer Celery when workers are up; otherwise finish in-process (local API-only)."""
+    if _celery_has_workers():
+        try:
+            run_upload_job.delay(job_id)
+            return "queued"
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "upload_job event=enqueue_failed job_id=%s err=%s; running inline",
+                job_id,
+                exc,
+            )
+    else:
+        _log.warning("upload_job event=no_workers job_id=%s; running inline", job_id)
+    _finish_upload_inline(job_id)
+    return "done"
 
 
 @router.delete("/jobs/{job_id}")
@@ -113,15 +163,15 @@ def abort_upload_job(current_user: CurrentUser, job_id: str):
 
 
 @router.get("/jobs/{job_id}", response_model=UploadJobStatusResponse)
-def get_upload_job(current_user: CurrentUser, job_id: str):
+def get_upload_job(locale: LocaleDep, current_user: CurrentUser, job_id: str):
     try:
         job = get_job(job_id, kind=_KIND)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
+        raise http_error(503, "job_store_unavailable", locale) from exc
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise _job_not_found(locale)
     if str(job.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise _job_not_found(locale)
     result = job.get("result") if isinstance(job.get("result"), dict) else None
     received = job.get("received_parts")
     return UploadJobStatusResponse(
@@ -137,8 +187,8 @@ def get_upload_job(current_user: CurrentUser, job_id: str):
 
 
 @router.get("/jobs/{job_id}/events")
-async def stream_upload_job_events(current_user: CurrentUser, job_id: str):
-    return streaming_media_job_events(current_user, job_id, kind=_KIND)
+async def stream_upload_job_events(request: Request, current_user: CurrentUser, job_id: str):
+    return streaming_media_job_events(current_user, job_id, kind=_KIND, request=request)
 
 
 def execute_upload_job(job: dict[str, Any]) -> dict[str, Any]:
