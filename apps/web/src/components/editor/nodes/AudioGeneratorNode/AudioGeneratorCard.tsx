@@ -440,10 +440,9 @@ function AudioGeneratorCard({
     }
   };
 
-  if (!showComposer) return null;
-
   const composerPlacement = useGeneratorComposerPlacement(sceneBox);
   const canSubmit = Boolean(readyAudioAtt || prompt.trim()) && !attachmentsUploading;
+  const composerVisible = showComposer && !sending;
 
   return (
     <>
@@ -453,6 +452,7 @@ function AudioGeneratorCard({
         top={composerPlacement.top}
         anchor={composerPlacement.anchor}
         edgeGapPx={composerPlacement.edgeGapPx}
+        active={composerVisible}
         data-audio-generator
         data-sel-toolbar
         data-scene-node-id={nodeId}

@@ -208,6 +208,8 @@ export function WorldScreenChromeRoot({
   hAlign = 'center',
   edgeGapPx = 0,
   railWidth = 0,
+  /** When false, keep the portal mounted but hidden (no remount flash). */
+  active = true,
   className,
   style,
   children,
@@ -226,6 +228,7 @@ export function WorldScreenChromeRoot({
    * and generator composers).
    */
   railWidth?: number;
+  active?: boolean;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
@@ -278,11 +281,23 @@ export function WorldScreenChromeRoot({
     };
   }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y]);
 
+  useLayoutEffect(() => {
+    if (active) return;
+    const pill = pillRef.current;
+    const focused = document.activeElement;
+    if (pill && focused instanceof HTMLElement && pill.contains(focused)) {
+      focused.blur();
+    }
+  }, [active]);
+
+  const visible = active && placed;
+
   return (
     <RcbOverlayPortal>
       <div
         ref={hostRef}
         className={cn('pointer-events-none overflow-visible', className)}
+        aria-hidden={!visible}
         style={{
           position: 'fixed',
           left: fixedOrigin.left,
@@ -297,7 +312,8 @@ export function WorldScreenChromeRoot({
           pointerEvents: 'none',
           zIndex: 40,
           ...style,
-          opacity: placed ? (style?.opacity as number | undefined) ?? 1 : 0,
+          opacity: visible ? (style?.opacity as number | undefined) ?? 1 : 0,
+          visibility: visible ? 'visible' : 'hidden',
         }}
       >
         <div
@@ -307,6 +323,7 @@ export function WorldScreenChromeRoot({
             marginTop: contentTop,
             width: 'max-content',
             transform: anchor === 'bottom' ? 'translateY(-100%)' : undefined,
+            pointerEvents: visible ? 'auto' : 'none',
           }}
           {...rest}
         >

@@ -625,13 +625,13 @@ function VideoGeneratorCard({
 
   return (
     <>
-      {composerVisible ? (
-        <WorldScreenChromeRoot
+      <WorldScreenChromeRoot
           left={composerPlacement.left}
           railWidth={composerPlacement.railWidth}
           top={composerPlacement.top}
           anchor={composerPlacement.anchor}
           edgeGapPx={composerPlacement.edgeGapPx}
+          active={composerVisible}
           data-video-generator
           data-sel-toolbar
           data-scene-node-id={nodeId}
@@ -825,7 +825,6 @@ function VideoGeneratorCard({
             }
           />
         </WorldScreenChromeRoot>
-      ) : null}
 
       {composerVisible && mentionOpen ? (
         <FloatingPortal>

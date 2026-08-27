@@ -541,9 +541,8 @@ function LottieGeneratorCard({
     }
   };
 
-  if (!showComposer) return null;
-
   const composerPlacement = useGeneratorComposerPlacement(sceneBox);
+  const composerVisible = showComposer && !sending;
 
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
@@ -582,6 +581,7 @@ function LottieGeneratorCard({
       top={composerPlacement.top}
       anchor={composerPlacement.anchor}
       edgeGapPx={composerPlacement.edgeGapPx}
+      active={composerVisible}
       data-lottie-generator
       data-sel-toolbar
       data-scene-node-id={nodeId}
@@ -773,7 +773,7 @@ function LottieGeneratorCard({
       />
     </WorldScreenChromeRoot>
 
-    {showComposer && mentionOpen ? (
+    {composerVisible && mentionOpen ? (
       <FloatingPortal>
         <div
           ref={mentionFloating.refs.setFloating}

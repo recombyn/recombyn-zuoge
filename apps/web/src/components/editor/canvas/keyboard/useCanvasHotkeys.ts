@@ -83,19 +83,15 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
             ))
       );
 
-    const isComposerTarget = (t: HTMLElement | null) =>
-      Boolean(
-        t?.closest?.(
-          '[data-agent-composer], [data-image-generator], [data-video-generator], [data-media-quick-edit]'
-        )
-      );
+    const COMPOSER_HOST =
+      '[data-agent-composer], [data-image-generator], [data-video-generator], [data-lottie-generator], [data-audio-generator], [data-media-quick-edit]';
+
+    const isComposerTarget = (t: HTMLElement | null) => Boolean(t?.closest?.(COMPOSER_HOST));
 
     const composerPromptText = (t: HTMLElement | null) => {
       const el =
         (t?.closest?.('[data-agent-composer]') as HTMLElement | null) ||
-        (t
-          ?.closest?.('[data-image-generator], [data-video-generator], [data-media-quick-edit]')
-          ?.querySelector?.('[data-agent-composer]') as HTMLElement | null);
+        (t?.closest?.(COMPOSER_HOST)?.querySelector?.('[data-agent-composer]') as HTMLElement | null);
       return (el?.innerText || '').replace(/\u200b/g, '').trim();
     };
 
@@ -272,9 +268,14 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && !readOnly) {
         if (typing && !inComposer) return;
+        // Empty on-canvas composer: Delete removes the selected plate (focus stays in CE).
         if (inComposer && composerPromptText(target)) return;
         const el = target as HTMLElement | null;
-        if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+        if (
+          !inComposer &&
+          el &&
+          (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+        ) {
           return;
         }
         if (tryConsumeGradientStopDelete()) {

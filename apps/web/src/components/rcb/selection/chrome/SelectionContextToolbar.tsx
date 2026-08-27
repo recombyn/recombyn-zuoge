@@ -64,13 +64,10 @@ import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/do
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
-  isAudioGeneratorNode,
+  isGeneratorNode,
   isIconImageNode,
-  isImageGeneratorNode,
   isImageProcessRunning,
-  isLottieGeneratorNode,
   isTextFrameNode,
-  isVideoGeneratorNode,
   supportsCornerRadius,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
@@ -477,6 +474,10 @@ function SelectionContextToolbar(props: Props): ReactNode {
 
   const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
 
+  // Generators own their composer overlay — never mount QuickEdit on top.
+  if (isGeneratorNode(node) || isImageProcessRunning(node)) return null;
+  if (imageSidePanelOpen) return null;
+
   if (quickEditComposerOpen || lottieEditOpen) {
     if (kind === 'image') return null;
     if (kind === 'video') {
@@ -489,17 +490,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
       return <LottieQuickEditComposer document={document} nodeId={nodeId} box={box} />;
     }
   }
-
-  if (isImageProcessRunning(node)) return null;
-  if (
-    isImageGeneratorNode(node) ||
-    isVideoGeneratorNode(node) ||
-    isLottieGeneratorNode(node) ||
-    isAudioGeneratorNode(node)
-  ) {
-    return null;
-  }
-  if (imageSidePanelOpen) return null;
 
   const fontSizePx = normalizeTextFontSize(style?.fontSize);
 

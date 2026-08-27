@@ -743,13 +743,13 @@ function ImageGeneratorCard({
 
   return (
     <>
-      {composerVisible ? (
-        <WorldScreenChromeRoot
+      <WorldScreenChromeRoot
           left={composerPlacement.left}
           railWidth={composerPlacement.railWidth}
           top={composerPlacement.top}
           anchor={composerPlacement.anchor}
           edgeGapPx={composerPlacement.edgeGapPx}
+          active={composerVisible}
           data-image-generator
           data-sel-toolbar
           {...(markActive ? { 'data-mark-composer': true } : {})}
@@ -974,7 +974,6 @@ function ImageGeneratorCard({
             }
           />
         </WorldScreenChromeRoot>
-      ) : null}
 
       {composerVisible && mentionOpen ? (
         <FloatingPortal>
