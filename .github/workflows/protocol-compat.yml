@@ -1,6 +1,6 @@
 # Protocol compatibility (Intelligence in recombyn-dev monorepo)
 # Runs against apps/intelligence using packages/protocol from this repo.
-# Excluded from OSS mirror â€” private recombyn-dev only.
+# Excluded from OSS mirror â??private recombyn-dev only.
 
 name: protocol-compat
 
@@ -28,10 +28,11 @@ on:
 defaults:
   run:
     working-directory: apps/intelligence
+    shell: bash
 
 jobs:
   contract:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     steps:
       - uses: actions/checkout@v4
 
@@ -86,7 +87,7 @@ jobs:
         run: python -m pytest tests/unit -q --tb=short
 
   vision-e2e:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4

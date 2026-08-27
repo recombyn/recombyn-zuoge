@@ -4,7 +4,7 @@ name: CI
 # Required check name for branch protection: "CI / gate"
 #
 # Runs on a self-hosted Windows runner (labels: self-hosted, Windows, ci).
-# Setup: docs/self-hosted-ci-windows.md
+# No GitHub-hosted runners — see docs/self-hosted-ci-windows.md
 
 on:
   pull_request:
@@ -106,13 +106,13 @@ jobs:
     if: always()
     steps:
       - name: Require upstream jobs
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host "check=${{ needs.check.result }}"
-          Write-Host "web-unit=${{ needs.web-unit.result }}"
-          Write-Host "api-unit=${{ needs.api-unit.result }}"
-          Write-Host "build-web=${{ needs.build-web.result }}"
-          if ('${{ needs.check.result }}' -ne 'success') { exit 1 }
-          if ('${{ needs.web-unit.result }}' -ne 'success') { exit 1 }
-          if ('${{ needs.api-unit.result }}' -ne 'success') { exit 1 }
-          if ('${{ needs.build-web.result }}' -ne 'success') { exit 1 }
+          echo "check=${{ needs.check.result }}"
+          echo "web-unit=${{ needs.web-unit.result }}"
+          echo "api-unit=${{ needs.api-unit.result }}"
+          echo "build-web=${{ needs.build-web.result }}"
+          test "${{ needs.check.result }}" = "success" || exit 1
+          test "${{ needs.web-unit.result }}" = "success" || exit 1
+          test "${{ needs.api-unit.result }}" = "success" || exit 1
+          test "${{ needs.build-web.result }}" = "success" || exit 1

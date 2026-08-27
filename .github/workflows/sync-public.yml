@@ -1,7 +1,7 @@
-# Private ‚Üí public publish (runs only in recombyn-dev).
+# Private ù?public publish (runs only in recombyn-dev).
 # Strips commercial paths before publishing to github.com/recombyn/zuoge.
 #
-# Secret (recombyn-dev): PUBLIC_REPO_TOKEN ‚Äî PAT with repo scope on recombyn/zuoge
+# Secret (recombyn-dev): PUBLIC_REPO_TOKEN ù?PAT with repo scope on recombyn/zuoge
 # Public commit messages must not mention sync/mirror/recombyn-dev.
 
 name: Publish OSS
@@ -17,7 +17,10 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
+    defaults:
+      run:
+        shell: bash
     env:
       PUBLIC_REPO: recombyn/zuoge
     steps:
@@ -98,7 +101,7 @@ jobs:
             exit 0
           fi
 
-          echo "Direct push blocked by branch rules ‚Äî opening PR."
+          echo "Direct push blocked by branch rules ù?opening PR."
           git push origin "HEAD:${PUB_BRANCH}" --force
 
           PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${PUB_BRANCH}" --json number --jq '.[0].number // empty')"
