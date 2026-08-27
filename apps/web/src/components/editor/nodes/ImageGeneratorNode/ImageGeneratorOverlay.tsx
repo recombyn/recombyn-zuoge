@@ -75,6 +75,7 @@ function ImageGeneratorOverlay({
                 canvasAttachPick,
                 pendingCanvasAttach
               ),
+              geometryGestureActive: Boolean(ov),
             })}
             disabled={readOnly}
           />

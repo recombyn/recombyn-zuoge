@@ -56,6 +56,7 @@ import {
   syncProcessPlateGeometry,
 } from '@/components/rcb/process/processPlateSvg';
 import {
+  resolveGenPlateFill,
   resolveThemeSurfaceFill
 } from '../document/nodeFactories';
 import { generatorEmptyIconSize } from '../../core/layout';
@@ -1154,9 +1155,13 @@ export async function nodeToSvgElement(
         bl: radii.bl > 0 ? radii.bl : TEXT_FRAME_RADIUS,
       };
       const clipD = roundedRectPath(plateW, plateH, cornerR);
-      // Surface plate + 1px gray stroke (audio-node language); HTML overlay scrolls on top.
+      // Rim underlay matches HTML outer (darker track); FO paints dual-tone on top.
+      const plateFill = resolveGenPlateFill(node.attrs?.['fill-color']);
       const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, resolveThemeSurfaceFill(node.attrs?.['fill-color']));
+      setFill(
+        plate,
+        plateFill === 'var(--gen-empty)' ? 'var(--audio-wave-track)' : plateFill
+      );
       setStroke(plate, {
         color: 'var(--line)',
         width: editorChromeStrokeSceneWidth(1),
@@ -1765,7 +1770,7 @@ export async function nodeToSvgElement(
     const clipD = roundedRectPath(boxW, boxH, cornerR);
     const g = appendChild(parent, svgEl('g'));
     const svgOwnsPixels = videoSvgOwnsPixels(root);
-    const plateFill = resolveThemeSurfaceFill(node.attrs?.['fill-color']);
+    const plateFill = resolveGenPlateFill(node.attrs?.['fill-color']);
 
     if (processing) {
       appendProcessPlatePaths(g, root, nodeId, clipD, boxW, boxH, {
@@ -1782,7 +1787,7 @@ export async function nodeToSvgElement(
 
     if (isGen || !hasSrc) {
       const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, isGen ? 'var(--gen-empty)' : 'var(--rail)');
+      setFill(plate, 'var(--gen-empty)');
       if (isGen) {
         setStroke(plate, 'none');
         const sw = editorChromeStrokeSceneWidth(1);

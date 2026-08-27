@@ -49,6 +49,7 @@ import {
   isTextStrike,
   isTextUnderline,
   measurePlainTextSize,
+  measureTextFrameExitBox,
   measureTextNodeBoxAfterStyleChange,
   normalizeTextFontSize,
   parseNodeMarkdown,
@@ -570,14 +571,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
     if (!node || !style) return;
     const plain = parseNodeText(node.attrs || {}) || ' ';
     if (isTextBoxMode) {
-      const measured = measurePlainTextSize(plain, style);
+      const measured = measureTextFrameExitBox(node, style);
       dispatch(
         patchDocumentNode({
           nodeId,
           patch: {
-            attrs: { textFrame: null, autoSize: 'true' },
-            width: Math.max(8, Math.round(measured.width)),
-            height: Math.max(8, Math.round(measured.height)),
+            attrs: { textFrame: null, autoSize: 'false', lockAspect: null },
+            width: measured.width,
+            height: measured.height,
           },
         })
       );

@@ -67,6 +67,7 @@ import {
   consumePendingCanvasAttach,
   finishVideoGenerator,
   patchDocumentNode,
+  setSelectedNodeIds,
   startCanvasAttachPick,
   EMPTY_ID_LIST,
 } from '@/store/modules/editor';
@@ -141,6 +142,7 @@ function VideoGeneratorCard({
       | Record<string, unknown>
       | undefined
   );
+  const nodeProcessing = String(genAttrs?.processStatus || '') === 'running';
   const editorDocument = useSelector((state: any) => state.editor?.document);
   const canvasAttachPick = useSelector(
     (state: any) => state.editor?.canvasAttachPick as null | { target: string }
@@ -235,15 +237,6 @@ function VideoGeneratorCard({
     genAttrs?.videoGenDuration,
     genAttrs?.videoGenModel,
   ]);
-
-  // Auto-focus when the generator composer appears (select plate / show again).
-  useEffect(() => {
-    if (!showComposer || disabled) return;
-    const id = requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
-    return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
 
   useEffect(() => {
     return () => {
@@ -453,6 +446,7 @@ function VideoGeneratorCard({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    dispatch(setSelectedNodeIds([]));
     setSending(true);
     registerGeneratorSession(nodeId);
     let finished = false;
@@ -582,6 +576,24 @@ function VideoGeneratorCard({
   // Same placement contract as selection toolbars: world-layer under the box.
   const composerPlacement = useGeneratorComposerPlacement(sceneBox);
 
+  // Hide as soon as send starts — no compact loading bar; node glow shows progress.
+  const composerVisible = showComposer && !sending && !nodeProcessing;
+
+  // Auto-focus once when the composer first becomes visible — skip remount churn.
+  const wasComposerVisibleRef = useRef(false);
+  useEffect(() => {
+    if (!composerVisible || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
+    const id = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [composerVisible, disabled]);
+
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
       pickingFromCanvas,
@@ -613,7 +625,7 @@ function VideoGeneratorCard({
 
   return (
     <>
-      {showComposer ? (
+      {composerVisible ? (
         <WorldScreenChromeRoot
           left={composerPlacement.left}
           railWidth={composerPlacement.railWidth}
@@ -627,7 +639,6 @@ function VideoGeneratorCard({
           {...chromePointer}
         >
           <CanvasMediaComposerShell
-            panelOverflow="visible"
             attachment={
               <ComposerAttachmentStrip
                 attachments={attachments}
@@ -816,7 +827,7 @@ function VideoGeneratorCard({
         </WorldScreenChromeRoot>
       ) : null}
 
-      {showComposer && mentionOpen ? (
+      {composerVisible && mentionOpen ? (
         <FloatingPortal>
           <div
             ref={mentionFloating.refs.setFloating}
@@ -836,7 +847,7 @@ function VideoGeneratorCard({
         </FloatingPortal>
       ) : null}
 
-      {showComposer && skillOpen ? (
+      {composerVisible && skillOpen ? (
         <FloatingPortal>
           <div
             ref={skillFloating.refs.setFloating}

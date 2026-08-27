@@ -140,7 +140,7 @@ def test_language_directive_zh():
 
     assert resolve_output_locale(prompt="添加一个矩形") == "zh-CN"
     assert "output_language: zh-CN" in language_directive("zh-CN")
-    assert "Always answer the user in output_language" in language_directive("zh-CN")
+    assert "same language they use in their message" in language_directive("zh-CN")
 
 
 def test_fail_explain_repair_draft_not_ops():

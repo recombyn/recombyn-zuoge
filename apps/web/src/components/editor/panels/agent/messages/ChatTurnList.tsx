@@ -1,6 +1,7 @@
 import { forwardRef, useRef, type ReactNode, type Ref, memo } from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import lottie, { type AnimationItem } from 'lottie-web';
 import {
   HiOutlineArrowDownTray,
   HiOutlineArrowUturnLeft,
@@ -25,7 +26,10 @@ import {
   scheduleClearMediaAssetDragData,
   setMediaAssetDragData,
 } from '@/utils/chatImageDrag';
-import { imageSrcToFile } from '@/utils/uploadImage';
+import { UserAssetCard } from '@/components/home/UserAssetMediaCard';
+import type { UserAsset } from '@/models/assets';
+import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
+import { imageSrcToFile, toDisplayMediaUrl } from '@/utils/uploadImage';
 import VideoJsPlayer from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
 import {
   localizeAgentProcessCopy,
@@ -77,10 +81,23 @@ export type ChatUiMessage = {
   images?: string[];
   /** Video-mode results shown as a gallery. */
   videos?: string[];
+  /** Audio-mode TTS results shown as a gallery. */
+  audios?: string[];
+  /** Lottie-mode results — inline animation JSON and/or stored asset URL. */
+  lotties?: Array<{
+    animationData?: Record<string, unknown>;
+    w?: number;
+    h?: number;
+    url?: string;
+  }>;
   /** While image-gen is running: expected card count for shimmer placeholders. */
   imagePendingCount?: number;
   /** While video-gen is running: expected card count for shimmer placeholders. */
   videoPendingCount?: number;
+  /** While audio-gen is running: expected card count for shimmer placeholders. */
+  audioPendingCount?: number;
+  /** While lottie-gen is running: expected card count for shimmer placeholders. */
+  lottiePendingCount?: number;
   /** Image-gen aspect (e.g. 9:16) — sizes shimmer / gallery cards. */
   imageAspectRatio?: string;
   /** Image-gen model id — brand icon in the worked-for row. */
@@ -1685,7 +1702,17 @@ function AssistantTurn({
   const showVideoGallery =
     Boolean(assistant.videos?.length) ||
     (Number(assistant.videoPendingCount) || 0) > 0;
-  const showMediaGallery = showImageGallery || showVideoGallery;
+  const showAudioGallery =
+    Boolean(assistant.audios?.length) ||
+    (Number(assistant.audioPendingCount) || 0) > 0;
+  const showLottieGallery =
+    Boolean(assistant.lotties?.length) ||
+    (Number(assistant.lottiePendingCount) || 0) > 0;
+  const showMediaGallery =
+    showImageGallery ||
+    showVideoGallery ||
+    showAudioGallery ||
+    showLottieGallery;
   const showAskChoices =
     !streaming &&
     onChoice &&
@@ -1730,6 +1757,14 @@ function AssistantTurn({
 
       {showVideoGallery ? (
         <VideoGenGallery assistant={assistant} sending={sending} />
+      ) : null}
+
+      {showAudioGallery ? (
+        <AudioGenGallery assistant={assistant} sending={sending} />
+      ) : null}
+
+      {showLottieGallery ? (
+        <LottieGenGallery assistant={assistant} sending={sending} />
       ) : null}
 
       {showReplyText ? (
@@ -1934,6 +1969,223 @@ function VideoGenGallery({
           <SoftGlowSurface
             key={`${assistant.id}-vshimmer-${i}`}
             seed={`${assistant.id}-v-${i}`}
+            className="shrink-0 rounded-lg border border-[var(--line)]"
+            style={{ width: box.width, height: box.height }}
+            aria-hidden
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function cloneLottiePayload(data: Record<string, unknown>): Record<string, unknown> {
+  if (typeof structuredClone === 'function') return structuredClone(data);
+  return JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
+}
+
+async function fetchLottieAnimationFromUrl(url: string): Promise<Record<string, unknown> | null> {
+  const src = toDisplayMediaUrl(String(url || '').trim());
+  if (!src) return null;
+  try {
+    const res = await fetch(src);
+    if (!res.ok) return null;
+    const json: unknown = await res.json();
+    return parseLottieAnimationData(json);
+  } catch {
+    return null;
+  }
+}
+
+function ChatResultLottieCard({
+  item,
+  box,
+}: {
+  item: NonNullable<ChatUiMessage['lotties']>[number];
+  box: { width: number; height: number };
+}): ReactNode {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const draggedRef = useRef(false);
+  const [animationData, setAnimationData] = useState<Record<string, unknown> | null>(() =>
+    parseLottieAnimationData(item.animationData)
+  );
+
+  useEffect(() => {
+    if (animationData) return;
+    const url = String(item.url || '').trim();
+    if (!url) return;
+    let cancelled = false;
+    void fetchLottieAnimationFromUrl(url).then((parsed) => {
+      if (!cancelled && parsed) setAnimationData(parsed);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [animationData, item.url, item.animationData]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !animationData) return undefined;
+    let anim: AnimationItem | null = null;
+    host.innerHTML = '';
+    try {
+      anim = lottie.loadAnimation({
+        container: host,
+        renderer: 'svg',
+        loop: true,
+        autoplay: true,
+        animationData: cloneLottiePayload(animationData),
+        rendererSettings: { preserveAspectRatio: 'xMidYMid meet' },
+      });
+    } catch {
+      /* invalid payload */
+    }
+    return () => {
+      anim?.destroy();
+      host.innerHTML = '';
+    };
+  }, [animationData]);
+
+  const url = String(item.url || '').trim();
+  if (!animationData && !url) return null;
+
+  const dragW = item.w ?? box.width;
+  const dragH = item.h ?? box.height;
+
+  return (
+    <div
+      className="group relative shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-gradient-to-b from-[#3a3a3a] to-[#151515]"
+      style={{ width: box.width, height: box.height }}
+    >
+      <button
+        type="button"
+        draggable={Boolean(animationData || url)}
+        aria-label="将 Lottie 拖到画布"
+        className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
+        onDragStart={(e) => {
+          if (!animationData && !url) return;
+          draggedRef.current = true;
+          setMediaAssetDragData(e.dataTransfer, {
+            kind: 'lottie',
+            src: url,
+            width: dragW,
+            height: dragH,
+            name: 'Lottie',
+            ...(animationData ? { animationData } : {}),
+          });
+        }}
+        onDragEnd={() => {
+          scheduleClearMediaAssetDragData(300);
+          window.setTimeout(() => {
+            draggedRef.current = false;
+          }, 0);
+        }}
+      >
+        <div ref={hostRef} className="pointer-events-none h-full w-full" />
+        {!animationData ? (
+          <SoftGlowSurface
+            seed={url || 'lottie-loading'}
+            className="pointer-events-none absolute inset-0 rounded-none border-0"
+            aria-hidden
+          />
+        ) : null}
+      </button>
+    </div>
+  );
+}
+
+function chatResultAssetFromAudio(src: string, index: number, assistantId: string): UserAsset {
+  return {
+    id: `${assistantId}-audio-${index}`,
+    kind: 'audio',
+    url: src,
+    source: 'ai_audio',
+  };
+}
+
+function AudioGenGallery({
+  assistant,
+}: {
+  assistant: ChatUiMessage;
+  sending?: boolean;
+}): ReactNode {
+  const audios = assistant.audios || [];
+  const pending = Math.max(0, Number(assistant.audioPendingCount) || 0);
+  const slots = Math.max(audios.length, pending);
+  if (slots <= 0) return null;
+  const box = cardBoxFromAspect('1:1');
+
+  return (
+    <div className="mt-1 flex max-w-full gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
+      {Array.from({ length: slots }, (_, i) => {
+        const src = audios[i];
+        if (src) {
+          const asset = chatResultAssetFromAudio(src, i, assistant.id);
+          return (
+            <div
+              key={asset.id}
+              className="shrink-0"
+              style={{ width: box.width }}
+            >
+              <UserAssetCard
+                asset={asset}
+                dense
+                editorMediaPreview
+                onDragStart={(e, a) => {
+                  setMediaAssetDragData(e.dataTransfer, {
+                    kind: 'audio',
+                    src: String(a.url || src),
+                    name: 'Audio',
+                  });
+                }}
+                onDragEnd={() => scheduleClearMediaAssetDragData(300)}
+              />
+            </div>
+          );
+        }
+        return (
+          <SoftGlowSurface
+            key={`${assistant.id}-ashimmer-${i}`}
+            seed={`${assistant.id}-a-${i}`}
+            className="shrink-0 rounded-lg border border-[var(--line)]"
+            style={{ width: box.width, height: box.width }}
+            aria-hidden
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function LottieGenGallery({
+  assistant,
+}: {
+  assistant: ChatUiMessage;
+  sending?: boolean;
+}): ReactNode {
+  const lotties = assistant.lotties || [];
+  const pending = Math.max(0, Number(assistant.lottiePendingCount) || 0);
+  const slots = Math.max(lotties.length, pending);
+  if (slots <= 0) return null;
+  const box = cardBoxFromAspect(assistant.imageAspectRatio);
+
+  return (
+    <div className="mt-1 flex max-w-full gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
+      {Array.from({ length: slots }, (_, i) => {
+        const item = lotties[i];
+        if (item) {
+          return (
+            <ChatResultLottieCard
+              key={`${assistant.id}-lottie-${i}`}
+              item={item}
+              box={box}
+            />
+          );
+        }
+        return (
+          <SoftGlowSurface
+            key={`${assistant.id}-lshimmer-${i}`}
+            seed={`${assistant.id}-l-${i}`}
             className="shrink-0 rounded-lg border border-[var(--line)]"
             style={{ width: box.width, height: box.height }}
             aria-hidden

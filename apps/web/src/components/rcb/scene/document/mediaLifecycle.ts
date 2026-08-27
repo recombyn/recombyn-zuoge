@@ -17,6 +17,7 @@ import {
   createLottieNode,
   createTextNode,
   createVideoNode,
+  resolveGenPlateFill,
   resolveThemeSurfaceFill,
   serializeLottieAnimationData,
   TRANSPARENT_PIXEL,
@@ -539,7 +540,7 @@ export function promoteAudioGeneratorToAudio(
   attrs.src = src;
   attrs.assetKind = 'audio';
   if (attrs.audioSpeed == null) attrs.audioSpeed = 1;
-  attrs['fill-color'] = resolveThemeSurfaceFill(attrs['fill-color']);
+  attrs['fill-color'] = resolveGenPlateFill(attrs['fill-color']);
   if (name) attrs.name = name;
   const key = String(uploadKey || '').trim();
   if (key) attrs.uploadKey = key;

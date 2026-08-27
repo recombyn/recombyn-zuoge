@@ -81,6 +81,7 @@ import {
   canMarkNode,
   markGateTipKey,
   markNodeGate,
+  MARK_COMPOSER_Z,
 } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
@@ -511,13 +512,15 @@ function ImageQuickEditComposer({
       <div
         {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
         data-sel-toolbar
+        {...(markActive ? { 'data-mark-composer': true } : {})}
         data-scene-node-id={nodeId}
         className={cn(
-          'pointer-events-auto absolute z-[32] flex h-[200px] w-[500px] flex-col overflow-hidden',
+          'pointer-events-auto absolute flex h-[200px] w-[500px] flex-col overflow-hidden',
           'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
+          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]',
+          markActive ? 'z-[40]' : 'z-[32]'
         )}
-        style={composerStyle}
+        style={{ ...composerStyle, ...(markActive ? { zIndex: MARK_COMPOSER_Z } : {}) }}
         onPointerDown={(e) => {
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation?.();
@@ -557,7 +560,14 @@ function ImageQuickEditComposer({
               disabled={sending || !markReady}
               aria-label={t('editor.imageToolbar.mark')}
               aria-pressed={markActive}
-              onClick={onMark}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.nativeEvent.stopImmediatePropagation?.();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMark();
+              }}
               className={composerAttachActionClass(markActive)}
             >
               <PiSelectionPlus className="h-4 w-4" />

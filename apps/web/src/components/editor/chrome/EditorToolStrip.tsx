@@ -53,6 +53,7 @@ import {
   measureImageNaturalSize,
   prepareVideoUploadPreview,
   parseLottieAnimationData,
+  MEDIA_PLACE_DEFAULT,
 } from '@/components/rcb/scene/document/nodeFactories';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import {
@@ -626,7 +627,7 @@ function EditorToolStrip({
           document,
           camera,
           stageEl,
-          natural: { width: 720, height: 400 },
+          natural: { ...MEDIA_PLACE_DEFAULT },
           fit: { minRatio: 0.22, maxRatio: 0.4 },
         });
         width = laid.width;
@@ -832,7 +833,7 @@ function EditorToolStrip({
         audio.onerror = () => resolve(undefined);
         audio.src = preview;
       });
-      const { width, height, x, y } = placeAtViewportCenter({ width: 720, height: 400 });
+      const { width, height, x, y } = placeAtViewportCenter({ ...MEDIA_PLACE_DEFAULT });
       dispatch(
         startAudioUploadPlaceholder({
           src: preview,

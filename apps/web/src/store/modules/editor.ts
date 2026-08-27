@@ -35,7 +35,8 @@ import {
   createAudioNode,
   createAudioGeneratorNode,
   createImageNode,
-  createVideoNode
+  createVideoNode,
+  MEDIA_PLACE_DEFAULT,
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   isEphemeralUploadNode
@@ -527,6 +528,23 @@ function bumpSceneRevisionForRemoteCollab(state: typeof initialState) {
 function pushHistory(state: typeof initialState) {
   snapshotEditorHistory(state);
   bumpSceneRevisionIfUnlocked(state);
+}
+
+/** Insert + select a generator plate without remounting the whole scene. */
+function commitSpawnedGenerator(
+  state: typeof initialState,
+  created: { id: string; node: SceneNode }
+) {
+  const { id, node } = created;
+  state.document = addNodeToDocument(state.document, id, node);
+  state.dirty = true;
+  state.documentPatchToken += 1;
+  state.lastPatchedNodeIds = [id];
+  state.lastPatchTransformOnly = false;
+  state.selectedNodeId = id;
+  state.selectedNodeIds = [id];
+  state.pendingImageSrc = null;
+  state.activeTool = 'select';
 }
 
 /**
@@ -1665,77 +1683,61 @@ const editorSlice = createSlice({
     spawnImageGenerator(state, action) {
       if (!state.document) return;
       pushHistory(state);
-      const { id, node } = createImageGeneratorNode({
-        x: action.payload?.x,
-        y: action.payload?.y,
-        width: action.payload?.width,
-        height: action.payload?.height,
-        name: action.payload?.name,
-      });
-      state.document = addNodeToDocument(state.document, id, node);
-      state.dirty = true;
-      state.sceneReloadToken += 1;
-      state.selectedNodeId = id;
-      state.selectedNodeIds = [id];
-      state.pendingImageSrc = null;
-      state.activeTool = 'select';
+      commitSpawnedGenerator(
+        state,
+        createImageGeneratorNode({
+          x: action.payload?.x,
+          y: action.payload?.y,
+          width: action.payload?.width,
+          height: action.payload?.height,
+          name: action.payload?.name,
+        })
+      );
     },
     /** Spawn canvas Video Generator plate at given document coords. */
     spawnVideoGenerator(state, action) {
       if (!state.document) return;
       pushHistory(state);
-      const { id, node } = createVideoGeneratorNode({
-        x: action.payload?.x,
-        y: action.payload?.y,
-        width: action.payload?.width,
-        height: action.payload?.height,
-        name: action.payload?.name,
-      });
-      state.document = addNodeToDocument(state.document, id, node);
-      state.dirty = true;
-      state.sceneReloadToken += 1;
-      state.selectedNodeId = id;
-      state.selectedNodeIds = [id];
-      state.pendingImageSrc = null;
-      state.activeTool = 'select';
+      commitSpawnedGenerator(
+        state,
+        createVideoGeneratorNode({
+          x: action.payload?.x,
+          y: action.payload?.y,
+          width: action.payload?.width,
+          height: action.payload?.height,
+          name: action.payload?.name,
+        })
+      );
     },
     /** Spawn canvas Lottie Generator plate at given document coords. */
     spawnLottieGenerator(state, action) {
       if (!state.document) return;
       pushHistory(state);
-      const { id, node } = createLottieGeneratorNode({
-        x: action.payload?.x,
-        y: action.payload?.y,
-        width: action.payload?.width,
-        height: action.payload?.height,
-        name: action.payload?.name,
-      });
-      state.document = addNodeToDocument(state.document, id, node);
-      state.dirty = true;
-      state.sceneReloadToken += 1;
-      state.selectedNodeId = id;
-      state.selectedNodeIds = [id];
-      state.pendingImageSrc = null;
-      state.activeTool = 'select';
+      commitSpawnedGenerator(
+        state,
+        createLottieGeneratorNode({
+          x: action.payload?.x,
+          y: action.payload?.y,
+          width: action.payload?.width,
+          height: action.payload?.height,
+          name: action.payload?.name,
+        })
+      );
     },
     /** Spawn canvas Audio Generator plate at given document coords. */
     spawnAudioGenerator(state, action) {
       if (!state.document) return;
       pushHistory(state);
-      const { id, node } = createAudioGeneratorNode({
-        x: action.payload?.x,
-        y: action.payload?.y,
-        width: action.payload?.width,
-        height: action.payload?.height,
-        name: action.payload?.name,
-      });
-      state.document = addNodeToDocument(state.document, id, node);
-      state.dirty = true;
-      state.sceneReloadToken += 1;
-      state.selectedNodeId = id;
-      state.selectedNodeIds = [id];
-      state.pendingImageSrc = null;
-      state.activeTool = 'select';
+      commitSpawnedGenerator(
+        state,
+        createAudioGeneratorNode({
+          x: action.payload?.x,
+          y: action.payload?.y,
+          width: action.payload?.width,
+          height: action.payload?.height,
+          name: action.payload?.name,
+        })
+      );
     },
     /** Spawn finished Lottie plate (sample or Agent JSON) at document coords. */
     spawnLottie(state, action) {
@@ -1867,8 +1869,8 @@ const editorSlice = createSlice({
         if (uploadKey) node.attrs.uploadKey = uploadKey;
         if (prompt) node.attrs.genPrompt = prompt;
       } else if (kind === 'video') {
-        const w = Math.max(1, Math.round(Number(action.payload?.width) || 640));
-        const h = Math.max(1, Math.round(Number(action.payload?.height) || 360));
+        const w = Math.max(1, Math.round(Number(action.payload?.width) || MEDIA_PLACE_DEFAULT.width));
+        const h = Math.max(1, Math.round(Number(action.payload?.height) || MEDIA_PLACE_DEFAULT.height));
         ({ id, node } = createVideoNode({
           x: Number.isFinite(x) ? x : 40,
           y: Number.isFinite(y) ? y : 40,
@@ -1881,11 +1883,13 @@ const editorSlice = createSlice({
         if (uploadKey) node.attrs.uploadKey = uploadKey;
         if (prompt) node.attrs.genPrompt = prompt;
       } else {
+        const w = Math.max(1, Math.round(Number(action.payload?.width) || MEDIA_PLACE_DEFAULT.width));
+        const h = Math.max(1, Math.round(Number(action.payload?.height) || MEDIA_PLACE_DEFAULT.height));
         ({ id, node } = createAudioNode({
           x: Number.isFinite(x) ? x : 40,
           y: Number.isFinite(y) ? y : 40,
-          width: action.payload?.width,
-          height: action.payload?.height,
+          width: w,
+          height: h,
           src,
           name: name || 'Audio',
           duration: action.payload?.duration,

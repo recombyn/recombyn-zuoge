@@ -2,15 +2,12 @@ import { useEffect, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
-  HiOutlineCheck,
   HiOutlineListBullet,
-  HiOutlineMinus,
 } from 'react-icons/hi2';
-import { RiDeleteBinLine } from 'react-icons/ri';
 import { Button, Dialog, Input, message } from '@/components/base';
+import { BatchSelectBottomBar, BatchSelectControls } from '@/components/home/BatchSelectControls';
+import { useProjectDeleteRunner } from '@/hooks/useProjectDeleteRunner';
 import {
-  removeProjectFromCloud,
-  removeProjectsFromCloud,
   renameProjectOnCloud,
   requestProjectFlush,
 } from '@/components/editor/useProjectCloudSync';
@@ -33,7 +30,6 @@ import {
   InfiniteScrollSection,
 } from '@/components/home/InfiniteScroll';
 import { FLOW_COLUMNS_CLASS } from '@/components/home/FlowScrollSection';
-import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 
 export { ProjectCardSkeleton };
 
@@ -49,121 +45,6 @@ function ImportSkeletonCard({ name }: { name: string }) {
         {name || t('home.untitled')} — {t('home.importing')}
       </span>
     </>
-  );
-}
-
-type ProjectBatchControlsProps = {
-  total: number;
-  selectedCount: number;
-  allSelected: boolean;
-  deleting: boolean;
-  onToggleSelectAll: () => void;
-  onClearSelection: () => void;
-  onDelete: () => void;
-  onCancel: () => void;
-  className?: string;
-};
-
-function ProjectBatchControls({
-  total,
-  selectedCount,
-  allSelected,
-  deleting,
-  onToggleSelectAll,
-  onClearSelection,
-  onDelete,
-  onCancel,
-  className,
-}: ProjectBatchControlsProps) {
-  const { t } = useTranslation();
-  const hasSelection = selectedCount > 0;
-  const partial = hasSelection && !allSelected;
-
-  return (
-    <div
-      role="toolbar"
-      aria-label={t('home.batchSelect')}
-      className={cn(
-        'inline-flex max-w-full items-center gap-2 overflow-x-auto text-[13px] font-medium text-[var(--ink)]',
-        className
-      )}
-    >
-      <button
-        type="button"
-        onClick={onToggleSelectAll}
-        className="inline-flex shrink-0 items-center gap-2"
-      >
-        <span
-          className={cn(
-            'flex h-4 w-4 items-center justify-center rounded-[3px] border transition',
-            hasSelection
-              ? 'border-[var(--ink)] bg-[var(--ink)] text-[var(--on-brand)]'
-              : 'border-[var(--line)] bg-[var(--surface)] text-transparent'
-          )}
-          aria-hidden
-        >
-          {allSelected ? (
-            <HiOutlineCheck className="h-2.5 w-2.5" strokeWidth={3} />
-          ) : partial ? (
-            <HiOutlineMinus className="h-2.5 w-2.5" strokeWidth={3} />
-          ) : null}
-        </span>
-        <span className="whitespace-nowrap">
-          {hasSelection
-            ? t('home.selectedCount', { count: selectedCount })
-            : `${t('home.selectAll')} (${total})`}
-        </span>
-      </button>
-
-      <span className="mx-0.5 h-4 w-px shrink-0 bg-[var(--line)]" aria-hidden />
-
-      {hasSelection ? (
-        <>
-          <button
-            type="button"
-            disabled={deleting}
-            onClick={onDelete}
-            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-red-500 disabled:opacity-40"
-          >
-            {deleting ? (
-              <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-red-500/30 border-t-red-500" />
-            ) : (
-              <RiDeleteBinLine className="h-3.5 w-3.5" />
-            )}
-            {t('common.delete')}
-          </button>
-          <button
-            type="button"
-            onClick={onClearSelection}
-            className="shrink-0 whitespace-nowrap"
-          >
-            {t('home.clearSelection')}
-          </button>
-        </>
-      ) : null}
-
-      <button
-        type="button"
-        onClick={onCancel}
-        className="shrink-0 whitespace-nowrap"
-      >
-        {t('common.cancel')}
-      </button>
-    </div>
-  );
-}
-
-/** Mobile: bottom floating pill. Desktop uses header controls instead. */
-function ProjectBatchBottomBar(props: ProjectBatchControlsProps) {
-  return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-4 lg:hidden">
-      <FloatingToolbar
-        role="presentation"
-        className="pointer-events-auto max-w-full px-3 py-2"
-      >
-        <ProjectBatchControls {...props} />
-      </FloatingToolbar>
-    </div>
   );
 }
 
@@ -214,6 +95,7 @@ function TemplateGrid({
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const runDelete = useProjectDeleteRunner();
 
   const handleLoadMore = onLoadMore ?? (() => undefined);
 
@@ -249,41 +131,40 @@ function TemplateGrid({
     else setSelected(templates.map((item) => item.id));
   };
 
-  const batchDelete = async () => {
-    if (!selected.length || deleting) return;
-    const count = selected.length;
+  const batchDelete = () => {
     const ids = [...selected];
-    setDeleting(true);
-    try {
-      await removeProjectsFromCloud(ids);
-      dispatch(deleteTemplates(ids));
-      invalidateProjectsListCache();
-      message.destructive(t('home.batchDeleted', { count }));
-      exitSelectMode();
-      setBatchDeleteOpen(false);
-    } catch {
-      message.error(t('home.batchDeleteFailed'));
-    } finally {
-      setDeleting(false);
-    }
+    const count = ids.length;
+    void runDelete({
+      ids,
+      deleting,
+      setDeleting,
+      t,
+      onSuccess: () => {
+        dispatch(deleteTemplates(ids));
+        invalidateProjectsListCache();
+        message.destructive(t('home.batchDeleted', { count }));
+        exitSelectMode();
+        setBatchDeleteOpen(false);
+      },
+    });
   };
 
-  const confirmSingleDelete = async () => {
-    if (!deleteTarget || deleting) return;
+  const confirmSingleDelete = () => {
+    if (!deleteTarget) return;
     const id = deleteTarget.id;
-    setDeleting(true);
-    try {
-      await removeProjectFromCloud(id);
-      dispatch(deleteTemplate(id));
-      invalidateProjectsListCache();
-      setSelected((prev) => prev.filter((x) => x !== id));
-      message.destructive(t('common.delete'));
-      setDeleteTarget(null);
-    } catch {
-      message.error(t('home.batchDeleteFailed'));
-    } finally {
-      setDeleting(false);
-    }
+    void runDelete({
+      ids: [id],
+      deleting,
+      setDeleting,
+      t,
+      onSuccess: () => {
+        dispatch(deleteTemplate(id));
+        invalidateProjectsListCache();
+        setSelected((prev) => prev.filter((x) => x !== id));
+        message.destructive(t('common.delete'));
+        setDeleteTarget(null);
+      },
+    });
   };
 
   const closeRename = () => setRenameTarget(null);
@@ -356,7 +237,7 @@ function TemplateGrid({
 
         <div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
           {selectMode && templates.length > 0 ? (
-            <ProjectBatchControls
+            <BatchSelectControls
               className="hidden lg:inline-flex"
               total={templates.length}
               selectedCount={selected.length}
@@ -542,7 +423,7 @@ function TemplateGrid({
       {selectMode && templates.length > 0 ? (
         <>
           <div className="h-16 lg:hidden" aria-hidden />
-          <ProjectBatchBottomBar
+          <BatchSelectBottomBar
             total={templates.length}
             selectedCount={selected.length}
             allSelected={allSelected}

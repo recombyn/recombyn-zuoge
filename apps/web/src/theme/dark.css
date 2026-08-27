@@ -10,6 +10,8 @@ html[data-theme='dark'] {
   --account-card: #2c2c2c;
   /* Image/video generator empty plate — lifted above canvas. */
   --gen-empty: #2c2c2c;
+  /* Inset track behind waveform bars — near-black well on the plate. */
+  --audio-wave-track: #141414;
   --ink: #ffffff;
   --muted: #b3b3b3;
   --line: #444444;

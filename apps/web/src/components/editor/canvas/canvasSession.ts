@@ -55,7 +55,7 @@ import type { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
 import { getShapeHost, replaceShapePaint, shapeHostRevealsOverflow, type SvgBoardHandle } from '@/components/rcb';
 import {
   rcbCenterOnPoint,
-  rcbDefaultPlaceFontSize,
+  rcbPlaceTextFontSize,
   rcbFitImageIntoViewport,
   rcbLayoutGeneratorPlate,
   GENERATOR_EMPTY_STROKE_OUTSET,
@@ -400,7 +400,13 @@ export type CanvasSession = {
   queryNodeIdsInRect: (box: SceneBox) => string[];
   finishToSelect: () => void;
   onCreateShape: (kind: string, box: ShapeCreateBox) => void;
-  onPlaceText: (point: { x: number; y: number; width?: number; autoSize?: boolean }) => void;
+  onPlaceText: (point: {
+    x: number;
+    y: number;
+    width?: number;
+    autoSize?: boolean;
+    fontSize?: number;
+  }) => void;
   imageSizeForViewport: (natural: { width: number; height: number }) => {
     width: number;
     height: number;
@@ -528,14 +534,28 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     finishToSelect();
   };
 
-  const onPlaceText = (point: { x: number; y: number; width?: number; autoSize?: boolean }) => {
+  const onPlaceText = (point: {
+    x: number;
+    y: number;
+    width?: number;
+    autoSize?: boolean;
+    fontSize?: number;
+  }) => {
     const doc = deps.getDocument();
     if (!doc || deps.isReadOnly()) return;
     const autoSize = point.autoSize !== false;
     const gridSize = getDocumentGridSize(doc);
+    const view = deps.measureViewport();
     const zoom = Math.max(0.05, deps.getZoom() || 1);
-    // Screen-constant ~14px so 3000% zoom does not spawn document-14 glyphs.
-    const fontSize = rcbDefaultPlaceFontSize(zoom, 14);
+    const docW = Math.max(0, Number(doc.width) || 0);
+    // Screen-constant default so fit-to-board / high zoom does not spawn invisible glyphs.
+    const fontSize =
+      point.fontSize != null && point.fontSize > 0
+        ? point.fontSize
+        : rcbPlaceTextFontSize(zoom, undefined, {
+            viewportWidth: view?.width,
+            docWidth: docW > 0 ? docW : undefined,
+          });
     const origin = sceneToDocumentCoords(
       doc,
       snapCoordToGrid(point.x, gridSize),

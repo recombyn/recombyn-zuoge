@@ -206,6 +206,13 @@ class IntentClassifyDecision(BaseModel):
         default="",
         description="Short reason — cite tool names from the catalog when canvas_op",
     )
+    output_locale: Literal["zh-CN", "zh-TW", "en", "ja"] = Field(
+        default="zh-CN",
+        description=(
+            "Language for all user-facing prose this turn — infer from the user's "
+            "message and RECENT_DIALOGUE (not UI chrome). Match how the user writes."
+        ),
+    )
 
 
 def normalize_session_action(raw: str | None) -> str:
@@ -844,12 +851,24 @@ def heuristic_user_intent(
     del canvas_node_count
     full = str(prompt or "")
     has_target = "[Target element" in full or "Target element —" in full
+    from app.services.design.runtime.host.prompts import (
+        detect_locale_from_text,
+        normalize_locale,
+    )
+
+    def _heuristic_locale() -> str:
+        return normalize_locale(
+            detect_locale_from_text(prompt) or "zh-CN",
+            default="zh-CN",
+        )
+
     if has_images:
         return IntentClassifyDecision(
             intent="design",
             paint_lane="edit" if has_target else "create",
             reply="",
             rationale="heuristic_images",
+            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
         )
     if has_target:
         return IntentClassifyDecision(
@@ -857,16 +876,22 @@ def heuristic_user_intent(
             paint_lane="edit",
             reply="",
             rationale="heuristic_target",
+            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
         )
     if not _user_request_core(full).strip():
         return IntentClassifyDecision(
-            intent="chat", paint_lane="", reply="", rationale="heuristic_empty"
+            intent="chat",
+            paint_lane="",
+            reply="",
+            rationale="heuristic_empty",
+            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
         )
     return IntentClassifyDecision(
         intent="design",
         paint_lane="create",
         reply="",
         rationale="heuristic_default_design",
+        output_locale=_heuristic_locale(),  # type: ignore[arg-type]
     )
 
 
@@ -946,6 +971,7 @@ async def classify_user_intent(
         raw_clarification_options = [
             option.model_dump() for option in structured.clarification_options
         ]
+        raw_output_locale = structured.output_locale
     elif isinstance(structured, dict):
         raw_intent = structured.get("intent")
         raw_lane = structured.get("paint_lane")
@@ -956,6 +982,7 @@ async def classify_user_intent(
         raw_clarification_needed = structured.get("needs_clarification")
         raw_clarification = structured.get("clarification")
         raw_clarification_options = structured.get("clarification_options")
+        raw_output_locale = structured.get("output_locale")
     else:
         raise IntentClassifyError(
             f"intent_classify: structured output empty or unparsed (type={type(structured).__name__})"
@@ -993,6 +1020,17 @@ async def classify_user_intent(
     )
     if session_action or action == "apply":
         needs_clarification, clarification, clarification_options = False, "", []
+    from app.services.design.runtime.host.prompts import (
+        detect_locale_from_text,
+        normalize_locale,
+    )
+
+    llm_loc = normalize_locale(str(raw_output_locale or "").strip() or None, default="")
+    if not llm_loc:
+        llm_loc = normalize_locale(
+            detect_locale_from_text(prompt) or "zh-CN",
+            default="zh-CN",
+        )
     return IntentClassifyDecision(
         intent=intent,  # type: ignore[arg-type]
         paint_lane=lane if intent != "chat" else "",  # type: ignore[arg-type]
@@ -1003,6 +1041,7 @@ async def classify_user_intent(
         clarification=clarification,
         clarification_options=clarification_options,
         rationale=str(rationale or "").strip() or "llm_intent",
+        output_locale=llm_loc,  # type: ignore[arg-type]
     )
 
 

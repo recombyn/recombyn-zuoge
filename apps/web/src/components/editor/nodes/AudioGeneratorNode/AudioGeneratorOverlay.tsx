@@ -60,6 +60,7 @@ function AudioGeneratorOverlay({
             showComposer={shouldShowGeneratorComposer({
               node,
               selected: selectedNodeIds.length === 1 && selectedNodeIds[0] === nodeId,
+              geometryGestureActive: Boolean(ov),
             })}
             disabled={readOnly}
           />

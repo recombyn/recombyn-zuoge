@@ -1089,18 +1089,47 @@ def delete_asset(*, session: Session, asset_id: str) -> Asset | None:
     return row
 
 
+def _user_asset_q_clause(q: str | None) -> Any | None:
+    raw = (q or "").strip()
+    if not raw:
+        return None
+    return (
+        col(Asset.prompt).contains(raw)
+        | col(Asset.kind).contains(raw)
+        | col(Asset.object_key).contains(raw)
+        | col(Asset.url).contains(raw)
+        | col(Asset.meta_json).contains(raw)
+        | col(Asset.id).contains(raw)
+    )
+
+
+def _user_asset_where(
+    *,
+    user_id: str,
+    kind: str | None = None,
+    sources: tuple[str, ...] | list[str] | None = None,
+    q: str | None = None,
+) -> list[Any]:
+    where: list[Any] = [Asset.user_id == user_id]
+    if kind:
+        where.append(Asset.kind == kind)
+    if sources:
+        where.append(col(Asset.source).in_(list(sources)))
+    q_clause = _user_asset_q_clause(q)
+    if q_clause is not None:
+        where.append(q_clause)
+    return where
+
+
 def count_user_assets(
     *,
     session: Session,
     user_id: str,
     kind: str | None = None,
     sources: tuple[str, ...] | list[str] | None = None,
+    q: str | None = None,
 ) -> int:
-    where: list[Any] = [Asset.user_id == user_id]
-    if kind:
-        where.append(Asset.kind == kind)
-    if sources:
-        where.append(col(Asset.source).in_(list(sources)))
+    where = _user_asset_where(user_id=user_id, kind=kind, sources=sources, q=q)
     return int(
         session.exec(select(func.count()).select_from(Asset).where(*where)).one()
         or 0
@@ -1113,14 +1142,11 @@ def list_user_assets(
     user_id: str,
     kind: str | None = None,
     sources: tuple[str, ...] | list[str] | None = None,
+    q: str | None = None,
     offset: int = 0,
     limit: int = 24,
 ) -> list[Asset]:
-    where: list[Any] = [Asset.user_id == user_id]
-    if kind:
-        where.append(Asset.kind == kind)
-    if sources:
-        where.append(col(Asset.source).in_(list(sources)))
+    where = _user_asset_where(user_id=user_id, kind=kind, sources=sources, q=q)
     return list(
         session.exec(
             select(Asset)
@@ -1190,6 +1216,23 @@ def update_asset_meta_json(
     if not row:
         return None
     row.meta_json = meta_json
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def update_user_asset_prompt(
+    *,
+    session: Session,
+    user_id: str,
+    asset_id: str,
+    prompt: str | None,
+) -> Asset | None:
+    row = get_user_asset(session=session, user_id=user_id, asset_id=asset_id)
+    if not row:
+        return None
+    row.prompt = prompt
     session.add(row)
     session.commit()
     session.refresh(row)

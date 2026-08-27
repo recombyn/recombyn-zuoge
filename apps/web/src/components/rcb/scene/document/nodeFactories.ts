@@ -1007,10 +1007,10 @@ export function createAudioGeneratorNode({
         audioGenerator: true,
         mode: 'FIT',
         lockAspect: 'true',
-        radiusTL: 8,
-        radiusTR: 8,
-        radiusBR: 8,
-        radiusBL: 8,
+        radiusTL: 16,
+        radiusTR: 16,
+        radiusBR: 16,
+        radiusBL: 16,
         radiusLinked: 'true',
       } as Record<string, unknown>,
       children: [],
@@ -1027,6 +1027,22 @@ export function resolveThemeSurfaceFill(raw: unknown): string {
   return s;
 }
 
+/** Audio / text-frame plate — default wash matches generator (`--gen-empty`, light #e9eaee). */
+export function resolveGenPlateFill(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return 'var(--gen-empty)';
+  const lower = s.toLowerCase();
+  if (
+    lower === 'var(--surface)' ||
+    lower === 'var(--rail)' ||
+    lower === 'white' ||
+    /^#fff(fff)?$/i.test(s)
+  ) {
+    return 'var(--gen-empty)';
+  }
+  return resolveThemeSurfaceFill(raw);
+}
+
 /**
  * Clone an audio node to the right (trim / speed confirm).
  * Returns null when source is missing.
@@ -1034,21 +1050,77 @@ export function resolveThemeSurfaceFill(raw: unknown): string {
 export const AUDIO_ASPECT_RATIO = 1.8;
 export const AUDIO_MIN_WIDTH = 252;
 export const AUDIO_MIN_HEIGHT = 140;
+/** Soft cap when sanitizing absurd metadata (not viewport placement). */
+export const AUDIO_MAX_WIDTH = 1440;
+export const AUDIO_MAX_HEIGHT = 800;
+/** Viewport-fit baseline when asset has no pixel size (video + audio). */
+export const MEDIA_PLACE_DEFAULT = { width: 1280, height: 720 } as const;
 
-/** Normalize all audio plates to one stable visual ratio. */
+export type MediaPlaceKind = 'image' | 'video' | 'audio' | 'lottie';
+
+/** Resolve natural pixel size before viewport fit — shared by drag / upload / store. */
+export function resolveMediaPlaceNatural(
+  kind: MediaPlaceKind,
+  payload: { width?: number; height?: number },
+  imageNatural?: { width: number; height: number }
+): { width: number; height: number } {
+  const ow = Math.max(0, Math.round(Number(payload.width) || 0));
+  const oh = Math.max(0, Math.round(Number(payload.height) || 0));
+  // Audio has no meaningful pixel dimensions (often video metadata) — HD baseline only.
+  if (kind === 'audio') return { ...MEDIA_PLACE_DEFAULT };
+  if (ow > 0 && oh > 0) return { width: ow, height: oh };
+  if (kind === 'video') return { ...MEDIA_PLACE_DEFAULT };
+  if (kind === 'lottie') return { width: 200, height: 200 };
+  if (imageNatural) return imageNatural;
+  return { width: 360, height: 360 };
+}
+
+/**
+ * Same viewport fit as image/video; audio only adds aspect lock afterward.
+ */
+export function fitMediaIntoViewport(
+  kind: MediaPlaceKind,
+  natural: { width: number; height: number },
+  sizeForViewport: (natural: { width: number; height: number }) => {
+    width: number;
+    height: number;
+  }
+): { width: number; height: number } {
+  const sized = sizeForViewport(natural);
+  return kind === 'audio' ? fitAudioAspect(sized.width, sized.height) : sized;
+}
+
+/** Lock width/height to audio plate aspect. */
+export function fitAudioAspect(width: number, height: number): { width: number; height: number } {
+  const w = Math.max(1, Math.round(Number(width) || 1));
+  const h = Math.max(1, Math.round(Number(height) || 1));
+  const normalizedHeight = Math.max(h, w / AUDIO_ASPECT_RATIO);
+  return {
+    width: Math.max(1, Math.round(normalizedHeight * AUDIO_ASPECT_RATIO)),
+    height: Math.max(1, Math.round(normalizedHeight)),
+  };
+}
+
+/** Clamp + aspect-lock for audio plates (create / sanitize metadata). */
 export function normalizeAudioSize(width?: number, height?: number): {
   width: number;
   height: number;
 } {
-  const requestedWidth = Math.max(AUDIO_MIN_WIDTH, Math.round(Number(width) || 360));
-  const requestedHeight = Math.max(AUDIO_MIN_HEIGHT, Math.round(Number(height) || 200));
-  const heightScale = requestedHeight;
-  const widthScale = requestedWidth / AUDIO_ASPECT_RATIO;
-  const normalizedHeight = Math.max(heightScale, widthScale);
-  return {
-    width: Math.max(AUDIO_MIN_WIDTH, Math.round(normalizedHeight * AUDIO_ASPECT_RATIO)),
-    height: Math.max(AUDIO_MIN_HEIGHT, Math.round(normalizedHeight)),
-  };
+  let fitted = fitAudioAspect(
+    Math.max(1, Math.round(Number(width) || 360)),
+    Math.max(1, Math.round(Number(height) || 200))
+  );
+  if (fitted.width > AUDIO_MAX_WIDTH || fitted.height > AUDIO_MAX_HEIGHT) {
+    const scale = Math.min(AUDIO_MAX_WIDTH / fitted.width, AUDIO_MAX_HEIGHT / fitted.height);
+    fitted = fitAudioAspect(fitted.width * scale, fitted.height * scale);
+  }
+  if (fitted.width < AUDIO_MIN_WIDTH || fitted.height < AUDIO_MIN_HEIGHT) {
+    fitted = fitAudioAspect(
+      Math.max(fitted.width, AUDIO_MIN_WIDTH),
+      Math.max(fitted.height, AUDIO_MIN_HEIGHT)
+    );
+  }
+  return fitted;
 }
 
 export function createAudioNode({
@@ -1074,7 +1146,6 @@ export function createAudioNode({
   const id = nanoid(10);
   const d = Number(duration);
   const key = String(uploadKey || '').trim();
-  // Waveform + transport need room; normalize every entry point to one ratio.
   const { width: iw, height: ih } = normalizeAudioSize(width, height);
   const ix = Math.round(Number(x) || 0);
   const iy = Math.round(Number(y) || 0);
@@ -1095,13 +1166,13 @@ export function createAudioNode({
         mode: 'FIT',
         lockAspect: 'true',
         audioSpeed: 1,
-        'fill-color': 'var(--surface)',
+        'fill-color': 'var(--gen-empty)',
         ...(Number.isFinite(d) && d > 0 ? { duration: d } : {}),
         ...(key ? { uploadKey: key } : {}),
-        radiusTL: 8,
-        radiusTR: 8,
-        radiusBR: 8,
-        radiusBL: 8,
+        radiusTL: 16,
+        radiusTR: 16,
+        radiusBR: 16,
+        radiusBL: 16,
         radiusLinked: 'true',
       } as Record<string, unknown>,
       children: [],

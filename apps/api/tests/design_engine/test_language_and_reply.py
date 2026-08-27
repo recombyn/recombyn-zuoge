@@ -21,12 +21,16 @@ def test_normalize_locale_aliases():
     assert normalize_locale("ja-JP") == "ja"
 
 
-def test_resolve_output_locale_prefers_client_then_prompt():
+def test_resolve_output_locale_prefers_llm_then_prompt():
     assert (
-        resolve_output_locale(client_locale="en", prompt="添加一个矩形") == "en"
+        resolve_output_locale(llm_locale="en", prompt="添加一个矩形") == "en"
     )
     assert resolve_output_locale(prompt="添加一个矩形在画布") == "zh-CN"
     assert resolve_output_locale(prompt="hello world", profile_locale="ja") == "ja"
+    # UI locale must not override user message language
+    assert (
+        resolve_output_locale(client_locale="en", prompt="添加一个矩形") == "zh-CN"
+    )
 
 
 def test_detect_locale_from_text():
@@ -37,7 +41,7 @@ def test_detect_locale_from_text():
 def test_language_directive_mentions_locale():
     text = language_directive("zh-CN")
     assert "output_language: zh-CN" in text
-    assert "Always answer the user in output_language" in text
+    assert "same language they use in their message" in text
 
 
 def test_paint_user_reply_strips_tool_dumps_keeps_prose():
@@ -80,6 +84,31 @@ def test_design_intensity_maps_review_mode():
     assert _review_mode_for_intensity("medium") == "auto"
     assert _review_mode_for_intensity("high") == "always"
     assert _review_mode_for_intensity("extreme") == "always"
+
+
+def test_intent_decision_carries_output_locale():
+    from app.services.design.runtime.models_route import IntentClassifyDecision
+
+    d = IntentClassifyDecision(
+        intent="canvas_op",
+        paint_lane="create",
+        output_locale="zh-CN",
+        rationale="test",
+    )
+    assert d.output_locale == "zh-CN"
+
+
+def test_localize_ux_tip_uses_runtime_locale_not_ui():
+    from app.services.i18n.errors import localize_ux_tip
+
+    zh = localize_ux_tip("observe_scene_timeout", "zh-CN")
+    en = localize_ux_tip("observe_scene_timeout", "en")
+    assert "超时" in zh or "回传" in zh
+    assert "timed out" in en.lower()
+    # Chinese prompt locale must win over English UI setting
+    from app.services.design.runtime.host.prompts import resolve_output_locale
+
+    assert resolve_output_locale(client_locale="en", prompt="添加矩形") == "zh-CN"
 
 
 def test_brief_step_labels_follow_locale():

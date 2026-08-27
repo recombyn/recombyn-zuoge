@@ -2956,7 +2956,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               id: `rebase-${activitySeq}`,
               kind: 'tool',
               status: 'done',
-              detail: 'Rebased onto current canvas',
+              code: 'canvas_rebased',
             });
           }
           if (applied.opResults.some((r) => r.error === 'revision_conflict')) {
@@ -2968,7 +2968,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               id: `opfail-${activitySeq}`,
               kind: 'skipped',
               status: 'error',
-              detail: 'Revision conflict — canvas changed since this AI turn',
+              code: 'revision_conflict',
             });
             return;
           }
@@ -3147,9 +3147,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         id: `scene-feedback-${activitySeq}`,
         kind: feedbackSent ? 'explored' : 'skipped',
         status: feedbackSent ? 'done' : 'error',
-        detail: feedbackSent
-          ? 'Canvas changes checked'
-          : 'Canvas check could not be sent; changes are kept',
+        code: feedbackSent ? 'scene_feedback_ok' : 'scene_feedback_failed',
         stage: 'scene_check',
       });
     }

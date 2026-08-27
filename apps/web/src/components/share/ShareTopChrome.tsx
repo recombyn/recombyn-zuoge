@@ -31,7 +31,7 @@ function ShareTopChrome({
   onImportJson,
 }: Props) {
   const { t } = useTranslation();
-  const leftHudInsetPx = useLeftDockInset(false, false);
+  const leftHudInsetPx = useLeftDockInset(false);
   const rightHudInsetPx = useRightDockInset(false, inspectOpen, 'dev');
 
   return (

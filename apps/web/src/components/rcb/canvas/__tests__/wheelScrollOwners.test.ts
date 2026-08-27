@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   composerConsumesWheel,
+  textFrameBlocksBrowserZoom,
   textFrameConsumesWheel,
   wheelShouldStayLocal,
 } from '../wheelScrollOwners';
@@ -83,5 +84,16 @@ describe('textFrameConsumesWheel', () => {
     (overlay as any).closest = (sel: string) =>
       sel === '[data-text-frame-overlay]' ? overlay : null;
     expect(textFrameConsumesWheel(overlay, wheel({ deltaY: -20 }))).toBe(false);
+  });
+
+  it('blocks browser pinch-zoom over text-frame surface', () => {
+    const overlay = mockScrollEl(
+      { scrollHeight: 400, clientHeight: 200, scrollTop: 0 },
+      {}
+    );
+    (overlay as any).closest = (sel: string) =>
+      sel === '[data-text-frame-overlay]' ? overlay : null;
+    expect(textFrameBlocksBrowserZoom(overlay, wheel({ ctrlKey: true }))).toBe(true);
+    expect(textFrameBlocksBrowserZoom(overlay, wheel())).toBe(false);
   });
 });

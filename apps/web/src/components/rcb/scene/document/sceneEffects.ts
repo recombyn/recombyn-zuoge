@@ -343,11 +343,14 @@ export function geometryPatchForStrokeOutsetChange(
 /** Scene-space air between text glyphs and selection chrome (flush / ~0). */
 export const TEXT_SELECTION_PAD = 0;
 
-/** Inner padding for fixed text-frame plates (content inset from box edge). */
+/** Inner padding for fixed text-frame plates (content inset from track edge). */
 export const TEXT_FRAME_PADDING = 15;
 
-/** Default corner radius for fixed text-frame plates (matches audio nodes). */
-export const TEXT_FRAME_RADIUS = 8;
+/** Default corner radius for text-frame plates. */
+export const TEXT_FRAME_RADIUS = 16;
+
+/** Shared plate corner for audio / text dual-tone chrome. */
+export const MEDIA_PLATE_RADIUS = TEXT_FRAME_RADIUS;
 
 export function inflateBoxByTextSelectionPad<
   T extends { left: number; top: number; width: number; height: number },

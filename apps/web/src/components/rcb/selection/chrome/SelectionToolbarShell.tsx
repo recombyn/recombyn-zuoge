@@ -282,6 +282,8 @@ export function WorldScreenChromeRoot({
   const pillRef = useRef<HTMLDivElement>(null);
   const shiftRef = useRef({ x: 0, y: 0 });
   const [shift, setShift] = useState({ x: 0, y: 0 });
+  /** Hide until first non-zero layout — avoids spawn/select flash (0→clamp). */
+  const [placed, setPlaced] = useState(false);
   shiftRef.current = shift;
 
   useLayoutEffect(() => {
@@ -290,10 +292,13 @@ export function WorldScreenChromeRoot({
     if (!pill || !overlay) {
       shiftRef.current = { x: 0, y: 0 };
       setShift({ x: 0, y: 0 });
+      setPlaced(false);
       return;
     }
     const apply = () => {
       const pillRect = pill.getBoundingClientRect();
+      // Portal can report 0×0 for one frame — wait before revealing.
+      if (pillRect.width < 1 || pillRect.height < 1) return;
       const overlayRect = overlay.getBoundingClientRect();
       const { x: shiftX, y: shiftY } = shiftRef.current;
       const natural = {
@@ -313,6 +318,7 @@ export function WorldScreenChromeRoot({
         shiftRef.current = next;
         return next;
       });
+      setPlaced(true);
     };
     apply();
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
@@ -323,7 +329,7 @@ export function WorldScreenChromeRoot({
       ro?.disconnect();
       window.removeEventListener('resize', apply);
     };
-  }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y, children]);
+  }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y]);
 
   return (
     <RcbOverlayPortal>
@@ -342,6 +348,8 @@ export function WorldScreenChromeRoot({
           justifyContent: alignEnd ? 'flex-end' : 'center',
           pointerEvents: 'none',
           ...style,
+          // One paint after clamp — prevents generator composer from flashing twice.
+          opacity: placed ? (style?.opacity as number | undefined) ?? 1 : 0,
         }}
       >
         <div

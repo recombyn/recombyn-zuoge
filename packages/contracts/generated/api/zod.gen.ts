@@ -44,6 +44,7 @@ export const zAgentTurnIn = z.object({
     messages: z.array(z.record(z.unknown())).optional(),
     model: z.string().nullish(),
     tools: z.array(z.record(z.unknown())).nullish(),
+    project_id: z.string().max(128).nullish(),
     mode: z.string().nullish().default('turn')
 });
 
@@ -98,7 +99,7 @@ export const zAuthConfigOut = z.object({
     googleEnabled: z.boolean(),
     googleClientId: z.string().nullish(),
     emailEnabled: z.boolean(),
-    billingEnabled: z.boolean().optional().default(true)
+    billingEnabled: z.boolean().optional().default(false)
 });
 
 /**
@@ -171,13 +172,6 @@ export const zBodyImportJobsCreateImportJob = z.object({
 });
 
 /**
- * Body_uploads-upload_files
- */
-export const zBodyUploadsUploadFiles = z.object({
-    files: z.array(z.string())
-});
-
-/**
  * ByokProviderIn
  */
 export const zByokProviderIn = z.object({
@@ -233,7 +227,7 @@ export const zCreateOrgIn = z.object({
 export const zCreateShareIn = z.object({
     name: z.string().max(255).optional().default('Untitled'),
     permission: z.string().max(16).optional().default('preview'),
-    document: z.record(z.unknown()),
+    document: z.record(z.unknown()).nullish(),
     sourceProjectId: z.string().max(64).nullish(),
     editorUserIds: z.array(z.string()).optional(),
     viewerUserIds: z.array(z.string()).optional(),
@@ -576,6 +570,41 @@ export const zImageProcessIn = z.object({
 });
 
 /**
+ * ImageProcessJobCreateRequest
+ */
+export const zImageProcessJobCreateRequest = z.object({
+    kind: z.string().min(1),
+    image: z.string().min(1),
+    meta: z.record(z.unknown()).nullish(),
+    aspect_ratio: z.string().nullish(),
+    quality: z.string().nullish(),
+    resolution: z.string().nullish(),
+    model: z.string().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
+ * ImageProcessJobCreateResponse
+ */
+export const zImageProcessJobCreateResponse = z.object({
+    job_id: z.string(),
+    status: z.string().optional().default('queued'),
+    trace_id: z.string().optional().default('')
+});
+
+/**
+ * ImageProcessJobStatusResponse
+ */
+export const zImageProcessJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    trace_id: z.string().nullish()
+});
+
+/**
  * ImportMeta
  */
 export const zImportMeta = z.object({
@@ -710,10 +739,41 @@ export const zLottieJobStatusResponse = z.object({
 });
 
 /**
+ * McpHeartbeatIn
+ */
+export const zMcpHeartbeatIn = z.object({
+    project_id: z.string().min(1).max(128)
+});
+
+/**
+ * McpPendingAckIn
+ */
+export const zMcpPendingAckIn = z.object({
+    project_id: z.string().min(1).max(128),
+    batch_ids: z.array(z.string()).optional()
+});
+
+/**
+ * McpToolCallIn
+ */
+export const zMcpToolCallIn = z.object({
+    tool: z.string().min(1).max(128),
+    arguments: z.record(z.unknown()).optional()
+});
+
+/**
  * Message
  */
 export const zMessage = z.object({
     message: z.string()
+});
+
+/**
+ * MockupAutoBakeIn
+ */
+export const zMockupAutoBakeIn = z.object({
+    image: z.string().min(1),
+    scale: z.number().gte(0.25).lte(1).optional().default(0.5)
 });
 
 /**
@@ -1009,6 +1069,48 @@ export const zUpdateShareMetaIn = z.object({
     name: z.string().max(255).nullish(),
     linkEnabled: z.boolean().nullish(),
     linkPublic: z.boolean().nullish()
+});
+
+/**
+ * UploadJobStatusResponse
+ */
+export const zUploadJobStatusResponse = z.object({
+    job_id: z.string(),
+    status: z.string(),
+    progress: z.number().int().optional().default(0),
+    result: z.record(z.unknown()).nullish(),
+    error: z.string().nullish(),
+    received_parts: z.array(z.number().int()).nullish(),
+    part_count: z.number().int().nullish(),
+    part_size: z.number().int().nullish()
+});
+
+/**
+ * UploadPartResponse
+ */
+export const zUploadPartResponse = z.object({
+    part_number: z.number().int(),
+    received: z.number().int(),
+    part_count: z.number().int(),
+    progress: z.number().int()
+});
+
+/**
+ * UploadSessionCreate
+ */
+export const zUploadSessionCreate = z.object({
+    filename: z.string().min(1).max(512),
+    content_type: z.string().nullish(),
+    total_size: z.number().int().gt(0)
+});
+
+/**
+ * UploadSessionResponse
+ */
+export const zUploadSessionResponse = z.object({
+    job_id: z.string(),
+    part_size: z.number().int(),
+    part_count: z.number().int()
 });
 
 /**
@@ -2502,20 +2604,12 @@ export const zPlazaPlazaSubmitBody = zSubmitIn;
  */
 export const zPlazaPlazaSubmitResponse = z.record(z.unknown());
 
-/**
- * Response Plaza-Plaza Mine
- *
- * Successful Response
- */
-export const zPlazaPlazaMineResponse = z.record(z.unknown());
-
 export const zPlazaPlazaFeedQuery = z.object({
     page: z.number().int().optional().default(1),
     pageSize: z.number().int().nullish(),
     limit: z.number().int().nullish(),
     tab: z.string().optional().default('recommended'),
-    category: z.string().nullish(),
-    authorIds: z.string().nullish()
+    category: z.string().nullish()
 });
 
 /**
@@ -2743,10 +2837,22 @@ export const zFontsUploadFontFileBody = zBodyFontsUploadFontFile;
  */
 export const zFontsUploadFontFileResponse = z.record(z.unknown());
 
+export const zFontsDeleteMyFontPath = z.object({
+    family: z.string()
+});
+
+/**
+ * Response Fonts-Delete My Font
+ *
+ * Successful Response
+ */
+export const zFontsDeleteMyFontResponse = z.record(z.unknown());
+
 export const zAssetsListMyAssetsQuery = z.object({
     page: z.number().int().optional().default(1),
     pageSize: z.number().int().optional().default(24),
-    kind: z.string().nullish()
+    kind: z.string().nullish(),
+    q: z.string().nullish()
 });
 
 /**
@@ -2776,15 +2882,6 @@ export const zAssetsDeleteMyAssetPath = z.object({
  */
 export const zAssetsDeleteMyAssetResponse = z.record(z.unknown());
 
-export const zUploadsUploadFilesBody = zBodyUploadsUploadFiles;
-
-/**
- * Response Uploads-Upload Files
- *
- * Successful Response
- */
-export const zUploadsUploadFilesResponse = z.record(z.unknown());
-
 export const zUploadsGetUploadContentByUrlQuery = z.object({
     url: z.string().min(1)
 });
@@ -2802,6 +2899,44 @@ export const zUploadsDeleteUploadedFileResponse = z.record(z.unknown());
 
 export const zUploadsGetUploadedFilePath = z.object({
     object_key: z.string()
+});
+
+export const zUploadsCreateUploadSessionBody = zUploadSessionCreate;
+
+/**
+ * Successful Response
+ */
+export const zUploadsCreateUploadSessionResponse = zUploadSessionResponse;
+
+export const zUploadsUploadJobPartPath = z.object({
+    job_id: z.string(),
+    part_number: z.number().int()
+});
+
+/**
+ * Successful Response
+ */
+export const zUploadsUploadJobPartResponse = zUploadPartResponse;
+
+export const zUploadsCompleteUploadJobPath = z.object({
+    job_id: z.string()
+});
+
+export const zUploadsAbortUploadJobPath = z.object({
+    job_id: z.string()
+});
+
+export const zUploadsGetUploadJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zUploadsGetUploadJobResponse = zUploadJobStatusResponse;
+
+export const zUploadsStreamUploadJobEventsPath = z.object({
+    job_id: z.string()
 });
 
 export const zChatSessionsGetSessionsQuery = z.object({
@@ -3035,12 +3170,56 @@ export const zImageToolsPostImageProcessBody = zImageProcessIn;
  */
 export const zImageToolsPostImageProcessResponse = z.record(z.unknown());
 
+export const zImageProcessJobsCreateImageProcessJobBody = zImageProcessJobCreateRequest;
+
+/**
+ * Successful Response
+ */
+export const zImageProcessJobsCreateImageProcessJobResponse = zImageProcessJobCreateResponse;
+
+export const zImageProcessJobsGetImageProcessJobPath = z.object({
+    job_id: z.string()
+});
+
+/**
+ * Successful Response
+ */
+export const zImageProcessJobsGetImageProcessJobResponse = zImageProcessJobStatusResponse;
+
+export const zImageProcessJobsStreamImageProcessJobEventsPath = z.object({
+    job_id: z.string()
+});
+
 /**
  * Response Mockup-List Mockup Tools
  *
  * Successful Response
  */
 export const zMockupListMockupToolsResponse = z.record(z.unknown());
+
+export const zMockupGetMockupTemplateKitPath = z.object({
+    template_id: z.string()
+});
+
+export const zMockupGetMockupTemplateKitQuery = z.object({
+    scale: z.number().optional().default(0.5)
+});
+
+/**
+ * Response Mockup-Get Mockup Template Kit
+ *
+ * Successful Response
+ */
+export const zMockupGetMockupTemplateKitResponse = z.record(z.unknown());
+
+export const zMockupPostMockupAutoBakeBody = zMockupAutoBakeIn;
+
+/**
+ * Response Mockup-Post Mockup Auto Bake
+ *
+ * Successful Response
+ */
+export const zMockupPostMockupAutoBakeResponse = z.record(z.unknown());
 
 export const zMockupPostMockupRenderBody = zMockupRenderIn;
 
@@ -3180,6 +3359,22 @@ export const zDesignDesignRunEventsQuery = z.object({
  */
 export const zDesignDesignRunEventsResponse = z.record(z.unknown());
 
+export const zDesignDesignRunTracePath = z.object({
+    task_id: z.string()
+});
+
+export const zDesignDesignRunTraceQuery = z.object({
+    after_seq: z.number().int().gte(0).optional().default(0),
+    limit: z.number().int().gte(1).lte(256).optional().default(256)
+});
+
+/**
+ * Response Design-Design Run Trace
+ *
+ * Successful Response
+ */
+export const zDesignDesignRunTraceResponse = z.record(z.unknown());
+
 export const zDesignDesignRunCommandsPath = z.object({
     task_id: z.string()
 });
@@ -3256,3 +3451,49 @@ export const zDesignDesignLongMemoryBody = zLongMemoryIn;
  * Successful Response
  */
 export const zDesignDesignLongMemoryResponse = z.record(z.unknown());
+
+/**
+ * Response Mcp-Canvas-List Tools
+ *
+ * Successful Response
+ */
+export const zMcpCanvasListToolsResponse = z.record(z.unknown());
+
+export const zMcpCanvasCallToolBody = zMcpToolCallIn;
+
+/**
+ * Response Mcp-Canvas-Call Tool
+ *
+ * Successful Response
+ */
+export const zMcpCanvasCallToolResponse = z.record(z.unknown());
+
+export const zMcpCanvasSessionHeartbeatBody = zMcpHeartbeatIn;
+
+/**
+ * Response Mcp-Canvas-Session Heartbeat
+ *
+ * Successful Response
+ */
+export const zMcpCanvasSessionHeartbeatResponse = z.record(z.unknown());
+
+export const zMcpCanvasListPendingQuery = z.object({
+    project_id: z.string().min(1).max(128),
+    limit: z.number().int().gte(1).lte(32).optional().default(8)
+});
+
+/**
+ * Response Mcp-Canvas-List Pending
+ *
+ * Successful Response
+ */
+export const zMcpCanvasListPendingResponse = z.record(z.unknown());
+
+export const zMcpCanvasAckPendingBody = zMcpPendingAckIn;
+
+/**
+ * Response Mcp-Canvas-Ack Pending
+ *
+ * Successful Response
+ */
+export const zMcpCanvasAckPendingResponse = z.record(z.unknown());

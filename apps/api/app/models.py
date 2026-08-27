@@ -306,8 +306,8 @@ class Asset(SQLModel, table=True):
     width: Optional[int] = Field(default=None)
     height: Optional[int] = Field(default=None)
     source: str = Field(default="ai_image", max_length=32)
-    prompt: Optional[str] = Field(default=None)
-    meta_json: Optional[str] = Field(default=None)
+    prompt: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    meta_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: float = Field(default=0.0)
 
 
@@ -789,9 +789,9 @@ class ModelUsage(SQLModel, table=True):
     cost_cny: Optional[float] = Field(default=None)
     pricing_version_id: Optional[str] = Field(default=None, max_length=128)
     provider_request_id: Optional[str] = Field(default=None, max_length=128)
-    usage_json: Optional[str] = Field(default=None)
-    meta_json: Optional[str] = Field(default=None)
-    error: Optional[str] = Field(default=None)
+    usage_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    meta_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    error: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
 
 
 class DesignOptimizePatch(SQLModel, table=True):
@@ -817,7 +817,7 @@ class DesignColdBlob(SQLModel, table=True):
     kind: str = Field(max_length=32, index=True)
     ref_id: str = Field(max_length=64, index=True)
     compress_blob: bytes = Field(sa_column=Column(LargeBinary))
-    meta_json: Optional[str] = Field(default=None)
+    meta_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     source_created_at: Optional[float] = Field(default=None)
     created_at: float = Field(default=0.0)
 

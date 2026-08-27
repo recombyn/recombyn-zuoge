@@ -2,7 +2,10 @@ import { useEffect, type RefObject } from 'react';
 import { useDispatch } from 'react-redux';
 import {
   measureImageNaturalSize,
-  parseLottieAnimationData
+  parseLottieAnimationData,
+  resolveMediaPlaceNatural,
+  fitMediaIntoViewport,
+  type MediaPlaceKind,
 } from '@/components/rcb/scene/document/nodeFactories';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import { rcbCenterOnPoint, type RcbCamera } from '@/components/rcb';
@@ -17,6 +20,7 @@ import {
   readChatImageDragUrl,
   readMediaAssetDragPayload,
   clearMediaAssetDragData,
+  LOTTIE_INLINE_DRAG_SRC,
   type MediaAssetDragPayload,
 } from '@/utils/chatImageDrag';
 import { getHttpErrorMessage } from '@/service/client';
@@ -52,25 +56,28 @@ async function resolveAssetPlaceSize(
     height: number;
   }
 ): Promise<{ width: number; height: number }> {
-  const kind = payload.kind;
-  if (kind === 'audio') {
-    const width = Math.max(1, Math.round(Number(payload.width) || 360));
-    const height = Math.max(140, Math.round(Number(payload.height) || 200));
-    return { width, height };
+  const kind = String(payload.kind || 'image').trim().toLowerCase() as MediaPlaceKind;
+  let imageNatural: { width: number; height: number } | undefined;
+  if (kind === 'image') {
+    const ow = Math.max(0, Math.round(Number(payload.width) || 0));
+    const oh = Math.max(0, Math.round(Number(payload.height) || 0));
+    if (!(ow > 0 && oh > 0) && payload.src) {
+      imageNatural = await measureImageNaturalSize(payload.src);
+    }
   }
-  const ow = Math.max(0, Math.round(Number(payload.width) || 0));
-  const oh = Math.max(0, Math.round(Number(payload.height) || 0));
-  if (ow > 0 && oh > 0) {
-    return imageSizeForViewport({ width: ow, height: oh });
+  if (kind === 'lottie' && payload.animationData) {
+    const aw = Math.max(1, Math.round(Number(payload.animationData.w) || 0));
+    const ah = Math.max(1, Math.round(Number(payload.animationData.h) || 0));
+    if (aw > 0 && ah > 0) {
+      return fitMediaIntoViewport(
+        kind,
+        { width: aw, height: ah },
+        imageSizeForViewport
+      );
+    }
   }
-  if (kind === 'video') {
-    return imageSizeForViewport({ width: 640, height: 360 });
-  }
-  if (kind === 'lottie') {
-    return imageSizeForViewport({ width: 200, height: 200 });
-  }
-  const natural = await measureImageNaturalSize(payload.src);
-  return imageSizeForViewport(natural);
+  const natural = resolveMediaPlaceNatural(kind, payload, imageNatural);
+  return fitMediaIntoViewport(kind, natural, imageSizeForViewport);
 }
 
 /** Resolve a displayable canvas src. Prefer inline data: (list thumbs) — no extra fetch. */
@@ -79,13 +86,18 @@ async function hydrateAssetSrcForCanvas(
 ): Promise<{ src: string; uploadKey?: string; animationData?: Record<string, unknown> }> {
   const src = String(payload.src || '').trim();
   const uploadKey = String(payload.uploadKey || '').trim() || undefined;
-  if (!src) return { src, uploadKey };
 
   if (payload.kind === 'lottie') {
     const fromList = parseLottieAnimationData(payload.animationData);
-    if (fromList) return { src, uploadKey, animationData: fromList };
-    throw new Error('lottie asset missing animationData');
+    if (fromList) {
+      return { src: src || LOTTIE_INLINE_DRAG_SRC, uploadKey, animationData: fromList };
+    }
+    if (!src || src === LOTTIE_INLINE_DRAG_SRC) {
+      throw new Error('lottie asset missing animationData');
+    }
   }
+
+  if (!src || src === LOTTIE_INLINE_DRAG_SRC) return { src: '', uploadKey };
 
   // Place with the URL we got — no auth-fetch / blob round-trip.
   return { src: toDisplayMediaUrl(src, uploadKey), uploadKey };
@@ -132,22 +144,10 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
         src: hydrated.src,
         uploadKey: hydrated.uploadKey,
       };
-      let width: number;
-      let height: number;
-      if (payload.kind === 'lottie' && hydrated.animationData) {
-        const aw = Math.max(1, Math.round(Number(hydrated.animationData.w) || 0));
-        const ah = Math.max(1, Math.round(Number(hydrated.animationData.h) || 0));
-        if (aw > 0 && ah > 0) {
-          ({ width, height } = imageSizeForViewport({ width: aw, height: ah }));
-        } else {
-          ({ width, height } = await resolveAssetPlaceSize(placePayload, imageSizeForViewport));
-        }
-      } else {
-        ({ width, height } = await resolveAssetPlaceSize(
-          placePayload,
-          imageSizeForViewport
-        ));
-      }
+      const { width, height } = await resolveAssetPlaceSize(
+        placePayload,
+        imageSizeForViewport
+      );
       const world = pointerToWorld(
         camera,
         { viewportEl, stageEl, paperEl, artboard },

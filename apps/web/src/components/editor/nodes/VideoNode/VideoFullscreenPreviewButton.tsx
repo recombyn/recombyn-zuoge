@@ -155,6 +155,7 @@ export function VideoFullscreenPreview({
   return createPortal(
     <div
       className="fixed inset-0 z-[2500]"
+      data-asset-media-preview
       onClick={close}
       onPointerDown={(e) => {
         e.stopPropagation();

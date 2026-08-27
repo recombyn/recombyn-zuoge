@@ -16,6 +16,8 @@ import {
 import {
   generateImage,
   generateVideo,
+  generateAudio,
+  generateLottie,
   type ChatModelsResponse,
   type LlmModel,
 } from '@/service/chat';
@@ -108,7 +110,8 @@ import {
   canAttachNodeToChat
 } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
-  captureVideoPosterFrame
+  captureVideoPosterFrame,
+  parseLottieAnimationData,
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   applyClientFrameHints,
@@ -139,6 +142,8 @@ import AgentComposerShell, {
   type ComposerRunMode,
   type ImageModeComposerControls,
   type VideoModeComposerControls,
+  type AudioModeComposerControls,
+  type LottieModeComposerControls,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import { insertPendingComposerChips } from '@/components/editor/panels/agent/composerChipInsert';
 import { normalizeCanvasSizeChip } from '@/components/editor/chrome/SizePresetPanel';
@@ -155,6 +160,17 @@ import {
 import { AgentRoutePrefsEditor } from '@/components/editor/panels/agent/models/AgentRoutePrefsEditor';
 import { setAllowedCanvasToolKeys } from '@/components/editor/panels/agent/toolOpsContract';
 import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTools';
+import {
+  DEFAULT_LOTTIE_ASPECT,
+  DEFAULT_LOTTIE_DURATION,
+} from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
+import {
+  buildAudioGeneratorModelList,
+  buildLottieChatModelList,
+  modelIsAudioGenerator,
+  nextAudioModelId,
+  nextLottieChatModelId,
+} from '@/components/editor/nodes/shared/generatorModelLists';
 import {
   DEFAULT_IMAGE_ASPECT_RATIO,
   DEFAULT_IMAGE_COUNT,
@@ -178,13 +194,20 @@ import {
   buildImageModeControls,
   buildStreamingAssistantSeed,
   buildVideoAssistantSeed,
+  buildAudioAssistantSeed,
+  buildLottieAssistantSeed,
   buildVideoModeControls,
+  buildAudioModeControls,
+  buildLottieModeControls,
   clampComposerImageCount,
   clearAskProposalFields,
   collectSendChipContext,
+  firstGeneratedAudioUrl,
   firstGeneratedImageUrl,
+  firstGeneratedLottieUrl,
   firstGeneratedVideoUrl,
   formatChatMediaError,
+  lottieGenDimensions,
   mergeLongSuggestions,
   resolveAskChoiceSend,
   resolveImageGenFinishKind,
@@ -192,6 +215,8 @@ import {
   resolveSendDisplayText,
   shouldRunImageGenPath,
   shouldRunVideoGenPath,
+  shouldRunAudioGenPath,
+  shouldRunLottieGenPath,
   splitBubbleContexts,
   uniqueVisionUrls,
   askProposalBind,
@@ -417,10 +442,14 @@ function resolveComposerPlaceholder(
     isImageModel: boolean;
     isImageMode?: boolean;
     isVideoMode?: boolean;
+    isAudioMode?: boolean;
+    isLottieMode?: boolean;
     hasContextChips: boolean;
     askPlaceholder?: string | null;
   }
 ): string {
+  if (opts.isLottieMode) return t('editor.tools.lottieGenPlaceholder');
+  if (opts.isAudioMode) return t('editor.tools.audioGenPlaceholder');
   if (opts.isVideoMode) return t('editor.tools.videoGenPlaceholder');
   if (opts.isImageMode) return t('editor.tools.imageGenPlaceholder');
   if (opts.isImageModel) return t('agent.placeholderImage');
@@ -440,7 +469,13 @@ const DETAIL_SUMMARY_KINDS = new Set([
 ]);
 const SUCCESS_VARIANT_KINDS = new Set(['added', 'updated', 'deleted']);
 const CONFIRM_VARIANT_KINDS = new Set(['thought', 'explored', 'tool']);
-const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent', 'image', 'video'];
+const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = [
+  'agent',
+  'image',
+  'video',
+  'audio',
+  'lottie',
+];
 
 type FinishAssistant = (
   m: ChatUiMessage,
@@ -746,6 +781,10 @@ function AgentDock({
   const [videoGenAspectRatio, setVideoGenAspectRatio] = useState(DEFAULT_VIDEO_ASPECT_RATIO);
   const [videoGenDuration, setVideoGenDuration] = useState(DEFAULT_VIDEO_DURATION);
   const [videoModelPanelOpen, setVideoModelPanelOpen] = useState(false);
+  const [lottieGenAspectRatio, setLottieGenAspectRatio] = useState(DEFAULT_LOTTIE_ASPECT);
+  const [lottieGenDuration, setLottieGenDuration] = useState(DEFAULT_LOTTIE_DURATION);
+  const [lottieModelPanelOpen, setLottieModelPanelOpen] = useState(false);
+  const [audioModelPanelOpen, setAudioModelPanelOpen] = useState(false);
   const [styleGroupId, setStyleGroupId] = useState<number | null>(null);
   const [designScene, setDesignScene] = useState<DesignScene | null>(null);
   const designSceneRef = useRef<DesignScene | null>(null);
@@ -1636,8 +1675,14 @@ function AgentDock({
 
   const composerImagesOnly =
     interactionMode === 'image' ||
-    (composerMode === 'image' && interactionMode !== 'video') ||
-    (isImageKind(models.find((m) => m.id === model)) && interactionMode !== 'video');
+    (composerMode === 'image' &&
+      interactionMode !== 'video' &&
+      interactionMode !== 'audio' &&
+      interactionMode !== 'lottie') ||
+    (isImageKind(models.find((m) => m.id === model)) &&
+      interactionMode !== 'video' &&
+      interactionMode !== 'audio' &&
+      interactionMode !== 'lottie');
 
   /** Arc fly into Agent composer only (`data-fly-land="agent"`), then apply attach. */
   async function flyPayloadIntoComposer(
@@ -1728,20 +1773,40 @@ function AgentDock({
   const selectedModel =
     model === 'auto' ? AUTO_MODEL : models.find((m) => m.id === model);
   const selectedModelLabel = selectedModel?.label || (models[0]?.label ?? 'Agent');
+  const catalogRes = modelsQuery.data as ChatModelsResponse | undefined;
+  const audioGenModels = useMemo(
+    () => buildAudioGeneratorModelList(catalogRes),
+    [catalogRes]
+  );
+  const lottieChatModels = useMemo(
+    () => buildLottieChatModelList(catalogRes),
+    [catalogRes]
+  );
   const isVideoInteraction = interactionMode === 'video';
+  const isAudioInteraction = interactionMode === 'audio';
+  const isLottieInteraction = interactionMode === 'lottie';
   const isVideoModelSelected =
     isVideoInteraction ||
     composerMode === 'video' ||
     isVideoKind(selectedModel);
+  const isAudioModelSelected =
+    isAudioInteraction || modelIsAudioGenerator(selectedModel);
+  const isLottieModelSelected = isLottieInteraction;
   const isImageInteraction = interactionMode === 'image';
   const isImageModelSelected =
     !isVideoInteraction &&
+    !isAudioInteraction &&
+    !isLottieInteraction &&
     (isImageInteraction || composerMode === 'image' || isImageKind(selectedModel));
   const rules = designCatalog?.global_rules;
   const attachmentLimit = agentAttachmentLimit({
     models,
     modelId: model,
-    isImageMode: isImageModelSelected || isVideoModelSelected,
+    isImageMode:
+      isImageModelSelected ||
+      isVideoModelSelected ||
+      isAudioModelSelected ||
+      isLottieModelSelected,
     rules,
     routedImageId: routeOverridesForApi(loadAgentRoutePrefs(rules))?.image,
     freeImageId: cloudImageFallbackId() || undefined,
@@ -1774,7 +1839,11 @@ function AgentDock({
             return;
           }
           // Image chat mode — stills only; video chat mode allows media.
-          const imagesOnly = isImageModelSelected && !isVideoModelSelected;
+          const imagesOnly =
+            isImageModelSelected &&
+            !isVideoModelSelected &&
+            !isAudioModelSelected &&
+            !isLottieModelSelected;
           // If the canvas already has a selection, attach it immediately without entering pick mode.
           // Entering pick mode after attaching would cause the user to re-click the same node
           // and attach it a second time.
@@ -2187,6 +2256,20 @@ function AgentDock({
         forceAgent,
         hasApplyOps: Boolean(options.applyOps?.length),
       });
+    const runAudioGen = shouldRunAudioGenPath({
+      isAudioModelSelected: isAudioModelSelected && !runVideoGen,
+      forceAgent,
+      hasApplyOps: Boolean(options.applyOps?.length),
+    });
+    const runLottieGen = shouldRunLottieGenPath({
+      isLottieModelSelected: isLottieModelSelected && !runVideoGen && !runAudioGen,
+      forceAgent,
+      hasApplyOps: Boolean(options.applyOps?.length),
+    });
+    const lottieGenAspect =
+      String(lottieGenAspectRatio).trim() !== 'smart'
+        ? String(lottieGenAspectRatio).trim() || undefined
+        : undefined;
     const videoGenAspect =
       String(videoGenAspectRatio).trim() !== 'smart'
         ? String(videoGenAspectRatio).trim() || undefined
@@ -2213,16 +2296,32 @@ function AgentDock({
               model,
               selectedModel,
             })
-          : buildStreamingAssistantSeed({
-              imageGenCount,
-              imageGenAspect,
-              imageGenAspectRatio,
-              canPickModel,
-              model,
-              selectedModel,
-              models,
-              t,
-            })),
+          : runAudioGen
+            ? buildAudioAssistantSeed({
+                canPickModel,
+                model,
+                selectedModel:
+                  audioGenModels.find((m) => m.id === model) || selectedModel,
+              })
+            : runLottieGen
+              ? buildLottieAssistantSeed({
+                  lottieGenAspect,
+                  lottieGenAspectRatio,
+                  canPickModel,
+                  model,
+                  selectedModel:
+                    lottieChatModels.find((m) => m.id === model) || selectedModel,
+                })
+              : buildStreamingAssistantSeed({
+                  imageGenCount,
+                  imageGenAspect,
+                  imageGenAspectRatio,
+                  canPickModel,
+                  model,
+                  selectedModel,
+                  models,
+                  t,
+                })),
         streaming: true,
         startedAt: Date.now(),
       },
@@ -2294,6 +2393,153 @@ function AgentDock({
             finishAssistantPatch(m, {
               content: formatChatMediaError(t, err),
               videoPendingCount: undefined,
+              steps: [],
+            })
+        );
+      } finally {
+        dispatch(setAgentBusy(false));
+        setSending(false);
+        refreshWalletAfterSpend();
+      }
+      return;
+    }
+
+    if (runAudioGen) {
+      dispatch(setAgentBusy(true));
+      const audioModel =
+        audioGenModels.find((m) => m.id === model)?.id ||
+        nextAudioModelId(audioGenModels, model) ||
+        audioGenModels[0]?.id ||
+        model;
+      const patchAssistant = (
+        pred: (m: ChatUiMessage) => boolean,
+        patch: (m: ChatUiMessage) => ChatUiMessage
+      ) => {
+        setMessages((prev) => prev.map((m) => (pred(m) ? patch(m) : m)));
+      };
+      try {
+        const res = await generateAudio(
+          { prompt: text, model: audioModel || undefined },
+          { signal: ac.signal }
+        );
+        const url = firstGeneratedAudioUrl(res);
+        if (ac.signal.aborted) return;
+        if (!url) {
+          patchAssistant(
+            (m) => m.id === assistantId,
+            (m) =>
+              finishAssistantPatch(m, {
+                content: t('agent.requestFailed'),
+                audioPendingCount: undefined,
+                steps: [],
+              })
+          );
+          return;
+        }
+        patchAssistant(
+          (m) => m.id === assistantId,
+          (m) =>
+            finishAssistantPatch(m, {
+              content: '',
+              audios: [url],
+              audioPendingCount: undefined,
+              steps: [],
+            })
+        );
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        patchAssistant(
+          (m) => m.id === assistantId,
+          (m) =>
+            finishAssistantPatch(m, {
+              content: formatChatMediaError(t, err),
+              audioPendingCount: undefined,
+              steps: [],
+            })
+        );
+      } finally {
+        dispatch(setAgentBusy(false));
+        setSending(false);
+        refreshWalletAfterSpend();
+      }
+      return;
+    }
+
+    if (runLottieGen) {
+      dispatch(setAgentBusy(true));
+      const aspect = lottieGenAspect;
+      const lottieModel =
+        lottieChatModels.find((m) => m.id === model)?.id ||
+        nextLottieChatModelId(lottieChatModels, model) ||
+        lottieChatModels[0]?.id ||
+        model;
+      const { width, height } = lottieGenDimensions(aspect || lottieGenAspectRatio);
+      const refImages = uniqueVisionUrls(
+        [
+          ...attachedImages,
+          ...mentionImageSrcs.filter(
+            (u) => u.startsWith('data:image/') || u.startsWith('http') || u.startsWith('/')
+          ),
+        ],
+        8
+      );
+      const patchAssistant = (
+        pred: (m: ChatUiMessage) => boolean,
+        patch: (m: ChatUiMessage) => ChatUiMessage
+      ) => {
+        setMessages((prev) => prev.map((m) => (pred(m) ? patch(m) : m)));
+      };
+      try {
+        const body: Parameters<typeof generateLottie>[0] = {
+          prompt: text,
+          width,
+          height,
+          duration_sec: lottieGenDuration,
+          model: lottieModel || undefined,
+        };
+        if (refImages.length) body.images = refImages;
+        const res = await generateLottie(body, { signal: ac.signal });
+        const animationData = parseLottieAnimationData(res?.animationData);
+        if (ac.signal.aborted) return;
+        if (!animationData) {
+          patchAssistant(
+            (m) => m.id === assistantId,
+            (m) =>
+              finishAssistantPatch(m, {
+                content: t('agent.requestFailed'),
+                lottiePendingCount: undefined,
+                imageAspectRatio: aspect || lottieGenAspectRatio,
+                steps: [],
+              })
+          );
+          return;
+        }
+        patchAssistant(
+          (m) => m.id === assistantId,
+          (m) =>
+            finishAssistantPatch(m, {
+              content: '',
+              lotties: [
+                {
+                  animationData,
+                  w: res.w ?? width,
+                  h: res.h ?? height,
+                  url: firstGeneratedLottieUrl(res) || undefined,
+                },
+              ],
+              lottiePendingCount: undefined,
+              imageAspectRatio: aspect || lottieGenAspectRatio,
+              steps: [],
+            })
+        );
+      } catch (err) {
+        if (ac.signal.aborted) return;
+        patchAssistant(
+          (m) => m.id === assistantId,
+          (m) =>
+            finishAssistantPatch(m, {
+              content: formatChatMediaError(t, err),
+              lottiePendingCount: undefined,
               steps: [],
             })
         );
@@ -2981,6 +3227,8 @@ function AgentDock({
     setInteractionMode(mode);
     setImageModelPanelOpen(false);
     setVideoModelPanelOpen(false);
+    setAudioModelPanelOpen(false);
+    setLottieModelPanelOpen(false);
     setModelPanelOpen(false);
     if (mode === 'video') {
       setComposerMode('video');
@@ -2989,6 +3237,24 @@ function AgentDock({
         return;
       }
       setModel(pickPreferredVideoModelId(models, model));
+      return;
+    }
+    if (mode === 'audio') {
+      setComposerMode('agent');
+      const audioModels = buildAudioGeneratorModelList(
+        modelsQuery.data as ChatModelsResponse | undefined
+      );
+      const next = nextAudioModelId(audioModels, model);
+      setModel(next || audioModels[0]?.id || model);
+      return;
+    }
+    if (mode === 'lottie') {
+      setComposerMode('agent');
+      const lottieModels = buildLottieChatModelList(
+        modelsQuery.data as ChatModelsResponse | undefined
+      );
+      const next = nextLottieChatModelId(lottieModels, model);
+      setModel(next || lottieModels[0]?.id || model);
       return;
     }
     if (mode === 'image') {
@@ -3002,7 +3268,7 @@ function AgentDock({
     }
     setComposerMode('agent');
     setModel('auto');
-  }, [canPickModel, models, model]);
+  }, [canPickModel, models, model, modelsQuery.data]);
 
   useEffect(() => {
     if (enabledInteractionModes.includes(interactionMode)) return;
@@ -3016,6 +3282,8 @@ function AgentDock({
     setSkillPanelOpen(false);
     setImageModelPanelOpen(false);
     setVideoModelPanelOpen(false);
+    setAudioModelPanelOpen(false);
+    setLottieModelPanelOpen(false);
   }, [onlyImageInteraction]);
 
   const mentionFloating = useFloating({
@@ -3103,6 +3371,8 @@ function AgentDock({
     isImageModel: isImageModelSelected,
     isImageMode: isImageInteraction,
     isVideoMode: isVideoInteraction,
+    isAudioMode: isAudioInteraction,
+    isLottieMode: isLottieInteraction,
     hasContextChips: contextChips.length > 0,
     askPlaceholder,
   });
@@ -3145,6 +3415,37 @@ function AgentDock({
       setModel(id);
       setComposerMode('video');
       setVideoModelPanelOpen(false);
+    },
+  });
+
+  const audioModeControls = buildAudioModeControls({
+    active: isAudioInteraction,
+    models: audioGenModels,
+    modelId: model,
+    modelsStatus,
+    modelOpen: audioModelPanelOpen,
+    onModelOpenChange: setAudioModelPanelOpen,
+    onPickModel: (id) => {
+      setModel(id);
+      setAudioModelPanelOpen(false);
+    },
+  });
+
+  const lottieModeControls = buildLottieModeControls({
+    active: isLottieInteraction,
+    models: lottieChatModels,
+    modelId: model,
+    modelsStatus,
+    aspectRatio: lottieGenAspectRatio,
+    duration: lottieGenDuration,
+    modelOpen: lottieModelPanelOpen,
+    onAspectRatioChange: setLottieGenAspectRatio,
+    onDurationChange: (d) =>
+      setLottieGenDuration(Math.max(1, Math.round(d) || DEFAULT_LOTTIE_DURATION)),
+    onModelOpenChange: setLottieModelPanelOpen,
+    onPickModel: (id) => {
+      setModel(id);
+      setLottieModelPanelOpen(false);
     },
   });
 
@@ -3217,6 +3518,8 @@ function AgentDock({
         showInteractionModePicker
         imageModeControls={imageModeControls}
         videoModeControls={videoModeControls}
+        audioModeControls={audioModeControls}
+        lottieModeControls={lottieModeControls}
         modelButtonProps={modelButtonProps}
         {...imageAspectProps}
       />
@@ -3328,6 +3631,8 @@ function AgentDock({
               showInteractionModePicker
               imageModeControls={imageModeControls}
               videoModeControls={videoModeControls}
+              audioModeControls={audioModeControls}
+              lottieModeControls={lottieModeControls}
               modelButtonProps={modelButtonProps}
               {...imageAspectProps}
             />
