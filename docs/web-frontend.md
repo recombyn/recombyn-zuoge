@@ -86,5 +86,5 @@ Editor **document**, selection, tools, camera-ish UI — local canvas SoT. Do no
 - [canvas-architecture.md](./canvas-architecture.md) — paint / Path2D / viewport cull + Canvas idle
 - [scene-json-spec.md](./scene-json-spec.md) — persisted document JSON
 - [billing.md](./billing.md) — `WALLET_BILLING_ENABLED` + `useBillingEnabled`
-- [deployment-modes.md](./deployment-modes.md) — cloud / self-host / dev / desktop
+- [deployment-modes.md](./deployment-modes.md) — self-host / dev / desktop
 - [self-hosting.md](./self-hosting.md) — deploy + collab WSS

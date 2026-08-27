@@ -24,18 +24,7 @@
   <p><strong>作ろう、デザインがこんなに簡単だったことはない</strong></p>
 </div>
 
-**zuoge** はオープンソースの AI デザインワークスペースです。無限ベクターキャンバス、LangGraph Design Agent、**MCP サーバー**（Cursor など外部クライアントが同一プロジェクトを編集）を備えます。Docker Compose でセルフホスト — [recombyn.com](https://recombyn.com) と同一コードベース。
-
-## デプロイモード
-
-| モード | 説明 |
-|--------|------|
-| **Cloud** | [recombyn.com](https://recombyn.com) — マネージド SaaS |
-| **セルフホスト** | 自サーバーで `docker compose` — 環境を揃えれば Cloud と同等 |
-| **ローカル開発** | `npm run dev:api` + `dev:web` — 開発用（別 SKU ではない） |
-| **デスクトップ** | Tauri シェル — ブラウザと同じ API（[docs/desktop.md](docs/desktop.md)） |
-
-認証: メール OTP（Tencent SES）と/または Google OAuth。クレジット: `WALLET_BILLING_ENABLED` はデフォルト **オン**（セルフホストも Cloud と同じ）。→ [docs/deployment-modes.md](docs/deployment-modes.md)
+**zuoge** はオープンソースの AI デザインワークスペースです。無限ベクターキャンバス、LangGraph Design Agent、**MCP サーバー**（Cursor など外部クライアントが同一プロジェクトを編集）を備えます。Docker Compose でセルフホスト。
 
 ## GitHub で ⭐ Star を
 

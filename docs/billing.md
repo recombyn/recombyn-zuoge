@@ -3,7 +3,7 @@
 本仓库提供两样东西：**Billing Protocol**（怎么记账）和 **任务制积分地板**（默认预扣多少）。  
 它们不是完整的 Cloud 套餐产品；加价、促销、list SKU 由宿主自己决定。
 
-**部署与开关：** 云端 / 自托管 / 本地开发共用同一套代码。运行时开关只有 **`WALLET_BILLING_ENABLED`**（默认 `true`，与云端一致）。详见 [deployment-modes.md](./deployment-modes.md)。
+**部署与开关：** 运行时开关为 **`WALLET_BILLING_ENABLED`**（默认 `true`）。详见 [deployment-modes.md](./deployment-modes.md)。
 
 协议包 pin：`recombyn-protocol >= 0.1.3`。
 
@@ -106,7 +106,7 @@ estimate → authorize → execute → settle
 | 项 | 说明 |
 |----|------|
 | **环境变量** | `WALLET_BILLING_ENABLED`（`apps/api/.env` 或 Compose / k8s） |
-| **默认值** | `true` — 自托管与 `recombyn.com` 一致，无需额外配置 |
+| **默认值** | `true` — 一般无需额外配置 |
 | **关闭** | 仅当明确不需要平台积分时设 `false` |
 | **公开 API** | `GET /api/v1/auth/config` → `billingEnabled` |
 | **前端规则** | `useBillingEnabled()` 只读 `auth/config`；`/wallet` 报错 **不会** 隐藏积分 UI |
@@ -126,7 +126,7 @@ estimate → authorize → execute → settle
 
 ## 自托管怎么开
 
-默认已开启（与云端一致）：
+默认已开启：
 
 ```bash
 # apps/api/.env
@@ -139,7 +139,7 @@ estimate → authorize → execute → settle
 | `true`（默认） | SaaS 风格钱包（plans、卡密、日免费额度等） |
 | `false` | 无 hold/charge；UI 隐藏积分相关入口 |
 
-这不是 zuoge Cloud 订阅——开关在你自己的实例上；默认行为与云端相同。
+开关在你自己的实例上。
 
 打开后可选：
 

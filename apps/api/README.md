@@ -36,7 +36,7 @@ Worker：`celery -A worker.celery_app.celery worker -l info`（Windows 加 `--po
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `WALLET_BILLING_ENABLED` | `true` | 预扣与结算；与云端、自托管默认一致 |
+| `WALLET_BILLING_ENABLED` | `true` | 预扣与结算；默认开启 |
 | `CARD_KEY_SALT` / `CARD_KEY_OPS_PASSWORD` | — | 卡密兑换（billing 开启时） |
 
 设为 `false` 时跳过 hold/charge；前端通过 `auth/config.billingEnabled` 隐藏积分 UI。

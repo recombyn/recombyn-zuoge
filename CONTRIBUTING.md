@@ -31,7 +31,7 @@ Useful scripts:
 | `npm run check` | Web ESLint + contracts typecheck |
 | `npm run ci:gate` | Local mirror of GitHub `CI / gate` (check + web/API unit) |
 | `npm run lint` / `typecheck` | Turbo across JS packages |
-| `npm run dev:desktop` / `build:desktop` | Tauri cloud desktop ([docs/desktop.md](./docs/desktop.md)) |
+| `npm run dev:desktop` / `build:desktop` | Tauri desktop ([docs/desktop.md](./docs/desktop.md)) |
 | `npm run test` | Web + API tests |
 | `npm run test:web` / `test:api` | Scoped tests |
 | `npm run test:e2e` | Playwright (under `e2e/`) |
