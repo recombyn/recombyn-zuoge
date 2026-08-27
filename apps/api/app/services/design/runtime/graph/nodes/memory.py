@@ -5,7 +5,6 @@ import asyncio
 from langgraph.types import Command
 
 from app.services.agent_memory.service import memory_service
-from app.services.design.runtime.graph.nodes.bootstrap import _hydrate_pinned_skills
 from app.services.design.runtime.graph.state import GraphState
 from app.services.design.runtime.graph.llm_io import _clip_llm_raw
 from app.services.design.runtime.graph.scene_log import (

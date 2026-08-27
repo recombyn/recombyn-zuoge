@@ -1090,6 +1090,45 @@ async def classify_model_route(
         return fallback
 
 
+async def apply_classified_model_route(rt: Any) -> None:
+    """Run LLM model router and persist lane on runtime for downstream resolution."""
+    from app.services.design.runtime.graph.state import AgentRuntime
+
+    if not isinstance(rt, AgentRuntime):
+        raise TypeError("apply_classified_model_route expects AgentRuntime")
+    st = rt.run
+    decision = await classify_model_route(
+        prompt=rt.prompt,
+        rules=rt.rules,
+        has_images=bool(rt.images),
+        canvas_node_count=len(rt.scene_nodes or []),
+        scene=rt.scene_key,
+        interaction_mode=str(rt.flags.get("mode") or rt.mode or ""),
+    )
+    lane = decision.lane
+    rt.flags["route_lane"] = lane
+    rt.flags["route_rationale"] = decision.rationale
+    st.task_tier = lane
+    tier_label = lane or "-"
+    st.push_log(
+        phase="route",
+        task_tier=st.task_tier or None,
+        has_images=bool(rt.images) or None,
+        vision=None,
+        user_selected_model=(rt.user_selected_model or "auto"),
+        run_mode=rt.mode,
+        summary=(
+            f"task_tier={tier_label}"
+            + (" · images" if rt.images else "")
+            + f" · mode={rt.mode}"
+            + (f" · {(decision.rationale or '')[:80]}" if decision.rationale else "")
+        ),
+    )
+    if str(rt.flags.get("mode") or "").strip().lower() not in ("agent", "ask"):
+        rt.flags["mode"] = "agent"
+    rt.flags["task_tier"] = st.task_tier
+
+
 def resolve_model_for_skill(
     *,
     skill: dict[str, Any],
