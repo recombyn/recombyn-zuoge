@@ -10,9 +10,9 @@ import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  useGeneratorComposerScreenStyle,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+import { RcbOverlayPortal } from '@/components/rcb';
 import AgentComposerInput, {
   chipBaseKey,
   composerAttachmentMediaKind,
@@ -80,10 +80,8 @@ import store from '@/store';
 
 type Props = {
   nodeId: string;
-  /** Scene plate box 鈥?composer anchors under it; promote keeps document geometry. */
+  /** Scene plate box — composer anchors under it; promote keeps document geometry. */
   sceneBox: { x: number; y: number; width: number; height: number };
-  /** Composer only shows while the generator node is selected. */
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -127,7 +125,6 @@ function plateSizeForVideoAspect(
 function VideoGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled,
 }: Props): ReactNode {
   const { t } = useTranslation();
@@ -165,6 +162,7 @@ function VideoGeneratorCard({
 
   const [prompt, setPrompt] = useState('');
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending && !nodeProcessing;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [resolution, setResolution] = useState<string>(() => {
@@ -573,11 +571,7 @@ function VideoGeneratorCard({
     );
   };
 
-  // Same placement contract as selection toolbars: world-layer under the box.
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
-
-  // Hide as soon as send starts — no compact loading bar; node glow shows progress.
-  const composerVisible = showComposer && !sending && !nodeProcessing;
+  const composerStyle = useGeneratorComposerScreenStyle(sceneBox);
 
   // Auto-focus once when the composer first becomes visible — skip remount churn.
   const wasComposerVisibleRef = useRef(false);
@@ -625,19 +619,16 @@ function VideoGeneratorCard({
 
   return (
     <>
-      <WorldScreenChromeRoot
-          left={composerPlacement.left}
-          railWidth={composerPlacement.railWidth}
-          top={composerPlacement.top}
-          anchor={composerPlacement.anchor}
-          edgeGapPx={composerPlacement.edgeGapPx}
-          active={composerVisible}
-          data-video-generator
-          data-sel-toolbar
-          data-scene-node-id={nodeId}
-          className="pointer-events-auto z-[32] overflow-visible"
-          {...chromePointer}
-        >
+      {composerVisible ? (
+        <RcbOverlayPortal>
+          <div
+            style={composerStyle}
+            data-video-generator
+            data-sel-toolbar
+            data-scene-node-id={nodeId}
+            className="pointer-events-auto z-[32] overflow-visible"
+            {...chromePointer}
+          >
           <CanvasMediaComposerShell
             attachment={
               <ComposerAttachmentStrip
@@ -824,7 +815,9 @@ function VideoGeneratorCard({
               </ComposerFooterBar>
             }
           />
-        </WorldScreenChromeRoot>
+          </div>
+        </RcbOverlayPortal>
+      ) : null}
 
       {composerVisible && mentionOpen ? (
         <FloatingPortal>

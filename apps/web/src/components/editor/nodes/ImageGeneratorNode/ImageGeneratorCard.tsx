@@ -13,9 +13,9 @@ import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  useGeneratorComposerScreenStyle,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+import { RcbOverlayPortal } from '@/components/rcb';
 import AgentComposerInput, {
   chipBaseKey,
   upsertLibraryAssetAttachment,
@@ -117,8 +117,6 @@ type Props = {
   nodeId: string;
   /** Scene plate box 鈥?composer anchors under it; promote keeps document geometry. */
   sceneBox: { x: number; y: number; width: number; height: number };
-  /** Composer only shows while the generator node is selected. */
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -161,7 +159,6 @@ function plateSizeForAspect(
 function ImageGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled,
 }: Props): ReactNode {
   const { t } = useTranslation();
@@ -216,6 +213,7 @@ function ImageGeneratorCard({
     promptForImageSrc(genAttrs, mainSrc)
   );
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending && !nodeProcessing;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [resolution, setResolution] = useState<string>(() => {
@@ -298,7 +296,7 @@ function ImageGeneratorCard({
   // Auto-focus once when the composer first becomes visible — skip remount churn.
   const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) {
+    if (!composerVisible || disabled) {
       wasComposerVisibleRef.current = false;
       return;
     }
@@ -308,7 +306,7 @@ function ImageGeneratorCard({
       inputRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [showComposer, disabled]);
+  }, [composerVisible, disabled]);
 
   useEffect(() => {
     return () => {
@@ -707,11 +705,7 @@ function ImageGeneratorCard({
     );
   };
 
-  // Same placement contract as selection toolbars: world-layer under the box.
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
-
-  // Hide as soon as send starts — no compact loading bar; node glow shows progress.
-  const composerVisible = showComposer && !sending && !nodeProcessing;
+  const composerStyle = useGeneratorComposerScreenStyle(sceneBox);
 
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
@@ -743,24 +737,23 @@ function ImageGeneratorCard({
 
   return (
     <>
-      <WorldScreenChromeRoot
-          left={composerPlacement.left}
-          railWidth={composerPlacement.railWidth}
-          top={composerPlacement.top}
-          anchor={composerPlacement.anchor}
-          edgeGapPx={composerPlacement.edgeGapPx}
-          active={composerVisible}
-          data-image-generator
-          data-sel-toolbar
-          {...(markActive ? { 'data-mark-composer': true } : {})}
-          data-scene-node-id={nodeId}
-          className={cn(
-            'pointer-events-auto overflow-visible',
-            markActive ? 'z-[40]' : 'z-[32]'
-          )}
-          style={markActive ? { zIndex: MARK_COMPOSER_Z } : undefined}
-          {...chromePointer}
-        >
+      {composerVisible ? (
+        <RcbOverlayPortal>
+          <div
+            style={{
+              ...composerStyle,
+              ...(markActive ? { zIndex: MARK_COMPOSER_Z } : undefined),
+            }}
+            data-image-generator
+            data-sel-toolbar
+            {...(markActive ? { 'data-mark-composer': true } : {})}
+            data-scene-node-id={nodeId}
+            className={cn(
+              'pointer-events-auto overflow-visible',
+              markActive ? 'z-[40]' : 'z-[32]'
+            )}
+            {...chromePointer}
+          >
           <CanvasMediaComposerShell
             attachment={
               <ComposerAttachmentStrip
@@ -973,7 +966,9 @@ function ImageGeneratorCard({
               </ComposerFooterBar>
             }
           />
-        </WorldScreenChromeRoot>
+          </div>
+        </RcbOverlayPortal>
+      ) : null}
 
       {composerVisible && mentionOpen ? (
         <FloatingPortal>

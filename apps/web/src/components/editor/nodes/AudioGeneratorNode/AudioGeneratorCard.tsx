@@ -24,9 +24,9 @@ import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, message, Tooltip } from '@/components/base';
 import {
   useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  useGeneratorComposerScreenStyle,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+import { RcbOverlayPortal } from '@/components/rcb';
 import AgentComposerInput, {
   chipBaseKey,
   composerAttachmentMediaKind,
@@ -73,7 +73,6 @@ import store from '@/store';
 type Props = {
   nodeId: string;
   sceneBox: { x: number; y: number; width: number; height: number };
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -82,7 +81,6 @@ const DEFAULT_AUDIO_MODEL_ID = 'or-gemini-3-1-flash-tts';
 function AudioGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled,
 }: Props): ReactNode {
   const { t } = useTranslation();
@@ -94,6 +92,7 @@ function AudioGeneratorCard({
   const [prompt, setPrompt] = useState('');
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending;
   const [modelId, setModelId] = useState(() => cloudOnlyModelId(DEFAULT_AUDIO_MODEL_ID));
   const { models, status: modelsStatus } = useGeneratorModelsCatalog({
     buildList: buildAudioGeneratorModelList,
@@ -136,7 +135,7 @@ function AudioGeneratorCard({
 
   const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) {
+    if (!composerVisible || disabled) {
       wasComposerVisibleRef.current = false;
       return;
     }
@@ -146,7 +145,7 @@ function AudioGeneratorCard({
       inputRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [showComposer, disabled]);
+  }, [composerVisible, disabled]);
 
   useEffect(() => {
     return () => {
@@ -440,25 +439,21 @@ function AudioGeneratorCard({
     }
   };
 
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
+  const composerStyle = useGeneratorComposerScreenStyle(sceneBox);
   const canSubmit = Boolean(readyAudioAtt || prompt.trim()) && !attachmentsUploading;
-  const composerVisible = showComposer && !sending;
 
   return (
     <>
-      <WorldScreenChromeRoot
-        left={composerPlacement.left}
-        railWidth={composerPlacement.railWidth}
-        top={composerPlacement.top}
-        anchor={composerPlacement.anchor}
-        edgeGapPx={composerPlacement.edgeGapPx}
-        active={composerVisible}
-        data-audio-generator
-        data-sel-toolbar
-        data-scene-node-id={nodeId}
-        className="pointer-events-auto z-[32] overflow-visible"
-        {...chromePointer}
-      >
+      {composerVisible ? (
+        <RcbOverlayPortal>
+          <div
+            style={composerStyle}
+            data-audio-generator
+            data-sel-toolbar
+            data-scene-node-id={nodeId}
+            className="pointer-events-auto z-[32] overflow-visible"
+            {...chromePointer}
+          >
         <CanvasMediaComposerShell
           panelSize="compact"
           attachment={
@@ -587,9 +582,11 @@ function AudioGeneratorCard({
             </ComposerFooterBar>
           }
         />
-      </WorldScreenChromeRoot>
+          </div>
+        </RcbOverlayPortal>
+      ) : null}
 
-      {mentionOpen ? (
+      {composerVisible && mentionOpen ? (
         <FloatingPortal>
           <div
             ref={mentionFloating.refs.setFloating}
@@ -609,7 +606,7 @@ function AudioGeneratorCard({
         </FloatingPortal>
       ) : null}
 
-      {skillOpen ? (
+      {composerVisible && skillOpen ? (
         <FloatingPortal>
           <div
             ref={skillFloating.refs.setFloating}

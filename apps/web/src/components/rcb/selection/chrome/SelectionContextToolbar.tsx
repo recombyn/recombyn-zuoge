@@ -64,12 +64,19 @@ import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/do
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
-  isGeneratorNode,
+  isAudioGeneratorNode,
   isIconImageNode,
+  isImageGeneratorNode,
   isImageProcessRunning,
+  isLottieGeneratorNode,
   isTextFrameNode,
+  isVideoGeneratorNode,
   supportsCornerRadius,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import ImageGeneratorCard from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
+import VideoGeneratorCard from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorCard';
+import LottieGeneratorCard from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorCard';
+import AudioGeneratorCard from '@/components/editor/nodes/AudioGeneratorNode/AudioGeneratorCard';
 import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
 import ToolbarMenuSelect from './ToolbarMenuSelect';
 import { BlendModeIcon, OpacityControl } from './BlendModeControl';
@@ -473,9 +480,23 @@ function SelectionContextToolbar(props: Props): ReactNode {
   if (!node || !box) return null;
 
   const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
+  const genBox = { x: box.left, y: box.top, width: box.width, height: box.height };
 
-  // Generators own their composer overlay — never mount QuickEdit on top.
-  if (isGeneratorNode(node) || isImageProcessRunning(node)) return null;
+  // Same mount gate as image/video toolbars (SelectionFeature). Content only differs.
+  if (isImageGeneratorNode(node)) {
+    return <ImageGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+  if (isVideoGeneratorNode(node)) {
+    return <VideoGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+  if (isLottieGeneratorNode(node)) {
+    return <LottieGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+  if (isAudioGeneratorNode(node)) {
+    return <AudioGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+  }
+
+  if (isImageProcessRunning(node)) return null;
   if (imageSidePanelOpen) return null;
 
   if (quickEditComposerOpen || lottieEditOpen) {

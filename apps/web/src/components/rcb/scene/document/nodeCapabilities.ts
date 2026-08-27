@@ -153,20 +153,6 @@ export function isFrameProcessRunning(
   return Boolean(frame) && String(frame?.processStatus || '') === 'running';
 }
 
-/** Generator bottom composer — hide while upload / generate / AI shimmer / move-resize gesture. */
-export function shouldShowGeneratorComposer(opts: {
-  node: SceneNodeRef;
-  hidden?: boolean;
-  selected?: boolean;
-  attachPickActive?: boolean;
-  /** Live drag/resize preview — plate moves but Redux doc is pre-gesture. */
-  geometryGestureActive?: boolean;
-}): boolean {
-  if (opts.hidden || opts.geometryGestureActive) return false;
-  if (isImageProcessRunning(opts.node)) return false;
-  return Boolean(opts.selected || opts.attachPickActive);
-}
-
 /**
  * Spawned upload / import / AI-tool clone — used for history scrub on delete
  * (Ctrl+Z must not resurrect an unfinished placeholder). Never used to block delete.

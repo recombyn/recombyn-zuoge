@@ -158,10 +158,6 @@ import {
   getDocumentGridSize,
   snapCoordToGrid,
 } from '@/components/rcb';
-import ImageGeneratorOverlay from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorOverlay';
-import VideoGeneratorOverlay from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorOverlay';
-import LottieGeneratorOverlay from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorOverlay';
-import AudioGeneratorOverlay from '@/components/editor/nodes/AudioGeneratorNode/AudioGeneratorOverlay';
 import AudioNodeOverlay, {
   type AudioGeomOverride,
 } from '@/components/editor/nodes/AudioNode/AudioNodeOverlay';
@@ -2038,35 +2034,6 @@ function SvgCanvas({
             onFrameMoveEnd={onFrameMoveEnd}
             onFrameMove={onFrameMove}
           />
-          {!omitNonExportable ? (
-            <>
-              <ImageGeneratorOverlay
-                document={document}
-                readOnly={readOnly}
-                geometryOverrides={videoLiveGeom}
-              />
-              <VideoGeneratorOverlay
-                document={document}
-                readOnly={readOnly}
-                geometryOverrides={videoLiveGeom}
-              />
-              <LottieGeneratorOverlay
-                document={document}
-                readOnly={readOnly}
-                geometryOverrides={
-                  videoLiveGeom as Record<
-                    string,
-                    { left: number; top: number; width: number; height: number }
-                  > | null
-                }
-              />
-              <AudioGeneratorOverlay
-                document={document}
-                readOnly={readOnly}
-                geometryOverrides={videoLiveGeom}
-              />
-            </>
-          ) : null}
           <ShapeDrawFeature
             enabled={shapeMode}
             shapeKind={shapeKind || 'rect'}

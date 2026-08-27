@@ -83,10 +83,13 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
             ))
       );
 
-    const COMPOSER_HOST =
-      '[data-agent-composer], [data-image-generator], [data-video-generator], [data-lottie-generator], [data-audio-generator], [data-media-quick-edit]';
+    const SCENE_COMPOSER_HOST =
+      '[data-image-generator], [data-video-generator], [data-lottie-generator], [data-audio-generator], [data-media-quick-edit]';
+    const COMPOSER_HOST = `[data-agent-composer], ${SCENE_COMPOSER_HOST}`;
 
     const isComposerTarget = (t: HTMLElement | null) => Boolean(t?.closest?.(COMPOSER_HOST));
+    const isSceneComposerTarget = (t: HTMLElement | null) =>
+      Boolean(t?.closest?.(SCENE_COMPOSER_HOST));
 
     const composerPromptText = (t: HTMLElement | null) => {
       const el =
@@ -268,11 +271,13 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && !readOnly) {
         if (typing && !inComposer) return;
-        // Empty on-canvas composer: Delete removes the selected plate (focus stays in CE).
+        // Empty on-canvas generator / quick-edit: Delete removes the plate (CE keeps focus).
+        // Agent dock composer must never fall through to canvas delete.
         if (inComposer && composerPromptText(target)) return;
         const el = target as HTMLElement | null;
+        const allowEmptySceneComposerDelete = isSceneComposerTarget(target);
         if (
-          !inComposer &&
+          !allowEmptySceneComposerDelete &&
           el &&
           (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
         ) {

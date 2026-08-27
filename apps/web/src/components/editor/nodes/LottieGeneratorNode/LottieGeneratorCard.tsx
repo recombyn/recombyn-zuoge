@@ -27,9 +27,9 @@ import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
   useChromePointerActivate,
-  useGeneratorComposerPlacement,
-  WorldScreenChromeRoot,
+  useGeneratorComposerScreenStyle,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+import { RcbOverlayPortal } from '@/components/rcb';
 import AgentComposerInput, {
   chipBaseKey,
   upsertLibraryAssetAttachment,
@@ -95,7 +95,6 @@ import store from '@/store';
 type Props = {
   nodeId: string;
   sceneBox: { x: number; y: number; width: number; height: number };
-  showComposer?: boolean;
   disabled?: boolean;
 };
 
@@ -143,7 +142,6 @@ function plateSizeForAspect(
 function LottieGeneratorCard({
   nodeId,
   sceneBox,
-  showComposer = true,
   disabled = false,
 }: Props): ReactNode {
   const { t } = useTranslation();
@@ -185,6 +183,7 @@ function LottieGeneratorCard({
   const [prompt, setPrompt] = useState('');
   const [contexts, setContexts] = useState<ComposerContext[]>([]);
   const [sending, setSending] = useState(false);
+  const composerVisible = !sending;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [aspectRatio, setAspectRatio] = useState(
@@ -217,7 +216,7 @@ function LottieGeneratorCard({
 
   const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) {
+    if (!composerVisible || disabled) {
       wasComposerVisibleRef.current = false;
       return;
     }
@@ -225,7 +224,7 @@ function LottieGeneratorCard({
     wasComposerVisibleRef.current = true;
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
-  }, [showComposer, disabled]);
+  }, [composerVisible, disabled]);
 
   useEffect(() => {
     const nextAspect = readGenAttrString(genAttrs, 'lottieGenAspect');
@@ -541,8 +540,7 @@ function LottieGeneratorCard({
     }
   };
 
-  const composerPlacement = useGeneratorComposerPlacement(sceneBox);
-  const composerVisible = showComposer && !sending;
+  const composerStyle = useGeneratorComposerScreenStyle(sceneBox);
 
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
@@ -575,19 +573,16 @@ function LottieGeneratorCard({
 
   return (
     <>
-    <WorldScreenChromeRoot
-      left={composerPlacement.left}
-      railWidth={composerPlacement.railWidth}
-      top={composerPlacement.top}
-      anchor={composerPlacement.anchor}
-      edgeGapPx={composerPlacement.edgeGapPx}
-      active={composerVisible}
-      data-lottie-generator
-      data-sel-toolbar
-      data-scene-node-id={nodeId}
-      className="pointer-events-auto z-[32] overflow-visible"
-      {...chromePointer}
-    >
+    {composerVisible ? (
+    <RcbOverlayPortal>
+      <div
+        style={composerStyle}
+        data-lottie-generator
+        data-sel-toolbar
+        data-scene-node-id={nodeId}
+        className="pointer-events-auto z-[32] overflow-visible"
+        {...chromePointer}
+      >
       <CanvasMediaComposerShell
         panelOverflow="visible"
         attachment={
@@ -771,7 +766,9 @@ function LottieGeneratorCard({
           </ComposerFooterBar>
         }
       />
-    </WorldScreenChromeRoot>
+      </div>
+    </RcbOverlayPortal>
+    ) : null}
 
     {composerVisible && mentionOpen ? (
       <FloatingPortal>
@@ -793,7 +790,7 @@ function LottieGeneratorCard({
       </FloatingPortal>
     ) : null}
 
-    {showComposer && skillOpen ? (
+    {composerVisible && skillOpen ? (
       <FloatingPortal>
         <div
           ref={skillFloating.refs.setFloating}

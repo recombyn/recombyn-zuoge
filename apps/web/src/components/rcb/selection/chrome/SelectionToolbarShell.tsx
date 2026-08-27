@@ -13,8 +13,9 @@ import {
   RcbOverlayPortal,
   useRcbCamera,
   useRcbDevicePixelRatio,
+  useRcbScreenToolbarStyle,
 } from '../../camera/context';
-import { rcbCameraCssZoom, rcbSceneToScreen } from '../../core/math';
+import { rcbCameraCssZoom, rcbSceneToScreen, rcbScreenPxToScene } from '../../core/math';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { cn } from '@/utils/classnames';
 
@@ -208,8 +209,6 @@ export function WorldScreenChromeRoot({
   hAlign = 'center',
   edgeGapPx = 0,
   railWidth = 0,
-  /** When false, keep the portal mounted but hidden (no remount flash). */
-  active = true,
   className,
   style,
   children,
@@ -224,11 +223,9 @@ export function WorldScreenChromeRoot({
   edgeGapPx?: number;
   /**
    * Scene width of the selection. When > 0, `left` is the left edge and the
-   * pill is flex-aligned inside this rail (preferred for selection toolbars
-   * and generator composers).
+   * pill is flex-aligned inside this rail (selection toolbars).
    */
   railWidth?: number;
-  active?: boolean;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
@@ -281,23 +278,11 @@ export function WorldScreenChromeRoot({
     };
   }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y]);
 
-  useLayoutEffect(() => {
-    if (active) return;
-    const pill = pillRef.current;
-    const focused = document.activeElement;
-    if (pill && focused instanceof HTMLElement && pill.contains(focused)) {
-      focused.blur();
-    }
-  }, [active]);
-
-  const visible = active && placed;
-
   return (
     <RcbOverlayPortal>
       <div
         ref={hostRef}
         className={cn('pointer-events-none overflow-visible', className)}
-        aria-hidden={!visible}
         style={{
           position: 'fixed',
           left: fixedOrigin.left,
@@ -312,8 +297,7 @@ export function WorldScreenChromeRoot({
           pointerEvents: 'none',
           zIndex: 40,
           ...style,
-          opacity: visible ? (style?.opacity as number | undefined) ?? 1 : 0,
-          visibility: visible ? 'visible' : 'hidden',
+          opacity: placed ? (style?.opacity as number | undefined) ?? 1 : 0,
         }}
       >
         <div
@@ -323,7 +307,6 @@ export function WorldScreenChromeRoot({
             marginTop: contentTop,
             width: 'max-content',
             transform: anchor === 'bottom' ? 'translateY(-100%)' : undefined,
-            pointerEvents: visible ? 'auto' : 'none',
           }}
           {...rest}
         >
@@ -443,29 +426,18 @@ export function useSelectionToolbarPlacement(opts: {
   };
 }
 
-/** Generator composers always dock below the plate, centered on its width. */
-export function useGeneratorComposerPlacement(
+/** Generator composers dock below the plate — same screen style path as QuickEdit (no deferred opacity). */
+export function useGeneratorComposerScreenStyle(
   sceneBox: { x: number; y: number; width: number; height: number } | null | undefined
-): {
-  left: number;
-  railWidth: number;
-  top: number;
-  anchor: 'top';
-  edgeGapPx: number;
-} {
+): CSSProperties {
   const camera = useRcbCamera();
   const zoom = rcbCameraCssZoom(camera);
-  if (!sceneBox) {
-    return { left: 0, railWidth: 0, top: 0, anchor: 'top', edgeGapPx: 0 };
-  }
-  const belowScreen = chromeUiOutsideScreenPx(zoom, SELECTION_TOOLBAR_BELOW_BOX_GAP_PX);
-  return {
-    left: sceneBox.x,
-    railWidth: Math.max(0, sceneBox.width),
-    top: sceneBox.y + sceneBox.height,
+  const box = sceneBox ?? { x: 0, y: 0, width: 0, height: 0 };
+  return useRcbScreenToolbarStyle({
+    left: box.x + box.width / 2,
+    top: box.y + box.height + rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom),
     anchor: 'top',
-    edgeGapPx: belowScreen,
-  };
+  });
 }
 
 type ShellProps = {
