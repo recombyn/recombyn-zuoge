@@ -1,6 +1,6 @@
 /**
  * Audio generator composer under the empty plate.
- * Prompt → OpenRouter TTS (`POST /chat/audio`); optional local upload shortcut.
+ * Prompt → OpenRouter TTS via POST /api/v1/chat/audio/jobs; optional local upload shortcut.
  * Attachments use the same strip + `@` mention chips as image/video generators.
  */
 import type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -134,13 +134,19 @@ function AudioGeneratorCard({
     [attachments]
   );
 
+  const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) return;
+    if (!showComposer || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
+  }, [showComposer, disabled]);
 
   useEffect(() => {
     return () => {

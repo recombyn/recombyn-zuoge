@@ -68,6 +68,8 @@ export type VideoJsPlayerProps = {
   controlsMode?: 'always' | 'hover' | 'none';
   /** Force bar visible when `controlsMode === 'hover'`. */
   controlsVisible?: boolean;
+  /** Small square asset tiles — never hide the playback bar. */
+  compactChrome?: boolean;
   autoplay?: boolean;
   muted?: boolean;
   loop?: boolean;
@@ -112,6 +114,7 @@ function VideoJsPlayer({
   objectFit = 'fill',
   controlsMode = 'always',
   controlsVisible = false,
+  compactChrome = false,
   autoplay = false,
   muted = false,
   loop = false,
@@ -273,6 +276,18 @@ function VideoJsPlayer({
     if (!el || controlsMode === 'none') return;
     const sync = () => {
       const rect = el.getBoundingClientRect();
+      if (compactChrome) {
+        const w = Math.max(1, rect.width);
+        const h = Math.max(1, rect.height);
+        const layoutW = 240;
+        const fit = Math.min(1, w / layoutW, h / VIDEO_PLAYBACK_BAR_H);
+        setChromeFit({
+          layoutW,
+          fit: Math.max(fit, w / layoutW),
+          visible: true,
+        });
+        return;
+      }
       const chrome = videoChromeLayout(rect.width, rect.height);
       const grow = videoPlaybackBarScale(rect.width);
       setChromeFit({
@@ -285,7 +300,7 @@ function VideoJsPlayer({
     const ro = new ResizeObserver(sync);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [controlsMode, playable]);
+  }, [compactChrome, controlsMode, playable]);
 
   const videoStyle = useMemo((): CSSProperties => {
     if (!hasCrop || !cropVars) {
@@ -401,6 +416,7 @@ export default memo(VideoJsPlayer, (prev, next) => {
     prev.objectFit === next.objectFit &&
     prev.controlsMode === next.controlsMode &&
     prev.controlsVisible === next.controlsVisible &&
+    prev.compactChrome === next.compactChrome &&
     prev.autoplay === next.autoplay &&
     prev.muted === next.muted &&
     prev.loop === next.loop &&

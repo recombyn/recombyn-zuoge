@@ -1,5 +1,4 @@
 import { useEffect, useState, type RefObject } from 'react';
-import { getAssetDockWidth } from '@/components/editor/panels/AssetPanel';
 import { getLayerDockWidth } from '@/components/editor/panels/LayerPanel';
 import { getAgentDockWidth } from '@/components/editor/panels/AgentDock';
 import { getInspectDockWidth } from '@/components/editor/panels/DevPropertiesPanel';
@@ -21,12 +20,11 @@ function queryRightDockPanel(): HTMLElement | null {
   return window.document.querySelector(RIGHT_DOCK_SELECTOR) as HTMLElement | null;
 }
 
-export function readLeftDockInsetPx(layersOpen: boolean, assetsOpen: boolean): number {
-  if (!layersOpen && !assetsOpen) return HUD_EDGE_INSET_PX;
+export function readLeftDockInsetPx(layersOpen: boolean): number {
+  if (!layersOpen) return HUD_EDGE_INSET_PX;
   const panel = queryLeftDockPanel();
   if (panel) return Math.round(panel.getBoundingClientRect().width) + HUD_EDGE_INSET_PX;
-  const dockW = layersOpen ? getLayerDockWidth() : getAssetDockWidth();
-  return dockW + HUD_EDGE_INSET_PX;
+  return getLayerDockWidth() + HUD_EDGE_INSET_PX;
 }
 
 export function bottomHudCollidesWithTools(opts: {
@@ -42,16 +40,16 @@ export function bottomHudCollidesWithTools(opts: {
   return hudRight + BOTTOM_HUD_TOOLS_GAP_PX > toolsLeft;
 }
 
-export function useLeftDockInset(layersOpen: boolean, assetsOpen: boolean): number {
+export function useLeftDockInset(layersOpen: boolean): number {
   const [leftHudInsetPx, setLeftHudInsetPx] = useState(HUD_EDGE_INSET_PX);
 
   useEffect(() => {
-    if (!layersOpen && !assetsOpen) {
+    if (!layersOpen) {
       setLeftHudInsetPx(HUD_EDGE_INSET_PX);
       return undefined;
     }
 
-    const sync = () => setLeftHudInsetPx(readLeftDockInsetPx(layersOpen, assetsOpen));
+    const sync = () => setLeftHudInsetPx(readLeftDockInsetPx(layersOpen));
     sync();
 
     let observer: ResizeObserver | null = null;
@@ -72,7 +70,7 @@ export function useLeftDockInset(layersOpen: boolean, assetsOpen: boolean): numb
       observer?.disconnect();
       window.removeEventListener('resize', sync);
     };
-  }, [layersOpen, assetsOpen]);
+  }, [layersOpen]);
 
   return leftHudInsetPx;
 }
@@ -141,11 +139,10 @@ export function useBottomHudStackState(opts: {
   hudRef: RefObject<HTMLDivElement | null>;
   leftHudInsetPx: number;
   layersOpen: boolean;
-  assetsOpen: boolean;
 }): boolean {
-  const { stageEl, hudRef, leftHudInsetPx, layersOpen, assetsOpen } = opts;
+  const { stageEl, hudRef, leftHudInsetPx, layersOpen } = opts;
   const [stackBottomHud, setStackBottomHud] = useState(false);
-  const leftDockOpen = layersOpen || assetsOpen;
+  const leftDockOpen = layersOpen;
 
   useEffect(() => {
     const stage = stageEl;

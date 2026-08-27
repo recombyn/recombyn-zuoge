@@ -87,6 +87,7 @@ import { clearImageGenMarkSession } from '@/components/editor/nodes/ImageNode/ma
 import {
   markGateTipKey,
   markNodeGate,
+  MARK_COMPOSER_Z,
 } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import {
@@ -294,14 +295,20 @@ function ImageGeneratorCard({
     genAttrs?.imageVariantPrompts,
   ]);
 
-  // Auto-focus when the generator composer appears (select plate / show again).
+  // Auto-focus once when the composer first becomes visible — skip remount churn.
+  const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) return;
+    if (!showComposer || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
+  }, [showComposer, disabled]);
 
   useEffect(() => {
     return () => {
@@ -745,8 +752,13 @@ function ImageGeneratorCard({
           edgeGapPx={composerPlacement.edgeGapPx}
           data-image-generator
           data-sel-toolbar
+          {...(markActive ? { 'data-mark-composer': true } : {})}
           data-scene-node-id={nodeId}
-          className="pointer-events-auto z-[32] overflow-visible"
+          className={cn(
+            'pointer-events-auto overflow-visible',
+            markActive ? 'z-[40]' : 'z-[32]'
+          )}
+          style={markActive ? { zIndex: MARK_COMPOSER_Z } : undefined}
           {...chromePointer}
         >
           <CanvasMediaComposerShell
@@ -773,7 +785,14 @@ function ImageGeneratorCard({
                         disabled={disabled || sending || !markReady}
                         aria-label={t('editor.imageToolbar.mark')}
                         aria-pressed={markActive}
-                        onClick={onMark}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.nativeEvent.stopImmediatePropagation?.();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onMark();
+                        }}
                         className={composerAttachActionClass(markActive)}
                       >
                         <PiSelectionPlus className="h-4 w-4" />

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, memo } from 'react';
 import { useRcbCamera, useRcbScreenToScene } from '../camera/context';
-import { rcbDefaultPlaceFontSize } from '../core/layout';
+import { rcbPlaceTextFontSize, RCB_PLACE_TEXT_SCREEN_PX } from '../core/layout';
 
 /** `dragDistanceSquared` default = 16 → 4px; fixed-width needs ~6× that. */
 const BASE_DRAG_PX = 4;
@@ -14,6 +14,8 @@ export type TextPlacePoint = {
   /** Fixed wrap width when the user dragged horizontally (autoSize=false). */
   width?: number;
   autoSize: boolean;
+  /** Zoom-fitted scene font size (~RCB_PLACE_TEXT_SCREEN_PX on screen). */
+  fontSize?: number;
 };
 
 type TextPlaceFeatureProps = {
@@ -24,6 +26,14 @@ type TextPlaceFeatureProps = {
   onPlace: (point: TextPlacePoint) => void;
 };
 
+function placeFontSize(zoom: number, artboard: { width: number; height: number }, stageEl: HTMLElement | null) {
+  const vw = stageEl?.clientWidth;
+  return rcbPlaceTextFontSize(zoom, RCB_PLACE_TEXT_SCREEN_PX, {
+    viewportWidth: vw && vw > 0 ? vw : undefined,
+    docWidth: Math.max(0, Number(artboard.width) || 0) || undefined,
+  });
+}
+
 /**
  * Text tool — `TextShapeTool` / `Pointing`:
  * - click → autoSize text + edit
@@ -31,6 +41,7 @@ type TextPlaceFeatureProps = {
  */
 function TextPlaceFeature({
   enabled,
+  artboard,
   paperEl,
   stageEl = null,
   onPlace,
@@ -110,7 +121,7 @@ function TextPlaceFeature({
       const left = Math.min(pt.originX, p.x);
       const width = Math.max(1, Math.abs(p.x - pt.originX));
       const zoom = Math.max(0.05, camera.zoom || 1);
-      const fs = rcbDefaultPlaceFontSize(zoom, 14);
+      const fs = placeFontSize(zoom, artboard, stageEl);
       setPreview({
         left,
         top: pt.originY,
@@ -134,6 +145,7 @@ function TextPlaceFeature({
       const p = toScene(e.clientX, e.clientY);
       const dragDist = Math.abs(p.x - pt.originX);
       const graceOk = Date.now() - pt.enterAt >= POINTING_GRACE_MS;
+      const fontSize = placeFontSize(Math.max(0.05, camera.zoom || 1), artboard, stageEl);
       if (graceOk && dragDist > minDragForFixed()) {
         const left = Math.min(pt.originX, p.x);
         onPlaceRef.current({
@@ -141,6 +153,7 @@ function TextPlaceFeature({
           y: pt.originY,
           width: Math.max(16, Math.round(dragDist)),
           autoSize: false,
+          fontSize,
         });
         return;
       }
@@ -148,6 +161,7 @@ function TextPlaceFeature({
         x: pt.originX,
         y: pt.originY,
         autoSize: true,
+        fontSize,
       });
     };
 
@@ -165,7 +179,7 @@ function TextPlaceFeature({
       window.removeEventListener('pointercancel', onCancel);
       clear();
     };
-  }, [enabled, paperEl, stageEl, toScene, camera.zoom]);
+  }, [enabled, artboard, paperEl, stageEl, toScene, camera.zoom]);
 
   if (!preview) return null;
 

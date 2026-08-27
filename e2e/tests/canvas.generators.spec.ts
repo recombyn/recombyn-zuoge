@@ -507,6 +507,56 @@ test.describe('canvas generators + element tools', () => {
     await sleep(200);
   }
 
+  test('Lottie generator mock finish promotes plate', async ({ page }) => {
+    const anim = { v: '5.5.2', fr: 30, w: 200, h: 200, layers: [] };
+    await page.route('**/api/v1/chat/lottie**', async (route) => {
+      const req = route.request();
+      const url = req.url();
+      const method = req.method();
+      if (url.includes('/chat/lottie/jobs') && method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ job_id: 'e2e-lot', status: 'queued' }),
+        });
+        return;
+      }
+      if (isMediaJobSse(url, method)) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/event-stream',
+          body: mediaJobSseBody({
+            job_id: 'e2e-lot',
+            status: 'done',
+            progress: 100,
+            result: { animationData: anim, w: 200, h: 200, model: 'e2e-mock' },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await openEditor(page);
+    const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
+    const box = await stage.boundingBox();
+    expect(box).toBeTruthy();
+    await spawnFromGeneratorsMenu(
+      page,
+      box!,
+      /Lottie generator|Lottie 生成/i,
+      '[data-lottie-generator]',
+      { fx: 0.2, fy: 0.2 }
+    );
+    const plate = page.locator('[data-lottie-generator]').first();
+    const input = plate.locator('[contenteditable="true"], textarea').first();
+    await expect(input).toBeVisible({ timeout: 10_000 });
+    await input.click({ force: true });
+    await page.keyboard.type('e2e mock lottie promote', { delay: 4 });
+    await plate.locator('button:not([disabled])').last().click({ force: true });
+    await expect(page.locator('[data-lottie-generator]')).toHaveCount(0, { timeout: 30_000 });
+  });
+
   test('Lottie + Audio generators from context menu', async ({ page }) => {
     await openEditor(page);
     const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();

@@ -75,6 +75,7 @@ function VideoGeneratorOverlay({
                 canvasAttachPick,
                 pendingCanvasAttach
               ),
+              geometryGestureActive: Boolean(ov),
             })}
             disabled={readOnly}
           />

@@ -8,6 +8,7 @@ import {
   memo,
 } from 'react';
 import { markRegionChrome } from './markRegionChrome';
+import { MARK_REGION_OVERLAY_Z } from './markGeometry';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -213,7 +214,7 @@ function MarkRegionOverlay({
     top: origin.y,
     width: stageW,
     height: stageH,
-    zIndex: 34,
+    zIndex: MARK_REGION_OVERLAY_Z,
     cursor: interactionLocked ? 'not-allowed' : 'crosshair',
     touchAction: 'none',
     overflow: interactionLocked ? 'hidden' : undefined,

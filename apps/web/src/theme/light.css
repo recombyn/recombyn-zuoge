@@ -7,6 +7,8 @@ html[data-theme='light'] {
   --account-card: #fcfcfc;
   /* Image/video generator empty plate (cool wash on canvas). */
   --gen-empty: #e9eaee;
+  /* Inset track behind waveform bars — darker than plate. */
+  --audio-wave-track: #d4d7de;
   --ink: #141414;
   --muted: #767676;
   --line: #e5e5e5;

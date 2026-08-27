@@ -1,6 +1,6 @@
 /**
  * wavesurfer.js wrapper for audio-node plates.
- * Owns WaveSurfer lifecycle; exposes a small media handle for play / seek / speed.
+ * Height is measured from the host box — avoids canvas taller than the node.
  */
 import {
   forwardRef,
@@ -12,6 +12,9 @@ import {
 } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import { cn } from '@/utils/classnames';
+
+/** Amplitude scale inside the track so bars never kiss the clip edge. */
+const DEFAULT_BAR_HEIGHT = 0.78;
 
 export type AudioWaveformHandle = {
   play: () => Promise<void>;
@@ -25,10 +28,24 @@ export type AudioWaveformHandle = {
   getInstance: () => WaveSurfer | null;
 };
 
+function readGlobalMaxPeak(ws: WaveSurfer): number | undefined {
+  try {
+    const buffer = ws.getDecodedData?.();
+    const channel = buffer?.getChannelData?.(0);
+    if (!channel?.length) return undefined;
+    let max = 0;
+    for (let i = 0; i < channel.length; i++) {
+      max = Math.max(max, Math.abs(channel[i] ?? 0));
+    }
+    return max > 0 ? max : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export type AudioWaveformProps = {
   /** Playable URL (blob: / data: / https). Empty → idle placeholder. */
   url: string;
-  height?: number;
   waveColor?: string;
   progressColor?: string;
   cursorColor?: string;
@@ -36,6 +53,8 @@ export type AudioWaveformProps = {
   barWidth?: number;
   barGap?: number;
   barRadius?: number;
+  /** Vertical amplitude scale (0–1); lower leaves padding inside the track. */
+  barHeight?: number;
   /** Allow click-to-seek on the waveform. */
   interact?: boolean;
   className?: string;
@@ -50,13 +69,13 @@ export type AudioWaveformProps = {
 function AudioWaveformInner(
   {
     url,
-    height = 72,
     waveColor = '#c8c8c8',
     progressColor = '#8a8a8a',
     cursorColor = '#141414',
     barWidth = 3,
     barGap = 2,
     barRadius = 2,
+    barHeight = DEFAULT_BAR_HEIGHT,
     interact = false,
     className,
     onReady,
@@ -71,6 +90,7 @@ function AudioWaveformInner(
   const hostRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const readyUrlRef = useRef('');
+  const maxPeakRef = useRef<number | undefined>(undefined);
   const cbRef = useRef({
     onReady,
     onPlay,
@@ -128,7 +148,6 @@ function AudioWaveformInner(
     []
   );
 
-  // Create / reload when url changes.
   useEffect(() => {
     const host = hostRef.current;
     const src = String(url || '').trim();
@@ -136,13 +155,15 @@ function AudioWaveformInner(
       wsRef.current?.destroy();
       wsRef.current = null;
       readyUrlRef.current = '';
+      maxPeakRef.current = undefined;
       return undefined;
     }
 
     let cancelled = false;
+    const initialH = Math.max(1, Math.floor(host.clientHeight) || 48);
     const ws = WaveSurfer.create({
       container: host,
-      height,
+      height: initialH,
       waveColor,
       progressColor,
       cursorColor,
@@ -150,19 +171,42 @@ function AudioWaveformInner(
       barWidth,
       barGap,
       barRadius,
+      barHeight,
       interact,
       dragToSeek: interact,
       normalize: true,
-      // MediaElement: reliable play/pause with blob:/https audio (WebAudio often stalls).
+      fillParent: true,
       backend: 'MediaElement',
       mediaControls: false,
     });
     wsRef.current = ws;
 
+    const syncHeight = () => {
+      if (cancelled || !wsRef.current) return;
+      const h = Math.max(1, Math.floor(host.clientHeight));
+      try {
+        ws.setOptions({ height: h });
+      } catch {
+        /* ignore mid-destroy */
+      }
+    };
+
+    const ro = new ResizeObserver(syncHeight);
+
     const unsubs = [
       ws.on('ready', (duration) => {
         if (cancelled) return;
         readyUrlRef.current = src;
+        syncHeight();
+        const maxPeak = readGlobalMaxPeak(ws);
+        if (maxPeak) {
+          maxPeakRef.current = maxPeak;
+          try {
+            ws.setOptions({ maxPeak });
+          } catch {
+            /* ignore mid-destroy */
+          }
+        }
         cbRef.current.onReady?.(Number(duration) || ws.getDuration() || 0);
       }),
       ws.on('play', () => {
@@ -182,17 +226,14 @@ function AudioWaveformInner(
       }),
     ];
 
-    async function loadWaveform() {
-      try {
-        await ws.load(src);
-      } catch (err) {
-        if (!cancelled) console.warn('[AudioWaveform] load failed', err);
-      }
-    }
-    loadWaveform();
+    ro.observe(host);
+    void ws.load(src).catch((err) => {
+      if (!cancelled) console.warn('[AudioWaveform] load failed', err);
+    });
 
     return () => {
       cancelled = true;
+      ro.disconnect();
       unsubs.forEach((off) => {
         try {
           off();
@@ -208,33 +249,34 @@ function AudioWaveformInner(
       if (wsRef.current === ws) wsRef.current = null;
       readyUrlRef.current = '';
     };
-    // Style/height updates use setOptions below — recreate only on url / interact.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, interact]);
 
-  // Live style / height without full reload.
   useEffect(() => {
     const ws = wsRef.current;
     if (!ws || readyUrlRef.current !== String(url || '').trim()) return;
     try {
       ws.setOptions({
-        height,
         waveColor,
         progressColor,
         cursorColor,
         barWidth,
         barGap,
         barRadius,
+        barHeight,
       });
     } catch {
       /* ignore mid-destroy */
     }
-  }, [url, height, waveColor, progressColor, cursorColor, barWidth, barGap, barRadius]);
+  }, [url, waveColor, progressColor, cursorColor, barWidth, barGap, barRadius, barHeight]);
 
   return (
     <div
       ref={hostRef}
-      className={cn('h-full w-full min-h-0 overflow-hidden [&_wave]:!block', className)}
+      className={cn(
+        'h-full w-full min-h-0 overflow-hidden [clip-path:inset(0)] [&_canvas]:!max-h-full [&_canvas]:!max-w-full',
+        className
+      )}
       data-audio-waveform
     />
   );

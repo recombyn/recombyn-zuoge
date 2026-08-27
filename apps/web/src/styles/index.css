@@ -11,6 +11,8 @@
     --canvas: #F5F5F5;
     --rail: #f3f3f3;
     --gen-empty: #e9eaee;
+    /* Inset track behind waveform bars — darker than plate (--gen-empty). */
+    --audio-wave-track: #d4d7de;
     --ink: #141414;
     --muted: #767676;
     --line: #d9d9d9;
@@ -262,6 +264,38 @@ html[data-theme='dark'] .rcb-home-hero-canvas {
 
 .rail-sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--ink) 24%, var(--rail));
+}
+
+/* Floating editor panels — scrollbar flush to the right edge (no track inset). */
+.rcb-edge-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 18%, var(--surface)) transparent;
+}
+
+.rcb-edge-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.rcb-edge-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 4px;
+  margin-inline: 0;
+}
+
+.rcb-edge-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  border: none;
+  background-clip: border-box;
+  background-color: color-mix(in srgb, var(--ink) 16%, var(--surface));
+}
+
+.rcb-edge-scroll:hover {
+  scrollbar-color: color-mix(in srgb, var(--ink) 24%, var(--surface)) transparent;
+}
+
+.rcb-edge-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--ink) 24%, var(--surface));
 }
 
 .rcb-panel-tip {

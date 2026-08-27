@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   measurePlainTextSize,
+  measureTextFrameExitBox,
   measureTextNodeBoxAfterStyleChange,
   normalizeTextFontSize,
   textVisualLines,
@@ -83,6 +84,23 @@ describe('textVisualLines', () => {
       autoSize: true,
     });
     expect(lines).toEqual(['你好世界测试文字']);
+  });
+});
+
+describe('measureTextFrameExitBox', () => {
+  it('shrinks a huge fixed frame to wrapped ink bounds', () => {
+    const text = '你好\n世界';
+    const fontSize = 14;
+    const node = {
+      width: 1052,
+      height: 1052,
+      attrs: { textFrame: 'true', markdown: text },
+    };
+    const plainExit = measurePlainTextSize(text, { fontSize, lineHeight: 1.4 });
+    const exit = measureTextFrameExitBox(node, { fontSize, lineHeight: 1.4 });
+    expect(exit.width).toBeLessThan(200);
+    expect(exit.width).toBeLessThan(plainExit.width);
+    expect(exit.height).toBeLessThan(200);
   });
 });
 

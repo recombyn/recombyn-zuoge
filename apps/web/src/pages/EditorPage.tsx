@@ -30,6 +30,7 @@ import {
 } from '@/utils/sessionCamera';
 import { store } from '@/store';
 import { useProjectCloudSync, flushCurrentProjectNow, ProjectRevisionConflictDialog, renameProjectOnCloud } from '@/components/editor/useProjectCloudSync';
+import { useOpenProjectSession } from '@/hooks/useOpenProjectSession';
 import { CollabRoomProvider } from '@/components/editor/collab/CollabRoomProvider';
 import { McpCanvasBridge } from '@/components/editor/mcp/McpCanvasBridge';
 import { isCollabActive } from '@/components/editor/collab/collabRuntime';
@@ -54,7 +55,6 @@ import {
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
 import LayerPanel from '@/components/editor/panels/LayerPanel';
-import AssetPanel from '@/components/editor/panels/AssetPanel';
 import EditorToolStrip from '@/components/editor/chrome/EditorToolStrip';
 import type { PathEditSubtool } from '@/components/editor/chrome/PathEditToolbar';
 import { getDocumentGridSize } from '@/components/rcb/selection/alignGuides';
@@ -276,9 +276,11 @@ function editorHasFitContent(doc: SceneDocument, frames: ArtboardFrame[]): boole
 
 function resolveHomeAgentInteractionMode(
   mode: unknown
-): 'agent' | 'ask' | 'image' | 'video' | null {
+): 'agent' | 'ask' | 'image' | 'video' | 'audio' | 'lottie' | null {
   if (mode === 'image') return 'image';
   if (mode === 'video') return 'video';
+  if (mode === 'audio') return 'audio';
+  if (mode === 'lottie') return 'lottie';
   if (mode === 'ask') return 'ask';
   if (mode === 'agent') return 'agent';
   return null;
@@ -559,7 +561,7 @@ function EditorPage() {
   const [agentDraftContexts, setAgentDraftContexts] = useState<ComposerContext[]>([]);
   const [agentDraftModelId, setAgentDraftModelId] = useState<string | null>(null);
   const [agentDraftInteractionMode, setAgentDraftInteractionMode] = useState<
-    'agent' | 'ask' | 'image' | 'video' | null
+    'agent' | 'ask' | 'image' | 'video' | 'audio' | 'lottie' | null
   >(null);
   const [agentDraftImageAspect, setAgentDraftImageAspect] = useState<string | null>(null);
   const [agentDraftScene, setAgentDraftScene] = useState<
@@ -624,6 +626,7 @@ function EditorPage() {
     (state: any) => (state.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
   const currentId = useSelector((state: any) => state.editor.currentId as string | null);
+  useOpenProjectSession(currentId || routeProjectId);
   const authUserId = useSelector((s: any) => s.auth?.user?.id as string | undefined);
   const templates = useSelector((state: any) => state.editor.templates as any[]);
   const currentTemplate = useSelector((state: any) =>
@@ -1551,7 +1554,6 @@ function EditorPage() {
               inspectOpen={inspectOpen}
               agentOpen={agentOpen}
               layersOpen={layersOpen}
-              assetsOpen={assetsOpen}
               onProjectList={goProjectsFromEditor}
               onNewProject={newProjectFromEditor}
               onDuplicateProject={duplicateProjectFromEditor}
@@ -1680,14 +1682,6 @@ function EditorPage() {
             </div>
           ) : null}
 
-          {assetsOpen && !isMobileViewport ? (
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-30">
-              <div className="pointer-events-auto h-full">
-                <AssetPanel onClose={() => setAssetsOpen(false)} />
-              </div>
-            </div>
-          ) : null}
-
           {workspaceMode === 'dev' ? (
             inspectOpen && !isMobileViewport ? (
               <div className="pointer-events-none absolute inset-y-0 right-0 z-30">
@@ -1717,23 +1711,6 @@ function EditorPage() {
                 onClose={closeLayersPanel}
                 onSelectNode={selectLayerOnMobile}
                 onSelectFrame={selectFrameOnMobile}
-              />
-            </div>
-          </>
-        ) : null}
-
-        {isMobileViewport && assetsOpen ? (
-          <>
-            <button
-              type="button"
-              aria-label={t('editor.closePanel')}
-              className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]"
-              onClick={() => setAssetsOpen(false)}
-            />
-            <div className="fixed inset-y-0 left-0 z-50">
-              <AssetPanel
-                mobile
-                onClose={() => setAssetsOpen(false)}
               />
             </div>
           </>

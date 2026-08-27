@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
 import { isNodeHiddenInDocument, isTextFrameNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
+import { resolveGenPlateFill } from '@/components/rcb/scene/document/nodeFactories';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import {
   parseNodeText,
@@ -13,10 +14,10 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
  * Scrollable text inside a fixed FO plate (same mount path as video/lottie).
- * When selected, pointer-events enable wheel scroll; otherwise clicks hit the canvas.
+ * Dual-tone like audio, inverted for readability: outer `--audio-wave-track` + inner `--gen-empty`.
  *
  * Padding lives on the inner content — not the overflow scroller — so the
- * scrollbar stays flush to the plate edge (like a normal text box).
+ * scrollbar stays flush to the track edge.
  */
 function TextFrameOverlay({
   document,
@@ -79,29 +80,39 @@ function TextFramePlate({
   const rTr = radii.tr > 0 ? radii.tr : TEXT_FRAME_RADIUS;
   const rBr = radii.br > 0 ? radii.br : TEXT_FRAME_RADIUS;
   const rBl = radii.bl > 0 ? radii.bl : TEXT_FRAME_RADIUS;
+  const trackR = Math.max(0, Math.min(rTl, rTr, rBr, rBl) - 4);
+
+  const plateFill = resolveGenPlateFill(node.attrs?.['fill-color']);
+  /** Default dual-tone: darker rim, lighter content well (swapped vs audio). */
+  const outerBg = plateFill === 'var(--gen-empty)' ? 'var(--audio-wave-track)' : plateFill;
+  const innerBg = 'var(--gen-empty)';
 
   const plateStyle: CSSProperties = {
     width: '100%',
     height: '100%',
     boxSizing: 'border-box',
     margin: 0,
-    padding: 0,
+    padding: 20,
+    display: 'flex',
+    flexDirection: 'column',
     overflow: 'hidden',
     pointerEvents: interactive ? 'auto' : 'none',
-    // Plate chrome — same language as audio nodes (surface + 1px line + radius).
-    background: 'var(--surface)',
+    background: outerBg,
     borderRadius: `${rTl}px ${rTr}px ${rBr}px ${rBl}px`,
     boxShadow: 'inset 0 0 0 1px var(--line)',
   };
 
-  const scrollStyle: CSSProperties = {
+  const trackStyle: CSSProperties = {
+    flex: 1,
+    minHeight: 0,
     width: '100%',
-    height: '100%',
     boxSizing: 'border-box',
     margin: 0,
     padding: 0,
     overflow: 'auto',
     WebkitOverflowScrolling: 'touch',
+    background: innerBg,
+    borderRadius: trackR,
   };
 
   const contentStyle: CSSProperties = {
@@ -125,6 +136,7 @@ function TextFramePlate({
 
   return createPortal(
     <div
+      data-text-frame-overlay={nodeId}
       style={plateStyle}
       onPointerDown={(e) => {
         if (!interactive) return;
@@ -132,12 +144,12 @@ function TextFramePlate({
       }}
     >
       <div
-        data-text-frame-overlay={nodeId}
         data-text-frame-scroll=""
-        style={scrollStyle}
+        style={trackStyle}
         onWheel={(e) => {
+          // Ctrl/meta+wheel → let RcbCanvas (passive:false) prevent browser zoom + zoom canvas.
+          if (e.ctrlKey || e.metaKey) return;
           if (!interactive) return;
-          // Native canvas wheel listener is outside the React tree.
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation();
         }}

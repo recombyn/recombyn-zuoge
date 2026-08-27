@@ -10,6 +10,8 @@ import type { AppDispatch, RootState } from '@/store';
 import { spawnCreatedNode } from '@/store/modules/editor';
 import { createTextNode } from '@/components/rcb/scene/document/nodeFactories';
 import {
+  rcbCameraCssZoom,
+  rcbDefaultPlaceFontSize,
   rcbScreenToScene,
   type RcbCamera,
 } from '@/components/rcb';
@@ -149,11 +151,16 @@ export function buildCanvasPluginRuntime(
       const center = readViewportCenterDoc(getState(), camera, stageEl);
       const x = textOpts.x ?? center.x;
       const y = textOpts.y ?? center.y;
+      const z = camera ? rcbCameraCssZoom(camera) : 1;
+      const fontSize =
+        textOpts.fontSize != null && textOpts.fontSize > 0
+          ? textOpts.fontSize
+          : rcbDefaultPlaceFontSize(z);
       const { id, node } = createTextNode({
         x,
         y,
         text,
-        fontSize: textOpts.fontSize ?? 28,
+        fontSize,
         autoSize: true,
       });
       const opacity = textOpts.opacity;

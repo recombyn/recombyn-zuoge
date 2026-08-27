@@ -209,6 +209,7 @@ def list_assets(
     user_id: str,
     *,
     kind: str | None = None,
+    q: str | None = None,
     page: int = 1,
     page_size: int = 24,
 ) -> dict[str, Any]:
@@ -219,18 +220,21 @@ def list_assets(
     kind_n = (kind or "").strip().lower() or None
     if kind_n not in _ASSET_KINDS:
         kind_n = None
+    q_n = (q or "").strip() or None
     with Session(engine) as session:
         total = crud.count_user_assets(
             session=session,
             user_id=user_id,
             kind=kind_n,
             sources=_AI_ASSET_SOURCES,
+            q=q_n,
         )
         rows = crud.list_user_assets(
             session=session,
             user_id=user_id,
             kind=kind_n,
             sources=_AI_ASSET_SOURCES,
+            q=q_n,
             offset=offset,
             limit=page_size_n,
         )
@@ -561,3 +565,17 @@ def delete_asset(user_id: str, asset_id: str) -> bool:
     if row.object_key:
         delete_object(row.object_key)
     return True
+
+
+def update_asset(user_id: str, asset_id: str, *, prompt: str | None) -> dict[str, Any]:
+    init_schema()
+    with Session(engine) as session:
+        row = crud.update_user_asset_prompt(
+            session=session,
+            user_id=user_id,
+            asset_id=asset_id,
+            prompt=prompt,
+        )
+    if not row:
+        raise ValueError("not_found")
+    return _row_to_asset(row)

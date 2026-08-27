@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Floating quick-edit chat under a selected Lottie (toolbar → 快速编辑).
- * Regenerates animation in place via POST /design/lottie/generate.
+ * Regenerates animation in place via POST /api/v1/chat/lottie/jobs.
  */
 import {
   memo,

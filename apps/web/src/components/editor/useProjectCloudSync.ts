@@ -13,6 +13,7 @@ import {
   fetchProject,
   findProjectSummaryInListCache,
   syncProjectRowFromServer,
+  removeProjectFromListCache,
   refreshProjectsListAfterMutation,
   type ProjectSummaryDto,
 } from '@/service/projects';
@@ -27,7 +28,6 @@ import { getHttpStatus, getHttpErrorBody } from '@/service/client';
 import { normalizeProjectThumbnailUrls } from '@/utils/projectThumb';
 import {
   buildProjectDocumentPatch,
-  deleteProjectDraft,
   deleteProjectDrafts,
   getProjectDraft,
   hashDocument,
@@ -36,6 +36,13 @@ import {
 } from '@/components/editor/projectDraftStore';
 import { isCollabCloudPersistOwned } from '@/components/editor/collab/collabRuntime';
 import { message } from '@/components/base';
+import {
+  isProjectDeleted,
+  markProjectsDeleted,
+  unmarkProjectsDeleted,
+} from '@/utils/deletedProjectsGuard';
+import { normalizeProjectIds } from '@/utils/normalizeProjectId';
+import { probeProjectOpenElsewhere } from '@/utils/openProjectSessions';
 
 const DEBOUNCE_MS = 800;
 /** Coalesce rapid Ctrl/⌘+S into one flush. */
@@ -118,6 +125,59 @@ export type CloudWriteResult =
   | { status: 'conflict'; conflict: ProjectRevisionConflictError }
   | { status: 'failed' };
 
+export class ProjectDeleteBlockedError extends Error {
+  projectId: string;
+
+  constructor(projectId: string) {
+    super('project_open_for_editing');
+    this.name = 'ProjectDeleteBlockedError';
+    this.projectId = projectId;
+  }
+}
+
+async function removeProjectsFromCloudInternal(rawIds: string[]): Promise<void> {
+  const list = normalizeProjectIds(rawIds);
+  if (!list.length) return;
+
+  const probes = await Promise.all(list.map((id) => probeProjectOpenElsewhere(id)));
+  const blocked = list.find((_, i) => probes[i]);
+  if (blocked) throw new ProjectDeleteBlockedError(blocked);
+
+  markProjectsDeleted(list);
+  await deleteProjectDrafts(list);
+  if (!getToken()) return;
+
+  const rollback = () => unmarkProjectsDeleted(list);
+
+  try {
+    if (list.length === 1) {
+      const outcome = await tryCloudApi(() => deleteProjectApi(list[0]));
+      if (outcome.status !== 'ok') {
+        rollback();
+        throw new Error('project_delete_failed');
+      }
+    } else {
+      await deleteProjectsApi(list);
+    }
+  } catch (err) {
+    rollback();
+    throw err;
+  }
+
+  for (const id of list) removeProjectFromListCache(id);
+  const refreshId = list.length === 1 ? list[0] : undefined;
+  void refreshProjectsListAfterMutation(refreshId);
+}
+
+export async function removeProjectFromCloud(id: string): Promise<void> {
+  await removeProjectsFromCloudInternal([id]);
+}
+
+/** Batch remove owned projects from the API (no-op when logged out). */
+export async function removeProjectsFromCloud(ids: string[]): Promise<void> {
+  await removeProjectsFromCloudInternal(ids);
+}
+
 function asConflict(err: unknown): ProjectRevisionConflictError | null {
   if (getHttpStatus(err) !== 412) return null;
   const body = getHttpErrorBody(err) as { detail?: unknown } | undefined;
@@ -190,13 +250,15 @@ async function applyCloudAck(opts: {
   const ackUpdatedAt = opts.ack?.updatedAt ?? Date.now();
 
   if (opts.ack) {
+    if (isProjectDeleted(opts.projectId)) return;
+    const thumb =
+      opts.ack.thumbnailUrl !== undefined
+        ? opts.ack.thumbnailUrl
+        : existing?.thumbnailUrl ?? null;
     const row: ProjectSummaryDto = {
       id: opts.projectId,
       name: tplName,
-      thumbnailUrl:
-        opts.ack.thumbnailUrl !== undefined
-          ? opts.ack.thumbnailUrl
-          : (existing?.thumbnailUrl ?? null),
+      thumbnailUrl: thumb,
       thumbnailCustom: existing?.thumbnailCustom ?? false,
       revision: opts.ack.revision ?? existing?.revision,
       updatedAt: ackUpdatedAt,
@@ -275,6 +337,7 @@ export async function pushProjectToCloud(payload: {
 }): Promise<CloudWriteResult> {
   if (!getToken()) return { status: 'failed' };
   if (!payload.id || !payload.document) return { status: 'failed' };
+  if (isProjectDeleted(payload.id)) return { status: 'failed' };
   const base = asCloudRevision(payload.baseRevision);
   const data: Parameters<typeof upsertProjectApi>[0] = {
     id: payload.id,
@@ -312,6 +375,7 @@ export async function patchProjectToCloud(payload: {
 }): Promise<CloudWriteResult> {
   if (!getToken()) return { status: 'failed' };
   if (!payload.id || !(payload.baseRevision >= 1)) return { status: 'failed' };
+  if (isProjectDeleted(payload.id)) return { status: 'failed' };
   const base = Math.max(1, Math.floor(Number(payload.baseRevision)));
   const data: Parameters<typeof patchProjectApi>[1] = {
     baseRevision: base,
@@ -336,26 +400,6 @@ export async function patchProjectToCloud(payload: {
   const ack = ackFromProject(outcome.data?.project);
   if (!ack) return { status: 'failed' };
   return { status: 'ok', ack };
-}
-
-export async function removeProjectFromCloud(id: string): Promise<void> {
-  if (!id) return;
-  await deleteProjectDraft(id);
-  if (!getToken()) return;
-  await tryCloudApi(() => deleteProjectApi(id));
-  void refreshProjectsListAfterMutation(id);
-}
-
-/** Batch remove owned projects from the API (no-op when logged out). */
-export async function removeProjectsFromCloud(ids: string[]): Promise<void> {
-  const list = [
-    ...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)),
-  ];
-  if (!list.length) return;
-  await deleteProjectDrafts(list);
-  if (!getToken()) return;
-  await deleteProjectsApi(list);
-  void refreshProjectsListAfterMutation();
 }
 
 /** Ask the open editor to flush the project to the cloud immediately. */
@@ -553,6 +597,7 @@ export function useProjectCloudSync() {
     const id = ed.currentId;
     const tpl = ed.templates.find((t) => t.id === id);
     if ((!ed.dirty && !force) || !ed.document || !id || !tpl) return 'skipped';
+    if (isProjectDeleted(id)) return 'skipped';
     if (id.startsWith('share_') || !isOwnedTemplate(tpl)) return 'skipped';
     if (flushingRef.current) {
       pendingFlushRef.current = true;

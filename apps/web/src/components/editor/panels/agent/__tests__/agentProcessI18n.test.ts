@@ -12,6 +12,7 @@ const messages: Record<string, string> = {
   'agent.activityKernelSkipped': '{{name}} 未完成，已跳过',
   'agent.requestFailed': '请求失败',
   'agent.activityVisionFallback': '视觉回退',
+  'agent.processRevisionConflict': '画布冲突',
 };
 
 function t(key: string, opts?: Record<string, unknown>) {
@@ -31,6 +32,12 @@ describe('localizeAgentProcessCopy', () => {
       'Decision failed. Please try again.'
     );
     expect(localizeAgentProcessCopy(t, '+rect (#E0E0E0)')).toBe('+rect (#E0E0E0)');
+  });
+
+  it('uses FE i18n for client-side process codes', () => {
+    expect(localizeAgentProcessCopy(t, '', 'revision_conflict')).toBe(
+      '画布冲突'
+    );
   });
 
   it('uses FE i18n only for code-only activity labels', () => {

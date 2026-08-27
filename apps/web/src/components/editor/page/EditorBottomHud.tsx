@@ -15,11 +15,14 @@ import {
   HiOutlineMap,
   HiOutlineSquare3Stack3D,
 } from 'react-icons/hi2';
-import { LuImages, LuKeyboard } from 'react-icons/lu';
+import { LuKeyboard } from 'react-icons/lu';
 import { Dropdown, Tooltip } from '@/components/base';
 import type { MenuItemType } from '@/components/base';
+import { Icon } from '@/components/base/icon';
+import { HOME_RAIL_MORE_ICONS } from '@/components/layout/homeRailIcons';
 import EditorMinimap from '@/components/editor/chrome/EditorMinimap';
 import EditorShortcutsPanel from '@/components/editor/chrome/EditorShortcutsPanel';
+import AssetPanel from '@/components/editor/panels/AssetPanel';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import CanvasBgPicker from '@/components/editor/chrome/CanvasBgPicker';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
@@ -33,9 +36,11 @@ import {
   useLeftDockInset,
 } from '@/components/editor/page/editorBottomHudLayout';
 const HUD_ICON = 'h-[15px] w-[15px] shrink-0';
-/** LuImages reads optically larger than Heroicons at the same box — nudge down 2px. */
-const HUD_ICON_ASSETS = 'h-[13px] w-[13px] shrink-0';
 const HUD_ICON_STROKE = 1.75;
+
+function HudAssetsIcon() {
+  return <Icon name={HOME_RAIL_MORE_ICONS.assets} className={HUD_ICON} />;
+}
 
 const ZOOM_TRIGGER_BASE =
   'inline-flex h-7 min-w-[2.75rem] items-center justify-center gap-1.5 rounded px-2.5 transition-colors';
@@ -73,7 +78,7 @@ function zoomMenuSelectedKeys(opts: { zoom: number; fitActive: boolean }): strin
 
 /**
  * Opt-in canvas FPS meter (rAF sampler).
- * Toggle: zoom menu → FPS meter, or `window.__RCB_FPS_HUD__ = true` then
+ * Toggle: `window.__RCB_FPS_HUD__ = true` then
  * `window.dispatchEvent(new Event('rcb-fps-hud'))`.
  * Console: `window.__fpsHud.live()` / `.slice(name, t0, t1)`.
  * Persists in localStorage. Default OFF.
@@ -470,13 +475,12 @@ function EditorBottomHud({
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const [fpsHudOn, setFpsHudOn] = useState(readFpsHudEnabled);
   const bottomHudRef = useRef<HTMLDivElement | null>(null);
-  const leftHudInsetPx = useLeftDockInset(layersOpen, assetsOpen);
+  const leftHudInsetPx = useLeftDockInset(layersOpen);
   const stackBottomHud = useBottomHudStackState({
     stageEl,
     hudRef: bottomHudRef,
     leftHudInsetPx,
     layersOpen,
-    assetsOpen,
   });
 
   useEffect(() => {
@@ -505,12 +509,20 @@ function EditorBottomHud({
   const toggleMinimap = useCallback(() => {
     setMinimapOpen((v) => !v);
     setShortcutsOpen(false);
-  }, [setMinimapOpen, setShortcutsOpen]);
+    setAssetsOpen(false);
+  }, [setMinimapOpen, setShortcutsOpen, setAssetsOpen]);
 
   const toggleShortcuts = useCallback(() => {
     setShortcutsOpen((v) => !v);
     setMinimapOpen(false);
-  }, [setMinimapOpen, setShortcutsOpen]);
+    setAssetsOpen(false);
+  }, [setMinimapOpen, setShortcutsOpen, setAssetsOpen]);
+
+  const toggleAssets = useCallback(() => {
+    setAssetsOpen((v) => !v);
+    setShortcutsOpen(false);
+    setMinimapOpen(false);
+  }, [setAssetsOpen, setShortcutsOpen, setMinimapOpen]);
 
   const zoomMenuItems = useMemo<MenuItemType[]>(
     () => [
@@ -531,28 +543,17 @@ function EditorBottomHud({
         key: p.key,
         label: <ZoomMenuLabel label={`${Math.round(p.zoom * 100)}%`} />,
       })),
-      { key: 'fps-divider', type: 'divider', label: '' },
-      {
-        key: 'fps',
-        label: <ZoomMenuLabel label={t('editor.fpsHud')} />,
-      },
     ],
     [t]
   );
 
-  const zoomSelectedKeys = useMemo(() => {
-    const keys = zoomMenuSelectedKeys({ zoom: camera.zoom, fitActive: zoomFitActive });
-    if (fpsHudOn) keys.push('fps');
-    return keys;
-  }, [camera.zoom, zoomFitActive, fpsHudOn]);
+  const zoomSelectedKeys = useMemo(
+    () => zoomMenuSelectedKeys({ zoom: camera.zoom, fitActive: zoomFitActive }),
+    [camera.zoom, zoomFitActive]
+  );
 
   const onZoomMenuClick = useCallback(
     (key: string) => {
-      if (key === 'fps') {
-        writeFpsHudEnabled(!readFpsHudEnabled());
-        setZoomMenuOpen(false);
-        return;
-      }
       if (key === 'fit') onFitView();
       else if (key === 'in') onZoomIn();
       else if (key === 'out') onZoomOut();
@@ -587,6 +588,9 @@ function EditorBottomHud({
             onCameraChange={onCameraChange}
             canvasBg={stageBackground}
           />
+        ) : null}
+        {assetsOpen ? (
+          <AssetPanel onClose={() => setAssetsOpen(false)} />
         ) : null}
         {shortcutsOpen ? (
           <EditorShortcutsPanel onClose={() => setShortcutsOpen(false)} />
@@ -627,13 +631,15 @@ function EditorBottomHud({
                         strokeWidth={HUD_ICON_STROKE}
                       />
                     </HudBtn>
-                    <HudBtn
-                      tip={t('editor.assets.title', { defaultValue: '资产' })}
-                      active={assetsOpen}
-                      onClick={() => setAssetsOpen((v) => !v)}
-                    >
-                      <LuImages className={HUD_ICON_ASSETS} strokeWidth={HUD_ICON_STROKE} />
-                    </HudBtn>
+                    <span data-assets-toggle>
+                      <HudBtn
+                        tip={t('editor.assets.title', { defaultValue: '资产' })}
+                        active={assetsOpen}
+                        onClick={toggleAssets}
+                      >
+                        <HudAssetsIcon />
+                      </HudBtn>
+                    </span>
                     <HudBtn tip={t('editor.minimap')} active={minimapOpen} onClick={toggleMinimap}>
                       <HiOutlineMap className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
                     </HudBtn>
@@ -673,13 +679,15 @@ function EditorBottomHud({
                 <HudBtn tip={t('editor.layers')} active={layersOpen} onClick={() => setLayersOpen((v) => !v)}>
                   <HiOutlineSquare3Stack3D className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
                 </HudBtn>
-                <HudBtn
-                  tip={t('editor.assets.title', { defaultValue: '资产' })}
-                  active={assetsOpen}
-                  onClick={() => setAssetsOpen((v) => !v)}
-                >
-                  <LuImages className={HUD_ICON_ASSETS} strokeWidth={HUD_ICON_STROKE} />
-                </HudBtn>
+                <span data-assets-toggle>
+                  <HudBtn
+                    tip={t('editor.assets.title', { defaultValue: '资产' })}
+                    active={assetsOpen}
+                    onClick={toggleAssets}
+                  >
+                    <HudAssetsIcon />
+                  </HudBtn>
+                </span>
                 <HudBtn tip={t('editor.minimap')} active={minimapOpen} onClick={toggleMinimap}>
                   <HiOutlineMap className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
                 </HudBtn>

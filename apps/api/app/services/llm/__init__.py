@@ -862,6 +862,107 @@ def build_async_openai_client(
     return client, endpoint
 
 
+def _normalize_openrouter_rel_path(path: str) -> str:
+    """Normalize OpenRouter-relative paths for OpenAI SDK clients.
+
+    OpenRouter returns ``polling_url`` values like ``/api/v1/videos/{id}`` while
+    our client ``base_url`` is already ``https://openrouter.ai/api/v1``.
+    """
+    p = (path or "").strip()
+    if not p:
+        return p
+    if p.startswith("http://") or p.startswith("https://"):
+        from urllib.parse import urlparse
+
+        parsed = urlparse(p)
+        p = parsed.path or "/"
+        if parsed.query:
+            p = f"{p}?{parsed.query}"
+    if p.startswith("/api/v1/"):
+        p = p[len("/api/v1") :]
+    elif p == "/api/v1":
+        p = "/"
+    if p and not p.startswith("/"):
+        p = f"/{p}"
+    return p
+
+
+def _message_from_http_body(text: str) -> str | None:
+    t = (text or "").strip()
+    if not t:
+        return None
+    if t.lstrip().startswith("<!") or "<html" in t[:300].lower():
+        return None
+    try:
+        parsed = json.loads(t)
+    except Exception:
+        return t[:300] + ("…" if len(t) > 300 else "")
+    if isinstance(parsed, dict):
+        err = parsed.get("error")
+        if isinstance(err, dict):
+            msg = err.get("message") or err.get("code")
+            if msg:
+                return str(msg)
+        for key in ("message", "detail"):
+            val = parsed.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    return None
+
+
+def _short_openai_sdk_error(err: BaseException, *, method: str, path: str) -> str:
+    status = getattr(err, "status_code", None)
+    body = getattr(err, "body", None)
+    if body is not None:
+        if isinstance(body, (dict, list)):
+            try:
+                body_text = json.dumps(body, ensure_ascii=False)
+            except Exception:
+                body_text = str(body)
+        else:
+            body_text = str(body)
+        msg = _message_from_http_body(body_text)
+        if msg:
+            suffix = f" ({status})" if status else ""
+            return f"OpenRouter {method} {path} failed{suffix}: {msg}"
+        if body_text.lstrip().startswith("<!") or "<html" in body_text[:300].lower():
+            suffix = f" ({status})" if status else ""
+            return (
+                f"OpenRouter {method} {path} failed{suffix}: "
+                "provider returned HTML error page (check API path)"
+            )
+    text = str(err).strip()
+    if "<html" in text.lower() or text.lstrip().startswith("<!"):
+        suffix = f" ({status})" if status else ""
+        return (
+            f"OpenRouter {method} {path} failed{suffix}: "
+            "provider returned HTML error page (check API path)"
+        )
+    if len(text) > 500:
+        text = text[:500] + "…"
+    return text or f"OpenRouter {method} {path} failed"
+
+
+def _check_http_response(http_resp: Any, *, method: str, path: str) -> None:
+    status = int(getattr(http_resp, "status_code", 0) or 0)
+    if status < 400:
+        return
+    text = ""
+    try:
+        text = str(getattr(http_resp, "text", None) or "")
+    except Exception:
+        pass
+    msg = _message_from_http_body(text)
+    if msg:
+        raise RuntimeError(f"OpenRouter {method} {path} failed ({status}): {msg}")
+    if text.lstrip().startswith("<!") or "<html" in text[:300].lower():
+        raise RuntimeError(
+            f"OpenRouter {method} {path} failed ({status}): "
+            "provider returned HTML error page"
+        )
+    raise RuntimeError(f"OpenRouter {method} {path} failed ({status})")
+
+
 async def openai_json_post(
     client: Any,
     path: str,
@@ -871,11 +972,17 @@ async def openai_json_post(
 
     openai>=2: use ``client.post`` — ``with_raw_response`` has no ``.post``.
     """
-    raw = await client.post(
-        path,
-        body=dict(body),
-        cast_to=object,
-    )
+    rel = _normalize_openrouter_rel_path(path)
+    try:
+        raw = await client.post(
+            rel,
+            body=dict(body),
+            cast_to=object,
+        )
+    except Exception as err:
+        raise RuntimeError(
+            _short_openai_sdk_error(err, method="POST", path=rel)
+        ) from err
     if isinstance(raw, dict):
         return raw
     # Some SDK paths return a response wrapper
@@ -887,13 +994,14 @@ async def openai_json_post(
         return data
     http_resp = getattr(raw, "http_response", None)
     if http_resp is not None:
+        _check_http_response(http_resp, method="POST", path=rel)
         try:
             parsed = http_resp.json()
             if isinstance(parsed, dict):
                 return parsed
         except Exception:
             pass
-    raise RuntimeError(f"OpenAI POST {path} returned non-JSON payload")
+    raise RuntimeError(f"OpenRouter POST {rel} returned non-JSON payload")
 
 
 async def openai_json_get(
@@ -901,7 +1009,13 @@ async def openai_json_get(
     path: str,
 ) -> dict[str, Any]:
     """GET JSON via OpenAI SDK (OpenRouter video poll)."""
-    raw = await client.get(path, cast_to=object)
+    rel = _normalize_openrouter_rel_path(path)
+    try:
+        raw = await client.get(rel, cast_to=object)
+    except Exception as err:
+        raise RuntimeError(
+            _short_openai_sdk_error(err, method="GET", path=rel)
+        ) from err
     if isinstance(raw, dict):
         return raw
     try:
@@ -912,13 +1026,75 @@ async def openai_json_get(
         return data
     http_resp = getattr(raw, "http_response", None)
     if http_resp is not None:
+        _check_http_response(http_resp, method="GET", path=rel)
         try:
             parsed = http_resp.json()
             if isinstance(parsed, dict):
                 return parsed
         except Exception:
             pass
-    raise RuntimeError(f"OpenAI GET {path} returned non-JSON payload")
+    raise RuntimeError(f"OpenRouter GET {rel} returned non-JSON payload")
+
+
+async def openai_binary_post(
+    client: Any,
+    path: str,
+    body: Mapping[str, Any],
+    *,
+    default_content_type: str = "application/octet-stream",
+) -> tuple[bytes, str]:
+    """POST binary payload via OpenAI SDK (OpenRouter ``/audio/speech``, etc.).
+
+    openai>=2: use ``client.post`` — ``with_raw_response`` has no ``.post``.
+    """
+    rel = _normalize_openrouter_rel_path(path)
+    try:
+        raw = await client.post(
+            rel,
+            body=dict(body),
+            cast_to=object,
+        )
+    except Exception as err:
+        raise RuntimeError(
+            _short_openai_sdk_error(err, method="POST", path=rel)
+        ) from err
+
+    http_resp = getattr(raw, "http_response", None)
+    if http_resp is None and isinstance(raw, (bytes, bytearray)):
+        return bytes(raw), default_content_type
+    if http_resp is None:
+        raise RuntimeError(f"OpenRouter POST {rel} returned no HTTP response")
+
+    _check_http_response(http_resp, method="POST", path=rel)
+    content = getattr(http_resp, "content", None) or b""
+    if not content:
+        raise RuntimeError(f"OpenRouter POST {rel} returned empty body")
+
+    ctype = default_content_type
+    headers = getattr(http_resp, "headers", None)
+    if headers is not None:
+        try:
+            parsed_ct = str(headers.get("content-type") or "").split(";")[0].strip()
+            if parsed_ct:
+                ctype = parsed_ct
+        except Exception:
+            pass
+
+    low_ct = ctype.lower()
+    if "json" in low_ct or low_ct.startswith("text/"):
+        text = content.decode("utf-8", errors="replace")
+        msg = _message_from_http_body(text)
+        raise RuntimeError(
+            f"OpenRouter POST {rel} returned JSON/text: {msg or text[:400]}"
+        )
+    if content[:1] in (b"{", b"[") and not ctype.startswith("audio/"):
+        text = content.decode("utf-8", errors="replace")
+        msg = _message_from_http_body(text)
+        raise RuntimeError(
+            f"OpenRouter POST {rel} returned JSON: {msg or text[:400]}"
+        )
+
+    return bytes(content), ctype
 
 
 def _image_content_block(url: str) -> Any:

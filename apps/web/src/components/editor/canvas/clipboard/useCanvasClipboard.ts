@@ -23,6 +23,7 @@ import {
   measureWrappedTextSize,
 } from '@/components/rcb/scene/document/sceneText';
 import { getDocumentGridSize, snapCoordToGrid } from '@/components/rcb/selection/alignGuides';
+import { rcbPlaceTextFontSize } from '@/components/rcb/core/layout';
 import {
   setDocument,
   setMixedSelection,
@@ -68,6 +69,7 @@ type UseCanvasClipboardArgs = {
     anchor?: { x: number; y: number } | null
   ) => { x: number; y: number } | null;
   finishToSelect: () => void;
+  getZoom?: () => number;
   onImageFile: (file: File | null) => void | Promise<void>;
   onVideoFile: (file: File | null) => void | Promise<void>;
   onAudioFile: (file: File | null) => void | Promise<void>;
@@ -94,6 +96,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     deleteCanvasSelection,
     placeOriginForSize,
     finishToSelect,
+    getZoom,
     onImageFile,
     onVideoFile,
     onAudioFile,
@@ -255,10 +258,16 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         DEFAULT_TEXT_BOX_WIDTH,
         Math.min(480, boardW > 0 ? Math.round(boardW * 0.5) : 420)
       );
-      const natural = measurePlainTextSize(content);
+      const zoom = Math.max(0.05, getZoom?.() ?? 1);
+      const fontSize = rcbPlaceTextFontSize(zoom, undefined, {
+        viewportWidth: undefined,
+        docWidth: boardW > 0 ? boardW : undefined,
+      });
+      const style = { fontSize };
+      const natural = measurePlainTextSize(content, style);
       const wrap = natural.width > maxW;
       const box = wrap
-        ? measureWrappedTextSize(content, {}, maxW)
+        ? measureWrappedTextSize(content, style, maxW)
         : { width: natural.width, height: natural.height };
       const origin =
         placeOriginForSize({ width: box.width, height: box.height }, anchor) || {
@@ -272,6 +281,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         width: box.width,
         height: box.height,
         autoSize: !wrap,
+        fontSize,
       });
       const next = addNodeToDocument(doc, id, node);
       documentRef.current = next;
@@ -281,7 +291,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       finishToSelect();
       return true;
     },
-    [artboardWidth, dispatch, documentRef, finishToSelect, placeOriginForSize, readOnly]
+    [artboardWidth, dispatch, documentRef, finishToSelect, getZoom, placeOriginForSize, readOnly]
   );
 
   const insertPastedSvg = useCallback(

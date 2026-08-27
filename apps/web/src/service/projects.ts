@@ -6,6 +6,8 @@
  */
 
 import { apiClient, apiQuery, queryClient } from '@/service/client';
+import { isProjectDeleted } from '@/utils/deletedProjectsGuard';
+import { normalizeProjectId } from '@/utils/normalizeProjectId';
 
 export type ProjectSummaryDto = {
   id: string;
@@ -128,10 +130,9 @@ export function findProjectSummaryInListCache(
   return null;
 }
 
-/** Write server row into list + row queries (not optimistic — API response only). */
 export function syncProjectRowFromServer(row: ProjectSummaryDto) {
   const id = String(row.id || '').trim();
-  if (!id) return;
+  if (!id || isProjectDeleted(id)) return;
 
   queryClient.setQueriesData(
     { queryKey: apiQuery.projectsListMyProjects.key() },
@@ -154,6 +155,38 @@ export function syncProjectRowFromServer(row: ProjectSummaryDto) {
   );
 
   queryClient.setQueryData(projectListRowQueryKey(id), row);
+}
+
+/** Optimistically drop one project from cached list pages. */
+export function removeProjectFromListCache(projectId: string) {
+  const id = normalizeProjectId(projectId);
+  if (!id) return;
+
+  queryClient.setQueriesData(
+    { queryKey: apiQuery.projectsListMyProjects.key() },
+    (old: unknown) => {
+      if (!old || typeof old !== 'object') return old;
+      const data = old as { pages?: PaginatedProjects[] };
+      if (!Array.isArray(data.pages)) return old;
+
+      let removed = 0;
+      const pages = data.pages.map((page) => {
+        const before = page.projects?.length ?? 0;
+        const projects = (page.projects || []).filter((p) => p.id !== id);
+        const drop = before - projects.length;
+        removed += drop;
+        return {
+          ...page,
+          projects,
+          total: Math.max(0, (page.total || 0) - drop),
+        };
+      });
+
+      return removed ? { ...data, pages } : old;
+    }
+  );
+
+  queryClient.removeQueries({ queryKey: projectListRowQueryKey(id) });
 }
 
 export async function invalidateProjectsListCache() {

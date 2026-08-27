@@ -298,6 +298,8 @@ function TextInlineEditor({
   const contentScreenH = Math.max(fontSize * z, heightWorld * z);
   const padScreen = pad * z;
   const framePadScreen = framePad * z;
+  /** Match TextFrameOverlay / audio plate shell inset. */
+  const shellPadScreen = textFrame ? 20 * z : 0;
   const radii = radiiFromAttrs(node.attrs || {});
   const frameRadius = textFrame
     ? Math.max(
@@ -305,6 +307,11 @@ function TextInlineEditor({
         radii.tl || radii.tr || radii.br || radii.bl || TEXT_FRAME_RADIUS
       ) * z
     : 0;
+  const trackRadius = textFrame ? Math.max(0, frameRadius - 4 * z) : 0;
+  const trackLeft = padScreen + shellPadScreen;
+  const trackTop = padScreen + shellPadScreen;
+  const trackW = Math.max(8, contentScreenW - shellPadScreen * 2);
+  const trackH = Math.max(fontSize * z, contentScreenH - shellPadScreen * 2);
 
   const startEdgeDrag = (side: 'e' | 'w') => (e: React.PointerEvent) => {
     e.preventDefault();
@@ -342,9 +349,22 @@ function TextInlineEditor({
             boxShadow: textFrame
               ? `inset 0 0 0 1px var(--line), 0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`
               : `0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`,
-            background: textFrame ? 'var(--surface)' : undefined,
+            background: textFrame ? 'var(--audio-wave-track)' : undefined,
           }}
         />
+        {textFrame ? (
+          <div
+            className="pointer-events-none absolute z-[1]"
+            style={{
+              left: trackLeft,
+              top: trackTop,
+              width: trackW,
+              height: trackH,
+              background: 'var(--gen-empty)',
+              borderRadius: trackRadius || undefined,
+            }}
+          />
+        ) : null}
         {/* L/R wrap handles — not for scrollable text frames (image-like scale). */}
         {!textFrame
           ? (['w', 'e'] as const).map((side) => (
@@ -390,22 +410,24 @@ function TextInlineEditor({
           }}
           onWheel={(e) => {
             if (!textFrame) return;
-            // Keep wheel on the textarea — native canvas listener must not pan.
+            // Ctrl/meta+wheel → let canvas zoom (editor is under stage when FO; overlay uses native listener).
+            if (e.ctrlKey || e.metaKey) return;
             e.stopPropagation();
             e.nativeEvent.stopImmediatePropagation();
           }}
           spellCheck={false}
+          data-text-frame-scroll={textFrame ? '' : undefined}
           className={
             textFrame
-              ? 'absolute z-[1] resize-none overflow-y-auto border-0 bg-transparent shadow-none outline-none ring-0'
+              ? 'absolute z-[2] resize-none overflow-y-auto border-0 bg-transparent shadow-none outline-none ring-0'
               : 'absolute z-[1] resize-none overflow-hidden border-0 bg-transparent p-0 shadow-none outline-none ring-0'
           }
           style={{
-            left: padScreen,
-            top: padScreen,
-            width: contentScreenW,
-            height: contentScreenH,
-            // Frame: pad text inside the plate; scrollbar stays flush to the plate edge.
+            left: trackLeft,
+            top: trackTop,
+            width: trackW,
+            height: trackH,
+            // Frame: pad text inside the track; scrollbar stays flush to the track edge.
             padding: textFrame ? framePadScreen : 0,
             fontSize: fontSize * z,
             // Unitless line-height matches SVG.js `leading` (fontSize × lineH).

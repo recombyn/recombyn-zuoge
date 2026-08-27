@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Lottie generator composer under the empty plate.
- * On-plate generate 鈫?POST /design/lottie/generate 鈫?promote to Lottie node.
+ * On-plate generate → POST /api/v1/chat/lottie/jobs → promote to Lottie node.
  */
 import {
   memo,
@@ -215,11 +215,17 @@ function LottieGeneratorCard({
     mentionIx,
   } = useComposerMentionPanel(inputRef);
 
+  const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
-    if (!showComposer || disabled) return;
+    if (!showComposer || disabled) {
+      wasComposerVisibleRef.current = false;
+      return;
+    }
+    if (wasComposerVisibleRef.current) return;
+    wasComposerVisibleRef.current = true;
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
-  }, [showComposer, nodeId, disabled]);
+  }, [showComposer, disabled]);
 
   useEffect(() => {
     const nextAspect = readGenAttrString(genAttrs, 'lottieGenAspect');

@@ -33,11 +33,9 @@ function KeyCombo({ parts }: { parts: ReactNode[] }) {
 
 function ShortcutRow({ label, keys }: { label: string; keys: ReactNode }) {
   return (
-    <div className="flex w-full flex-nowrap items-center justify-between gap-8 py-1.5">
-      <span className="min-w-0 whitespace-nowrap text-[12px] leading-5 text-[var(--ink)]">
-        {label}
-      </span>
-      <div className="shrink-0">{keys}</div>
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 py-1.5">
+      <span className="min-w-0 text-[12px] leading-5 text-[var(--ink)]">{label}</span>
+      <div className="justify-self-end shrink-0">{keys}</div>
     </div>
   );
 }
@@ -45,9 +43,7 @@ function ShortcutRow({ label, keys }: { label: string; keys: ReactNode }) {
 function ShortcutSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="w-full">
-      <h3 className="mb-1.5 whitespace-nowrap text-[13px] font-semibold text-[var(--ink)]">
-        {title}
-      </h3>
+      <h3 className="mb-1.5 text-[13px] font-semibold text-[var(--ink)]">{title}</h3>
       <div className="flex w-full flex-col">{children}</div>
     </section>
   );
@@ -90,21 +86,30 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
       ref={rootRef}
       role="dialog"
       aria-label={t('editor.shortcuts.title')}
-      className="pointer-events-auto relative mb-2 w-max max-w-[calc(100vw-2rem)] rounded-xl bg-[var(--surface)] px-6 py-5 shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-1 ring-[var(--line)]"
+      className={cn(
+        'pointer-events-auto mb-2 flex h-[400px] shrink-0 flex-col overflow-hidden',
+        'w-[min(55rem,calc(100vw-2rem))] rounded-xl bg-[var(--surface)]',
+        'shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-1 ring-[var(--line)]'
+      )}
     >
-      <button
-        type="button"
-        aria-label={t('editor.shortcuts.close')}
-        onClick={onClose}
-        className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded text-[var(--muted)] transition-colors hover:bg-[var(--canvas)] hover:text-[var(--ink)]"
-      >
-        <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
-      </button>
+      <div className="flex shrink-0 items-center justify-between gap-3 px-4 pt-4">
+        <h2 className="min-w-0 truncate text-[15px] font-semibold leading-none text-[var(--ink)]">
+          {t('editor.shortcuts.title')}
+        </h2>
+        <button
+          type="button"
+          aria-label={t('editor.shortcuts.close')}
+          onClick={onClose}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+        >
+          <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
+        </button>
+      </div>
 
-      {/* Stretch columns so dividers run full height; each col width = widest row. */}
-      <div className="flex flex-col gap-6 pr-6 sm:flex-row sm:items-stretch sm:gap-0">
+      <div className="rcb-edge-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className={cn('grid grid-cols-1 gap-6 px-4 pb-4 pt-2 sm:grid-cols-3 sm:gap-0')}>
         {/* Canvas + tools — EditorPage zoom + RcbCanvas pan + EditorToolStrip */}
-        <div className="flex min-w-max max-w-full flex-col gap-5 sm:pr-8">
+        <div className="flex min-w-0 flex-col gap-5 sm:pr-6">
           <ShortcutSection title={t('editor.shortcuts.canvasNav')}>
             <ShortcutRow
               label={t('editor.shortcuts.pan')}
@@ -156,7 +161,7 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
         </div>
 
         {/* Edit + layers — SvgCanvas */}
-        <div className="flex min-w-max max-w-full flex-col gap-5 sm:border-l sm:border-[var(--line)] sm:px-8">
+        <div className="flex min-w-0 flex-col gap-5 sm:border-l sm:border-[var(--line)] sm:px-6">
           <ShortcutSection title={t('editor.shortcuts.nodeEdit')}>
             <ShortcutRow
               label={t('editor.shortcuts.copy')}
@@ -235,7 +240,7 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
         </div>
 
         {/* Chat — AgentComposerInput + AgentDock @ model panel + SvgCanvas add-to-chat */}
-        <div className="flex min-w-max max-w-full flex-col gap-5 sm:border-l sm:border-[var(--line)] sm:pl-8">
+        <div className="flex min-w-0 flex-col gap-5 sm:border-l sm:border-[var(--line)] sm:pl-6">
           <ShortcutSection title={t('editor.shortcuts.chat')}>
             <ShortcutRow label={t('editor.shortcuts.chatModel')} keys={<Kbd>@</Kbd>} />
             <ShortcutRow
@@ -270,6 +275,7 @@ function EditorShortcutsPanel({ onClose }: Props): ReactNode {
               }
             />
           </ShortcutSection>
+        </div>
         </div>
       </div>
     </div>

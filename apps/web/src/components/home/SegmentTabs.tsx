@@ -10,6 +10,12 @@ type SegmentTabsProps<T extends string> = {
   size?: 'sm' | 'md';
   /** plain = text-only; pill | track = segmented capsule; chips = separate buttons. */
   variant?: 'plain' | 'pill' | 'track' | 'chips';
+  /** chips only — equal-width slots filling the tablist width. */
+  fill?: boolean;
+  /** chips only — keep tabs on one line (scroll if needed). */
+  nowrap?: boolean;
+  /** chips only — tighter padding for narrow toolbars. */
+  compact?: boolean;
   /** Accessible name for the tablist. */
   'aria-label'?: string;
 };
@@ -26,6 +32,9 @@ function SegmentTabs<T extends string>({
   className,
   size = 'sm',
   variant = 'plain',
+  fill = false,
+  nowrap = false,
+  compact = false,
   'aria-label': ariaLabel,
 }: SegmentTabsProps<T>): ReactNode {
   const labelSize = size === 'md' ? 'text-[16px]' : 'text-[14px]';
@@ -39,12 +48,17 @@ function SegmentTabs<T extends string>({
         role="tablist"
         aria-label={ariaLabel}
         className={cn(
-          'flex max-w-full flex-wrap items-center gap-2',
+          fill
+            ? 'flex w-full min-w-0 flex-nowrap items-stretch gap-1'
+            : nowrap
+              ? 'flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+              : 'flex max-w-full flex-wrap items-center gap-2',
           className
         )}
       >
         {tabs.map((tab) => {
           const active = value === tab.id;
+          const chipPad = compact ? 'px-2 py-1' : 'px-3.5 py-1.5 sm:px-4';
           return (
             <button
               key={tab.id}
@@ -52,18 +66,24 @@ function SegmentTabs<T extends string>({
               role="tab"
               aria-selected={active}
               className={cn(
-                'relative inline-flex shrink-0 items-center rounded-lg px-3.5 py-1.5 transition-colors sm:px-4',
+                'relative inline-flex items-center rounded-lg border transition-colors',
+                fill ? 'min-w-0 flex-1 basis-0 justify-center px-1 py-1.5' : cn('shrink-0', chipPad),
                 pillLabelSize,
                 active
-                  ? 'bg-[var(--surface)] font-semibold text-[var(--ink)] shadow-sm ring-1 ring-[var(--line)]'
-                  : 'bg-[color-mix(in_srgb,var(--ink)_5%,var(--rail))] font-normal text-[var(--ink)]/75 ring-1 ring-transparent hover:bg-[color-mix(in_srgb,var(--ink)_8%,var(--rail))] hover:text-[var(--ink)]'
+                  ? 'border-[var(--line)] bg-[var(--surface)] font-semibold text-[var(--ink)] shadow-sm'
+                  : 'border-transparent bg-[color-mix(in_srgb,var(--ink)_8%,var(--surface))] font-normal text-[var(--ink)]/75 hover:bg-[color-mix(in_srgb,var(--ink)_12%,var(--surface))] hover:text-[var(--ink)]'
               )}
               onClick={() => onChange(tab.id)}
             >
               <span className="invisible font-semibold" aria-hidden>
                 {tab.label}
               </span>
-              <span className="absolute inset-0 flex items-center justify-center px-3.5 sm:px-4">
+              <span
+                className={cn(
+                  'absolute inset-0 flex items-center justify-center',
+                  fill ? 'px-1' : chipPad
+                )}
+              >
                 {tab.label}
               </span>
             </button>

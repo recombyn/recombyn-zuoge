@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Floating quick-edit chat under a selected video (toolbar → 快速编辑).
- * Regenerates video in place via POST /chat/video.
+ * Regenerates video in place via POST /api/v1/chat/video/jobs.
  */
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';

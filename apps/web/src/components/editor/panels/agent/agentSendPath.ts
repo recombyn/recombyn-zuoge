@@ -8,9 +8,17 @@ import {
 } from '@/components/editor/panels/AgentComposerInput';
 import { isMarkContextKey } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import type {
+  AudioModeComposerControls,
   ImageModeComposerControls,
+  LottieModeComposerControls,
   VideoModeComposerControls,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import {
+  DEFAULT_LOTTIE_ASPECT,
+} from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
+import {
+  modelIsAudioGenerator,
+} from '@/components/editor/nodes/shared/generatorModelLists';
 import {
   type AskChoicePick,
   type ChatUiMessage,
@@ -37,7 +45,12 @@ import {
   nodeIdsInsideFrame,
   resolveDesignTargetFrame,
 } from '@/components/editor/panels/agent/runDesignAgent';
-import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
+import {
+  estimateAudioCredits,
+  estimateImageCredits,
+  estimateLottieCredits,
+  estimateVideoCredits,
+} from '@/utils/imageCredits';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function resolveSeedLiveNodeIds(opts: {
@@ -193,7 +206,20 @@ export function shouldRunImageGenPath(opts: {
   forceAgent: boolean;
   hasApplyOps: boolean;
 }): boolean {
-  return opts.isImageModelSelected && !opts.forceAgent && !opts.hasApplyOps;
+  return shouldRunDirectGenPath(
+    opts.isImageModelSelected,
+    opts.forceAgent,
+    opts.hasApplyOps
+  );
+}
+
+/** Video / audio / lottie composer modes share the same gating rules. */
+export function shouldRunDirectGenPath(
+  active: boolean,
+  forceAgent: boolean,
+  hasApplyOps: boolean
+): boolean {
+  return active && !forceAgent && !hasApplyOps;
 }
 
 export function shouldRunVideoGenPath(opts: {
@@ -201,16 +227,58 @@ export function shouldRunVideoGenPath(opts: {
   forceAgent: boolean;
   hasApplyOps: boolean;
 }): boolean {
-  return opts.isVideoModelSelected && !opts.forceAgent && !opts.hasApplyOps;
+  return shouldRunDirectGenPath(
+    opts.isVideoModelSelected,
+    opts.forceAgent,
+    opts.hasApplyOps
+  );
 }
 
-export function firstGeneratedVideoUrl(res: {
+export function shouldRunAudioGenPath(opts: {
+  isAudioModelSelected: boolean;
+  forceAgent: boolean;
+  hasApplyOps: boolean;
+}): boolean {
+  return shouldRunDirectGenPath(
+    opts.isAudioModelSelected,
+    opts.forceAgent,
+    opts.hasApplyOps
+  );
+}
+
+export function shouldRunLottieGenPath(opts: {
+  isLottieModelSelected: boolean;
+  forceAgent: boolean;
+  hasApplyOps: boolean;
+}): boolean {
+  return shouldRunDirectGenPath(
+    opts.isLottieModelSelected,
+    opts.forceAgent,
+    opts.hasApplyOps
+  );
+}
+
+type GeneratedMediaUrls = {
   videos?: unknown[];
-  assets?: Array<{ url?: string } | null> | null;
-}): string {
-  for (const u of res.videos || []) {
+  audios?: unknown[];
+  images?: unknown[];
+  assets?: Array<{ url?: string | null } | null> | null;
+  asset?: { url?: string | null } | null;
+};
+
+function firstListMediaUrl(
+  res: GeneratedMediaUrls,
+  key: 'videos' | 'audios' | 'images'
+): string {
+  for (const u of res[key] || []) {
     if (typeof u === 'string' && u.trim()) return u.trim();
   }
+  return firstAssetUrl(res);
+}
+
+function firstAssetUrl(res: GeneratedMediaUrls): string {
+  const direct = typeof res.asset?.url === 'string' ? res.asset.url.trim() : '';
+  if (direct) return direct;
   for (const a of res.assets || []) {
     const u = typeof a?.url === 'string' ? a.url.trim() : '';
     if (u) return u;
@@ -218,18 +286,20 @@ export function firstGeneratedVideoUrl(res: {
   return '';
 }
 
-export function firstGeneratedImageUrl(res: {
-  images?: unknown[];
-  assets?: Array<{ url?: string } | null> | null;
-}): string {
-  for (const u of res.images || []) {
-    if (typeof u === 'string' && u.trim()) return u.trim();
-  }
-  for (const a of res.assets || []) {
-    const u = typeof a?.url === 'string' ? a.url.trim() : '';
-    if (u) return u;
-  }
-  return '';
+export function firstGeneratedAudioUrl(res: GeneratedMediaUrls): string {
+  return firstListMediaUrl(res, 'audios');
+}
+
+export function firstGeneratedLottieUrl(res: GeneratedMediaUrls): string {
+  return firstAssetUrl(res);
+}
+
+export function firstGeneratedVideoUrl(res: GeneratedMediaUrls): string {
+  return firstListMediaUrl(res, 'videos');
+}
+
+export function firstGeneratedImageUrl(res: GeneratedMediaUrls): string {
+  return firstListMediaUrl(res, 'images');
 }
 
 export function canvasSizeFromChip(chipNorm: string): string | undefined {
@@ -293,6 +363,101 @@ export function buildImageModeControls(opts: {
       models: opts.models,
       selectedId: opts.modelId,
       status: opts.modelsStatus,
+      onPick: opts.onPickModel,
+    }),
+  };
+}
+
+export function lottieGenDimensions(aspectRatio: string): { width: number; height: number } {
+  const s = String(aspectRatio || DEFAULT_LOTTIE_ASPECT).trim();
+  let rw = 1;
+  let rh = 1;
+  const m = /^(\d+(?:\.\d+)?)\s*[:x×]\s*(\d+(?:\.\d+)?)$/i.exec(s);
+  if (m) {
+    rw = Math.max(0.01, Number(m[1]));
+    rh = Math.max(0.01, Number(m[2]));
+  }
+  const ratio = rw / rh;
+  const area = 256 * 256;
+  let height = Math.sqrt(area / ratio);
+  let width = height * ratio;
+  width = Math.min(512, Math.max(32, Math.round(width)));
+  height = Math.min(512, Math.max(32, Math.round(height)));
+  return { width, height };
+}
+
+export function buildAudioModeControls(opts: {
+  active: boolean;
+  models: LlmModel[];
+  modelId: string;
+  modelsStatus: 'idle' | 'loading' | 'ready' | 'error';
+  modelOpen: boolean;
+  onModelOpenChange: (open: boolean) => void;
+  onPickModel: (id: string) => void;
+}): AudioModeComposerControls | null {
+  if (!opts.active) return null;
+  const pool = opts.models.filter((m) => modelIsAudioGenerator(m));
+  const selected = pickCatalogModel(pool, opts.modelId);
+  return {
+    creditCost: selected ? estimateAudioCredits(selected) : 0,
+    modelLabel: String(selected?.label || opts.modelId || ''),
+    modelIcon: selected
+      ? createElement(ModelBrandIcon, {
+          model: selected,
+          className: 'h-3.5 w-3.5 shrink-0',
+        })
+      : undefined,
+    modelOpen: opts.modelOpen,
+    onModelOpenChange: opts.onModelOpenChange,
+    modelPanel: createElement(ModelPickerPanel, {
+      tab: 'video',
+      models: opts.models,
+      selectedId: opts.modelId,
+      status: opts.modelsStatus,
+      hideAuto: true,
+      useModelsAsIs: true,
+      onPick: opts.onPickModel,
+    }),
+  };
+}
+
+export function buildLottieModeControls(opts: {
+  active: boolean;
+  models: LlmModel[];
+  modelId: string;
+  modelsStatus: 'idle' | 'loading' | 'ready' | 'error';
+  aspectRatio: string;
+  duration: number;
+  modelOpen: boolean;
+  onAspectRatioChange: (ratio: string) => void;
+  onDurationChange: (duration: number) => void;
+  onModelOpenChange: (open: boolean) => void;
+  onPickModel: (id: string) => void;
+}): LottieModeComposerControls | null {
+  if (!opts.active) return null;
+  const selected = pickCatalogModel(opts.models, opts.modelId);
+  return {
+    aspectRatio: opts.aspectRatio,
+    duration: opts.duration,
+    onAspectRatioChange: opts.onAspectRatioChange,
+    onDurationChange: opts.onDurationChange,
+    creditCost: selected ? estimateLottieCredits(selected, opts.duration) : 0,
+    modelLabel: String(selected?.label || opts.modelId || ''),
+    modelIcon: selected
+      ? createElement(ModelBrandIcon, {
+          model: selected,
+          className: 'h-3.5 w-3.5 shrink-0',
+        })
+      : undefined,
+    modelOpen: opts.modelOpen,
+    onModelOpenChange: opts.onModelOpenChange,
+    modelPanel: createElement(ModelPickerPanel, {
+      tab: 'design',
+      models: opts.models,
+      selectedId: opts.modelId,
+      status: opts.modelsStatus,
+      hideAuto: true,
+      useModelsAsIs: true,
       onPick: opts.onPickModel,
     }),
   };
@@ -676,6 +841,119 @@ export function buildVideoAssistantSeed(opts: {
       opts.selectedModel?.label || opts.model || fallbackId
     ),
     steps: [],
+  };
+}
+
+export function buildAudioAssistantSeed(opts: {
+  canPickModel: boolean;
+  model: string;
+  selectedModel?: LlmModel | null;
+}): Pick<
+  ChatUiMessage,
+  'audioPendingCount' | 'imageModelId' | 'imageModelLabel' | 'steps'
+> {
+  const fallbackId = String(opts.selectedModel?.id || opts.model || 'or-gemini-3-1-flash-tts');
+  return {
+    audioPendingCount: 1,
+    imageModelId: !opts.canPickModel ? fallbackId : String(opts.model || fallbackId),
+    imageModelLabel: String(opts.selectedModel?.label || opts.model || fallbackId),
+    steps: [],
+  };
+}
+
+export function buildLottieAssistantSeed(opts: {
+  lottieGenAspect?: string;
+  lottieGenAspectRatio: string;
+  canPickModel: boolean;
+  model: string;
+  selectedModel?: LlmModel | null;
+}): Pick<
+  ChatUiMessage,
+  'lottiePendingCount' | 'imageAspectRatio' | 'imageModelId' | 'imageModelLabel' | 'steps'
+> {
+  const fallbackId = String(opts.selectedModel?.id || opts.model || 'auto');
+  return {
+    lottiePendingCount: 1,
+    imageAspectRatio: opts.lottieGenAspect || opts.lottieGenAspectRatio,
+    imageModelId: !opts.canPickModel ? fallbackId : String(opts.model || fallbackId),
+    imageModelLabel: String(opts.selectedModel?.label || opts.model || fallbackId),
+    steps: [],
+  };
+}
+
+export function buildAssistantTurnSeed(opts: {
+  runVideoGen: boolean;
+  runAudioGen: boolean;
+  runLottieGen: boolean;
+  video: Parameters<typeof buildVideoAssistantSeed>[0];
+  audio: Parameters<typeof buildAudioAssistantSeed>[0];
+  lottie: Parameters<typeof buildLottieAssistantSeed>[0];
+  image: Parameters<typeof buildStreamingAssistantSeed>[0];
+}): Partial<ChatUiMessage> {
+  if (opts.runVideoGen) return buildVideoAssistantSeed(opts.video);
+  if (opts.runAudioGen) return buildAudioAssistantSeed(opts.audio);
+  if (opts.runLottieGen) return buildLottieAssistantSeed(opts.lottie);
+  return buildStreamingAssistantSeed(opts.image);
+}
+
+export type DirectMediaTurnCtx = {
+  signal: AbortSignal;
+  fail: (content: string, extra?: Partial<ChatUiMessage>) => void;
+  succeed: (patch: Partial<ChatUiMessage>) => void;
+};
+
+/** Shared try/catch for video / audio / lottie chat jobs. */
+export async function runDirectMediaTurn(
+  ctx: DirectMediaTurnCtx,
+  generate: () => Promise<Partial<ChatUiMessage> | null>
+): Promise<void> {
+  try {
+    const patch = await generate();
+    if (ctx.signal.aborted) return;
+    if (!patch) {
+      ctx.fail('');
+      return;
+    }
+    ctx.succeed(patch);
+  } catch (err) {
+    if (ctx.signal.aborted) return;
+    ctx.fail(formatChatMediaError(() => '', err));
+  }
+}
+
+function buildCreditModelControls(opts: {
+  active: boolean;
+  models: LlmModel[];
+  modelId: string;
+  modelsStatus: 'idle' | 'loading' | 'ready' | 'error';
+  modelOpen: boolean;
+  onModelOpenChange: (open: boolean) => void;
+  onPickModel: (id: string) => void;
+  tab: 'design' | 'video';
+  creditCost: number;
+}): AudioModeComposerControls | null {
+  if (!opts.active) return null;
+  const selected = pickCatalogModel(opts.models, opts.modelId);
+  return {
+    creditCost: opts.creditCost,
+    modelLabel: String(selected?.label || opts.modelId || ''),
+    modelIcon: selected
+      ? createElement(ModelBrandIcon, {
+          model: selected,
+          className: 'h-3.5 w-3.5 shrink-0',
+        })
+      : undefined,
+    modelOpen: opts.modelOpen,
+    onModelOpenChange: opts.onModelOpenChange,
+    modelPanel: createElement(ModelPickerPanel, {
+      tab: opts.tab,
+      models: opts.models,
+      selectedId: opts.modelId,
+      status: opts.modelsStatus,
+      hideAuto: true,
+      useModelsAsIs: true,
+      onPick: opts.onPickModel,
+    }),
   };
 }
 

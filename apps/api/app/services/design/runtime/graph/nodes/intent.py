@@ -189,6 +189,12 @@ async def _node_intent_classify(state: GraphState) -> Command:
     rt.classified_intent = intent
     rt.classified_paint_lane = paint_lane
     rt.classified_reply = reply
+    from app.services.design.runtime.host.prompts import normalize_locale
+
+    rt.flags["output_locale"] = normalize_locale(
+        str(getattr(decision, "output_locale", "") or "").strip() or None,
+        default="zh-CN",
+    )
     st.intent = (
         paint_ops_intent(intent, paint_lane) if intent != "chat" else "chat"
     )

@@ -15,14 +15,13 @@ import {
   memo,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { HiOutlinePlay, HiOutlinePause } from 'react-icons/hi2';
 import { useRcbCamera } from '@/components/rcb';
 import {
   isAudioNode,
   isNodeOverlayHidden,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  resolveThemeSurfaceFill
+  resolveGenPlateFill
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   buildScenePlateStyle,
@@ -33,8 +32,11 @@ import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
 import {
   toDisplayMediaUrl,
   resolvePlayableMediaBlobUrl,
+  isOurStoredImageUrl,
+  resolveUploadObjectKey,
 } from '@/utils/uploadImage';
-import AudioWaveform, { type AudioWaveformHandle } from './AudioWaveform';
+import type { AudioWaveformHandle } from './AudioWaveform';
+import { AudioPlateSurface, formatAudioClock } from './AudioPlateSurface';
 
 export type AudioGeomOverride = MediaGeomOverride;
 
@@ -51,41 +53,6 @@ export type AudioHostApi = {
 
 const audioHosts = new Map<string, AudioHostApi>();
 
-type WaveThemeColors = { wave: string; progress: string; cursor: string };
-
-const WAVE_COLORS_LIGHT: WaveThemeColors = {
-  wave: '#c8c8c8',
-  progress: '#8a8a8a',
-  cursor: '#141414',
-};
-const WAVE_COLORS_DARK: WaveThemeColors = {
-  wave: '#5c5c5c',
-  progress: '#d4d4d4',
-  cursor: '#ffffff',
-};
-
-/** Canvas-safe hex (WaveSurfer cannot paint CSS vars / color-mix). */
-function resolveWaveThemeColors(): WaveThemeColors {
-  if (typeof document === 'undefined') return WAVE_COLORS_LIGHT;
-  if (document.documentElement.getAttribute('data-theme') === 'dark') {
-    return WAVE_COLORS_DARK;
-  }
-  return WAVE_COLORS_LIGHT;
-}
-
-function useWaveThemeColors(): WaveThemeColors {
-  const [colors, setColors] = useState(resolveWaveThemeColors);
-  useEffect(() => {
-    const sync = () => setColors(resolveWaveThemeColors());
-    sync();
-    const root = document.documentElement;
-    const obs = new MutationObserver(sync);
-    obs.observe(root, { attributes: true, attributeFilter: ['data-theme', 'class'] });
-    return () => obs.disconnect();
-  }, []);
-  return colors;
-}
-
 export function getAudioHost(nodeId: string): AudioHostApi | null {
   return audioHosts.get(String(nodeId)) || null;
 }
@@ -94,19 +61,6 @@ function clampSpeed(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n)) return 1;
   return Math.max(0.1, Math.min(4, n));
-}
-
-function formatClock(seconds: number, opts?: { round?: boolean }): string {
-  const raw = Math.max(0, Number(seconds) || 0);
-  // Sub-second wall times (e.g. 3s @ 4x ≈ 0.75s) — keep one decimal.
-  if (raw > 0 && raw < 1) {
-    const tenths = Math.max(1, Math.round(raw * 10));
-    return `00:00.${tenths}`;
-  }
-  const s = opts?.round ? Math.round(raw) : Math.floor(raw + 1e-6);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 }
 
 /**
@@ -139,7 +93,15 @@ function usePlayableAudioSrc(src: string, uploadKey?: string | null): string {
       return undefined;
     }
 
-    // Clear until auth blob is ready — avoids WaveSurfer fetch → COS CORS.
+    const key = String(uploadKey || '').trim() || resolveUploadObjectKey(s);
+    const needsAuthBlob = Boolean(key) || isOurStoredImageUrl(s);
+
+    // Public https (e.g. dev fixtures) — load directly; blob proxy is unnecessary.
+    if (!needsAuthBlob) {
+      setPlayable(s);
+      return undefined;
+    }
+
     setPlayable('');
 
     async function resolveBlob() {
@@ -157,7 +119,7 @@ function usePlayableAudioSrc(src: string, uploadKey?: string | null): string {
         setPlayable(resolved.url);
       } catch (err) {
         console.warn('[audio] resolve playable src failed', err);
-        if (!cancelled) setPlayable('');
+        if (!cancelled) setPlayable(s);
       }
     }
 
@@ -170,6 +132,8 @@ function usePlayableAudioSrc(src: string, uploadKey?: string | null): string {
 
   return playable;
 }
+
+export { usePlayableAudioSrc };
 
 function resolveTrimWindow(
   duration: number,
@@ -207,11 +171,6 @@ function AudioZoomSync({ onZoom }: { onZoom: (zoom: number) => void }) {
   return null;
 }
 
-function stopChromePointer(e: { stopPropagation: () => void; nativeEvent: Event }) {
-  e.stopPropagation();
-  (e.nativeEvent as any).stopImmediatePropagation?.();
-}
-
 function AudioPlate({
   nodeId,
   scenePlate,
@@ -240,7 +199,6 @@ function AudioPlate({
   speed: number;
 }) {
   const playSrc = usePlayableAudioSrc(src, uploadKey);
-  const waveColors = useWaveThemeColors();
   const waveRef = useRef<AudioWaveformHandle | null>(null);
   const [playing, setPlaying] = useState(false);
   const [ready, setReady] = useState(false);
@@ -262,25 +220,9 @@ function AudioPlate({
   const mediaPos = Math.max(0, current - mediaOrigin);
   const wallPos = mediaPos / rate;
   const wallLen = mediaLen > 0 ? mediaLen / rate : 0;
-  const plateH = Math.max(1, scenePlate.height * z);
-  const plateW = Math.max(1, scenePlate.width * z);
-  // Design chrome at a reference plate size, then scale wave + time + play as one unit
-  // (same idea as video playback bar fit) — transport must not steal wave height.
-  const AUDIO_REF_W = 360;
-  const AUDIO_REF_H = 180;
-  const uiFit = Math.max(
-    0.35,
-    Math.min(1, plateW / AUDIO_REF_W, plateH / AUDIO_REF_H)
-  );
-  const layoutW = plateW / uiFit;
-  const layoutH = plateH / uiFit;
-  const padY = 10;
-  const padX = 12;
-  const transportH = 40; // mt-2 + 32px button row
-  const waveHeight = Math.max(
-    28,
-    Math.min(140, Math.round(layoutH - padY * 2 - transportH))
-  );
+  // Counter-scale like video: WaveSurfer lays out at screen px, FO shows scene size.
+  const layoutW = Math.max(1, scenePlate.width);
+  const layoutH = Math.max(1, scenePlate.height);
 
   useEffect(() => {
     setReady(false);
@@ -413,99 +355,43 @@ function AudioPlate({
       className="pointer-events-none absolute inset-0 overflow-hidden"
       style={{
         visibility: hidden ? 'hidden' : undefined,
+        borderRadius: scenePlate.borderRadius,
       }}
       aria-hidden={hidden || undefined}
     >
+      {/*
+        Counter-scale like video: WaveSurfer at screen px, then scale(1/z) back.
+        Plate chrome uses cqh so zoom/resize shrinks the whole UI — no fixed-px crush.
+      */}
       <div
         className="pointer-events-none absolute left-0 top-0 overflow-hidden"
         style={{
-          width: scenePlate.width * z,
-          height: scenePlate.height * z,
+          width: layoutW * z,
+          height: layoutH * z,
           transform: `scale(${1 / z})`,
           transformOrigin: '0 0',
-          borderRadius: scenePlate.borderRadius,
-          background: plateFill,
-          color: 'var(--ink)',
-          boxShadow: 'inset 0 0 0 1px var(--line)',
         }}
       >
-        <div
-          className="pointer-events-none absolute left-0 top-0"
-          style={{
-            width: layoutW,
-            height: layoutH,
-            transform: `scale(${uiFit})`,
-            transformOrigin: '0 0',
-          }}
-        >
-          <div
-            className="flex h-full w-full flex-col"
-            style={{ padding: `${padY}px ${padX}px` }}
-          >
-            <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-[var(--rail)] px-3">
-              {playSrc ? (
-                <div className="w-full" style={{ height: waveHeight }}>
-                  <AudioWaveform
-                    ref={waveRef}
-                    url={playSrc}
-                    height={waveHeight}
-                    waveColor={waveColors.wave}
-                    progressColor={waveColors.progress}
-                    cursorColor={waveColors.cursor}
-                    barWidth={3}
-                    barGap={2}
-                    barRadius={2}
-                    interact={false}
-                    className="h-full w-full"
-                    onReady={onWaveReady}
-                    onPlay={() => setPlaying(true)}
-                    onPause={() => setPlaying(false)}
-                    onTimeUpdate={clampIntoWindow}
-                    onFinish={resetToWindowStart}
-                  />
-                </div>
-              ) : (
-                <div
-                  className="w-full animate-pulse rounded-md bg-[var(--line)]/50"
-                  style={{ height: waveHeight }}
-                />
-              )}
-            </div>
-            <div
-              data-audio-playback-bar
-              className="mt-2 grid h-8 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-1"
-              onPointerDown={stopChromePointer}
-            >
-              <span className="min-w-0 justify-self-start truncate text-[11px] tabular-nums text-[var(--muted)]">
-                {formatClock(wallPos)}
-                {' / '}
-                {formatClock(wallLen, { round: true })}
-              </span>
-              <button
-                type="button"
-                disabled={!ready || !playSrc}
-                className="pointer-events-auto col-start-2 inline-flex h-8 w-8 items-center justify-center justify-self-center rounded-full bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90 disabled:opacity-40"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  stopChromePointer(e);
-                }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  togglePlay();
-                }}
-                aria-label={playing ? 'Pause' : 'Play'}
-              >
-                {playing ? (
-                  <HiOutlinePause className="h-4 w-4" strokeWidth={2} />
-                ) : (
-                  <HiOutlinePlay className="h-4 w-4 translate-x-[1px]" strokeWidth={2} />
-                )}
-              </button>
-              <span aria-hidden className="min-w-0" />
-            </div>
-          </div>
-        </div>
+        <AudioPlateSurface
+          playSrc={playSrc}
+          knownDuration={knownDuration}
+          plateFill={plateFill}
+          density="node"
+          boxHeight={layoutH * z}
+          zoom={z}
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          playing={playing}
+          ready={ready}
+          currentTime={current}
+          duration={duration}
+          onPlayingChange={setPlaying}
+          onReady={onWaveReady}
+          onTimeUpdate={clampIntoWindow}
+          onFinish={resetToWindowStart}
+          waveformRef={waveRef}
+          onTogglePlay={togglePlay}
+          timeLabel={`${formatAudioClock(wallPos)} / ${formatAudioClock(wallLen, { round: true })}`}
+        />
       </div>
     </div>,
     svgMount
@@ -587,7 +473,7 @@ function AudioPlateHost({
       svgMount={mount}
       src={src}
       uploadKey={String(node.attrs?.uploadKey || '').trim() || null}
-      plateFill={resolveThemeSurfaceFill(node.attrs?.['fill-color'])}
+      plateFill={resolveGenPlateFill(node.attrs?.['fill-color'])}
       hidden={isNodeOverlayHidden(document, node, hidden)}
       trimStart={readOptionalNumber(node.attrs?.trimStart)}
       trimEnd={readOptionalNumber(node.attrs?.trimEnd)}

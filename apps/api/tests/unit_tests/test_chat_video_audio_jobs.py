@@ -91,11 +91,8 @@ def test_create_audio_job_enqueues(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_get_video_job_ok(monkeypatch: pytest.MonkeyPatch):
-    from app.api.routes import chat_video_jobs as route_mod
-
     monkeypatch.setattr(
-        route_mod,
-        "get_job",
+        "app.api.routes.chat_job_sse.get_job",
         lambda job_id, *, kind="import": {
             "job_id": job_id,
             "status": "done",
@@ -113,11 +110,8 @@ def test_get_video_job_ok(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_get_audio_job_wrong_owner(monkeypatch: pytest.MonkeyPatch):
-    from app.api.routes import chat_audio_jobs as route_mod
-
     monkeypatch.setattr(
-        route_mod,
-        "get_job",
+        "app.api.routes.chat_job_sse.get_job",
         lambda job_id, *, kind="import": {
             "job_id": job_id,
             "status": "done",

@@ -37,6 +37,7 @@ import {
   redo,
 } from '@/store/modules/editor';
 import { layoutGeneratorPlateAtScene } from './canvasSession';
+import { MEDIA_PLACE_DEFAULT } from '@/components/rcb/scene/document/nodeFactories';
 import { ctxMenuSeedNodeIds, filterChatAttachNodeIds } from './attachPick';
 import { ctxMenuTargetHasProcessing } from './ctxMenuGuards';
 import type { CanvasClipboardApi } from './clipboard/useCanvasClipboard';
@@ -200,7 +201,7 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
         dispatch: spawnLottieGenerator,
       },
       spawnAudioGenerator: {
-        natural: { width: 720, height: 400 },
+        natural: { ...MEDIA_PLACE_DEFAULT },
         fit: { minRatio: 0.22, maxRatio: 0.4 },
         nameKey: 'editor.tools.audioGenerator' as const,
         dispatch: spawnAudioGenerator,

@@ -1,5 +1,5 @@
 import { markdownToPlain } from './sceneMarkdown';
-import { normalizeColor } from './sceneEffects';
+import { normalizeColor, TEXT_FRAME_PADDING } from './sceneEffects';
 
 const APP_FONT_FAMILY = 'Alibaba PuHuiTi';
 const FABRIC_FONT_FAMILY = APP_FONT_FAMILY;
@@ -144,6 +144,41 @@ export function measureTextNodeBoxAfterStyleChange(
     height: Math.max(
       8,
       Math.round(Math.max(wrapped.height, merged.fontSize * merged.lineHeight))
+    ),
+  };
+}
+
+/**
+ * Box when leaving fixed text-frame mode — re-wrap at plate width, shrink W/H to ink.
+ * Avoids measurePlainTextSize treating frame-wrapped paragraphs as one huge line.
+ */
+export function measureTextFrameExitBox(
+  node: { width?: number; height?: number; attrs?: Record<string, unknown> },
+  style: Partial<TextStyle> = {}
+): { width: number; height: number } {
+  const merged: TextStyle = {
+    ...parseNodeTextStyle(node.attrs || {}),
+    ...style,
+    fontSize: normalizeTextFontSize(
+      style.fontSize ?? parseNodeTextStyle(node.attrs || {}).fontSize
+    ),
+  };
+  const plain = parseNodeText(node.attrs || {}) || ' ';
+  const fontSize = Math.max(1, Number(merged.fontSize) || 14);
+  const letterSpacing = Number(merged.letterSpacing) || 0;
+  const frameW = Math.max(1, Number(node.width) || DEFAULT_TEXT_BOX_WIDTH);
+  const innerW = Math.max(Math.ceil(fontSize), frameW - TEXT_FRAME_PADDING * 2);
+  const wrapped = measureWrappedTextSize(plain, merged, innerW);
+  const ctx = getMeasureContext(merged);
+  let maxLineW = 0;
+  for (const line of wrapped.lines) {
+    maxLineW = Math.max(maxLineW, measureLineWidth(ctx, line.length ? line : ' ', fontSize, letterSpacing));
+  }
+  return {
+    width: Math.max(8, Math.ceil(Math.max(fontSize, maxLineW))),
+    height: Math.max(
+      8,
+      Math.round(Math.max(wrapped.height, fontSize * (merged.lineHeight || 1.4)))
     ),
   };
 }
