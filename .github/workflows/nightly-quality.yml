@@ -80,6 +80,6 @@ jobs:
           sudo apt-get install -y k6
 
       - name: k6 soak (short)
-        run: k6 run -e K6_SOAK_DURATION=2m perf/k6/soak.js
+        run: k6 run -e K6_SOAK=1 -e K6_SOAK_DURATION=2m perf/k6/smoke.js
         env:
           BASE_URL: http://127.0.0.1:8000

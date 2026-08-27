@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Full canvas stress matrix: Vitest store/bench + Playwright ops/generators/foundations.
+ * Full canvas stress matrix: Vitest store/bench + Playwright product stress.
  *
  * Usage:
  *   E2E_BASE_URL=http://127.0.0.1:3000 E2E_TOKEN=... E2E_API=http://127.0.0.1:8000 \
@@ -119,21 +119,9 @@ if (!token) {
     { cwd: resolve(ROOT, 'e2e'), env: e2eEnv }
   );
   failed |= run(
-    'e2e.canvas.ops.stress',
+    'e2e.canvas.product.stress',
     'npx',
-    ['playwright', 'test', 'tests/canvas.ops.stress.spec.ts', '--reporter=list', '--workers=1', '--retries=0'],
-    { cwd: resolve(ROOT, 'e2e'), env: e2eEnv }
-  );
-  failed |= run(
-    'e2e.canvas.deep.stress',
-    'npx',
-    ['playwright', 'test', 'tests/canvas.deep.stress.spec.ts', '--reporter=list', '--workers=1', '--retries=0'],
-    { cwd: resolve(ROOT, 'e2e'), env: e2eEnv }
-  );
-  failed |= run(
-    'e2e.canvas.tools.stress',
-    'npx',
-    ['playwright', 'test', 'tests/canvas.tools.stress.spec.ts', '--reporter=list', '--workers=1', '--retries=0'],
+    ['playwright', 'test', 'tests/canvas.product.stress.spec.ts', '--reporter=list', '--workers=1', '--retries=0'],
     { cwd: resolve(ROOT, 'e2e'), env: e2eEnv }
   );
 }

@@ -26,7 +26,7 @@ Two gates, one metrics truth. Local full matrix: **`npm run test:gate:full`** (o
 | **Functional UI** | All major routed shells | `npm run test:functional:e2e` |
 | **Playwright** | UI / collab / surface + full shells | `npm run test:e2e` |
 | **Vitest** | Pure canvas/geometry | `npm run test:web` |
-| **Agent stress** | Design craft + system cases | `npm run stress:agent` (+ `--system`) |
+| **Agent concurrency** | Design craft + system cases under load | `npm run test:agent:concurrency` (+ `--system`) |
 | **Eval** | Design Agent craft (40 V3 tasks) | `npm run eval:agent -- --v3-tasks` then `npm run eval:compare` |
 
 ```bash
@@ -58,7 +58,7 @@ npm run test:gate
 
 Canvas Image/Video/Audio/Lottie generator plates + text tool (browser): `npm run test:canvas:generators` (`e2e/tests/canvas.generators.spec.ts`). Includes **mocked** `/chat/image` promote (no provider keys). Store spawn/finish covered by Vitest `canvasGenerators.store` + `quickEditGenPromptEcho.stress`.
 
-Full canvas stress matrix (store + RCB + foundations/generators/ops/deep/tools E2E): `npm run test:canvas:stress`. Deep: `npm run test:canvas:deep`. Tools: `npm run test:canvas:tools` (image AI panels, align/boolean, density, video trim).
+Full canvas stress matrix (store + RCB + foundations/generators + product E2E): `npm run test:canvas:stress`. Product-only E2E (ops, upload/mark, tools, density): `npm run test:canvas:product`.
 
 Project optimistic lock (`baseRevision` → 412 `project_revision_conflict`): functional API suite + `e2e/tests/collab.sync.spec.ts`. Dual-client Yjs concurrent merge: `npm run test:collab:merge` / Gate B. Real provider paid gen, OCR worker, and OAuth/OTP remain later Gate A journeys.
 
@@ -70,7 +70,7 @@ E2E workers default to **2** (`E2E_WORKERS` to override) to avoid auth rate-limi
 
 | Tool | Role | Command |
 |------|------|---------|
-| **k6** | Load | `npm run perf:k6:smoke` / `perf:k6:api` / `perf:k6:soak` / `perf:k6:collab` |
+| **k6** | Load | `npm run perf:k6:smoke` / `perf:k6:api` / `perf:k6:soak` (soak = smoke + `K6_SOAK=1`) / `perf:k6:collab` |
 | **Prometheus** | Scrapes `/metrics` + alert rules | compose `:9090` |
 | **Grafana** | SLO dashboards | compose `:3001` (admin / recombyn) |
 

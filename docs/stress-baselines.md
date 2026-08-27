@@ -7,14 +7,14 @@ How to capture a performance baseline (canvas, API, collab, Agent). Tools alread
 | Surface | Command | Artifact / truth |
 |---------|---------|------------------|
 | Canvas store + E2E stress | `npm run test:canvas:stress` | Console + Playwright/HTML; optional JSON under `e2e/tests/*.results.json` (local, gitignored if untracked) |
-| Canvas deep / tools | `npm run test:canvas:deep` / `test:canvas:tools` | Same |
+| Canvas product E2E only | `npm run test:canvas:product` | Same (ops + deep + tools in one spec) |
 | Vitest canvas stress | `npm run test:stress --workspace=apps/web` | Vitest (local) |
 | API k6 smoke | `npm run perf:k6:smoke` | k6 summary; CI: `perf-k6.yml` |
 | API CRUD load | `PERF_TOKEN=… npm run perf:k6:api` | k6 |
 | Collab WS | `COLLAB_WS_URL=ws://127.0.0.1:1234 npm run perf:k6:collab` | k6 |
 | Dual Yjs merge | `COLLAB_WS_URL=… npm run test:collab:merge` | Console `ok` / exit 0 |
 | Soak | `npm run perf:k6:soak` (nightly) | `nightly-quality.yml` |
-| Agent craft stress | `npm run stress:agent` | Script stdout / eval hooks |
+| Agent concurrency | `npm run test:agent:concurrency` | Script stdout / eval hooks |
 
 ## Recording a baseline (maintainers)
 
