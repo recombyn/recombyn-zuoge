@@ -1097,21 +1097,83 @@ function EditorPage() {
 
   const closeLayersPanel = useCallback(() => setLayersOpen(false), []);
 
-  const selectLayerOnMobile = useCallback(
-    (nodeId: string) => {
-      dispatch(setSelectedNodeId(nodeId));
-      setLayersOpen(false);
+  /** Layer list click — pan/zoom so the target sits in view. */
+  const locateSceneBounds = useCallback(
+    (bounds: { x: number; y: number; width: number; height: number } | null) => {
+      if (!bounds) return;
+      const el = stageRef.current;
+      const vw = el?.clientWidth || 0;
+      const vh = el?.clientHeight || 0;
+      if (vw < 40 || vh < 40) return;
+      cameraUserTouchedRef.current = true;
+      setZoomFitActive(false);
+      setCamera(
+        rcbFitCamera(
+          { width: vw, height: vh },
+          {
+            x: bounds.x,
+            y: bounds.y,
+            width: Math.max(1, bounds.width),
+            height: Math.max(1, bounds.height),
+          },
+          96,
+          2
+        )
+      );
     },
-    [dispatch]
+    []
   );
 
-  const selectFrameOnMobile = useCallback(
+  const locateNodeById = useCallback(
+    (nodeId: string) => {
+      const doc = (store.getState() as any).editor?.document as SceneDocument | null;
+      const node = doc?.deltaSetLike?.[nodeId];
+      if (!doc || !node) return;
+      const { left, top } = nodeLeftTop(doc, node);
+      locateSceneBounds({
+        x: left,
+        y: top,
+        width: Math.max(1, Number(node.width) || 1),
+        height: Math.max(1, Number(node.height) || 1),
+      });
+    },
+    [locateSceneBounds]
+  );
+
+  const locateFrameById = useCallback(
+    (frameId: string) => {
+      const doc = (store.getState() as any).editor?.document as SceneDocument | null;
+      const frame = (Array.isArray(doc?.frames) ? doc.frames : []).find(
+        (f: ArtboardFrame) => String(f?.id) === frameId
+      );
+      if (!frame) return;
+      locateSceneBounds({
+        x: Number(frame.x) || 0,
+        y: Number(frame.y) || 0,
+        width: Math.max(1, Number(frame.width) || 1),
+        height: Math.max(1, Number(frame.height) || 1),
+      });
+    },
+    [locateSceneBounds]
+  );
+
+  const selectLayerFromPanel = useCallback(
+    (nodeId: string) => {
+      dispatch(setSelectedNodeId(nodeId));
+      locateNodeById(nodeId);
+      if (isMobileViewport) setLayersOpen(false);
+    },
+    [dispatch, isMobileViewport, locateNodeById]
+  );
+
+  const selectFrameFromPanel = useCallback(
     (frameId: string) => {
       dispatch(setActiveFrameId(frameId));
       dispatch(setFrameChromeMode('full'));
-      setLayersOpen(false);
+      locateFrameById(frameId);
+      if (isMobileViewport) setLayersOpen(false);
     },
-    [dispatch]
+    [dispatch, isMobileViewport, locateFrameById]
   );
 
   useEffect(() => {
@@ -1677,7 +1739,11 @@ function EditorPage() {
           {layersOpen && !isMobileViewport ? (
             <div className="pointer-events-none absolute inset-y-0 left-0 z-30">
               <div className="pointer-events-auto h-full">
-                <LayerPanel onClose={closeLayersPanel} />
+                <LayerPanel
+                  onClose={closeLayersPanel}
+                  onSelectNode={selectLayerFromPanel}
+                  onSelectFrame={selectFrameFromPanel}
+                />
               </div>
             </div>
           ) : null}
@@ -1709,8 +1775,8 @@ function EditorPage() {
               <LayerPanel
                 mobile
                 onClose={closeLayersPanel}
-                onSelectNode={selectLayerOnMobile}
-                onSelectFrame={selectFrameOnMobile}
+                onSelectNode={selectLayerFromPanel}
+                onSelectFrame={selectFrameFromPanel}
               />
             </div>
           </>

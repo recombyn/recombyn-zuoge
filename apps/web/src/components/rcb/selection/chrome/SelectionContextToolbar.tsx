@@ -43,6 +43,7 @@ import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/
 import {
   buildMarkdownTextAttrs,
   buildTextAttrsPreservingMarkdown,
+  defaultTextWrapWidthForFontSize,
   isTextBold,
   isTextItalic,
   isTextOverline,
@@ -51,6 +52,7 @@ import {
   measurePlainTextSize,
   measureTextFrameExitBox,
   measureTextNodeBoxAfterStyleChange,
+  measureWrappedTextSize,
   normalizeTextFontSize,
   parseNodeMarkdown,
   parseNodeText,
@@ -58,7 +60,7 @@ import {
   toggleTextDecoration,
 } from '@/components/rcb/scene/document/sceneText';
 import { markdownToPlain } from '@/components/rcb/scene/document/sceneMarkdown';
-import { TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
+import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
@@ -584,7 +586,20 @@ function SelectionContextToolbar(props: Props): ReactNode {
       );
       return;
     }
-    const side = Math.max(120, Math.round(Math.max(Number(node.width) || 240, Number(node.height) || 240)));
+    const fs = Math.max(1, Number(style.fontSize) || 14);
+    const wrapW = defaultTextWrapWidthForFontSize(fs);
+    const content = measureWrappedTextSize(plain, style, wrapW);
+    const pad = TEXT_FRAME_PADDING * 2;
+    const side = Math.min(
+      wrapW * 4,
+      Math.max(
+        wrapW,
+        content.width + pad,
+        content.height + pad,
+        Number(node.width) || 0,
+        Number(node.height) || 0
+      )
+    );
     const titleName =
       String(node.attrs?.name || '').trim() ||
       plain.replace(/\s+/g, ' ').trim().slice(0, 48) ||
@@ -604,8 +619,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
             radiusBL: TEXT_FRAME_RADIUS,
             radiusLinked: 'true',
           },
-          width: side,
-          height: side,
+          width: Math.round(side),
+          height: Math.round(side),
         },
       })
     );

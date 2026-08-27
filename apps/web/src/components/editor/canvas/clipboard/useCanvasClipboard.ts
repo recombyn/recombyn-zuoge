@@ -18,7 +18,7 @@ import {
 } from '@/components/rcb/scene/document/sceneClipboard';
 import { selectionMutationBlocked } from '../ctxMenuGuards';
 import {
-  DEFAULT_TEXT_BOX_WIDTH,
+  defaultTextWrapWidthForFontSize,
   measurePlainTextSize,
   measureWrappedTextSize,
 } from '@/components/rcb/scene/document/sceneText';
@@ -254,15 +254,13 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       const content = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       if (!doc || readOnly || !content.trim()) return false;
       const boardW = Math.max(0, Number(artboardWidth) || 0);
-      const maxW = Math.max(
-        DEFAULT_TEXT_BOX_WIDTH,
-        Math.min(480, boardW > 0 ? Math.round(boardW * 0.5) : 420)
-      );
       const zoom = Math.max(0.05, getZoom?.() ?? 1);
       const fontSize = rcbPlaceTextFontSize(zoom, undefined, {
         viewportWidth: undefined,
         docWidth: boardW > 0 ? boardW : undefined,
       });
+      // Must track zoom-fitted fontSize — raw 240 scene px is <1 CJK cell at ~5% zoom.
+      const maxW = defaultTextWrapWidthForFontSize(fontSize);
       const style = { fontSize };
       const natural = measurePlainTextSize(content, style);
       const wrap = natural.width > maxW;

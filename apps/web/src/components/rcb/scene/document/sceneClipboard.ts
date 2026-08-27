@@ -19,7 +19,6 @@ import { strokeVisualOutset } from './sceneEffects';
 import {
   SceneNodeSchema,
   type SceneDocument,
-  type SceneNode,
 } from '@/components/rcb/sceneNode';
 
 /** Copy / cut / paste / artboard selection expansion. */
@@ -306,7 +305,23 @@ export function pasteClipboardIntoDocument(
     node.id = newId;
     node.x = (Number(node.x) || 0) + ox;
     node.y = (Number(node.y) || 0) + oy;
-    snapPastedNodeToGrid(node, gridSize);
+    const outset = strokeVisualOutset(node);
+    if (outset > 0) {
+      const visual = snapBoxToGrid(
+        {
+          left: node.x - outset,
+          top: node.y - outset,
+          width: Math.max(1, Number(node.width) || 1) + outset * 2,
+          height: Math.max(1, Number(node.height) || 1) + outset * 2,
+        },
+        gridSize
+      );
+      node.x = visual.left + outset;
+      node.y = visual.top + outset;
+    } else {
+      node.x = snapCoordToGrid(node.x, gridSize);
+      node.y = snapCoordToGrid(node.y, gridSize);
+    }
     const gid = String(node.attrs?.groupId || '').trim();
     if (gid) {
       if (!groupMap.has(gid)) groupMap.set(gid, nanoid(8));
@@ -352,30 +367,4 @@ export function pasteClipboardIntoDocument(
 
   reconcileStackOrder(next);
   return { document: next, ids: newIds, frameIds: newFrameIds };
-}
-
-/** Align painted outer to the grid, then write path (matches move settle). */
-function snapPastedNodeToGrid(node: SceneNode, gridSize: number): void {
-  if (!(gridSize > 0)) return;
-  const x = Number(node.x) || 0;
-  const y = Number(node.y) || 0;
-  const w = Math.max(1, Number(node.width) || 1);
-  const h = Math.max(1, Number(node.height) || 1);
-  const outset = strokeVisualOutset(node);
-  if (!(outset > 0)) {
-    node.x = snapCoordToGrid(x, gridSize);
-    node.y = snapCoordToGrid(y, gridSize);
-    return;
-  }
-  const visual = snapBoxToGrid(
-    {
-      left: x - outset,
-      top: y - outset,
-      width: w + outset * 2,
-      height: h + outset * 2,
-    },
-    gridSize
-  );
-  node.x = visual.left + outset;
-  node.y = visual.top + outset;
 }

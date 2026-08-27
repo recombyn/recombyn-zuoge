@@ -98,48 +98,6 @@ export const SELECTION_TOOLBAR_BELOW_BOX_GAP_PX = 20;
 /** Half knob + air outside the chrome edge (must clear 10px resize hit). */
 export const SELECTION_HANDLE_CLEARANCE_PX = 14;
 
-/** Screen px inset from stage edge when clamping floating chrome. */
-export const CHROME_VIEWPORT_INSET_PX = 16;
-
-/** Shift pill horizontally so it stays inside the overlay with a fixed inset. */
-export function clampChromeShiftX(
-  pillRect: DOMRectReadOnly,
-  overlayRect: DOMRectReadOnly,
-  insetPx = CHROME_VIEWPORT_INSET_PX
-): number {
-  const margin = Math.max(0, insetPx);
-  const minLeft = overlayRect.left + margin;
-  const maxRight = overlayRect.right - margin;
-  if (pillRect.left < minLeft) return minLeft - pillRect.left;
-  if (pillRect.right > maxRight) return maxRight - pillRect.right;
-  return 0;
-}
-
-/** Shift pill vertically so it stays inside the overlay with a fixed inset. */
-export function clampChromeShiftY(
-  pillRect: DOMRectReadOnly,
-  overlayRect: DOMRectReadOnly,
-  insetPx = CHROME_VIEWPORT_INSET_PX
-): number {
-  const margin = Math.max(0, insetPx);
-  const minTop = overlayRect.top + margin;
-  const maxBottom = overlayRect.bottom - margin;
-  if (pillRect.top < minTop) return minTop - pillRect.top;
-  if (pillRect.bottom > maxBottom) return maxBottom - pillRect.bottom;
-  return 0;
-}
-
-export function clampChromeShift(
-  pillRect: DOMRectReadOnly,
-  overlayRect: DOMRectReadOnly,
-  insetPx = CHROME_VIEWPORT_INSET_PX
-): { x: number; y: number } {
-  return {
-    x: clampChromeShiftX(pillRect, overlayRect, insetPx),
-    y: clampChromeShiftY(pillRect, overlayRect, insetPx),
-  };
-}
-
 /**
  * Scene distance from the **control-box** edge outward for chrome UI
  * (title / toolbar / generator composers).
@@ -239,6 +197,9 @@ export function toolbarAboveScreenGapPx(
  *
  * `edgeGapPx` is screen-constant air between the selection edge and the pill.
  * Outer stays height-0 / pe:none so the layout box cannot cover resize knobs.
+ *
+ * Uses `position: fixed` (no viewport-edge clamp) so chrome follows the
+ * selection even past the stage overflow — can sit over editor HUD / off-canvas.
  */
 export function WorldScreenChromeRoot({
   left,
@@ -279,66 +240,53 @@ export function WorldScreenChromeRoot({
   const alignEnd = hAlign === 'right';
   const { x: screenLeft, y: screenTop } = rcbSceneToScreen(camera, left, top, dpr);
   const railScreen = rail * zoom;
+  const hostRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLDivElement>(null);
-  const shiftRef = useRef({ x: 0, y: 0 });
-  const [shift, setShift] = useState({ x: 0, y: 0 });
-  /** Hide until first non-zero layout — avoids spawn/select flash (0→clamp). */
+  /** Hide until first non-zero layout — avoids spawn flash at 0×0. */
   const [placed, setPlaced] = useState(false);
-  shiftRef.current = shift;
+  const [fixedOrigin, setFixedOrigin] = useState({ left: 0, top: 0 });
 
   useLayoutEffect(() => {
+    const host = hostRef.current;
     const pill = pillRef.current;
-    const overlay = pill?.closest('[data-rcb-overlay="1"]') as HTMLElement | null;
-    if (!pill || !overlay) {
-      shiftRef.current = { x: 0, y: 0 };
-      setShift({ x: 0, y: 0 });
+    const overlay = host?.closest('[data-rcb-overlay="1"]') as HTMLElement | null;
+    if (!host || !pill || !overlay) {
       setPlaced(false);
       return;
     }
-    const apply = () => {
-      const pillRect = pill.getBoundingClientRect();
-      // Portal can report 0×0 for one frame — wait before revealing.
-      if (pillRect.width < 1 || pillRect.height < 1) return;
-      const overlayRect = overlay.getBoundingClientRect();
-      const { x: shiftX, y: shiftY } = shiftRef.current;
-      const natural = {
-        left: pillRect.left - shiftX,
-        right: pillRect.right - shiftX,
-        top: pillRect.top - shiftY,
-        bottom: pillRect.bottom - shiftY,
-        width: pillRect.width,
-        height: pillRect.height,
-        x: pillRect.left - shiftX,
-        y: pillRect.top - shiftY,
-        toJSON: () => ({}),
-      } as DOMRectReadOnly;
-      const next = clampChromeShift(natural, overlayRect);
-      setShift((prev) => {
-        if (Math.abs(prev.x - next.x) < 0.5 && Math.abs(prev.y - next.y) < 0.5) return prev;
-        shiftRef.current = next;
-        return next;
-      });
-      setPlaced(true);
+    const sync = () => {
+      const o = overlay.getBoundingClientRect();
+      const next = { left: o.left + screenLeft, top: o.top + screenTop };
+      setFixedOrigin((prev) =>
+        Math.abs(prev.left - next.left) < 0.5 && Math.abs(prev.top - next.top) < 0.5
+          ? prev
+          : next
+      );
+      const r = pill.getBoundingClientRect();
+      if (r.width >= 1 && r.height >= 1) setPlaced(true);
     };
-    apply();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null;
+    sync();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
     ro?.observe(pill);
     ro?.observe(overlay);
-    window.addEventListener('resize', apply);
+    window.addEventListener('resize', sync);
+    window.addEventListener('scroll', sync, true);
     return () => {
       ro?.disconnect();
-      window.removeEventListener('resize', apply);
+      window.removeEventListener('resize', sync);
+      window.removeEventListener('scroll', sync, true);
     };
   }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y]);
 
   return (
     <RcbOverlayPortal>
       <div
-        className={cn('pointer-events-none absolute overflow-visible', className)}
+        ref={hostRef}
+        className={cn('pointer-events-none overflow-visible', className)}
         style={{
-          position: 'absolute',
-          left: screenLeft + shift.x,
-          top: screenTop + shift.y,
+          position: 'fixed',
+          left: fixedOrigin.left,
+          top: fixedOrigin.top,
           width: railScreen,
           height: 0,
           display: 'flex',
@@ -347,8 +295,8 @@ export function WorldScreenChromeRoot({
           alignItems: 'flex-start',
           justifyContent: alignEnd ? 'flex-end' : 'center',
           pointerEvents: 'none',
+          zIndex: 40,
           ...style,
-          // One paint after clamp — prevents generator composer from flashing twice.
           opacity: placed ? (style?.opacity as number | undefined) ?? 1 : 0,
         }}
       >
