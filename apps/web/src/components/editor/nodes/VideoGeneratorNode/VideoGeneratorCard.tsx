@@ -9,10 +9,8 @@ import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  useChromePointerActivate,
-  useGeneratorComposerScreenStyle,
+  SelectionToolbarShell,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
-import { RcbOverlayPortal } from '@/components/rcb';
 import AgentComposerInput, {
   chipBaseKey,
   composerAttachmentMediaKind,
@@ -129,7 +127,6 @@ function VideoGeneratorCard({
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const chromePointer = useChromePointerActivate();
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -571,8 +568,6 @@ function VideoGeneratorCard({
     );
   };
 
-  const composerStyle = useGeneratorComposerScreenStyle(sceneBox);
-
   // Auto-focus once when the composer first becomes visible — skip remount churn.
   const wasComposerVisibleRef = useRef(false);
   useEffect(() => {
@@ -620,15 +615,19 @@ function VideoGeneratorCard({
   return (
     <>
       {composerVisible ? (
-        <RcbOverlayPortal>
-          <div
-            style={composerStyle}
-            data-video-generator
-            data-sel-toolbar
-            data-scene-node-id={nodeId}
-            className="pointer-events-auto z-[32] overflow-visible"
-            {...chromePointer}
-          >
+        <SelectionToolbarShell
+          box={{
+            left: sceneBox.x,
+            top: sceneBox.y,
+            width: sceneBox.width,
+            height: sceneBox.height,
+          }}
+          bare
+          dock="below"
+          zIndexClassName="z-[32]"
+          data-video-generator
+          data-scene-node-id={nodeId}
+        >
           <CanvasMediaComposerShell
             attachment={
               <ComposerAttachmentStrip
@@ -815,8 +814,7 @@ function VideoGeneratorCard({
               </ComposerFooterBar>
             }
           />
-          </div>
-        </RcbOverlayPortal>
+        </SelectionToolbarShell>
       ) : null}
 
       {composerVisible && mentionOpen ? (

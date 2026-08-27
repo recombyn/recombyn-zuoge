@@ -15,12 +15,8 @@ import {
 import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  RcbOverlayPortal,
-  rcbScreenPxToScene,
-  useRcbCamera,
-  useRcbScreenToolbarStyle,
-} from '@/components/rcb';
-import { SELECTION_TOOLBAR_BELOW_BOX_GAP_PX } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
+  SelectionToolbarShell,
+} from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import AgentComposerInput, {
   type AgentComposerHandle,
   type ComposerContext,
@@ -81,7 +77,6 @@ import {
   canMarkNode,
   markGateTipKey,
   markNodeGate,
-  MARK_COMPOSER_Z,
 } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
@@ -129,8 +124,6 @@ function ImageQuickEditComposer({
 }): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const camera = useRcbCamera();
-  const zoom = Math.max(0.05, camera.zoom || 1);
   const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -287,12 +280,6 @@ function ImageQuickEditComposer({
   const selectedModel = models.find((m) => m.id === modelId);
   const creditCost = estimateImageCredits(selectedModel, imageCount, resolution);
   const settingsSummary = `${resolution} · ${ratioSummaryLabel(aspectRatio, t)} · ${imageCount}`;
-
-  const composerStyle = useRcbScreenToolbarStyle({
-    left: box.left + box.width / 2,
-    top: box.top + box.height + rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom),
-    anchor: 'top',
-  });
 
   const removeContext = (key: string) => {
     if (isMarkContextKey(key)) syncMarkPinRemoved(dispatch, key);
@@ -489,38 +476,43 @@ function ImageQuickEditComposer({
 
   if (!src) {
     return (
-      <RcbOverlayPortal>
+      <SelectionToolbarShell
+        box={box}
+        bare
+        dock="below"
+        zIndexClassName="z-[32]"
+        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
+        data-scene-node-id={nodeId}
+      >
         <div
-          {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
-          data-sel-toolbar
-          data-scene-node-id={nodeId}
           className={cn(
-            'pointer-events-auto absolute z-[32] flex h-[200px] w-[500px] items-center justify-center',
+            'pointer-events-auto flex h-[200px] w-[500px] items-center justify-center',
             'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
             'shadow-[0_8px_28px_rgba(15,23,42,0.12)] text-[13px] text-[var(--muted)]'
           )}
-          style={composerStyle}
         >
           {t('editor.imageToolbar.processingUpload', '上传中…')}
         </div>
-      </RcbOverlayPortal>
+      </SelectionToolbarShell>
     );
   }
 
   return (
-    <RcbOverlayPortal>
+    <SelectionToolbarShell
+      box={box}
+      bare
+      dock="below"
+      zIndexClassName={markActive ? 'z-[40]' : 'z-[32]'}
+      {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
+      {...(markActive ? { 'data-mark-composer': true } : {})}
+      data-scene-node-id={nodeId}
+    >
       <div
-        {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
-        data-sel-toolbar
-        {...(markActive ? { 'data-mark-composer': true } : {})}
-        data-scene-node-id={nodeId}
         className={cn(
-          'pointer-events-auto absolute flex h-[200px] w-[500px] flex-col overflow-hidden',
+          'pointer-events-auto flex h-[200px] w-[500px] flex-col overflow-hidden',
           'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]',
-          markActive ? 'z-[40]' : 'z-[32]'
+          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
         )}
-        style={{ ...composerStyle, ...(markActive ? { zIndex: MARK_COMPOSER_Z } : {}) }}
         onPointerDown={(e) => {
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation?.();
@@ -778,7 +770,7 @@ function ImageQuickEditComposer({
           </div>
         </div>
       </div>
-    </RcbOverlayPortal>
+    </SelectionToolbarShell>
   );
 }
 

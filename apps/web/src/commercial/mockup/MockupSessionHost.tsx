@@ -146,7 +146,13 @@ function parseSavedPlacement(raw: unknown): MockupPlacement | null {
   return parseMockupPlacement(raw);
 }
 
-function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function MockupSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const { data: imageToolCaps } = useImageToolCapabilities();
   const mockupIntelEnabled = isMockupEnabled(imageToolCaps);
   const mockupIds = useMemo(
@@ -154,7 +160,7 @@ function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode
     [document, mockupIntelEnabled]
   );
 
-  if (!mockupIds.length) return null;
+  if (!mockupIds.length || hidden) return null;
 
   return (
     <>

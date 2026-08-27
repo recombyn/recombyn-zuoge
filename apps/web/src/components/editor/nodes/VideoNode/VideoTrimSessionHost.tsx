@@ -257,7 +257,13 @@ async function extractFilmstrip(
  * Confirm clones a sibling to the right with trimStart/trimEnd (same src) —
  * instant, like video crop. Source node is left untouched.
  */
-function VideoTrimSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function VideoTrimSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const camera = useRcbCamera();
@@ -648,7 +654,7 @@ function VideoTrimSessionHost({ document }: { document: SceneDocument }): ReactN
     }
   };
 
-  if (!open || !node || !src) return null;
+  if (!open || !node || !src || hidden) return null;
 
   // Prefer click-time keepTime from the panel so VideoJsPlayer's first src bind
   // already seeks correctly (don't wait for the open effect).

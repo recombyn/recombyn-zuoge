@@ -195,7 +195,13 @@ export const CROP_EXPAND_RATIOS: { id: string; label: string; w: number; h: numb
 /**
  * On-canvas crop / expand: control frame + compact bar under the frame.
  */
-function CropExpandSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function CropExpandSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const dispatch = useDispatch();
   const camera = useRcbCamera();
   const panel = useSelector((s: any) => s.editor.imageToolPanel as null | {
@@ -277,7 +283,7 @@ function CropExpandSessionHost({ document }: { document: SceneDocument }): React
   });
 
 
-  if (!mode || !nodeId || !box || !cropRect || !expandFrame || !frameWorld) return null;
+  if (!mode || !nodeId || !box || !cropRect || !expandFrame || !frameWorld || hidden) return null;
 
   const close = () => dispatch(closeImageToolPanel());
 

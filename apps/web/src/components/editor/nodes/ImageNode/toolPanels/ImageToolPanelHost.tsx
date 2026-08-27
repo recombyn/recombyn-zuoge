@@ -149,7 +149,14 @@ function nodeBox(
 }
 
 /** Host for image tool panels positioned relative to the source image. */
-function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNode {
+function ImageToolPanelHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  /** Hide docked side panel while selection is transforming (drag/resize). */
+  hidden?: boolean;
+}): ReactNode {
   const dispatch = useDispatch();
   const store = useStore();
   const { t } = useTranslation();
@@ -623,7 +630,13 @@ function ImageToolPanelHost({ document }: { document: SceneDocument }): ReactNod
       <RcbOverlayPortal>
         <div
           className="pointer-events-auto"
-          style={style}
+          style={{
+            ...style,
+            ...(hidden
+              ? { visibility: 'hidden' as const, pointerEvents: 'none' as const }
+              : null),
+          }}
+          aria-hidden={hidden}
           data-image-tool-panel
           onPointerDown={(e) => {
             // Stop bubble so canvas selection/pan does not run; do not use capture —

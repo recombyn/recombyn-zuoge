@@ -1,7 +1,10 @@
 import { lazy, Suspense, memo, type ReactNode } from 'react';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-const EmptyMockupHost = memo(function EmptyMockupHost(_props: { document: SceneDocument }) {
+const EmptyMockupHost = memo(function EmptyMockupHost(_props: {
+  document: SceneDocument;
+  hidden?: boolean;
+}) {
   return null;
 });
 
@@ -14,10 +17,16 @@ const PrivateMockupSessionHost = lazy(() =>
 /**
  * Lazy-loads mockup session UI from @commercial when available.
  */
-function MockupSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function MockupSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   return (
     <Suspense fallback={null}>
-      <PrivateMockupSessionHost document={document} />
+      <PrivateMockupSessionHost document={document} hidden={hidden} />
     </Suspense>
   );
 }

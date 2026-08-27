@@ -12,10 +12,8 @@ import { generateImageBatch } from '@/service/generateImageBatch';
 import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
 import {
-  useChromePointerActivate,
-  useGeneratorComposerScreenStyle,
+  SelectionToolbarShell,
 } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
-import { RcbOverlayPortal } from '@/components/rcb';
 import AgentComposerInput, {
   chipBaseKey,
   upsertLibraryAssetAttachment,
@@ -87,7 +85,6 @@ import { clearImageGenMarkSession } from '@/components/editor/nodes/ImageNode/ma
 import {
   markGateTipKey,
   markNodeGate,
-  MARK_COMPOSER_Z,
 } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import {
@@ -163,7 +160,6 @@ function ImageGeneratorCard({
 }: Props): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const chromePointer = useChromePointerActivate();
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -705,8 +701,6 @@ function ImageGeneratorCard({
     );
   };
 
-  const composerStyle = useGeneratorComposerScreenStyle(sceneBox);
-
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
       pickingFromCanvas,
@@ -738,22 +732,20 @@ function ImageGeneratorCard({
   return (
     <>
       {composerVisible ? (
-        <RcbOverlayPortal>
-          <div
-            style={{
-              ...composerStyle,
-              ...(markActive ? { zIndex: MARK_COMPOSER_Z } : undefined),
-            }}
-            data-image-generator
-            data-sel-toolbar
-            {...(markActive ? { 'data-mark-composer': true } : {})}
-            data-scene-node-id={nodeId}
-            className={cn(
-              'pointer-events-auto overflow-visible',
-              markActive ? 'z-[40]' : 'z-[32]'
-            )}
-            {...chromePointer}
-          >
+        <SelectionToolbarShell
+          box={{
+            left: sceneBox.x,
+            top: sceneBox.y,
+            width: sceneBox.width,
+            height: sceneBox.height,
+          }}
+          bare
+          dock="below"
+          zIndexClassName={markActive ? 'z-[40]' : 'z-[32]'}
+          data-image-generator
+          {...(markActive ? { 'data-mark-composer': true } : {})}
+          data-scene-node-id={nodeId}
+        >
           <CanvasMediaComposerShell
             attachment={
               <ComposerAttachmentStrip
@@ -966,8 +958,7 @@ function ImageGeneratorCard({
               </ComposerFooterBar>
             }
           />
-          </div>
-        </RcbOverlayPortal>
+        </SelectionToolbarShell>
       ) : null}
 
       {composerVisible && mentionOpen ? (

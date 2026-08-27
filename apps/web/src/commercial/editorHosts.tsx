@@ -14,7 +14,7 @@ export function CommercialEditorHosts({
   return (
     <>
       <MarkSessionHost document={document} hidden={selectionTransforming} />
-      <MockupSessionHost document={document} />
+      <MockupSessionHost document={document} hidden={selectionTransforming} />
     </>
   );
 }

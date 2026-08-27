@@ -41,7 +41,13 @@ function clampSpeed(value: unknown): number {
   return Math.max(MIN_SPEED, Math.min(MAX_SPEED, Math.round(n * 100) / 100));
 }
 
-function AudioSpeedSessionHost({ document }: { document: SceneDocument }): ReactNode {
+function AudioSpeedSessionHost({
+  document,
+  hidden = false,
+}: {
+  document: SceneDocument;
+  hidden?: boolean;
+}): ReactNode {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const { zoom } = useRcbCamera();
@@ -140,7 +146,7 @@ function AudioSpeedSessionHost({ document }: { document: SceneDocument }): React
     }
   };
 
-  if (!open || !node || !src) return null;
+  if (!open || !node || !src || hidden) return null;
 
   return (
     <RcbOverlayPortal>

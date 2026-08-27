@@ -13,9 +13,8 @@ import {
   RcbOverlayPortal,
   useRcbCamera,
   useRcbDevicePixelRatio,
-  useRcbScreenToolbarStyle,
 } from '../../camera/context';
-import { rcbCameraCssZoom, rcbSceneToScreen, rcbScreenPxToScene } from '../../core/math';
+import { rcbCameraCssZoom, rcbSceneToScreen } from '../../core/math';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { cn } from '@/utils/classnames';
 
@@ -382,6 +381,8 @@ export function useSelectionToolbarPlacement(opts: {
   edgePadScene?: number;
   /** Control-box rotation (degrees) — dock to visual AABB, toolbar stays upright. */
   angle?: number;
+  /** `auto` picks above/below; composers always use `below`. */
+  dock?: 'auto' | 'below' | 'above';
 }): {
   preferAbove: boolean;
   left: number;
@@ -394,6 +395,7 @@ export function useSelectionToolbarPlacement(opts: {
   const zoom = rcbCameraCssZoom(camera);
   const extraPx = Math.max(0, Number(opts.edgePadScene) || 0);
   const angle = Number(opts.angle) || 0;
+  const dock = opts.dock || 'auto';
   const aboveScreen = opts.hasTitleLabel
     ? toolbarAboveClearancePx(true) + extraPx
     : chromeUiOutsideScreenPx(zoom, toolbarAboveClearancePx(false), extraPx);
@@ -414,6 +416,27 @@ export function useSelectionToolbarPlacement(opts: {
     };
   }
 
+  if (dock === 'below') {
+    return {
+      preferAbove: false,
+      left: dockBox.left,
+      railWidth: Math.max(0, dockBox.width),
+      top: dockBox.top + dockBox.height,
+      anchor: 'top',
+      edgeGapPx: belowScreen,
+    };
+  }
+  if (dock === 'above') {
+    return {
+      preferAbove: true,
+      left: dockBox.left,
+      railWidth: Math.max(0, dockBox.width),
+      top: dockBox.top,
+      anchor: 'bottom',
+      edgeGapPx: aboveScreen,
+    };
+  }
+
   const aboveGapScene = aboveScreen / Math.max(0.05, zoom);
   const preferAbove = dockBox.top >= aboveGapScene;
   return {
@@ -426,20 +449,6 @@ export function useSelectionToolbarPlacement(opts: {
   };
 }
 
-/** Generator composers dock below the plate — same screen style path as QuickEdit (no deferred opacity). */
-export function useGeneratorComposerScreenStyle(
-  sceneBox: { x: number; y: number; width: number; height: number } | null | undefined
-): CSSProperties {
-  const camera = useRcbCamera();
-  const zoom = rcbCameraCssZoom(camera);
-  const box = sceneBox ?? { x: 0, y: 0, width: 0, height: 0 };
-  return useRcbScreenToolbarStyle({
-    left: box.x + box.width / 2,
-    top: box.y + box.height + rcbScreenPxToScene(SELECTION_TOOLBAR_BELOW_BOX_GAP_PX, zoom),
-    anchor: 'top',
-  });
-}
-
 type ShellProps = {
   box: SelectionToolbarBox | null | undefined;
   hasTitleLabel?: boolean;
@@ -447,30 +456,35 @@ type ShellProps = {
   edgePadScene?: number;
   /** Control-box rotation — dock to visual AABB; toolbar stays screen-upright. */
   angle?: number;
+  /** Force dock side; default auto (toolbars). Composers use `below`. */
+  dock?: 'auto' | 'below' | 'above';
   children: ReactNode;
   className?: string;
   isFrameToolbar?: boolean;
   bare?: boolean;
   zIndexClassName?: string;
-};
+} & Omit<HTMLAttributes<HTMLDivElement>, 'style' | 'children' | 'className'>;
 
-/** Overlay selection toolbars (clears titles; aligns Frame / Image / Shape). */
+/** Overlay selection toolbars + on-canvas composers (one placement shell). */
 function SelectionToolbarShell({
   box,
   hasTitleLabel = false,
   edgePadScene = 0,
   angle = 0,
+  dock = 'auto',
   children,
   className,
   isFrameToolbar = false,
   bare = false,
   zIndexClassName = 'z-30',
+  ...rest
 }: ShellProps) {
   const { left, railWidth, top, anchor, edgeGapPx } = useSelectionToolbarPlacement({
     box,
     hasTitleLabel,
     edgePadScene,
     angle,
+    dock,
   });
   const chromePointer = useChromePointerActivate();
   if (!box) return null;
@@ -487,6 +501,7 @@ function SelectionToolbarShell({
       {...(isFrameToolbar ? { 'data-frame-toolbar': true } : {})}
       className={zIndexClassName}
       {...chromePointer}
+      {...rest}
     >
       <FloatingToolbar bare={bare} className={className}>
         {children}
