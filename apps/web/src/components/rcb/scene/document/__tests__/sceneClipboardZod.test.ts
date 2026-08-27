@@ -59,6 +59,32 @@ describe('scene clipboard Zod', () => {
     expect(out.document.deltaSetLike[out.ids[0]]).toBeTruthy();
   });
 
+  it('snaps pasted node origin onto the document grid', () => {
+    const doc = createEmptyDocument({ width: 400, height: 400 });
+    const out = pasteClipboardIntoDocument(
+      doc,
+      {
+        nodes: [
+          {
+            id: 'src',
+            node: {
+              key: 'text',
+              x: 10.4,
+              y: 20.6,
+              width: 80,
+              height: 24,
+              attrs: { text: 'hi' },
+            },
+          },
+        ],
+      },
+      { offsetX: 10.3, offsetY: 10.7 }
+    );
+    const node = out.document.deltaSetLike[out.ids[0]];
+    expect(node?.x).toBe(21);
+    expect(node?.y).toBe(31);
+  });
+
   it('binds nodes by attrs.frameId, not geometry overlap', () => {
     let doc = createEmptyDocument({ emptyWorld: true });
     doc = {
