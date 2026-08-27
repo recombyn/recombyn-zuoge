@@ -14,7 +14,7 @@ on:
 
 jobs:
   pip-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     defaults:
       run:
         working-directory: apps/api
@@ -37,7 +37,7 @@ jobs:
         continue-on-error: true
 
   npm-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

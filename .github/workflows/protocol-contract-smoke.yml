@@ -1,7 +1,7 @@
 name: protocol-contract-smoke
 
 # Public guard + optional cross-repo ping to Private compatibility CI.
-# Optional cross-repo ping ‚Üí recombyn-dev protocol-compat.yml
+# Optional cross-repo ping ù??recombyn-dev protocol-compat.yml
 # (repository_dispatch type: protocol-changed)
 
 on:
@@ -19,7 +19,10 @@ on:
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -106,7 +109,10 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Dispatch protocol-changed to recombyn-dev
         env:
@@ -118,7 +124,7 @@ jobs:
             exit 0
           fi
           REF="${{ github.sha }}"
-          echo "Dispatching protocol-changed ‚Üí $TARGET (protocol_ref=$REF)"
+          echo "Dispatching protocol-changed ù??$TARGET (protocol_ref=$REF)"
           curl -sS -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $TOKEN" \

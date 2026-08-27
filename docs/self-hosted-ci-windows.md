@@ -1,10 +1,9 @@
 # Self-hosted CI (Windows) — recombyn-dev
 
-Private repo `recombyn-dev` does not get unlimited GitHub-hosted Actions minutes. When hosted runners are blocked (billing / spending limit), jobs fail in ~2s with **0 steps** and annotation:
-
-> The job was not started because recent account payments have failed or your spending limit needs to be increased.
-
-A **self-hosted runner** on your Windows PC runs the same CI jobs **without** consuming hosted minutes.
+All workflows in this repo run on the **self-hosted Windows runner**
+(`labels: self-hosted, Windows, ci`). They do **not** use GitHub-hosted
+`ubuntu-latest` / `windows-latest`, so they do not consume hosted Actions minutes
+or trip billing / spending-limit blocks.
 
 ## One-time setup
 
@@ -12,11 +11,15 @@ A **self-hosted runner** on your Windows PC runs the same CI jobs **without** co
 
 | Tool | Version |
 |------|---------|
-| Git for Windows | latest |
+| Git for Windows | latest (includes Git Bash + optional rsync) |
 | Node.js | 22 LTS |
 | Python | 3.12 |
+| Docker Desktop | optional — Redis for perf/nightly if no local Redis |
+| k6 | optional — otherwise CI downloads Windows zip |
+| Playwright Chromium | installed by E2E job via `npx playwright install chromium` |
 
-Add `node`, `npm`, `python`, `git` to PATH.
+Add `node`, `npm`, `python`, `git`, and preferably `docker` / `k6` to PATH.
+Git Bash must be available (`shell: bash` steps).
 
 ### 2. Register the runner
 
@@ -37,14 +40,15 @@ cd C:\actions-runner
 
 5. Confirm runner shows **Idle** in GitHub Settings → Actions → Runners.
 
-Labels applied: `self-hosted`, `Windows`, `ci` (required by `.github/workflows/ci.yml`).
+Labels applied: `self-hosted`, `Windows`, `ci` (required by all workflows).
 
 ## What runs where
 
 | Workflow | Runner | Notes |
 |----------|--------|--------|
-| **CI** (`ci.yml`) | self-hosted Windows | lint, typecheck, unit tests, web build |
-| E2E, k6, Publish OSS | GitHub-hosted (optional) | still use `ubuntu-latest`; reduce triggers or fix billing separately |
+| **CI** (`ci.yml`) | self-hosted Windows | lint, typecheck, unit tests, web build, gate |
+| E2E, k6, Publish OSS, nightly, audits, etc. | self-hosted Windows | same labels; bash steps use Git Bash |
+| Publish OSS | self-hosted Windows | needs `rsync` (Git Bash / MSYS) + `PUBLIC_REPO_TOKEN` |
 
 ## Troubleshooting
 
@@ -52,7 +56,9 @@ Labels applied: `self-hosted`, `Windows`, `ci` (required by `.github/workflows/c
 |---------|-----|
 | Jobs queued forever | Runner offline — start `run.cmd` or `svc.start` |
 | Jobs skipped / wrong OS | Runner must have labels `Windows` and `ci` |
-| `npm ci` slow first time | Normal; later runs reuse `node_modules` on same machine |
+| Hosted billing errors (~2s, 0 steps) | Should not appear — workflows must not use `ubuntu-latest` |
+| Redis / k6 missing | Install locally or let Docker / download steps provision |
+| `npm ci` slow first time | Normal; later runs reuse caches on the same machine |
 | PC sleep | Use Windows service + disable sleep on runner PC |
 
 ## Local pre-push (optional)

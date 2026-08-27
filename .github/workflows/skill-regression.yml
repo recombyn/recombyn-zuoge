@@ -1,6 +1,6 @@
 name: Skill eval regression
 
-# PR19 â€” skill changed â†’ dataset shape + compare vs baseline
+# PR19 â€?skill changed â†?dataset shape + compare vs baseline
 # Live eval is optional (EVAL_TOKEN). Always fail the compare unit fixtures
 # when average drop > 3 or a key task drops > 5.
 
@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   dataset-and-compare:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +68,7 @@ jobs:
 
   live-eval:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, ci]
     timeout-minutes: 180
     needs: dataset-and-compare
     env:
