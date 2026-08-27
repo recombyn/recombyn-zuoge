@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hmac
 import logging
-import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request

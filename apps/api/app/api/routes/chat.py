@@ -23,7 +23,6 @@ from app.services.llm import (
     user_byok_platforms,
     uses_user_platform_byok,
 )
-from app.core.config import settings
 from app.services.llm.agent import stream_agent_turn, stream_official_agent
 from app.services.llm.chat import stream_chat
 from app.services.llm.design_tools import design_tool_definitions
