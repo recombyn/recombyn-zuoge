@@ -11,9 +11,9 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(root, '../..');
 const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM);
 
-const commercialDev = path.join(repoRoot, 'src/commercial/web');
+const commercialDev = path.join(root, 'src/commercial/mockup');
 const commercialRoot = fs.existsSync(commercialDev)
-  ? commercialDev
+  ? path.join(root, 'src/commercial')
   : path.join(root, 'src/commercial-oss');
 
 function pick(env: Record<string, string>, ...keys: string[]) {
@@ -113,7 +113,7 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/setupTests.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
-      exclude: ['src/private/**', '../../src/commercial/**'],
+      exclude: ['src/private/**', 'src/commercial/mockup/**'],
       css: false,
     },
   };

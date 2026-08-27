@@ -2,7 +2,9 @@
 # One path per line; # comments and blank lines ignored.
 # Sync: rsync → delete these → overlay scripts/oss-stubs/ → verify.
 
-src/commercial
+apps/intelligence
+apps/web/src/commercial/mockup
+docs/commercial
 
 # Sync tooling + legacy root stub tree (never ship on public mirror)
 oss-stubs

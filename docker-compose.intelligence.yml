@@ -7,13 +7,13 @@
 #
 # Point RECOMBYN_INTELLIGENCE_CONTEXT at a checkout that ships a Dockerfile
 # implementing POST /v1/{method} + GET /health.
-# Default build context: ./src/commercial/intelligence when present.
+# Default build context: ./apps/intelligence when present.
 
 services:
   intelligence:
     profiles: ["intelligence"]
     build:
-      context: ${RECOMBYN_INTELLIGENCE_CONTEXT:-./src/commercial/intelligence}
+      context: ${RECOMBYN_INTELLIGENCE_CONTEXT:-./apps/intelligence}
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:8091:8091"

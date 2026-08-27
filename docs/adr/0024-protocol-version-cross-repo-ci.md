@@ -58,6 +58,6 @@ CI that fails when either side breaks the contract.
 - [ADR 0017](./0017-intelligence-provider-boundary.md)
 - [ADR 0022](./0022-open-runtime-helpers.md)
 - `packages/protocol`
-- `src/commercial/intelligence/scripts/bootstrap_protocol.py` (operator checkout)
+- `apps/intelligence/scripts/bootstrap_protocol.py` (operator checkout)
 - `.github/workflows/protocol-contract-smoke.yml`
 - `.github/workflows/publish-protocol.yml`

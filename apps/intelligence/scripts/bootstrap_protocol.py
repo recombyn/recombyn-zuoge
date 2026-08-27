@@ -24,8 +24,8 @@ def _candidates() -> list[Path]:
     env = str(os.environ.get("RECOMBYN_PROTOCOL_PATH") or "").strip()
     if env:
         out.append(Path(env).expanduser())
-    # src/commercial/intelligence → repo root is parents[2]
-    out.append(_ROOT.parents[2] / "packages" / "protocol")
+    # apps/intelligence → repo root is parents[1]
+    out.append(_ROOT.parents[1] / "packages" / "protocol")
     out.append(_ROOT.parent / "resume-creation-web" / "packages" / "protocol")
     out.append(_ROOT.parent / "recombyn" / "packages" / "protocol")
     return out

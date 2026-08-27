@@ -54,7 +54,7 @@ def watch_inbox(
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[2]
     cfg = PipelineConfig.from_yaml(root / "configs" / "default.yaml")
     watch_inbox(root / "workspace", config=cfg)
 

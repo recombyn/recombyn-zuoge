@@ -1,6 +1,6 @@
 # Design Intelligence service
 
-Internal HTTP service for Recombyn Cloud (`src/commercial/intelligence`).
+Internal HTTP service for Recombyn Cloud (`apps/intelligence`).
 
 Implements `POST /v1/{method}` expected by the product Runtime remote client.
 Empty `{}` → host Runtime uses its local fallback provider.

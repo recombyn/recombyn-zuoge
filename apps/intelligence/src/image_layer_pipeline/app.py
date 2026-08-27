@@ -13,7 +13,7 @@ from image_layer_pipeline.stages.export_psd import save_png_layers, try_export_p
 from image_layer_pipeline.pipeline import composite_layers, run_pipeline
 from image_layer_pipeline.types import PipelineConfig
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CFG = ROOT / "configs" / "default.yaml"
 
 

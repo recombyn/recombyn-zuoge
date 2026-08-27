@@ -5,16 +5,16 @@ Closed-source product code for the private monorepo. Not published to `recombyn/
 ## Layout
 
 ```
-src/commercial/
-  intelligence/   # Design Intelligence HTTP service (port 8091)
-  web/            # @commercial/* UI modules (mockup, …)
-  docs/           # internal developer notes
+apps/intelligence/              # Design Intelligence HTTP service (port 8091)
+apps/web/src/commercial/mockup/ # @commercial/* mockup UI modules
+docs/commercial/                # internal developer notes (this folder)
+scripts/oss-exclude.paths       # paths stripped on public mirror sync
 ```
 
 ## Intelligence
 
 ```bash
-cd src/commercial/intelligence
+cd apps/intelligence
 python scripts/bootstrap_protocol.py
 npm run dev:intelligence    # or: npm run dev:stack
 ```
@@ -27,8 +27,8 @@ Docker: `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml
 
 | Path | Description |
 |------|-------------|
-| `web/mockup/` | Mockup session UI |
+| `apps/web/src/commercial/mockup/` | Mockup session UI |
 
-Wiring: `apps/web/src/commercial/` + `@commercial/*` alias.
+Wiring: `apps/web/src/commercial/editorHosts.tsx` + `@commercial/*` alias.
 
-Internal sync notes: [docs/private-sync.md](./docs/private-sync.md).
+Internal sync notes: [private-sync.md](./private-sync.md).

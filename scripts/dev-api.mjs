@@ -7,7 +7,7 @@ import { apiRoot, loadApiDotEnv } from './load-api-env.mjs';
 const repoRoot = path.resolve(apiRoot, '../..');
 const intelligenceMarker = path.join(
   repoRoot,
-  'src/commercial/intelligence/src/recombyn_intelligence_service'
+  'apps/intelligence/src/recombyn_intelligence_service'
 );
 const win = process.platform === 'win32';
 const venvPy = path.join(apiRoot, '.venv', win ? 'Scripts/python.exe' : 'bin/python');

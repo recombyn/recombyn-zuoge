@@ -2,7 +2,7 @@
 /**
  * Post-rsync strip for recombyn-dev → recombyn OSS mirror.
  *
- * 1. Delete paths listed in src/commercial/oss-exclude.paths
+ * 1. Delete paths listed in scripts/oss-exclude.paths
  * 2. Overlay scripts/oss-stubs/ (OSS-safe replacements — no runtime commercial checks)
  * 3. Fail if any excluded tree still exists on the public copy
  */
@@ -19,7 +19,7 @@ if (!existsSync(pubRoot)) {
   process.exit(1);
 }
 
-const manifest = path.join(repoRoot, 'src/commercial/oss-exclude.paths');
+const manifest = path.join(repoRoot, 'scripts/oss-exclude.paths');
 const stubsRoot = path.join(repoRoot, 'scripts/oss-stubs');
 
 function loadExcludePaths() {
@@ -57,9 +57,11 @@ if (leftovers.length) {
   process.exit(1);
 }
 
-if (existsSync(path.join(pubRoot, 'src/commercial'))) {
-  console.error('[sync-strip] src/commercial must not exist on public mirror');
-  process.exit(1);
+for (const rel of ['apps/intelligence', 'apps/web/src/commercial/mockup', 'docs/commercial']) {
+  if (existsSync(path.join(pubRoot, rel))) {
+    console.error(`[sync-strip] ${rel} must not exist on public mirror`);
+    process.exit(1);
+  }
 }
 
 let stubCount = 0;
