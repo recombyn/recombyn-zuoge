@@ -23,7 +23,7 @@
 param(
   [Parameter(Mandatory = $true)]
   [string] $RegistrationToken,
-  [string] $RunnerRoot = "$env:USERPROFILE\actions-runner-recombyn",
+  [string] $RunnerRoot = "C:\actions-runner",
   [string] $RepoUrl = "https://github.com/recombyn/recombyn-dev",
   [string[]] $Labels = @("self-hosted", "Windows", "ci")
 )
@@ -59,7 +59,12 @@ Set-Location $RunnerRoot
 if (-not (Test-Path ".\config.cmd")) {
   Write-Host "== Downloading actions-runner-win-x64 =="
   $zip = Join-Path $env:TEMP "actions-runner-win-x64.zip"
-  Invoke-WebRequest -Uri "https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-win-x64-2.321.0.zip" -OutFile $zip
+  Invoke-WebRequest -Uri "https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-win-x64-2.336.0.zip" -OutFile $zip
+  $expected = 'd59123a43003e357b0805b5d0f611d0bd2f65ab67d51bd070dd4e7a0f685c162'
+  $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
+  if ($hash.ToLower() -ne $expected.ToLower()) {
+    throw "Runner zip checksum mismatch (got $hash)"
+  }
   Expand-Archive -Path $zip -DestinationPath $RunnerRoot -Force
   Remove-Item $zip -Force
 }

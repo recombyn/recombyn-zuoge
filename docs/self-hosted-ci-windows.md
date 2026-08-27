@@ -31,13 +31,8 @@ Add `node`, `npm`, `python`, `git` to PATH.
 4. Start the runner:
 
 ```powershell
-# Option A — foreground (good for testing; keep window open)
-cd $env:USERPROFILE\actions-runner-recombyn
+cd C:\actions-runner
 .\run.cmd
-
-# Option B — Windows service (Admin; survives logout/reboot after svc.start)
-.\svc.install
-.\svc.start
 ```
 
 5. Confirm runner shows **Idle** in GitHub Settings → Actions → Runners.
