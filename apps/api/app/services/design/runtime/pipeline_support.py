@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from app.services.design.prompts.rules_text import _as_text, _rule_text
+from app.services.design.prompts.rules_text import _as_text
 
 
 def _json_error_message(text: str) -> str | None:

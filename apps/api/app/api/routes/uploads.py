@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 from app.api.deps import CurrentUser, OptionalUser
 from fastapi.responses import Response
 

@@ -6,7 +6,7 @@ import hmac
 
 from typing import Any, Literal
 
-from fastapi import File, Form, HTTPException, UploadFile
+from fastapi import File, Form, UploadFile
 
 from pydantic import BaseModel, Field
 
@@ -20,9 +20,7 @@ from app.core.config import settings
 
 
 from app.services.i18n.errors import http_error
-from app.services.i18n.plaza import plaza_http as _plaza_http
 
-from app.services.plaza.store import PlazaError
 
 class UserPatchIn(BaseModel):
     role: Literal["user", "admin"] | None = None
