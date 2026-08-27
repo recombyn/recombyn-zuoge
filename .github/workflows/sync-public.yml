@@ -20,7 +20,8 @@ jobs:
     runs-on: [self-hosted, Windows, ci]
     defaults:
       run:
-        shell: bash
+        # WindowsApps bash.exe is a WSL stub and breaks Actions temp script paths.
+        shell: '"C:/Program Files/Git/bin/bash.exe" --noprofile --norc -e -o pipefail {0}'
     env:
       PUBLIC_REPO: recombyn/zuoge
     steps:
@@ -58,6 +59,9 @@ jobs:
             --exclude="**/.next/" \
             --exclude="**/build/" \
             --exclude="**/.turbo/" \
+            --exclude="**/target/" \
+            --exclude="**/storage/" \
+            --exclude="**/coverage/" \
             --exclude="pub/" \
             --exclude="pub-test/" \
             ./ ./pub/

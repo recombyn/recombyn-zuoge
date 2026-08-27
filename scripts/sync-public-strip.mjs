@@ -79,13 +79,16 @@ if (existsSync(stubsRoot)) {
 
 console.log(`[sync-strip] ok — excluded ${excluded.length} path(s), ${stubCount} stub file(s) overlaid`);
 
-/** Public mirror: no auto CI on push (local + private CI already cover). */
+/** Public mirror: no heavy auto CI on push (private CI already covers). Keep the
+ *  lightweight required PR gate (block-cursor-coauthor) so zuoge rulesets can merge. */
 function disablePublicAutoCi() {
   const wfDir = path.join(pubRoot, '.github', 'workflows');
   if (!existsSync(wfDir)) return;
+  const keepAuto = new Set(['block-cursor-coauthor.yml']);
   let n = 0;
   for (const name of readdirSync(wfDir)) {
     if (!name.endsWith('.yml') && !name.endsWith('.yaml')) continue;
+    if (keepAuto.has(name)) continue;
     const fp = path.join(wfDir, name);
     if (!statSync(fp).isFile()) continue;
     let text = readFileSync(fp, 'utf8');
