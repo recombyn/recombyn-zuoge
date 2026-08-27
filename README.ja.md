@@ -3,7 +3,6 @@
 
   <p>
     <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
-    <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
     <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
   </p>
 
@@ -161,7 +160,6 @@ e2e/               Playwright
 | ユーザー向け | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | MCP キャンバス（Cursor / 外部 AI） | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
 | セルフホスト / 構成 | [docs/self-hosting.md](docs/self-hosting.md) |
-| デプロイモード | [docs/deployment-modes.md](docs/deployment-modes.md) |
 | 課金・クレジット | [docs/billing.md](docs/billing.md) |
 | Skill 拡張 | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | Canvas プラグイン | [docs/canvas-plugins.md](docs/canvas-plugins.md) |

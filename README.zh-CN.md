@@ -3,7 +3,6 @@
 
   <p>
     <a href="docs/self-hosting.md"><strong>自托管</strong></a> ·
-    <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
     <a href="https://recombyn.github.io/recombyn/"><strong>文档</strong></a>
   </p>
 
@@ -147,7 +146,7 @@ apps/api/          FastAPI（含 collab room-token）
 apps/collab/       Yjs WebSocket 服务（y-websocket）
 plugins/           扩展（skills + canvas）— Compose 已挂载
 packages/          共享协议
-docs/              自托管、部署方式、计费、Agent、插件、桌面端、画布
+docs/              自托管、计费、Agent、插件、桌面端、画布
 deploy/            Dockerfile / Nginx
 e2e/               Playwright
 ```

@@ -3,7 +3,6 @@
 
   <p>
     <a href="docs/self-hosting.md"><strong>Self Host</strong></a> ·
-    <a href="https://recombyn.com"><strong>Cloud</strong></a> ·
     <a href="https://recombyn.github.io/recombyn/"><strong>Docs</strong></a>
   </p>
 
@@ -190,7 +189,6 @@ User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) 
 | User docs | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | MCP canvas (Cursor / external AI) | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
 | Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
-| Deployment modes (self-host / dev / desktop) | [docs/deployment-modes.md](docs/deployment-modes.md) |
 | Billing & credits (`WALLET_BILLING_ENABLED`) | [docs/billing.md](docs/billing.md) |
 | Skill extensions | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | Canvas plugins | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
