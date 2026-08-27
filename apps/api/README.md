@@ -2,7 +2,7 @@
 
 FastAPI：画布 Scene、项目与广场、Design Agent、钱包、Admin。本地文档：http://127.0.0.1:8000/docs
 
-更多：[Self-hosting](../../docs/self-hosting.md) · [Deployment modes](../../docs/deployment-modes.md) · [Billing](../../docs/billing.md) · [AgentProfile](../../docs/agent-profile.md) · [用户文档](https://recombyn.github.io/recombyn/)
+更多：[Self-hosting](../../docs/self-hosting.md) · [Billing](../../docs/billing.md) · [AgentProfile](../../docs/agent-profile.md) · [用户文档](https://recombyn.github.io/recombyn/)
 
 ## 本地
 

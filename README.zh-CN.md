@@ -160,7 +160,6 @@ e2e/               Playwright
 | 用户文档 | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
 | MCP 画布（Cursor / 外部 AI） | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
 | 自托管 / 架构 | [docs/self-hosting.md](docs/self-hosting.md) |
-| 部署方式（自托管 / 开发 / 桌面） | [docs/deployment-modes.md](docs/deployment-modes.md) |
 | 积分与计费（`WALLET_BILLING_ENABLED`） | [docs/billing.md](docs/billing.md) |
 | Skill 扩展 | [docs/skill-extensions.md](docs/skill-extensions.md) |
 | 画布插件 | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
