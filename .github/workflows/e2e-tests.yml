@@ -45,3 +45,5 @@ jobs:
         run: npm test
         env:
           CI: 'true'
+          # Avoid clash with local `npm run dev:web` on :3000 (same self-hosted machine).
+          E2E_PORT: '4173'
