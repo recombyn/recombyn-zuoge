@@ -3,7 +3,12 @@
 name: Block Cursor co-author
 
 on:
-  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   no-cursor-coauthor:
