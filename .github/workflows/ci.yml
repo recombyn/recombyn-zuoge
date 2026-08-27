@@ -1,10 +1,8 @@
 name: CI
 
-# Umbrella PR gate — ADR 0009
-# Required check name for branch protection: "CI / gate"
-#
-# Runs on a self-hosted Windows runner (labels: self-hosted, Windows, ci).
-# No GitHub-hosted runners — see docs/self-hosted-ci-windows.md
+# Required check for branch protection: "CI / gate"
+# Lint + typecheck + unit + build only. E2E / skill / k6 are workflow_dispatch.
+# Self-hosted Windows — docs/self-hosted-ci-windows.md
 
 on:
   pull_request:

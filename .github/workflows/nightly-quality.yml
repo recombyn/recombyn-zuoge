@@ -1,5 +1,7 @@
 name: Nightly quality gates
 
+# Nightly soak — manual or scheduled only (not on every push).
+
 on:
   schedule:
     - cron: '0 18 * * *' # 02:00 CST

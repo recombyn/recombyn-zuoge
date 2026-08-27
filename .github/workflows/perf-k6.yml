@@ -1,22 +1,8 @@
 name: Perf k6 (Gate B)
 
+# Manual — k6 needs Redis/API and blocks the sole self-hosted runner.
+
 on:
-  push:
-    branches: [main, master, develop]
-    paths:
-      - 'perf/k6/**'
-      - 'apps/api/**'
-      - 'apps/collab/**'
-      - 'deploy/observability/**'
-      - '.github/workflows/perf-k6.yml'
-  pull_request:
-    paths:
-      - 'perf/k6/**'
-      - 'apps/api/app/core/metrics.py'
-      - 'apps/api/app/main.py'
-      - 'apps/collab/**'
-      - 'deploy/observability/**'
-      - '.github/workflows/perf-k6.yml'
   workflow_dispatch:
 
 jobs:

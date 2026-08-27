@@ -44,11 +44,15 @@ Labels applied: `self-hosted`, `Windows`, `ci` (required by all workflows).
 
 ## What runs where
 
-| Workflow | Runner | Notes |
-|----------|--------|--------|
-| **CI** (`ci.yml`) | self-hosted Windows | lint, typecheck, unit tests, web build, gate |
-| E2E, k6, Publish OSS, nightly, audits, etc. | self-hosted Windows | same labels; bash steps use Git Bash |
-| Publish OSS | self-hosted Windows | needs `rsync` (Git Bash / MSYS) + `PUBLIC_REPO_TOKEN` |
+| Workflow | When | Notes |
+|----------|------|--------|
+| **CI** (`ci.yml`) | every PR / main push | lint, typecheck, unit, build, gate — the only auto gate |
+| **Publish OSS** | main push / manual | sync to `recombyn/zuoge` |
+| E2E / Skill eval / Perf k6 | **manual** (`workflow_dispatch`) | run locally first; do not auto-queue |
+| Nightly | schedule / manual | soak only |
+| Protocol smoke / compat | path-filtered | only when protocol packages change |
+
+Auto-running Playwright/k6/skill on every push overcrowds the single self-hosted runner and often clashes with local `dev:web` — that is env noise, not “your app tests failed.”
 
 ## Troubleshooting
 
