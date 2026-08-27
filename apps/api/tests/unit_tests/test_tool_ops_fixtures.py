@@ -10,7 +10,7 @@ import pytest
 from app.services.mcp.apply_headless import ops_to_document_patch
 from app.services.projects import apply_document_patch
 
-FIXTURE_DIR = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "tool_ops"
+FIXTURE_DIR = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "tool_ops"
 
 
 def _load_fixture_cases() -> list[dict]:

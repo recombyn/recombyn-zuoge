@@ -1,6 +1,4 @@
-/**
- * Closed-source mockup API client — lives under src/private/ (not committed to GitHub).
- */
+/** Closed-source mockup API client (apps/web/src/commercial/mockup). */
 
 import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
