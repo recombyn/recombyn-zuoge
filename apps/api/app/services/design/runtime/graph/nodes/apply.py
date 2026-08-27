@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from langgraph.types import Command
+from recombyn_protocol import new_design_transaction, resolve_transaction_phase
 
 from app.services.design.ops.tool_ops_contract import (
     tool_ops_activity_events as _tool_ops_activity_events,
@@ -17,8 +18,6 @@ from app.services.design.runtime.graph.state import (
     AgentRuntime,
     GraphState,
     _SCENE_WAIT_SEC,
-    new_design_transaction,
-    resolve_transaction_phase,
 )
 from app.services.design.runtime.graph.emit_sse import (
     _emit,
