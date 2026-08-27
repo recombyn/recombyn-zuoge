@@ -1,6 +1,6 @@
 # Protocol compatibility (Intelligence in recombyn-dev monorepo)
 # Runs against apps/intelligence using packages/protocol from this repo.
-# Excluded from OSS mirror �??private recombyn-dev only.
+# Excluded from OSS mirror - private recombyn-dev only.
 
 name: protocol-compat
 

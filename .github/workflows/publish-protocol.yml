@@ -69,7 +69,7 @@ jobs:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
           if [ -z "$PYPI_TOKEN" ]; then
-            echo "PYPI_TOKEN not set ù??skip publish (artifacts still available)."
+            echo "PYPI_TOKEN not set - skip publish (artifacts still available).
             exit 0
           fi
           python -m pip install -U twine

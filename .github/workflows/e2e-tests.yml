@@ -13,6 +13,10 @@ on:
       - 'e2e/**'
       - '.github/workflows/e2e-tests.yml'
 
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   playwright:
     runs-on: [self-hosted, Windows, ci]

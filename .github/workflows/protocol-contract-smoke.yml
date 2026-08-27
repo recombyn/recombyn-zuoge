@@ -1,7 +1,7 @@
 name: protocol-contract-smoke
 
 # Public guard + optional cross-repo ping to Private compatibility CI.
-# Optional cross-repo ping ??recombyn-dev protocol-compat.yml
+# Optional cross-repo ping -> recombyn-dev protocol-compat.yml
 # (repository_dispatch type: protocol-changed)
 
 on:
@@ -124,7 +124,7 @@ jobs:
             exit 0
           fi
           REF="${{ github.sha }}"
-          echo "Dispatching protocol-changed ??$TARGET (protocol_ref=$REF)"
+          echo "Dispatching protocol-changed -> $TARGET (protocol_ref=$REF)"
           curl -sS -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $TOKEN" \
