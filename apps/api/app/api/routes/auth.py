@@ -54,6 +54,8 @@ from app.services.wallet.db import (
     list_ledger,
     list_ledger_page,
 )
+from app.services.i18n.errors import http_error, service_error_http, value_error_http
+from app.services.i18n.locale import LocaleDep
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -72,11 +74,27 @@ def _super_admin_test_code() -> str:
     return (getattr(settings, "super_admin_test_code", None) or "").strip()
 
 
-def _normalize_email(raw: str) -> str:
+_AUTH_CODE_KEYS = frozenset(
+    {
+        "link_invalid",
+        "link_expired",
+        "code_missing",
+        "code_expired",
+        "code_locked",
+        "code_invalid",
+    }
+)
+
+
+def _normalize_email(raw: str, locale: str | None = None) -> str:
     email = (raw or "").strip().lower()
     if "@" not in email or "." not in email.split("@")[-1]:
-        raise HTTPException(status_code=400, detail="Invalid email")
+        raise http_error(400, "invalid_email", locale)
     return email
+
+
+def _need_captcha_error(locale: str | None = None) -> HTTPException:
+    return http_error(428, "need_captcha", locale)
 
 
 def _super_admin_session() -> SessionUser:
@@ -162,14 +180,9 @@ def _client_ip(request: Request) -> str | None:
     return None
 
 
-def _need_captcha_error() -> HTTPException:
-    return HTTPException(
-        status_code=428,
-        detail={
-            "code": "need_captcha",
-            "message": "Please complete the slider verification",
-        },
-    )
+def _auth_code_error(key: str, locale: str | None) -> HTTPException:
+    code = key if key in _AUTH_CODE_KEYS else "request_failed"
+    return http_error(400, code, locale)
 
 
 class ProfileIn(BaseModel):
@@ -212,7 +225,7 @@ def auth_config() -> AuthConfigOut:
 
 
 @router.post("/google", response_model=AuthSessionOut)
-def auth_google(body: GoogleAuthIn) -> dict[str, Any]:
+def auth_google(locale: LocaleDep, body: GoogleAuthIn) -> dict[str, Any]:
     try:
         if body.code:
             user, token = login_with_google_auth_code(
@@ -222,19 +235,26 @@ def auth_google(body: GoogleAuthIn) -> dict[str, Any]:
         elif body.credential:
             user, token = login_with_google_credential(body.credential.strip())
         else:
-            raise HTTPException(status_code=400, detail="Provide credential or code")
+            raise http_error(400, "provide_credential_or_code", locale)
     except RuntimeError as err:
-        raise HTTPException(status_code=503, detail=str(err)) from err
+        raise http_error(503, "service_unavailable", locale) from err
     except ValueError as err:
-        raise HTTPException(status_code=401, detail=str(err)) from err
+        msg = str(err).strip()
+        if msg:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "auth_failed", "message": msg},
+            ) from err
+        raise http_error(401, "auth_failed", locale) from err
 
     return {"user": _user_payload(user), "token": token}
 
 
 @router.post("/email/send-code")
-def email_send_code(body: EmailSendCodeIn, request: Request) -> dict[str, Any]:
+def email_send_code(body: EmailSendCodeIn, request: Request,
+    locale: LocaleDep) -> dict[str, Any]:
     """Send 6-digit email verification code for login."""
-    email = _normalize_email(body.email)
+    email = _normalize_email(body.email, locale)
     ip = _client_ip(request)
 
     # Local-only test OTP when SUPER_ADMIN_TEST_CODE is set in .env (gitignored).
@@ -249,28 +269,24 @@ def email_send_code(body: EmailSendCodeIn, request: Request) -> dict[str, Any]:
 
     if captcha_required(email, ip):
         if not consume_captcha_token(body.captchaToken, email):
-            raise _need_captcha_error()
+            raise _need_captcha_error(locale)
 
     allowed, retry_after = can_send_code(email)
     if not allowed:
         record_login_failure(email, ip)
         if captcha_required(email, ip) and not body.captchaToken:
-            raise _need_captcha_error()
-        raise HTTPException(
-            status_code=429,
-            detail=f"Please wait {int(retry_after)}s before resending",
+            raise _need_captcha_error(locale)
+        exc = http_error(
+            429,
+            "email_send_rate_limited",
+            locale,
+            seconds=int(retry_after),
             headers={"Retry-After": str(int(retry_after))},
         )
+        raise exc
 
     if not ses_configured():
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Email login is not configured. Set TENCENT_SECRET_ID, "
-                "TENCENT_SECRET_KEY, SES_FROM_EMAIL, and SES_TEMPLATE_ID "
-                "in apps/api/.env, or use Google sign-in."
-            ),
-        )
+        raise http_error(503, "email_not_configured", locale)
 
     code = generate_code()
     store_code(email, code)
@@ -278,7 +294,7 @@ def email_send_code(body: EmailSendCodeIn, request: Request) -> dict[str, Any]:
         send_verification_email(to_email=email, code=code)
     except SesError as err:
         logger.exception("Email send failed for %s", email)
-        raise HTTPException(status_code=502, detail=str(err)) from err
+        raise http_error(502, "service_unavailable", locale) from err
     return {"ok": True, "expiresIn": 300, "mode": "code"}
 
 
@@ -287,19 +303,15 @@ class EmailActivateIn(BaseModel):
 
 
 @router.post("/email/activate", response_model=AuthSessionOut)
-def email_activate(body: EmailActivateIn, request: Request) -> dict[str, Any]:
+def email_activate(body: EmailActivateIn, request: Request,
+    locale: LocaleDep) -> dict[str, Any]:
     """Consume one-time /activate/{{id}} link → session (email magic-link mails)."""
     ip = _client_ip(request)
     try:
         email = consume_activate_token(body.id)
     except ValueError as err:
-        key = str(err)
-        messages = {
-            "link_invalid": "Login link is invalid or already used",
-            "link_expired": "Login link expired",
-        }
         record_login_failure("activate", ip)
-        raise HTTPException(status_code=400, detail=messages.get(key, key)) from err
+        raise _auth_code_error(str(err), locale) from err
 
     clear_login_failures(email, ip)
     user = ensure_email_user(email=email)
@@ -317,9 +329,10 @@ def email_activate(body: EmailActivateIn, request: Request) -> dict[str, Any]:
 
 
 @router.post("/email/verify-code", response_model=AuthSessionOut)
-def email_verify_code(body: EmailVerifyCodeIn, request: Request) -> dict[str, Any]:
+def email_verify_code(body: EmailVerifyCodeIn, request: Request,
+    locale: LocaleDep) -> dict[str, Any]:
     """Verify 6-digit email code → session."""
-    email = _normalize_email(body.email)
+    email = _normalize_email(body.email, locale)
     ip = _client_ip(request)
     code = body.code.strip()
 
@@ -337,30 +350,24 @@ def email_verify_code(body: EmailVerifyCodeIn, request: Request) -> dict[str, An
     passed_captcha = False
     if captcha_required(email, ip):
         if not consume_captcha_token(body.captchaToken, email):
-            raise _need_captcha_error()
+            raise _need_captcha_error(locale)
         passed_captcha = True
 
     try:
         ticket = verify_and_issue_ticket(email, code)
     except ValueError as err:
         key = str(err)
-        messages = {
-            "code_missing": "No verification code requested for this email",
-            "code_expired": "Verification code expired",
-            "code_locked": "Too many attempts. Request a new code",
-            "code_invalid": "Invalid verification code",
-        }
         if key in ("code_invalid", "code_locked", "code_expired", "code_missing"):
             record_login_failure(email, ip)
             if passed_captcha:
-                raise HTTPException(status_code=400, detail=messages.get(key, key)) from err
+                raise _auth_code_error(key, locale) from err
             if captcha_required(email, ip):
-                raise _need_captcha_error() from err
-        raise HTTPException(status_code=400, detail=messages.get(key, key)) from err
+                raise _need_captcha_error(locale) from err
+        raise _auth_code_error(key, locale) from err
 
     clear_login_failures(email, ip)
     if not consume_ticket(email, ticket):
-        raise HTTPException(status_code=400, detail="Invalid or expired verification ticket")
+        raise http_error(400, "ticket_invalid", locale)
     user = ensure_email_user(email=email)
     if email == _SUPER_ADMIN_EMAIL:
         # Persist role=admin + Pro for admin@… (OTP used to leave role=user).
@@ -388,8 +395,8 @@ def captcha_create() -> dict[str, Any]:
 
 
 @router.post("/captcha/verify")
-def captcha_verify(body: CaptchaVerifyIn) -> dict[str, Any]:
-    email = _normalize_email(body.email)
+def captcha_verify(locale: LocaleDep, body: CaptchaVerifyIn) -> dict[str, Any]:
+    email = _normalize_email(body.email, locale)
     try:
         return verify_challenge(
             body.captchaId,
@@ -398,19 +405,20 @@ def captcha_verify(body: CaptchaVerifyIn) -> dict[str, Any]:
             trajectory=body.trajectory,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
 
 
 @router.post("/email/login", response_model=AuthSessionOut)
-def email_login(body: EmailLoginIn, request: Request) -> dict[str, Any]:
+def email_login(body: EmailLoginIn, request: Request,
+    locale: LocaleDep) -> dict[str, Any]:
     """Super-admin password bootstrap only. Public users sign in via /email/verify-code."""
-    email = _normalize_email(body.email)
+    email = _normalize_email(body.email, locale)
     ip = _client_ip(request)
 
     passed_captcha = False
     if captcha_required(email, ip):
         if not consume_captcha_token(body.captchaToken, email):
-            raise _need_captcha_error()
+            raise _need_captcha_error(locale)
         passed_captcha = True
 
     admin = _try_super_admin(email, body.password)
@@ -421,16 +429,10 @@ def email_login(body: EmailLoginIn, request: Request) -> dict[str, Any]:
 
     record_login_failure(email, ip)
     if passed_captcha:
-        raise HTTPException(
-            status_code=401,
-            detail="Use email verification code to sign in",
-        )
+        raise http_error(401, "use_email_verification_code", locale)
     if captcha_required(email, ip):
-        raise _need_captcha_error()
-    raise HTTPException(
-        status_code=401,
-        detail="Use email verification code to sign in",
-    )
+        raise _need_captcha_error(locale)
+    raise http_error(401, "use_email_verification_code", locale)
 
 
 
@@ -443,6 +445,7 @@ def auth_me(current_user: CurrentUser) -> dict[str, Any]:
 
 @router.patch("/profile")
 def auth_patch_profile(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: ProfileIn,
 ) -> dict[str, Any]:
@@ -453,7 +456,7 @@ def auth_patch_profile(
         avatar=body.avatar,
     )
     if not updated:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise http_error(404, "user_not_found", locale)
     return {
         "user": {
             "id": updated.id,
@@ -531,35 +534,54 @@ def wallet_ledger(
     }
 
 
+_REDEEM_ERROR_MAP: dict[str, tuple[int, str]] = {
+    "misconfigured": (503, "card_key_misconfigured"),
+    "invalid_format": (400, "card_key_invalid_format"),
+    "not_found": (404, "card_key_not_found"),
+    "already_used": (400, "card_key_already_used"),
+    "revoked": (400, "card_key_revoked"),
+    "expired": (400, "card_key_expired"),
+    "invalid_kind": (400, "card_key_invalid_kind"),
+    "invalid_plan": (400, "card_key_invalid_plan"),
+    "plan_locked": (400, "card_key_plan_locked"),
+    "invalid_amount": (400, "card_key_invalid_amount"),
+    "rate_limited": (429, "redeem_rate_limited"),
+}
+
+
+def _redeem_http(err: RedeemError, locale: str | None):
+    """Map RedeemError → localized HTTP detail."""
+    import re
+
+    status, code = _REDEEM_ERROR_MAP.get(err.code, (400, "request_failed"))
+    if code == "redeem_rate_limited":
+        m = re.search(r"(\d+)\s*s", str(err.message or ""), re.I)
+        seconds = int(m.group(1)) if m else 60
+        return http_error(status, code, locale, seconds=seconds)
+    return service_error_http(code, locale, status=status, message=err.message)
+
+
 @wallet_router.post("/redeem")
 def wallet_redeem(
     current_user: CurrentUser,
     body: RedeemIn,
     request: Request,
+    locale: LocaleDep,
 ) -> dict[str, Any]:
     try:
         require_strong_card_key_salt()
     except ValueError as err:
-        raise HTTPException(status_code=503, detail=str(err)) from err
+        raise value_error_http(err, locale, status=503) from err
     ip = _client_ip(request)
     try:
         check_redeem_rate_limit(user_id=current_user.id, ip=ip)
     except RedeemError as err:
-        raise HTTPException(
-            status_code=429,
-            detail={"code": err.code, "message": err.message},
-        ) from err
+        raise _redeem_http(err, locale) from err
     record_redeem_attempt(user_id=current_user.id, ip=ip)
     try:
         result = redeem_card_key(current_user.id, body.code)
     except RedeemError as err:
-        status = 404 if err.code == "not_found" else 400
-        if err.code == "rate_limited":
-            status = 429
-        raise HTTPException(
-            status_code=status,
-            detail={"code": err.code, "message": err.message},
-        ) from err
+        raise _redeem_http(err, locale) from err
     clear_redeem_rate_limit(user_id=current_user.id, ip=ip)
     snap = get_wallet(current_user.id)
     credits = int(snap.get("credits") or 0)

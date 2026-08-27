@@ -30,12 +30,17 @@ async def worker_run_sse(task_id: str) -> AsyncIterator[str]:
         progress.decorate({"type": "status", "task_id": task_id, "status": "queued"})
     )
     while True:
-        for item in (await asyncio.to_thread(get_task_events, task_id, after_seq=event_seq)).get("items") or []:
+        page = await asyncio.to_thread(get_task_events, task_id, after_seq=event_seq)
+        items = page.get("items") or []
+        for item in items:
             event_seq = max(event_seq, int(item.get("seq") or 0))
             if isinstance(event := item.get("event"), dict):
                 for frame in progress.observe(event):
                     yield sse_data(progress.decorate(frame))
                 yield sse_data(progress.decorate(event))
+        if not items:
+            # Empty page still reports last scanned id so model-only windows unblock.
+            event_seq = max(event_seq, int(page.get("next_seq") or event_seq))
         for item in (await asyncio.to_thread(get_canvas_commands, task_id, after_seq=command_seq)).get("items") or []:
             command_seq = max(command_seq, int(item.get("seq") or 0))
             if isinstance(event := item.get("event"), dict):

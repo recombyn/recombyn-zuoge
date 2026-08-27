@@ -88,6 +88,7 @@ def test_complete_upload_job_enqueues_worker(monkeypatch: pytest.MonkeyPatch, tm
 
         mock_run = MagicMock()
         monkeypatch.setattr(route_mod, "run_upload_job", mock_run)
+        monkeypatch.setattr(route_mod, "_celery_has_workers", lambda timeout=0.5: True)
 
         sess = store.create_upload_session(
             "u1",
@@ -100,8 +101,45 @@ def test_complete_upload_job_enqueues_worker(monkeypatch: pytest.MonkeyPatch, tm
         with _auth_client(monkeypatch) as client:
             res = client.post(f"/api/v1/uploads/jobs/{sess['job_id']}/complete")
             assert res.status_code == 200, res.text
+            assert res.json()["status"] == "queued"
             mock_run.delay.assert_called_once_with(sess["job_id"])
 
+
+def test_complete_upload_job_runs_inline_without_workers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    from app.api.routes import upload_jobs as route_mod
+    from app.core.config import settings
+    from app.services import upload_job_store as store
+    from app.services.job_store import get_job
+
+    with _memory_job_store(monkeypatch):
+        monkeypatch.setattr(settings, "upload_dir", str(tmp_path))
+        monkeypatch.setattr(settings, "upload_chunk_size_mb", 1)
+        monkeypatch.setattr(settings, "max_upload_mb", 0)
+        monkeypatch.setattr(route_mod, "_celery_has_workers", lambda timeout=0.5: False)
+        monkeypatch.setattr(
+            route_mod,
+            "execute_upload_job",
+            lambda job: {"item": {"url": "https://cdn.example/a.png", "key": "uploads/u1/a.png"}},
+        )
+
+        sess = store.create_upload_session(
+            "u1",
+            filename="photo.png",
+            content_type="image/png",
+            total_size=10,
+        )
+        store.save_upload_part("u1", sess["job_id"], 1, b"1234567890")
+
+        with _auth_client(monkeypatch) as client:
+            res = client.post(f"/api/v1/uploads/jobs/{sess['job_id']}/complete")
+            assert res.status_code == 200, res.text
+            assert res.json()["status"] == "done"
+            job = get_job(sess["job_id"], kind="upload")
+            assert job is not None
+            assert job["status"] == "done"
+            assert job["result"]["item"]["url"] == "https://cdn.example/a.png"
 
 def test_get_upload_job_ok(monkeypatch: pytest.MonkeyPatch):
     from app.api.routes import upload_jobs as route_mod

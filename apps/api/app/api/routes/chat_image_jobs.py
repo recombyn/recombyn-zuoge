@@ -6,12 +6,14 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
-from app.api.routes.chat_job_sse import streaming_media_job_events
-from app.services.job_store import get_job, normalize_trace_id, save_job
+from app.api.routes.chat_job_sse import get_media_job_or_http, streaming_media_job_events
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
+from app.services.job_store import normalize_trace_id, save_job
 from worker.tasks import run_chat_image_job
 
 router = APIRouter(prefix="/chat/image", tags=["chat-image-jobs"])
@@ -112,11 +114,12 @@ async def execute_image_generate(
 async def create_image_job(
     body: ImageJobCreateRequest,
     request: Request,
+    locale: LocaleDep,
     current_user: CurrentUser,
 ):
     prompt = body.prompt.strip()
     if not prompt:
-        raise HTTPException(status_code=400, detail="empty prompt")
+        raise http_error(400, "empty_prompt", locale)
 
     from app.api.routes.chat import _charge_image
 
@@ -125,6 +128,7 @@ async def create_image_job(
         body.model,
         resolution=body.resolution,
         count=int(body.n or 1),
+        locale=locale,
     )
 
     job_id = uuid.uuid4().hex
@@ -152,10 +156,7 @@ async def create_image_job(
         save_job(job_id, payload, kind=_KIND)
         run_chat_image_job.delay(job_id)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=503,
-            detail=f"Job queue unavailable (start Redis + worker). {exc}",
-        ) from exc
+        raise http_error(503, "job_queue_unavailable", locale) from exc
     try:
         from app.core.metrics import observe_job
 
@@ -172,15 +173,8 @@ async def create_image_job(
 
 
 @router.get("/jobs/{job_id}", response_model=ImageJobStatusResponse)
-def get_image_job(current_user: CurrentUser, job_id: str):
-    try:
-        job = get_job(job_id, kind=_KIND)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if str(job.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_image_job(locale: LocaleDep, current_user: CurrentUser, job_id: str):
+    job = get_media_job_or_http(current_user, job_id, kind=_KIND, locale=locale)
     return ImageJobStatusResponse(
         job_id=job_id,
         status=str(job.get("status") or "queued"),
@@ -192,6 +186,6 @@ def get_image_job(current_user: CurrentUser, job_id: str):
 
 
 @router.get("/jobs/{job_id}/events")
-async def stream_image_job_events(current_user: CurrentUser, job_id: str):
+async def stream_image_job_events(request: Request, current_user: CurrentUser, job_id: str):
     """SSE push for job status (progress / done / failed)."""
-    return streaming_media_job_events(current_user, job_id, kind=_KIND)
+    return streaming_media_job_events(current_user, job_id, kind=_KIND, request=request)

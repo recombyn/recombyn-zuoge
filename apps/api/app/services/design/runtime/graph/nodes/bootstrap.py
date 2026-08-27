@@ -7,22 +7,15 @@ import time
 from langgraph.types import Command
 
 from app.services.design.admin.task_store import initialize_design_task, build_worker_snapshot
-from app.services.design.prompts.rules_text import _as_text
 from app.services.design.readpath.canvas_scene import (
     early_status_canvas_fields,
     explicit_canvas_size,
 )
 from app.services.design.runtime.graph.state import AgentRuntime, GraphState
 from app.services.design.runtime.graph.emit_sse import _emit
-from app.services.design.runtime.graph.llm_io import _clip_llm_raw, _clip_urls
 from app.services.design.runtime.graph.scene_log import (
     _goto_cmd,
     _persist_progress,
-)
-from app.services.design.runtime.models_route import (
-    clamp_lane,
-    enabled_lanes,
-    heuristic_route_lane,
 )
 
 
@@ -94,6 +87,14 @@ async def _node_bootstrap(state: GraphState) -> Command:
             "updated_at": time.time()
         },
     )
+    from app.services.design.runtime.agent_profile import active_profile_id
+    from app.services.design.runtime.session_log import log_turn_start
+
+    log_turn_start(
+        st.task_id,
+        trace_id=st.trace_id,
+        profile_id=active_profile_id() or "design.canvas",
+    )
     _emit(
         {
             "type": "status",
@@ -114,7 +115,6 @@ async def _node_bootstrap(state: GraphState) -> Command:
         rt.flags["apply_ops"] = True
         return _goto_cmd(rt, frm="bootstrap", to="apply_confirm")
     rt.flags["mode"] = rt.flags.get("mode") or "agent"
-    _apply_task_route_flags(rt)
     await _hydrate_pinned_skills(rt)
     await _persist_progress(rt)
     return _goto_cmd(rt, frm="bootstrap", to="memory")
@@ -170,37 +170,4 @@ async def _hydrate_pinned_skills(rt: AgentRuntime) -> None:
             "index": 0,
         }
     )
-
-
-def _apply_task_route_flags(rt: AgentRuntime) -> None:
-    """Estimate route lane + mode flags."""
-    st = rt.run
-    st.task_tier = clamp_lane(
-        heuristic_route_lane(
-            rt.prompt,
-            has_images=bool(rt.images),
-            scene=rt.scene_key or None,
-        ).lane,
-        enabled_lanes(rt.rules),
-    )
-    tier_label = st.task_tier or "-"
-    # Do not set vision_used here — only after pixels are actually sent to the LLM.
-    st.push_log(
-        phase="route",
-        task_tier=st.task_tier or None,
-        has_images=bool(rt.images) or None,
-        vision=None,
-        user_selected_model=(rt.user_selected_model or "auto"),
-        run_mode=rt.mode,
-        llm_image_urls=_clip_urls(rt.images) if rt.images else None,
-        llm_user=_clip_llm_raw(rt.prompt, limit=4000),
-        summary=(
-            f"task_tier={tier_label}"
-            + (" · images" if rt.images else "")
-            + f" · mode={rt.mode}"
-        ),
-    )
-    if _as_text(rt.flags.get("mode")).strip().lower() not in ("agent", "ask"):
-        rt.flags["mode"] = "agent"
-    rt.flags["task_tier"] = st.task_tier
 

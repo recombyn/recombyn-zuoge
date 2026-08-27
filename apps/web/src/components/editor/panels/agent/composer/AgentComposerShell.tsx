@@ -289,16 +289,25 @@ function attachmentPreviewKind(a: ComposerContext): 'image' | 'audio' | 'video' 
 /** Prefer a still poster for the chip; fall back to image/http refs. */
 function attachmentThumbSrc(a: ComposerContext): string {
   const thumb = String(a.thumbUrl || '').trim();
+  const ref = String(a.dataUrl || '').trim();
+  // Once uploaded to public MinIO/COS, prefer remote URL over leftover data: preview.
+  if (
+    (a.uploadStatus === 'ready' || a.uploadKey) &&
+    (ref.startsWith('http://') || ref.startsWith('https://')) &&
+    !/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(ref) &&
+    !ref.startsWith('data:video/')
+  ) {
+    return ref;
+  }
   if (thumb.startsWith('data:image/')) return thumb;
   if (thumb.startsWith('http://') || thumb.startsWith('https://') || thumb.startsWith('/')) {
     if (!/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(thumb)) return thumb;
   }
-  const ref = String(a.dataUrl || '').trim();
   if (ref.startsWith('data:image/')) return ref;
   if (ref.startsWith('http://') || ref.startsWith('https://') || ref.startsWith('/')) {
     if (!/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(ref) && !ref.startsWith('data:video/')) return ref;
   }
-  return '';
+  return thumb || ref;
 }
 
 function attachmentMediaSrc(a: ComposerContext): string {

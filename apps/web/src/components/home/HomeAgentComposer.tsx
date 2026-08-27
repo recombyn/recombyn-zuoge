@@ -12,7 +12,7 @@ import {
   useInteractions,
 } from '@floating-ui/react';
 import type { LlmModel, ChatModelsResponse } from '@/service/chat';
-import { apiQuery, queryClient } from '@/service/client';
+import { apiQuery, getHttpErrorMessage, queryClient } from '@/service/client';
 import {
   agentAttachmentLimit,
   cloudImageFallbackId,
@@ -64,6 +64,7 @@ import { nanoid } from 'nanoid';
 import {
   deleteUploadedFile,
   readFileAsDataUrl,
+  resolveComposerMediaAfterUpload,
   uploadComposerAttachment,
 } from '@/utils/uploadImage';
 import { message } from '@/components/base';
@@ -667,7 +668,6 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
   };
 
   const onAttachFiles = async (files: File[], opts?: { mention?: boolean }) => {
-    const MAX = 10 * 1024 * 1024;
     const slots = Math.max(0, attachmentLimit - attachmentCount);
     if (slots <= 0) {
       message.warning(t('agent.attachMaxReached', { count: attachmentLimit }));
@@ -681,10 +681,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
       } else if (!file.type.startsWith('image/')) {
         continue;
       }
-      if (file.size > MAX) {
-        message.warning(t('agent.attachTooLarge', { name: file.name }));
-        continue;
-      }
+      // No byte ceiling — oversized media is soft-compressed in uploadComposerAttachment.
       accepted.push(file);
     }
     if (!accepted.length) return;
@@ -747,6 +744,10 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
           const uploaded = await uploadComposerAttachment(file, {
             previewDataUrl: preview,
           });
+          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
+            serverUrl: uploaded.url,
+            localPreview: String(uploaded.previewDataUrl || preview).trim(),
+          });
           setContexts((prev) => {
             if (!prev.some((c) => c.key === key)) {
               if (uploaded.uploadKey) {
@@ -765,17 +766,22 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
               c.key === key
                 ? {
                     ...c,
-                    dataUrl: uploaded.imageRef,
-                    thumbUrl: uploaded.previewDataUrl || preview,
+                    dataUrl,
+                    thumbUrl,
                     uploadKey: uploaded.uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
             );
           });
-        } catch {
+        } catch (err: unknown) {
           setContexts((prev) => prev.filter((c) => c.key !== key));
-          message.error(t('agent.uploadFailed', { name: file.name }));
+          const detail = getHttpErrorMessage(err, '');
+          message.error(
+            detail
+              ? `${t('agent.uploadFailed', { name: file.name })}: ${detail}`
+              : t('agent.uploadFailed', { name: file.name })
+          );
         }
       })
     );

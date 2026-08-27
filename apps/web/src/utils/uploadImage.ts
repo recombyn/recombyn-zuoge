@@ -95,9 +95,21 @@ export async function uploadImageFile(
     jobId?: string;
     dispatch?: (action: unknown) => unknown;
     nodeId?: string;
+    /** Soft-compress before upload (default true). */
+    compress?: boolean;
   }
 ): Promise<UploadedFileItem> {
-  return uploadUserFile(file, opts);
+  let toUpload = file;
+  if (opts?.compress !== false) {
+    try {
+      toUpload = await prepareMediaFileForUpload(file, { signal: opts?.signal });
+    } catch (err) {
+      if (isUploadAbortError(err)) throw err;
+      toUpload = file;
+    }
+  }
+  if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  return uploadUserFile(toUpload, opts);
 }
 
 /** Delete a previously uploaded object by storage key (no-op when logged out / empty). */
@@ -113,12 +125,40 @@ export async function deleteUploadedFile(key: string | null | undefined): Promis
 }
 
 /**
- * Agent composer attach: upload to server, keep a local preview for thumbnails
- * (local `/api/v1/uploads/files/鈥 URLs need auth and cannot be used in `<img src>`).
+ * Soft-compress media for canvas / composer upload. Never rejects oversized picks.
+ * Image → JPEG ladder; video/audio → ffmpeg when over soft budget; other → passthrough.
+ */
+export async function prepareMediaFileForUpload(
+  file: File,
+  opts?: { signal?: AbortSignal }
+): Promise<File> {
+  if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  const mime = String(file.type || '').toLowerCase();
+  try {
+    if (mime.startsWith('image/')) {
+      return await compressImageFileForVision(file, { signal: opts?.signal });
+    }
+    if (mime.startsWith('video/')) {
+      const { compressVideoFileForUpload } = await import('@/utils/audioExporter');
+      return await compressVideoFileForUpload(file, { signal: opts?.signal });
+    }
+    if (mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || '')) {
+      const { compressAudioFileForUpload } = await import('@/utils/audioExporter');
+      return await compressAudioFileForUpload(file, { signal: opts?.signal });
+    }
+  } catch (err) {
+    if (isUploadAbortError(err)) throw err;
+    return file;
+  }
+  return file;
+}
+
+/**
+ * Composer attach: compress once, upload, keep original local preview for chips.
  */
 export async function uploadComposerAttachment(
   file: File,
-  opts?: { previewDataUrl?: string }
+  opts?: { previewDataUrl?: string; signal?: AbortSignal }
 ): Promise<{
   uploadKey: string;
   url: string;
@@ -128,18 +168,157 @@ export async function uploadComposerAttachment(
 }> {
   const previewDataUrl =
     String(opts?.previewDataUrl || '').trim() || (await readFileAsDataUrl(file));
-  const uploaded = await uploadImageFile(file);
+  const uploaded = await uploadImageFile(file, {
+    signal: opts?.signal,
+    compress: true,
+  });
   const url = String(uploaded.url || '').trim();
   const uploadKey = String(uploaded.key || '').trim();
   if (!uploadKey) throw new Error('upload returned no key');
-  const imageRef =
-    url.startsWith('http://') || url.startsWith('https://') ? url : previewDataUrl;
+  const imageRef = isPublicMediaUrl(url) ? url : previewDataUrl;
   return {
     uploadKey,
     url,
     imageRef,
     previewDataUrl,
     name: String(uploaded.name || file.name || 'image'),
+  };
+}
+
+export function isPublicMediaUrl(url: string): boolean {
+  const u = String(url || '').trim();
+  return u.startsWith('http://') || u.startsWith('https://');
+}
+
+/** Vision attach: long-edge cap. Soft size target — never reject oversized picks. */
+export const VISION_ATTACH_MAX_EDGE = 2048;
+/** Soft wire/model budget (~5MB). Oversize files are recompressed, not blocked. */
+export const VISION_ATTACH_TARGET_BYTES = 5 * 1024 * 1024;
+/** JPEG quality ladder — stop at first result ≤ target, else keep lowest. */
+export const VISION_ATTACH_QUALITY_LADDER = [0.82, 0.7, 0.55] as const;
+
+/**
+ * Downscale + quality ladder for image attachments / canvas uploads.
+ * Opaque photos → JPEG; PNG/WebP (alpha) → WebP without white fill. GIF/SVG pass through.
+ */
+export async function compressImageFileForVision(
+  file: File,
+  opts?: { maxEdge?: number; targetBytes?: number; signal?: AbortSignal }
+): Promise<File> {
+  const mime = String(file.type || '').toLowerCase();
+  if (!mime.startsWith('image/')) return file;
+  if (mime.includes('svg') || mime.includes('gif')) return file;
+  if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+  const maxEdge = Math.max(256, opts?.maxEdge ?? VISION_ATTACH_MAX_EDGE);
+  const targetBytes = Math.max(256 * 1024, opts?.targetBytes ?? VISION_ATTACH_TARGET_BYTES);
+  const keepAlpha = mime.includes('png') || mime.includes('webp');
+  const outMime = keepAlpha ? 'image/webp' : 'image/jpeg';
+  const outExt = keepAlpha ? 'webp' : 'jpg';
+
+  let bitmap: ImageBitmap | HTMLImageElement;
+  let closeBitmap = false;
+  try {
+    bitmap = await createImageBitmap(file);
+    closeBitmap = true;
+  } catch {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      bitmap = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('image decode failed'));
+        img.src = objectUrl;
+      });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  try {
+    const w = Math.max(1, 'width' in bitmap ? bitmap.width : 1);
+    const h = Math.max(1, 'height' in bitmap ? bitmap.height : 1);
+    const edge = Math.max(w, h);
+    if (edge <= maxEdge && file.size <= targetBytes) {
+      return file;
+    }
+
+    const scale = Math.min(1, maxEdge / edge);
+    const outW = Math.max(1, Math.round(w * scale));
+    const outH = Math.max(1, Math.round(h * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    if (!keepAlpha) {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, outW, outH);
+    }
+    ctx.drawImage(bitmap as CanvasImageSource, 0, 0, outW, outH);
+
+    const base = String(file.name || 'image').replace(/\.[^.]+$/, '') || 'image';
+    let best: Blob | null = null;
+    for (let i = 0; i < VISION_ATTACH_QUALITY_LADDER.length; i += 1) {
+      if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const q = VISION_ATTACH_QUALITY_LADDER[i]!;
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), outMime, q);
+      });
+      if (!blob || blob.size <= 0) continue;
+      best = blob;
+      if (blob.size <= targetBytes) break;
+    }
+    if (!best) return file;
+    if (best.size >= file.size * 0.95) return file;
+
+    return new File([best], `${base}.${outExt}`, { type: outMime, lastModified: Date.now() });
+  } finally {
+    if (closeBitmap && 'close' in bitmap && typeof bitmap.close === 'function') {
+      try {
+        bitmap.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/**
+ * After upload: `dataUrl` can go public immediately.
+ * Chip `thumbUrl` stays local until remote image has painted (no blank flash).
+ */
+export async function resolveComposerMediaAfterUpload(opts: {
+  serverUrl: string;
+  localPreview: string;
+  stillPreview?: string;
+  signal?: AbortSignal;
+}): Promise<{ dataUrl: string; thumbUrl: string }> {
+  const server = String(opts.serverUrl || '').trim();
+  const local = String(opts.localPreview || '').trim();
+  const still = String(opts.stillPreview || '').trim();
+  const stillOk =
+    still.startsWith('data:image/') ||
+    (isPublicMediaUrl(still) && !/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(still));
+
+  if (isPublicMediaUrl(server)) {
+    if (stillOk) {
+      return { dataUrl: server, thumbUrl: still };
+    }
+    const remoteReady = await waitForImageReady(server, { signal: opts.signal });
+    if (remoteReady) {
+      return { dataUrl: server, thumbUrl: server };
+    }
+    return { dataUrl: server, thumbUrl: local || server };
+  }
+
+  return {
+    dataUrl: local || server,
+    thumbUrl: stillOk
+      ? still
+      : local.startsWith('data:image/') || local.startsWith('blob:')
+        ? local
+        : local || server,
   };
 }
 
@@ -364,6 +543,8 @@ export async function uploadImageFromSrc(
     jobId: opts?.jobId,
     dispatch: opts?.dispatch,
     nodeId: opts?.nodeId,
+    // Processed/server URLs (cutout, upscale, etc.) — never re-JPEG / strip alpha.
+    compress: false,
   });
 }
 

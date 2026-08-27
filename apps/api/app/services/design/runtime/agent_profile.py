@@ -49,7 +49,6 @@ _FLAG_RULE_KEYS = {
     "defer_tools": "agent.react.defer_tools",
     "dual_sample": "agent.react.dual_sample",
     "short_plan": "agent.react.short_plan",
-    "official_agent": "agent.react.official_agent",
     "critique_enabled": "design.critique.enabled",
 }
 
@@ -203,6 +202,32 @@ class AgentProfile:
 
 def agents_data_dir() -> Path:
     return resolve_seed_dir("agents")
+
+
+def agent_overrides_dir() -> Path:
+    from app.core.config import _API_ROOT
+
+    return _API_ROOT / "agent-overrides"
+
+
+def _apply_profile_overlays(raw: dict[str, Any], profile_id: str) -> dict[str, Any]:
+    """Deep-merge optional patch layers (seeds/overlays + local agent-overrides)."""
+    from app.services.agent_memory.schema import deep_merge
+
+    merged = dict(raw)
+    pid = _as_text(profile_id).replace("\\", "").replace("/", "")
+    candidates = [
+        agents_data_dir() / "overlays" / f"{pid}.patch.yaml",
+        agents_data_dir() / "overlays" / "local.patch.yaml",
+        agent_overrides_dir() / "local.patch.yaml",
+    ]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        patch = _load_yaml(path)
+        if isinstance(patch, dict):
+            merged = deep_merge(merged, patch)
+    return merged
 
 
 def profiles_dir() -> Path:
@@ -845,6 +870,7 @@ def load_agent_profile(profile_id: str, *, force: bool = False) -> AgentProfile:
 
     path = profiles_dir() / f"{pid}.yaml"
     raw = _load_yaml(path)
+    raw = _apply_profile_overlays(raw, pid)
     profile = _profile_from_dict(raw, source=str(path))
     if profile.id != pid:
         raise ValueError(f"{path}: id {profile.id!r} != filename id {pid!r}")
@@ -938,12 +964,12 @@ def ensure_contract_registry() -> dict[str, Any]:
     global _CONTRACT_SCHEMA_REGISTRY
     if _CONTRACT_SCHEMA_REGISTRY is not None:
         return _CONTRACT_SCHEMA_REGISTRY
-    from app.services.design.runtime.graph.state import (
+    from recombyn_protocol import (
+        AutonomousArtDirectorSchema,
         DecideTurnSchema,
         DesignCandidateSetSchema,
         DesignCounterfactualSchema,
         DesignGovernanceSchema,
-        AutonomousArtDirectorSchema,
         DesignResearchReportSchema,
         DesignSimulationSchema,
         DesignStrategySchema,

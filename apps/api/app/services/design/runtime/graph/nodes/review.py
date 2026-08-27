@@ -983,20 +983,9 @@ def merge_review_lanes(lanes: list[dict[str, Any]] | None) -> dict[str, Any]:
     )
     ordered = [by_lane[lid] for lid in MULTI_REVIEW_LANES]
     if not llm_any and not det_findings:
-        return {
-            "scores": {},
-            "anti_slop_hits": [],
-            "issues": [],
-            "strengths": [],
-            "weaknesses": [],
-            "subtraction_actions": [],
-            "summary": "lanes unavailable; fail-open",
-            "fix_brief": "",
-            "lanes": ordered,
-            "market_gap": "",
-            "pass": True,
-            "must_fix": False,
-        }
+        raise RuntimeError(
+            "review_lanes_unavailable: no LLM or deterministic review findings"
+        )
 
     scores_raw: dict[str, int] = {}
     hits: list[str] = []
@@ -1463,6 +1452,20 @@ def run_optimization_controller(rt: AgentRuntime, verdict: dict[str, Any]) -> di
     return decision
 
 
+def _validate_review_ops(
+    rt: AgentRuntime,
+    st: AgentRunState,
+    raw_ops: Any,
+    *,
+    stage: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    from app.services.design.runtime.seams.tool_pipeline import validate_runtime_ops
+
+    rt.classified_paint_lane = "edit"
+    rt.classified_intent = "edit"
+    return validate_runtime_ops(rt, st, raw_ops, stage=stage, intent="edit")
+
+
 def _try_restore_snapshot_command(
     rt: AgentRuntime,
     st: AgentRunState,
@@ -1471,8 +1474,6 @@ def _try_restore_snapshot_command(
     decision: dict[str, Any],
 ) -> Command | None:
     """Rollback via DesignTransaction tool_ops. Does not continue the optimize loop."""
-    from app.services.design.ops.tool_ops_contract import extract_and_validate_tool_ops
-
     hist = rt.flags.get("optimization_history") if isinstance(rt.flags, dict) else None
     if not isinstance(hist, list):
         return None
@@ -1486,15 +1487,8 @@ def _try_restore_snapshot_command(
     raw_ops = compile_restore_ops(list(rt.scene_nodes or []), list(snap_nodes or []))
     if not raw_ops:
         return None
-    rt.classified_paint_lane = "edit"
-    rt.classified_intent = "edit"
-    step_ops, op_errors = extract_and_validate_tool_ops(
-        raw_ops,
-        scene_nodes=rt.scene_nodes,
-        scene_frames=rt.scene_frames,
-        rules=rt.rules,
-        paint_lane="edit",
-        classified_intent="edit",
+    step_ops, op_errors = _validate_review_ops(
+        rt, st, raw_ops, stage="review_repair"
     )
     if any(str(op.get("name") or "").startswith("create_") for op in step_ops):
         return None
@@ -1856,8 +1850,6 @@ def _try_repair_plan_command(
     Returns None when there is nothing safe to patch so the caller can
     fall back to Paint LLM retry. Review itself never writes SceneDocument.
     """
-    from app.services.design.ops.tool_ops_contract import extract_and_validate_tool_ops
-
     raw_ops = compile_repair_plan_ops(
         list(verdict.get("issues") or []),
         list(rt.scene_nodes or []),
@@ -1865,15 +1857,8 @@ def _try_repair_plan_command(
     )
     if not raw_ops:
         return None
-    rt.classified_paint_lane = "edit"
-    rt.classified_intent = "edit"
-    step_ops, op_errors = extract_and_validate_tool_ops(
-        raw_ops,
-        scene_nodes=rt.scene_nodes,
-        scene_frames=rt.scene_frames,
-        rules=rt.rules,
-        paint_lane="edit",
-        classified_intent="edit",
+    step_ops, op_errors = _validate_review_ops(
+        rt, st, raw_ops, stage="review_repair"
     )
     if any(str(op.get("name") or "").startswith("create_") for op in step_ops):
         _log.warning("repair_plan_rejected_create task=%s", st.task_id[:8])
@@ -1963,8 +1948,6 @@ def _try_polish_command(
     Returns None when there is nothing safe to remove/align/reduce.
     Never emits create_*. Hero / H1 / plates stay.
     """
-    from app.services.design.ops.tool_ops_contract import extract_and_validate_tool_ops
-
     raw_ops = compile_polish_ops(
         list(rt.scene_nodes or []),
         list(rt.scene_frames or []),
@@ -1975,15 +1958,8 @@ def _try_polish_command(
     )
     if not raw_ops:
         return None
-    rt.classified_paint_lane = "edit"
-    rt.classified_intent = "edit"
-    step_ops, op_errors = extract_and_validate_tool_ops(
-        raw_ops,
-        scene_nodes=rt.scene_nodes,
-        scene_frames=rt.scene_frames,
-        rules=rt.rules,
-        paint_lane="edit",
-        classified_intent="edit",
+    step_ops, op_errors = _validate_review_ops(
+        rt, st, raw_ops, stage="review_polish"
     )
     if any(str(op.get("name") or "").startswith("create_") for op in step_ops):
         _log.warning("polish_rejected_create task=%s", st.task_id[:8])
@@ -2196,19 +2172,7 @@ async def _node_review_agent(state: GraphState) -> Command:
         except Exception as err:  # noqa: BLE001
             _log.exception("review_agent_llm_failed task=%s", st.task_id[:8])
             st.note_error(f"review_agent_llm_failed: {err}"[:240])
-            verdict = _fallback_from_signals(signals)
-            if not signals:
-                verdict = {
-                    "pass": True,
-                    "summary": "review unavailable; fail-open",
-                    "strengths": [],
-                    "weaknesses": [],
-                    "market_gap": "",
-                    "must_fix": False,
-                    "review_action": "pass",
-                    "fix_brief": "",
-                    "issues": [],
-                }
+            raise RuntimeError(f"review_agent_llm_failed: {err}") from err
 
     attach_judge(rt, verdict)
     opt = run_optimization_controller(rt, verdict)

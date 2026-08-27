@@ -141,6 +141,14 @@ _RL_LOCK = threading.Lock()
 _RL_BUCKETS: dict[str, list[float]] = {}
 
 
+def _rl_bucket_path(path: str) -> str:
+    """Normalize paths so chunked part uploads share one high-capacity bucket."""
+    p = str(path or "").split("?")[0]
+    if "/uploads/jobs/" in p and "/parts/" in p:
+        return "/api/v1/uploads/jobs/parts"
+    return p[:80]
+
+
 def _rl_limit_for_path(path: str) -> int:
     p = str(path or "")
     win = int(getattr(settings, "rate_limit_window_sec", 60) or 60)
@@ -151,6 +159,8 @@ def _rl_limit_for_path(path: str) -> int:
         return int(getattr(settings, "rate_limit_design_per_window", 20) or 0)
     if p.startswith("/api/v1/chat"):
         return int(getattr(settings, "rate_limit_chat_per_window", 40) or 0)
+    if "/uploads/jobs/" in p and "/parts/" in p:
+        return int(getattr(settings, "rate_limit_upload_parts_per_window", 600) or 0)
     if p.startswith("/api/v1/uploads") or p.startswith("/api/v1/import"):
         return int(getattr(settings, "rate_limit_upload_per_window", 40) or 0)
     if p.startswith("/api/v1/projects"):
@@ -208,7 +218,8 @@ def check_rate_limit(*, path: str, identity: str) -> tuple[bool, int]:
     if limit <= 0:
         return True, 0
     window = max(1, int(getattr(settings, "rate_limit_window_sec", 60) or 60))
-    key = f"rl:{path.split('?')[0][:80]}:{identity[:80]}"
+    bucket = _rl_bucket_path(path)
+    key = f"rl:{bucket}:{identity[:80]}"
     n = _rl_redis_incr(key, window)
     if n is None:
         n = _rl_memory_incr(key, window)

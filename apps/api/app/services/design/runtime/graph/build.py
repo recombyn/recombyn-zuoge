@@ -51,7 +51,11 @@ from app.services.design.runtime.graph.state import (
     _DEFAULT_MAX_ROUNDS,
 )
 from app.services.design.runtime.agent_profile import resolve_tool_host
-from app.services.design.runtime.pipeline_support import _normalize_ref_images, _user_facing_run_error
+from app.services.design.runtime.pipeline_support import (
+    _normalize_ref_images,
+    _run_error_code,
+    _user_facing_run_error,
+)
 from app.services.design.prompts.rules_text import _as_text
 from app.services.design.prompts.skill_store import format_skills_catalog
 from app.services.design.admin.task_store import (
@@ -1088,6 +1092,7 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
         thread_id=thread_id,
         hold=hold,
         rules=rules,
+        locale=out_locale,
         run=run,
         decision=decision,
         refund_hold_fn=refund_hold_fn,
@@ -1224,6 +1229,7 @@ async def resume_agent_graph(
         thread_id=thread_id,
         hold=hold,
         rules=rules,
+        locale=str((rt.flags or {}).get("output_locale") or "") or None,
         run=run,
         decision=decision,
         refund_hold_fn=refund_hold_fn,
@@ -1244,6 +1250,7 @@ async def _drive_design_graph(
     thread_id: str,
     hold: int,
     rules: dict[str, str],
+    locale: str | None = None,
     run: AgentRunState,
     decision: DesignRunDecision,
     refund_hold_fn: Any,
@@ -1412,7 +1419,7 @@ async def _drive_design_graph(
             yield {"type": "execution_log", **run.to_execution_log()}
             yield {
                 "type": "paused",
-                "message": _user_facing_run_error(err, rules=rules),
+                "message": _user_facing_run_error(err, rules=rules, locale=locale),
                 "task_id": task_id,
                 "trace_id": trace_id,
                 "resumable": True,
@@ -1435,7 +1442,8 @@ async def _drive_design_graph(
             yield {"type": "execution_log", **run.to_execution_log()}
             yield {
                 "type": "error",
-                "message": _user_facing_run_error(err, rules=rules),
+                "code": _run_error_code(err),
+                "message": _user_facing_run_error(err, rules=rules, locale=locale),
                 "task_id": task_id,
                 "trace_id": trace_id,
                 "refunded_credits": hold,
@@ -1512,7 +1520,7 @@ async def _drive_design_graph(
             yield {"type": "execution_log", **run.to_execution_log()}
             yield {
                 "type": "paused",
-                "message": _user_facing_run_error(err, rules=rules),
+                "message": _user_facing_run_error(err, rules=rules, locale=locale),
                 "task_id": task_id,
                 "trace_id": trace_id,
                 "resumable": True,
@@ -1540,7 +1548,8 @@ async def _drive_design_graph(
             yield {"type": "execution_log", **run.to_execution_log()}
             yield {
                 "type": "error",
-                "message": _user_facing_run_error(err, rules=rules),
+                "code": _run_error_code(err),
+                "message": _user_facing_run_error(err, rules=rules, locale=locale),
                 "task_id": task_id,
                 "trace_id": trace_id,
                 "refunded_credits": hold,

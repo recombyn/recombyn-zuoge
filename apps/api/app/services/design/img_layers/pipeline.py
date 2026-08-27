@@ -98,6 +98,9 @@ async def run_img_layers_job(
             "updated_at": time.time(),
         }
     )
+    from app.services.design.runtime.session_log import log_turn_start
+
+    log_turn_start(task_id, trace_id=trace_id, profile_id="design.canvas")
     yield {"type": "task", "taskId": task_id, "task_id": task_id, "trace_id": trace_id}
     yield {
         "type": "skill_start",
@@ -200,6 +203,12 @@ async def run_img_layers_job(
         "count": len(layers),
     }
 
+    from app.services.design.runtime.seams.tool_pipeline import validate_fields_ops
+    from app.services.design.runtime.session_log import (
+        log_tool_ops_emit,
+        log_turn_end,
+    )
+
     step_ops = layers_to_tool_ops(
         layers,
         canvas_w=w,
@@ -209,6 +218,33 @@ async def run_img_layers_job(
         frame_name="AI Board",
         board_src=board_src,
     )
+    scene_key_val = scene_key(scene) or str(rules.get("canvas.default_scene") or "website")
+    step_ops, op_errors = validate_fields_ops(
+        step_ops,
+        stage="img_layers",
+        task_id=task_id,
+        intent="create",
+        scene_key=scene_key_val,
+        rules=rules,
+        prompt=prompt,
+    )
+    if not step_ops:
+        err = "; ".join(op_errors[:3]) if op_errors else "img_layers_ops_invalid"
+        try:
+            refund_hold_fn(user_id, hold, task_id=task_id)
+        except Exception:
+            pass
+        _update_task(task_id, status="error", charged_credits=0, total_tokens=0, result_svg="")
+        log_turn_end(task_id, status="error", intent="create")
+        yield {
+            "type": "error",
+            "code": "img_layers_ops_invalid",
+            "message": err[:300],
+            "task_id": task_id,
+        }
+        return
+
+    log_tool_ops_emit(task_id, stage="img_layers", ops_count=len(step_ops), source="img_layers")
     yield {
         "type": "tool_ops",
         "index": 0,
@@ -288,6 +324,7 @@ async def run_img_layers_job(
         "image_model": image_model or None,
         "warnings": warnings[:5] or None,
     }
+    log_turn_end(task_id, status="success", intent="create")
     try:
         from app.services.agent_memory.episodes import maybe_write_episode
 

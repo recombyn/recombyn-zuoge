@@ -1,0 +1,746 @@
+{
+  "free_daily_exhausted": {
+    "zh-CN": "今日免费执行次数已用完，明天再来或升级会员",
+    "zh-TW": "今日免費執行次數已用完，明天再來或升級會員",
+    "en": "Daily free run used up. Try again tomorrow or upgrade.",
+    "ja": "本日の無料実行回数を使い切りました。明日再度お試しいただくか、プランをアップグレードしてください。"
+  },
+  "insufficient_credits": {
+    "zh-CN": "积分不足，请充值后重试。",
+    "zh-TW": "積分不足，請充值後重試。",
+    "en": "Not enough balance. Top up credits or upgrade your plan.",
+    "ja": "残高が不足しています。チャージするかプランをアップグレードしてください。"
+  },
+  "intent_classify_failed": {
+    "zh-CN": "意图识别失败，请重试。",
+    "zh-TW": "意圖識別失敗，請重試。",
+    "en": "Intent classification failed. Please retry.",
+    "ja": "意図の分類に失敗しました。もう一度お試しください。"
+  },
+  "model_route_failed": {
+    "zh-CN": "模型路由失败，请重试。",
+    "zh-TW": "模型路由失敗，請重試。",
+    "en": "Model routing failed. Please retry.",
+    "ja": "モデルルーティングに失敗しました。もう一度お試しください。"
+  },
+  "structured_output_failed": {
+    "zh-CN": "模型结构化输出失败，请重试或换一种描述。",
+    "zh-TW": "模型結構化輸出失敗，請重試或換一種描述。",
+    "en": "Structured model output failed. Please retry or rephrase.",
+    "ja": "構造化出力に失敗しました。再試行するか、別の言い方でお試しください。"
+  },
+  "vision_chat_failed": {
+    "zh-CN": "看图回复失败，请检查 Admin 看图模型配置后重试。",
+    "zh-TW": "看圖回覆失敗，請檢查 Admin 看圖模型設定後重試。",
+    "en": "Vision reply failed. Check the vision model in Admin and retry.",
+    "ja": "画像付き返信に失敗しました。Admin の vision モデルを確認して再試行してください。"
+  },
+  "review_failed": {
+    "zh-CN": "设计评审失败，请重试。",
+    "zh-TW": "設計評審失敗，請重試。",
+    "en": "Design review failed. Please retry.",
+    "ja": "デザインレビューに失敗しました。もう一度お試しください。"
+  },
+  "decide_failed": {
+    "zh-CN": "决策失败，请重试一次。",
+    "zh-TW": "決策失敗，請重試一次。",
+    "en": "Decision failed. Please try again.",
+    "ja": "判断に失敗しました。もう一度お試しください。"
+  },
+  "paint_ops_failed": {
+    "zh-CN": "这次没能执行画布操作。请把要修改或删除的对象说清楚后重试。",
+    "zh-TW": "這次沒能執行畫布操作。請把要修改或刪除的對象說清楚後重試。",
+    "en": "Could not apply canvas changes. Describe the target element more clearly and retry.",
+    "ja": "キャンバス操作を実行できませんでした。対象を具体的に指定して再試行してください。"
+  },
+  "validate_failed": {
+    "zh-CN": "结果校验未通过，请换一种描述重试。",
+    "zh-TW": "結果校驗未通過，請換一種描述重試。",
+    "en": "Validation failed. Please rephrase and retry.",
+    "ja": "検証に失敗しました。別の言い方で再試行してください。"
+  },
+  "vision_unavailable": {
+    "zh-CN": "Auto 需要可用的看图模型才能处理附图。请在 Admin 预检配置 precheck.vision_model。",
+    "zh-TW": "Auto 需要可用的看圖模型才能處理附圖。請在 Admin 預檢設定 precheck.vision_model。",
+    "en": "A vision model is required for attached images. Configure precheck.vision_model in Admin.",
+    "ja": "添付画像には vision モデルが必要です。Admin で precheck.vision_model を設定してください。"
+  },
+  "blocked": {
+    "zh-CN": "请求被安全策略拦截。",
+    "zh-TW": "請求被安全策略攔截。",
+    "en": "Request blocked by safety policy.",
+    "ja": "安全ポリシーによりリクエストがブロックされました。"
+  },
+  "timeout": {
+    "zh-CN": "请求超时，请重试。",
+    "zh-TW": "請求逾時，請重試。",
+    "en": "Request timed out. Please retry.",
+    "ja": "リクエストがタイムアウトしました。もう一度お試しください。"
+  },
+  "cancelled": {
+    "zh-CN": "已停止",
+    "zh-TW": "已停止",
+    "en": "Stopped.",
+    "ja": "停止しました。"
+  },
+  "rate_limited": {
+    "zh-CN": "请求过于频繁，请稍后再试",
+    "zh-TW": "請求過於頻繁，請稍後再試",
+    "en": "Too many requests. Please try again later.",
+    "ja": "リクエストが多すぎます。しばらくしてから再試行してください。"
+  },
+  "upload_too_large": {
+    "zh-CN": "文件过大，请压缩后重试",
+    "zh-TW": "檔案過大，請壓縮後重試",
+    "en": "File too large. Please compress and retry.",
+    "ja": "ファイルが大きすぎます。圧縮してから再試行してください。"
+  },
+  "internal_error": {
+    "zh-CN": "执行失败，请重试或把需求说得更清楚一些。",
+    "zh-TW": "執行失敗，請重試或把需求說得更清楚一些。",
+    "en": "Something went wrong. Please retry with a clearer request.",
+    "ja": "実行に失敗しました。もう一度試すか、要望をもう少し具体的に書いてください。"
+  },
+  "request_failed": {
+    "zh-CN": "请求失败",
+    "zh-TW": "請求失敗",
+    "en": "Request failed",
+    "ja": "リクエストに失敗しました"
+  },
+  "invalid_run_mode": {
+    "zh-CN": "不支持的运行模式",
+    "zh-TW": "不支援的執行模式",
+    "en": "Unsupported run mode.",
+    "ja": "サポートされていない実行モードです。"
+  },
+  "prompt_required": {
+    "zh-CN": "请先输入设计需求",
+    "zh-TW": "請先輸入設計需求",
+    "en": "Please enter a design prompt first.",
+    "ja": "先にデザインの指示を入力してください。"
+  },
+  "invalid_canvas_size": {
+    "zh-CN": "画布尺寸无效，请检查 Admin 默认尺寸或画布设置",
+    "zh-TW": "畫布尺寸無效，請檢查 Admin 預設尺寸或畫布設定",
+    "en": "Invalid canvas size. Check Admin defaults or canvas settings.",
+    "ja": "キャンバスサイズが無効です。Admin の既定値またはキャンバス設定を確認してください。"
+  },
+  "job_not_found": {
+    "zh-CN": "任务不存在",
+    "zh-TW": "任務不存在",
+    "en": "Job not found.",
+    "ja": "ジョブが見つかりません。"
+  },
+  "job_store_unavailable": {
+    "zh-CN": "任务存储暂不可用，请稍后重试",
+    "zh-TW": "任務儲存暫不可用，請稍後重試",
+    "en": "Job store unavailable. Please retry later.",
+    "ja": "ジョブストアを利用できません。しばらくしてから再試行してください。"
+  },
+  "job_queue_unavailable": {
+    "zh-CN": "任务队列暂不可用，请启动 Redis 与 worker 后重试",
+    "zh-TW": "任務佇列暫不可用，請啟動 Redis 與 worker 後重試",
+    "en": "Job queue unavailable. Start Redis and the worker, then retry.",
+    "ja": "ジョブキューを利用できません。Redis と worker を起動してから再試行してください。"
+  },
+  "empty_message": {
+    "zh-CN": "消息不能为空",
+    "zh-TW": "訊息不能為空",
+    "en": "Message cannot be empty.",
+    "ja": "メッセージを入力してください。"
+  },
+  "empty_prompt": {
+    "zh-CN": "提示词不能为空",
+    "zh-TW": "提示詞不能為空",
+    "en": "Prompt cannot be empty.",
+    "ja": "プロンプトを入力してください。"
+  },
+  "empty_file": {
+    "zh-CN": "文件不能为空",
+    "zh-TW": "檔案不能為空",
+    "en": "File cannot be empty.",
+    "ja": "ファイルが空です。"
+  },
+  "upload_job_invalid_state": {
+    "zh-CN": "上传任务状态无效，请重新开始上传",
+    "zh-TW": "上傳任務狀態無效，請重新開始上傳",
+    "en": "Upload job is in an invalid state. Please start a new upload.",
+    "ja": "アップロードジョブの状態が無効です。最初からやり直してください。"
+  },
+  "upload_invalid_part": {
+    "zh-CN": "分片编号无效",
+    "zh-TW": "分片編號無效",
+    "en": "Invalid upload part number.",
+    "ja": "アップロードパート番号が無効です。"
+  },
+  "upload_part_size_mismatch": {
+    "zh-CN": "分片大小不匹配，请重新上传",
+    "zh-TW": "分片大小不匹配，請重新上傳",
+    "en": "Upload part size mismatch. Please retry the upload.",
+    "ja": "アップロードパートのサイズが一致しません。再試行してください。"
+  },
+  "upload_incomplete": {
+    "zh-CN": "上传未完成，请补全所有分片",
+    "zh-TW": "上傳未完成，請補齊所有分片",
+    "en": "Upload incomplete. Finish uploading all parts.",
+    "ja": "アップロードが完了していません。すべてのパートを送信してください。"
+  },
+  "task_not_found": {
+    "zh-CN": "任务不存在或已过期",
+    "zh-TW": "任務不存在或已過期",
+    "en": "Task not found or expired.",
+    "ja": "タスクが見つからないか、期限切れです。"
+  },
+  "forbidden": {
+    "zh-CN": "无权访问此资源",
+    "zh-TW": "無權存取此資源",
+    "en": "You do not have access to this resource.",
+    "ja": "このリソースへのアクセス権がありません。"
+  },
+  "not_resumable": {
+    "zh-CN": "此任务当前无法恢复",
+    "zh-TW": "此任務目前無法恢復",
+    "en": "This task cannot be resumed right now.",
+    "ja": "このタスクは現在再開できません。"
+  },
+  "resume_token_mismatch": {
+    "zh-CN": "恢复令牌无效，请刷新后重试",
+    "zh-TW": "恢復權杖無效，請刷新後重試",
+    "en": "Invalid resume token. Refresh and try again.",
+    "ja": "再開トークンが無効です。更新してから再試行してください。"
+  },
+  "design_worker_unavailable": {
+    "zh-CN": "设计 worker 暂不可用，请稍后重试",
+    "zh-TW": "設計 worker 暫不可用，請稍後重試",
+    "en": "Design worker unavailable. Please retry later.",
+    "ja": "デザインワーカーを利用できません。しばらくしてから再試行してください。"
+  },
+  "skill_not_found": {
+    "zh-CN": "未找到该 Skill",
+    "zh-TW": "未找到該 Skill",
+    "en": "Skill not found.",
+    "ja": "Skill が見つかりません。"
+  },
+  "lottie_asset_storage_incomplete": {
+    "zh-CN": "Lottie 资源保存不完整，请重试",
+    "zh-TW": "Lottie 資源儲存不完整，請重試",
+    "en": "Lottie asset storage incomplete. Please retry.",
+    "ja": "Lottie アセットの保存が不完全です。再試行してください。"
+  },
+  "empty_kind": {
+    "zh-CN": "请指定处理类型",
+    "zh-TW": "請指定處理類型",
+    "en": "Processing kind is required.",
+    "ja": "処理種別を指定してください。"
+  },
+  "image_required": {
+    "zh-CN": "请提供图片",
+    "zh-TW": "請提供圖片",
+    "en": "Image is required.",
+    "ja": "画像が必要です。"
+  },
+  "invalid_email": {
+    "zh-CN": "邮箱格式无效",
+    "zh-TW": "信箱格式無效",
+    "en": "Invalid email address.",
+    "ja": "メールアドレスが無効です。"
+  },
+  "need_captcha": {
+    "zh-CN": "请完成滑块验证",
+    "zh-TW": "請完成滑塊驗證",
+    "en": "Please complete the slider verification.",
+    "ja": "スライダー認証を完了してください。"
+  },
+  "provide_credential_or_code": {
+    "zh-CN": "请提供 Google 凭证或授权码",
+    "zh-TW": "請提供 Google 憑證或授權碼",
+    "en": "Provide a Google credential or authorization code.",
+    "ja": "Google 認証情報または認可コードを入力してください。"
+  },
+  "auth_failed": {
+    "zh-CN": "登录失败，请重试",
+    "zh-TW": "登入失敗，請重試",
+    "en": "Sign-in failed. Please retry.",
+    "ja": "サインインに失敗しました。もう一度お試しください。"
+  },
+  "service_unavailable": {
+    "zh-CN": "服务暂不可用，请稍后重试",
+    "zh-TW": "服務暫不可用，請稍後重試",
+    "en": "Service unavailable. Please retry later.",
+    "ja": "サービスを利用できません。しばらくしてから再試行してください。"
+  },
+  "email_send_rate_limited": {
+    "zh-CN": "发送过于频繁，请 {seconds} 秒后再试",
+    "zh-TW": "發送過於頻繁，請 {seconds} 秒後再試",
+    "en": "Please wait {seconds}s before resending.",
+    "ja": "{seconds} 秒後に再送信してください。"
+  },
+  "email_not_configured": {
+    "zh-CN": "邮箱登录未配置，请使用 Google 登录或联系管理员",
+    "zh-TW": "信箱登入未設定，請使用 Google 登入或聯絡管理員",
+    "en": "Email login is not configured. Use Google sign-in or contact support.",
+    "ja": "メールログインが設定されていません。Google サインインをご利用ください。"
+  },
+  "link_invalid": {
+    "zh-CN": "登录链接无效或已使用",
+    "zh-TW": "登入連結無效或已使用",
+    "en": "Login link is invalid or already used.",
+    "ja": "ログインリンクが無効か、既に使用されています。"
+  },
+  "link_expired": {
+    "zh-CN": "登录链接已过期",
+    "zh-TW": "登入連結已過期",
+    "en": "Login link expired.",
+    "ja": "ログインリンクの有効期限が切れました。"
+  },
+  "code_missing": {
+    "zh-CN": "尚未向该邮箱发送验证码",
+    "zh-TW": "尚未向該信箱發送驗證碼",
+    "en": "No verification code requested for this email.",
+    "ja": "このメールアドレスには確認コードが送信されていません。"
+  },
+  "code_expired": {
+    "zh-CN": "验证码已过期",
+    "zh-TW": "驗證碼已過期",
+    "en": "Verification code expired.",
+    "ja": "確認コードの有効期限が切れました。"
+  },
+  "code_locked": {
+    "zh-CN": "尝试次数过多，请重新获取验证码",
+    "zh-TW": "嘗試次數過多，請重新取得驗證碼",
+    "en": "Too many attempts. Request a new code.",
+    "ja": "試行回数が多すぎます。新しいコードを取得してください。"
+  },
+  "code_invalid": {
+    "zh-CN": "验证码无效",
+    "zh-TW": "驗證碼無效",
+    "en": "Invalid verification code.",
+    "ja": "確認コードが無効です。"
+  },
+  "ticket_invalid": {
+    "zh-CN": "验证票据无效或已过期",
+    "zh-TW": "驗證票據無效或已過期",
+    "en": "Invalid or expired verification ticket.",
+    "ja": "確認チケットが無効か、期限切れです。"
+  },
+  "use_email_verification_code": {
+    "zh-CN": "请使用邮箱验证码登录",
+    "zh-TW": "請使用信箱驗證碼登入",
+    "en": "Use email verification code to sign in.",
+    "ja": "メール確認コードでサインインしてください。"
+  },
+  "user_not_found": {
+    "zh-CN": "用户不存在",
+    "zh-TW": "使用者不存在",
+    "en": "User not found.",
+    "ja": "ユーザーが見つかりません。"
+  },
+  "not_found": {
+    "zh-CN": "未找到",
+    "zh-TW": "未找到",
+    "en": "Not found.",
+    "ja": "見つかりません。"
+  },
+  "invalid_agent_mode": {
+    "zh-CN": "mode 必须为 turn 或 react",
+    "zh-TW": "mode 必須為 turn 或 react",
+    "en": "mode must be turn or react.",
+    "ja": "mode は turn または react である必要があります。"
+  },
+  "image_model_use_image_endpoint": {
+    "zh-CN": "所选模型为图片模型，请使用 POST /api/v1/chat/image",
+    "zh-TW": "所選模型為圖片模型，請使用 POST /api/v1/chat/image",
+    "en": "Selected model is an image model. Use POST /api/v1/chat/image instead.",
+    "ja": "選択したモデルは画像モデルです。POST /api/v1/chat/image を使用してください。"
+  },
+  "upstream_fetch_failed": {
+    "zh-CN": "上游资源获取失败",
+    "zh-TW": "上游資源取得失敗",
+    "en": "Upstream fetch failed.",
+    "ja": "上流リソースの取得に失敗しました。"
+  },
+  "image_too_large": {
+    "zh-CN": "图片过大",
+    "zh-TW": "圖片過大",
+    "en": "Image too large.",
+    "ja": "画像が大きすぎます。"
+  },
+  "project_not_found": {
+    "zh-CN": "项目不存在",
+    "zh-TW": "專案不存在",
+    "en": "Project not found.",
+    "ja": "プロジェクトが見つかりません。"
+  },
+  "project_no_document": {
+    "zh-CN": "项目没有文档内容",
+    "zh-TW": "專案沒有文件內容",
+    "en": "Project has no document.",
+    "ja": "プロジェクトにドキュメントがありません。"
+  },
+  "project_revision_conflict": {
+    "zh-CN": "项目版本冲突，请刷新后重试",
+    "zh-TW": "專案版本衝突，請刷新後重試",
+    "en": "Project revision conflict. Refresh and retry.",
+    "ja": "プロジェクトのリビジョンが競合しています。更新して再試行してください。"
+  },
+  "empty_patch": {
+    "zh-CN": "补丁内容为空",
+    "zh-TW": "修補內容為空",
+    "en": "Empty patch.",
+    "ja": "パッチが空です。"
+  },
+  "font_format_unsupported": {
+    "zh-CN": "仅支持 ttf/otf/woff/woff2 字体",
+    "zh-TW": "僅支援 ttf/otf/woff/woff2 字體",
+    "en": "Only ttf/otf/woff/woff2 fonts are supported.",
+    "ja": "ttf/otf/woff/woff2 フォントのみサポートしています。"
+  },
+  "font_family_required": {
+    "zh-CN": "请填写字体 family",
+    "zh-TW": "請填寫字體 family",
+    "en": "Font family is required.",
+    "ja": "フォント family が必要です。"
+  },
+  "font_faces_or_url_required": {
+    "zh-CN": "请提供 faces[] 或 url",
+    "zh-TW": "請提供 faces[] 或 url",
+    "en": "Provide faces[] or a url.",
+    "ja": "faces[] または url を指定してください。"
+  },
+  "font_no_valid_urls": {
+    "zh-CN": "没有有效的字体 URL",
+    "zh-TW": "沒有有效的字體 URL",
+    "en": "No valid font face URLs.",
+    "ja": "有効なフォント URL がありません。"
+  },
+  "font_name_exists": {
+    "zh-CN": "字体名称已存在",
+    "zh-TW": "字體名稱已存在",
+    "en": "Font name already exists.",
+    "ja": "フォント名は既に存在します。"
+  },
+  "font_file_too_large": {
+    "zh-CN": "字体文件过大（最大 20MB）",
+    "zh-TW": "字體檔案過大（最大 20MB）",
+    "en": "Font file too large (max 20MB).",
+    "ja": "フォントファイルが大きすぎます（最大 20MB）。"
+  },
+  "font_not_found": {
+    "zh-CN": "字体不存在",
+    "zh-TW": "字體不存在",
+    "en": "Font not found.",
+    "ja": "フォントが見つかりません。"
+  },
+  "share_not_found": {
+    "zh-CN": "分享不存在",
+    "zh-TW": "分享不存在",
+    "en": "Share not found.",
+    "ja": "共有が見つかりません。"
+  },
+  "collab_project_or_share_required": {
+    "zh-CN": "请提供 projectId 或 shareId 之一",
+    "zh-TW": "請提供 projectId 或 shareId 之一",
+    "en": "Provide exactly one of projectId or shareId.",
+    "ja": "projectId または shareId のいずれか一方を指定してください。"
+  },
+  "export_not_ready": {
+    "zh-CN": "导出尚未完成",
+    "zh-TW": "匯出尚未完成",
+    "en": "Export is not ready yet.",
+    "ja": "エクスポートはまだ完了していません。"
+  },
+  "export_file_missing": {
+    "zh-CN": "导出文件不存在",
+    "zh-TW": "匯出檔案不存在",
+    "en": "Export file missing.",
+    "ja": "エクスポートファイルが見つかりません。"
+  },
+  "ops_required": {
+    "zh-CN": "请提供 ops",
+    "zh-TW": "請提供 ops",
+    "en": "ops is required.",
+    "ja": "ops が必要です。"
+  },
+  "invalid_asset_kind": {
+    "zh-CN": "kind 必须为 image|video|audio|lottie",
+    "zh-TW": "kind 必須為 image|video|audio|lottie",
+    "en": "kind must be image, video, audio, or lottie.",
+    "ja": "kind は image、video、audio、lottie のいずれかである必要があります。"
+  },
+  "mcp_disabled": {
+    "zh-CN": "MCP 画布控制未启用",
+    "zh-TW": "MCP 畫布控制未啟用",
+    "en": "MCP canvas control is disabled.",
+    "ja": "MCP キャンバス制御が無効です。"
+  },
+  "import_image_only": {
+    "zh-CN": "目前仅支持图片导入",
+    "zh-TW": "目前僅支援圖片匯入",
+    "en": "Only image import is supported.",
+    "ja": "現在は画像インポートのみサポートしています。"
+  },
+  "submission_not_found": {
+    "zh-CN": "提交不存在",
+    "zh-TW": "提交不存在",
+    "en": "Submission not found.",
+    "ja": "提出が見つかりません。"
+  },
+  "provider_not_found": {
+    "zh-CN": "提供商不存在",
+    "zh-TW": "提供商不存在",
+    "en": "Provider not found.",
+    "ja": "プロバイダーが見つかりません。"
+  },
+  "session_not_found": {
+    "zh-CN": "会话不存在",
+    "zh-TW": "工作階段不存在",
+    "en": "Session not found.",
+    "ja": "セッションが見つかりません。"
+  },
+  "assets_ai_only": {
+    "zh-CN": "资源库仅收录 AI 生成内容，不支持注册用户上传",
+    "zh-TW": "資源庫僅收錄 AI 生成內容，不支援註冊使用者上傳",
+    "en": "Assets are AI-generated only; user uploads cannot be registered.",
+    "ja": "アセットは AI 生成のみ登録できます。"
+  },
+  "invalid_share_permission": {
+    "zh-CN": "分享权限无效",
+    "zh-TW": "分享權限無效",
+    "en": "Invalid share permission.",
+    "ja": "共有権限が無効です。"
+  },
+  "invalid_share_owner": {
+    "zh-CN": "分享所有者无效",
+    "zh-TW": "分享所有者無效",
+    "en": "Invalid share owner.",
+    "ja": "共有所有者が無効です。"
+  },
+  "unauthorized": {
+    "zh-CN": "未授权，请先登录",
+    "zh-TW": "未授權，請先登入",
+    "en": "Unauthorized. Please sign in.",
+    "ja": "認可されていません。サインインしてください。"
+  },
+  "org_not_found": {
+    "zh-CN": "组织不存在",
+    "zh-TW": "組織不存在",
+    "en": "Organization not found.",
+    "ja": "組織が見つかりません。"
+  },
+  "invite_not_found": {
+    "zh-CN": "邀请不存在或已失效",
+    "zh-TW": "邀請不存在或已失效",
+    "en": "Invite not found or expired.",
+    "ja": "招待が見つからないか、期限切れです。"
+  },
+  "invite_not_for_user": {
+    "zh-CN": "此邀请不属于当前用户",
+    "zh-TW": "此邀請不屬於目前使用者",
+    "en": "This invite is not for your account.",
+    "ja": "この招待はあなたのアカウント向けではありません。"
+  },
+  "member_not_found": {
+    "zh-CN": "成员不存在",
+    "zh-TW": "成員不存在",
+    "en": "Member not found.",
+    "ja": "メンバーが見つかりません。"
+  },
+  "plaza_already_pending": {
+    "zh-CN": "该项目已在审核中",
+    "zh-TW": "該專案已在審核中",
+    "en": "This project is already under review.",
+    "ja": "このプロジェクトは既に審査中です。"
+  },
+  "plaza_already_published": {
+    "zh-CN": "该项目已发布到广场",
+    "zh-TW": "該專案已發布到廣場",
+    "en": "This project is already published on the plaza.",
+    "ja": "このプロジェクトは既にプラザに公開されています。"
+  },
+  "invalid_document": {
+    "zh-CN": "文档无效",
+    "zh-TW": "文件無效",
+    "en": "Invalid document.",
+    "ja": "ドキュメントが無効です。"
+  },
+  "invalid_project": {
+    "zh-CN": "项目无效",
+    "zh-TW": "專案無效",
+    "en": "Invalid project.",
+    "ja": "プロジェクトが無効です。"
+  },
+  "cover_required": {
+    "zh-CN": "请提供封面图",
+    "zh-TW": "請提供封面圖",
+    "en": "Cover image is required.",
+    "ja": "カバー画像が必要です。"
+  },
+  "cover_aspect_invalid": {
+    "zh-CN": "封面比例不符合要求",
+    "zh-TW": "封面比例不符合要求",
+    "en": "Cover aspect ratio is invalid.",
+    "ja": "カバーのアスペクト比が無効です。"
+  },
+  "artboard_required": {
+    "zh-CN": "请至少保留一个画板",
+    "zh-TW": "請至少保留一個畫板",
+    "en": "At least one artboard is required.",
+    "ja": "アートボードが少なくとも1つ必要です。"
+  },
+  "font_face_url_required": {
+    "zh-CN": "至少需要一个带 url 的字重",
+    "zh-TW": "至少需要一個帶 url 的字重",
+    "en": "At least one face with a url is required.",
+    "ja": "url 付きの face が少なくとも1つ必要です。"
+  },
+  "generate_password_incorrect": {
+    "zh-CN": "生成密码不正确",
+    "zh-TW": "生成密碼不正確",
+    "en": "Generate password incorrect.",
+    "ja": "生成パスワードが正しくありません。"
+  },
+  "card_key_ops_password_not_configured": {
+    "zh-CN": "未配置 CARD_KEY_OPS_PASSWORD",
+    "zh-TW": "未設定 CARD_KEY_OPS_PASSWORD",
+    "en": "CARD_KEY_OPS_PASSWORD is not configured.",
+    "ja": "CARD_KEY_OPS_PASSWORD が設定されていません。"
+  },
+  "card_key_salt_not_configured": {
+    "zh-CN": "未配置 CARD_KEY_SALT",
+    "zh-TW": "未設定 CARD_KEY_SALT",
+    "en": "CARD_KEY_SALT is not configured.",
+    "ja": "CARD_KEY_SALT が設定されていません。"
+  },
+  "unsupported_setting": {
+    "zh-CN": "不支持的设置项：{key}",
+    "zh-TW": "不支援的設定項：{key}",
+    "en": "Unsupported setting: {key}.",
+    "ja": "サポートされていない設定：{key}"
+  },
+  "system_prompts_moved": {
+    "zh-CN": "Prompt 键已迁移至 /admin/design/system-prompts",
+    "zh-TW": "Prompt 鍵已遷移至 /admin/design/system-prompts",
+    "en": "Prompt keys moved to /admin/design/system-prompts.",
+    "ja": "Prompt キーは /admin/design/system-prompts に移行しました。"
+  },
+  "decision_log_not_found": {
+    "zh-CN": "决策日志不存在",
+    "zh-TW": "決策日誌不存在",
+    "en": "Decision log not found.",
+    "ja": "決定ログが見つかりません。"
+  },
+  "unsupported_price_sync_provider": {
+    "zh-CN": "不支持的价格同步提供商",
+    "zh-TW": "不支援的價格同步提供商",
+    "en": "Unsupported price sync provider.",
+    "ja": "サポートされていない価格同期プロバイダーです。"
+  },
+  "price_sync_failed": {
+    "zh-CN": "价格同步失败：{reason}",
+    "zh-TW": "價格同步失敗：{reason}",
+    "en": "Price sync failed: {reason}.",
+    "ja": "価格同期に失敗しました：{reason}"
+  },
+  "dlq_unavailable": {
+    "zh-CN": "DLQ 不可用：{reason}",
+    "zh-TW": "DLQ 不可用：{reason}",
+    "en": "DLQ unavailable: {reason}.",
+    "ja": "DLQ を利用できません：{reason}"
+  },
+  "dlq_job_not_found": {
+    "zh-CN": "在 {kind} DLQ 中未找到任务",
+    "zh-TW": "在 {kind} DLQ 中未找到任務",
+    "en": "Job not found in {kind} DLQ.",
+    "ja": "{kind} DLQ にジョブが見つかりません。"
+  },
+  "job_id_required": {
+    "zh-CN": "请提供 job_id",
+    "zh-TW": "請提供 job_id",
+    "en": "job_id is required.",
+    "ja": "job_id が必要です。"
+  },
+  "dlq_replay_payload_expired": {
+    "zh-CN": "任务载荷已过期且 DLQ 无 ops 快照，无法重放",
+    "zh-TW": "任務載荷已過期且 DLQ 無 ops 快照，無法重放",
+    "en": "Job payload expired and DLQ entry has no ops snapshot — cannot replay.",
+    "ja": "ジョブペイロードの期限切れ、DLQ に ops スナップショットがありません — 再生できません。"
+  },
+  "dlq_replay_missing_context": {
+    "zh-CN": "DLQ 条目缺少 project_id/user_id，无法重放",
+    "zh-TW": "DLQ 條目缺少 project_id/user_id，無法重放",
+    "en": "DLQ entry missing project_id/user_id — cannot replay.",
+    "ja": "DLQ エントリに project_id/user_id がありません — 再生できません。"
+  },
+  "mockup_unavailable": {
+    "zh-CN": "样机渲染需要接入 Recombyn Intelligence（设置 RECOMBYN_INTELLIGENCE_URL）",
+    "zh-TW": "樣機渲染需要接入 Recombyn Intelligence（設定 RECOMBYN_INTELLIGENCE_URL）",
+    "en": "Mockup rendering requires Recombyn Intelligence (set RECOMBYN_INTELLIGENCE_URL).",
+    "ja": "モックアップ描画には Recombyn Intelligence が必要です（RECOMBYN_INTELLIGENCE_URL を設定してください）。"
+  },
+  "card_key_misconfigured": {
+    "zh-CN": "卡密系统未正确配置，请联系管理员",
+    "zh-TW": "卡密系統未正確設定，請聯絡管理員",
+    "en": "Card key system is misconfigured. Contact support.",
+    "ja": "カードキーの設定が正しくありません。サポートに連絡してください。"
+  },
+  "card_key_invalid_format": {
+    "zh-CN": "卡密格式无效",
+    "zh-TW": "卡密格式無效",
+    "en": "Invalid card key format.",
+    "ja": "カードキーの形式が無効です。"
+  },
+  "card_key_not_found": {
+    "zh-CN": "卡密不存在",
+    "zh-TW": "卡密不存在",
+    "en": "Card key not found.",
+    "ja": "カードキーが見つかりません。"
+  },
+  "card_key_already_used": {
+    "zh-CN": "卡密已兑换",
+    "zh-TW": "卡密已兌換",
+    "en": "Card key already redeemed.",
+    "ja": "このカードキーは既に使用済みです。"
+  },
+  "card_key_revoked": {
+    "zh-CN": "卡密已作废",
+    "zh-TW": "卡密已作廢",
+    "en": "Card key revoked.",
+    "ja": "カードキーは無効化されています。"
+  },
+  "card_key_expired": {
+    "zh-CN": "卡密已过期",
+    "zh-TW": "卡密已過期",
+    "en": "Card key expired.",
+    "ja": "カードキーの有効期限が切れています。"
+  },
+  "card_key_invalid_kind": {
+    "zh-CN": "卡密类型无效",
+    "zh-TW": "卡密類型無效",
+    "en": "Card key kind is invalid.",
+    "ja": "カードキーの種別が無効です。"
+  },
+  "card_key_invalid_plan": {
+    "zh-CN": "卡密套餐无效",
+    "zh-TW": "卡密套餐無效",
+    "en": "Card key plan is invalid.",
+    "ja": "カードキーのプランが無効です。"
+  },
+  "card_key_plan_locked": {
+    "zh-CN": "当前套餐仍在有效期内，到期后才能更换",
+    "zh-TW": "目前套餐仍在有效期內，到期後才能更換",
+    "en": "Current plan is still active; switch only after it expires.",
+    "ja": "現在のプランは有効期間中です。期限切れ後に切り替えてください。"
+  },
+  "card_key_invalid_amount": {
+    "zh-CN": "卡密面额无效",
+    "zh-TW": "卡密面額無效",
+    "en": "Card key amount is invalid.",
+    "ja": "カードキーの金額が無効です。"
+  },
+  "redeem_rate_limited": {
+    "zh-CN": "兑换尝试次数过多，请 {seconds} 秒后再试",
+    "zh-TW": "兌換嘗試次數過多，請 {seconds} 秒後再試",
+    "en": "Too many redeem attempts; retry in {seconds}s.",
+    "ja": "引き換え試行が多すぎます。{seconds} 秒後に再試行してください。"
+  }
+}

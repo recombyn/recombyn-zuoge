@@ -137,6 +137,7 @@ class Settings(BaseSettings):
     rate_limit_design_per_window: int = 40
     rate_limit_chat_per_window: int = 60
     rate_limit_upload_per_window: int = 40
+    rate_limit_upload_parts_per_window: int = 600
     rate_limit_projects_per_window: int = 240
     rate_limit_default_per_window: int = 180
     agent_summarize_enabled: bool = True

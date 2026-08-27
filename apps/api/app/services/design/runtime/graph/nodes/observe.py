@@ -1180,6 +1180,16 @@ async def _node_observe(
             rt.flags["retry"] = False
             return Command(update=_bump(rt), goto="__settle__")
         op_failures = [r for r in op_results if not r.get("ok", True)]
+        from app.services.design.runtime.session_log import log_scene_feedback
+
+        log_scene_feedback(
+            st.task_id,
+            nodes=len(nodes),
+            frames=len(frames),
+            ok=not op_failures,
+            op_failed=len(op_failures) or None,
+            has_preview=bool(preview_image),
+        )
         _clear_active_transaction(st, snap)
         fail_bits = [
             f"{r.get('name') or 'op'}: {r.get('error') or 'failed'}"

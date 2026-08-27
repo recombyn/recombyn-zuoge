@@ -20,7 +20,6 @@ import { markPinsForNode } from './markPinStore';
 import {
   markPromptFixedStyle,
   listMarkSessionTargets,
-  isMarkBlockedMediaKey,
   nodeSceneBox,
 } from './markGeometry';
 import { dismissMarkToolSession } from './markSessionCleanup';
@@ -79,10 +78,11 @@ function MarkSessionHost({
     [document, markActive]
   );
   const quickEditTargets = isMultiImageMark ? sessionTargets : [];
-  const blockedMediaTargets = useMemo(
+  // After Mark starts: every non-image (and blocked images) get a not-allowed plate.
+  const blockedTargets = useMemo(
     () =>
       agentMarkNodeId
-        ? sessionTargets.filter((t) => t.blocked && isMarkBlockedMediaKey(t.node.key))
+        ? sessionTargets.filter((t) => t.blocked && t.nodeId !== agentMarkNodeId)
         : [],
     [sessionTargets, agentMarkNodeId]
   );
@@ -338,7 +338,7 @@ function MarkSessionHost({
 
   return (
     <>
-      {blockedMediaTargets.map(({ nodeId, box }) => (
+      {blockedTargets.map(({ nodeId, box }) => (
         <BlockedMarkOverlay key={nodeId} box={box} />
       ))}
       <MarkRegionOverlay

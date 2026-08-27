@@ -40,7 +40,7 @@ Cross-cutting or hard-to-undo technical choices live here. Product how-tos stay 
 | [0018](./0018-public-skills-catalog.md) | Public skills catalog layout | Accepted |
 | [0019](./0019-open-skill-sdk.md) | Open skill-sdk package | Accepted |
 | [0020](./0020-open-plugin-sdk.md) | Open plugin-sdk package | Accepted |
-| [0021](./0021-open-agent-sdk.md) | Open agent-sdk package | Accepted |
+| [0021](./0021-open-agent-sdk.md) | Open agent-sdk package (+ session events) | Accepted |
 | [0022](./0022-open-runtime-helpers.md) | Open runtime helpers package | Accepted |
 | [0023](./0023-public-private-eval.md) | Public vs private Design Agent eval | Accepted |
 | [0024](./0024-protocol-version-cross-repo-ci.md) | Protocol version pin + cross-repo CI | Accepted |

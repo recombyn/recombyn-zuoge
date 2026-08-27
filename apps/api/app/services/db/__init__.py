@@ -92,6 +92,15 @@ def _parse_mysql_url(url: str) -> dict[str, Any]:
     }
 
 
+def _mysql_apply_connection_collation(conn: Any) -> None:
+    """Force connection collation to match seeded tables (avoid MySQL 1267 mix)."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci")
+    except Exception:
+        pass
+
+
 def _mysql_connect_new(url: str | None = None):
     import pymysql
     from pymysql.cursors import DictCursor
@@ -101,7 +110,12 @@ def _mysql_connect_new(url: str | None = None):
     cfg["connect_timeout"] = 10
     cfg["read_timeout"] = 60
     cfg["write_timeout"] = 60
-    return pymysql.connect(**{k: v for k, v in cfg.items() if k != "cursorclass"}, cursorclass=DictCursor)
+    conn = pymysql.connect(
+        **{k: v for k, v in cfg.items() if k != "cursorclass"},
+        cursorclass=DictCursor,
+    )
+    _mysql_apply_connection_collation(conn)
+    return conn
 
 
 def _mysql_pool_slot(*, readonly: bool) -> Any:
@@ -142,6 +156,7 @@ def _mysql_pool_get(*, readonly: bool = False):
     if raw is not None:
         try:
             raw.ping(reconnect=True)
+            _mysql_apply_connection_collation(raw)
             return _mark_pooled(raw)
         except Exception:
             try:
@@ -177,6 +192,7 @@ def _mysql_pool_get(*, readonly: bool = False):
             raise TimeoutError("MySQL connection pool exhausted") from None
         try:
             raw.ping(reconnect=True)
+            _mysql_apply_connection_collation(raw)
             return _mark_pooled(raw)
         except Exception:
             try:

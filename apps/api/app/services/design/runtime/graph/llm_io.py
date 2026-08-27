@@ -168,10 +168,10 @@ async def _stream_llm_text(
                     "switch_kind": "vision_failed",
                     "images_skipped": True,
                     "error": str(piece),
-                    "summary": "vision unavailable; text-only fallback"
+                    "summary": f"vision unavailable: {piece}",
                 }
             )
-            continue
+            raise RuntimeError(f"vision_unavailable: {piece}")
         if kind == "usage":
             used = int(piece) if isinstance(piece, int) else used
             continue
@@ -220,6 +220,7 @@ def _resolve_and_log_model(
     scene: str | None,
     attempt: int,
     has_images: bool,
+    route_lane: str | None = None,
 ) -> tuple[str, str]:
     """Resolve model for this skill step and write a model_route log row."""
     prev = (state.family or "").strip()
@@ -232,6 +233,7 @@ def _resolve_and_log_model(
         scene=scene,
         attempt=attempt,
         has_images=has_images,
+        route_lane=route_lane or state.task_tier or None,
     )
     state.family = family
     if "vision" in (reason or ""):
@@ -342,8 +344,10 @@ def _emit_ux_tip(
     *,
     params: dict[str, Any] | None = None,
 ) -> str:
-    """Emit a fixed UX tip for FE i18n (token.code); set st.reply to English fallback."""
+    """Emit a localized UX tip (token.code + message from backend i18n)."""
     from app.services.design.runtime.graph.emit_sse import _emit
+    from app.services.design.runtime.host.prompts import locale_for_runtime
+    from app.services.i18n.errors import localize_ux_tip
 
     key = str(code or "").strip().lower()
     clean: dict[str, Any] = {}
@@ -351,12 +355,8 @@ def _emit_ux_tip(
         s = str(v if v is not None else "").strip()
         if s:
             clean[str(k)[:48]] = s[:200]
-    tmpl = _UX_TIP_FALLBACK.get(key) or "Something went wrong. Please retry."
-    try:
-        text = render_prompt_template(tmpl, **clean).strip()
-    except Exception:
-        text = tmpl
-    text = " ".join(text.split())[:160] or tmpl
+    text = localize_ux_tip(key, locale_for_runtime(rt), **clean)
+    text = " ".join(text.split())[:160] or text
     payload: dict[str, Any] = {"type": "token", "code": key, "text": text}
     if clean:
         payload["params"] = {k: str(v) for k, v in clean.items()}

@@ -641,6 +641,12 @@ async def _decide_turn_from_llm(
 
 async def _node_design_agent(state: GraphState) -> Command:
     """Decision stage: chat / clarify / need_* only. Canvas ops → paint_ops."""
+    from app.services.design.runtime.session_log import (
+        log_llm_request,
+        log_llm_response,
+        log_stage_decision,
+    )
+
     rt = state["rt"]
     st = rt.run
     ask_mode = str(rt.flags.get("mode") or "") == "ask"
@@ -755,6 +761,12 @@ async def _node_design_agent(state: GraphState) -> Command:
         turn: dict[str, Any] = {}
         t_decide = time.perf_counter()
         try:
+            log_llm_request(
+                st.task_id,
+                "decide",
+                model=st.family,
+                round=round_i,
+            )
             turn = await _decide_turn_from_llm(
                 rt,
                 st,
@@ -765,6 +777,13 @@ async def _node_design_agent(state: GraphState) -> Command:
             )
             llm_think = str(turn.get("thought") or "").strip()
             content = str(turn.get("reply") or llm_think)
+            log_llm_response(
+                st.task_id,
+                "decide",
+                model=st.family,
+                round=round_i,
+                intent=str(turn.get("intent") or ""),
+            )
         except Exception as err:  # noqa: BLE001
             st.note_error(f"design_agent_llm_failed: {err}"[:240])
             st.push_log(
@@ -908,6 +927,12 @@ async def _node_design_agent(state: GraphState) -> Command:
             ask_mode=ask_mode,
         ):
             st.intent = _resolve_paint_want(rt, intent)
+            log_stage_decision(
+                st.task_id,
+                "decide",
+                route="paint_ops",
+                intent=st.intent,
+            )
             # Stash only — stream after paint sends ops (or Ask propose rewrite).
             if reply and len(reply) <= 280:
                 st.reply = reply
@@ -930,6 +955,13 @@ async def _node_design_agent(state: GraphState) -> Command:
         ask_mode=False,
     ):
         st.intent = _resolve_paint_want(rt, st.intent)
+        log_stage_decision(
+            st.task_id,
+            "decide",
+            route="paint_ops",
+            intent=st.intent,
+            exhausted=True,
+        )
         return Command(update=_bump(rt), goto="paint_ops")
 
     rt.terminal = True

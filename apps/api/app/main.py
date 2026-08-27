@@ -292,9 +292,15 @@ async def rate_limit_middleware(request: Request, call_next):
             )
         ok, limit = check_rate_limit(path=path, identity=identity)
         if not ok:
+            from app.services.i18n.errors import api_error_detail
+            from app.services.i18n.locale import locale_from_request
+
+            locale = locale_from_request(request)
+            detail = api_error_detail("rate_limited", locale)
+            detail["limit"] = limit
             return JSONResponse(
                 status_code=429,
-                content={"detail": "Too many requests", "limit": limit},
+                content={"detail": detail},
                 headers={"Retry-After": "60"},
             )
     except Exception:

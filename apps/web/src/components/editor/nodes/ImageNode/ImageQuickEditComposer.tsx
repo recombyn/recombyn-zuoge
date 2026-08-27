@@ -77,6 +77,11 @@ import {
   type PendingMarkContextChip,
 } from '@/store/modules/editor';
 import { useImageToolCapabilities } from '@/service/imageTools';
+import {
+  canMarkNode,
+  markGateTipKey,
+  markNodeGate,
+} from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
 import { useShowCreditCosts, useWalletSnapshot } from '@/service/wallet';
@@ -446,12 +451,18 @@ function ImageQuickEditComposer({
     [nodeId, src, t]
   );
 
+  const markGate = useMemo(
+    () => markNodeGate(node, { ilpEnabled }),
+    [node, ilpEnabled]
+  );
+  const markReady = markGate.status === 'ready';
   const onMark = () => {
-    if (!ilpEnabled) {
-      message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
+    if (!markReady) {
+      if (markGate.reason === 'no_ilp') {
+        message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
+      }
       return;
     }
-    if (nodeProcessing) return;
     if (markActive) {
       clearQuickEditMarkSession(dispatch, document);
       dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }));
@@ -540,27 +551,18 @@ function ImageQuickEditComposer({
               <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
             </button>
           </Tooltip>
-          {ilpEnabled ? (
-            <Tooltip
-              tip={
-                nodeProcessing
-                  ? t('editor.imageToolbar.markBlockedProcessing')
-                  : t('editor.imageToolbar.mark')
-              }
-              placement="top"
+          <Tooltip tip={t(markGateTipKey(markGate))} placement="top">
+            <button
+              type="button"
+              disabled={sending || !markReady}
+              aria-label={t('editor.imageToolbar.mark')}
+              aria-pressed={markActive}
+              onClick={onMark}
+              className={composerAttachActionClass(markActive)}
             >
-              <button
-                type="button"
-                disabled={sending || nodeProcessing}
-                aria-label={t('editor.imageToolbar.mark')}
-                aria-pressed={markActive}
-                onClick={onMark}
-                className={composerAttachActionClass(markActive)}
-              >
-                <PiSelectionPlus className="h-4 w-4" />
-              </button>
-            </Tooltip>
-          ) : null}
+              <PiSelectionPlus className="h-4 w-4" />
+            </button>
+          </Tooltip>
           <Tooltip
             tip={pickingFromCanvas ? t('agent.pickFromCanvasCancel') : t('agent.pickFromCanvas')}
             placement="top"

@@ -8,12 +8,14 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser
 from app.api.routes.chat_job_sse import streaming_media_job_events
 from app.api.routes.image_tools import ImageProcessIn, _charge, credit_cost_for_kind
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 from app.services.job_store import get_job, normalize_trace_id, save_job, update_job
 from worker.tasks import run_image_process_job
 
@@ -110,17 +112,18 @@ async def execute_image_process(job: dict[str, Any]) -> dict[str, Any]:
 async def create_image_process_job(
     body: ImageProcessJobCreateRequest,
     request: Request,
+    locale: LocaleDep,
     current_user: CurrentUser,
 ):
     tool_kind = body.kind.strip()
     if not tool_kind:
-        raise HTTPException(status_code=400, detail="empty kind")
+        raise http_error(400, "empty_kind", locale)
     image = body.image.strip()
     if not image:
-        raise HTTPException(status_code=400, detail="image is required")
+        raise http_error(400, "image_required", locale)
 
     cost = credit_cost_for_kind(tool_kind, body.model, user_id=current_user.id)
-    _charge(current_user.id, cost, f"AI image tool: {tool_kind}")
+    _charge(current_user.id, cost, f"AI image tool: {tool_kind}", locale=locale)
 
     job_id = uuid.uuid4().hex
     header_tid = getattr(request.state, "trace_id", None)
@@ -147,10 +150,7 @@ async def create_image_process_job(
         save_job(job_id, payload, kind=_KIND)
         run_image_process_job.delay(job_id)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=503,
-            detail=f"Job queue unavailable (start Redis + worker). {exc}",
-        ) from exc
+        raise http_error(503, "job_queue_unavailable", locale) from exc
     try:
         from app.core.metrics import observe_job
 
@@ -168,15 +168,15 @@ async def create_image_process_job(
 
 
 @router.get("/jobs/{job_id}", response_model=ImageProcessJobStatusResponse)
-def get_image_process_job(current_user: CurrentUser, job_id: str):
+def get_image_process_job(locale: LocaleDep, current_user: CurrentUser, job_id: str):
     try:
         job = get_job(job_id, kind=_KIND)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
+        raise http_error(503, "job_store_unavailable", locale) from exc
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise http_error(404, "job_not_found", locale)
     if str(job.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise http_error(404, "job_not_found", locale)
     return ImageProcessJobStatusResponse(
         job_id=job_id,
         status=str(job.get("status") or "queued"),
@@ -188,6 +188,10 @@ def get_image_process_job(current_user: CurrentUser, job_id: str):
 
 
 @router.get("/jobs/{job_id}/events")
-async def stream_image_process_job_events(current_user: CurrentUser, job_id: str):
+async def stream_image_process_job_events(
+    request: Request,
+    current_user: CurrentUser,
+    job_id: str,
+):
     """SSE push for toolbar image job status (progress / done / failed)."""
-    return streaming_media_job_events(current_user, job_id, kind=_KIND)
+    return streaming_media_job_events(current_user, job_id, kind=_KIND, request=request)

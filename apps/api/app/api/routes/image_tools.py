@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request
 from app.api.deps import CurrentUser
 from pydantic import BaseModel, Field
+
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 
 from app.services.llm import is_byok_model_ref, uses_user_platform_byok
 from app.services.llm.image_tools import (
@@ -46,15 +49,15 @@ class ImageProcessIn(BaseModel):
     model: str | None = None
 
 
-def _charge(user_id: str, amount: int, detail: str) -> None:
+def _charge(user_id: str, amount: int, detail: str, *, locale: str | None = None) -> None:
     if amount <= 0 or not is_wallet_billing_enabled():
         return
     try:
         spend_credits(user_id, amount, detail)
     except ValueError as err:
         if str(err) == "insufficient_credits":
-            raise HTTPException(status_code=402, detail="Insufficient credits") from err
-        raise HTTPException(status_code=400, detail=str(err)) from err
+            raise http_error(402, "insufficient_credits", locale) from err
+        raise http_error(400, "request_failed", locale) from err
 
 
 def credit_cost_for_kind(
@@ -113,6 +116,7 @@ def list_image_tools() -> dict[str, Any]:
 
 @router.post("/process")
 async def post_image_process(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: ImageProcessIn,
 ) -> dict[str, Any]:
@@ -120,7 +124,7 @@ async def post_image_process(
     cost = credit_cost_for_kind(kind, body.model, user_id=current_user.id)
     # Charge before the model call so insufficient balance fails fast.
     # cost is 0 when no LLM / BYOK / wallet billing off.
-    _charge(current_user.id, cost, f"AI image tool: {kind}")
+    _charge(current_user.id, cost, f"AI image tool: {kind}", locale=locale)
 
     try:
         result = await process_image_tool(
@@ -134,12 +138,12 @@ async def post_image_process(
             user_id=current_user.id,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
     except RuntimeError as err:
         msg = str(err)
         if "No Doubao API key" in msg or "No LLM API key" in msg:
-            raise HTTPException(status_code=503, detail=msg) from err
-        raise HTTPException(status_code=502, detail=msg) from err
+            raise http_error(503, "service_unavailable", locale) from err
+        raise http_error(502, "service_unavailable", locale) from err
 
     if isinstance(result, dict):
         result = {**result, "credits": cost}

@@ -24,7 +24,8 @@ class AuthConfigOut(SQLModel):
     googleEnabled: bool
     googleClientId: str | None = None
     emailEnabled: bool
-    billingEnabled: bool = True
+    # Platform credit wallet (WALLET_BILLING_ENABLED); default off until Cloud sets true.
+    billingEnabled: bool = False
 
 
 
@@ -361,10 +362,10 @@ class DesignTask(SQLModel, table=True):
     hold_credits: int = Field(default=0)
     charged_credits: int = Field(default=0)
     total_tokens: int = Field(default=0)
-    prompt: Optional[str] = Field(default=None)
+    prompt: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     canvas_size: Optional[str] = Field(default=None, max_length=64)
-    result_svg: Optional[str] = Field(default=None)
-    error_message: Optional[str] = Field(default=None)
+    result_svg: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
+    error_message: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     # MySQL maps bare str → VARCHAR(255); worker_snapshot JSON exceeds that.
     meta_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: float = Field(default=0.0)
@@ -651,7 +652,8 @@ class AgentSessionSnapshot(SQLModel, table=True):
     session_id: str = Field(primary_key=True, max_length=64)
     user_id: str = Field(index=True, max_length=64)
     project_id: str = Field(max_length=64)
-    task_state_json: str = Field(default="")
+    # Medium-term task_state JSON grows past VARCHAR(255) within a few turns.
+    task_state_json: str = Field(default="", sa_column=Column(Text, nullable=False))
     updated_at: float = Field(default=0.0)
     created_at: float = Field(default=0.0)
 

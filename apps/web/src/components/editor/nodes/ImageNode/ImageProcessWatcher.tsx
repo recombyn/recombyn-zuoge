@@ -1,5 +1,6 @@
 import { useEffect, useRef, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import i18n from '@/i18n';
 import { message } from '@/components/base';
 import {
   processJobAttrPatch,
@@ -13,7 +14,7 @@ import {
   type ImageProcessResult,
 } from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
-import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
+import { getHttpErrorMessage } from '@/service/client';
 import { refreshWalletAfterSpend } from '@/service/wallet';
 import {
   failImageProcess,
@@ -23,6 +24,10 @@ import {
 import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const DECOMPOSE_KINDS = new Set(['editText', 'editElements']);
+
+function tt(key: string, opts?: Record<string, unknown>): string {
+  return String(i18n.t(key, opts));
+}
 
 function parseMeta(raw: unknown): Record<string, unknown> {
   if (!raw) return {};
@@ -68,16 +73,17 @@ async function refreshWallet() {
   refreshWalletAfterSpend();
 }
 
+/** Prefer backend ``message``; FE i18n only for client-only / empty fallbacks. */
 function processFailMessage(err: unknown): string {
-  const status = getHttpStatus(err);
   const msg = getHttpErrorMessage(err, '');
-  if (status === 402 || msg === 'Insufficient credits')
-    return '积分不足，请充值后再试';
-  if (status === 401) return '请先登录后再使用 AI 工具';
-  if (/timeout/i.test(msg) || (err as { code?: string })?.code === 'ECONNABORTED')
-    return '图片分层超时，请稍后重试（大图首次加载模型会更慢）';
   if (msg.trim()) return msg;
-  return '图片处理失败';
+  if (
+    /timeout/i.test(String((err as Error)?.message || '')) ||
+    (err as { code?: string })?.code === 'ECONNABORTED'
+  ) {
+    return tt('editor.imageToolbar.processTimeout');
+  }
+  return tt('editor.imageToolbar.processFailed');
 }
 
 function buildFinishAttrsForKind(
@@ -88,7 +94,13 @@ function buildFinishAttrsForKind(
   }
 ): Record<string, unknown> | undefined {
   if (kind === 'removeBg' || kind === 'eraser') {
-    return { cutout: 'true', name: kind === 'eraser' ? '擦除' : '抠图' };
+    return {
+      cutout: 'true',
+      name:
+        kind === 'eraser'
+          ? tt('editor.imageToolbar.nameEraser')
+          : tt('editor.imageToolbar.nameCutout'),
+    };
   }
   if (kind === 'replaceText' && opts.replacedCopy) {
     return {
@@ -135,13 +147,15 @@ async function finishDecomposeResult(
     const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
     const rasterCount = layers.filter((l: any) => l?.letteringText).length;
     if (kind === 'editElements') {
-      message.success('图片分层完成（可单独改主体/文字）');
+      message.success(tt('editor.imageToolbar.doneEditElementsHint'));
     } else if (rasterCount > 0 && textCount > 0) {
-      message.success(`文字识别完成（${textCount} 处可编辑，${rasterCount} 处艺术字保留为图片）`);
+      message.success(
+        tt('editor.imageToolbar.doneOcrMixed', { textCount, rasterCount })
+      );
     } else if (textCount > 0) {
-      message.success(`文字识别完成（${textCount} 处可编辑）`);
+      message.success(tt('editor.imageToolbar.doneOcrEditable', { count: textCount }));
     } else {
-      message.success('文字识别完成');
+      message.success(tt('editor.imageToolbar.doneOcr'));
     }
   }
   await refreshWallet();
@@ -189,7 +203,7 @@ function ImageProcessWatcher() {
       const sourceNode = sourceId ? latest?.deltaSetLike?.[sourceId] : null;
       const image = String(sourceNode?.attrs?.src || liveNode?.attrs?.src || '');
       if (!image) {
-        fail('未找到图片');
+        fail(tt('editor.imageToolbar.imageNotFound'));
         return;
       }
 
@@ -251,7 +265,7 @@ function ImageProcessWatcher() {
         if (await finishDecomposeResult(dispatch, pendingId, kind, res, isCancelled)) return;
 
         if (!res?.image) {
-          fail('图片处理未返回结果');
+          fail(tt('editor.imageToolbar.processNoResult'));
           return;
         }
         const storedUrl = await persistProcessedSrc(res.image, `${kind}.png`);
@@ -270,18 +284,18 @@ function ImageProcessWatcher() {
           })
         );
         const labels: Record<string, string> = {
-          removeBg: '抠图完成（透明 PNG）',
-          eraser: '擦除完成',
-          upscale: '高清放大完成',
-          multiAngle: '多角度生成完成',
-          expand: '扩展完成',
-          editText: '编辑文字完成',
-          editElements: '图片分层完成',
-          replaceText: '文案替换完成',
-          vector: '矢量化完成',
-          adjust: '调整完成',
+          removeBg: tt('editor.imageToolbar.doneRemoveBg'),
+          eraser: tt('editor.imageToolbar.doneEraser'),
+          upscale: tt('editor.imageToolbar.doneUpscale'),
+          multiAngle: tt('editor.imageToolbar.doneMultiAngle'),
+          expand: tt('editor.imageToolbar.doneExpand'),
+          editText: tt('editor.imageToolbar.doneEditText'),
+          editElements: tt('editor.imageToolbar.doneEditElements'),
+          replaceText: tt('editor.imageToolbar.doneReplaceText'),
+          vector: tt('editor.imageToolbar.doneVector'),
+          adjust: tt('editor.imageToolbar.doneAdjust'),
         };
-        message.success(labels[kind] || '处理完成');
+        message.success(labels[kind] || tt('editor.imageToolbar.doneGeneric'));
         await refreshWallet();
       } catch (err: any) {
         if (cancelled || isUploadAbortError(err)) return;

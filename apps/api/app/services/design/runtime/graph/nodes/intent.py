@@ -12,13 +12,13 @@ from app.services.design.runtime.graph.emit_sse import (
     _emit_design_loading_artboard,
 )
 from app.services.design.runtime.graph.llm_io import (
-    _chat_fallback_text,
     _clip_llm_raw,
     _emit_ux_tip,
     _stream_llm_text,
 )
 from app.services.design.runtime.graph.scene_log import _goto_cmd
 from app.services.design.runtime.models_route import (
+    IntentClassifyError,
     build_design_plan,
     classify_user_intent,
     normalize_intent_decision,
@@ -123,8 +123,8 @@ async def _vision_chat_reply(rt: AgentRuntime) -> str:
             if isinstance(ev, dict) and ev.get("phase") == "model_switch":
                 _emit({"type": "activity", "kind": "model", **ev})
         return str(content or "").strip()
-    except Exception:
-        return ""
+    except Exception as err:
+        raise RuntimeError(f"vision_chat_failed: {err}") from err
 
 
 async def _node_intent_classify(state: GraphState) -> Command:
@@ -185,7 +185,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         intent = "chat"
         paint_lane = ""
     elif intent == "chat" and not reply and action != "apply" and not rt.images:
-        reply = _chat_fallback_text(rt)
+        raise IntentClassifyError("intent_classify: chat intent but model returned no reply")
     rt.classified_intent = intent
     rt.classified_paint_lane = paint_lane
     rt.classified_reply = reply
@@ -206,6 +206,17 @@ async def _node_intent_classify(state: GraphState) -> Command:
         rt.design_plan = None
     if session_action:
         rt.flags["session_action"] = session_action
+    from app.services.design.runtime.session_log import log_stage_decision
+
+    log_stage_decision(
+        st.task_id,
+        "intent",
+        intent=intent,
+        paint_lane=paint_lane or None,
+        proposal_action=action or None,
+        session_action=session_action or None,
+    )
+
     st.push_log(
         phase="intent_classify",
         intent=intent,
@@ -304,7 +315,9 @@ async def _node_intent_classify(state: GraphState) -> Command:
                     reply=reply[:500],
                 )
             elif not reply:
-                reply = _chat_fallback_text(rt)
+                raise IntentClassifyError(
+                    "intent_classify: chat with images but vision reply empty"
+                )
         if reply and not vision_streamed:
             st.reply = reply
             _emit({"type": "token", "text": reply})

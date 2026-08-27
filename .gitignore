@@ -148,4 +148,7 @@ apps/web/src-tauri/sidecars/
 # Local runtime artifacts if mistakenly created under app/
 apps/api/app/storage/
 
+# Per-machine AgentProfile overlay (see agent-overrides/local.patch.yaml.example)
+apps/api/agent-overrides/local.patch.yaml
+
 pub-bootstrap/

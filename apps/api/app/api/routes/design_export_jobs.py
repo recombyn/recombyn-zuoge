@@ -6,11 +6,13 @@ import logging
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 from app.services.job_store import get_job, normalize_trace_id, save_job
 from app.services.projects import get_project
 from app.services.storage import get_bytes
@@ -43,19 +45,30 @@ class ExportJobStatusResponse(BaseModel):
     trace_id: str | None = None
 
 
+def _require_export_job(current_user: CurrentUser, job_id: str, locale: str | None) -> dict:
+    try:
+        job = get_job(job_id, kind=_KIND)
+    except Exception as exc:  # noqa: BLE001
+        raise http_error(503, "job_store_unavailable", locale) from exc
+    if not job or str(job.get("user_id") or "") != str(current_user.id):
+        raise http_error(404, "job_not_found", locale)
+    return job
+
+
 @router.post("/jobs", response_model=ExportJobCreateResponse)
 async def create_export_job(
     body: ExportJobCreateRequest,
     request: Request,
+    locale: LocaleDep,
     current_user: CurrentUser,
 ):
     project_id = body.projectId.strip()
     project = get_project(current_user.id, project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise http_error(404, "project_not_found", locale)
     document = project.get("document")
     if not isinstance(document, dict):
-        raise HTTPException(status_code=400, detail="Project has no document")
+        raise http_error(400, "project_no_document", locale)
 
     job_id = uuid.uuid4().hex
     header_tid = getattr(request.state, "trace_id", None)
@@ -77,10 +90,7 @@ async def create_export_job(
         save_job(job_id, payload, kind=_KIND)
         run_design_export_job.delay(job_id)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=503,
-            detail=f"Job queue unavailable (start Redis + worker). {exc}",
-        ) from exc
+        raise http_error(503, "job_queue_unavailable", locale) from exc
     try:
         from app.core.metrics import observe_job
 
@@ -99,15 +109,8 @@ async def create_export_job(
 
 
 @router.get("/jobs/{job_id}", response_model=ExportJobStatusResponse)
-def get_export_job(current_user: CurrentUser, job_id: str):
-    try:
-        job = get_job(job_id, kind=_KIND)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if str(job.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_export_job(locale: LocaleDep, current_user: CurrentUser, job_id: str):
+    job = _require_export_job(current_user, job_id, locale)
     return ExportJobStatusResponse(
         job_id=job_id,
         status=str(job.get("status") or "queued"),
@@ -119,22 +122,17 @@ def get_export_job(current_user: CurrentUser, job_id: str):
 
 
 @router.get("/jobs/{job_id}/file")
-def download_export_job(current_user: CurrentUser, job_id: str):
-    try:
-        job = get_job(job_id, kind=_KIND)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
-    if not job or str(job.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=404, detail="Job not found")
+def download_export_job(locale: LocaleDep, current_user: CurrentUser, job_id: str):
+    job = _require_export_job(current_user, job_id, locale)
     if str(job.get("status") or "") != "done":
-        raise HTTPException(status_code=409, detail="Export is not ready")
+        raise http_error(409, "export_not_ready", locale)
     result = job.get("result") if isinstance(job.get("result"), dict) else {}
     key = str(result.get("key") or "")
     if not key:
-        raise HTTPException(status_code=404, detail="Export file missing")
+        raise http_error(404, "export_file_missing", locale)
     data = get_bytes(key)
     if not data:
-        raise HTTPException(status_code=404, detail="Export file missing")
+        raise http_error(404, "export_file_missing", locale)
     content_type = str(result.get("contentType") or "application/octet-stream")
     ext = "png"
 

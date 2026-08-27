@@ -83,6 +83,7 @@ import FontFamilyPicker from '@/components/editor/nodes/TextNode/FontFamilyPicke
 import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
+import { canMarkNode } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import { probeMockupUiInstalled } from '@/components/editor/nodes/ImageNode/mockup/mockupUiLoader';
 import ImageToolbarMoreDownload, {
@@ -797,7 +798,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
             }
             onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
             onMark={
-              ilpEnabled
+              canMarkNode(node, { ilpEnabled })
                 ? () =>
                     dispatch(
                       openImageToolPanel({

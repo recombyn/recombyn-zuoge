@@ -100,12 +100,13 @@ export function walletDtoToSnapshot(
   if (dto.planExpiresAt != null && Number.isFinite(Number(dto.planExpiresAt))) {
     planExpiresAt = Number(dto.planExpiresAt);
   }
+  let billingEnabled = billingFallback;
   return {
     credits: Math.max(0, Math.round(Number(dto.credits) || 0)),
     planId,
     planExpiresAt,
     planLocked: Boolean(dto.planLocked) && planId !== 'free',
-    billingEnabled: billingFallback,
+    billingEnabled,
     creditsIncluded: (catalog[planId] || catalog.free).creditsIncluded,
   };
 }

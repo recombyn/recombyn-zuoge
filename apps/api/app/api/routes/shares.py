@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from app.api.deps import CurrentUser, OptionalUser
 from pydantic import BaseModel, Field
 
+from app.services.i18n.errors import http_error, service_error_http
+from app.services.i18n.locale import LocaleDep
 from app.services.shares import (
     ShareError,
     create_share,
@@ -18,22 +20,20 @@ from app.services.shares import (
 
 router = APIRouter(prefix="/shares", tags=["shares"])
 
+_SHARE_STATUS: dict[str, tuple[int, str]] = {
+    "not_found": (404, "share_not_found"),
+    "forbidden": (403, "forbidden"),
+    "unauthorized": (401, "unauthorized"),
+    "document_too_large": (413, "upload_too_large"),
+    "invalid_document": (400, "invalid_document"),
+    "invalid_permission": (400, "invalid_share_permission"),
+    "invalid_owner": (400, "invalid_share_owner"),
+}
 
 
-
-
-
-def _share_http(err: ShareError) -> HTTPException:
-    status = {
-        "not_found": 404,
-        "forbidden": 403,
-        "unauthorized": 401,
-        "document_too_large": 413,
-        "invalid_document": 400,
-        "invalid_permission": 400,
-        "invalid_owner": 400,
-    }.get(err.code, 400)
-    return HTTPException(status_code=status, detail=err.message)
+def _share_http(err: ShareError, locale: str | None = None):
+    status, code = _SHARE_STATUS.get(err.code, (400, "request_failed"))
+    return service_error_http(code, locale, status=status, message=err.message)
 
 
 class CreateShareIn(BaseModel):
@@ -61,6 +61,7 @@ class UpdateShareDocumentIn(BaseModel):
 
 @router.put("")
 def shares_create(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: CreateShareIn,
 ) -> dict[str, Any]:
@@ -76,23 +77,25 @@ def shares_create(
             link_public=body.linkPublic,
         )
     except ShareError as err:
-        raise _share_http(err) from err
+        raise _share_http(err, locale) from err
     return {"share": share}
 
 
 @router.get("/{share_id}")
 def shares_get(
+    locale: LocaleDep,
     current_user: OptionalUser,
     share_id: str,
 ) -> dict[str, Any]:
     share = get_share(share_id, actor_user_id=current_user.id if current_user else None)
     if not share:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "share_not_found", locale)
     return {"share": share}
 
 
 @router.patch("/{share_id}")
 def shares_patch(
+    locale: LocaleDep,
     current_user: CurrentUser,
     share_id: str,
     body: UpdateShareMetaIn,
@@ -109,12 +112,13 @@ def shares_patch(
             link_public=body.linkPublic,
         )
     except ShareError as err:
-        raise _share_http(err) from err
+        raise _share_http(err, locale) from err
     return {"share": share}
 
 
 @router.put("/{share_id}/document")
 def shares_update_document(
+    locale: LocaleDep,
     current_user: OptionalUser,
     share_id: str,
     body: UpdateShareDocumentIn,
@@ -126,5 +130,5 @@ def shares_update_document(
             actor_user_id=current_user.id if current_user else None,
         )
     except ShareError as err:
-        raise _share_http(err) from err
+        raise _share_http(err, locale) from err
     return {"share": share}

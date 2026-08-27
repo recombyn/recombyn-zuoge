@@ -256,7 +256,11 @@ def _normalize_agent_turn_obj(obj: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 def _parse_agent_turn(content: str) -> dict[str, Any]:
-    """Parse free-form model text → normalized turn (fallback path)."""
+    """Parse free-form model text → normalized turn.
+
+    Deprecated for live graph (structured DecideTurn / PaintOps only).
+    Kept for unit-test / legacy fallback coverage.
+    """
     obj: dict[str, Any] = {}
     try:
         parsed = _agent_turn_parser().parse(content or "")
@@ -268,12 +272,14 @@ def _parse_agent_turn(content: str) -> dict[str, Any]:
 def _turn_from_structured(structured: Any) -> dict[str, Any]:
     """LangChain ``with_structured_output`` / response_format result → turn dict."""
     if structured is None:
-        return _normalize_agent_turn_obj({})
+        raise RuntimeError("agent_turn: structured output is None")
     if hasattr(structured, "model_dump"):
         return _normalize_agent_turn_obj(structured.model_dump())
     if isinstance(structured, dict):
         return _normalize_agent_turn_obj(structured)
-    return _normalize_agent_turn_obj({})
+    raise RuntimeError(
+        f"agent_turn: unsupported structured type {type(structured).__name__}"
+    )
 
 def _append_pending_reinject(
     parts: list[str],

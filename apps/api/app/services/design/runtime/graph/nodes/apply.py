@@ -38,7 +38,9 @@ from app.services.design.runtime.graph.turns import (
     _ask_propose_user_text,
     _ensure_propose_choice_ui,
 )
-from app.services.design.runtime.host.ops_gate import _validate_ops_payload
+from app.services.design.runtime.seams.context import pipeline_context_from_runtime
+from app.services.design.runtime.seams.tool_pipeline import run_pipeline
+from app.services.design.runtime.session_log import log_tool_ops_emit
 
 
 def _emit_hydrate_job_progress(rt: AgentRuntime, progress: int, status: str) -> None:
@@ -235,15 +237,21 @@ from app.services.design.runtime.scene_feedback import begin_wait
 async def _node_apply_confirm(state: GraphState) -> Command:
     rt = state["rt"]
     st = rt.run
-    step_ops, op_errors = _validate_ops_payload(
-        rt.apply_ops, nodes=rt.scene_nodes, frames=rt.scene_frames, rules=rt.rules
-    )
+    ctx = pipeline_context_from_runtime(rt, st, stage="apply_confirm", intent="edit")
+    step_ops, op_errors, _meta = run_pipeline(ctx, rt.apply_ops)
     if not step_ops:
         err = validation_failure_reason(op_errors) if op_errors else "missing_tool_ops"
         st.note_error(err)
         _emit_ux_tip(rt, "apply_confirm_failed", params={"error": err[:80]})
         rt.terminal = True
         return Command(update=_bump(rt), goto="__settle__")
+
+    log_tool_ops_emit(
+        st.task_id,
+        stage="apply_confirm",
+        ops_count=len(step_ops),
+        source="user_apply",
+    )
 
     from app.services.design.ops.image_hydrate import (
         _image_model_from_rules,

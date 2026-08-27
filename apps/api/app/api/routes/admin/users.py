@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.deps import AdminUser, audit_admin_mutation, require_permission
 from app.api.routes.admin.common import *  # noqa: F403
 from app.api.routes.admin.common import _require_card_key_ops_password
 from app.services.auth import SessionUser
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter()
+
 
 @router.get("/me")
 def admin_me(admin: AdminUser) -> dict[str, Any]:
@@ -27,6 +30,7 @@ def admin_me(admin: AdminUser) -> dict[str, Any]:
         }
     }
 
+
 @router.get("/users")
 def admin_list_users(
     _admin: AdminUser,
@@ -38,19 +42,23 @@ def admin_list_users(
 ) -> dict[str, Any]:
     return list_users(page=page, page_size=pageSize, q=q, role=role, status=status)
 
+
 @router.get("/users/{user_id}")
 def admin_get_user(
+    locale: LocaleDep,
     _admin: AdminUser,
     user_id: str,
 ) -> dict[str, Any]:
     item = get_user(user_id)
     if not item:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise http_error(404, "user_not_found", locale)
     return {"item": item}
+
 
 @router.patch("/users/{user_id}")
 def admin_patch_user(
     request: Request,
+    locale: LocaleDep,
     user_id: str,
     body: UserPatchIn,
     admin: SessionUser = Depends(require_permission("admin:users:write")),
@@ -63,9 +71,9 @@ def admin_patch_user(
             name=body.name,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
     if not item:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise http_error(404, "user_not_found", locale)
     audit_admin_mutation(
         actor=admin,
         action="users.patch",
@@ -75,8 +83,10 @@ def admin_patch_user(
     )
     return {"item": item}
 
+
 @router.post("/users/{user_id}/adjust-credits")
 def admin_adjust_credits(
+    locale: LocaleDep,
     _admin: AdminUser,
     user_id: str,
     body: AdjustCreditsIn,
@@ -86,9 +96,10 @@ def admin_adjust_credits(
     except ValueError as err:
         msg = str(err)
         if msg == "insufficient_credits":
-            raise HTTPException(status_code=400, detail="Insufficient credits") from err
-        raise HTTPException(status_code=400, detail=msg) from err
+            raise http_error(400, "insufficient_credits", locale) from err
+        raise value_error_http(err, locale) from err
     return result
+
 
 @router.get("/users/{user_id}/ledger")
 def admin_user_ledger(
@@ -100,6 +111,7 @@ def admin_user_ledger(
 ) -> dict[str, Any]:
     return user_ledger(user_id, page=page, page_size=pageSize, kind=kind)
 
+
 @router.get("/card-keys")
 def admin_list_card_keys(
     _admin: AdminUser,
@@ -107,12 +119,14 @@ def admin_list_card_keys(
 ) -> dict[str, Any]:
     return {"keys": list_card_keys(status=status)}
 
+
 @router.post("/card-keys/generate")
 def admin_generate_card_keys(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: GenerateCardKeysIn,
 ) -> dict[str, Any]:
-    _require_card_key_ops_password(body.password)
+    _require_card_key_ops_password(body.password, locale)
     try:
         keys = generate_card_keys(
             count=body.count,
@@ -123,8 +137,9 @@ def admin_generate_card_keys(
         )
     except ValueError as err:
         detail = str(err)
-        status = 503 if "CARD_KEY_SALT" in detail else 400
-        raise HTTPException(status_code=status, detail=detail) from err
+        if "CARD_KEY_SALT" in detail:
+            raise http_error(503, "card_key_salt_not_configured", locale) from err
+        raise value_error_http(err, locale) from err
     first = keys[0] if keys else {}
     return {
         "count": len(keys),
@@ -135,12 +150,14 @@ def admin_generate_card_keys(
         "keys": keys,
     }
 
+
 @router.post("/card-keys/revoke")
 def admin_revoke_card_keys(
     _admin: AdminUser,
     body: RevokeCardKeysIn,
 ) -> dict[str, Any]:
     return revoke_card_keys(body.ids)
+
 
 @router.get("/notices")
 def admin_list_notices(
@@ -150,8 +167,10 @@ def admin_list_notices(
 ) -> dict[str, Any]:
     return {"items": list_notices_admin(kind=kind, status=status)}
 
+
 @router.post("/notices")
 def admin_upsert_notice(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: NoticeIn,
 ) -> dict[str, Any]:
@@ -165,25 +184,28 @@ def admin_upsert_notice(
             published_at=body.publishedAt,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
     return {"item": item}
+
 
 @router.get("/notices/{notice_id}")
 def admin_get_notice(
+    locale: LocaleDep,
     _admin: AdminUser,
     notice_id: str,
 ) -> dict[str, Any]:
     item = get_notice(notice_id)
     if not item:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"item": item}
+
 
 @router.delete("/notices/{notice_id}")
 def admin_delete_notice(
+    locale: LocaleDep,
     _admin: AdminUser,
     notice_id: str,
 ) -> dict[str, Any]:
     if not delete_notice(notice_id):
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
-

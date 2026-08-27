@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from app.api.deps import AdminUser
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 
 router = APIRouter()
 
@@ -54,6 +56,7 @@ def admin_list_pricing_versions(
 
 @router.get("/pricing-versions/{pricing_version_id}")
 def admin_get_pricing_version(
+    locale: LocaleDep,
     _admin: AdminUser,
     pricing_version_id: str,
 ) -> dict[str, Any]:
@@ -61,12 +64,13 @@ def admin_get_pricing_version(
 
     item = get_pricing_version(pricing_version_id)
     if not item:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"item": item}
 
 
 @router.put("/pricing-versions")
 def admin_upsert_pricing_version(
+    locale: LocaleDep,
     _admin: AdminUser,
     body: PricingVersionIn,
 ) -> dict[str, Any]:
@@ -74,13 +78,14 @@ def admin_upsert_pricing_version(
 
     try:
         item = upsert_pricing_version(body.model_dump(exclude_none=True))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 
 @router.post("/pricing-versions/{pricing_version_id}/submit")
 def admin_submit_pricing_version(
+    locale: LocaleDep,
     _admin: AdminUser,
     pricing_version_id: str,
 ) -> dict[str, Any]:
@@ -88,13 +93,14 @@ def admin_submit_pricing_version(
 
     try:
         item = submit_pricing_version(pricing_version_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 
 @router.post("/pricing-versions/{pricing_version_id}/approve")
 def admin_approve_pricing_version(
+    locale: LocaleDep,
     _admin: AdminUser,
     pricing_version_id: str,
 ) -> dict[str, Any]:
@@ -102,13 +108,14 @@ def admin_approve_pricing_version(
 
     try:
         item = approve_pricing_version(pricing_version_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 
 @router.post("/pricing-versions/{pricing_version_id}/reject")
 def admin_reject_pricing_version(
+    locale: LocaleDep,
     _admin: AdminUser,
     pricing_version_id: str,
     body: RejectIn | None = None,
@@ -119,8 +126,8 @@ def admin_reject_pricing_version(
         item = reject_pricing_version(
             pricing_version_id, notes=(body.notes if body else "") or ""
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as err:
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 

@@ -10,11 +10,13 @@ from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query, Request
 from app.api.deps import CurrentUser, OptionalUser
 from fastapi.responses import Response
 
 from app.core.config import settings
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 from app.services.storage import get_bytes
 from app.services import uploads as upload_store
 
@@ -89,14 +91,12 @@ def _object_key_from_url(raw: str) -> str | None:
         if path.startswith(api_prefix):
             key = path[len(api_prefix) :].lstrip("/")
             return key or None
-        # Public object URL: …/uploads|assets|font-tasks|projects/{userId}/…
         for marker in ("/uploads/", "/assets/", "/font-tasks/", "/projects/"):
             idx = path.find(marker)
             if idx >= 0:
                 key = path[idx + 1 :].lstrip("/")
                 if key.startswith(("uploads/", "assets/", "font-tasks/", "projects/")):
                     return key
-        # Fallback: strip configured public base path if present.
         base = (settings.s3_public_base_url or "").rstrip("/")
         if base and s.startswith(base + "/"):
             key = unquote(s[len(base) + 1 :].split("?", 1)[0]).lstrip("/")
@@ -106,10 +106,10 @@ def _object_key_from_url(raw: str) -> str | None:
     return None
 
 
-def _file_response(key: str, *, public: bool = False) -> Response:
+def _file_response(key: str, *, public: bool = False, locale: str | None = None) -> Response:
     data = get_bytes(key)
     if not data:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     cache = "public, max-age=86400" if public else "private, max-age=86400"
     return Response(
         content=data,
@@ -143,54 +143,50 @@ def _host_is_blocked(hostname: str | None) -> bool:
     return False
 
 
-def _proxy_remote_image(url: str) -> Response:
-    """
-    Server-side fetch for third-party image URLs (Seedream/Ark TOS, etc.) so the
-    browser can inline them for export without CORS.
-    """
+def _proxy_remote_image(url: str, locale: str | None = None) -> Response:
+    """Server-side fetch for third-party image URLs (CORS-safe for canvas export)."""
     current = (url or "").strip()
     if not current:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
 
     with httpx.Client(timeout=_PROXY_TIMEOUT, follow_redirects=False) as client:
         for _ in range(5):
             parsed = urlparse(current)
             if parsed.scheme not in ("http", "https"):
-                raise HTTPException(status_code=404, detail="Not found")
+                raise http_error(404, "not_found", locale)
             if _host_is_blocked(parsed.hostname):
-                raise HTTPException(status_code=404, detail="Not found")
+                raise http_error(404, "not_found", locale)
             try:
                 resp = client.get(current)
             except httpx.HTTPError as err:
                 logger.warning("upload content proxy fetch failed: %s", err)
-                raise HTTPException(status_code=502, detail="upstream fetch failed") from err
+                raise http_error(502, "upstream_fetch_failed", locale) from err
 
             if resp.status_code in (301, 302, 303, 307, 308):
                 loc = (resp.headers.get("location") or "").strip()
                 if not loc:
-                    raise HTTPException(status_code=404, detail="Not found")
+                    raise http_error(404, "not_found", locale)
                 current = urljoin(current, loc)
                 continue
 
             if resp.status_code >= 400:
-                raise HTTPException(status_code=404, detail="Not found")
+                raise http_error(404, "not_found", locale)
 
             data = resp.content or b""
             if len(data) < 8:
-                raise HTTPException(status_code=404, detail="Not found")
+                raise http_error(404, "not_found", locale)
             if len(data) > _MAX_PROXY_BYTES:
-                raise HTTPException(status_code=413, detail="image too large")
+                raise http_error(413, "image_too_large", locale)
 
             ctype = (resp.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
             if ctype.startswith("image/"):
                 media = ctype
             elif ctype in ("", "application/octet-stream", "binary/octet-stream"):
-                # Signed CDN URLs often omit a useful Content-Type.
                 media = _mime_for_key(parsed.path or "") or "image/png"
                 if media == "application/octet-stream":
                     media = "image/png"
             else:
-                raise HTTPException(status_code=404, detail="Not found")
+                raise http_error(404, "not_found", locale)
 
             return Response(
                 content=data,
@@ -198,11 +194,12 @@ def _proxy_remote_image(url: str) -> Response:
                 headers={"Cache-Control": "private, max-age=3600"},
             )
 
-    raise HTTPException(status_code=404, detail="Not found")
+    raise http_error(404, "not_found", locale)
 
 
 @router.get("/content")
 def get_upload_content_by_url(
+    locale: LocaleDep,
     current_user: CurrentUser,
     url: str = Query(
         ...,
@@ -219,16 +216,17 @@ def get_upload_content_by_url(
     raw = (url or "").strip()
     key = _object_key_from_url(raw)
     if key and ".." not in key and _user_owns_key(current_user.id, key):
-        return _file_response(key)
+        return _file_response(key, locale=locale)
 
     if raw.startswith("http://") or raw.startswith("https://"):
-        return _proxy_remote_image(raw)
+        return _proxy_remote_image(raw, locale)
 
-    raise HTTPException(status_code=404, detail="Not found")
+    raise http_error(404, "not_found", locale)
 
 
 @router.get("/files/{object_key:path}")
 def get_uploaded_file(
+    locale: LocaleDep,
     object_key: str,
     current_user: OptionalUser,
 ) -> Response:
@@ -240,23 +238,24 @@ def get_uploaded_file(
     """
     key = (object_key or "").lstrip("/")
     if ".." in key or not key:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     if _is_public_project_cover_key(key):
-        return _file_response(key, public=True)
+        return _file_response(key, public=True, locale=locale)
     if current_user is None or not _user_owns_key(current_user.id, key):
-        raise HTTPException(status_code=404, detail="Not found")
-    return _file_response(key)
+        raise http_error(404, "not_found", locale)
+    return _file_response(key, locale=locale)
 
 
 @router.delete("/files/{object_key:path}")
 def delete_uploaded_file(
+    locale: LocaleDep,
     current_user: CurrentUser,
     object_key: str,
 ) -> dict[str, Any]:
-    """Delete a previously uploaded object owned by the current current_user."""
+    """Delete a previously uploaded object owned by the current user."""
     ok = upload_store.delete_user_file(current_user.id, object_key)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}
 
 

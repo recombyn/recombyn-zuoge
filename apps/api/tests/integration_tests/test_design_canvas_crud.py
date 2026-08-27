@@ -120,6 +120,15 @@ def _wallet_and_fast_observe(monkeypatch):
         lambda _rt: IntelligenceTaskProfile("direct", (), (), False, False),
     )
 
+    async def _fake_apply_route(rt: Any) -> None:
+        rt.flags["route_lane"] = "standard"
+        rt.run.task_tier = "standard"
+
+    monkeypatch.setattr(
+        "app.services.design.runtime.graph.nodes.memory.apply_classified_model_route",
+        _fake_apply_route,
+    )
+
 
 def _agent(**kwargs: Any) -> list[dict[str, Any]]:
     return asyncio.run(

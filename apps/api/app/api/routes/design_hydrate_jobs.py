@@ -6,10 +6,12 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 from app.services.job_store import get_job, normalize_trace_id, save_job
 from worker.tasks import run_image_hydrate_job
 
@@ -46,10 +48,11 @@ class HydrateJobStatusResponse(BaseModel):
 async def create_hydrate_job(
     body: HydrateJobCreateRequest,
     request: Request,
+    locale: LocaleDep,
     _current_user: CurrentUser,
 ):
     if not body.ops:
-        raise HTTPException(status_code=400, detail="ops required")
+        raise http_error(400, "ops_required", locale)
     job_id = uuid.uuid4().hex
     header_tid = getattr(request.state, "trace_id", None)
     trace_id = normalize_trace_id(body.trace_id or header_tid)
@@ -71,10 +74,7 @@ async def create_hydrate_job(
         save_job(job_id, payload, kind=_KIND)
         run_image_hydrate_job.delay(job_id)
     except Exception as exc:  # noqa: BLE001 — Redis/broker down
-        raise HTTPException(
-            status_code=503,
-            detail=f"Job queue unavailable (start Redis + worker). {exc}",
-        ) from exc
+        raise http_error(503, "job_queue_unavailable", locale) from exc
     try:
         from app.core.metrics import observe_job
 
@@ -91,16 +91,16 @@ async def create_hydrate_job(
 
 
 @router.get("/jobs/{job_id}", response_model=HydrateJobStatusResponse)
-def get_hydrate_job(_current_user: CurrentUser, job_id: str):
+def get_hydrate_job(locale: LocaleDep, _current_user: CurrentUser, job_id: str):
     try:
         job = get_job(job_id, kind=_KIND)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
+        raise http_error(503, "job_store_unavailable", locale) from exc
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise http_error(404, "job_not_found", locale)
     owner = str(job.get("user_id") or "")
     if owner and owner != str(_current_user.id):
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise http_error(404, "job_not_found", locale)
     return HydrateJobStatusResponse(
         job_id=job_id,
         status=str(job.get("status") or "queued"),

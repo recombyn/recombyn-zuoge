@@ -581,6 +581,13 @@ async def _node_settle(state: GraphState) -> Command:
             )
     if not st.painted and not st.proposed_ops:
         _emit({"type": "chat_done"})
+    from app.services.design.runtime.session_log import log_turn_end
+
+    log_turn_end(
+        st.task_id,
+        status=settle_status,
+        intent=str(st.intent or ""),
+    )
     exec_trace(
         rt.t0,
         "DONE",

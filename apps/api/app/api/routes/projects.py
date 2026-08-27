@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from app.api.deps import CurrentUser
 from app.models import BatchDeleteOut, OkOut, ProjectListOut, ProjectOneOut
 from app.services import projects as project_store
+from app.services.i18n.errors import api_error_detail, http_error
+from app.services.i18n.locale import LocaleDep
 from app.services.projects import (
     ProjectConflictError,
     ProjectForbiddenError,
@@ -36,16 +38,23 @@ def _parse_if_match(if_match: str | None) -> int | None:
         return None
 
 
-def _conflict_http(exc: ProjectConflictError) -> HTTPException:
-    return HTTPException(
-        status_code=412,
-        detail={
-            "code": "project_revision_conflict",
+def _conflict_http(exc: ProjectConflictError, locale: str | None = None) -> HTTPException:
+    detail = api_error_detail("project_revision_conflict", locale)
+    detail.update(
+        {
             "id": exc.project_id,
             "revision": exc.revision,
             "updatedAt": exc.updated_at_ms,
-        },
+        }
     )
+    return HTTPException(status_code=412, detail=detail)
+
+
+def _forbidden_http(exc: ProjectForbiddenError, locale: str | None = None) -> HTTPException:
+    detail = api_error_detail("forbidden", locale)
+    detail["code"] = str(exc.code or detail["code"])
+    detail["id"] = exc.project_id
+    return HTTPException(status_code=403, detail=detail)
 
 
 class UpsertProjectIn(BaseModel):
@@ -101,17 +110,19 @@ def batch_remove(
 
 @router.get("/{project_id}", response_model=ProjectOneOut)
 def get_one(
+    locale: LocaleDep,
     current_user: CurrentUser,
     project_id: str,
 ) -> dict[str, Any]:
     row = project_store.get_project(current_user.id, project_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"project": row}
 
 
 @router.put("", response_model=ProjectOneOut)
 def upsert(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: UpsertProjectIn,
     if_match: str | None = Header(default=None, alias="If-Match"),
@@ -131,17 +142,15 @@ def upsert(
             org_id=body.orgId,
         )
     except ProjectConflictError as exc:
-        raise _conflict_http(exc) from exc
+        raise _conflict_http(exc, locale) from exc
     except ProjectForbiddenError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": exc.code, "id": exc.project_id},
-        ) from exc
+        raise _forbidden_http(exc, locale) from exc
     return {"project": row}
 
 
 @router.patch("/{project_id}", response_model=ProjectOneOut)
 def patch_one(
+    locale: LocaleDep,
     current_user: CurrentUser,
     project_id: str,
     body: PatchProjectIn,
@@ -168,7 +177,7 @@ def patch_one(
     has_thumb = bool(body.thumbnailUrls or body.thumbnailCustom is not None)
     has_name = body.name is not None
     if not patch and not has_thumb and not has_name:
-        raise HTTPException(status_code=400, detail="Empty patch")
+        raise http_error(400, "empty_patch", locale)
     if not patch:
         patch = {}
     try:
@@ -182,14 +191,11 @@ def patch_one(
             base_revision=base_rev,
         )
     except ProjectNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
+        raise http_error(404, "not_found", locale) from exc
     except ProjectForbiddenError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": exc.code, "id": exc.project_id},
-        ) from exc
+        raise _forbidden_http(exc, locale) from exc
     except ProjectConflictError as exc:
-        raise _conflict_http(exc) from exc
+        raise _conflict_http(exc, locale) from exc
     return {"project": row}
 
 
@@ -201,6 +207,7 @@ class SetProjectOrgIn(BaseModel):
 
 @router.patch("/{project_id}/org", response_model=ProjectOneOut)
 def set_project_org(
+    locale: LocaleDep,
     current_user: CurrentUser,
     project_id: str,
     body: SetProjectOrgIn,
@@ -212,21 +219,19 @@ def set_project_org(
             org_id=body.orgId,
         )
     except ProjectNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Not found") from exc
+        raise http_error(404, "not_found", locale) from exc
     except ProjectForbiddenError as exc:
-        raise HTTPException(
-            status_code=403,
-            detail={"code": exc.code, "id": exc.project_id},
-        ) from exc
+        raise _forbidden_http(exc, locale) from exc
     return {"project": row}
 
 
 @router.delete("/{project_id}", response_model=OkOut)
 def remove(
+    locale: LocaleDep,
     current_user: CurrentUser,
     project_id: str,
 ) -> dict[str, Any]:
     ok = project_store.delete_project(current_user.id, project_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise http_error(404, "not_found", locale)
     return {"ok": True}

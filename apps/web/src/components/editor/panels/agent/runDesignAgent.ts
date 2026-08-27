@@ -1832,7 +1832,7 @@ export type AgentStepEvent =
       taskId?: string;
       choiceUi?: AskChoiceUi;
     }
-  | { type: 'error'; code: string; resumable?: boolean }
+  | { type: 'error'; code: string; message?: string; resumable?: boolean }
   | {
       type: 'paused';
       taskId: string;
@@ -2226,6 +2226,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   let latestMemory: TaskState | null = params.memory?.medium || null;
   let liveTaskId: string | null = null;
   let terminalErrorCode: string | null = null;
+  let terminalErrorMessage: string | null = null;
 
 
   // Cover stays up through paint → review → reflect retry until settle/abort.
@@ -2415,10 +2416,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         live.frameId = applied.frameId;
         live.fingerprintById = applied.fingerprintById;
         acknowledgeAppliedDesignCommand(liveTaskId, commandSeq, params.signal).catch(
-          () => {
+          (ackErr: unknown) => {
             params.onEvent({
               type: 'error',
               code: 'command_ack_failed',
+              message:
+                ackErr instanceof Error
+                  ? ackErr.message
+                  : String(ackErr || 'command acknowledgment failed'),
             });
           }
         );
@@ -3004,10 +3009,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               liveTaskId,
               ev.command_seq,
               params.signal
-            ).catch(() => {
+            ).catch((ackErr: unknown) => {
               params.onEvent({
                 type: 'error',
                 code: 'command_ack_failed',
+                message:
+                  ackErr instanceof Error
+                    ? ackErr.message
+                    : String(ackErr || 'command acknowledgment failed'),
               });
             });
           }
@@ -3032,6 +3041,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           params.onEvent({
             type: 'error',
             code: 'tool_ops_apply_failed',
+            message: err instanceof Error ? err.message : String(err || 'tool ops apply failed'),
           });
           undoQueuedTransaction(aiQueueRollback(aiQueue, chunkTxId));
           releaseAiMutationLock();
@@ -3217,6 +3227,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         return '';
       })();
       terminalErrorCode = fromApi || tipFromSummary || 'design_failed';
+      terminalErrorMessage = String(resultSummary || '').trim() || null;
       params.onEvent({
         type: 'activity',
         id: `result-error-${activitySeq++}`,
@@ -3690,12 +3701,14 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               type: 'paused',
               taskId: tid,
               interruptKind: 'error',
+              message: String(ev.message || '').trim() || undefined,
             });
             return;
           }
           params.onEvent({
             type: 'error',
             code: String(ev.code || '').trim() || 'internal_error',
+            message: String(ev.message || '').trim() || undefined,
           });
           return;
         default:
@@ -3736,6 +3749,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               taskId: liveTaskId,
               resumeToken: st.resume_token,
               interruptKind: st.interrupt_kind || 'paused',
+              message: String(st.error_message || '').trim() || undefined,
             });
             return;
           }
@@ -3746,6 +3760,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       params.onEvent({
         type: 'error',
         code: networkish ? 'timeout' : 'internal_error',
+        message: msg.trim() || undefined,
       });
     };
 
@@ -3789,7 +3804,11 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     clearProcessPill();
 
     if (terminalErrorCode) {
-      params.onEvent({ type: 'error', code: terminalErrorCode });
+      params.onEvent({
+        type: 'error',
+        code: terminalErrorCode,
+        message: terminalErrorMessage || undefined,
+      });
       return;
     }
 
@@ -3831,6 +3850,12 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     params.dispatch(cancelImportPlaceholder());
     clearProcessPill();
     if (params.signal?.aborted) return;
-    params.onEvent({ type: 'error', code: 'internal_error' });
+    const message =
+      err instanceof Error ? err.message.trim() : String(err || '').trim();
+    params.onEvent({
+      type: 'error',
+      code: 'internal_error',
+      message: message || undefined,
+    });
   }
 }

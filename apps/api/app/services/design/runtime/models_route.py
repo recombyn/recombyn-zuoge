@@ -25,6 +25,14 @@ from pydantic import BaseModel, Field
 _log = logging.getLogger(__name__)
 
 
+class IntentClassifyError(RuntimeError):
+    """Intent classification failed — no heuristic fallback."""
+
+
+class ModelRouteError(RuntimeError):
+    """Model route classification failed — no heuristic fallback."""
+
+
 ROUTE_LANES = ("fast", "standard", "reasoning", "vision")
 IMAGE_SLOT = "image"
 
@@ -874,32 +882,17 @@ async def classify_user_intent(
     pending_proposal: dict[str, Any] | None = None,
     recent_dialogue: str | None = None,
 ) -> IntentClassifyDecision:
-    """Cheap structured intent gate. Falls back to ``heuristic_user_intent`` on error.
+    """Structured intent gate via LLM. Raises ``IntentClassifyError`` on any failure.
 
     Injects the live canvas tools catalog so the model judges canvas_op vs design
     against real capabilities. When ``pending_proposal`` is set, also judges
     proposal_action (apply / dismiss / revise).
     """
     has_pending = _pending_proposal_ready(pending_proposal)
-    fallback = heuristic_user_intent(
-        prompt, has_images=has_images, canvas_node_count=canvas_node_count
-    )
-    if has_pending:
-        # LLM-down: do not auto-apply; treat as revise so Ask can re-propose.
-        fallback = IntentClassifyDecision(
-            intent="design",
-            paint_lane="create",
-            proposal_action="revise",
-            reply="",
-            rationale="heuristic_pending_revise",
-        )
     mode = str(interaction_mode or "").strip().lower()
-    try:
-        from app.services.design.runtime.agent_profile import resolve_tool_host
+    from app.services.design.runtime.agent_profile import resolve_tool_host
 
-        tools_catalog = resolve_tool_host().format_catalog(rules)
-    except Exception:
-        tools_catalog = ""
+    tools_catalog = resolve_tool_host().format_catalog(rules)
     pending_block = (
         _pending_proposal_user_block(pending_proposal)
         if has_pending and isinstance(pending_proposal, dict)
@@ -911,7 +904,7 @@ async def classify_user_intent(
         (
             f"scene={scene or 'unknown'}\n",
             f"has_images={bool(has_images)}\n",
-            f"canvas_node_count={int(canvas_node_count)}\n",
+            f"canvas_node_count={int(len(scene_nodes or []))}\n",
             f"interaction_mode={mode or 'agent'}\n",
             f"has_pending_proposal={has_pending}\n",
             f"SCENE_TARGETS:\n{targets}\n\n" if targets else "",
@@ -921,105 +914,96 @@ async def classify_user_intent(
             f"user_prompt:\n{(prompt or '').strip()[:4000]}",
         )
     )
-    try:
-        from app.services.design.prompts.prompt_pack_store import render_prompt_body
-        from app.services.llm.agent import ainvoke_structured
+    from app.services.design.prompts.prompt_pack_store import render_prompt_body
+    from app.services.llm.agent import ainvoke_structured
 
-        from app.services.design.runtime.agent_profile import (
-            get_active_agent_profile,
-            resolve_contract_schema,
-        )
+    from app.services.design.runtime.agent_profile import (
+        get_active_agent_profile,
+        resolve_contract_schema,
+    )
 
-        intent_key = get_active_agent_profile().intent_prompt or _INTENT_SYSTEM_KEY
-        system = render_prompt_body(intent_key, rules=rules)
-        if not system:
-            return fallback
-        out = await ainvoke_structured(
-            schema=resolve_contract_schema("intent"),
-            messages=[{"role": "user", "content": user_blob}],
-            model=router_model_id(rules),
-            system=system,
-            source="intent_classify",
+    intent_key = get_active_agent_profile().intent_prompt or _INTENT_SYSTEM_KEY
+    system = render_prompt_body(intent_key, rules=rules)
+    if not system:
+        raise IntentClassifyError(f"intent_classify: prompt pack missing for {intent_key}")
+    out = await ainvoke_structured(
+        schema=resolve_contract_schema("intent"),
+        messages=[{"role": "user", "content": user_blob}],
+        model=router_model_id(rules),
+        system=system,
+        source="intent_classify",
+    )
+    structured = out.get("structured")
+    if isinstance(structured, IntentClassifyDecision):
+        raw_intent = structured.intent
+        raw_lane = structured.paint_lane
+        rationale = structured.rationale
+        reply = structured.reply
+        raw_action = structured.proposal_action
+        raw_session = structured.session_action
+        raw_clarification_needed = structured.needs_clarification
+        raw_clarification = structured.clarification
+        raw_clarification_options = [
+            option.model_dump() for option in structured.clarification_options
+        ]
+    elif isinstance(structured, dict):
+        raw_intent = structured.get("intent")
+        raw_lane = structured.get("paint_lane")
+        rationale = structured.get("rationale")
+        reply = structured.get("reply")
+        raw_action = structured.get("proposal_action")
+        raw_session = structured.get("session_action")
+        raw_clarification_needed = structured.get("needs_clarification")
+        raw_clarification = structured.get("clarification")
+        raw_clarification_options = structured.get("clarification_options")
+    else:
+        raise IntentClassifyError(
+            f"intent_classify: structured output empty or unparsed (type={type(structured).__name__})"
         )
-        structured = out.get("structured")
-        if isinstance(structured, IntentClassifyDecision):
-            raw_intent = structured.intent
-            raw_lane = structured.paint_lane
-            rationale = structured.rationale
-            reply = structured.reply
-            raw_action = structured.proposal_action
-            raw_session = structured.session_action
-            raw_clarification_needed = structured.needs_clarification
-            raw_clarification = structured.clarification
-            raw_clarification_options = [
-                option.model_dump() for option in structured.clarification_options
-            ]
-        elif isinstance(structured, dict):
-            raw_intent = structured.get("intent")
-            raw_lane = structured.get("paint_lane")
-            rationale = structured.get("rationale")
-            reply = structured.get("reply")
-            raw_action = structured.get("proposal_action")
-            raw_session = structured.get("session_action")
-            raw_clarification_needed = structured.get("needs_clarification")
-            raw_clarification = structured.get("clarification")
-            raw_clarification_options = structured.get("clarification_options")
-        else:
-            _log.warning(
-                "intent_classify structured empty/unparsed type=%s; using heuristic",
-                type(structured).__name__,
-            )
-            return fallback
-        intent, lane = normalize_intent_decision(raw_intent, raw_lane)
-        if intent not in USER_INTENTS:
-            _log.warning(
-                "intent_classify invalid intent=%r; using heuristic", raw_intent
-            )
-            return fallback
-        action = normalize_proposal_action(raw_action, has_pending=has_pending)
-        session_action = normalize_session_action(raw_session)
-        # Trust the intent LLM fully — no chitchat / length / keyword demotion.
-        reply_s = str(reply or "").strip()
-        if intent != "chat" and action != "dismiss" and not session_action:
-            reply_s = ""
-        # Classifier never sees pixels — blind chat replies must not answer for the user.
-        if intent == "chat" and has_images and not session_action and action != "dismiss":
-            reply_s = ""
-        # Confirm held ops — do not short-circuit as chat.
-        if action == "apply":
-            intent = "design"
-            lane = lane or "create"
-            reply_s = ""
-            session_action = ""
-        if session_action:
-            intent = "chat"
-            lane = ""
-        needs_clarification, clarification, clarification_options = (
-            normalize_clarification(
-                raw_clarification_needed,
-                raw_clarification,
-                raw_clarification_options,
-                has_target=("[Target element" in prompt or "Target element —" in prompt),
-                intent=intent,
-                scene_nodes=scene_nodes,
-            )
+    intent, lane = normalize_intent_decision(raw_intent, raw_lane)
+    if intent not in USER_INTENTS:
+        raise IntentClassifyError(f"intent_classify: invalid intent={raw_intent!r}")
+    action = normalize_proposal_action(raw_action, has_pending=has_pending)
+    session_action = normalize_session_action(raw_session)
+    # Trust the intent LLM fully — no chitchat / length / keyword demotion.
+    reply_s = str(reply or "").strip()
+    if intent != "chat" and action != "dismiss" and not session_action:
+        reply_s = ""
+    # Classifier never sees pixels — blind chat replies must not answer for the user.
+    if intent == "chat" and has_images and not session_action and action != "dismiss":
+        reply_s = ""
+    # Confirm held ops — do not short-circuit as chat.
+    if action == "apply":
+        intent = "design"
+        lane = lane or "create"
+        reply_s = ""
+        session_action = ""
+    if session_action:
+        intent = "chat"
+        lane = ""
+    needs_clarification, clarification, clarification_options = (
+        normalize_clarification(
+            raw_clarification_needed,
+            raw_clarification,
+            raw_clarification_options,
+            has_target=("[Target element" in prompt or "Target element —" in prompt),
+            intent=intent,
+            scene_nodes=scene_nodes,
         )
-        if session_action or action == "apply":
-            needs_clarification, clarification, clarification_options = False, "", []
-        return IntentClassifyDecision(
-            intent=intent,  # type: ignore[arg-type]
-            paint_lane=lane if intent != "chat" else "",  # type: ignore[arg-type]
-            proposal_action=action,  # type: ignore[arg-type]
-            session_action=session_action,  # type: ignore[arg-type]
-            reply=reply_s[:500],
-            needs_clarification=needs_clarification,
-            clarification=clarification,
-            clarification_options=clarification_options,
-            rationale=str(rationale or "").strip() or "llm_intent",
-        )
-    except Exception:
-        _log.exception("intent_classify LLM failed; using heuristic")
-        return fallback
+    )
+    if session_action or action == "apply":
+        needs_clarification, clarification, clarification_options = False, "", []
+    return IntentClassifyDecision(
+        intent=intent,  # type: ignore[arg-type]
+        paint_lane=lane if intent != "chat" else "",  # type: ignore[arg-type]
+        proposal_action=action,  # type: ignore[arg-type]
+        session_action=session_action,  # type: ignore[arg-type]
+        reply=reply_s[:500],
+        needs_clarification=needs_clarification,
+        clarification=clarification,
+        clarification_options=clarification_options,
+        rationale=str(rationale or "").strip() or "llm_intent",
+    )
 
 
 async def classify_model_route(
@@ -1032,14 +1016,7 @@ async def classify_model_route(
     scene: str | None = None,
     interaction_mode: str | None = None,
 ) -> ModelRouteDecision:
-    """LangChain structured router. Falls back to ``heuristic_route_lane`` on error."""
-    fallback = heuristic_route_lane(
-        prompt,
-        has_images=has_images,
-        canvas_node_count=canvas_node_count,
-        scene=scene,
-    )
-    # Ask / no-paint UI mode: stay cheap unless images need understanding.
+    """LangChain structured router. Raises ``ModelRouteError`` on any failure."""
     mode = str(interaction_mode or "").strip().lower()
     if mode == "ask" and not has_images:
         return ModelRouteDecision(
@@ -1055,39 +1032,39 @@ async def classify_model_route(
         f"interaction_mode={mode or 'agent'}\n"
         f"user_prompt:\n{(prompt or '').strip()[:4000]}"
     )
-    try:
-        from app.services.design.prompts.rules_text import _rule_text
-        from app.services.llm.agent import ainvoke_structured
+    from app.services.design.prompts.prompt_pack_store import render_prompt_body
+    from app.services.llm.agent import ainvoke_structured
 
-        from app.services.design.runtime.agent_profile import get_active_agent_profile
+    from app.services.design.runtime.agent_profile import get_active_agent_profile
 
-        router_key = get_active_agent_profile().router_prompt or _ROUTER_SYSTEM_KEY
-        router_system = _rule_text(rules, router_key).strip()
-        out = await ainvoke_structured(
-            schema=ModelRouteDecision,
-            messages=[{"role": "user", "content": user_blob}],
-            model=router_model_id(rules),
-            system=router_system,
-            source="model_route",
+    router_key = get_active_agent_profile().router_prompt or _ROUTER_SYSTEM_KEY
+    router_system = render_prompt_body(router_key, rules=rules).strip()
+    if not router_system:
+        raise ModelRouteError(f"model_route: prompt pack missing for {router_key}")
+    out = await ainvoke_structured(
+        schema=ModelRouteDecision,
+        messages=[{"role": "user", "content": user_blob}],
+        model=router_model_id(rules),
+        system=router_system,
+        source="model_route",
+    )
+    structured = out.get("structured")
+    if isinstance(structured, ModelRouteDecision):
+        decision = structured
+    elif isinstance(structured, dict):
+        decision = ModelRouteDecision.model_validate(structured)
+    else:
+        raise ModelRouteError(
+            f"model_route: structured output empty or unparsed (type={type(structured).__name__})"
         )
-        structured = out.get("structured")
-        if isinstance(structured, ModelRouteDecision):
-            decision = structured
-        elif isinstance(structured, dict):
-            decision = ModelRouteDecision.model_validate(structured)
-        else:
-            return fallback
-        lane = clamp_lane(decision.lane, enabled_lanes(rules))
-        # Images need vision — structural only (no prompt-length override).
-        if has_images and lane == "fast":
-            lane = "vision"
-        return ModelRouteDecision(
-            lane=lane,  # type: ignore[arg-type]
-            needs_image_gen=bool(decision.needs_image_gen),
-            rationale=(decision.rationale or "").strip() or "llm_router",
-        )
-    except Exception:
-        return fallback
+    lane = clamp_lane(decision.lane, enabled_lanes(rules))
+    if has_images and lane == "fast":
+        lane = "vision"
+    return ModelRouteDecision(
+        lane=lane,  # type: ignore[arg-type]
+        needs_image_gen=bool(decision.needs_image_gen),
+        rationale=(decision.rationale or "").strip() or "llm_router",
+    )
 
 
 async def apply_classified_model_route(rt: Any) -> None:
@@ -1182,17 +1159,13 @@ def resolve_model_for_skill(
             return resolve_vision_model(rules), f"{reason}+precheck_vision"
         return model_ref, reason
 
-    if run_mode == "single_model":
+    # Legacy partial is an alias of single_model (orchestrator remaps before graph).
+    if run_mode in ("single_model", "partial"):
         if _is_concrete(selected):
             return lock_or_vision(selected, "user_single_model")
         if selected in ("doubao", "deepseek", "glm", "kimi", "auto") or not selected:
             return from_precheck("single_precheck")
         return lock_or_vision(skill_default, "single_model_fallback_default")
-
-    if run_mode == "partial":
-        if _is_concrete(selected):
-            return lock_or_vision(selected, "user_partial_priority")
-        return from_precheck("partial_precheck")
 
     if selected in ("auto", "doubao", "deepseek", "glm", "kimi") or not selected:
         return from_precheck("precheck_lane")

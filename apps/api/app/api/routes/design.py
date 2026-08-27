@@ -1,4 +1,4 @@
-"""Design run API — table-driven agent / single_model / partial."""
+"""Design run API — LangGraph canvas_ops (agent / single_model; partial → single_model)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from app.api.deps import CurrentUser
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -21,6 +21,10 @@ from app.services.design.runtime.orchestrator import run_design_job_from_snapsho
 from app.services.design.runtime.pipeline_support import _run_error_code
 from app.services.design.runtime.pipeline_progress import PipelineSseState
 from app.services.design.runtime.sse_transport import local_run_sse as _transport_local_run_sse, worker_run_sse as _worker_run_sse
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
+
+_SKILL_VALUE_ERRORS = {"skill not found": (404, "skill_not_found")}
 
 router = APIRouter(prefix="/design", tags=["design"])
 _log = logging.getLogger("design.run_api")
@@ -94,7 +98,10 @@ def _sse_log_line(
 
 
 class DesignRunIn(BaseModel):
-    run_mode: str = Field(..., description="agent | single_model | partial")
+    run_mode: str = Field(
+        ...,
+        description="agent | single_model | partial (legacy alias → single_model)",
+    )
     prompt: str = Field(..., min_length=1)
     scene: str | None = None
     style_group_id: int | None = None
@@ -230,6 +237,7 @@ def design_skills_picker(
 
 @router.post("/skills")
 def design_skills_upsert(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: UserSkillIn,
 ) -> dict[str, Any]:
@@ -238,12 +246,13 @@ def design_skills_upsert(
     try:
         item = upsert_end_user_skill(user_id=current_user.id, payload=body.model_dump())
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale, known=_SKILL_VALUE_ERRORS) from err
     return {"item": item}
 
 
 @router.post("/skills/import")
 async def design_skills_import_zip(
+    locale: LocaleDep,
     current_user: CurrentUser,
     file: UploadFile = File(
         ...,
@@ -263,12 +272,13 @@ async def design_skills_import_zip(
             overwrite=bool(overwrite),
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale, known=_SKILL_VALUE_ERRORS) from err
     return result
 
 
 @router.post("/plugins/install")
 async def design_plugins_install(
+    locale: LocaleDep,
     current_user: CurrentUser,
     file: UploadFile = File(
         ...,
@@ -288,11 +298,12 @@ async def design_plugins_install(
             overwrite=bool(overwrite),
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale, known=_SKILL_VALUE_ERRORS) from err
 
 
 @router.patch("/skills/{skill_id}/enabled")
 def design_skills_set_enabled(
+    locale: LocaleDep,
     current_user: CurrentUser,
     skill_id: int,
     body: UserSkillEnabledIn,
@@ -305,14 +316,13 @@ def design_skills_set_enabled(
             user_id=current_user.id, skill_id=skill_id, enabled=bool(body.enabled)
         )
     except ValueError as err:
-        detail = str(err)
-        code = 404 if detail == "skill not found" else 400
-        raise HTTPException(status_code=code, detail=detail) from err
+        raise value_error_http(err, locale, known=_SKILL_VALUE_ERRORS) from err
     return {"item": item}
 
 
 @router.delete("/skills/{skill_id}")
 def design_skills_delete(
+    locale: LocaleDep,
     current_user: CurrentUser,
     skill_id: int,
 ) -> dict[str, Any]:
@@ -321,9 +331,9 @@ def design_skills_delete(
     try:
         ok = delete_end_user_skill(user_id=current_user.id, skill_id=skill_id)
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale, known=_SKILL_VALUE_ERRORS) from err
     if not ok:
-        raise HTTPException(status_code=404, detail="skill not found")
+        raise http_error(404, "skill_not_found", locale)
     return {"ok": True}
 
 
@@ -332,6 +342,7 @@ async def design_run(
     current_user: CurrentUser,
     body: DesignRunIn,
     request: Request,
+    locale: LocaleDep,
 ) -> StreamingResponse:
     from app.core.metrics import observe_design_run_start
     from app.services.geoip import resolve_client_country
@@ -414,7 +425,7 @@ async def design_run(
 
             run_design_agent_job.delay(run_task_id)
         except Exception as err:
-            raise HTTPException(status_code=503, detail="design_worker_unavailable") from err
+            raise http_error(503, "design_worker_unavailable", locale) from err
         return StreamingResponse(
             _worker_run_sse(run_task_id),
             media_type="text/event-stream",
@@ -489,6 +500,7 @@ class CanvasCommandAckIn(BaseModel):
 
 @router.get("/run/{task_id}")
 def design_run_status(
+    locale: LocaleDep,
     current_user: CurrentUser,
     task_id: str,
 ) -> dict[str, Any]:
@@ -496,15 +508,16 @@ def design_run_status(
 
     st = get_design_run_status(task_id)
     if not st:
-        raise HTTPException(status_code=404, detail="task_not_found")
+        raise http_error(404, "task_not_found", locale)
     if str(st.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=403, detail="forbidden")
+        raise http_error(403, "forbidden", locale)
     st.pop("user_id", None)
     return st
 
 
 @router.get("/run/{task_id}/events")
 def design_run_events(
+    locale: LocaleDep,
     current_user: CurrentUser,
     task_id: str,
     after_seq: int = Query(default=0, ge=0),
@@ -515,33 +528,66 @@ def design_run_events(
 
     row = get_design_task(task_id)
     if not row:
-        raise HTTPException(status_code=404, detail="task_not_found")
+        raise http_error(404, "task_not_found", locale)
     if str(row.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=403, detail="forbidden")
+        raise http_error(403, "forbidden", locale)
     return get_task_events(task_id, after_seq=after_seq, limit=limit)
 
 
+@router.get("/run/{task_id}/trace")
+def design_run_trace(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    task_id: str,
+    after_seq: int = Query(default=0, ge=0),
+    limit: int = Query(default=256, ge=1, le=256),
+) -> dict[str, Any]:
+    """Model-lane session trace for eval/debug (no canvas payloads)."""
+    from app.services.design.admin.task_store import get_design_task
+    from app.services.design.runtime.session_log import get_trace
+
+    row = get_design_task(task_id)
+    if not row:
+        raise http_error(404, "task_not_found", locale)
+    if str(row.get("user_id") or "") != str(current_user.id):
+        raise http_error(403, "forbidden", locale)
+    return get_trace(task_id, after_seq=after_seq, limit=limit)
+
+
 @router.get("/run/{task_id}/commands")
-def design_run_commands(current_user: CurrentUser, task_id: str, after_seq: int = Query(default=0, ge=0)) -> dict[str, Any]:
+def design_run_commands(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    task_id: str,
+    after_seq: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
     from app.services.design.admin.task_store import get_canvas_commands, get_design_task
+
     row = get_design_task(task_id)
     if not row or str(row.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=404, detail="task_not_found")
+        raise http_error(404, "task_not_found", locale)
     return get_canvas_commands(task_id, after_seq=after_seq)
 
 
 @router.post("/run/{task_id}/commands/ack")
-def design_run_commands_ack(current_user: CurrentUser, task_id: str, body: CanvasCommandAckIn) -> dict[str, Any]:
+def design_run_commands_ack(
+    locale: LocaleDep,
+    current_user: CurrentUser,
+    task_id: str,
+    body: CanvasCommandAckIn,
+) -> dict[str, Any]:
     from app.services.design.admin.task_store import acknowledge_canvas_commands, get_design_task
+
     row = get_design_task(task_id)
     if not row or str(row.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=404, detail="task_not_found")
+        raise http_error(404, "task_not_found", locale)
     acknowledge_canvas_commands(task_id, body.seq)
     return {"ok": True, "seq": body.seq}
 
 
 @router.post("/run/{task_id}/pause")
 def design_run_pause(
+    locale: LocaleDep,
     current_user: CurrentUser,
     task_id: str,
 ) -> dict[str, Any]:
@@ -550,14 +596,15 @@ def design_run_pause(
 
     row = get_design_task(task_id)
     if not row:
-        raise HTTPException(status_code=404, detail="task_not_found")
+        raise http_error(404, "task_not_found", locale)
     if str(row.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=403, detail="forbidden")
+        raise http_error(403, "forbidden", locale)
     return request_design_pause(task_id)
 
 
 @router.post("/run/{task_id}/cancel")
 async def design_run_cancel(
+    locale: LocaleDep,
     current_user: CurrentUser,
     task_id: str,
 ) -> dict[str, Any]:
@@ -570,9 +617,9 @@ async def design_run_cancel(
 
     row = get_design_task(task_id)
     if not row:
-        raise HTTPException(status_code=404, detail="task_not_found")
+        raise http_error(404, "task_not_found", locale)
     if str(row.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=403, detail="forbidden")
+        raise http_error(403, "forbidden", locale)
     out = request_design_cancel(task_id, refund_hold_fn=_refund_hold)
     if out.get("cleanup_checkpoint"):
         await cleanup_design_checkpoint(task_id)
@@ -583,7 +630,7 @@ async def design_run_cancel(
 async def design_run_resume(
     current_user: CurrentUser,
     task_id: str,
-    request: Request,
+    locale: LocaleDep,
     body: DesignResumeIn | None = None,
 ) -> StreamingResponse:
     """Resume a paused / waiting_client / resumable-error design run (SSE)."""
@@ -598,14 +645,14 @@ async def design_run_resume(
 
     row = get_design_task(task_id)
     if not row:
-        raise HTTPException(status_code=404, detail="task_not_found")
+        raise http_error(404, "task_not_found", locale)
     if str(row.get("user_id") or "") != str(current_user.id):
-        raise HTTPException(status_code=403, detail="forbidden")
+        raise http_error(403, "forbidden", locale)
     if not task_is_resumable(row):
-        raise HTTPException(status_code=409, detail="not_resumable")
+        raise http_error(409, "not_resumable", locale)
     expected_token = str(get_run_lifecycle(parse_task_meta(row.get("meta_json"))).get("resume_token") or "")
     if not token or not expected_token or token != expected_token:
-        raise HTTPException(status_code=403, detail="resume_token_mismatch")
+        raise http_error(403, "resume_token_mismatch", locale)
 
     from app.core.config import settings
     if bool(getattr(settings, "design_agent_worker_enabled", False)):
@@ -614,7 +661,7 @@ async def design_run_resume(
 
             run_design_agent_job.delay(task_id, True, token)
         except Exception as err:
-            raise HTTPException(status_code=503, detail="design_worker_unavailable") from err
+            raise http_error(503, "design_worker_unavailable", locale) from err
         return StreamingResponse(
             _worker_run_sse(task_id),
             media_type="text/event-stream",
@@ -647,13 +694,14 @@ class LottieGenerateIn(BaseModel):
 
 @router.post("/lottie/generate")
 async def design_lottie_generate(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: LottieGenerateIn,
 ) -> dict[str, Any]:
     """Generate Bodymovin JSON for the on-canvas Lottie generator plate."""
     prompt = body.prompt.strip()
     if not prompt:
-        raise HTTPException(status_code=400, detail="empty prompt")
+        raise http_error(400, "empty_prompt", locale)
     from app.services.design.ops.lottie_hydrate import generate_lottie_animation
 
     animation = await generate_lottie_animation(
@@ -684,7 +732,7 @@ async def design_lottie_generate(
     )
     stored_url = str(asset.get("url") or "").strip()
     if not stored_url:
-        raise HTTPException(status_code=500, detail="lottie asset storage incomplete")
+        raise http_error(500, "lottie_asset_storage_incomplete", locale)
     return {
         "animationData": animation,
         "w": animation.get("w"),

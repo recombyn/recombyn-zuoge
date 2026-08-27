@@ -1,7 +1,6 @@
 import { createElement } from 'react';
 import type { LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';
-import { humanizeDesignError } from '@/components/editor/panels/agent/designAgentEventRouter';
 import type { DesignScene } from '@/service/design';
 import {
   chipBaseKey,
@@ -450,27 +449,13 @@ export function resolveImageGenFinishKind(opts: {
   return 'success';
 }
 
-/** User-facing chat image/video job error (402 credits, queue stall, provider message, …). */
+/** User-facing chat image/video job error — display backend message as-is. */
 export function formatChatMediaError(
   t: (key: string, opts?: Record<string, unknown>) => string,
   err: unknown
 ): string {
   const msg = getHttpErrorMessage(err, '').trim();
-  if (msg) {
-    const normalized = msg.toLowerCase();
-    if (normalized.includes('free_daily_exhausted')) {
-      return humanizeDesignError(t, 'free_daily_exhausted');
-    }
-    if (
-      normalized.includes('insufficient credits') ||
-      normalized.includes('insufficient_credits')
-    ) {
-      return humanizeDesignError(t, 'insufficient_credits');
-    }
-    const coded = humanizeDesignError(t, msg);
-    if (coded !== t('agent.requestFailed')) return coded;
-    return msg;
-  }
+  if (msg) return msg;
   if (err instanceof Error && err.message.trim()) return err.message.trim();
   return t('agent.requestFailed');
 }

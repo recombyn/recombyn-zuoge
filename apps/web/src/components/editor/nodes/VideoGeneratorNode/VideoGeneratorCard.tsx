@@ -73,7 +73,7 @@ import {
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { cn } from '@/utils/classnames';
 import { estimateVideoCredits } from '@/utils/imageCredits';
-import { uploadComposerAttachment, readFileAsDataUrl } from '@/utils/uploadImage';
+import { uploadComposerAttachment, readFileAsDataUrl, resolveComposerMediaAfterUpload } from '@/utils/uploadImage';
 import { cloudVideoFallbackId } from '@/components/editor/panels/agent/llmModelMeta';
 import store from '@/store';
 
@@ -337,26 +337,22 @@ function VideoGeneratorCard({
           const uploaded = await uploadComposerAttachment(file, {
             previewDataUrl: thumb.startsWith('data:image/') ? thumb : preview,
           });
-          const serverUrl = String(uploaded.url || '').trim();
-          const localPreview = String(uploaded.previewDataUrl || thumb || preview).trim();
-          // Local `/api/v1/uploads/鈥 needs auth 鈥?keep local data URL for media preview;
-          // use public https URL when available.
-          const mediaUrl =
-            serverUrl.startsWith('http://') || serverUrl.startsWith('https://')
-              ? serverUrl
-              : preview;
+          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
+            serverUrl: uploaded.url,
+            localPreview: String(uploaded.previewDataUrl || thumb || preview).trim(),
+            stillPreview:
+              file.type.startsWith('video/') && thumb.startsWith('data:image/')
+                ? thumb
+                : undefined,
+          });
           setContexts((prev) => {
             if (!prev.some((c) => c.key === key)) return prev;
             return prev.map((c) =>
               c.key === key
                 ? {
                     ...c,
-                    dataUrl: mediaUrl,
-                    thumbUrl: localPreview.startsWith('data:image/')
-                      ? localPreview
-                      : thumb.startsWith('data:image/')
-                        ? thumb
-                        : localPreview,
+                    dataUrl,
+                    thumbUrl,
                     uploadKey: uploaded.uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }

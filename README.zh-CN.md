@@ -83,7 +83,7 @@ Cursor — 写入 `.cursor/mcp.json`：
 | Skills | [`skills/`](skills/) · [`plugins/skills/`](plugins/skills/) |
 | 画布 ops | [`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) |
 
-流程图、环境变量、增删 Profile：**[docs/agent-profile.md](docs/agent-profile.md)** · [seeds README](apps/api/seeds/README.md)
+流程图、环境变量、增删 Profile：**[docs/agent-profile.md](docs/agent-profile.md)** · [zuoge Harness](docs/agent-harness.md) · [seeds README](apps/api/seeds/README.md)
 
 ## 插件与扩展
 
@@ -165,6 +165,7 @@ e2e/               Playwright
 | 画布插件 | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
 | 插件包（`.recombyn-plugin`） | [docs/plugin-packs.md](docs/plugin-packs.md) |
 | AgentProfile / 子代理 | [docs/agent-profile.md](docs/agent-profile.md) |
+| zuoge Harness（seams / trace） | [docs/agent-harness.md](docs/agent-harness.md) |
 | 画布（RCB / SVG / Path2D / LOD） | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
 | Web 数据层（Query / oRPC / nuqs） | [docs/web-frontend.md](docs/web-frontend.md) |
 | Scene JSON | [docs/scene-json-spec.md](docs/scene-json-spec.md) |

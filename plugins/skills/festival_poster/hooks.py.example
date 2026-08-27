@@ -1,0 +1,10 @@
+# Optional zuoge Harness pipeline hooks.
+# Copy to hooks.py and implement register_pipeline(registry).
+#
+# def register_pipeline(registry):
+#     def pre(ctx, ops_raw):
+#         # Return ops list to short-circuit, or ops_raw / None to continue.
+#         return ops_raw
+#     registry.register_pre("my_skill_pre", pre, priority=20)
+#
+# Loaded once per process when the skill is in skills_loaded during paint.

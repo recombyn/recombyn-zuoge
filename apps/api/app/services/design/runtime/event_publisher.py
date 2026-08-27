@@ -13,9 +13,10 @@ def publish_design_output(task_id: str, event: dict[str, Any]) -> None:
     if not tid or not isinstance(event, dict):
         return
     try:
-        from app.services.design.admin.task_store import append_canvas_command, append_task_event
+        from app.services.design.admin.task_store import append_canvas_command
+        from app.services.design.runtime.session_log import append as session_append
 
-        append_task_event(tid, event)
+        session_append(tid, event, lane="ui")
         append_canvas_command(tid, event)
     except Exception:
         _log.exception("design output persistence failed task=%s type=%s", tid, event.get("type"))

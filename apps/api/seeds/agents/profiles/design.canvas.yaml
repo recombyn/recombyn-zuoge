@@ -120,7 +120,6 @@ runtime:
     # auto = Review only on structure retry / taste complaint / high-stakes
     review_mode: auto
     memory_clip: true
-    official_agent: true
   memory:
     recent_turns: $kv:memory.dialogue.recent_turns
     recent_chars: $kv:memory.dialogue.recent_chars

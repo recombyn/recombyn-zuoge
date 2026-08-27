@@ -32,7 +32,7 @@ export async function uploadUserFile(
   return uploadFileViaJob(file, {
     signal: opts?.signal,
     jobId: opts?.jobId,
-    onProgress: opts.onProgress,
+    onProgress: opts?.onProgress,
     onJobCreated,
   });
 }

@@ -84,6 +84,10 @@ import {
 import { insertPendingComposerChips } from '@/components/editor/panels/agent/composerChipInsert';
 import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import { clearImageGenMarkSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
+import {
+  markGateTipKey,
+  markNodeGate,
+} from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import {
   clearCanvasAttachPick,
@@ -100,7 +104,12 @@ import {
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import { estimateImageCredits } from '@/utils/imageCredits';
-import { readFileAsDataUrl } from '@/utils/uploadImage';
+import {
+  deleteUploadedFile,
+  readFileAsDataUrl,
+  resolveComposerMediaAfterUpload,
+  uploadComposerAttachment,
+} from '@/utils/uploadImage';
 import store from '@/store';
 
 type Props = {
@@ -321,6 +330,7 @@ function ImageGeneratorCard({
     () => contexts.filter((c) => c.kind === 'attachment'),
     [contexts]
   );
+  const attachmentsUploading = attachments.some((c) => c.uploadStatus === 'uploading');
   /** Attachments render as thumbs above; keep long filenames out of the inline composer chips. */
   const inlineContexts = useMemo(
     () => contexts.filter((c) => c.kind !== 'attachment'),
@@ -333,7 +343,7 @@ function ImageGeneratorCard({
   const canSendComposer = Boolean(prompt.trim()) || inlineContexts.length > 0;
   const canSendGen = composerCanSend({
     hasContent: canSendComposer,
-    sending,
+    sending: sending || attachmentsUploading,
     disabled,
     apiAvailable,
     modelsStatus,
@@ -348,6 +358,10 @@ function ImageGeneratorCard({
 
   const removeContext = (key: string) => {
     if (isMarkContextKey(key)) syncMarkPinRemoved(dispatch, key);
+    const removed = contextsRef.current.find((c) => c.key === key);
+    if (removed?.kind === 'attachment' && removed.uploadKey) {
+      void deleteUploadedFile(removed.uploadKey).catch(() => undefined);
+    }
     setContexts((prev) =>
       prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key))
     );
@@ -363,6 +377,15 @@ function ImageGeneratorCard({
     const attachmentsOnly = contextsRef.current.filter((c) => c.kind === 'attachment');
     setContexts([...attachmentsOnly, ...next]);
   };
+
+  // Generator Mark draws on *other* canvas images as refs — the empty plate
+  // itself has no src and must stay clickable (unlike image-node Mark).
+  const markReady = ilpEnabled && !nodeProcessing;
+  const markTip = !ilpEnabled
+    ? t('editor.imageToolbar.markNeedsIntelligence')
+    : nodeProcessing
+      ? t('editor.imageToolbar.markBlockedProcessing')
+      : t('editor.imageToolbar.mark');
 
   const onMark = () => {
     if (!ilpEnabled) {
@@ -389,27 +412,77 @@ function ImageGeneratorCard({
   const attachRefFiles = async (files: File[]) => {
     const images = files.filter((f) => f.type.startsWith('image/'));
     if (!images.length) return;
-    const results = await Promise.all(
-      images.map(async (file, i) => {
-        try {
-          const dataUrl = await readFileAsDataUrl(file);
-          return {
-            key: `attach:${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${i}`,
+
+    // Stage chips with spinner, then upload (same as VideoGenerator / AgentDock).
+    const staged: Array<{
+      file: File;
+      key: string;
+      preview: string;
+      pending: ComposerContext;
+    }> = [];
+    for (let i = 0; i < images.length; i++) {
+      const file = images[i]!;
+      try {
+        const preview = await readFileAsDataUrl(file);
+        const key = `attach:${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${i}`;
+        staged.push({
+          file,
+          key,
+          preview,
+          pending: {
+            key,
             label: file.name || t('editor.tools.imageGenRef'),
-            kind: 'attachment' as const,
-            payload: '',
-            dataUrl,
-            thumbUrl: dataUrl,
-          } satisfies ComposerContext;
-        } catch {
-          message.error(t('agent.attachReadFailed', { name: file.name }));
-          return null;
+            kind: 'attachment',
+            payload: `[Attached image]\nname: ${file.name}\nmime: ${file.type}`,
+            dataUrl: preview,
+            thumbUrl: preview,
+            uploadStatus: 'uploading',
+          },
+        });
+      } catch {
+        message.error(t('agent.attachReadFailed', { name: file.name }));
+      }
+    }
+    if (!staged.length) return;
+    setContexts((prev) => [...prev, ...staged.map((s) => s.pending)]);
+
+    await Promise.all(
+      staged.map(async ({ file, key, preview }) => {
+        try {
+          const uploaded = await uploadComposerAttachment(file, {
+            previewDataUrl: preview,
+          });
+          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
+            serverUrl: uploaded.url,
+            localPreview: String(uploaded.previewDataUrl || preview).trim(),
+          });
+          setContexts((prev) => {
+            if (!prev.some((c) => c.key === key)) {
+              if (uploaded.uploadKey) {
+                void deleteUploadedFile(uploaded.uploadKey).catch(() => undefined);
+              }
+              return prev;
+            }
+            return prev.map((c) =>
+              c.key === key
+                ? {
+                    ...c,
+                    dataUrl,
+                    thumbUrl,
+                    uploadKey: uploaded.uploadKey || undefined,
+                    uploadStatus: 'ready' as const,
+                  }
+                : c
+            );
+          });
+        } catch (err: unknown) {
+          setContexts((prev) => prev.filter((c) => c.key !== key));
+          message.error(
+            getHttpErrorMessage(err, t('agent.uploadFailed', { name: file.name }))
+          );
         }
       })
     );
-    const next = results.filter(Boolean) as ComposerContext[];
-    if (!next.length) return;
-    setContexts((prev) => [...prev, ...next]);
   };
 
   const {
@@ -478,7 +551,7 @@ function ImageGeneratorCard({
 
   const onGenerate = async () => {
     const text = prompt.trim();
-    if (!canSendGen) return;
+    if (!canSendGen || attachmentsUploading) return;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -694,27 +767,18 @@ function ImageGeneratorCard({
                 }}
                 extraActions={
                   <>
-                    {ilpEnabled ? (
-                      <Tooltip
-                        tip={
-                          nodeProcessing
-                            ? t('editor.imageToolbar.markBlockedProcessing')
-                            : t('editor.imageToolbar.mark')
-                        }
-                        placement="top"
+                    <Tooltip tip={markTip} placement="top">
+                      <button
+                        type="button"
+                        disabled={disabled || sending || !markReady}
+                        aria-label={t('editor.imageToolbar.mark')}
+                        aria-pressed={markActive}
+                        onClick={onMark}
+                        className={composerAttachActionClass(markActive)}
                       >
-                        <button
-                          type="button"
-                          disabled={disabled || sending || nodeProcessing}
-                          aria-label={t('editor.imageToolbar.mark')}
-                          aria-pressed={markActive}
-                          onClick={onMark}
-                          className={composerAttachActionClass(markActive)}
-                        >
-                          <PiSelectionPlus className="h-4 w-4" />
-                        </button>
-                      </Tooltip>
-                    ) : null}
+                        <PiSelectionPlus className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
                     <ComposerCanvasPickButton
                       pickingFromCanvas={pickingFromCanvas}
                       disabled={disabled || sending}

@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.deps import require_permission, audit_admin_mutation
 from app.services.auth import SessionUser
+from app.services.i18n.errors import http_error
+from app.services.i18n.locale import LocaleDep
 from app.services.job_store import (
     dlq_depth,
     get_job,
@@ -36,13 +38,10 @@ def _dlq_entry_for_job(kind: DlqKind, job_id: str) -> dict[str, Any] | None:
     return None
 
 
-def _rebuild_hydrate_job(job_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+def _rebuild_hydrate_job(job_id: str, entry: dict[str, Any], locale: str | None) -> dict[str, Any]:
     ops = entry.get("ops") if isinstance(entry.get("ops"), list) else []
     if not ops:
-        raise HTTPException(
-            status_code=409,
-            detail="Job payload expired and DLQ entry has no ops snapshot — cannot replay",
-        )
+        raise http_error(409, "dlq_replay_payload_expired", locale)
     payload = {
         "job_id": job_id,
         "kind": "hydrate",
@@ -61,14 +60,11 @@ def _rebuild_hydrate_job(job_id: str, entry: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _rebuild_export_job(job_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+def _rebuild_export_job(job_id: str, entry: dict[str, Any], locale: str | None) -> dict[str, Any]:
     project_id = str(entry.get("project_id") or "").strip()
     user_id = str(entry.get("user_id") or "").strip()
     if not project_id or not user_id:
-        raise HTTPException(
-            status_code=409,
-            detail="DLQ entry missing project_id/user_id — cannot replay",
-        )
+        raise http_error(409, "dlq_replay_missing_context", locale)
     fmt = str(entry.get("format") or "png").strip().lower()
     if fmt != "png":
         fmt = "png"
@@ -90,10 +86,15 @@ def _rebuild_export_job(job_id: str, entry: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _rebuild_job(kind: DlqKind, job_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+def _rebuild_job(
+    kind: DlqKind,
+    job_id: str,
+    entry: dict[str, Any],
+    locale: str | None,
+) -> dict[str, Any]:
     if kind == "export":
-        return _rebuild_export_job(job_id, entry)
-    return _rebuild_hydrate_job(job_id, entry)
+        return _rebuild_export_job(job_id, entry, locale)
+    return _rebuild_hydrate_job(job_id, entry, locale)
 
 
 def _enqueue_replay(kind: DlqKind, job_id: str) -> None:
@@ -107,12 +108,12 @@ def _enqueue_replay(kind: DlqKind, job_id: str) -> None:
     run_image_hydrate_job.delay(job_id)
 
 
-def _list_kind(kind: DlqKind, limit: int) -> dict[str, Any]:
+def _list_kind(kind: DlqKind, limit: int, locale: str | None) -> dict[str, Any]:
     try:
         items = list_dlq(kind, limit=limit)
         depth = dlq_depth(kind)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"DLQ unavailable: {exc}") from exc
+        raise http_error(503, "dlq_unavailable", locale, reason=str(exc)) from exc
     return {"items": items, "depth": depth}
 
 
@@ -121,18 +122,19 @@ def _replay_kind(
     job_id: str,
     request: Request,
     admin: SessionUser,
+    locale: str | None,
 ) -> dict[str, Any]:
     entry = _dlq_entry_for_job(kind, job_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"Job not found in {kind} DLQ")
+        raise http_error(404, "dlq_job_not_found", locale, kind=kind)
 
     try:
         job = get_job(job_id, kind=kind)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Job store unavailable: {exc}") from exc
+        raise http_error(503, "job_store_unavailable", locale) from exc
 
     if job is None:
-        job = _rebuild_job(kind, job_id, entry)
+        job = _rebuild_job(kind, job_id, entry, locale)
     else:
         save_job(
             job_id,
@@ -150,10 +152,7 @@ def _replay_kind(
     try:
         _enqueue_replay(kind, job_id)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=503,
-            detail=f"Job queue unavailable (start Redis + worker). {exc}",
-        ) from exc
+        raise http_error(503, "job_queue_unavailable", locale) from exc
 
     removed = remove_dlq_job(kind, job_id)
     try:
@@ -191,16 +190,17 @@ def _discard_kind(
     job_id: str,
     request: Request,
     admin: SessionUser,
+    locale: str | None,
 ) -> dict[str, Any]:
     jid = str(job_id or "").strip()
     if not jid:
-        raise HTTPException(status_code=400, detail="job_id required")
+        raise http_error(400, "job_id_required", locale)
     try:
         removed = remove_dlq_job(kind, jid)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"DLQ unavailable: {exc}") from exc
+        raise http_error(503, "dlq_unavailable", locale, reason=str(exc)) from exc
     if removed <= 0:
-        raise HTTPException(status_code=404, detail=f"Job not found in {kind} DLQ")
+        raise http_error(404, "dlq_job_not_found", locale, kind=kind)
     audit_admin_mutation(
         actor=admin,
         action=f"ops.{kind}_dlq.discard",
@@ -213,51 +213,57 @@ def _discard_kind(
 
 @router.get("/hydrate-dlq")
 def admin_list_hydrate_dlq(
+    locale: LocaleDep,
     _admin: SessionUser = Depends(require_permission("admin:metrics:read")),
     limit: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
-    return _list_kind("hydrate", limit)
+    return _list_kind("hydrate", limit, locale)
 
 
 @router.post("/hydrate-dlq/replay")
 def admin_replay_hydrate_dlq(
     body: DlqReplayIn,
     request: Request,
+    locale: LocaleDep,
     admin: SessionUser = Depends(require_permission("admin:design:write")),
 ) -> dict[str, Any]:
-    return _replay_kind("hydrate", body.jobId.strip(), request, admin)
+    return _replay_kind("hydrate", body.jobId.strip(), request, admin, locale)
 
 
 @router.delete("/hydrate-dlq/{job_id}")
 def admin_discard_hydrate_dlq(
     job_id: str,
     request: Request,
+    locale: LocaleDep,
     admin: SessionUser = Depends(require_permission("admin:design:write")),
 ) -> dict[str, Any]:
-    return _discard_kind("hydrate", job_id, request, admin)
+    return _discard_kind("hydrate", job_id, request, admin, locale)
 
 
 @router.get("/export-dlq")
 def admin_list_export_dlq(
+    locale: LocaleDep,
     _admin: SessionUser = Depends(require_permission("admin:metrics:read")),
     limit: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
-    return _list_kind("export", limit)
+    return _list_kind("export", limit, locale)
 
 
 @router.post("/export-dlq/replay")
 def admin_replay_export_dlq(
     body: DlqReplayIn,
     request: Request,
+    locale: LocaleDep,
     admin: SessionUser = Depends(require_permission("admin:design:write")),
 ) -> dict[str, Any]:
-    return _replay_kind("export", body.jobId.strip(), request, admin)
+    return _replay_kind("export", body.jobId.strip(), request, admin, locale)
 
 
 @router.delete("/export-dlq/{job_id}")
 def admin_discard_export_dlq(
     job_id: str,
     request: Request,
+    locale: LocaleDep,
     admin: SessionUser = Depends(require_permission("admin:design:write")),
 ) -> dict[str, Any]:
-    return _discard_kind("export", job_id, request, admin)
+    return _discard_kind("export", job_id, request, admin, locale)

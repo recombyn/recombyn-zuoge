@@ -6,11 +6,13 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form,  UploadFile
 from pydantic import BaseModel, Field
 
 from app.api.deps import CurrentUser, OptionalUser
 from app.services import fonts_store
+from app.services.i18n.errors import http_error, value_error_http
+from app.services.i18n.locale import LocaleDep
 from app.services.storage import put_bytes
 
 router = APIRouter(prefix="/fonts", tags=["fonts"])
@@ -23,12 +25,12 @@ _FONT_EXT = {
 }
 
 
-def _font_meta_from_filename(name: str) -> tuple[str, str, str]:
+def _font_meta_from_filename(name: str, locale: str | None = None) -> tuple[str, str, str]:
     lower = name.lower()
     for ext, meta in _FONT_EXT.items():
         if lower.endswith(ext):
             return meta
-    raise HTTPException(status_code=400, detail="Only ttf/otf/woff/woff2 supported")
+    raise http_error(400, "font_format_unsupported", locale)
 
 
 def _upload_quota(user_id: str) -> dict[str, int]:
@@ -109,13 +111,14 @@ def _merge_faces(
 
 @router.post("/register")
 def register_font(
+    locale: LocaleDep,
     current_user: CurrentUser,
     body: FontRegisterIn,
 ) -> dict[str, Any]:
     """Add/update a catalog font from URLs (auth required). Merges by weight."""
     family = (body.family or "").strip()
     if not family:
-        raise HTTPException(status_code=400, detail="family required")
+        raise http_error(400, "font_family_required", locale)
 
     faces: list[dict[str, Any]] = []
     if body.faces:
@@ -150,16 +153,16 @@ def register_font(
             }
         )
     else:
-        raise HTTPException(status_code=400, detail="Provide faces[] or url")
+        raise http_error(400, "font_faces_or_url_required", locale)
 
     if not faces:
-        raise HTTPException(status_code=400, detail="No valid face URLs")
+        raise http_error(400, "font_no_valid_urls", locale)
 
     fam = fonts_store.resolve_upload_family(family, current_user.id)
     try:
         fonts_store.assert_user_can_add_font(current_user.id, fam)
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
 
     existing = fonts_store.get_font_by_family(fam)
     merged = _merge_faces(
@@ -174,12 +177,13 @@ def register_font(
             owner_user_id=current_user.id,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
     return {"item": item}
 
 
 @router.post("/upload")
 async def upload_font_file(
+    locale: LocaleDep,
     current_user: CurrentUser,
     file: UploadFile = File(..., description="ttf / otf / woff / woff2"),
     family: str | None = Form(default=None),
@@ -189,12 +193,12 @@ async def upload_font_file(
     """Upload a font file, store it, and register as a catalog face."""
     raw = await file.read()
     if not raw:
-        raise HTTPException(status_code=400, detail="empty file")
+        raise http_error(400, "empty_file", locale)
     if len(raw) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="font file too large (max 20MB)")
+        raise http_error(400, "font_file_too_large", locale)
 
     name = (file.filename or "font.ttf").strip()
-    mime, fmt, ext = _font_meta_from_filename(name)
+    mime, fmt, ext = _font_meta_from_filename(name, locale)
 
     stem = Path(name).stem.strip() or "CustomFont"
     requested = (family or stem).strip() or "CustomFont"
@@ -208,19 +212,19 @@ async def upload_font_file(
             requested_family=requested,
         )
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
 
     fam = fonts_store.resolve_upload_family(requested, current_user.id)
     try:
         fonts_store.assert_user_can_add_font(current_user.id, fam)
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
+        raise value_error_http(err, locale) from err
 
     existing_resolved = fonts_store.get_font_by_family(fam)
     if existing_resolved and str(existing_resolved.get("ownerUserId") or "").strip() == str(
         current_user.id
     ).strip():
-        raise HTTPException(status_code=400, detail="font name already exists")
+        raise http_error(400, "font_name_exists", locale)
 
     weight_n = _clamp_weight(weight)
     object_key = f"uploads/{current_user.id}/fonts/{uuid.uuid4().hex[:12]}_{_safe_name(stem)}.{ext}"
@@ -259,15 +263,16 @@ async def upload_font_file(
 
 @router.delete("/mine/{family}")
 def delete_my_font(
+    locale: LocaleDep,
     current_user: CurrentUser,
     family: str,
 ) -> dict[str, Any]:
     fam = (family or "").strip()
     if not fam:
-        raise HTTPException(status_code=400, detail="family required")
+        raise http_error(400, "font_family_required", locale)
     ok = fonts_store.delete_user_font(user_id=current_user.id, family=fam)
     if not ok:
-        raise HTTPException(status_code=404, detail="font not found")
+        raise http_error(404, "font_not_found", locale)
     return {"ok": True, "family": fam, **_upload_quota(current_user.id)}
 
 

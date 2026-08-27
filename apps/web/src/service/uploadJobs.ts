@@ -11,6 +11,7 @@ import {
 import { getLocalDevApiOrigin } from '@/utils/apiBase';
 import { request } from '@/utils/request';
 import { sse } from '@/utils/sse';
+import i18n from '@/i18n';
 
 type UploadSession = { job_id: string; part_size: number; part_count: number };
 
@@ -127,7 +128,7 @@ function handleJobPayload(
   if (job.status === 'queued') {
     if (queuedSince.at == null) queuedSince.at = Date.now();
     else if (Date.now() - queuedSince.at > QUEUED_STALL_MS) {
-      throw new Error('上传队列未响应，请确认 worker 已启动后重新上传');
+      throw new Error(String(i18n.t('editor.tools.uploadQueueStall')));
     }
   } else {
     queuedSince.at = null;
@@ -157,7 +158,7 @@ export async function waitForUploadJob(
     if (total > 0 && received >= total) {
       await completeUploadJob(jobId, opts);
     } else {
-      throw new Error('上传已中断，请重新选择文件');
+      throw new Error(String(i18n.t('editor.tools.uploadInterrupted')));
     }
   }
 
@@ -252,7 +253,7 @@ export async function resumeOrWaitUploadJob(
     } else if (total > 0 && received.length >= total) {
       await completeUploadJob(jobId, opts);
     } else {
-      throw new Error('上传已中断，请重新选择文件');
+      throw new Error(String(i18n.t('editor.tools.uploadInterrupted')));
     }
   }
 
@@ -270,8 +271,8 @@ export async function uploadFileViaJob(
 ): Promise<UploadedFileItem> {
   if (opts?.jobId) {
     return resumeOrWaitUploadJob(opts.jobId, {
-      signal: opts.signal,
-      onProgress: opts.onProgress,
+      signal: opts?.signal,
+      onProgress: opts?.onProgress,
     });
   }
 
@@ -284,12 +285,12 @@ export async function uploadFileViaJob(
   }
   await uploadJobParts(file, session, {
     signal: opts?.signal,
-    onProgress: opts.onProgress,
+    onProgress: opts?.onProgress,
   });
   await completeUploadJob(session.job_id, { signal: opts?.signal });
   return waitForUploadJob(session.job_id, {
     signal: opts?.signal,
-    onProgress: opts.onProgress,
+    onProgress: opts?.onProgress,
   });
 }
 

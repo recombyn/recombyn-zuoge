@@ -83,7 +83,7 @@ Streaming chat on the same canvas: plan → Skills → `tool_ops` → apply. Fix
 | Skills | [`skills/`](skills/) · [`plugins/skills/`](plugins/skills/) |
 | Canvas ops | [`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) |
 
-Graph, env knobs, add/swap profiles: **[docs/agent-profile.md](docs/agent-profile.md)** · [seeds README](apps/api/seeds/README.md)
+Graph, env knobs, add/swap profiles: **[docs/agent-profile.md](docs/agent-profile.md)** · [zuoge Harness seams](docs/agent-harness.md) · [seeds README](apps/api/seeds/README.md)
 
 ## Plugins & extensions
 
@@ -194,6 +194,7 @@ User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) 
 | Canvas plugins | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
 | Plugin packs (`.recombyn-plugin`) | [docs/plugin-packs.md](docs/plugin-packs.md) |
 | AgentProfile / sub-agents | [docs/agent-profile.md](docs/agent-profile.md) |
+| zuoge Harness (seams / trace) | [docs/agent-harness.md](docs/agent-harness.md) |
 | Canvas (RCB / SVG / Path2D / LOD) | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
 | Web data layer (Query / oRPC / nuqs) | [docs/web-frontend.md](docs/web-frontend.md) |
 | Scene JSON | [docs/scene-json-spec.md](docs/scene-json-spec.md) |

@@ -1,4 +1,4 @@
-import { useEffect, memo } from 'react';
+import { useEffect, useRef, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { message } from '@/components/base';
 import {
@@ -21,7 +21,7 @@ import {
   finishImageProcess,
   patchDocumentNode,
 } from '@/store/modules/editor';
-import type { SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function UploadJobWatcher() {
   const dispatch = useDispatch();
@@ -30,13 +30,14 @@ function UploadJobWatcher() {
       s.editor?.pendingImageProcessId ?? null
   );
   const document = useSelector(
-    (s: { editor?: { document?: { deltaSetLike?: Record<string, SceneNodeInput> } } }) =>
-      s.editor?.document
+    (s: { editor?: { document?: SceneDocument } }) => s.editor?.document
   );
+  const documentRef = useRef(document);
+  documentRef.current = document;
 
   useEffect(() => {
     if (!pendingId) return undefined;
-    const node = document?.deltaSetLike?.[pendingId];
+    const node = documentRef.current?.deltaSetLike?.[pendingId];
     if (String(node?.attrs?.processKind || '') !== 'upload') return undefined;
     if (hasActiveNodeUpload(pendingId)) return undefined;
 
@@ -51,28 +52,37 @@ function UploadJobWatcher() {
     };
 
     const run = async () => {
-      const block = uploadRecoveryBlockReason(node);
+      const liveDoc = documentRef.current;
+      const liveNode = liveDoc?.deltaSetLike?.[pendingId] || node;
+      const block = uploadRecoveryBlockReason(liveNode);
       if (block) {
         fail(uploadRecoveryFailMessage(block));
         return;
       }
 
-      const labelBase = stripProcessProgressLabel(String(node?.attrs?.processLabel || ''), '上传中');
-      const assetKind = String(node?.attrs?.assetKind || '').trim();
+      const labelBase = stripProcessProgressLabel(
+        String(liveNode?.attrs?.processLabel || ''),
+        '上传中'
+      );
+      const assetKind = String(liveNode?.attrs?.assetKind || '').trim();
       const isRaster = assetKind !== 'video' && assetKind !== 'audio';
+      let lastProgress = -1;
 
       try {
         const uploaded = await resumeOrWaitUploadJob(jobIds[0], {
           signal: ac.signal,
           onProgress: (pct) => {
             if (cancelled) return;
+            const rounded = Math.round(pct);
+            if (rounded === lastProgress) return;
+            lastProgress = rounded;
             dispatch(
               patchDocumentNode({
                 nodeId: pendingId,
                 skipHistory: true,
                 patch: {
                   attrs: {
-                    processLabel: formatProcessProgressLabel(labelBase, pct, '上传中'),
+                    processLabel: formatProcessProgressLabel(labelBase, rounded, '上传中'),
                   },
                 },
               })
@@ -86,11 +96,12 @@ function UploadJobWatcher() {
           : true;
         if (cancelled) return;
 
+        const finishNode = documentRef.current?.deltaSetLike?.[pendingId] || liveNode;
         dispatch(
           finishImageProcess({
             nodeId: pendingId,
             ...(remoteReady ? { src: uploaded.url } : {}),
-            attrs: buildUploadFinishAttrs(node?.attrs, uploaded),
+            attrs: buildUploadFinishAttrs(finishNode?.attrs, uploaded),
           })
         );
       } catch (err: unknown) {
@@ -104,7 +115,7 @@ function UploadJobWatcher() {
       cancelled = true;
       ac.abort();
     };
-  }, [pendingId, document, dispatch]);
+  }, [pendingId, dispatch]);
 
   return null;
 }

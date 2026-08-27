@@ -74,7 +74,7 @@ def test_task_event_replay_is_bounded_and_never_keeps_canvas_payload(monkeypatch
     assert ts.append_task_event("E1", {"type": "result", "status": "success"}) == 2
 
     replay = ts.get_task_events("E1", after_seq=1)
-    assert replay["next_seq"] == 3
+    assert replay["next_seq"] == 2
     assert [item["seq"] for item in replay["items"]] == [2]
     first_event = json.loads(events[0]["event_json"])
     assert "svg" not in first_event

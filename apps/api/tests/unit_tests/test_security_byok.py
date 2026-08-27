@@ -85,6 +85,25 @@ def test_byok_endpoint_resolve(monkeypatch, tmp_path):
         pass
 
 
+def test_rate_limit_upload_parts_bucket(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "rate_limit_window_sec", 60)
+    monkeypatch.setattr(settings, "rate_limit_upload_parts_per_window", 5)
+    monkeypatch.setattr(settings, "redis_url", "")
+    identity = "unit-rl-upload-parts"
+    for i in range(1, 6):
+        path = f"/api/v1/uploads/jobs/job-1/parts/{i}"
+        assert check_rate_limit(path=path, identity=identity)[0]
+    ok, limit = check_rate_limit(
+        path="/api/v1/uploads/jobs/job-1/parts/6",
+        identity=identity,
+    )
+    assert not ok
+    assert limit == 5
+
+
 def test_rate_limit_trips(monkeypatch):
     from app.core.config import settings
 
