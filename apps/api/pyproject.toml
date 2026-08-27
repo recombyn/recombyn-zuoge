@@ -111,3 +111,4 @@ select = ["F401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["F401"]
+"app/services/design/runtime/graph/state.py" = ["F401"]  # protocol schema re-export hub
