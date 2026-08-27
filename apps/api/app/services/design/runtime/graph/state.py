@@ -42,6 +42,7 @@ from recombyn_protocol import (
     PreferenceSignalSchema,
     ReferenceAnalyzeSchema,
     ReferenceDnaSchema,
+    ReferenceIntelligenceTurnSchema,
     SceneVisualSnapshot,
     SwarmConflictSchema,
     SwarmProposalSchema,
