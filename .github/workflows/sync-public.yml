@@ -2,7 +2,7 @@
 # Strips commercial paths before publishing to github.com/recombyn/zuoge.
 #
 # Secret (recombyn-dev): PUBLIC_REPO_TOKEN - PAT with repo scope on recombyn/zuoge
-# Public commit messages must not mention sync/mirror/recombyn-dev.
+# Public commits use concrete change subjects (not "Merge pull request #N") + [skip ci].
 
 name: Publish OSS
 
@@ -35,6 +35,7 @@ jobs:
           git config --global user.email "51704449+recombyn@users.noreply.github.com"
 
       - name: Clone public repo
+        id: pub_clone
         env:
           TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
@@ -43,6 +44,7 @@ jobs:
             exit 1
           fi
           git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git" ./pub
+          echo "tip=$(git -C ./pub rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Copy working tree
         run: |
@@ -65,15 +67,37 @@ jobs:
 
       - name: Prepare public commit message
         id: pub_msg
+        env:
+          PUB_TIP: ${{ steps.pub_clone.outputs.tip }}
         run: |
           set -euo pipefail
           RAW="$(mktemp)"
           MSG_FILE="$(mktemp)"
-          git log -1 --format=%B "${GITHUB_SHA}" > "$RAW"
+          # Prefer concrete non-merge subjects since last public tip (not Merge PR #N).
+          if [ -n "${PUB_TIP:-}" ] && git cat-file -e "${PUB_TIP}^{commit}" 2>/dev/null; then
+            NEWEST="$(git log -1 --no-merges --format=%s "${GITHUB_SHA}" 2>/dev/null || true)"
+            COUNT="$(git rev-list --no-merges --count "${PUB_TIP}..${GITHUB_SHA}" 2>/dev/null || echo 0)"
+            if [ -n "$NEWEST" ] && [ "${COUNT:-0}" -gt 0 ]; then
+              {
+                echo "$NEWEST"
+                echo
+                if [ "$COUNT" -gt 1 ]; then
+                  git log --no-merges --format='- %s' "${PUB_TIP}..${GITHUB_SHA}"
+                else
+                  git log -1 --no-merges --format=%b "${GITHUB_SHA}"
+                fi
+              } > "$RAW"
+            fi
+          fi
+          if [ ! -s "$RAW" ]; then
+            git log -1 --format=%B "${GITHUB_SHA}" > "$RAW"
+          fi
           node scripts/sanitize-public-commit-msg.mjs < "$RAW" > "$MSG_FILE"
           TITLE="$(head -n 1 "$MSG_FILE")"
           echo "file=${MSG_FILE}" >> "$GITHUB_OUTPUT"
           echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+          echo "---- public commit message ----"
+          cat "$MSG_FILE"
 
       - name: Publish to public repo
         working-directory: ./pub
@@ -101,7 +125,7 @@ jobs:
             exit 0
           fi
 
-          echo "Direct push blocked by branch rules - opening PR."
+          echo "Direct push blocked by branch rules - opening PR (no CI wait)."
           git push origin "HEAD:${PUB_BRANCH}" --force
 
           PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${PUB_BRANCH}" --json number --jq '.[0].number // empty')"
@@ -112,11 +136,5 @@ jobs:
             PR_NUMBER="$(gh pr list --repo "${PUBLIC_REPO}" --head "${PUB_BRANCH}" --json number --jq '.[0].number')"
           fi
 
-          for _ in $(seq 1 36); do
-            if gh pr checks "${PR_NUMBER}" --repo "${PUBLIC_REPO}" 2>/dev/null | grep -q .; then
-              break
-            fi
-            sleep 10
-          done
-          gh pr checks "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --watch --interval 15 || true
+          # Do not wait for zuoge Actions — message includes [skip ci]; merge with admin.
           gh pr merge "${PR_NUMBER}" --repo "${PUBLIC_REPO}" --squash --admin --delete-branch

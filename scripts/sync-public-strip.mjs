@@ -7,7 +7,7 @@
  * 3. Fail if any excluded tree still exists on the public copy
  */
 
-import { cpSync, existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -78,3 +78,24 @@ if (existsSync(stubsRoot)) {
 }
 
 console.log(`[sync-strip] ok — excluded ${excluded.length} path(s), ${stubCount} stub file(s) overlaid`);
+
+/** Public mirror: no auto CI on push (local + private CI already cover). */
+function disablePublicAutoCi() {
+  const wfDir = path.join(pubRoot, '.github', 'workflows');
+  if (!existsSync(wfDir)) return;
+  let n = 0;
+  for (const name of readdirSync(wfDir)) {
+    if (!name.endsWith('.yml') && !name.endsWith('.yaml')) continue;
+    const fp = path.join(wfDir, name);
+    if (!statSync(fp).isFile()) continue;
+    let text = readFileSync(fp, 'utf8');
+    const next = text.replace(/^on:\r?\n[\s\S]*?(?=^jobs:)/m, 'on:\n  workflow_dispatch:\n\n');
+    if (next !== text) {
+      writeFileSync(fp, next, 'utf8');
+      n += 1;
+    }
+  }
+  if (n) console.log(`[sync-strip] set ${n} public workflow(s) to workflow_dispatch only`);
+}
+
+disablePublicAutoCi();
