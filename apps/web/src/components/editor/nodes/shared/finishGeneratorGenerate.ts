@@ -25,5 +25,6 @@ export function finishGeneratorGenerateSession(opts: {
     ensureGeneratorProcessCleared(dispatch, doc, nodeId);
   }
   if (abortRef.current === ac) abortRef.current = null;
+  // May no-op if the composer already unmounted (selection cleared / processing).
   setSending(false);
 }

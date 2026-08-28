@@ -32,6 +32,7 @@ import {
   ComposerAttachmentChip,
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import { GeneratorComposerPanel } from '@/components/editor/panels/agent/composer/GeneratorComposerPanel';
 import ModelPickerPanel, {
   ModelBrandIcon,
 } from '@/components/editor/panels/agent/models/ModelPickerPanel';
@@ -53,7 +54,7 @@ import {
   pushEditorHistory,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
-import { readFileAsDataUrl } from '@/utils/uploadImage';
+import { createFilePreviewUrl } from '@/utils/uploadImage';
 import store from '@/store';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
@@ -119,7 +120,7 @@ function LottieQuickEditComposer({
     const results = await Promise.all(
       files.map(async (file, i) => {
         try {
-          const dataUrl = await readFileAsDataUrl(file);
+          const dataUrl = createFilePreviewUrl(file);
           return {
             key: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${i}`,
             kind: 'attachment' as const,
@@ -228,17 +229,7 @@ function LottieQuickEditComposer({
       {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
       data-scene-node-id={nodeId}
     >
-      <div
-        className={cn(
-          'pointer-events-auto flex h-[200px] w-[500px] flex-col overflow-visible',
-          'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
-        )}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          e.nativeEvent.stopImmediatePropagation?.();
-        }}
-      >
+      <GeneratorComposerPanel overflow="visible">
         <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
           {attachments.map((att) => (
             <ComposerAttachmentChip
@@ -378,7 +369,7 @@ function LottieQuickEditComposer({
             <HiArrowUp className="h-4 w-4" strokeWidth={2} />
           </button>
         </div>
-      </div>
+      </GeneratorComposerPanel>
     </SelectionToolbarShell>
   );
 }

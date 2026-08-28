@@ -57,14 +57,17 @@ import { finishGeneratorGenerateSession } from '@/components/editor/nodes/shared
 import { probeAudioDuration, pickAudioUrl } from '@/components/editor/nodes/shared/mediaProbe';
 import { clearGeneratorProcessOverlay } from '@/components/editor/nodes/shared/clearGeneratorProcess';
 import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
-import { registerGeneratorSession } from '@/components/editor/nodes/shared/generatorSessionRegistry';
+import {
+  hasActiveGeneratorSession,
+  registerGeneratorSession,
+} from '@/components/editor/nodes/shared/generatorSessionRegistry';
 import {
   finishAudioGenerator,
   patchDocumentNode,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import { estimateAudioCredits } from '@/utils/imageCredits';
-import { readFileAsDataUrl, uploadComposerAttachment } from '@/utils/uploadImage';
+import { createFilePreviewUrl, finishComposerAttachmentUpload, revokeComposerPreviewUrls } from '@/utils/uploadImage';
 import { cloudOnlyModelId } from '@/components/editor/panels/agent/llmModelMeta';
 import store from '@/store';
 
@@ -145,19 +148,25 @@ function AudioGeneratorCard({
   }, [composerVisible, disabled]);
 
   useEffect(() => {
+    const id = nodeId;
     return () => {
+      // Card unmounts when selection clears / processing hides the toolbar —
+      // keep the in-flight generate promise alive (session registry).
+      if (hasActiveGeneratorSession(id)) return;
       abortRef.current?.abort();
     };
-  }, []);
+  }, [nodeId]);
 
   const selectedModel = models.find((m) => m.id === modelId);
   const billingEnabled = useBillingEnabled();
   const creditCost = estimateAudioCredits(selectedModel);
 
   const removeContext = (key: string) =>
-    setContexts((prev) =>
-      prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key))
-    );
+    setContexts((prev) => {
+      const removed = prev.find((c) => c.key === key);
+      if (removed) revokeComposerPreviewUrls(removed);
+      return prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key));
+    });
 
   const attachAudioFiles = async (files: File[]) => {
     const media = files.filter((f) => String(f.type || '').startsWith('audio/'));
@@ -175,7 +184,7 @@ function AudioGeneratorCard({
     for (let i = 0; i < media.length; i++) {
       const file = media[i]!;
       try {
-        const preview = await readFileAsDataUrl(file);
+        const preview = createFilePreviewUrl(file);
         const key = `attach:${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${i}`;
         staged.push({
           file,
@@ -202,29 +211,25 @@ function AudioGeneratorCard({
     await Promise.all(
       staged.map(async ({ file, key, preview }) => {
         try {
-          const uploaded = await uploadComposerAttachment(file, {
-            previewDataUrl: preview,
-          });
-          const serverUrl = String(uploaded.url || '').trim();
-          const mediaUrl =
-            serverUrl.startsWith('http://') || serverUrl.startsWith('https://')
-              ? serverUrl
-              : preview;
+          const { dataUrl, thumbUrl, uploadKey } = await finishComposerAttachmentUpload(
+            file,
+            preview
+          );
           setContexts((prev) => {
             if (!prev.some((c) => c.key === key)) return prev;
             return prev.map((c) =>
               c.key === key
                 ? {
                     ...c,
-                    dataUrl: mediaUrl,
-                    thumbUrl: preview.startsWith('data:audio/') ? preview : mediaUrl,
-                    uploadKey: uploaded.uploadKey || undefined,
+                    dataUrl,
+                    thumbUrl,
+                    uploadKey: uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
             );
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
           setContexts((prev) => prev.filter((c) => c.key !== key));
           message.error(
             getHttpErrorMessage(err, t('agent.uploadFailed', { name: file.name }))
@@ -384,8 +389,9 @@ function AudioGeneratorCard({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    setSending(true);
+    // Register before processStatus hides the selection toolbar (unmount).
     registerGeneratorSession(nodeId);
+    setSending(true);
     let finished = false;
     dispatch(
       patchDocumentNode({
@@ -455,7 +461,8 @@ function AudioGeneratorCard({
           data-scene-node-id={nodeId}
         >
         <CanvasMediaComposerShell
-          panelSize="compact"
+          panelSize="audio"
+          panelOverflow="visible"
           attachment={
             <ComposerAttachmentStrip
               attachments={attachments}

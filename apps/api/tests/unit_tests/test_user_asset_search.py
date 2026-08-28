@@ -67,6 +67,27 @@ def test_user_asset_search_filters_prompt_and_object_key(tmp_path):
             crud.count_user_assets(session=session, user_id="u1", sources=sources, q="手")
             == 0
         )
+        assert (
+            crud.count_user_assets(
+                session=session, user_id="u1", sources=sources, q="枸杞铁盒"
+            )
+            == 0
+        )
+        assert (
+            crud.list_user_assets(
+                session=session,
+                user_id="u1",
+                sources=sources,
+                q="枸杞铁盒",
+                limit=10,
+            )
+            == []
+        )
+        # LIKE wildcards in the query must not match everything.
+        assert (
+            crud.count_user_assets(session=session, user_id="u1", sources=sources, q="%")
+            == 0
+        )
         matched = crud.list_user_assets(
             session=session,
             user_id="u1",

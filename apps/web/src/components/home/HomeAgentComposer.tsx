@@ -63,10 +63,13 @@ import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick } from '@/u
 import { nanoid } from 'nanoid';
 import {
   deleteUploadedFile,
-  readFileAsDataUrl,
-  resolveComposerMediaAfterUpload,
-  uploadComposerAttachment,
+  createFilePreviewUrl,
+  revokeComposerPreviewUrls,
+  finishComposerAttachmentUpload,
 } from '@/utils/uploadImage';
+import {
+  captureVideoPosterFrame,
+} from '@/components/rcb/scene/document/nodeFactories';
 import { message } from '@/components/base';
 import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
 
@@ -689,10 +692,19 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     const previews = await Promise.all(
       accepted.map(async (file) => {
         try {
-          return { file, preview: await readFileAsDataUrl(file), ok: true as const };
+          const preview = createFilePreviewUrl(file);
+          let thumb = preview;
+          if (file.type.startsWith('video/')) {
+            try {
+              thumb = await captureVideoPosterFrame(preview);
+            } catch {
+              /* poster optional */
+            }
+          }
+          return { file, preview, thumb, ok: true as const };
         } catch {
           message.error(t('agent.attachReadFailed', { name: file.name }));
-          return { file, preview: '', ok: false as const };
+          return { file, preview: '', thumb: '', ok: false as const };
         }
       })
     );
@@ -700,7 +712,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     if (!readable.length) return;
 
     let mentionOrdinal = contextsRef.current.filter((c) => c.kind === 'attachment').length;
-    const batch = readable.map(({ file, preview }) => {
+    const batch = readable.map(({ file, preview, thumb }) => {
       const key = `att-${nanoid(8)}`;
       const pending: ComposerContext = {
         key,
@@ -708,7 +720,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
         kind: 'attachment',
         payload: file.name || 'image',
         dataUrl: preview,
-        thumbUrl: preview,
+        thumbUrl: thumb,
         uploadStatus: 'uploading',
       };
       mentionOrdinal += 1;
@@ -720,10 +732,10 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
             kind: 'image',
             payload: pending.payload || `[User attachment ${n}]`,
             dataUrl: preview,
-            thumbUrl: preview,
+            thumbUrl: thumb,
           }
         : null;
-      return { file, key, preview, pending, mentionCtx };
+      return { file, key, preview, thumb, pending, mentionCtx };
     });
 
     setContexts((prev) => {
@@ -739,27 +751,16 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     }
 
     await Promise.all(
-      batch.map(async ({ file, key, preview }) => {
+      batch.map(async ({ file, key, preview, thumb }) => {
         try {
-          const uploaded = await uploadComposerAttachment(file, {
-            previewDataUrl: preview,
-          });
-          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
-            serverUrl: uploaded.url,
-            localPreview: String(uploaded.previewDataUrl || preview).trim(),
-          });
+          const { dataUrl, thumbUrl, uploadKey } = await finishComposerAttachmentUpload(
+            file,
+            preview,
+            thumb
+          );
           setContexts((prev) => {
             if (!prev.some((c) => c.key === key)) {
-              if (uploaded.uploadKey) {
-                async function purgeOrphanUpload() {
-                  try {
-                    await deleteUploadedFile(uploaded.uploadKey!);
-                  } catch {
-                    /* ignore */
-                  }
-                }
-                purgeOrphanUpload();
-              }
+              if (uploadKey) void deleteUploadedFile(uploadKey).catch(() => undefined);
               return prev;
             }
             return prev.map((c) =>
@@ -768,7 +769,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
                     ...c,
                     dataUrl,
                     thumbUrl,
-                    uploadKey: uploaded.uploadKey || undefined,
+                    uploadKey: uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
@@ -790,15 +791,9 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
   const onContextsChange = (next: ComposerContext[]) => {
     const removed = contexts.filter((c) => !next.some((n) => n.key === c.key));
     for (const c of removed) {
+      revokeComposerPreviewUrls(c);
       if (c.kind === 'attachment' && c.uploadKey) {
-        async function deleteRemovedAttachment() {
-          try {
-            await deleteUploadedFile(c.uploadKey!);
-          } catch {
-            /* ignore */
-          }
-        }
-        deleteRemovedAttachment();
+        void deleteUploadedFile(c.uploadKey).catch(() => undefined);
       }
     }
     setContexts(next);

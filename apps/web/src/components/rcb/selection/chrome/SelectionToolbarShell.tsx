@@ -503,9 +503,13 @@ function SelectionToolbarShell({
       {...chromePointer}
       {...rest}
     >
-      <FloatingToolbar bare={bare} className={className}>
-        {children}
-      </FloatingToolbar>
+      {bare ? (
+        <div className={cn('pointer-events-auto', className)}>{children}</div>
+      ) : (
+        <FloatingToolbar bare={bare} className={className}>
+          {children}
+        </FloatingToolbar>
+      )}
     </WorldScreenChromeRoot>
   );
 }

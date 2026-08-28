@@ -167,7 +167,7 @@ export async function uploadComposerAttachment(
   name: string;
 }> {
   const previewDataUrl =
-    String(opts?.previewDataUrl || '').trim() || (await readFileAsDataUrl(file));
+    String(opts?.previewDataUrl || '').trim() || createFilePreviewUrl(file);
   const uploaded = await uploadImageFile(file, {
     signal: opts?.signal,
     compress: true,
@@ -284,42 +284,127 @@ export async function compressImageFileForVision(
   }
 }
 
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(\?|#|$)/i;
+
+export function isBlobPreviewUrl(url: string | null | undefined): boolean {
+  return String(url || '').trim().startsWith('blob:');
+}
+
+export function isLocalStillPreviewUrl(url: string | null | undefined): boolean {
+  const s = String(url || '').trim();
+  return s.startsWith('data:image/') || s.startsWith('blob:');
+}
+
+/** Still JPEG/PNG chip thumb while `mediaPreview` is the playable video blob/https src. */
+export function isSeparateStillPosterUrl(poster: string, mediaPreview: string): boolean {
+  const p = String(poster || '').trim();
+  const m = String(mediaPreview || '').trim();
+  return Boolean(p && p !== m && isLocalStillPreviewUrl(p));
+}
+
+function pickComposerChipThumb(local: string, still: string, server: string): string {
+  if (isSeparateStillPosterUrl(still, local)) return still;
+  if (isPublicMediaUrl(still) && !VIDEO_EXT_RE.test(still)) return still;
+  if (isLocalStillPreviewUrl(local)) return local;
+  return server || local;
+}
+
 /**
- * After upload: `dataUrl` can go public immediately.
- * Chip `thumbUrl` stays local until remote image has painted (no blank flash).
+ * After upload: `dataUrl` → public server URL for API/vision.
+ * Chip `thumbUrl` keeps the local blob (or video poster) — never full-res http.
  */
 export async function resolveComposerMediaAfterUpload(opts: {
   serverUrl: string;
   localPreview: string;
   stillPreview?: string;
   signal?: AbortSignal;
+  /** Release blob previews no longer used as chip thumb (default true). */
+  revokeLocalPreview?: boolean;
 }): Promise<{ dataUrl: string; thumbUrl: string }> {
   const server = String(opts.serverUrl || '').trim();
   const local = String(opts.localPreview || '').trim();
   const still = String(opts.stillPreview || '').trim();
-  const stillOk =
-    still.startsWith('data:image/') ||
-    (isPublicMediaUrl(still) && !/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(still));
+  const chipThumb = pickComposerChipThumb(local, still, server);
 
-  if (isPublicMediaUrl(server)) {
-    if (stillOk) {
-      return { dataUrl: server, thumbUrl: still };
-    }
-    const remoteReady = await waitForImageReady(server, { signal: opts.signal });
-    if (remoteReady) {
-      return { dataUrl: server, thumbUrl: server };
-    }
-    return { dataUrl: server, thumbUrl: local || server };
+  const releaseUnused = () => {
+    if (opts.revokeLocalPreview === false) return;
+    if (local && local !== chipThumb) revokeFilePreviewUrl(local);
+    if (still && still !== chipThumb && still !== local) revokeFilePreviewUrl(still);
+  };
+
+  if (!isPublicMediaUrl(server)) {
+    return { dataUrl: local || server, thumbUrl: chipThumb };
   }
 
+  // Local chip thumb → swap dataUrl immediately. Http-only thumb → wait for decode.
+  if (!isLocalStillPreviewUrl(chipThumb)) {
+    const ready = await waitForImageReady(server, { signal: opts.signal });
+    if (!ready) return { dataUrl: server, thumbUrl: chipThumb || server };
+  }
+  releaseUnused();
+  return { dataUrl: server, thumbUrl: chipThumb || server };
+}
+
+/** Upload + resolve chip URLs (shared by Agent / Home / generator composers). */
+export async function finishComposerAttachmentUpload(
+  file: File,
+  preview: string,
+  thumb?: string
+): Promise<{
+  uploadKey: string;
+  url: string;
+  dataUrl: string;
+  thumbUrl: string;
+  name: string;
+}> {
+  const uploaded = await uploadComposerAttachment(file, { previewDataUrl: preview });
+  const still =
+    thumb && isSeparateStillPosterUrl(thumb, preview) ? thumb : undefined;
+  const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
+    serverUrl: uploaded.url,
+    localPreview: String(uploaded.previewDataUrl || preview).trim(),
+    stillPreview: still,
+  });
   return {
-    dataUrl: local || server,
-    thumbUrl: stillOk
-      ? still
-      : local.startsWith('data:image/') || local.startsWith('blob:')
-        ? local
-        : local || server,
+    uploadKey: uploaded.uploadKey,
+    url: uploaded.url,
+    dataUrl,
+    thumbUrl,
+    name: uploaded.name,
   };
+}
+
+/** Instant local preview — File in memory, no base64. Caller must revoke when done. */
+export function createFilePreviewUrl(file: File): string {
+  return URL.createObjectURL(file);
+}
+
+export function revokeFilePreviewUrl(url: string | null | undefined): void {
+  const s = String(url || '').trim();
+  if (!s.startsWith('blob:')) return;
+  try {
+    URL.revokeObjectURL(s);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function revokeComposerPreviewUrls(c: {
+  dataUrl?: string | null;
+  thumbUrl?: string | null;
+}): void {
+  revokeFilePreviewUrl(c.dataUrl);
+  revokeFilePreviewUrl(c.thumbUrl);
+}
+
+/** Revoke a canvas placeholder node's local blob src (no-op for http/data URLs). */
+export function revokeNodePreviewSrc(
+  document: { deltaSetLike?: Record<string, { attrs?: Record<string, unknown> } | undefined> } | null | undefined,
+  nodeId: string | null | undefined
+): void {
+  const id = String(nodeId || '').trim();
+  if (!id || !document?.deltaSetLike?.[id]) return;
+  revokeFilePreviewUrl(String(document.deltaSetLike[id]?.attrs?.src || ''));
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {

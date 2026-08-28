@@ -133,7 +133,7 @@ def _finish_upload_inline(job_id: str) -> None:
     job = get_job(job_id, kind=_KIND)
     if not job:
         raise LookupError("job not found")
-    update_job(job_id, kind=_KIND, status="processing", progress=85, error=None)
+    update_job(job_id, kind=_KIND, status="processing", progress=97, error=None)
     result = execute_upload_job(job)
     update_job(job_id, kind=_KIND, status="done", progress=100, result=result, error=None)
 

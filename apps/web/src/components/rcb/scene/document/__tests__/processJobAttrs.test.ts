@@ -1,11 +1,18 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
+  createMonotonicProgress,
+  mapServerUploadProgress,
+  PROCESS_JOB_STALE_MS,
+  UPLOAD_PROCESSING_PCT,
+  UPLOAD_QUEUED_PCT,
+  UPLOAD_WIRE_MAX,
+  wirePctFromBytes,
+  formatProcessProgressLabel,
   isStaleProcessJob,
   processJobAttrPatch,
   readProcessJobIds,
   readProcessStartedAt,
   stripProcessProgressLabel,
-  PROCESS_JOB_STALE_MS,
 } from '../processJobAttrs';
 
 describe('processJobAttrs', () => {
@@ -71,5 +78,33 @@ describe('processJobAttrs', () => {
     expect(readProcessStartedAt({ attrs: { processStartedAt: String(started) } } as any)).toBe(
       started
     );
+  });
+
+  it('maps wire bytes into 0..WIRE_MAX', () => {
+    expect(wirePctFromBytes(0, 1000)).toBe(0);
+    expect(wirePctFromBytes(500, 1000)).toBe(Math.round(0.5 * UPLOAD_WIRE_MAX));
+    expect(wirePctFromBytes(1000, 1000)).toBe(UPLOAD_WIRE_MAX);
+  });
+
+  it('never reports a lower percentage', () => {
+    const seen: number[] = [];
+    const report = createMonotonicProgress((pct) => seen.push(pct));
+    report(10);
+    report(40);
+    report(30);
+    report(95);
+    expect(seen).toEqual([10, 40, 95]);
+  });
+
+  it('maps server finalize stages above the wire band', () => {
+    expect(mapServerUploadProgress(30, true)).toBe(UPLOAD_WIRE_MAX);
+    expect(mapServerUploadProgress(75, true)).toBe(UPLOAD_QUEUED_PCT);
+    expect(mapServerUploadProgress(85, true)).toBe(UPLOAD_PROCESSING_PCT);
+    expect(mapServerUploadProgress(100, true)).toBe(100);
+  });
+
+  it('formats progress labels without showing 0%', () => {
+    expect(formatProcessProgressLabel('上传中', 0, '上传中')).toBe('上传中');
+    expect(formatProcessProgressLabel('上传中', 42, '上传中')).toBe('上传中 42%');
   });
 });

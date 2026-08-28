@@ -28,6 +28,9 @@ _CHECKPOINTER_BACKEND: str = ""
 # Keep underlying DB connections alive for process lifetime (from_conn_string closes them).
 _CHECKPOINTER_CONN: Any = None
 
+# pymysql / MySQLdb connection-lost codes (2013 Lost connection, 2006 gone away, …).
+_MYSQL_CONN_ERR_CODES = frozenset({0, 2006, 2013, 2014, 4031})
+
 # Design outer graph state (AgentRuntime / nested dataclasses) — msgpack allowlist.
 # No pickle_fallback: callables must stay out of checkpointed state.
 _CHECKPOINT_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
@@ -616,15 +619,95 @@ def _checkpointer_async_is_stub(saver: Any) -> bool:
     return "NotImplementedError" in src
 
 
-def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
+def is_mysql_connection_error(err: BaseException) -> bool:
+    """True for dropped / gone-away MySQL connections (safe to reconnect)."""
+    args = getattr(err, "args", None) or ()
+    if args:
+        try:
+            code = int(args[0])
+        except (TypeError, ValueError):
+            code = None
+        if code in _MYSQL_CONN_ERR_CODES:
+            return True
+    text = f"{type(err).__name__}: {err}".lower()
+    needles = (
+        "lost connection",
+        "server has gone away",
+        "connection not available",
+        "not connected",
+        "broken pipe",
+        "connection reset",
+        "mysql server has gone away",
+    )
+    return any(n in text for n in needles)
+
+
+def _mysql_checkpointer_ensure_conn(conn: Any, *, force: bool = False) -> None:
+    """Ping (and reconnect) the long-lived LangGraph MySQL connection."""
+    if conn is None:
+        raise RuntimeError("mysql checkpointer connection missing")
+    if force:
+        try:
+            conn.ping(reconnect=True)
+        except Exception:
+            # Last resort: close so the next ping opens a clean socket.
+            try:
+                conn.close()
+            except Exception:
+                pass
+            conn.ping(reconnect=True)
+        return
+    conn.ping(reconnect=True)
+
+
+def reset_agent_checkpointer() -> None:
+    """Drop cached checkpointer so the next call rebuilds (after hard DB failure)."""
+    global _CHECKPOINTER, _CHECKPOINTER_BACKEND, _CHECKPOINTER_CONN
+    with _CHECKPOINTER_LOCK:
+        conn = _CHECKPOINTER_CONN
+        _CHECKPOINTER = None
+        _CHECKPOINTER_BACKEND = ""
+        _CHECKPOINTER_CONN = None
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _wrap_sync_checkpointer_for_async(
+    inner: Any,
+    *,
+    ensure_conn: Any | None = None,
+) -> Any:
     """Bridge sync savers for ``graph.astream`` (``aget_*`` / ``aput_*``).
 
     Sqlite/PyMySQL are sync-only; conn uses ``check_same_thread=False`` / autocommit.
+    Optional ``ensure_conn(force=False)`` pings/reconnects before each call.
     """
     from langgraph.checkpoint.base import BaseCheckpointSaver
 
-    if isinstance(inner, BaseCheckpointSaver) and not _checkpointer_async_is_stub(inner):
+    if (
+        ensure_conn is None
+        and isinstance(inner, BaseCheckpointSaver)
+        and not _checkpointer_async_is_stub(inner)
+    ):
         return inner
+
+    def _call(method: str, *args: Any, **kwargs: Any) -> Any:
+        fn = getattr(inner, method)
+        if ensure_conn is not None:
+            ensure_conn(False)
+        try:
+            return fn(*args, **kwargs)
+        except Exception as err:
+            if ensure_conn is None or not is_mysql_connection_error(err):
+                raise
+            _log.warning(
+                "checkpointer %s hit dead MySQL conn; reconnecting once", method
+            )
+            ensure_conn(True)
+            return fn(*args, **kwargs)
 
     class _AsyncBridge(BaseCheckpointSaver):
         def __init__(self, wrapped: Any) -> None:
@@ -635,7 +718,7 @@ def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
             return getattr(self._inner, name)
 
         def get_tuple(self, config: Any) -> Any:
-            return self._inner.get_tuple(config)
+            return _call("get_tuple", config)
 
         def list(
             self,
@@ -645,7 +728,9 @@ def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
             before: Any | None = None,
             limit: int | None = None,
         ) -> Iterator[Any]:
-            return self._inner.list(config, filter=filter, before=before, limit=limit)
+            return _call(
+                "list", config, filter=filter, before=before, limit=limit
+            )
 
         def put(
             self,
@@ -654,7 +739,7 @@ def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
             metadata: Any,
             new_versions: Any,
         ) -> Any:
-            return self._inner.put(config, checkpoint, metadata, new_versions)
+            return _call("put", config, checkpoint, metadata, new_versions)
 
         def put_writes(
             self,
@@ -663,13 +748,13 @@ def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
             task_id: str,
             task_path: str = "",
         ) -> Any:
-            return self._inner.put_writes(config, writes, task_id, task_path)
+            return _call("put_writes", config, writes, task_id, task_path)
 
         def delete_thread(self, thread_id: str) -> Any:
-            return self._inner.delete_thread(thread_id)
+            return _call("delete_thread", thread_id)
 
         async def aget_tuple(self, config: Any) -> Any:
-            return self._inner.get_tuple(config)
+            return self.get_tuple(config)
 
         async def alist(
             self,
@@ -679,7 +764,7 @@ def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
             before: Any | None = None,
             limit: int | None = None,
         ) -> AsyncIterator[Any]:
-            for item in self._inner.list(
+            for item in self.list(
                 config, filter=filter, before=before, limit=limit
             ):
                 yield item
@@ -691,7 +776,7 @@ def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
             metadata: Any,
             new_versions: Any,
         ) -> Any:
-            return self._inner.put(config, checkpoint, metadata, new_versions)
+            return self.put(config, checkpoint, metadata, new_versions)
 
         async def aput_writes(
             self,
@@ -700,10 +785,10 @@ def _wrap_sync_checkpointer_for_async(inner: Any) -> Any:
             task_id: str,
             task_path: str = "",
         ) -> Any:
-            return self._inner.put_writes(config, writes, task_id, task_path)
+            return self.put_writes(config, writes, task_id, task_path)
 
         async def adelete_thread(self, thread_id: str) -> Any:
-            return self._inner.delete_thread(thread_id)
+            return self.delete_thread(thread_id)
 
     return _AsyncBridge(inner)
 
@@ -730,9 +815,13 @@ def _build_mysql_checkpointer() -> Any | None:
         charset=cfg.get("charset") or "utf8mb4",
         autocommit=True,
         connect_timeout=10,
+        read_timeout=60,
+        write_timeout=60,
     )
     try:
         with conn.cursor() as cur:
+            cur.execute("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci")
+            cur.execute("SET SESSION wait_timeout=28800")
             cur.execute("SELECT VERSION()")
             row = cur.fetchone()
         ver = str(row[0] if row else "")
@@ -753,7 +842,11 @@ def _build_mysql_checkpointer() -> Any | None:
             pass
         raise
     _CHECKPOINTER_CONN = conn
-    return _wrap_sync_checkpointer_for_async(saver)
+
+    def _ensure(force: bool = False) -> None:
+        _mysql_checkpointer_ensure_conn(conn, force=force)
+
+    return _wrap_sync_checkpointer_for_async(saver, ensure_conn=_ensure)
 
 
 def _build_sqlite_checkpointer() -> Any:

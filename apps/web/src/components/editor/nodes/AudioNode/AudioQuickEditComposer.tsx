@@ -31,6 +31,7 @@ import {
   ComposerAttachmentChip,
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import { GeneratorComposerPanel } from '@/components/editor/panels/agent/composer/GeneratorComposerPanel';
 import ModelPickerPanel, { ModelBrandIcon } from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { buildAudioGeneratorModelList, nextAudioModelId } from '@/components/editor/nodes/shared/generatorModelLists';
 import { probeAudioDuration, pickAudioUrl } from '@/components/editor/nodes/shared/mediaProbe';
@@ -44,7 +45,7 @@ import {
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import { estimateAudioCredits } from '@/utils/imageCredits';
-import { readFileAsDataUrl, uploadComposerAttachment } from '@/utils/uploadImage';
+import { createFilePreviewUrl, finishComposerAttachmentUpload, revokeComposerPreviewUrls } from '@/utils/uploadImage';
 import store from '@/store';
 
 type SceneBox = { left: number; top: number; width: number; height: number };
@@ -118,9 +119,11 @@ function AudioQuickEditComposer({
   const selectedModel = models.find((m) => m.id === modelId);
 
   const removeContext = (key: string) =>
-    setContexts((prev) =>
-      prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key))
-    );
+    setContexts((prev) => {
+      const removed = prev.find((c) => c.key === key);
+      if (removed) revokeComposerPreviewUrls(removed);
+      return prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key));
+    });
 
   const attachAudioFiles = async (files: File[]) => {
     const media = files.filter((f) => String(f.type || '').startsWith('audio/'));
@@ -138,7 +141,7 @@ function AudioQuickEditComposer({
     for (let i = 0; i < media.length; i++) {
       const file = media[i]!;
       try {
-        const preview = await readFileAsDataUrl(file);
+        const preview = createFilePreviewUrl(file);
         const key = `attach:${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${i}`;
         staged.push({
           file,
@@ -165,29 +168,25 @@ function AudioQuickEditComposer({
     await Promise.all(
       staged.map(async ({ file, key, preview }) => {
         try {
-          const uploaded = await uploadComposerAttachment(file, {
-            previewDataUrl: preview,
-          });
-          const serverUrl = String(uploaded.url || '').trim();
-          const mediaUrl =
-            serverUrl.startsWith('http://') || serverUrl.startsWith('https://')
-              ? serverUrl
-              : preview;
+          const { dataUrl, thumbUrl, uploadKey } = await finishComposerAttachmentUpload(
+            file,
+            preview
+          );
           setContexts((prev) => {
             if (!prev.some((c) => c.key === key)) return prev;
             return prev.map((c) =>
               c.key === key
                 ? {
                     ...c,
-                    dataUrl: mediaUrl,
-                    thumbUrl: preview.startsWith('data:audio/') ? preview : mediaUrl,
-                    uploadKey: uploaded.uploadKey || undefined,
+                    dataUrl,
+                    thumbUrl,
+                    uploadKey: uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
             );
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
           setContexts((prev) => prev.filter((c) => c.key !== key));
           message.error(
             getHttpErrorMessage(err, t('agent.uploadFailed', { name: file.name }))
@@ -342,17 +341,7 @@ function AudioQuickEditComposer({
       {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
       data-scene-node-id={nodeId}
     >
-      <div
-        className={cn(
-          'pointer-events-auto flex h-[180px] w-[440px] flex-col overflow-visible',
-          'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
-        )}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          e.nativeEvent.stopImmediatePropagation?.();
-        }}
-      >
+      <GeneratorComposerPanel size="audio" overflow="visible">
         <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
           {attachments.map((att) => (
             <ComposerAttachmentChip
@@ -458,7 +447,7 @@ function AudioQuickEditComposer({
             <HiArrowUp className="h-4 w-4" strokeWidth={2} />
           </button>
         </div>
-      </div>
+      </GeneratorComposerPanel>
     </SelectionToolbarShell>
   );
 }

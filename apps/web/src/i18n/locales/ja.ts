@@ -1847,6 +1847,8 @@ const ja = {
     imageFilledOnCanvas: '選択中の図形に塗りました',
     imageFailed: '画像の生成に失敗しました',
     requestFailed: 'リクエストに失敗しました',
+    checkpointUnavailable:
+      '会話状態の DB 接続が切れました。再試行してください。続く場合はローカル API を再起動してください。',
     designExecFailed: '実行に失敗しました。もう一度試すか、要望をもう少し具体的に書いてください。',
     intentClassifyFailed: '意図分類に失敗しました。もう一度お試しください。',
     modelRouteFailed: 'モデルルーティングに失敗しました。もう一度お試しください。',

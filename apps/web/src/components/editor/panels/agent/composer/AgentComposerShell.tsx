@@ -262,85 +262,68 @@ function formatAudioTime(sec: number) {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 }
 
+function isHttpLikeUrl(u: string): boolean {
+  return u.startsWith('http://') || u.startsWith('https://') || u.startsWith('/');
+}
+
+function isStillPreviewUrl(u: string): boolean {
+  return u.startsWith('data:image/') || u.startsWith('blob:');
+}
+
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)(\?|#|$)/i;
+const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i;
+
 function attachmentPreviewKind(a: ComposerContext): 'image' | 'audio' | 'video' | null {
   const data = String(a.dataUrl || '').trim();
   const thumb = String(a.thumbUrl || '').trim();
   const payload = String(a.payload || '');
   const blob = `${data} ${thumb} ${payload}`;
+  const isVideoPayload =
+    /\[Canvas video\]/i.test(payload) || /\[Attached video\]/i.test(payload);
 
-  // Images first: uploads often keep a data:image thumb while dataUrl is https.
-  // That must not be treated as "video + poster".
-  if (data.startsWith('data:image/') || thumb.startsWith('data:image/')) {
-    if (data.startsWith('data:video/') || /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(data)) {
+  // Still thumb with video media / payload → video chip (poster + playable).
+  if (isStillPreviewUrl(data) || isStillPreviewUrl(thumb)) {
+    if (data.startsWith('data:video/') || VIDEO_EXT_RE.test(data) || isVideoPayload) {
       return 'video';
     }
-    if (/\[Canvas video\]/i.test(payload) || /\[Attached video\]/i.test(payload)) {
+    // Separate blob poster + media blob/https without image extension.
+    if (
+      thumb &&
+      thumb !== data &&
+      isStillPreviewUrl(thumb) &&
+      data &&
+      (isHttpLikeUrl(data) || data.startsWith('blob:')) &&
+      !IMAGE_EXT_RE.test(data)
+    ) {
       return 'video';
     }
     return 'image';
   }
   if (/\[Canvas image\]/i.test(payload) || /\[Attached image\]/i.test(payload)) return 'image';
   if (/"key"\s*:\s*"image"/i.test(payload)) return 'image';
-  if (/\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i.test(data)) return 'image';
+  if (IMAGE_EXT_RE.test(data)) return 'image';
 
-  // Explicit video markers / mime / extensions.
   if (data.startsWith('data:video/') || thumb.startsWith('data:video/')) return 'video';
-  if (/\[Canvas video\]/i.test(payload) || /\[Attached video\]/i.test(payload)) return 'video';
-  if (/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(blob)) return 'video';
+  if (isVideoPayload) return 'video';
+  if (VIDEO_EXT_RE.test(blob)) return 'video';
   if (/"key"\s*:\s*"video"/i.test(payload)) return 'video';
-
-  // Canvas video without extension: https/blob media + separate still poster (JPEG/PNG data URL).
-  if (
-    data &&
-    thumb &&
-    thumb !== data &&
-    thumb.startsWith('data:image/') &&
-    (data.startsWith('http://') ||
-      data.startsWith('https://') ||
-      data.startsWith('/') ||
-      data.startsWith('blob:')) &&
-    !/\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i.test(data)
-  ) {
-    return 'video';
-  }
 
   if (data.startsWith('data:audio/') || thumb.startsWith('data:audio/')) return 'audio';
   if (/\[Attached audio\]/i.test(payload) || /\[Canvas audio\]/i.test(payload)) return 'audio';
   if (/\.(mp3|wav|m4a|aac|ogg|flac)(\?|#|$)/i.test(blob)) return 'audio';
   if (/"key"\s*:\s*"audio"/i.test(payload)) return 'audio';
-  if (
-    data.startsWith('http://') ||
-    data.startsWith('https://') ||
-    data.startsWith('/') ||
-    thumb.startsWith('http://') ||
-    thumb.startsWith('https://') ||
-    thumb.startsWith('/')
-  ) {
-    return 'image';
-  }
+  if (isHttpLikeUrl(data) || isHttpLikeUrl(thumb)) return 'image';
   return null;
 }
 
-/** Prefer a still poster for the chip; fall back to image/http refs. */
+/** Prefer local blob still for chip display; server URL is full-res (dataUrl only). */
 function attachmentThumbSrc(a: ComposerContext): string {
   const thumb = String(a.thumbUrl || '').trim();
   const ref = String(a.dataUrl || '').trim();
-  // Once uploaded to public MinIO/COS, prefer remote URL over leftover data: preview.
-  if (
-    (a.uploadStatus === 'ready' || a.uploadKey) &&
-    (ref.startsWith('http://') || ref.startsWith('https://')) &&
-    !/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(ref) &&
-    !ref.startsWith('data:video/')
-  ) {
-    return ref;
-  }
-  if (thumb.startsWith('data:image/')) return thumb;
-  if (thumb.startsWith('http://') || thumb.startsWith('https://') || thumb.startsWith('/')) {
-    if (!/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(thumb)) return thumb;
-  }
-  if (ref.startsWith('data:image/')) return ref;
-  if (ref.startsWith('http://') || ref.startsWith('https://') || ref.startsWith('/')) {
-    if (!/\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(ref) && !ref.startsWith('data:video/')) return ref;
+  for (const u of [thumb, ref]) {
+    if (!u) continue;
+    if (isStillPreviewUrl(u)) return u;
+    if (isHttpLikeUrl(u) && !VIDEO_EXT_RE.test(u) && !u.startsWith('data:video/')) return u;
   }
   return thumb || ref;
 }

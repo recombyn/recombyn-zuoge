@@ -26,6 +26,10 @@ import {
   composerAttachActionClass,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import {
+  GeneratorComposerPanel,
+  GeneratorComposerUploadPanel,
+} from '@/components/editor/panels/agent/composer/GeneratorComposerPanel';
+import {
   composerCanSend,
   composerSendDisabledReason,
 } from '@/components/editor/panels/agent/composer/composerModelsGate';
@@ -83,7 +87,7 @@ import { FREE_IMAGE_MODEL_ID, planAllowsModelPick } from '@/utils/wallet';
 import { useShowCreditCosts, useWalletSnapshot } from '@/service/wallet';
 import { cn } from '@/utils/classnames';
 import { estimateImageCredits } from '@/utils/imageCredits';
-import { readFileAsDataUrl } from '@/utils/uploadImage';
+import { createFilePreviewUrl } from '@/utils/uploadImage';
 import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import { clearQuickEditMarkSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
 import { insertPendingComposerChips } from '@/components/editor/panels/agent/composerChipInsert';
@@ -304,7 +308,7 @@ function ImageQuickEditComposer({
     const results = await Promise.all(
       files.map(async (file, i) => {
         try {
-          const dataUrl = await readFileAsDataUrl(file);
+          const dataUrl = createFilePreviewUrl(file);
           return {
             key: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${i}`,
             kind: 'attachment' as const,
@@ -484,15 +488,9 @@ function ImageQuickEditComposer({
         {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
         data-scene-node-id={nodeId}
       >
-        <div
-          className={cn(
-            'pointer-events-auto flex h-[200px] w-[500px] items-center justify-center',
-            'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-            'shadow-[0_8px_28px_rgba(15,23,42,0.12)] text-[13px] text-[var(--muted)]'
-          )}
-        >
-          {t('editor.imageToolbar.processingUpload', '上传中…')}
-        </div>
+        <GeneratorComposerUploadPanel
+          label={t('editor.imageToolbar.processingUpload', '上传中…')}
+        />
       </SelectionToolbarShell>
     );
   }
@@ -507,17 +505,7 @@ function ImageQuickEditComposer({
       {...(markActive ? { 'data-mark-composer': true } : {})}
       data-scene-node-id={nodeId}
     >
-      <div
-        className={cn(
-          'pointer-events-auto flex h-[200px] w-[500px] flex-col overflow-hidden',
-          'rounded-2xl border border-[var(--line)] bg-[var(--surface)]',
-          'shadow-[0_8px_28px_rgba(15,23,42,0.12)]'
-        )}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          e.nativeEvent.stopImmediatePropagation?.();
-        }}
-      >
+      <GeneratorComposerPanel>
         <div className="flex min-h-0 shrink-0 items-start justify-between gap-2 px-3 pt-2.5">
           <div className="flex max-h-[72px] min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-y-auto">
           {subjectChip ? (
@@ -769,7 +757,7 @@ function ImageQuickEditComposer({
             </Tooltip>
           </div>
         </div>
-      </div>
+      </GeneratorComposerPanel>
     </SelectionToolbarShell>
   );
 }

@@ -228,7 +228,19 @@ export function humanizeDesignError(
   message?: string | null
 ): string {
   const detail = String(message || '').trim();
+  const codeN = String(code || '').trim();
+  const blob = `${codeN} ${detail}`.toLowerCase();
+  if (
+    blob.includes('checkpoint_unavailable') ||
+    blob.includes('lost connection') ||
+    blob.includes('server has gone away') ||
+    /^\(?\s*0\s*,/.test(detail) ||
+    /^\(?\s*2013\s*,/.test(detail)
+  ) {
+    return t('agent.checkpointUnavailable');
+  }
   if (detail) return detail;
+  if (codeN) return codeN;
   return t('agent.requestFailed');
 }
 
@@ -528,14 +540,17 @@ export function createDesignAgentEventRouter(opts: {
   const handleUiPaused = (ev: Extract<AgentStepEvent, { type: 'paused' }>) => {
     const isErrorPause = String(ev.interruptKind || '').trim().toLowerCase() === 'error';
     const detail = String(ev.message || '').trim();
-    if (isErrorPause && detail) {
-      message.error(detail);
+    const friendly = isErrorPause
+      ? humanizeDesignError(opts.t, undefined, detail)
+      : detail;
+    if (isErrorPause && friendly) {
+      message.error(friendly);
     }
     opts.setMessages((prev) =>
       prev.map((m) =>
         m.id === opts.assistantId
           ? opts.finishAssistantPatch(m, {
-              content: isErrorPause && detail ? detail : (m.content || '').trim(),
+              content: isErrorPause && friendly ? friendly : (m.content || '').trim(),
               thinking: undefined,
               pipeline: undefined,
               drawing: undefined,

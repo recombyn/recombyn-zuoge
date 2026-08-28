@@ -32,10 +32,20 @@ def _expected_part_size(sess: dict[str, Any], part_number: int) -> int:
     return total - (part_count - 1) * part_size
 
 
-def _upload_progress(received: int, part_count: int) -> int:
-    if part_count <= 0:
-        return 0
-    return max(0, min(70, int((received / part_count) * 70)))
+def _received_bytes(sess: dict[str, Any], received: set[int]) -> int:
+    return sum(_expected_part_size(sess, pn) for pn in received)
+
+
+def _upload_progress(sess: dict[str, Any], received: set[int]) -> int:
+    """0..90 while parts land (by bytes); finalize stages use 93/97/100 elsewhere."""
+    total = int(sess.get("total_size") or 0)
+    if total <= 0:
+        part_count = int(sess.get("part_count") or 0)
+        if part_count <= 0:
+            return 0
+        return max(0, min(90, int((len(received) / part_count) * 90)))
+    uploaded = _received_bytes(sess, received)
+    return max(0, min(90, int((uploaded / total) * 90)))
 
 
 def create_upload_session(
@@ -102,7 +112,7 @@ def save_upload_part(
 
     received = {int(x) for x in (sess.get("received_parts") or [])}
     received.add(pn)
-    progress = _upload_progress(len(received), part_count)
+    progress = _upload_progress(sess, received)
     update_job(
         job_id,
         kind=_KIND,
@@ -142,7 +152,7 @@ def mark_upload_job_queued(user_id: str, job_id: str, temp_path: Path) -> None:
         job_id,
         kind=_KIND,
         status="queued",
-        progress=75,
+        progress=93,
         temp_path=str(temp_path),
     )
 

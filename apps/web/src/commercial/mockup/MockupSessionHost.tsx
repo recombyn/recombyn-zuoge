@@ -160,12 +160,12 @@ function MockupSessionHost({
     [document, mockupIntelEnabled]
   );
 
-  if (!mockupIds.length || hidden) return null;
+  if (!mockupIds.length) return null;
 
   return (
     <>
       {mockupIds.map((nodeId) => (
-        <MockupPlate key={nodeId} nodeId={nodeId} document={document} />
+        <MockupPlate key={nodeId} nodeId={nodeId} document={document} hidden={hidden} />
       ))}
     </>
   );
@@ -174,9 +174,11 @@ function MockupSessionHost({
 function MockupPlate({
   nodeId,
   document,
+  hidden = false,
 }: {
   nodeId: string;
   document: SceneDocument;
+  hidden?: boolean;
 }): ReactNode {
   const dispatch = useDispatch();
   const { t } = useTranslation();
@@ -315,6 +317,7 @@ function MockupPlate({
     const isCancelled = () => cancelled;
     const setPlateProcessing = (running: boolean) => {
       if (running) {
+        // Same in-place SoftGlow path as upload / replace — host remounts to opaque plate.
         dispatch(
           patchDocumentNode({
             nodeId,
@@ -323,9 +326,9 @@ function MockupPlate({
                 processStatus: 'running',
                 processKind: 'mockup',
                 processLabel: t('editor.imageToolbar.processingMockup'),
+                processStartedAt: String(Date.now()),
               },
             },
-            skipHostReload: true,
           })
         );
         return;
@@ -360,9 +363,6 @@ function MockupPlate({
     })();
     return () => {
       cancelled = true;
-      if (isAutoBakeTemplateId(template.id)) {
-        dispatch(clearImageProcess({ nodeId }));
-      }
     };
   }, [
     applyKitToPreview,
@@ -955,7 +955,16 @@ function MockupPlate({
 
   return (
     <RcbOverlayPortal>
-      <div data-mockup-session={nodeId} className="pointer-events-none absolute inset-0 z-[36]">
+      <div
+        data-mockup-session={nodeId}
+        className="pointer-events-none absolute inset-0 z-[36]"
+        style={
+          hidden
+            ? { visibility: 'hidden', pointerEvents: 'none' }
+            : undefined
+        }
+        aria-hidden={hidden}
+      >
         <div
           className={cn(
             'pointer-events-none absolute overflow-hidden rounded-sm',
