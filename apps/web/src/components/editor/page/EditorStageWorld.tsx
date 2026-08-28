@@ -32,6 +32,7 @@ import MarkPinHost from '@/components/editor/nodes/ImageNode/mark/MarkPinHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
+import LottieComposeSessionHost from '@/components/editor/nodes/LottieNode/LottieComposeSessionHost';
 import AudioTrimSessionHost from '@/components/editor/nodes/AudioNode/AudioTrimSessionHost';
 import AudioSpeedSessionHost from '@/components/editor/nodes/AudioNode/AudioSpeedSessionHost';
 import MeshHandlesOverlay from '@/components/editor/nodes/ShapeNode/MeshHandlesOverlay';
@@ -891,6 +892,7 @@ function EditorStageWorld({
         <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
         <MarkPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} hidden={selectionTransforming} />
+        <LottieComposeSessionHost document={document} hidden={selectionTransforming} />
         <AudioTrimSessionHost document={document} hidden={selectionTransforming} />
         <AudioSpeedSessionHost document={document} hidden={selectionTransforming} />
 

@@ -33,6 +33,18 @@ def _seed_assets(session: Session) -> None:
             created_at=now - 1,
         ),
         Asset(
+            id="asset-meta-noise",
+            user_id="u1",
+            kind="lottie",
+            object_key="assets/u1/asset_c9f72bf76efd4d5a.json",
+            url="https://cdn.example/anim.json",
+            source="ai_lottie",
+            prompt="动效",
+            # Base64-like blob that would false-positive on LIKE/contains("%sxas%").
+            meta_json='{"animation":{"data":"AAAAAsxasBBBB"}}',
+            created_at=now - 2,
+        ),
+        Asset(
             id="asset-other-user",
             user_id="u2",
             kind="image",
@@ -83,7 +95,17 @@ def test_user_asset_search_filters_prompt_and_object_key(tmp_path):
             )
             == []
         )
-        # LIKE wildcards in the query must not match everything.
+        # Short alphanumeric must NOT match meta_json base64 noise.
+        assert (
+            crud.count_user_assets(session=session, user_id="u1", sources=sources, q="sxas")
+            == 0
+        )
+        # Single hex letter must NOT match every UUID object_key.
+        assert (
+            crud.count_user_assets(session=session, user_id="u1", sources=sources, q="a")
+            == 0
+        )
+        # LIKE wildcards in the query are literal under INSTR.
         assert (
             crud.count_user_assets(session=session, user_id="u1", sources=sources, q="%")
             == 0

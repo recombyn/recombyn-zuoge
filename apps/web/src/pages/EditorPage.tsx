@@ -1632,6 +1632,9 @@ function EditorPage() {
               onPathEditSubtool={setPathEditSubtool}
               onPathEditExit={() => setPathEditOpen(false)}
               activeTool={activeTool}
+              zoom={camera.zoom}
+              viewportWidth={stageEl?.clientWidth}
+              docWidth={Number(document?.width) || undefined}
             />
 
             <EditorStageWorld

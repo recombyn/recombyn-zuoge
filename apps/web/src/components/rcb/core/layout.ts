@@ -295,15 +295,15 @@ export function rcbPlaceTextFontSize(
 
 /**
  * Scene stroke width for pen / pencil (~`screenPx` on screen).
- * Same zoom fit as text place so zoom-out does not leave invisible 1px ink.
- * Clamped to the pen toolbar range (1–200).
+ * Same zoom fit as text place; clamped to the pen toolbar range (1–200).
  */
 export function rcbPlaceStrokeWidth(
   zoom: number,
   screenPx = RCB_PLACE_STROKE_SCREEN_PX,
   opts?: RcbPlaceTextFontSizeOpts
 ): number {
-  const target = Math.max(1, Number(screenPx) || RCB_PLACE_STROKE_SCREEN_PX);
-  const raw = rcbPlaceTextFontSize(zoom, target, opts);
-  return Math.max(1, Math.min(200, Math.round(raw)));
+  return Math.max(
+    1,
+    Math.min(200, Math.round(rcbPlaceTextFontSize(zoom, screenPx, opts)))
+  );
 }

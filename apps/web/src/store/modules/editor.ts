@@ -404,6 +404,11 @@ const initialState = {
     /** Canvas playhead at open — trim preview must not jump to 0. */
     keepTime?: number;
   },
+  /** Lottie in-plate compose mode (artboard-like tools on the plate). */
+  lottieComposePanel: null as null | {
+    nodeId: string;
+    tool: 'select' | 'rect' | 'ellipse' | 'pen' | 'text';
+  },
   /** Fill / stroke panel docked to the right of the selection (hides top chrome while open). */
   shapeStylePanel: null as null | { kind: 'fill' | 'stroke' | 'radius'; nodeIds: string[] },
   /** Shared stroke settings for pen / pencil tools. */
@@ -823,6 +828,9 @@ const editorSlice = createSlice({
       if (!action.payload || state.audioToolPanel?.nodeId !== action.payload) {
         state.audioToolPanel = null;
       }
+      if (!action.payload || state.lottieComposePanel?.nodeId !== action.payload) {
+        state.lottieComposePanel = null;
+      }
       if (
         !action.payload ||
         !state.shapeStylePanel?.nodeIds?.length ||
@@ -846,6 +854,9 @@ const editorSlice = createSlice({
       }
       if (!ids[0] || state.audioToolPanel?.nodeId !== ids[0]) {
         state.audioToolPanel = null;
+      }
+      if (!ids[0] || state.lottieComposePanel?.nodeId !== ids[0]) {
+        state.lottieComposePanel = null;
       }
       const panelIds = state.shapeStylePanel?.nodeIds || [];
       const same =
@@ -2265,6 +2276,7 @@ const editorSlice = createSlice({
       };
       state.videoToolPanel = null;
       state.audioToolPanel = null;
+      state.lottieComposePanel = null;
       state.shapeStylePanel = null;
     },
     closeImageToolPanel(state) {
@@ -2293,6 +2305,7 @@ const editorSlice = createSlice({
       };
       state.imageToolPanel = null;
       state.audioToolPanel = null;
+      state.lottieComposePanel = null;
       state.shapeStylePanel = null;
     },
     closeVideoToolPanel(state) {
@@ -2309,10 +2322,37 @@ const editorSlice = createSlice({
       };
       state.imageToolPanel = null;
       state.videoToolPanel = null;
+      state.lottieComposePanel = null;
       state.shapeStylePanel = null;
     },
     closeAudioToolPanel(state) {
       state.audioToolPanel = null;
+    },
+    openLottieComposePanel(state, action) {
+      const nodeId = String(action.payload?.nodeId || '').trim();
+      if (!nodeId) return;
+      const tool = action.payload?.tool;
+      const allowed = new Set(['select', 'rect', 'ellipse', 'pen', 'text']);
+      state.lottieComposePanel = {
+        nodeId,
+        tool: allowed.has(tool) ? tool : 'select',
+      };
+      state.imageToolPanel = null;
+      state.videoToolPanel = null;
+      state.audioToolPanel = null;
+      state.shapeStylePanel = null;
+      // Scene shape/pen tools must not steal gestures while composing on the plate.
+      state.activeTool = 'select';
+    },
+    setLottieComposeTool(state, action) {
+      if (!state.lottieComposePanel) return;
+      const tool = action.payload;
+      const allowed = new Set(['select', 'rect', 'ellipse', 'pen', 'text']);
+      if (!allowed.has(tool)) return;
+      state.lottieComposePanel.tool = tool;
+    },
+    closeLottieComposePanel(state) {
+      state.lottieComposePanel = null;
     },
     openShapeStylePanel(state, action) {
       const kind = action.payload?.kind;
@@ -2324,6 +2364,7 @@ const editorSlice = createSlice({
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.audioToolPanel = null;
+      state.lottieComposePanel = null;
     },
     closeShapeStylePanel(state) {
       state.shapeStylePanel = null;
@@ -2571,6 +2612,9 @@ export const {
   closeVideoToolPanel,
   openAudioToolPanel,
   closeAudioToolPanel,
+  openLottieComposePanel,
+  setLottieComposeTool,
+  closeLottieComposePanel,
   openShapeStylePanel,
   closeShapeStylePanel,
   setPenStrokeColor,
