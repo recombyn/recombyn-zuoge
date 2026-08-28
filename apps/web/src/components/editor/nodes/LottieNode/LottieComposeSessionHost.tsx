@@ -24,6 +24,7 @@ import { nodeSceneBox } from '@/components/editor/nodes/ImageNode/mark/markGeome
 import {
   appendEllipseLayer,
   appendRectLayer,
+  createBlankLottieAnimation,
   ensureLottieAnimationForCompose,
   patchAnimationDataAttr,
   sceneBoxToLottieLocal,
@@ -35,6 +36,7 @@ import {
   patchDocumentNode,
 } from '@/store/modules/editor';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 
 const MIN_DRAW = 8;
 const OVERLAY_Z = 36;
@@ -58,6 +60,7 @@ function LottieComposeSessionHost({
   );
   const [draft, setDraft] = useState<Draft | null>(null);
   const drawing = useRef(false);
+  const draftRef = useRef<Draft | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const nodeId = panel?.nodeId || '';
@@ -76,9 +79,38 @@ function LottieComposeSessionHost({
     return ensureLottieAnimationForCompose(node.attrs?.animationData, plate);
   }, [node, plate]);
 
+  // Seed a blank composition when the plate has no animationData yet.
+  useEffect(() => {
+    if (!active || !nodeId || !plate || !node) return;
+    const parsed = ensureLottieAnimationForCompose(node.attrs?.animationData, plate);
+    const hadLayers = Array.isArray(
+      (node.attrs?.animationData &&
+        (() => {
+          try {
+            const raw = node.attrs.animationData;
+            const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return obj?.layers;
+          } catch {
+            return null;
+          }
+        })()) as unknown[] | null
+    );
+    // Only write when attrs are missing / unparsable so we don't thrash.
+    if (node.attrs?.animationData && hadLayers !== null) return;
+    const json = patchAnimationDataAttr(parsed);
+    if (!json || json === node.attrs?.animationData) return;
+    dispatch(
+      patchDocumentNode({
+        nodeId,
+        patch: { attrs: { animationData: json } },
+      })
+    );
+  }, [active, dispatch, node, nodeId, plate]);
+
   useEffect(() => {
     if (active) return;
     setDraft(null);
+    draftRef.current = null;
     drawing.current = false;
   }, [active]);
 
@@ -112,29 +144,39 @@ function LottieComposeSessionHost({
     e.stopPropagation();
     const p = toScene(e.clientX, e.clientY);
     drawing.current = true;
-    setDraft({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+    const next = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    draftRef.current = next;
+    setDraft(next);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drawing.current) return;
     const p = toScene(e.clientX, e.clientY);
-    setDraft((d) => (d ? { ...d, x1: p.x, y1: p.y } : d));
+    setDraft((d) => {
+      if (!d) return d;
+      const next = { ...d, x1: p.x, y1: p.y };
+      draftRef.current = next;
+      return next;
+    });
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawing.current || !draft) return;
+    if (!drawing.current) return;
     drawing.current = false;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       /* ignore */
     }
-    const x = Math.min(draft.x0, draft.x1);
-    const y = Math.min(draft.y0, draft.y1);
-    const w = Math.abs(draft.x1 - draft.x0);
-    const h = Math.abs(draft.y1 - draft.y0);
+    const d = draftRef.current;
+    draftRef.current = null;
     setDraft(null);
+    if (!d) return;
+    const x = Math.min(d.x0, d.x1);
+    const y = Math.min(d.y0, d.y1);
+    const w = Math.abs(d.x1 - d.x0);
+    const h = Math.abs(d.y1 - d.y0);
     commitShape({ x, y, w, h });
   };
 

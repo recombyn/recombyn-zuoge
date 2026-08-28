@@ -127,7 +127,6 @@ import {
 } from '@/components/rcb/scene/document/fontCatalog';
 import { MdOutlineFlip } from 'react-icons/md';
 import { TbDroplet, TbVectorBezier } from 'react-icons/tb';
-import { message } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
