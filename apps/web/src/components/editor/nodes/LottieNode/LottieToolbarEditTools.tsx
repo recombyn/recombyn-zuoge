@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import {
   HiOutlineArrowPath,
   HiOutlinePause,
+  HiOutlinePencilSquare,
   HiOutlinePlay,
 } from 'react-icons/hi2';
 import { Dropdown } from '@/components/base';
@@ -17,7 +18,11 @@ import AppLogo from '@/components/base/AppLogo';
 import { ExportSelectionPopover } from '@/components/editor/panels/ExportSelectionPanel';
 import { imageToolBtn, ImageToolSep } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import { getLottieHost } from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
-import { openImageToolPanel, patchDocumentNode } from '@/store/modules/editor';
+import {
+  openImageToolPanel,
+  openLottieComposePanel,
+  patchDocumentNode,
+} from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 
 const TOOL_ICON_SLOT =
@@ -116,6 +121,17 @@ function LottieToolbarEditTools({
 
   return (
     <>
+      <Tool
+        label={t('editor.lottieCompose.edit', { defaultValue: '编辑' })}
+        tip={t('editor.lottieCompose.editTip', {
+          defaultValue: '进入合成台：绘制形状、上传 SVG',
+        })}
+        onClick={() =>
+          dispatch(openLottieComposePanel({ nodeId, tool: 'select' }))
+        }
+      >
+        <HiOutlinePencilSquare className="h-4 w-4" strokeWidth={1.75} />
+      </Tool>
       <Tool
         label={t('editor.imageToolbar.chat')}
         tip={t('editor.imageToolbar.chat', { defaultValue: '快速编辑' })}

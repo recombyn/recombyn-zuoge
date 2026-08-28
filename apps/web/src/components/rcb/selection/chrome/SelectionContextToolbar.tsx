@@ -20,7 +20,7 @@ import {
 } from 'react-icons/md';
 import AppLogo from '@/components/base/AppLogo';
 import { ColorPanelPopover, INPUT_NO_SPIN } from '@/components/base/colorPanel';
-import { DropdownPanel, DropdownPanelItem } from '@/components/base';
+import { DropdownPanel, DropdownPanelItem, message } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
 import {
   openShapeStylePanel,
@@ -29,12 +29,17 @@ import {
   openImageToolPanel,
   openVideoToolPanel,
   openAudioToolPanel,
+  openLottieComposePanel,
+  setLottieComposeTool,
+  closeLottieComposePanel,
   isImageToolSidePanelKind,
   isQuickEditMarkPanel,
   type ImageToolPanelState,
 } from '@/store/modules/editor';
 import FlipRotateToolbar from '@/components/editor/nodes/ImageNode/FlipRotateToolbar';
 import LottieQuickEditComposer from '@/components/editor/nodes/LottieNode/LottieQuickEditComposer';
+import LottieComposeToolbar from '@/components/editor/nodes/LottieNode/LottieComposeToolbar';
+import type { LottieComposeTool } from '@/components/editor/nodes/LottieNode/lottieComposeLayers';
 import VideoQuickEditComposer from '@/components/editor/nodes/VideoNode/VideoQuickEditComposer';
 import AudioQuickEditComposer from '@/components/editor/nodes/AudioNode/AudioQuickEditComposer';
 import LottieToolbarEditTools from '@/components/editor/nodes/LottieNode/LottieToolbarEditTools';
@@ -393,6 +398,10 @@ function SelectionContextToolbar(props: Props): ReactNode {
   const imageToolPanel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
+  const lottieComposePanel = useSelector(
+    (s: any) =>
+      s.editor.lottieComposePanel as null | { nodeId: string; tool: LottieComposeTool }
+  );
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const mockupIntelEnabled = imageToolCaps?.mockup?.enabled === true;
@@ -439,6 +448,10 @@ function SelectionContextToolbar(props: Props): ReactNode {
     kind,
     ['lottie']
   );
+  const lottieComposeOpen =
+    kind === 'lottie' &&
+    lottieComposePanel?.nodeId === nodeId &&
+    Boolean(lottieComposePanel);
   const imageSidePanelOpen =
     imageToolPanel?.nodeId != null && isImageToolSidePanelKind(imageToolPanel.kind);
   const [mdOpen, setMdOpen] = useState(false);
@@ -497,6 +510,30 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }
 
   if (isImageProcessRunning(node)) return null;
+
+  // Lottie compose mode — artboard-like tools replace default chrome.
+  if (lottieComposeOpen) {
+    return (
+      <SelectionToolbarShell
+        box={box}
+        edgePadScene={edgePadScene}
+        angle={placementAngle}
+      >
+        <LottieComposeToolbar
+          tool={lottieComposePanel!.tool}
+          onToolChange={(next) => {
+            if (next === 'pen') message.info(t('editor.lottieCompose.penSoon'));
+            if (next === 'text') message.info(t('editor.lottieCompose.textSoon'));
+            dispatch(setLottieComposeTool(next));
+          }}
+          onUploadSvg={() => {
+            window.dispatchEvent(new CustomEvent('resume:lottie-compose-upload-svg'));
+          }}
+          onExit={() => dispatch(closeLottieComposePanel())}
+        />
+      </SelectionToolbarShell>
+    );
+  }
   if (imageSidePanelOpen) return null;
 
   if (quickEditComposerOpen || lottieEditOpen) {
