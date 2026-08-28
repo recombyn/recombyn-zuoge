@@ -43,6 +43,8 @@ import type { LottieComposeTool } from '@/components/editor/nodes/LottieNode/lot
 import VideoQuickEditComposer from '@/components/editor/nodes/VideoNode/VideoQuickEditComposer';
 import AudioQuickEditComposer from '@/components/editor/nodes/AudioNode/AudioQuickEditComposer';
 import LottieToolbarEditTools from '@/components/editor/nodes/LottieNode/LottieToolbarEditTools';
+import LottieFrameChildToolbar from '@/components/editor/nodes/LottieNode/LottieFrameChildToolbar';
+import { resolveLottieFrameId } from '@/components/editor/nodes/LottieNode/resolveLottieFrameId';
 import { ExportSelectionPopover } from '@/components/editor/panels/ExportSelectionPanel';
 import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import {
@@ -74,6 +76,7 @@ import {
   isImageGeneratorNode,
   isImageProcessRunning,
   isLottieGeneratorNode,
+  isLottieFrameHostNode,
   isTextFrameNode,
   isVideoGeneratorNode,
   supportsCornerRadius,
@@ -490,9 +493,34 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [decorationOpen, alignOpen]);
 
   if (!node || !box) return null;
+  // Timeline host under Lottie 合成台 — select frame instead; no node chrome.
+  if (isLottieFrameHostNode(node, document)) return null;
 
   const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
   const genBox = { x: box.left, y: box.top, width: box.width, height: box.height };
+
+  // 合成台内子元素：独立动画工具栏（不与画布图片/形状工具栏混写）。
+  const lottieFrameId = resolveLottieFrameId(document, node);
+  if (
+    lottieFrameId &&
+    (kind === 'image' ||
+      kind === 'shape' ||
+      kind === 'rect' ||
+      kind === 'ellipse' ||
+      kind === 'path' ||
+      kind === 'text')
+  ) {
+    return (
+      <LottieFrameChildToolbar
+        document={document}
+        nodeId={nodeId}
+        box={box}
+        valueBox={valueBox}
+        edgePadScene={edgePadScene}
+        angle={placementAngle}
+      />
+    );
+  }
 
   // Same mount gate as image/video toolbars (SelectionFeature). Content only differs.
   if (isImageGeneratorNode(node)) {

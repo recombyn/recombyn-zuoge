@@ -172,10 +172,9 @@ export function mediaTitleChrome(opts: {
     };
   }
   if (key === 'lottie') {
-    // Finished Lottie keeps the media play glyph; clapperboard is generator-only.
     return {
       name: String(opts.name || 'Lottie'),
-      icon: 'video',
+      icon: 'lottie',
       renameAriaLabel: 'Lottie name',
     };
   }

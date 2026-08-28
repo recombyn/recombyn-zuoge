@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   bindUnownedNodesToFrames,
+  canBindNodeToArtboardFrame,
   frameForNodeIntersectPlacement,
   shouldBindUnownedNodeToFrame,
   shouldCoMoveNodeWithFrames,
@@ -107,5 +108,52 @@ describe('frameNodeBinding', () => {
 
     const next = bindUnownedNodesToFrames(doc, ['plate']);
     expect(next.deltaSetLike['shape-1'].attrs?.frameId).toBe('other');
+  });
+
+  it('rejects video/audio on Lottie 合成台', () => {
+    const lottie = {
+      id: 'lot',
+      kind: 'lottie',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200,
+      backgroundColor: '#fff',
+      clipContent: true,
+    } as const;
+    const video = { key: 'video', x: 20, y: 20, width: 40, height: 40, attrs: {} };
+    const audio = { key: 'audio', x: 20, y: 20, width: 40, height: 40, attrs: {} };
+    const shape = { key: 'shape', x: 20, y: 20, width: 40, height: 40, attrs: {} };
+    expect(canBindNodeToArtboardFrame(lottie as any, video)).toBe(false);
+    expect(canBindNodeToArtboardFrame(lottie as any, audio)).toBe(false);
+    expect(canBindNodeToArtboardFrame(lottie as any, shape)).toBe(true);
+    expect(shouldBindUnownedNodeToFrame(video, lottie as any)).toBe(false);
+    expect(shouldBindUnownedNodeToFrame(shape, lottie as any)).toBe(true);
+
+    const doc = {
+      frames: [lottie],
+      deltaSetLike: {
+        ROOT: { id: 'ROOT', children: ['v1', 's1'] },
+        v1: { id: 'v1', ...video },
+        s1: { id: 's1', ...shape },
+      },
+    } as any as SceneDocument;
+    const next = bindUnownedNodesToFrames(doc, ['lot']);
+    expect(next.deltaSetLike.v1.attrs?.frameId).toBeUndefined();
+    expect(next.deltaSetLike.s1.attrs?.frameId).toBe('lot');
+    expect(
+      frameForNodeIntersectPlacement(
+        doc,
+        { left: 20, top: 20, width: 40, height: 40 },
+        video
+      )
+    ).toBeNull();
+    expect(
+      frameForNodeIntersectPlacement(
+        doc,
+        { left: 20, top: 20, width: 40, height: 40 },
+        shape
+      )
+    ).toBe('lot');
   });
 });

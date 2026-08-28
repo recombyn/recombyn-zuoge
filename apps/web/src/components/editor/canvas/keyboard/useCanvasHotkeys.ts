@@ -22,6 +22,11 @@ import type { CtxAction } from '@/components/rcb/selection/chrome/CanvasContextM
 import { filterChatAttachNodeIds } from '../attachPick';
 import { selectionMutationBlocked } from '../ctxMenuGuards';
 import { tryConsumeGradientStopDelete } from '@/components/editor/panels/FillPanel';
+import {
+  tryConsumeLottieTimelineCopy,
+  tryConsumeLottieTimelineDelete,
+  tryConsumeLottieTimelinePaste,
+} from '@/components/editor/nodes/LottieNode/lottieTimelineHotkeys';
 
 type UseCanvasHotkeysArgs = {
   readOnly: boolean;
@@ -226,6 +231,11 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       if (mod && !typing && !readOnly) {
         const k = e.key.toLowerCase();
         if (k === 'c') {
+          if (tryConsumeLottieTimelineCopy()) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
           const ids = selectedIdsRef.current;
           const frameIds = selectedFrameIdsRef.current;
           if (!ids.length && !frameIds.length && !activeFrameIdRef.current) return;
@@ -244,6 +254,11 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           return;
         }
         if (k === 'v') {
+          if (tryConsumeLottieTimelinePaste()) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return;
+          }
           return;
         }
         if (k === 'd') {
@@ -284,6 +299,11 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           return;
         }
         if (tryConsumeGradientStopDelete()) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
+        if (tryConsumeLottieTimelineDelete()) {
           e.preventDefault();
           e.stopImmediatePropagation();
           return;

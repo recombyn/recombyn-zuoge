@@ -33,6 +33,8 @@ import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/I
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
 import LottieComposeSessionHost from '@/components/editor/nodes/LottieNode/LottieComposeSessionHost';
+import LottieFrameContextToolbar from '@/components/editor/nodes/LottieNode/LottieFrameContextToolbar';
+import LottieFrameWorkbenchHost from '@/components/editor/nodes/LottieNode/LottieFrameWorkbenchHost';
 import AudioTrimSessionHost from '@/components/editor/nodes/AudioNode/AudioTrimSessionHost';
 import AudioSpeedSessionHost from '@/components/editor/nodes/AudioNode/AudioSpeedSessionHost';
 import MeshHandlesOverlay from '@/components/editor/nodes/ShapeNode/MeshHandlesOverlay';
@@ -893,6 +895,7 @@ function EditorStageWorld({
         <MarkPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} hidden={selectionTransforming} />
         <LottieComposeSessionHost document={document} hidden={selectionTransforming} />
+        <LottieFrameWorkbenchHost document={document} hidden={selectionTransforming} />
         <AudioTrimSessionHost document={document} hidden={selectionTransforming} />
         <AudioSpeedSessionHost document={document} hidden={selectionTransforming} />
 
@@ -956,10 +959,11 @@ function EditorStageWorld({
         ) : null}
 
         {showFrameToolbar && !showMultiFrameToolbar && activeFrame && selectedFrameBox ? (
-          <FrameContextToolbar
-            frame={activeFrame}
-            box={selectedFrameBox}
-          />
+          activeFrame.kind === 'lottie' ? (
+            <LottieFrameContextToolbar frame={activeFrame} box={selectedFrameBox} />
+          ) : (
+            <FrameContextToolbar frame={activeFrame} box={selectedFrameBox} />
+          )
         ) : null}
 
         <FrameMoveFeature

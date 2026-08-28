@@ -12,8 +12,9 @@ import {
   LuImagePlus,
   LuLayoutGrid,
 } from 'react-icons/lu';
-import { RiClapperboardFill, RiVideoAiLine } from 'react-icons/ri';
+import { RiVideoAiLine } from 'react-icons/ri';
 import { RxText } from 'react-icons/rx';
+import { LottieOutlineIcon } from '@/components/editor/nodes/LottieNode/LottieOutlineIcon';
 import {
   HiOutlineChevronDown,
   HiOutlineChevronLeft,
@@ -33,6 +34,7 @@ import {
   isGeneratorNode,
   isImageGeneratorNode,
   isAudioGeneratorNode,
+  isLottieFrameHostNode,
   isLottieGeneratorNode,
   isVideoGeneratorNode,
   isNodeHidden,
@@ -116,7 +118,10 @@ function listFrameChildLayerRows(
   nodeById: Map<string, any>
 ): LayerStackRow[] {
   if (!document || !frameId) return [];
-  const ids = nodeIdsBoundToFrames(document, [frameId]);
+  const ids = nodeIdsBoundToFrames(document, [frameId]).filter((id) => {
+    // Invisible timeline host under Lottie 合成台 — not a user layer.
+    return !isLottieFrameHostNode(nodeById.get(id), document);
+  });
   const sorted = [...ids].sort((a, b) => {
     const ao = Number(nodeById.get(a)?.attrs?.frameOrder);
     const bo = Number(nodeById.get(b)?.attrs?.frameOrder);
@@ -487,7 +492,7 @@ function LayerIcon({
   if (isLottieGeneratorNode(node)) {
     return (
       <LayerGlyphFallback>
-        <RiClapperboardFill className="block h-[13px] w-[13px] shrink-0" />
+        <LottieOutlineIcon className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
       </LayerGlyphFallback>
     );
   }
@@ -495,7 +500,7 @@ function LayerIcon({
   if (node.key === 'lottie') {
     return (
       <LayerGlyphFallback>
-        <LuFilm className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
+        <LottieOutlineIcon className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
       </LayerGlyphFallback>
     );
   }
@@ -761,7 +766,11 @@ function FrameLayerRow({
         className={cn(LAYER_ICON_SLOT, hidden && 'opacity-50')}
         aria-label={frameName}
       >
-        <LuFrame className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+        {frame?.kind === 'lottie' ? (
+          <LottieOutlineIcon className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+        ) : (
+          <LuFrame className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+        )}
       </button>
       {isEditing ? (
         <div

@@ -42,7 +42,6 @@ import {
   isExportableSceneNode,
   isImageGeneratorNode,
   isImageProcessRunning,
-  isLottieGeneratorNode,
   isLottieNode,
   shouldSkipNodeInSvgPaint,
   isOutlinedPath,
@@ -81,6 +80,10 @@ import {
   pencilInkPathFromPoints,
 } from '@/components/rcb/tools/pencilBrushes';
 import { applyFrameContentClip, detachSceneNodeEl } from '@/components/rcb/frames/frameContentClip';
+import {
+  FRAME_PLATE_STROKE,
+  framePlateStrokeSceneWidth,
+} from '@/components/rcb/frames/types';
 import { strokeDashForStyle } from '../document/sceneStrokeStyle';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import {
@@ -104,7 +107,10 @@ function textLocalX(align: 'start' | 'middle' | 'end', width: number): number {
 }
 
 const TRANSPARENT_PIXEL_SRC =
-  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+  );
 
 /** Live camera + DPR + stage size for the shared world viewport (set from RcbCanvas). */
 let paintCamera: RcbCamera | null = null;
@@ -198,6 +204,10 @@ export function nodeLeftTop(document: SceneDocument | null | undefined, node: Sc
 function objectMeta(node: SceneNodeInput) {
   return {
     angle: num(node.attrs?.angle, 0),
+    skewX: num(node.attrs?.skewX, 0),
+    skewY: num(node.attrs?.skewY, 0),
+    anchorX: Math.max(0, Math.min(100, num(node.attrs?.anchorX, 50))),
+    anchorY: Math.max(0, Math.min(100, num(node.attrs?.anchorY, 50))),
     opacity: Math.min(1, Math.max(0, num(node.attrs?.opacity, 1))),
     blendMode: String(node.attrs?.blendMode || 'pass-through'),
     flipX: boolEffectAttr(node.attrs?.flipX, false),
@@ -388,6 +398,10 @@ export type SceneSvgHost = SVGElement & {
   sceneNodeKey?: string;
   sceneShapeType?: string;
   __sceneAngle?: number;
+  __sceneSkewX?: number;
+  __sceneSkewY?: number;
+  __sceneAnchorX?: number;
+  __sceneAnchorY?: number;
   __sceneFlipX?: boolean;
   __sceneFlipY?: boolean;
   __sceneSides?: number;
@@ -473,6 +487,10 @@ function applyMeta(
 ) {
   const anyEl = asHost(el);
   anyEl.__sceneAngle = meta.angle;
+  anyEl.__sceneSkewX = meta.skewX;
+  anyEl.__sceneSkewY = meta.skewY;
+  anyEl.__sceneAnchorX = meta.anchorX;
+  anyEl.__sceneAnchorY = meta.anchorY;
   anyEl.__sceneFlipX = meta.flipX;
   anyEl.__sceneFlipY = meta.flipY;
   reapplySceneTransform(el, left, top, width, height);
@@ -544,6 +562,10 @@ function syncHtmlMediaUnderlayFlip(el: SVGElement, width: number, height: number
 function reapplySceneTransform(el: SVGElement, left: number, top: number, width: number, height: number) {
   const anyEl = asHost(el);
   const angle = Number(anyEl.__sceneAngle) || 0;
+  const skewX = Number(anyEl.__sceneSkewX) || 0;
+  const skewY = Number(anyEl.__sceneSkewY) || 0;
+  const anchorX = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorX ?? 50)));
+  const anchorY = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorY ?? 50)));
   const flipX = !!anyEl.__sceneFlipX;
   const flipY = !!anyEl.__sceneFlipY;
   const geom = readGeom(el);
@@ -553,9 +575,11 @@ function reapplySceneTransform(el: SVGElement, left: number, top: number, width:
 
   if (!abs) parts.push(`translate(${left} ${top})`);
 
-  const rx = abs ? left + width / 2 : width / 2;
-  const ry = abs ? top + height / 2 : height / 2;
+  const rx = abs ? left + (width * anchorX) / 100 : (width * anchorX) / 100;
+  const ry = abs ? top + (height * anchorY) / 100 : (height * anchorY) / 100;
   if (angle) parts.push(`rotate(${angle} ${rx} ${ry})`);
+  if (skewX) parts.push(`skewX(${skewX})`);
+  if (skewY) parts.push(`skewY(${skewY})`);
   if ((flipX || flipY) && !isolateFlip) {
     const sx = flipX ? -1 : 1;
     const sy = flipY ? -1 : 1;
@@ -1494,17 +1518,15 @@ export async function nodeToSvgElement(
     return g;
   }
 
-  if (node.key === 'lottie' || isLottieNode(node) || isLottieGeneratorNode(node)) {
-    const isGen = isLottieGeneratorNode(node);
+  if (node.key === 'lottie' || isLottieNode(node)) {
     const hasData = Boolean(String(node.attrs?.animationData || '').trim());
     const processing = String(node.attrs?.processStatus || '') === 'running';
     const { left, top } = nodeLeftTop(document, node);
     const boxW = Math.max(1, Number(node.width) || 100);
     const boxH = Math.max(1, Number(node.height) || 100);
     const meta = objectMeta(node);
-    const cornerR = isGen
-      ? { tl: 0, tr: 0, br: 0, bl: 0 }
-      : radiiFromAttrs(node.attrs);
+    // Artboard-like: sharp plate (ignore stored radii).
+    const cornerR = { tl: 0, tr: 0, br: 0, bl: 0 };
     const clipD = roundedRectPath(boxW, boxH, cornerR);
     const g = appendChild(parent, svgEl('g'));
     const svgOwnsPixels = videoSvgOwnsPixels(root);
@@ -1513,6 +1535,7 @@ export async function nodeToSvgElement(
     const plateFill = resolveThemeSurfaceFill(
       !rawLottieFill || rawLottieFill === 'transparent' ? '' : rawLottieFill
     );
+    const plateStrokeW = framePlateStrokeSceneWidth(getInfiniteSvgPaintZoom());
 
     // Same process plate as image/video — shimmer chrome overlays this node.
     if (processing) {
@@ -1528,73 +1551,48 @@ export async function nodeToSvgElement(
       return g;
     }
 
-    if (isGen || !hasData) {
+    if (!hasData) {
       const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(plate, isGen ? 'var(--gen-empty)' : '#E5E7EB');
-      if (isGen) {
-        setStroke(plate, 'none');
-        const sw = editorChromeStrokeSceneWidth(1);
-        const inset = sw / 2;
-        const border = appendChild(
-          g,
-          svgEl('path', {
-            d: roundedRectPath(Math.max(1, boxW - sw), Math.max(1, boxH - sw), cornerR),
-            transform: `translate(${inset},${inset})`,
-            'pointer-events': 'none',
-          })
-        );
-        setFill(border, 'none');
-        setStroke(border, { color: 'var(--line)', width: sw });
-        // Soft play mark — same empty-plate language as video generator (title keeps clapperboard).
-        const iconSize = generatorEmptyIconSize(boxW, boxH);
-        if (iconSize >= 4) {
-          const ix = (boxW - iconSize) / 2;
-          const iy = (boxH - iconSize) / 2;
-          const s = iconSize / 24;
-          const icon = appendChild(
-            g,
-            svgEl('g', {
-              transform: `translate(${ix},${iy}) scale(${s})`,
-              'pointer-events': 'none',
-            })
-          );
-          const play = appendChild(
-            icon,
-            svgEl('path', {
-              d: 'M9 7.2 L9 16.8 L17.4 12 Z',
-              'stroke-linejoin': 'round',
-              'stroke-linecap': 'round',
-            })
-          );
-          setFill(play, 'var(--muted)');
-          setStroke(play, { color: 'var(--muted)', width: 2.75 });
-        }
-      } else {
-        setStroke(plate, {
-          color: '#9CA3AF',
-          width: editorChromeStrokeSceneWidth(1.5),
-          dasharray: '6 4',
-        });
-      }
-      setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
+      setFill(plate, plateFill);
+      setStroke(plate, {
+        color: FRAME_PLATE_STROKE,
+        width: plateStrokeW,
+      });
+      setAttrs(plate, {
+        'data-radius-body': '1',
+        'data-baseline': '1',
+        'shape-rendering': 'crispEdges',
+      });
       rememberSceneCornerRadii(g, cornerR);
       tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
-      if (isGen || isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
+      if (isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
       applyMeta(g, left, top, meta, boxW, boxH);
       return g;
     }
 
     // Plate fill under HTML ink (foreignObject). Export keeps SVG-only pixels.
+    // Idle hairline matches artboard; selection chrome owns the blue box when selected.
     const plate = appendChild(g, svgEl('path', { d: clipD }));
     setFill(plate, plateFill);
-    setStroke(plate, 'none');
+    setStroke(plate, {
+      color: FRAME_PLATE_STROKE,
+      width: plateStrokeW,
+    });
     setAttrs(plate, {
       'data-radius-body': '1',
       'data-baseline': '1',
+      'shape-rendering': 'crispEdges',
       ...(!svgOwnsPixels ? { 'data-rcb-lottie-html-hit': '1' } : {}),
     });
     if (!svgOwnsPixels) {
-      appendHtmlMediaMount(g, { nodeId, width: boxW, height: boxH, kind: 'lottie' });
+      // Clip HTML ink to the plate (same idea as artboard clipContent).
+      const ink = appendChild(g, svgEl('g'));
+      const clipId = nextClipId(`lottie-clip-${nodeId}`);
+      const defs = ensureDefs(root);
+      const clip = appendChild(defs, svgEl('clipPath', { id: clipId }));
+      appendChild(clip, svgEl('path', { d: clipD }));
+      setAttrs(ink, { 'clip-path': urlRef(clipId) });
+      appendHtmlMediaMount(ink, { nodeId, width: boxW, height: boxH, kind: 'lottie' });
     }
     rememberSceneCornerRadii(g, cornerR);
     tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
@@ -1605,7 +1603,12 @@ export async function nodeToSvgElement(
 
   if (node.key === 'video') {
     const src = String(node.attrs?.src || '').trim();
-    const poster = String(node.attrs?.poster || '').trim();
+    const posterRaw = String(node.attrs?.poster || '').trim();
+    // Ephemeral posters are not paint-safe after refresh.
+    const poster =
+      posterRaw && !posterRaw.startsWith('blob:') && !posterRaw.startsWith('data:')
+        ? posterRaw
+        : '';
     const processing = String(node.attrs?.processStatus || '') === 'running';
     const { left, top } = nodeLeftTop(document, node);
     const boxW = Math.max(1, Number(node.width) || 100);
@@ -2638,6 +2641,10 @@ export function previewSvgNodeTransform(
   if (node) {
     const meta = objectMeta(node);
     anyEl.__sceneAngle = meta.angle;
+    anyEl.__sceneSkewX = meta.skewX;
+    anyEl.__sceneSkewY = meta.skewY;
+    anyEl.__sceneAnchorX = meta.anchorX;
+    anyEl.__sceneAnchorY = meta.anchorY;
     anyEl.__sceneFlipX = meta.flipX;
     anyEl.__sceneFlipY = meta.flipY;
   }
@@ -2677,6 +2684,10 @@ function reapplySceneTransformScaled(
 ) {
   const anyEl = asHost(el);
   const angle = Number(anyEl.__sceneAngle) || 0;
+  const skewX = Number(anyEl.__sceneSkewX) || 0;
+  const skewY = Number(anyEl.__sceneSkewY) || 0;
+  const anchorX = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorX ?? 50)));
+  const anchorY = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorY ?? 50)));
   const flipX = !!anyEl.__sceneFlipX;
   const flipY = !!anyEl.__sceneFlipY;
   const geom = readGeom(el);
@@ -2691,9 +2702,11 @@ function reapplySceneTransformScaled(
     }
   }
 
-  const rx = abs ? left + (baseW * sx) / 2 : baseW / 2;
-  const ry = abs ? top + (baseH * sy) / 2 : baseH / 2;
+  const rx = abs ? left + (baseW * sx * anchorX) / 100 : (baseW * anchorX) / 100;
+  const ry = abs ? top + (baseH * sy * anchorY) / 100 : (baseH * anchorY) / 100;
   if (angle) parts.push(`rotate(${angle} ${rx} ${ry})`);
+  if (skewX) parts.push(`skewX(${skewX})`);
+  if (skewY) parts.push(`skewY(${skewY})`);
   if ((flipX || flipY) && !isolateFlip) {
     const fsx = flipX ? -1 : 1;
     const fsy = flipY ? -1 : 1;

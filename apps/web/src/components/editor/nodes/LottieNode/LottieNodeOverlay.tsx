@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import lottie, { type AnimationItem } from 'lottie-web';
 import { useRcbCamera } from '@/components/rcb';
 import {
+  isLottieFrameHostNode,
   isLottieNode,
   isNodeOverlayHidden,
 } from '@/components/rcb/scene/document/nodeCapabilities';
@@ -29,6 +30,7 @@ import {
   type MediaGeomOverride,
 } from '@/components/editor/nodes/shared/mediaPlateGeometry';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
+import store from '@/store';
 
 export type LottieGeomOverride = MediaGeomOverride;
 
@@ -39,6 +41,10 @@ export type LottieHostApi = {
   setLoop: (loop: boolean) => void;
   setSpeed: (speed: number) => void;
   getSpeed: () => number;
+  /** Seek to time in seconds (clamped to animation length). */
+  seek: (timeSec: number) => void;
+  getCurrentTime: () => number;
+  getDurationSec: () => number;
 };
 
 const lottieHosts = new Map<string, LottieHostApi>();
@@ -67,7 +73,9 @@ function LottieZoomSync({ onZoom }: { onZoom: (zoom: number) => void }) {
   return null;
 }
 
-function resolveLottiePlateFill(raw: string): string {
+function resolveLottiePlateFill(raw: string, frameHost?: boolean): string {
+  // 合成台内部播放宿主：无底板，只承载时间轴/播放。
+  if (frameHost) return 'transparent';
   const s = String(raw || '').trim();
   // Default transparent → theme surface plate (not black).
   if (!s || s === 'transparent') return resolveThemeSurfaceFill('');
@@ -81,6 +89,7 @@ function LottiePlate({
   loop,
   speed,
   plateFill,
+  frameHost,
   hidden,
   mount,
 }: {
@@ -90,6 +99,7 @@ function LottiePlate({
   loop: boolean;
   speed: number;
   plateFill: string;
+  frameHost?: boolean;
   hidden?: boolean;
   mount: HTMLElement;
 }) {
@@ -97,7 +107,7 @@ function LottiePlate({
   const animRef = useRef<AnimationItem | null>(null);
   const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
-  const fill = resolveLottiePlateFill(plateFill);
+  const fill = resolveLottiePlateFill(plateFill, frameHost);
 
   useEffect(() => {
     const host = hostEl;
@@ -106,6 +116,15 @@ function LottiePlate({
     if (!data) return undefined;
     host.innerHTML = '';
     let anim: AnimationItem;
+    const editorState = store.getState()?.editor as
+      | {
+          lottieTimelinePanel?: { nodeId?: string } | null;
+          lottiePlayheadSec?: number;
+        }
+      | undefined;
+    const timelineOwns =
+      String(editorState?.lottieTimelinePanel?.nodeId || '') === String(nodeId);
+    const restoreSec = Math.max(0, Number(editorState?.lottiePlayheadSec) || 0);
     try {
       anim = lottie.loadAnimation({
         container: host,
@@ -113,7 +132,9 @@ function LottiePlate({
         // FO + CSS zoom scale still works for path ink; dock/lightbox also use SVG.
         renderer: 'svg',
         loop,
-        autoplay: true,
+        // When the timeline dock owns this node, stay paused at the playhead
+        // so JSON patches don't jump back to t=0 with autoplay.
+        autoplay: !timelineOwns,
         animationData: structuredClone
           ? structuredClone(data)
           : JSON.parse(JSON.stringify(data)),
@@ -129,6 +150,11 @@ function LottiePlate({
     }
     anim.setSpeed(speed);
     animRef.current = anim;
+    const durationSec = () => {
+      const fr = Math.max(1, Number(anim.frameRate) || 30);
+      const total = Math.max(1, Number(anim.totalFrames) || 1);
+      return total / fr;
+    };
     const api: LottieHostApi = {
       play: () => anim.play(),
       pause: () => anim.pause(),
@@ -138,8 +164,22 @@ function LottiePlate({
       },
       setSpeed: (next) => anim.setSpeed(next),
       getSpeed: () => Number(anim.playSpeed) || 1,
+      seek: (timeSec) => {
+        const fr = Math.max(1, Number(anim.frameRate) || 30);
+        const total = Math.max(1, Number(anim.totalFrames) || 1);
+        const frame = Math.max(0, Math.min(total - 1e-3, timeSec * fr));
+        anim.goToAndStop(frame, true);
+      },
+      getCurrentTime: () => {
+        const fr = Math.max(1, Number(anim.frameRate) || 30);
+        return Math.max(0, Number(anim.currentFrame) || 0) / fr;
+      },
+      getDurationSec: durationSec,
     };
     lottieHosts.set(nodeId, api);
+    if (timelineOwns) {
+      api.seek(Math.min(restoreSec, durationSec()));
+    }
     return () => {
       anim.destroy();
       animRef.current = null;
@@ -169,7 +209,8 @@ function LottiePlate({
       style={{
         borderRadius: scenePlate.borderRadius,
         background: fill,
-        boxShadow: fill === 'transparent' ? undefined : 'inset 0 0 0 1px var(--line)',
+        boxShadow:
+          frameHost || fill === 'transparent' ? undefined : 'inset 0 0 0 1px var(--line)',
         visibility: hidden ? 'hidden' : undefined,
       }}
       aria-hidden
@@ -249,6 +290,7 @@ function LottiePlateHost({
   const animationJson = String(node.attrs?.animationData || '').trim();
   if (!parseLottieAnimationData(animationJson)) return null;
   const scenePlate = buildScenePlateStyle(document, node, geometryOverrides?.[nodeId]);
+  const frameHost = isLottieFrameHostNode(node, document);
   return (
     <LottiePlate
       nodeId={nodeId}
@@ -257,6 +299,7 @@ function LottiePlateHost({
       loop={readLoop(node.attrs)}
       speed={readSpeed(node.attrs)}
       plateFill={String(node.attrs?.['fill-color'] || '').trim()}
+      frameHost={frameHost}
       hidden={isNodeOverlayHidden(document, node, hidden)}
       mount={mount}
     />

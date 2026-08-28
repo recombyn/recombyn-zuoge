@@ -14,7 +14,7 @@ export const SEL_TOOL_BTN =
 
 /** W/H number fields — centered digits; focus = bottom underline only (no layout shift / side borders). */
 export const SEL_SIZE_INPUT =
-  'w-11 border-0 bg-transparent text-center text-[12px] tabular-nums outline-none ring-0 shadow-[inset_0_-1px_0_0_transparent] focus:border-0 focus:outline-none focus:ring-0 focus:shadow-[inset_0_-1px_0_0_var(--ink)]';
+  'w-11 border-0 bg-transparent text-center text-[12px] tabular-nums outline-none ring-0 shadow-[inset_0_-1px_0_0_transparent] focus:border-0 focus:outline-none focus:ring-0 focus:shadow-[inset_0_-1px_0_0_var(--ink)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
 
 type Props = {
   /** Shown before the number, e.g. "R" */

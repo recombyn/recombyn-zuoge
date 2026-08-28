@@ -195,8 +195,8 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
         dispatch: spawnVideoGenerator,
       },
       spawnLottieGenerator: {
-        natural: { width: 200, height: 200 },
-        fit: { minRatio: 0.18, maxRatio: 0.32 },
+        natural: { width: 364, height: 364 },
+        fit: { minRatio: 0.22, maxRatio: 0.42 },
         nameKey: 'editor.tools.lottieGenerator' as const,
         dispatch: spawnLottieGenerator,
       },

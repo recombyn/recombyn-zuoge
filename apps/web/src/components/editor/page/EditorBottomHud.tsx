@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown, HiOutlineChevronUp } from 'react-icons/hi2';
 import { LuLayers2, LuMapPinned } from 'react-icons/lu';
@@ -480,6 +480,33 @@ function EditorBottomHud({
     leftHudInsetPx,
     layersOpen,
   });
+  const lottieTimelineOpen = useSelector(
+    (s: any) => Boolean(s.editor.lottieTimelinePanel?.nodeId)
+  );
+  const [timelineLiftPx, setTimelineLiftPx] = useState(0);
+  useEffect(() => {
+    if (!lottieTimelineOpen) {
+      setTimelineLiftPx(0);
+      return undefined;
+    }
+    const sync = () => {
+      const el = window.document.querySelector(
+        '[data-lottie-timeline-dock]'
+      ) as HTMLElement | null;
+      setTimelineLiftPx(Math.round(el?.getBoundingClientRect().height || 0));
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    const raf = window.requestAnimationFrame(() => {
+      const el = window.document.querySelector('[data-lottie-timeline-dock]');
+      if (el) observer.observe(el);
+      sync();
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [lottieTimelineOpen]);
 
   useEffect(() => {
     const sync = () => setFpsHudOn(readFpsHudEnabled());
@@ -570,9 +597,14 @@ function EditorBottomHud({
       <div
         className={cn(
           'pointer-events-none absolute z-20 flex flex-col items-start gap-2',
-          stackBottomHud ? 'bottom-[4.75rem]' : 'bottom-4'
+          !timelineLiftPx && (stackBottomHud ? 'bottom-[4.75rem]' : 'bottom-4')
         )}
-        style={{ left: leftHudInsetPx }}
+        style={{
+          left: leftHudInsetPx,
+          ...(timelineLiftPx
+            ? { bottom: Math.max(16, timelineLiftPx + (stackBottomHud ? 56 : 16)) }
+            : null),
+        }}
       >
         {minimapOpen ? (
           <EditorMinimap

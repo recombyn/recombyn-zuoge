@@ -1,15 +1,12 @@
 /**
- * Selection toolbar for Lottie plates — play/loop/speed + export.
- * Replace JSON / labeled download removed (export icon covers download).
+ * Selection toolbar for Lottie plates — compose / timeline / play + export.
  */
 import { memo, useEffect, useState, type ReactNode } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
-  HiOutlineArrowPath,
-  HiOutlinePause,
   HiOutlinePencilSquare,
-  HiOutlinePlay,
+  HiOutlineQueueList,
 } from 'react-icons/hi2';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown';
@@ -18,10 +15,14 @@ import AppLogo from '@/components/base/AppLogo';
 import { ExportSelectionPopover } from '@/components/editor/panels/ExportSelectionPanel';
 import { imageToolBtn, ImageToolSep } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import { getLottieHost } from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
+import LottieTransportControls from '@/components/editor/nodes/LottieNode/LottieTransportControls';
 import {
+  closeLottieTimelinePanel,
   openImageToolPanel,
   openLottieComposePanel,
+  openLottieTimelinePanel,
   patchDocumentNode,
+  setLottiePlayhead,
 } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 
@@ -75,6 +76,9 @@ function LottieToolbarEditTools({
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const [paused, setPaused] = useState(false);
+  const timelineOpen = useSelector(
+    (s: any) => s.editor.lottieTimelinePanel?.nodeId === nodeId
+  );
 
   useEffect(() => {
     const sync = () => {
@@ -103,6 +107,27 @@ function LottieToolbarEditTools({
       host.pause();
       setPaused(true);
     }
+  };
+
+  const onStepFrame = (dir: -1 | 1) => {
+    const host = getLottieHost(nodeId);
+    if (!host) return;
+    host.pause();
+    setPaused(true);
+    const step = 1 / 30;
+    const next = Math.max(0, Math.min(host.getDurationSec(), host.getCurrentTime() + dir * step));
+    host.seek(next);
+    dispatch(setLottiePlayhead(next));
+  };
+
+  const onSeekEdge = (toEnd: boolean) => {
+    const host = getLottieHost(nodeId);
+    if (!host) return;
+    host.pause();
+    setPaused(true);
+    const next = toEnd ? host.getDurationSec() : 0;
+    host.seek(next);
+    dispatch(setLottiePlayhead(next));
   };
 
   const onToggleLoop = () => {
@@ -139,28 +164,34 @@ function LottieToolbarEditTools({
       >
         <AppLogo size={16} />
       </Tool>
-      <ImageToolSep />
       <Tool
-        label={
-          paused
-            ? t('editor.lottieToolbar.play', { defaultValue: '播放' })
-            : t('editor.lottieToolbar.pause', { defaultValue: '暂停' })
+        label={t('editor.lottieToolbar.timeline', { defaultValue: '时间轴' })}
+        tip={
+          timelineOpen
+            ? t('editor.lottieToolbar.timelineOpenTip', {
+                defaultValue: '关闭底部时间轴',
+              })
+            : t('editor.lottieToolbar.timelineTip', {
+                defaultValue: '从底部打开时间轴：图层与关键帧',
+              })
         }
-        onClick={onTogglePlay}
+        active={timelineOpen}
+        onClick={() => {
+          if (timelineOpen) dispatch(closeLottieTimelinePanel());
+          else dispatch(openLottieTimelinePanel({ nodeId }));
+        }}
       >
-        {paused ? (
-          <HiOutlinePlay className="h-4 w-4" strokeWidth={1.75} />
-        ) : (
-          <HiOutlinePause className="h-4 w-4" strokeWidth={1.75} />
-        )}
+        <HiOutlineQueueList className="h-4 w-4" strokeWidth={1.75} />
       </Tool>
-      <Tool
-        label={t('editor.lottieToolbar.loop', { defaultValue: '循环' })}
-        active={loop}
-        onClick={onToggleLoop}
-      >
-        <HiOutlineArrowPath className="h-4 w-4" strokeWidth={1.75} />
-      </Tool>
+      <ImageToolSep />
+      <LottieTransportControls
+        playing={!paused}
+        loop={loop}
+        onPlayPause={onTogglePlay}
+        onStepFrame={onStepFrame}
+        onSeekEdge={onSeekEdge}
+        onToggleLoop={onToggleLoop}
+      />
       <Dropdown
         trigger="click"
         placement="top"

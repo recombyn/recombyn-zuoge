@@ -9,6 +9,25 @@ export type BBox = {
   height: number;
 };
 
+/** Video / audio plates (incl. generators) — not valid Lottie 合成台 children. */
+export function isAvMediaSceneNode(node: { key?: unknown } | null | undefined): boolean {
+  const key = String(node?.key || '');
+  return key === 'video' || key === 'audio';
+}
+
+/**
+ * Whether a node may be bound to a given artboard.
+ * Lottie 合成台 rejects AV media; normal artboards accept everything.
+ */
+export function canBindNodeToArtboardFrame(
+  frame: ArtboardFrame | null | undefined,
+  node: { key?: unknown } | null | undefined
+): boolean {
+  if (!frame || !node) return true;
+  if (frame.kind !== 'lottie') return true;
+  return !isAvMediaSceneNode(node);
+}
+
 export function nodeBBox(node: {
   x?: unknown;
   y?: unknown;
@@ -48,15 +67,18 @@ export function boxesIntersect(a: BBox, b: BBox): boolean {
 
 /**
  * Topmost artboard whose plate intersects the node bbox (explicit placement).
+ * Optional `node` skips Lottie frames that reject that media kind.
  */
 export function frameForNodeIntersectPlacement(
   doc: SceneDocument,
-  rect: BBox
+  rect: BBox,
+  node?: { key?: unknown } | null
 ): string | null {
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   for (let index = frames.length - 1; index >= 0; index -= 1) {
     const frame = frames[index];
     if (!frame || frame.hidden || !boxesIntersect(rect, frameBBox(frame))) continue;
+    if (!canBindNodeToArtboardFrame(frame, node)) continue;
     return String(frame.id);
   }
   return null;
@@ -67,10 +89,18 @@ export function frameForNodeIntersectPlacement(
  * Nodes with attrs.frameId are never touched — ownership is explicit only.
  */
 export function shouldBindUnownedNodeToFrame(
-  node: { x?: unknown; y?: unknown; width?: unknown; height?: unknown; attrs?: Record<string, unknown> },
+  node: {
+    key?: unknown;
+    x?: unknown;
+    y?: unknown;
+    width?: unknown;
+    height?: unknown;
+    attrs?: Record<string, unknown>;
+  },
   frame: ArtboardFrame
 ): boolean {
   if (String(node.attrs?.frameId || '').trim()) return false;
+  if (!canBindNodeToArtboardFrame(frame, node)) return false;
   return boxesIntersect(nodeBBox(node), frameBBox(frame));
 }
 

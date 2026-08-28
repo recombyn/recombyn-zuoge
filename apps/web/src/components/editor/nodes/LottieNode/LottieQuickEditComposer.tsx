@@ -18,6 +18,7 @@ import {
   HiOutlineChevronDown,
   HiOutlinePlus,
 } from 'react-icons/hi2';
+import { BiExit } from 'react-icons/bi';
 import { createLottieJob, waitForLottieJob, type LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';
 import { Dropdown, DropdownPanel, message, Tooltip } from '@/components/base';
@@ -50,6 +51,7 @@ import {
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   closeImageToolPanel,
+  closeLottieFramePanel,
   patchDocumentNode,
   pushEditorHistory,
 } from '@/store/modules/editor';
@@ -205,6 +207,7 @@ function LottieQuickEditComposer({
         })
       );
       dispatch(closeImageToolPanel());
+      dispatch(closeLottieFramePanel());
     } catch (err: any) {
       if (ac.signal.aborted) return;
       const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
@@ -219,45 +222,64 @@ function LottieQuickEditComposer({
 
   if (!node) return null;
 
+  const onCloseQuickEdit = () => {
+    abortRef.current?.abort();
+    dispatch(closeLottieFramePanel());
+    dispatch(closeImageToolPanel());
+  };
+
   return (
     <SelectionToolbarShell
       box={box}
       bare
       dock="below"
+      edgePadScene={12}
       zIndexClassName="z-[32]"
       data-lottie-edit-composer
       {...{ [MEDIA_QUICK_EDIT_ATTR]: true }}
       data-scene-node-id={nodeId}
     >
       <GeneratorComposerPanel overflow="visible">
-        <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
-          {attachments.map((att) => (
-            <ComposerAttachmentChip
-              key={att.key}
-              attachment={att}
-              disabled={sending}
-              onRemove={removeContext}
+        <div className="flex min-h-0 shrink-0 items-start justify-between gap-2 px-3 pt-2.5">
+          <div className="flex max-h-[72px] min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-y-auto">
+            {attachments.map((att) => (
+              <ComposerAttachmentChip
+                key={att.key}
+                attachment={att}
+                disabled={sending}
+                onRemove={removeContext}
+              />
+            ))}
+            <Tooltip tip={t('editor.tools.lottieGenUpload', { defaultValue: '参考图' })} placement="top">
+              <button
+                type="button"
+                disabled={sending}
+                aria-label={t('editor.tools.lottieGenUpload', { defaultValue: '参考图' })}
+                onClick={() => fileRef.current?.click()}
+                className={composerAttachActionClass()}
+              >
+                <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </Tooltip>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={onPickRef}
             />
-          ))}
-          <Tooltip tip={t('editor.tools.lottieGenUpload', { defaultValue: '参考图' })} placement="top">
+          </div>
+          <Tooltip tip={t('editor.exit')} placement="top">
             <button
               type="button"
-              disabled={sending}
-              aria-label={t('editor.tools.lottieGenUpload', { defaultValue: '参考图' })}
-              onClick={() => fileRef.current?.click()}
+              aria-label={t('editor.exit')}
+              onClick={onCloseQuickEdit}
               className={composerAttachActionClass()}
             >
-              <HiOutlinePlus className="h-4 w-4" strokeWidth={2} />
+              <BiExit className="h-4 w-4" />
             </button>
           </Tooltip>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={onPickRef}
-          />
         </div>
 
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer padding to focus; keyboard tabs into contenteditable */}

@@ -33,6 +33,7 @@ import {
   reorderNodesInDocument
 } from '@/components/rcb/scene/document/sceneDocument';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
+import { canBindNodeToArtboardFrame } from '@/components/rcb/frames/frameNodeBinding';
 import {
   createImageNode,
   createShapeNode,
@@ -41,11 +42,10 @@ import {
   createTextNode
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
-  isLottieGeneratorNode,
   supportsBooleanOp
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  promoteLottieGeneratorToLottie
+  applyLottieAnimationToNode
 } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   groupNodesInDocument,
@@ -3275,7 +3275,7 @@ function execCreateLottie(
   }
 
   const replaceId = String(args.replaceNodeId || '').trim();
-  if (replaceId && isLottieGeneratorNode(doc?.deltaSetLike?.[replaceId])) {
+  if (replaceId && doc?.deltaSetLike?.[replaceId]?.key === 'lottie') {
     const plate = doc.deltaSetLike[replaceId];
     const width =
       args.width != null
@@ -3286,7 +3286,7 @@ function execCreateLottie(
         ? Math.max(8, num(args.height, Number(plate.height) || 200))
         : Math.max(8, Number(plate.height) || 200);
     pushHistory();
-    const next = promoteLottieGeneratorToLottie(ctx.getDocument(), replaceId, {
+    const next = applyLottieAnimationToNode(ctx.getDocument(), replaceId, {
       animationData: raw,
       width,
       height,
@@ -3305,7 +3305,7 @@ function execCreateLottie(
     ctx.dispatch(setDocument(next));
     return {
       status: 'success',
-      summary: `Filled lottie generator ${replaceId}`,
+      summary: `Updated lottie ${replaceId}`,
       artifacts: { nodeId: replaceId, shapeType: 'lottie' },
       next_actions: ['Continue layout'],
     };
@@ -3785,8 +3785,9 @@ function bindNodesInDocument(
   doc: SceneDocument,
   nodeIds: string[],
   frameId: string | null
-): SceneDocument {
+): { document: SceneDocument; boundIds: string[]; rejectedIds: string[] } {
   const next = cloneSceneValue(doc) as SceneDocument;
+  const frame = frameId ? frameById(next, frameId) : null;
   let orderCursor = 0;
   if (frameId) {
     const existing = Object.values(next.deltaSetLike || {})
@@ -3796,18 +3797,26 @@ function bindNodesInDocument(
     orderCursor = existing.length ? Math.max(...existing) + 1 : 0;
   }
   const unboundKeys: string[] = [];
+  const boundIds: string[] = [];
+  const rejectedIds: string[] = [];
   for (const nodeId of nodeIds) {
     const node = next.deltaSetLike?.[nodeId];
     if (!node) continue;
+    if (frameId && !canBindNodeToArtboardFrame(frame, node)) {
+      rejectedIds.push(nodeId);
+      continue;
+    }
     const attrs = { ...(node.attrs || {}) };
     if (frameId) {
       attrs.frameId = frameId;
       attrs.frameOrder = orderCursor;
       orderCursor += 1;
+      boundIds.push(nodeId);
     } else {
       delete attrs.frameId;
       delete attrs.frameOrder;
       unboundKeys.push(`node:${nodeId}`);
+      boundIds.push(nodeId);
     }
     next.deltaSetLike[nodeId] = { ...node, attrs };
   }
@@ -3817,7 +3826,7 @@ function bindNodesInDocument(
     next.stackOrder = [...keep, ...unboundKeys.filter((key) => !keep.includes(key))];
   }
   reconcileStackOrder(next);
-  return next;
+  return { document: next, boundIds, rejectedIds };
 }
 
 function execBindNodesToFrame(
@@ -3831,13 +3840,23 @@ function execBindNodesToFrame(
   if (!frameById(doc, frameId)) return { status: 'error', summary: `frame not found: ${frameId}` };
   const ids = parseNodeIds(args);
   if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
-  const next = bindNodesInDocument(doc, ids, frameId);
+  const { document: next, boundIds, rejectedIds } = bindNodesInDocument(doc, ids, frameId);
+  if (!boundIds.length) {
+    return {
+      status: 'error',
+      summary: 'Lottie 合成台不支持绑定视频/音频节点',
+      artifacts: { rejectedNodeIds: rejectedIds, frameId },
+    };
+  }
   pushHistory();
   ctx.dispatch(setDocumentFromCanvas(next));
   return {
     status: 'success',
-    summary: `Bound ${ids.length} node(s) to frame ${frameId}`,
-    artifacts: { nodeIds: ids, frameId },
+    summary:
+      rejectedIds.length > 0
+        ? `Bound ${boundIds.length} node(s) to frame ${frameId}; skipped ${rejectedIds.length} AV node(s)`
+        : `Bound ${boundIds.length} node(s) to frame ${frameId}`,
+    artifacts: { nodeIds: boundIds, rejectedNodeIds: rejectedIds, frameId },
   };
 }
 
@@ -3849,13 +3868,13 @@ function execUnbindNodes(
 ): AgentToolResult {
   const ids = parseNodeIds(args);
   if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
-  const next = bindNodesInDocument(doc, ids, null);
+  const { document: next, boundIds } = bindNodesInDocument(doc, ids, null);
   pushHistory();
   ctx.dispatch(setDocumentFromCanvas(next));
   return {
     status: 'success',
-    summary: `Unbound ${ids.length} node(s) from artboards`,
-    artifacts: { nodeIds: ids },
+    summary: `Unbound ${boundIds.length} node(s) from artboards`,
+    artifacts: { nodeIds: boundIds },
   };
 }
 

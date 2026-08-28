@@ -304,7 +304,12 @@ export function promoteVideoGeneratorToVideo(
   delete attrs.processJobIds;
   delete attrs.processStartedAt;
   attrs.src = src;
-  if (poster) attrs.poster = poster;
+  const posterUrl = String(poster || '').trim();
+  if (posterUrl && !posterUrl.startsWith('blob:') && !posterUrl.startsWith('data:')) {
+    attrs.poster = posterUrl;
+  } else {
+    delete attrs.poster;
+  }
   attrs.assetKind = 'video';
   if (name) attrs.name = name;
   const prompt = String(genPrompt || '').trim();
@@ -564,11 +569,10 @@ export function promoteAudioGeneratorToAudio(
 }
 
 /**
- * Spawn a Lottie Generator plate. Same `lottie` key so hit-test / select
- * keep working; `attrs.lottieGenerator` flips on the HTML composer overlay.
- * After generate, call `promoteLottieGeneratorToLottie` to become a normal Lottie.
+ * Write animation JSON onto an existing Lottie plate (same id / selection).
+ * Strips any legacy generator / process attrs.
  */
-export function promoteLottieGeneratorToLottie(
+export function applyLottieAnimationToNode(
   doc: SceneDocument,
   nodeId: string,
   {
@@ -597,6 +601,9 @@ export function promoteLottieGeneratorToLottie(
   if (!node || node.key !== 'lottie') return doc;
   const attrs = { ...(node.attrs || {}) };
   delete attrs.lottieGenerator;
+  delete attrs.lottieGenAspect;
+  delete attrs.lottieGenDuration;
+  delete attrs.lottieGenModel;
   delete attrs.processStatus;
   delete attrs.processKind;
   delete attrs.processLabel;
@@ -612,10 +619,10 @@ export function promoteLottieGeneratorToLottie(
   if (!String(attrs['fill-color'] || '').trim() || attrs['fill-color'] === 'transparent') {
     attrs['fill-color'] = 'var(--surface)';
   }
-  if (attrs.radiusTL == null) attrs.radiusTL = 8;
-  if (attrs.radiusTR == null) attrs.radiusTR = 8;
-  if (attrs.radiusBR == null) attrs.radiusBR = 8;
-  if (attrs.radiusBL == null) attrs.radiusBL = 8;
+  if (attrs.radiusTL == null) attrs.radiusTL = 0;
+  if (attrs.radiusTR == null) attrs.radiusTR = 0;
+  if (attrs.radiusBR == null) attrs.radiusBR = 0;
+  if (attrs.radiusBL == null) attrs.radiusBL = 0;
   if (name) attrs.name = name;
   const prompt = String(genPrompt || '').trim();
   if (prompt) attrs.genPrompt = prompt;
@@ -632,6 +639,23 @@ export function promoteLottieGeneratorToLottie(
     },
   };
   return next;
+}
+
+/** Same as applyLottieAnimationToNode — kept for finishLottieGenerator imports. */
+export function promoteLottieGeneratorToLottie(
+  doc: SceneDocument,
+  nodeId: string,
+  opts: {
+    animationData: unknown;
+    width?: number;
+    height?: number;
+    x?: number;
+    y?: number;
+    name?: string;
+    genPrompt?: string;
+  }
+) {
+  return applyLottieAnimationToNode(doc, nodeId, opts);
 }
 
 function looksLikeSvgSrc(src: string) {
@@ -720,7 +744,7 @@ function centerInFrameOrDocument(opts: {
 }
 
 /**
- * Image upload placeholder — shows local base64 preview at natural aspect while COS upload runs.
+ * Image upload placeholder — local blob preview at natural aspect while COS upload runs.
  */
 export function spawnImageUploadPlaceholderNode(
   doc: SceneDocument,

@@ -12,7 +12,6 @@ import {
   LuImageUp,
   LuMinus,
   LuFileJson,
-  LuFilm,
   LuMusic2,
   LuMousePointer2,
   LuPenTool,
@@ -23,6 +22,7 @@ import {
   LuType,
 } from 'react-icons/lu';
 import { RiImageUploadLine, RiVideoUploadLine, RiVideoLine } from 'react-icons/ri';
+import { LottieOutlineIcon } from '@/components/editor/nodes/LottieNode/LottieOutlineIcon';
 import { Dropdown, Tooltip, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
@@ -568,7 +568,7 @@ function EditorToolStrip({
           <MenuLabel
             label={L.lottieGenerator}
             shortcut={TOOL_SHORTCUT.lottieGenerator}
-            icon={<LuFilm className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
+            icon={<LottieOutlineIcon className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
           />
         ),
       },
@@ -654,8 +654,8 @@ function EditorToolStrip({
 
   const spawnLottieGeneratorAtView = () => {
     if (!document) return;
-    let width = 200;
-    let height = 200;
+    let width = 364;
+    let height = 364;
     let x = 40;
     let y = 40;
     if (camera && stageEl) {
@@ -665,8 +665,8 @@ function EditorToolStrip({
           document,
           camera,
           stageEl,
-          natural: { width: 200, height: 200 },
-          fit: { minRatio: 0.18, maxRatio: 0.32 },
+          natural: { width: 364, height: 364 },
+          fit: { minRatio: 0.22, maxRatio: 0.42 },
         });
         width = laid.width;
         height = laid.height;

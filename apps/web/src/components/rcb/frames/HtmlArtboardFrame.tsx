@@ -292,7 +292,7 @@ function HtmlArtboardFrame({
           sizeWidth={frame.width}
           sizeHeight={frame.height}
           dataAttr="frame-label"
-          icon="frame"
+          icon={frame.kind === 'lottie' ? 'lottie' : 'frame'}
           dataProps={{ 'data-frame-id': frame.id }}
           hidden={hideTitle}
           onSelect={onSelect}

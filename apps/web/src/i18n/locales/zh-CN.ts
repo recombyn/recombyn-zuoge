@@ -1112,7 +1112,7 @@ const zhCN = {
       audioGenEmpty: '未返回音频',
       audioGenSubmit: '生成音频',
       lottie: 'Lottie 动画',
-      lottieGenerator: 'Lottie 生成器',
+      lottieGenerator: 'Lottie 合成台',
       lottieGenPlaceholder: '今天我们要创作什么',
       lottieGenSubmit: '生成',
       lottieGenUpload: '上传图片 / Lottie JSON',

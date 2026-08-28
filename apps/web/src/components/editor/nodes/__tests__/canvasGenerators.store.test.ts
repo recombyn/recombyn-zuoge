@@ -14,6 +14,7 @@ import reducer, {
   spawnAudioGenerator,
   spawnImageGenerator,
   spawnLottieGenerator,
+  spawnLottieGeneratorPlate,
   spawnVideoGenerator,
 } from '@/store/modules/editor';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
@@ -58,7 +59,7 @@ describe('canvas generators (store)', () => {
     const specs = [
       { action: spawnImageGenerator, flag: 'imageGenerator' },
       { action: spawnVideoGenerator, flag: 'videoGenerator' },
-      { action: spawnLottieGenerator, flag: 'lottieGenerator' },
+      { action: spawnLottieGeneratorPlate, flag: 'lottieGenerator' },
       { action: spawnAudioGenerator, flag: 'audioGenerator' },
     ] as const;
 
@@ -71,6 +72,16 @@ describe('canvas generators (store)', () => {
       expect(node).toBeTruthy();
       expect(Boolean((node.attrs as any)?.[flag])).toBe(true);
     }
+  });
+
+  it('spawnLottieGenerator creates a Lottie 合成台 artboard', () => {
+    let state = seed();
+    state = reducer(state, spawnLottieGenerator({ x: 10, y: 20, width: 300, height: 300 }));
+    expect(state.selectedNodeId).toBeNull();
+    expect(state.selectedFrameIds.length).toBe(1);
+    const frame = state.document!.frames?.find((f) => f.id === state.selectedFrameIds[0]);
+    expect(frame?.kind).toBe('lottie');
+    expect(frame?.name).toMatch(/合成台|Lottie/);
   });
 
   it('factory helpers produce distinct generator kinds', () => {
@@ -137,7 +148,7 @@ describe('canvas generators (store)', () => {
     expect(state.document!.deltaSetLike[id].attrs?.audioGenerator).toBeFalsy();
     expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('aud-prompt');
 
-    state = reducer(state, spawnLottieGenerator({ x: 3, y: 3 }));
+    state = reducer(state, spawnLottieGeneratorPlate({ x: 3, y: 3 }));
     id = String(state.selectedNodeId);
     state = reducer(
       state,

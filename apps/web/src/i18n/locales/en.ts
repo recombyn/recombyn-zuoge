@@ -1122,7 +1122,7 @@ const en = {
       audioGenEmpty: 'No audio returned',
       audioGenSubmit: 'Generate audio',
       lottie: 'Lottie',
-      lottieGenerator: 'Lottie generator',
+      lottieGenerator: 'Lottie artboard',
       lottieGenPlaceholder: 'What should we create today',
       lottieGenSubmit: 'Generate',
       lottieGenUpload: 'Upload image / Lottie JSON',

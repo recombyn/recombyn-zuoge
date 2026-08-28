@@ -25,7 +25,7 @@ import {
   promoteLottieGeneratorToLottie,
   promoteAudioGeneratorToAudio,
   applyImageDecomposeLayers,
-  detachImageVariantToNode
+  detachImageVariantToNode,
 } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   createImageGeneratorNode,
@@ -53,6 +53,9 @@ import { bindUnownedNodesToFrames } from '@/components/rcb/frames/frameNodeBindi
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
+import { createBlankLottieAnimation } from '@/components/editor/nodes/LottieNode/lottieComposeLayers';
+import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/LottieNode/lottieFrameSync';
+import { isLottieFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   asHistoryEntry,
   cloneDocument,
@@ -297,9 +300,22 @@ function createFrame(partial?: Partial<ArtboardFrame>): ArtboardFrame {
   const hasH = partial?.height != null && Number.isFinite(Number(partial.height));
   const width = Math.max(1, Math.round(hasW ? Number(partial!.width) : 794));
   const height = Math.max(1, Math.round(hasH ? Number(partial!.height) : 1123));
+  const kind =
+    partial?.kind === 'lottie' ? 'lottie' : partial?.kind === 'artboard' ? 'artboard' : undefined;
+  const durationSec =
+    kind === 'lottie'
+      ? Math.max(
+          0.5,
+          Number.isFinite(Number(partial?.durationSec)) ? Number(partial!.durationSec) : 5
+        )
+      : partial?.durationSec;
+  const fps =
+    kind === 'lottie'
+      ? Math.max(1, Math.round(Number.isFinite(Number(partial?.fps)) ? Number(partial!.fps) : 30))
+      : partial?.fps;
   return {
     id: partial?.id || nanoid(8),
-    name: partial?.name || 'Frame',
+    name: partial?.name || (kind === 'lottie' ? 'Lottie 合成台' : 'Frame'),
     x: Math.round(partial?.x ?? 0),
     y: Math.round(partial?.y ?? 0),
     width,
@@ -307,6 +323,9 @@ function createFrame(partial?: Partial<ArtboardFrame>): ArtboardFrame {
     backgroundColor: partial?.backgroundColor ?? '#FFFFFF',
     backgroundOpacity: partial?.backgroundOpacity ?? 100,
     clipContent: partial?.clipContent ?? true,
+    ...(kind ? { kind } : {}),
+    ...(durationSec != null ? { durationSec } : {}),
+    ...(fps != null ? { fps } : {}),
   };
 }
 
@@ -409,6 +428,12 @@ const initialState = {
     nodeId: string;
     tool: 'select' | 'rect' | 'ellipse' | 'pen' | 'text';
   },
+  /** Bottom timeline dock for a Lottie plate. */
+  lottieTimelinePanel: null as null | { nodeId: string },
+  /** Lottie 合成台 (artboard) workbench — quick edit on the plate. */
+  lottieFramePanel: null as null | { frameId: string; kind: 'quickEdit' | 'timeline' },
+  /** Playhead time (seconds) while the Lottie timeline dock is open. */
+  lottiePlayheadSec: 0 as number,
   /** Fill / stroke panel docked to the right of the selection (hides top chrome while open). */
   shapeStylePanel: null as null | { kind: 'fill' | 'stroke' | 'radius'; nodeIds: string[] },
   /** Shared stroke settings for pen / pencil tools. */
@@ -508,6 +533,8 @@ function clearSelection(state: typeof initialState) {
   state.imageToolPanel = null;
   state.videoToolPanel = null;
   state.audioToolPanel = null;
+  state.lottieComposePanel = null;
+  // Keep lottieTimelinePanel — dock stays until explicit close / node delete.
   state.shapeStylePanel = null;
 }
 
@@ -831,6 +858,7 @@ const editorSlice = createSlice({
       if (!action.payload || state.lottieComposePanel?.nodeId !== action.payload) {
         state.lottieComposePanel = null;
       }
+      // Keep Lottie timeline dock open across selection changes (close via X / delete).
       if (
         !action.payload ||
         !state.shapeStylePanel?.nodeIds?.length ||
@@ -841,7 +869,24 @@ const editorSlice = createSlice({
       }
     },
     setSelectedNodeIds(state, action) {
-      const ids = Array.isArray(action.payload) ? action.payload.filter(Boolean) : [];
+      let ids = Array.isArray(action.payload) ? action.payload.filter(Boolean).map(String) : [];
+      // 合成台内部播放宿主不是第二块板：点到它时改选父画板。
+      if (ids.length === 1 && state.document) {
+        const host = state.document.deltaSetLike?.[ids[0]!];
+        if (isLottieFrameHostNode(host, state.document)) {
+          const fid = String(host?.attrs?.frameId || '').trim();
+          if (fid) {
+            const next = normalizeDocument(state.document);
+            next.activeFrameId = fid;
+            state.document = next;
+            state.selectedNodeIds = [];
+            state.selectedNodeId = null;
+            state.selectedFrameIds = [fid];
+            state.frameChromeMode = 'full';
+            return;
+          }
+        }
+      }
       state.selectedNodeIds = ids;
       state.selectedNodeId = ids[0] || null;
       // Do not clear selectedFrameIds here — marquee may select frames + nodes together.
@@ -944,7 +989,7 @@ const editorSlice = createSlice({
       action: PayloadAction<{ nodeIds?: string[]; frameIds?: string[] }>
     ) {
       if (!state.document) return;
-      const nodeIds = (action.payload?.nodeIds || []).filter(Boolean).map(String);
+      let nodeIds = (action.payload?.nodeIds || []).filter(Boolean).map(String);
       const frameIdsRaw = (action.payload?.frameIds || []).filter(Boolean).map(String);
       const next = normalizeDocument(state.document);
       const valid = new Set(
@@ -952,6 +997,22 @@ const editorSlice = createSlice({
           .map((f) => String(f?.id || ''))
           .filter(Boolean)
       );
+      // Solo 合成台 host → select parent frame only.
+      if (nodeIds.length === 1 && !frameIdsRaw.length) {
+        const host = next.deltaSetLike?.[nodeIds[0]!];
+        if (isLottieFrameHostNode(host, next)) {
+          const fid = String(host?.attrs?.frameId || '').trim();
+          if (fid && valid.has(fid)) {
+            next.activeFrameId = fid;
+            state.document = next;
+            state.selectedNodeIds = [];
+            state.selectedNodeId = null;
+            state.selectedFrameIds = [fid];
+            state.frameChromeMode = 'full';
+            return;
+          }
+        }
+      }
       const frameIds = Array.from(new Set(frameIdsRaw.filter((id) => valid.has(id))));
       let active = frameIds[0] || null;
       if (!active && nodeIds.length) {
@@ -1035,6 +1096,15 @@ const editorSlice = createSlice({
       }
       if (state.audioToolPanel && nodeIdSet.has(state.audioToolPanel.nodeId)) {
         state.audioToolPanel = null;
+      }
+      if (state.lottieComposePanel && nodeIdSet.has(state.lottieComposePanel.nodeId)) {
+        state.lottieComposePanel = null;
+      }
+      if (state.lottieTimelinePanel && nodeIdSet.has(state.lottieTimelinePanel.nodeId)) {
+        state.lottieTimelinePanel = null;
+      }
+      if (state.lottieFramePanel && idSet.has(state.lottieFramePanel.frameId)) {
+        state.lottieFramePanel = null;
       }
       if (
         state.pendingImportPlaceholderId &&
@@ -1720,8 +1790,57 @@ const editorSlice = createSlice({
         })
       );
     },
-    /** Spawn canvas Lottie Generator plate at given document coords. */
+    /** Spawn Lottie 合成台 as a real artboard (same clip / children as 画板). */
     spawnLottieGenerator(state, action) {
+      if (!state.document) return;
+      pushHistory(state);
+      const width = Math.max(1, Math.round(Number(action.payload?.width) || 364));
+      const height = Math.max(1, Math.round(Number(action.payload?.height) || 364));
+      const next = normalizeDocument(state.document);
+      const frames = Array.isArray(next.frames) ? [...next.frames] : [];
+      const frame = createFrame({
+        x: action.payload?.x,
+        y: action.payload?.y,
+        width,
+        height,
+        name: action.payload?.name || 'Lottie 合成台',
+        kind: 'lottie',
+        clipContent: true,
+      });
+      frames.push(frame);
+      next.frames = frames;
+      const key = `frame:${frame.id}`;
+      const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
+      if (!order.includes(key)) {
+        let insertAt = 0;
+        for (let i = 0; i < order.length; i += 1) {
+          if (order[i].startsWith('frame:')) insertAt = i + 1;
+        }
+        next.stackOrder = [...order.slice(0, insertAt), key, ...order.slice(insertAt)];
+      }
+      reconcileStackOrder(next);
+      const bound = bindUnownedNodesToFrames(next, [frame.id]);
+      bound.activeFrameId = frame.id;
+      state.selectedFrameIds = [frame.id];
+      state.selectedNodeId = null;
+      state.selectedNodeIds = [];
+      state.frameChromeMode = 'full';
+      state.document = bound;
+      state.dirty = true;
+      state.sceneReloadToken += 1;
+      state.activeTool = 'select';
+      state.lottieComposePanel = null;
+      state.lottieFramePanel = null;
+      state.lottieTimelinePanel = null;
+      state.imageToolPanel = null;
+      state.videoToolPanel = null;
+      state.audioToolPanel = null;
+      state.shapeStylePanel = null;
+      state.pendingImageSrc = null;
+      syncLibraryOnEdit(state);
+    },
+    /** Spawn AI Lottie generator plate (composer) — secondary to 合成台. */
+    spawnLottieGeneratorPlate(state, action) {
       if (!state.document) return;
       pushHistory(state);
       commitSpawnedGenerator(
@@ -2277,6 +2396,7 @@ const editorSlice = createSlice({
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
+      state.lottieTimelinePanel = null;
       state.shapeStylePanel = null;
     },
     closeImageToolPanel(state) {
@@ -2306,6 +2426,7 @@ const editorSlice = createSlice({
       state.imageToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
+      state.lottieTimelinePanel = null;
       state.shapeStylePanel = null;
     },
     closeVideoToolPanel(state) {
@@ -2323,6 +2444,7 @@ const editorSlice = createSlice({
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.lottieComposePanel = null;
+      state.lottieTimelinePanel = null;
       state.shapeStylePanel = null;
     },
     closeAudioToolPanel(state) {
@@ -2337,6 +2459,7 @@ const editorSlice = createSlice({
         nodeId,
         tool: allowed.has(tool) ? tool : 'select',
       };
+      state.lottieTimelinePanel = null;
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.audioToolPanel = null;
@@ -2354,6 +2477,191 @@ const editorSlice = createSlice({
     closeLottieComposePanel(state) {
       state.lottieComposePanel = null;
     },
+    openLottieTimelinePanel(state, action) {
+      const nodeId = String(action.payload?.nodeId || '').trim();
+      if (!nodeId) return;
+      state.lottieTimelinePanel = { nodeId };
+      // Keep existing playhead when reopening the same node; otherwise leave as-is
+      // (host sync / seek happens in the dock on mount).
+      state.lottieComposePanel = null;
+      state.lottieFramePanel = null;
+      state.imageToolPanel = null;
+      state.videoToolPanel = null;
+      state.audioToolPanel = null;
+      state.shapeStylePanel = null;
+    },
+    closeLottieTimelinePanel(state) {
+      state.lottieTimelinePanel = null;
+    },
+    setLottiePlayhead(state, action) {
+      const n = Number(action.payload);
+      if (!Number.isFinite(n)) return;
+      state.lottiePlayheadSec = Math.max(0, n);
+    },
+    openLottieFramePanel(state, action) {
+      const frameId = String(action.payload?.frameId || '').trim();
+      const kind = action.payload?.kind;
+      if (!frameId || (kind !== 'quickEdit' && kind !== 'timeline')) return;
+      state.lottieFramePanel = { frameId, kind };
+      state.lottieComposePanel = null;
+      state.imageToolPanel = null;
+      state.videoToolPanel = null;
+      state.audioToolPanel = null;
+      state.shapeStylePanel = null;
+      if (kind === 'timeline') {
+        // Prefer the node-based bottom dock when media already exists.
+        state.lottieTimelinePanel = null;
+      }
+    },
+    closeLottieFramePanel(state) {
+      state.lottieFramePanel = null;
+    },
+    /**
+     * Ensure a full-bleed Lottie media node exists inside a 合成台 frame
+     * (playback / timeline host). Invisible — not a second user plate.
+     * Syncs artboard children (shapes / images) into animationData layers.
+     * Does not change selection.
+     */
+    ensureLottieFrameMedia(state, action) {
+      if (!state.document) return;
+      const frameId = String(action.payload?.frameId || '').trim();
+      if (!frameId) return;
+      const frames = Array.isArray(state.document.frames) ? state.document.frames : [];
+      const frame = frames.find((f) => String(f?.id) === frameId);
+      if (!frame) return;
+      const hostAttrs = {
+        frameId,
+        frameOrder: 0,
+        /** Invisible host under 合成台 — not a second plate. */
+        lottieFrameHost: true,
+        'fill-color': 'transparent',
+        locked: true,
+        name: '',
+      } as const;
+
+      const finishSync = (hostId: string) => {
+        if (!state.document) return;
+        const synced = syncArtboardChildrenIntoAnimation(state.document, frameId, hostId);
+        if (!synced) return;
+        const hostBefore = state.document.deltaSetLike?.[hostId];
+        const prevJson = String(hostBefore?.attrs?.animationData || '');
+        const attrsNeedHost =
+          hostBefore?.attrs?.lottieFrameHost !== true ||
+          String(hostBefore?.attrs?.['fill-color'] || '') !== 'transparent' ||
+          hostBefore?.attrs?.locked !== true ||
+          String(hostBefore?.attrs?.name || '').trim() !== '';
+        let childrenNeed = false;
+        for (const p of synced.childAttrPatches) {
+          const child = state.document.deltaSetLike?.[p.nodeId];
+          if (Number(child?.attrs?.lottieLayerInd) !== p.lottieLayerInd) {
+            childrenNeed = true;
+            break;
+          }
+          if (
+            p.lottieInFrame != null &&
+            Number(child?.attrs?.lottieInFrame) !== p.lottieInFrame
+          ) {
+            childrenNeed = true;
+            break;
+          }
+          if (
+            p.lottieOutFrame != null &&
+            Number(child?.attrs?.lottieOutFrame) !== p.lottieOutFrame
+          ) {
+            childrenNeed = true;
+            break;
+          }
+        }
+        if (!attrsNeedHost && !childrenNeed && prevJson === synced.animationJson) return;
+
+        pushHistory(state);
+        const next = normalizeDocument(state.document);
+        const host = next.deltaSetLike?.[hostId];
+        if (!host) return;
+        host.attrs = {
+          ...(host.attrs || {}),
+          ...hostAttrs,
+          animationData: synced.animationJson,
+        };
+        for (const p of synced.childAttrPatches) {
+          const child = next.deltaSetLike?.[p.nodeId];
+          if (!child) continue;
+          child.attrs = {
+            ...(child.attrs || {}),
+            lottieLayerInd: p.lottieLayerInd,
+            ...(p.lottieInFrame != null ? { lottieInFrame: p.lottieInFrame } : null),
+            ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null),
+          };
+        }
+        state.document = next;
+        state.dirty = true;
+        state.documentPatchToken += 1;
+        state.lastPatchedNodeIds = [hostId, ...synced.childAttrPatches.map((p) => p.nodeId)];
+        state.lastPatchTransformOnly = false;
+        syncLibraryOnEdit(state);
+      };
+
+      const bound = nodeIdsBoundToFrames(state.document, [frameId]);
+      for (const id of bound) {
+        const n = state.document.deltaSetLike?.[id];
+        if (n?.key !== 'lottie') continue;
+        finishSync(id);
+        return;
+      }
+      pushHistory(state);
+      try {
+        const blank = createBlankLottieAnimation({
+          width: Math.max(32, Math.round(frame.width)),
+          height: Math.max(32, Math.round(frame.height)),
+          durationSec: Math.max(0.5, Number(frame.durationSec) || 5),
+          fps: Math.max(1, Math.round(Number(frame.fps) || 30)),
+        });
+        const { id, node } = createLottieNode({
+          x: frame.x,
+          y: frame.y,
+          width: frame.width,
+          height: frame.height,
+          name: ' ',
+          animationData: blank,
+        });
+        node.attrs = {
+          ...(node.attrs || {}),
+          ...hostAttrs,
+        };
+        state.document = addNodeToDocument(state.document, id, node);
+        // History already pushed; sync writes without a second pushHistory.
+        const synced = syncArtboardChildrenIntoAnimation(state.document, frameId, id);
+        if (synced) {
+          const next = normalizeDocument(state.document);
+          const host = next.deltaSetLike?.[id];
+          if (host) {
+            host.attrs = {
+              ...(host.attrs || {}),
+              ...hostAttrs,
+              animationData: synced.animationJson,
+            };
+            for (const p of synced.childAttrPatches) {
+              const child = next.deltaSetLike?.[p.nodeId];
+              if (!child) continue;
+              child.attrs = {
+                ...(child.attrs || {}),
+                lottieLayerInd: p.lottieLayerInd,
+                ...(p.lottieInFrame != null ? { lottieInFrame: p.lottieInFrame } : null),
+                ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null),
+              };
+            }
+            state.document = next;
+          }
+        }
+        state.dirty = true;
+        state.documentPatchToken += 1;
+        state.lastPatchedNodeIds = [id];
+        state.lastPatchTransformOnly = false;
+        syncLibraryOnEdit(state);
+      } catch {
+        /* invalid animationData */
+      }
+    },
     openShapeStylePanel(state, action) {
       const kind = action.payload?.kind;
       const nodeIds = Array.isArray(action.payload?.nodeIds)
@@ -2365,6 +2673,8 @@ const editorSlice = createSlice({
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
+      state.lottieTimelinePanel = null;
+      state.lottieFramePanel = null;
     },
     closeShapeStylePanel(state) {
       state.shapeStylePanel = null;
@@ -2592,6 +2902,7 @@ export const {
   spawnImageGenerator,
   spawnVideoGenerator,
   spawnLottieGenerator,
+  spawnLottieGeneratorPlate,
   spawnAudioGenerator,
   spawnLottie,
   spawnAudio,
@@ -2615,6 +2926,12 @@ export const {
   openLottieComposePanel,
   setLottieComposeTool,
   closeLottieComposePanel,
+  openLottieTimelinePanel,
+  closeLottieTimelinePanel,
+  setLottiePlayhead,
+  openLottieFramePanel,
+  closeLottieFramePanel,
+  ensureLottieFrameMedia,
   openShapeStylePanel,
   closeShapeStylePanel,
   setPenStrokeColor,

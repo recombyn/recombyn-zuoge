@@ -207,6 +207,22 @@ export function isLottieNode(node: SceneNodeRef): boolean {
   return Boolean(node) && node!.key === 'lottie' && !isLottieGeneratorNode(node);
 }
 
+/**
+ * Invisible playback/timeline host inside a Lottie 合成台 artboard.
+ * Not a second user-facing plate — selection should promote to the parent frame.
+ */
+export function isLottieFrameHostNode(
+  node: SceneNodeRef,
+  document?: SceneDocument | null
+): boolean {
+  if (!isLottieNode(node)) return false;
+  if (attrFlagTrue(node!.attrs?.lottieFrameHost)) return true;
+  const fid = String(node!.attrs?.frameId || '').trim();
+  if (!fid || !document) return false;
+  const frames = Array.isArray(document.frames) ? document.frames : [];
+  return frames.some((f) => String(f?.id) === fid && (f as { kind?: string })?.kind === 'lottie');
+}
+
 /** True for icon-library assets that still use an SVG source. */
 export function isIconImageNode(node: SceneNodeRef): boolean {
   if (!node || node.key !== 'image') return false;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
+import { isLottieTimelineUiActive } from '@/components/editor/nodes/LottieNode/lottieTimelineHotkeys';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import ImageVariantsOverlay from '@/components/editor/nodes/ImageNode/ImageVariantsOverlay';
 import { useImageVariantsExpandedNodeId } from '@/components/editor/nodes/ImageNode/imageVariantsExpand';
@@ -58,6 +59,7 @@ import {
   isAudioGeneratorNode,
   isImageGeneratorNode,
   isLottieGeneratorNode,
+  isLottieFrameHostNode,
   isVideoGeneratorNode,
   isNodeHidden,
   isNodeLocked,
@@ -2090,6 +2092,7 @@ function SelectionFeature({
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (dragRef.current) return;
+      if (isLottieTimelineUiActive(e.target)) return;
       const t = e.target as HTMLElement | null;
       if (
         t &&
@@ -2097,7 +2100,7 @@ function SelectionFeature({
           t.tagName === 'TEXTAREA' ||
           t.isContentEditable ||
           t.closest?.(
-            '[data-fill-panel],[data-color-panel],[data-stroke-panel],[data-shape-style-panel],[data-sel-toolbar],[data-frame-toolbar],[data-text-inline-editor]'
+            '[data-fill-panel],[data-color-panel],[data-stroke-panel],[data-shape-style-panel],[data-sel-toolbar],[data-frame-toolbar],[data-text-inline-editor],[data-lottie-timeline-dock]'
           ))
       ) {
         return;
@@ -2176,6 +2179,7 @@ function SelectionFeature({
   }, [selectedIsTextFrame, singleNodeData]);
   const mediaTitle = useMemo(() => {
     if (!singleNodeData || selectedIsTextFrame) return null;
+    if (isLottieFrameHostNode(singleNodeData, document)) return null;
     return mediaTitleChrome({
       key: singleNodeData.key,
       name: singleNodeData.attrs?.name,
@@ -2193,6 +2197,7 @@ function SelectionFeature({
     selectedIsLottieGen,
     selectedIsAudioGen,
     selectedIsVideo,
+    document,
   ]);
   const selectedIsMediaGen =
     selectedIsImageGen || selectedIsVideoGen || selectedIsLottieGen || selectedIsAudioGen;

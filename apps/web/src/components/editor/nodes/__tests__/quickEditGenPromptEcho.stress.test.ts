@@ -16,6 +16,7 @@ import reducer, {
   spawnAudioGenerator,
   spawnImageGenerator,
   spawnLottieGenerator,
+  spawnLottieGeneratorPlate,
   spawnVideoGenerator,
 } from '@/store/modules/editor';
 import {
@@ -175,7 +176,7 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
     {
       const prompt = '加载中旋转圆环';
       const attach = 'https://cdn.example.com/style-ref.png';
-      state = reducer(state, spawnLottieGenerator({ x: 80, y: 80 }));
+      state = reducer(state, spawnLottieGeneratorPlate({ x: 80, y: 80 }));
       const nodeId = String(state.selectedNodeId);
       state = patchGeneratorWithPromptAndAttachment(state, nodeId, prompt, attach);
       state = reducer(

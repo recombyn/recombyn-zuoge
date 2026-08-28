@@ -26,6 +26,15 @@ export type ArtboardFrame = {
   backgroundColor: string;
   /** Artboard fill alpha, stored as a percentage from 0 to 100. */
   backgroundOpacity?: number;
+  /**
+   * Plate role. `lottie` = Lottie 合成台 (same HtmlArtboardFrame + clip,
+   * different selection toolbar). Default / omitted = normal artboard.
+   */
+  kind?: 'artboard' | 'lottie';
+  /** Lottie 合成台 composition length (seconds). */
+  durationSec?: number;
+  /** Lottie 合成台 frame rate. */
+  fps?: number;
   layoutMode?: 'auto' | 'manual';
   /** When true, frame cannot be moved or resized. */
   locked?: boolean;

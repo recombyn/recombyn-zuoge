@@ -106,6 +106,9 @@ import EditorToolDocks from '@/components/editor/page/EditorToolDocks';
 import EditorBottomHud, { isThemeFollowCanvasBg } from '@/components/editor/page/EditorBottomHud';
 import { loadFontCatalog } from '@/components/rcb/scene/document/fontCatalog';
 import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
+import LottieTimelineDock, {
+  getLottieTimelineDockHeight,
+} from '@/components/editor/nodes/LottieNode/LottieTimelineDock';
 
 const BOOT_MIN_MS = 520;
 const BOOT_EXIT_MS = 280;
@@ -672,6 +675,38 @@ function EditorPage() {
   const workspaceMode = useSelector(
     (state: any) => state.editor.workspaceMode || 'design'
   ) as 'design' | 'dev';
+  const lottieTimelineOpen = useSelector(
+    (state: any) => Boolean(state.editor.lottieTimelinePanel?.nodeId)
+  );
+  const [lottieTimelineHeight, setLottieTimelineHeight] = useState(0);
+
+  useEffect(() => {
+    if (!lottieTimelineOpen) {
+      setLottieTimelineHeight(0);
+      return undefined;
+    }
+    const sync = () => {
+      const el = window.document.querySelector(
+        '[data-lottie-timeline-dock]'
+      ) as HTMLElement | null;
+      setLottieTimelineHeight(
+        Math.round(el?.getBoundingClientRect().height || getLottieTimelineDockHeight())
+      );
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    const raf = window.requestAnimationFrame(() => {
+      const el = window.document.querySelector('[data-lottie-timeline-dock]');
+      if (el) observer.observe(el);
+      sync();
+    });
+    window.addEventListener('resize', sync);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      observer.disconnect();
+      window.removeEventListener('resize', sync);
+    };
+  }, [lottieTimelineOpen]);
 
   useEffect(() => {
     const onPathEdit = (e: Event) => {
@@ -1686,10 +1721,10 @@ function EditorPage() {
 
             <div
               data-tour="editor-tools"
-              className={cn(
-                'pointer-events-none absolute left-1/2 z-20 -translate-x-1/2',
-                'bottom-4'
-              )}
+              className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
+              style={{
+                bottom: lottieTimelineOpen ? Math.max(16, lottieTimelineHeight + 12) : 16,
+              }}
             >
               <div className="pointer-events-auto">
                 <EditorToolStrip
@@ -1749,6 +1784,14 @@ function EditorPage() {
                 />
               </div>
             </div>
+          ) : null}
+
+          {lottieTimelineOpen && !isMobileViewport ? (
+            <LottieTimelineDock
+              layersOpen={layersOpen}
+              agentOpen={agentOpen}
+              workspaceMode={workspaceMode === 'dev' ? 'dev' : 'design'}
+            />
           ) : null}
 
           {workspaceMode === 'dev' ? (
