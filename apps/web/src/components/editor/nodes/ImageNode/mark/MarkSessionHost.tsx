@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { nanoid } from 'nanoid';
 import { message } from '@/components/base';
 import { useRcbCamera } from '@/components/rcb';
+import { isImageGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import {
   closeImageToolPanel,
@@ -254,9 +255,14 @@ function MarkSessionHost({
   };
 
   if (isMultiImageMark && sessionNodeId && quickEditTargets.length) {
+    const imageGenMark = multiMarkSink === 'imageGen';
     return (
       <>
-        {quickEditTargets.map(({ nodeId, box: targetBox, blocked }) => (
+        {quickEditTargets.map(({ nodeId, box: targetBox, node, blocked }) => {
+          const overlayBlocked = imageGenMark
+            ? blocked || nodeId === sessionNodeId || isImageGeneratorNode(node)
+            : blocked && nodeId !== sessionNodeId;
+          return (
           <MarkRegionOverlay
             key={nodeId}
             imageBox={targetBox}
@@ -265,7 +271,7 @@ function MarkSessionHost({
             activeRegionId={
               activePrompt?.nodeId === nodeId ? activePrompt.regionId : null
             }
-            blocked={blocked && nodeId !== sessionNodeId}
+            blocked={overlayBlocked}
             onDraftChange={(next) =>
               setDraftByNode((prev) => ({ ...prev, [nodeId]: next }))
             }
@@ -276,7 +282,8 @@ function MarkSessionHost({
             }}
             onSoftBlankClick={close}
           />
-        ))}
+          );
+        })}
         {quickEditPromptStyle && activeQuickEditPrompt ? (
           createPortal(
             <MarkPromptBar

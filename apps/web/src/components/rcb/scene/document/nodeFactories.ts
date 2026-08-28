@@ -329,7 +329,7 @@ export function measureVideoNaturalSize(
   });
 }
 
-/** Capture a poster frame (JPEG data URL) from a video src. */
+/** Capture a poster frame (JPEG blob URL) from a video src. Caller should revoke when done. */
 export function captureVideoPosterFrame(
   src: string,
   atSeconds = 0.1
@@ -390,7 +390,17 @@ export function captureVideoPosterFrame(
           return;
         }
         ctx.drawImage(video, 0, 0, w, h);
-        succeed(canvas.toDataURL('image/jpeg', 0.85));
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              fail();
+              return;
+            }
+            succeed(URL.createObjectURL(blob));
+          },
+          'image/jpeg',
+          0.85
+        );
       } catch {
         fail();
       }
@@ -429,8 +439,8 @@ export async function prepareVideoUploadPreview(file: File): Promise<{
   duration: number;
   name: string;
 }> {
-  const { readFileAsDataUrl } = await import('@/utils/uploadImage');
-  const preview = await readFileAsDataUrl(file);
+  const { createFilePreviewUrl } = await import('@/utils/uploadImage');
+  const preview = createFilePreviewUrl(file);
   const natural = await measureVideoNaturalSize(preview);
   let poster = '';
   try {

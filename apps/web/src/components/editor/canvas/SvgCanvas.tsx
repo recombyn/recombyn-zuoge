@@ -63,7 +63,8 @@ import {
   abortNodeUpload,
   formatUploadErrorMessage,
   isUploadAbortError,
-  readFileAsDataUrl,
+  createFilePreviewUrl,
+  revokeNodePreviewSrc,
 } from '@/utils/uploadImage';
 import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import { probeAudioDuration } from '@/components/editor/nodes/shared/mediaProbe';
@@ -1550,7 +1551,7 @@ function SvgCanvas({
     imagePlaceAtRef.current = null;
     let spawnedId = '';
     try {
-      const preview = await readFileAsDataUrl(file);
+      const preview = createFilePreviewUrl(file);
       const natural = await measureImageNaturalSize(preview);
       const { width, height } = imageSizeForViewport(natural);
       const origin = placeOriginForSize({ width, height }, at);
@@ -1570,6 +1571,7 @@ function SvgCanvas({
       await uploadCanvasPlaceholderFile({ dispatch, nodeId: spawnedId, file });
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
+      revokeNodePreviewSrc(store.getState().editor?.document, spawnedId || undefined);
       dispatch(failImageProcess({ nodeId: spawnedId || undefined }));
       message.error(formatUploadErrorMessage(err, t, '图片上传失败'));
     }
@@ -1615,7 +1617,10 @@ function SvgCanvas({
         },
       });
     } catch (err: unknown) {
-      dispatch(failImageProcess({}));
+      if (isUploadAbortError(err)) return;
+      const failedId = String(store.getState().editor?.pendingImageProcessId || '');
+      revokeNodePreviewSrc(store.getState().editor?.document, failedId || undefined);
+      dispatch(failImageProcess({ nodeId: failedId || undefined }));
       message.error(formatUploadErrorMessage(err, t, '视频上传失败'));
     }
   };
@@ -1625,7 +1630,7 @@ function SvgCanvas({
     const at = imagePlaceAtRef.current;
     imagePlaceAtRef.current = null;
     try {
-      const preview = await readFileAsDataUrl(file);
+      const preview = createFilePreviewUrl(file);
       const duration = (await probeAudioDuration(preview)) || undefined;
       const { width, height } = fitMediaIntoViewport(
         'audio',
@@ -1661,7 +1666,9 @@ function SvgCanvas({
       });
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
-      dispatch(failImageProcess({}));
+      const failedId = String(store.getState().editor?.pendingImageProcessId || '');
+      revokeNodePreviewSrc(store.getState().editor?.document, failedId || undefined);
+      dispatch(failImageProcess({ nodeId: failedId || undefined }));
       message.error(formatUploadErrorMessage(err, t, '音频上传失败'));
     }
   };

@@ -12,6 +12,7 @@ import {
   LuImageUp,
   LuMinus,
   LuFileJson,
+  LuFilm,
   LuMusic2,
   LuMousePointer2,
   LuPenTool,
@@ -21,11 +22,11 @@ import {
   LuTriangle,
   LuType,
 } from 'react-icons/lu';
-import { RiImageUploadLine, RiVideoUploadLine } from 'react-icons/ri';
+import { RiImageUploadLine, RiVideoUploadLine, RiVideoLine } from 'react-icons/ri';
 import { Dropdown, Tooltip, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
-import { readFileAsDataUrl, isUploadAbortError } from '@/utils/uploadImage';
+import { createFilePreviewUrl, isUploadAbortError, revokeNodePreviewSrc } from '@/utils/uploadImage';
 import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import store from '@/store';
 import {
@@ -102,6 +103,30 @@ function toolTipWithShortcut(label: string, shortcut?: string) {
 function resolveToolbarShapeKind(shapeKind: string | null | undefined): string {
   if (!shapeKind || shapeKind === 'image') return 'rect';
   return layerIconByKind[shapeKind] ? shapeKind : 'rect';
+}
+
+function pickGeneratorAction(
+  key: string,
+  actions: {
+    image: () => void;
+    video: () => void;
+    lottie: () => void;
+    audio: () => void;
+  }
+) {
+  if (key === 'video') {
+    actions.video();
+    return;
+  }
+  if (key === 'lottie') {
+    actions.lottie();
+    return;
+  }
+  if (key === 'audio') {
+    actions.audio();
+    return;
+  }
+  actions.image();
 }
 
 function pickUploadAction(
@@ -515,6 +540,52 @@ function EditorToolStrip({
     [L.uploadAudio, L.uploadImage, L.uploadLottie, L.uploadVideo]
   );
 
+  const generatorItems: MenuItemType[] = useMemo(
+    () => [
+      {
+        key: 'image',
+        label: (
+          <MenuLabel
+            label={L.imageGenerator}
+            shortcut={TOOL_SHORTCUT.imageGenerator}
+            icon={<LuImagePlus className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
+          />
+        ),
+      },
+      {
+        key: 'video',
+        label: (
+          <MenuLabel
+            label={L.videoGenerator}
+            shortcut={TOOL_SHORTCUT.videoGenerator}
+            icon={<RiVideoLine className={MENU_ICON_CLASS} />}
+          />
+        ),
+      },
+      {
+        key: 'lottie',
+        label: (
+          <MenuLabel
+            label={L.lottieGenerator}
+            shortcut={TOOL_SHORTCUT.lottieGenerator}
+            icon={<LuFilm className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
+          />
+        ),
+      },
+      {
+        key: 'audio',
+        label: (
+          <MenuLabel
+            label={L.audioGenerator}
+            shortcut={TOOL_SHORTCUT.audioGenerator}
+            icon={<LuMusic2 className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
+          />
+        ),
+      },
+    ],
+    [L.audioGenerator, L.imageGenerator, L.lottieGenerator, L.videoGenerator]
+  );
+
   const spawnImageGeneratorAtView = () => {
     if (!document) return;
     let width = 360;
@@ -749,7 +820,7 @@ function EditorToolStrip({
     event.target.value = '';
     if (!file) return;
     try {
-      const preview = await readFileAsDataUrl(file);
+      const preview = createFilePreviewUrl(file);
       const natural = await measureImageNaturalSize(preview);
       const { width, height, x, y } = placeAtViewportCenter(natural);
       dispatch(
@@ -769,7 +840,9 @@ function EditorToolStrip({
       await uploadCanvasPlaceholderFile({ dispatch, nodeId: spawnedId, file });
     } catch (err: any) {
       if (isUploadAbortError(err)) return;
-      dispatch(failImageProcess({}));
+      const failedId = String((store.getState() as any).editor?.pendingImageProcessId || '');
+      revokeNodePreviewSrc((store.getState() as any).editor?.document, failedId || undefined);
+      dispatch(failImageProcess({ nodeId: failedId || undefined }));
       message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };
@@ -814,7 +887,10 @@ function EditorToolStrip({
         },
       });
     } catch (err: any) {
-      dispatch(failImageProcess({}));
+      if (isUploadAbortError(err)) return;
+      const failedId = String((store.getState() as any).editor?.pendingImageProcessId || '');
+      revokeNodePreviewSrc((store.getState() as any).editor?.document, failedId || undefined);
+      dispatch(failImageProcess({ nodeId: failedId || undefined }));
       message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };
@@ -824,7 +900,7 @@ function EditorToolStrip({
     event.target.value = '';
     if (!file) return;
     try {
-      const preview = await readFileAsDataUrl(file);
+      const preview = createFilePreviewUrl(file);
       const duration = await new Promise<number | undefined>((resolve) => {
         const audio = new Audio();
         audio.preload = 'metadata';
@@ -861,7 +937,9 @@ function EditorToolStrip({
       });
     } catch (err: any) {
       if (isUploadAbortError(err)) return;
-      dispatch(failImageProcess({}));
+      const failedId = String((store.getState() as any).editor?.pendingImageProcessId || '');
+      revokeNodePreviewSrc((store.getState() as any).editor?.document, failedId || undefined);
+      dispatch(failImageProcess({ nodeId: failedId || undefined }));
       message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };
@@ -916,6 +994,16 @@ function EditorToolStrip({
       video: openVideoUpload,
       audio: openAudioUpload,
       lottie: openLottieUpload,
+    });
+  };
+
+  const pickGenerator = (key: string) => {
+    setOpenMenu(null);
+    pickGeneratorAction(key, {
+      image: spawnImageGeneratorAtView,
+      video: spawnVideoGeneratorAtView,
+      lottie: spawnLottieGeneratorAtView,
+      audio: spawnAudioGeneratorAtView,
     });
   };
 
@@ -1070,16 +1158,25 @@ function EditorToolStrip({
         </ToolIcon>
       </SplitToolButton>
 
-      {/* Image generator on toolbar; video / Lottie / audio via context menu or shortcuts. */}
-      <ToolBtn
+      {/* Generators — hover opens panel (same as upload / shapes). */}
+      <SplitToolButton
         tip={toolTipWithShortcut(L.imageGenerator, TOOL_SHORTCUT.imageGenerator)}
         disabled={toolsLocked}
-        onClick={spawnImageGeneratorAtView}
+        menuOpen={openMenu === 'generator'}
+        onMenuOpenChange={(open) => {
+          setOpenMenu(open ? 'generator' : null);
+        }}
+        items={generatorItems}
+        selectedKeys={[]}
+        onMenuPick={pickGenerator}
+        onPrimaryClick={() => {
+          /* Toolbar icon only opens the panel; spawn runs from menu rows. */
+        }}
       >
         <ToolIcon>
           <LuImagePlus className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
         </ToolIcon>
-      </ToolBtn>
+      </SplitToolButton>
 
       {pluginButtons.map((btn) => (
         <ToolBtn

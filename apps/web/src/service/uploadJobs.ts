@@ -1,4 +1,11 @@
-import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
+import {
+  createMonotonicProgress,
+  mapServerUploadProgress,
+  processJobAttrPatch,
+  UPLOAD_QUEUED_PCT,
+  UPLOAD_WIRE_MAX,
+  wirePctFromBytes,
+} from '@/components/rcb/scene/document/processJobAttrs';
 import { requestProjectFlush } from '@/components/editor/useProjectCloudSync';
 import { patchDocumentNode } from '@/store/modules/editor';
 import { abortAfter } from '@/service/client';
@@ -8,7 +15,9 @@ import {
   loadPendingUploadFile,
   savePendingUploadFile,
 } from '@/service/uploadPendingStore';
-import { getLocalDevApiOrigin } from '@/utils/apiBase';
+import { getApiBaseUrl, getLocalDevApiOrigin } from '@/utils/apiBase';
+import { acceptLanguageHeader } from '@/i18n/apiLocale';
+import { getToken } from '@/utils/token';
 import { request } from '@/utils/request';
 import { sse } from '@/utils/sse';
 import i18n from '@/i18n';
@@ -36,6 +45,13 @@ function apiBase(): string {
   return devApi ? devApi.replace(/\/$/, '') : '';
 }
 
+function resolveUploadUrl(path: string): string {
+  const base = (apiBase() || getApiBaseUrl()).replace(/\/$/, '');
+  if (!base) return path;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 export async function fetchUploadJob(jobId: string): Promise<UploadJobState> {
   return request<UploadJobState>({
     url: `/api/v1/uploads/jobs/${encodeURIComponent(jobId)}`,
@@ -60,6 +76,80 @@ async function createUploadSession(
   });
 }
 
+/** PUT one part with real XMLHttpRequest upload progress (ky has no upload events). */
+function putPartBlob(
+  url: string,
+  blob: Blob,
+  opts: {
+    signal?: AbortSignal;
+    timeoutMs: number;
+    onByteProgress?: (loaded: number, total: number) => void;
+  }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', resolveUploadUrl(url));
+    xhr.timeout = opts.timeoutMs;
+    const token = getToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    for (const [k, v] of Object.entries(acceptLanguageHeader())) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+    const onAbort = () => {
+      xhr.abort();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const cleanup = () => opts.signal?.removeEventListener('abort', onAbort);
+    if (opts.signal) {
+      if (opts.signal.aborted) {
+        onAbort();
+        return;
+      }
+      opts.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    xhr.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      opts.onByteProgress?.(ev.loaded, ev.total || blob.size);
+    };
+    xhr.onload = () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        opts.onByteProgress?.(blob.size, blob.size);
+        resolve();
+        return;
+      }
+      reject(new Error(parseXhrError(xhr)));
+    };
+    xhr.onerror = () => {
+      cleanup();
+      reject(new Error('upload part network error'));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new Error('upload part timed out'));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    xhr.send(blob);
+  });
+}
+
+function parseXhrError(xhr: XMLHttpRequest): string {
+  let detail = `upload part failed (${xhr.status})`;
+  try {
+    const parsed = JSON.parse(xhr.responseText) as { detail?: unknown };
+    if (typeof parsed.detail === 'string') detail = parsed.detail;
+  } catch {
+    /* ignore */
+  }
+  return detail;
+}
+
 async function uploadJobParts(
   file: File,
   session: UploadSession,
@@ -69,29 +159,39 @@ async function uploadJobParts(
     receivedParts?: number[];
   }
 ): Promise<void> {
-  const base = apiBase();
   const partSize = Math.max(1, session.part_size || DEFAULT_PART_SIZE);
   const partCount = session.part_count || Math.max(1, Math.ceil(file.size / partSize));
   const received = new Set((opts?.receivedParts || []).map((n) => Number(n)).filter((n) => n > 0));
+  const report = opts?.onProgress ?? (() => {});
 
+  let committedBytes = 0;
   for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
-    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    if (received.has(partNumber)) {
-      opts?.onProgress?.(Math.round((partNumber / partCount) * 70));
-      continue;
-    }
     const start = (partNumber - 1) * partSize;
     const end = Math.min(file.size, start + partSize);
-    await request({
-      url: `${base}/api/v1/uploads/jobs/${encodeURIComponent(session.job_id)}/parts/${partNumber}`,
-      method: 'put',
-      data: file.slice(start, end),
-      headers: { 'Content-Type': 'application/octet-stream' },
-      timeout: PART_TIMEOUT_MS,
-      signal: opts?.signal,
-    });
-    opts?.onProgress?.(Math.round((partNumber / partCount) * 70));
+    const partBytes = end - start;
+    if (received.has(partNumber)) {
+      committedBytes += partBytes;
+      report(wirePctFromBytes(committedBytes, file.size));
+      continue;
+    }
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    const blob = file.slice(start, end);
+    await putPartBlob(
+      `${apiBase()}/api/v1/uploads/jobs/${encodeURIComponent(session.job_id)}/parts/${partNumber}`,
+      blob,
+      {
+        signal: opts?.signal,
+        timeoutMs: PART_TIMEOUT_MS,
+        onByteProgress: (loaded) => {
+          report(wirePctFromBytes(committedBytes + loaded, file.size));
+        },
+      }
+    );
+    committedBytes += partBytes;
+    report(wirePctFromBytes(committedBytes, file.size));
   }
+  report(UPLOAD_WIRE_MAX);
 }
 
 async function completeUploadJob(jobId: string, opts?: { signal?: AbortSignal }): Promise<void> {
@@ -103,6 +203,15 @@ async function completeUploadJob(jobId: string, opts?: { signal?: AbortSignal })
   });
 }
 
+async function finishWireUpload(
+  jobId: string,
+  report: (pct: number) => void,
+  opts?: { signal?: AbortSignal }
+): Promise<void> {
+  report(UPLOAD_QUEUED_PCT);
+  await completeUploadJob(jobId, opts);
+}
+
 function sessionFromJob(jobId: string, snap: UploadJobState): UploadSession {
   const partSize = Math.max(1, Number(snap.part_size) || DEFAULT_PART_SIZE);
   const partCount = Math.max(1, Number(snap.part_count) || 1);
@@ -112,10 +221,9 @@ function sessionFromJob(jobId: string, snap: UploadJobState): UploadSession {
 function handleJobPayload(
   job: UploadJobState,
   queuedSince: { at: number | null },
-  opts: { onProgress?: (pct: number) => void }
+  opts: { onProgress?: (pct: number) => void; wireDone?: boolean }
 ): UploadedFileItem | 'pending' {
-  const progress = Math.max(0, Math.min(100, Number(job.progress) || 0));
-  opts.onProgress?.(progress);
+  opts.onProgress?.(mapServerUploadProgress(Number(job.progress) || 0, Boolean(opts.wireDone)));
 
   if (job.status === 'done') {
     const item = job.result?.item;
@@ -138,13 +246,15 @@ function handleJobPayload(
 
 export async function waitForUploadJob(
   jobId: string,
-  opts?: { signal?: AbortSignal; onProgress?: (pct: number) => void }
+  opts?: { signal?: AbortSignal; onProgress?: (pct: number) => void; wireDone?: boolean }
 ): Promise<UploadedFileItem> {
+  const report = opts?.onProgress ?? (() => {});
+  const wireDone = opts?.wireDone !== false;
   const snap = await fetchUploadJob(jobId);
   if (snap.status === 'done') {
     const item = snap.result?.item;
     if (!item?.url) throw new Error(snap.error || 'upload job missing result');
-    opts?.onProgress?.(100);
+    report(100);
     await deletePendingUploadFile(jobId);
     return item;
   }
@@ -156,7 +266,7 @@ export async function waitForUploadJob(
     const received = snap.received_parts?.length ?? 0;
     const total = snap.part_count ?? 0;
     if (total > 0 && received >= total) {
-      await completeUploadJob(jobId, opts);
+      await finishWireUpload(jobId, report, opts);
     } else {
       throw new Error(String(i18n.t('editor.tools.uploadInterrupted')));
     }
@@ -164,6 +274,7 @@ export async function waitForUploadJob(
 
   const deadline = Date.now() + JOB_TIMEOUT_MS;
   const queuedSince = { at: null as number | null };
+  report(mapServerUploadProgress(Number(snap.progress) || 0, wireDone));
 
   return new Promise<UploadedFileItem>((resolve, reject) => {
     let settled = false;
@@ -204,10 +315,11 @@ export async function waitForUploadJob(
           return;
         }
         try {
-          const outcome = handleJobPayload(job, queuedSince, opts || {});
+          const outcome = handleJobPayload(job, queuedSince, { onProgress: report, wireDone });
           if (outcome !== 'pending') {
             finish(() => {
               void deletePendingUploadFile(jobId);
+              report(100);
               resolve(outcome);
             });
           }
@@ -228,10 +340,11 @@ export async function resumeOrWaitUploadJob(
   jobId: string,
   opts?: { signal?: AbortSignal; onProgress?: (pct: number) => void }
 ): Promise<UploadedFileItem> {
+  const report = createMonotonicProgress(opts?.onProgress);
   const snap = await fetchUploadJob(jobId);
   if (snap.status === 'done' && snap.result?.item?.url) {
     await deletePendingUploadFile(jobId);
-    opts?.onProgress?.(100);
+    report(100);
     return snap.result.item;
   }
   if (snap.status === 'failed' || snap.status === 'aborted') {
@@ -246,18 +359,20 @@ export async function resumeOrWaitUploadJob(
     if (file) {
       await uploadJobParts(file, sessionFromJob(jobId, snap), {
         signal: opts?.signal,
-        onProgress: opts?.onProgress,
+        onProgress: report,
         receivedParts: received,
       });
-      await completeUploadJob(jobId, { signal: opts?.signal });
-    } else if (total > 0 && received.length >= total) {
-      await completeUploadJob(jobId, opts);
-    } else {
+    } else if (!(total > 0 && received.length >= total)) {
       throw new Error(String(i18n.t('editor.tools.uploadInterrupted')));
     }
+    await finishWireUpload(jobId, report, opts);
   }
 
-  return waitForUploadJob(jobId, opts);
+  return waitForUploadJob(jobId, {
+    signal: opts?.signal,
+    onProgress: report,
+    wireDone: true,
+  });
 }
 
 export async function uploadFileViaJob(
@@ -269,10 +384,12 @@ export async function uploadFileViaJob(
     onJobCreated?: (jobId: string) => void;
   }
 ): Promise<UploadedFileItem> {
+  const report = createMonotonicProgress(opts?.onProgress);
+
   if (opts?.jobId) {
     return resumeOrWaitUploadJob(opts.jobId, {
       signal: opts?.signal,
-      onProgress: opts?.onProgress,
+      onProgress: report,
     });
   }
 
@@ -285,12 +402,13 @@ export async function uploadFileViaJob(
   }
   await uploadJobParts(file, session, {
     signal: opts?.signal,
-    onProgress: opts?.onProgress,
+    onProgress: report,
   });
-  await completeUploadJob(session.job_id, { signal: opts?.signal });
+  await finishWireUpload(session.job_id, report, { signal: opts?.signal });
   return waitForUploadJob(session.job_id, {
     signal: opts?.signal,
-    onProgress: opts?.onProgress,
+    onProgress: report,
+    wireDone: true,
   });
 }
 

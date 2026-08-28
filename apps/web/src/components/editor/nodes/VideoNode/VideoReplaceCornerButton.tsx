@@ -1,13 +1,40 @@
 import { message } from '@/components/base';
 import { getHttpErrorMessage } from '@/service/client';
-import { uploadImageFile, readFileAsDataUrl, beginNodeUpload, finishNodeUpload } from '@/utils/uploadImage';
+import {
+  uploadImageFile,
+  createFilePreviewUrl,
+  beginNodeUpload,
+  finishNodeUpload,
+  revokeFilePreviewUrl,
+} from '@/utils/uploadImage';
 import {
   captureVideoPosterFrame,
-  measureVideoNaturalSize
+  measureVideoNaturalSize,
 } from '@/components/rcb/scene/document/nodeFactories';
 import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
 
 type DispatchLike = (action: unknown) => unknown;
+
+const CLEAR_CROP_TRIM = {
+  cropX: 0,
+  cropY: 0,
+  cropW: 1,
+  cropH: 1,
+  trimStart: '',
+  trimEnd: '',
+} as const;
+
+function heightForKeepWidth(keepWidth: number, nw: number, nh: number): number {
+  return Math.max(1, Math.round((keepWidth * nh) / Math.max(1, nw)));
+}
+
+async function optionalVideoPoster(src: string): Promise<string> {
+  try {
+    return await captureVideoPosterFrame(src);
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Replace a video node's media (upload to COS). Keeps node width; height follows aspect.
@@ -25,40 +52,27 @@ export async function replaceVideoNodeFromFile(opts: {
   const alive = opts.isAlive ?? (() => true);
   if (!file.type.startsWith('video/')) return;
 
+  let preview = '';
   try {
-    const preview = await readFileAsDataUrl(file);
+    preview = createFilePreviewUrl(file);
     const naturalPreview = await measureVideoNaturalSize(preview);
-    const previewH = Math.max(
-      1,
-      Math.round((keepWidth * naturalPreview.height) / Math.max(1, naturalPreview.width))
-    );
-    let previewPoster = '';
-    try {
-      previewPoster = await captureVideoPosterFrame(preview);
-    } catch {
-      /* optional */
-    }
+    const previewPoster = await optionalVideoPoster(preview);
     if (!alive()) return;
+
     dispatch(
       patchDocumentNode({
         nodeId,
         patch: {
           width: keepWidth,
-          height: previewH,
+          height: heightForKeepWidth(keepWidth, naturalPreview.width, naturalPreview.height),
           attrs: {
             src: preview,
             ...(previewPoster ? { poster: previewPoster } : {}),
             processStatus: 'running',
             processKind: 'upload',
             processLabel: '上传中',
-            // Local replace — drop AI prompt so Quick Edit stays empty.
             genPrompt: '',
-            cropX: 0,
-            cropY: 0,
-            cropW: 1,
-            cropH: 1,
-            trimStart: '',
-            trimEnd: '',
+            ...CLEAR_CROP_TRIM,
           },
         },
       })
@@ -66,70 +80,53 @@ export async function replaceVideoNodeFromFile(opts: {
 
     const signal = beginNodeUpload(nodeId);
     try {
-      const uploaded = await uploadImageFile(file, {
-        signal,
-        dispatch,
-        nodeId,
-      });
-    const src = uploaded.url;
-    if (!alive()) return;
+      const uploaded = await uploadImageFile(file, { signal, dispatch, nodeId });
+      if (!alive()) return;
 
-    let naturalW = Number(uploaded.width) || 0;
-    let naturalH = Number(uploaded.height) || 0;
-    if (!(naturalW > 0 && naturalH > 0)) {
-      const natural = await measureVideoNaturalSize(src);
-      naturalW = natural.width;
-      naturalH = natural.height;
-    }
-    const height = Math.max(1, Math.round((keepWidth * naturalH) / Math.max(1, naturalW)));
-
-    let poster = previewPoster;
-    if (!poster) {
-      try {
-        poster = await captureVideoPosterFrame(src);
-      } catch {
-        /* optional */
+      const src = uploaded.url;
+      let naturalW = Number(uploaded.width) || 0;
+      let naturalH = Number(uploaded.height) || 0;
+      if (!(naturalW > 0 && naturalH > 0)) {
+        const natural = await measureVideoNaturalSize(src);
+        naturalW = natural.width;
+        naturalH = natural.height;
       }
-    }
 
-    dispatch(
-      finishImageProcess({
-        nodeId,
-        src,
-        attrs: {
-          assetKind: 'video',
-          genPrompt: '',
-          ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-        },
-      })
-    );
-    dispatch(
-      patchDocumentNode({
-        nodeId,
-        patch: {
-          width: keepWidth,
-          height,
+      const poster = previewPoster || (await optionalVideoPoster(src));
+      dispatch(
+        finishImageProcess({
+          nodeId,
+          src,
           attrs: {
-            ...(poster ? { poster } : { poster: '' }),
+            assetKind: 'video',
             genPrompt: '',
-            cropX: 0,
-            cropY: 0,
-            cropW: 1,
-            cropH: 1,
-            trimStart: '',
-            trimEnd: '',
+            ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
           },
-        },
-        skipHistory: true,
-      })
-    );
+        })
+      );
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          patch: {
+            width: keepWidth,
+            height: heightForKeepWidth(keepWidth, naturalW, naturalH),
+            attrs: {
+              poster: poster || '',
+              genPrompt: '',
+              ...CLEAR_CROP_TRIM,
+            },
+          },
+          skipHistory: true,
+        })
+      );
+      revokeFilePreviewUrl(preview);
     } finally {
       finishNodeUpload(nodeId);
     }
-  } catch (err: any) {
-    if (alive()) {
-      dispatch(finishImageProcess({ nodeId }));
-      message.error(getHttpErrorMessage(err, '替换视频失败'));
-    }
+  } catch (err: unknown) {
+    if (!alive()) return;
+    revokeFilePreviewUrl(preview);
+    dispatch(finishImageProcess({ nodeId }));
+    message.error(getHttpErrorMessage(err, '替换视频失败'));
   }
 }

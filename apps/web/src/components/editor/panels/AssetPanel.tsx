@@ -94,19 +94,25 @@ function AssetPanel({ onClose }: Props): ReactNode {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const assetsListInput = (pageParam: number) => ({
+    query: {
+      page: pageParam,
+      pageSize: PAGE_SIZE,
+      ...(activeTab !== 'all' ? { kind: activeTab } : {}),
+      ...(searchQ ? { q: searchQ } : {}),
+    },
+  });
+
   const assetsQuery = useInfiniteQuery({
     ...apiQuery.assetsListMyAssets.infiniteOptions({
-      input: (pageParam: number) => ({
-        query: {
-          page: pageParam,
-          pageSize: PAGE_SIZE,
-          ...(activeTab !== 'all' ? { kind: activeTab } : {}),
-          ...(searchQ ? { q: searchQ } : {}),
-        },
-      }),
+      input: assetsListInput,
       initialPageParam: 1,
       getNextPageParam: (last: { hasMore?: boolean; page?: number }) =>
         last?.hasMore ? (last.page || 0) + 1 : undefined,
+    }),
+    queryKey: apiQuery.assetsListMyAssets.infiniteKey({
+      input: assetsListInput,
+      initialPageParam: 1,
     }),
     staleTime: searchQ ? 0 : undefined,
   });

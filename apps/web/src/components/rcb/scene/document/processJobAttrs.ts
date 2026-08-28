@@ -50,6 +50,44 @@ export function formatProcessProgressLabel(labelBase: string, pct: number, fallb
   return `${base} ${rounded}%`;
 }
 
+/** Wire bytes 0..90; server finalize 93 / 97 / 100. */
+export const UPLOAD_WIRE_MAX = 90;
+export const UPLOAD_QUEUED_PCT = 93;
+export const UPLOAD_PROCESSING_PCT = 97;
+
+function clampPct(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/** Never report a lower % than previously shown. */
+export function createMonotonicProgress(onProgress?: (pct: number) => void): (pct: number) => void {
+  let peak = 0;
+  return (pct: number) => {
+    const next = clampPct(pct);
+    if (next <= peak) return;
+    peak = next;
+    onProgress?.(peak);
+  };
+}
+
+export function wirePctFromBytes(uploadedBytes: number, totalBytes: number): number {
+  const total = Math.max(1, totalBytes);
+  const uploaded = Math.max(0, Math.min(total, uploadedBytes));
+  return clampPct((uploaded / total) * UPLOAD_WIRE_MAX);
+}
+
+/** Map server job.progress so UI never drops after wire upload finishes. */
+export function mapServerUploadProgress(serverPct: number, wireDone: boolean): number {
+  const raw = clampPct(serverPct);
+  if (raw >= 100) return 100;
+  if (raw >= 85) return UPLOAD_PROCESSING_PCT;
+  if (raw >= 75) return UPLOAD_QUEUED_PCT;
+  if (wireDone) return Math.max(UPLOAD_WIRE_MAX, raw);
+  const scale = raw <= 70 ? 70 : 90;
+  return clampPct((raw / scale) * UPLOAD_WIRE_MAX);
+}
+
 export type UploadRecoveryBlockReason = 'no_job' | 'stale';
 
 export function uploadRecoveryBlockReason(

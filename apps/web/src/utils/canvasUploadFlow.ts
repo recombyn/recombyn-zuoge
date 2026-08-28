@@ -11,7 +11,9 @@ import {
   uploadImageFile,
   uploadImageFromSrc,
   waitForImageReady,
+  revokeNodePreviewSrc,
 } from '@/utils/uploadImage';
+import store from '@/store';
 
 type DispatchLike = (action: unknown) => unknown;
 
@@ -54,6 +56,8 @@ function finishPlaceholderUpload(
     waitDecode?: boolean;
   }
 ): void {
+  const doc = (store.getState() as { editor?: { document?: unknown } }).editor?.document;
+  revokeNodePreviewSrc(doc as Parameters<typeof revokeNodePreviewSrc>[0], nodeId);
   const attrs = {
     ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
     ...opts.extraAttrs,
@@ -81,7 +85,6 @@ export async function uploadCanvasPlaceholderFile(opts: {
   if (!id) return false;
   const waitDecode = opts.waitDecode !== false;
 
-  let lastProgress = -1;
   const done = await withManagedNodeUpload(id, async (signal) => {
     const uploaded = await uploadImageFile(opts.file, {
       signal,
@@ -89,17 +92,12 @@ export async function uploadCanvasPlaceholderFile(opts: {
       nodeId: id,
       onProgress: (pct) => {
         if (signal.aborted) return;
-        const rounded = Math.round(pct);
-        if (rounded === lastProgress) return;
-        lastProgress = rounded;
         opts.dispatch(
           patchDocumentNode({
             nodeId: id,
             skipHistory: true,
             patch: {
-              attrs: {
-                processLabel: formatProcessProgressLabel('上传中', rounded, '上传中'),
-              },
+              attrs: { processLabel: formatProcessProgressLabel('上传中', pct, '上传中') },
             },
           })
         );
@@ -107,20 +105,15 @@ export async function uploadCanvasPlaceholderFile(opts: {
     });
     if (signal.aborted) return false;
 
-    if (!waitDecode) {
-      finishPlaceholderUpload(opts.dispatch, id, uploaded, {
-        extraAttrs: opts.extraAttrs,
-        waitDecode: false,
-      });
-      return true;
-    }
-
-    const remoteReady = await waitForImageReady(uploaded.url, { signal });
+    const remoteReady = waitDecode
+      ? await waitForImageReady(uploaded.url, { signal })
+      : true;
     if (signal.aborted) return false;
+
     finishPlaceholderUpload(opts.dispatch, id, uploaded, {
       extraAttrs: opts.extraAttrs,
       remoteReady,
-      waitDecode: true,
+      waitDecode,
     });
     return true;
   });

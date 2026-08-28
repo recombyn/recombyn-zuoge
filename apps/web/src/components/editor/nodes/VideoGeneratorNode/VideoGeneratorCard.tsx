@@ -56,7 +56,10 @@ import {
 import { finishGeneratorGenerateSession } from '@/components/editor/nodes/shared/finishGeneratorGenerate';
 import { pickVideoUrl } from '@/components/editor/nodes/shared/mediaProbe';
 import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
-import { registerGeneratorSession } from '@/components/editor/nodes/shared/generatorSessionRegistry';
+import {
+  hasActiveGeneratorSession,
+  registerGeneratorSession,
+} from '@/components/editor/nodes/shared/generatorSessionRegistry';
 import {
   captureVideoPosterFrame
 } from '@/components/rcb/scene/document/nodeFactories';
@@ -72,7 +75,7 @@ import {
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { cn } from '@/utils/classnames';
 import { estimateVideoCredits } from '@/utils/imageCredits';
-import { uploadComposerAttachment, readFileAsDataUrl, resolveComposerMediaAfterUpload } from '@/utils/uploadImage';
+import { finishComposerAttachmentUpload, createFilePreviewUrl, revokeComposerPreviewUrls } from '@/utils/uploadImage';
 import { cloudVideoFallbackId } from '@/components/editor/panels/agent/llmModelMeta';
 import store from '@/store';
 
@@ -234,10 +237,14 @@ function VideoGeneratorCard({
   ]);
 
   useEffect(() => {
+    const id = nodeId;
     return () => {
+      // Card unmounts when selection clears / processing hides the toolbar —
+      // keep the in-flight generate promise alive (session registry).
+      if (hasActiveGeneratorSession(id)) return;
       abortRef.current?.abort();
     };
-  }, []);
+  }, [nodeId]);
 
   const attachments = useMemo(
     () => contexts.filter((c) => c.kind === 'attachment'),
@@ -255,9 +262,11 @@ function VideoGeneratorCard({
   const settingsSummary = `${resolution} · ${aspectRatio} · ${duration}s`;
 
   const removeContext = (key: string) =>
-    setContexts((prev) =>
-      prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key))
-    );
+    setContexts((prev) => {
+      const removed = prev.find((c) => c.key === key);
+      if (removed) revokeComposerPreviewUrls(removed);
+      return prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key));
+    });
 
   const onPickRef = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []).filter(
@@ -285,7 +294,7 @@ function VideoGeneratorCard({
     for (let i = 0; i < media.length; i++) {
       const file = media[i]!;
       try {
-        const preview = await readFileAsDataUrl(file);
+        const preview = createFilePreviewUrl(file);
         let thumb = preview;
         if (file.type.startsWith('video/')) {
           try {
@@ -322,17 +331,11 @@ function VideoGeneratorCard({
     await Promise.all(
       staged.map(async ({ file, key, preview, thumb }) => {
         try {
-          const uploaded = await uploadComposerAttachment(file, {
-            previewDataUrl: thumb.startsWith('data:image/') ? thumb : preview,
-          });
-          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
-            serverUrl: uploaded.url,
-            localPreview: String(uploaded.previewDataUrl || thumb || preview).trim(),
-            stillPreview:
-              file.type.startsWith('video/') && thumb.startsWith('data:image/')
-                ? thumb
-                : undefined,
-          });
+          const { dataUrl, thumbUrl, uploadKey } = await finishComposerAttachmentUpload(
+            file,
+            preview,
+            thumb
+          );
           setContexts((prev) => {
             if (!prev.some((c) => c.key === key)) return prev;
             return prev.map((c) =>
@@ -341,13 +344,13 @@ function VideoGeneratorCard({
                     ...c,
                     dataUrl,
                     thumbUrl,
-                    uploadKey: uploaded.uploadKey || undefined,
+                    uploadKey: uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
             );
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
           setContexts((prev) => prev.filter((c) => c.key !== key));
           message.error(
             getHttpErrorMessage(err, t('agent.uploadFailed', { name: file.name }))
@@ -441,9 +444,10 @@ function VideoGeneratorCard({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    // Register before clearing selection — toolbar unmount must not abort this run.
+    registerGeneratorSession(nodeId);
     dispatch(setSelectedNodeIds([]));
     setSending(true);
-    registerGeneratorSession(nodeId);
     let finished = false;
     dispatch(
       patchDocumentNode({
@@ -629,6 +633,7 @@ function VideoGeneratorCard({
           data-scene-node-id={nodeId}
         >
           <CanvasMediaComposerShell
+            panelOverflow="visible"
             attachment={
               <ComposerAttachmentStrip
                 attachments={attachments}

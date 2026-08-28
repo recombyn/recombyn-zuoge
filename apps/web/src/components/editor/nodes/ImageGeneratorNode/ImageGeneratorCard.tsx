@@ -72,7 +72,10 @@ import {
 } from '@/components/editor/nodes/shared/composerCanvasAttach';
 import { finishGeneratorGenerateSession } from '@/components/editor/nodes/shared/finishGeneratorGenerate';
 import { imageToolExitBtn } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
-import { registerGeneratorSession } from '@/components/editor/nodes/shared/generatorSessionRegistry';
+import {
+  hasActiveGeneratorSession,
+  registerGeneratorSession,
+} from '@/components/editor/nodes/shared/generatorSessionRegistry';
 import { processJobAttrPatch } from '@/components/rcb/scene/document/processJobAttrs';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import {
@@ -83,9 +86,9 @@ import { insertPendingComposerChips } from '@/components/editor/panels/agent/com
 import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import { clearImageGenMarkSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
 import {
-  markGateTipKey,
-  markNodeGate,
+  listMarkSessionTargets,
 } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
+import { isImageGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import {
   clearCanvasAttachPick,
@@ -104,9 +107,9 @@ import { cn } from '@/utils/classnames';
 import { estimateImageCredits } from '@/utils/imageCredits';
 import {
   deleteUploadedFile,
-  readFileAsDataUrl,
-  resolveComposerMediaAfterUpload,
-  uploadComposerAttachment,
+  createFilePreviewUrl,
+  revokeComposerPreviewUrls,
+  finishComposerAttachmentUpload,
 } from '@/utils/uploadImage';
 import store from '@/store';
 
@@ -305,10 +308,14 @@ function ImageGeneratorCard({
   }, [composerVisible, disabled]);
 
   useEffect(() => {
+    const id = nodeId;
     return () => {
+      // Card unmounts when selection clears / processing hides the toolbar —
+      // keep the in-flight generate promise alive (session registry).
+      if (hasActiveGeneratorSession(id)) return;
       abortRef.current?.abort();
     };
-  }, []);
+  }, [nodeId]);
 
   useEffect(() => {
     pendingMarksLockRef.current = null;
@@ -360,6 +367,7 @@ function ImageGeneratorCard({
   const removeContext = (key: string) => {
     if (isMarkContextKey(key)) syncMarkPinRemoved(dispatch, key);
     const removed = contextsRef.current.find((c) => c.key === key);
+    if (removed) revokeComposerPreviewUrls(removed);
     if (removed?.kind === 'attachment' && removed.uploadKey) {
       void deleteUploadedFile(removed.uploadKey).catch(() => undefined);
     }
@@ -379,14 +387,23 @@ function ImageGeneratorCard({
     setContexts([...attachmentsOnly, ...next]);
   };
 
-  // Generator Mark draws on *other* canvas images as refs — the empty plate
-  // itself has no src and must stay clickable (unlike image-node Mark).
-  const markReady = ilpEnabled && !nodeProcessing;
+  // Mark draws on *other* canvas images as refs — never on the generator plate itself.
+  const markableRefCount = useMemo(() => {
+    const doc = editorDocument || (store.getState() as any).editor?.document;
+    if (!doc) return 0;
+    return listMarkSessionTargets(doc).filter(
+      (t) => !t.blocked && t.nodeId !== nodeId && !isImageGeneratorNode(t.node)
+    ).length;
+  }, [editorDocument, nodeId]);
+
+  const markReady = ilpEnabled && !nodeProcessing && markableRefCount > 0;
   const markTip = !ilpEnabled
     ? t('editor.imageToolbar.markNeedsIntelligence')
     : nodeProcessing
       ? t('editor.imageToolbar.markBlockedProcessing')
-      : t('editor.imageToolbar.mark');
+      : markableRefCount <= 0
+        ? t('editor.imageToolbar.markBlockedUnavailable')
+        : t('editor.imageToolbar.mark');
 
   const onMark = () => {
     if (!ilpEnabled) {
@@ -424,7 +441,7 @@ function ImageGeneratorCard({
     for (let i = 0; i < images.length; i++) {
       const file = images[i]!;
       try {
-        const preview = await readFileAsDataUrl(file);
+        const preview = createFilePreviewUrl(file);
         const key = `attach:${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${i}`;
         staged.push({
           file,
@@ -450,18 +467,13 @@ function ImageGeneratorCard({
     await Promise.all(
       staged.map(async ({ file, key, preview }) => {
         try {
-          const uploaded = await uploadComposerAttachment(file, {
-            previewDataUrl: preview,
-          });
-          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
-            serverUrl: uploaded.url,
-            localPreview: String(uploaded.previewDataUrl || preview).trim(),
-          });
+          const { dataUrl, thumbUrl, uploadKey } = await finishComposerAttachmentUpload(
+            file,
+            preview
+          );
           setContexts((prev) => {
             if (!prev.some((c) => c.key === key)) {
-              if (uploaded.uploadKey) {
-                void deleteUploadedFile(uploaded.uploadKey).catch(() => undefined);
-              }
+              if (uploadKey) void deleteUploadedFile(uploadKey).catch(() => undefined);
               return prev;
             }
             return prev.map((c) =>
@@ -470,7 +482,7 @@ function ImageGeneratorCard({
                     ...c,
                     dataUrl,
                     thumbUrl,
-                    uploadKey: uploaded.uploadKey || undefined,
+                    uploadKey: uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
@@ -556,8 +568,9 @@ function ImageGeneratorCard({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    dispatch(setSelectedNodeIds([]));
+    // Register before clearing selection — toolbar unmount must not abort this run.
     registerGeneratorSession(nodeId);
+    dispatch(setSelectedNodeIds([]));
     setSending(true);
     let finished = false;
     dispatch(

@@ -71,7 +71,10 @@ import {
 } from '@/components/editor/nodes/shared/composerCanvasAttach';
 import { finishGeneratorGenerateSession } from '@/components/editor/nodes/shared/finishGeneratorGenerate';
 import { modelSupportsVisionInput } from '@/components/editor/panels/agent/llmModelMeta';
-import { registerGeneratorSession } from '@/components/editor/nodes/shared/generatorSessionRegistry';
+import {
+  hasActiveGeneratorSession,
+  registerGeneratorSession,
+} from '@/components/editor/nodes/shared/generatorSessionRegistry';
 import {
   parseLottieAnimationData
 } from '@/components/rcb/scene/document/nodeFactories';
@@ -87,7 +90,7 @@ import {
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
 import { cn } from '@/utils/classnames';
 import { estimateLottieCredits } from '@/utils/imageCredits';
-import { readFileAsDataUrl } from '@/utils/uploadImage';
+import { createFilePreviewUrl } from '@/utils/uploadImage';
 import store from '@/store';
 
 type Props = {
@@ -255,10 +258,14 @@ function LottieGeneratorCard({
   }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
 
   useEffect(() => {
+    const id = nodeId;
     return () => {
+      // Card unmounts when selection clears / processing hides the toolbar —
+      // keep the in-flight generate promise alive (session registry).
+      if (hasActiveGeneratorSession(id)) return;
       abortRef.current?.abort();
     };
-  }, []);
+  }, [nodeId]);
 
   const attachments = useMemo(
     () => contexts.filter((c) => c.kind === 'attachment'),
@@ -301,7 +308,7 @@ function LottieGeneratorCard({
       accepted.map(async (file, i) => {
         const key = `attach:${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${i}`;
         try {
-          const dataUrl = await readFileAsDataUrl(file);
+          const dataUrl = createFilePreviewUrl(file);
           return {
             key,
             label: file.name || t('editor.tools.lottieGenRefImage'),
@@ -454,8 +461,9 @@ function LottieGeneratorCard({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    setSending(true);
+    // Register before processStatus hides the selection toolbar (unmount).
     registerGeneratorSession(nodeId);
+    setSending(true);
     let finished = false;
     dispatch(
       patchDocumentNode({

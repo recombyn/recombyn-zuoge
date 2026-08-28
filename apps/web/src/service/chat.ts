@@ -3,6 +3,7 @@
  */
 
 import { abortAfter, apiQuery, queryClient } from '@/service/client';
+import { createMonotonicProgress } from '@/components/rcb/scene/document/processJobAttrs';
 import { request } from '@/utils/request';
 import { sse } from '@/utils/sse';
 
@@ -165,9 +166,11 @@ function handleMediaJobPayload<TResult>(
   opts: WaitForMediaJobOpts<TResult>,
   queuedSince: { at: number | null },
   queuedStallMessage: string,
+  reportProgress: (progress: number) => void,
 ): TResult | 'pending' {
-  opts.onProgress?.(job.progress ?? 0, job.status);
+  reportProgress(job.progress ?? 0);
   if (job.status === 'done') {
+    reportProgress(100);
     if (!opts.isValidResult(job.result)) {
       throw new Error(job.error || opts.missingResultMessage);
     }
@@ -197,6 +200,10 @@ async function waitForMediaJobViaSse<TResult>(
   const queuedStallMessage =
     opts.queuedStallMessage ||
     'Generation queue stalled — run npm run dev:worker (Celery) alongside the API';
+  let lastStatus: MediaJobState<TResult>['status'] = 'queued';
+  const reportProgress = createMonotonicProgress((progress) => {
+    opts.onProgress?.(progress, lastStatus);
+  });
 
   return new Promise<TResult>((resolve, reject) => {
     let settled = false;
@@ -237,7 +244,14 @@ async function waitForMediaJobViaSse<TResult>(
           return;
         }
         try {
-          const outcome = handleMediaJobPayload(job, opts, queuedSince, queuedStallMessage);
+          lastStatus = job.status;
+          const outcome = handleMediaJobPayload(
+            job,
+            opts,
+            queuedSince,
+            queuedStallMessage,
+            reportProgress,
+          );
           if (outcome !== 'pending') finish(() => resolve(outcome));
         } catch (err) {
           finish(() => reject(err instanceof Error ? err : new Error(String(err))));

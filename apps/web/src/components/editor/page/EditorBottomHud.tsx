@@ -9,13 +9,9 @@ import {
 } from 'react';
 import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import {
-  HiOutlineChevronDown,
-  HiOutlineChevronUp,
-  HiOutlineMap,
-  HiOutlineSquare3Stack3D,
-} from 'react-icons/hi2';
-import { LuKeyboard } from 'react-icons/lu';
+import { HiOutlineChevronDown, HiOutlineChevronUp } from 'react-icons/hi2';
+import { LuLayers2, LuMapPinned } from 'react-icons/lu';
+import { MdOutlineKeyboardAlt } from 'react-icons/md';
 import { Dropdown, Tooltip } from '@/components/base';
 import type { MenuItemType } from '@/components/base';
 import { Icon } from '@/components/base/icon';
@@ -358,9 +354,11 @@ const THEME_FOLLOW_CANVAS_BGS = new Set([
   '#fff',
   '#ffffff',
   '#f0f0f0',
+  '#f2f2f2',
   '#f3f3f3',
   '#f5f5f5',
   '#fafafa',
+  '#fcfcfc',
   // Dark theme `--canvas` / near-canvas neutrals
   '#1e1e1e',
   '#141414',
@@ -626,10 +624,7 @@ function EditorBottomHud({
                       active={layersOpen}
                       onClick={() => setLayersOpen((v) => !v)}
                     >
-                      <HiOutlineSquare3Stack3D
-                        className={HUD_ICON}
-                        strokeWidth={HUD_ICON_STROKE}
-                      />
+                      <LuLayers2 className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
                     </HudBtn>
                     <span data-assets-toggle>
                       <HudBtn
@@ -641,7 +636,7 @@ function EditorBottomHud({
                       </HudBtn>
                     </span>
                     <HudBtn tip={t('editor.minimap')} active={minimapOpen} onClick={toggleMinimap}>
-                      <HiOutlineMap className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
+                      <LuMapPinned className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
                     </HudBtn>
                     <span data-shortcuts-toggle>
                       <HudBtn
@@ -649,7 +644,7 @@ function EditorBottomHud({
                         active={shortcutsOpen}
                         onClick={toggleShortcuts}
                       >
-                        <LuKeyboard className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
+                        <MdOutlineKeyboardAlt className={HUD_ICON} />
                       </HudBtn>
                     </span>
                     <span className="mx-0.5 h-3.5 w-px bg-black/10" aria-hidden />
@@ -677,7 +672,7 @@ function EditorBottomHud({
                   onReset={() => dispatch(setCanvasMeta(themeDefaultCanvasMeta()))}
                 />
                 <HudBtn tip={t('editor.layers')} active={layersOpen} onClick={() => setLayersOpen((v) => !v)}>
-                  <HiOutlineSquare3Stack3D className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
+                  <LuLayers2 className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
                 </HudBtn>
                 <span data-assets-toggle>
                   <HudBtn
@@ -689,7 +684,7 @@ function EditorBottomHud({
                   </HudBtn>
                 </span>
                 <HudBtn tip={t('editor.minimap')} active={minimapOpen} onClick={toggleMinimap}>
-                  <HiOutlineMap className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
+                  <LuMapPinned className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
                 </HudBtn>
                 <span data-shortcuts-toggle>
                   <HudBtn
@@ -697,7 +692,7 @@ function EditorBottomHud({
                     active={shortcutsOpen}
                     onClick={toggleShortcuts}
                   >
-                    <LuKeyboard className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />
+                    <MdOutlineKeyboardAlt className={HUD_ICON} />
                   </HudBtn>
                 </span>
                 <span className="mx-0.5 h-3.5 w-px bg-black/10" aria-hidden />

@@ -1152,12 +1152,38 @@ async def resume_agent_graph(
     try:
         snap = await graph.aget_state(config)
     except Exception as err:  # noqa: BLE001
-        yield {
-            "type": "error",
-            "message": f"checkpoint_unavailable:{err}"[:240],
-            "task_id": tid,
-        }
-        return
+        # Stale MySQL checkpointer conn → rebuild once and retry.
+        from app.services.llm.agent import (
+            is_mysql_connection_error,
+            reset_agent_checkpointer,
+        )
+
+        if is_mysql_connection_error(err):
+            _log.warning(
+                "resume aget_state MySQL conn dead; reset checkpointer task_id=%s",
+                tid,
+            )
+            reset_agent_checkpointer()
+            invalidate_agent_graph_cache()
+            try:
+                graph = await asyncio.to_thread(_lc_design_graph)
+                snap = await graph.aget_state(config)
+            except Exception as err2:  # noqa: BLE001
+                yield {
+                    "type": "error",
+                    "message": "checkpoint_unavailable",
+                    "detail": str(err2)[:200],
+                    "task_id": tid,
+                }
+                return
+        else:
+            yield {
+                "type": "error",
+                "message": "checkpoint_unavailable",
+                "detail": str(err)[:200],
+                "task_id": tid,
+            }
+            return
     values = getattr(snap, "values", None) or {}
     if not values:
         yield {"type": "error", "message": "checkpoint_empty", "task_id": tid}

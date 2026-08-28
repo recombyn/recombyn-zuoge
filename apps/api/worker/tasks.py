@@ -426,10 +426,22 @@ def _run_chat_media_job(
         return {"job_id": job_id, "status": "failed", "error": "job_not_found"}
 
     trace_id = str(job.get("trace_id") or "")
-    update_job(job_id, kind=kind, status="processing", progress=10, error=None)
+    # Upload: wire already at ~90% — never reset to chat-media 10/35.
+    # Image process (分层/抠图/…): execute_image_process owns the curve — don't stomp it.
+    if kind == _UPLOAD_KIND:
+        start_progress = max(97, int(job.get("progress") or 0))
+        mid_progress: int | None = max(98, start_progress)
+        update_job(job_id, kind=kind, status="processing", progress=start_progress, error=None)
+    elif kind == _IMAGE_PROCESS_KIND:
+        mid_progress = None
+        update_job(job_id, kind=kind, status="processing", error=None)
+    else:
+        mid_progress = 35
+        update_job(job_id, kind=kind, status="processing", progress=10, error=None)
 
     try:
-        update_job(job_id, kind=kind, progress=35)
+        if mid_progress is not None:
+            update_job(job_id, kind=kind, progress=mid_progress)
         result = asyncio.run(execute(job))
         update_job(
             job_id,

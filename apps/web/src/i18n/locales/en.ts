@@ -1998,6 +1998,8 @@ const en = {
     imageFilledOnCanvas: 'Filled selection with image',
     imageFailed: 'Image generation failed',
     requestFailed: 'Request failed',
+    checkpointUnavailable:
+      'Conversation state DB connection was lost. Please retry; if it persists, restart the local API.',
     designExecFailed: 'Something went wrong. Please retry with a clearer request.',
     intentClassifyFailed: 'Intent classification failed. Please retry.',
     modelRouteFailed: 'Model routing failed. Please retry.',

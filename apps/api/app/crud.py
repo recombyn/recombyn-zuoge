@@ -1090,16 +1090,19 @@ def delete_asset(*, session: Session, asset_id: str) -> Asset | None:
 
 
 def _user_asset_q_clause(q: str | None) -> Any | None:
+    """Match user-facing prompt / object key only.
+
+    Do not scan ``meta_json`` (lottie animation blobs) or url/id — those cause
+    false hits and are not what the assets search box means.
+    """
     raw = (q or "").strip()
     if not raw:
         return None
-    return (
-        col(Asset.prompt).contains(raw)
-        | col(Asset.kind).contains(raw)
-        | col(Asset.object_key).contains(raw)
-        | col(Asset.url).contains(raw)
-        | col(Asset.meta_json).contains(raw)
-        | col(Asset.id).contains(raw)
+    # Escape LIKE wildcards so a query of "%" cannot match every row.
+    escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = f"%{escaped}%"
+    return col(Asset.prompt).like(like, escape="\\") | col(Asset.object_key).like(
+        like, escape="\\"
     )
 
 

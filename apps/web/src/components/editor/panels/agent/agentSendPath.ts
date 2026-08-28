@@ -74,8 +74,8 @@ function preferredChipThumbUrl(c: ComposerContext): string {
   const thumb = String(c.thumbUrl || '').trim();
   if (isHttpUrl(dataRef)) return dataRef;
   if (isHttpUrl(thumb)) return thumb;
-  if (dataRef.startsWith('data:image/')) return dataRef;
-  if (thumb.startsWith('data:image/')) return thumb;
+  if (dataRef.startsWith('data:image/') || dataRef.startsWith('blob:')) return dataRef;
+  if (thumb.startsWith('data:image/') || thumb.startsWith('blob:')) return thumb;
   return dataRef || thumb;
 }
 
@@ -262,9 +262,17 @@ type GeneratedMediaUrls = {
   videos?: unknown[];
   audios?: unknown[];
   images?: unknown[];
+  text?: string | null;
   assets?: Array<{ url?: string | null } | null> | null;
   asset?: { url?: string | null } | null;
 };
+
+/** Optional model reply text bundled with image/video job results. */
+export function pickGeneratedMediaText(
+  res: { text?: string | null | undefined } | null | undefined
+): string {
+  return String(res?.text || '').trim();
+}
 
 function firstListMediaUrl(
   res: GeneratedMediaUrls,

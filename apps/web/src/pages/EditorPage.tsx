@@ -185,7 +185,7 @@ function computeWorldSurface(doc: SceneDocument, frames: ArtboardFrame[]) {
 }
 
 function useThemeCanvasColor() {
-  const [color, setColor] = useState('#f5f5f5');
+  const [color, setColor] = useState('#f2f2f2');
   useEffect(() => {
     const read = () => {
       const v = getComputedStyle(document.documentElement)

@@ -1838,6 +1838,7 @@ const zhTW = {
     imageFilledOnCanvas: '已填入選取圖形',
     imageFailed: '圖片生成失敗',
     requestFailed: '請求失敗',
+    checkpointUnavailable: '對話狀態庫連線中斷，請重試一次；若仍失敗請重啟本地 API。',
     designExecFailed: '執行失敗，請重試或把需求說得更清楚一些。',
     intentClassifyFailed: '意圖識別失敗，請重試。',
     modelRouteFailed: '模型路由失敗，請重試。',

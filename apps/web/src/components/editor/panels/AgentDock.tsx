@@ -64,9 +64,10 @@ import { getToken } from '@/utils/token';
 import {
   deleteUploadedFile,
   imageSrcToFile,
+  createFilePreviewUrl,
+  revokeComposerPreviewUrls,
   readFileAsDataUrl,
-  resolveComposerMediaAfterUpload,
-  uploadComposerAttachment,
+  finishComposerAttachmentUpload,
 } from '@/utils/uploadImage';
 import { message } from '@/components/base';
 import {
@@ -196,6 +197,7 @@ import {
   buildVideoAssistantSeed,
   buildAudioAssistantSeed,
   buildLottieAssistantSeed,
+  pickGeneratedMediaText,
   buildVideoModeControls,
   buildAudioModeControls,
   buildLottieModeControls,
@@ -1462,6 +1464,7 @@ function AgentDock({
     const removed = contextChips.filter((c) => !next.some((n) => n.key === c.key));
     const added = next.filter((c) => !contextChips.some((p) => p.key === c.key));
     for (const c of removed) {
+      revokeComposerPreviewUrls(c);
       if (isMarkContextKey(c.key)) {
         syncMarkPinRemoved(dispatch, c.key);
       } else {
@@ -1540,7 +1543,7 @@ function AgentDock({
     const previews = await Promise.all(
       accepted.map(async (file) => {
         try {
-          const preview = await readFileAsDataUrl(file);
+          const preview = createFilePreviewUrl(file);
           let thumb = preview;
           if (file.type.startsWith('video/')) {
             try {
@@ -1618,33 +1621,14 @@ function AgentDock({
     await Promise.all(
       batch.map(async ({ file, key, preview, pending }) => {
         try {
-          const poster = String(pending.thumbUrl || '').trim();
-          const uploaded = await uploadComposerAttachment(file, {
-            previewDataUrl:
-              file.type.startsWith('video/') && poster.startsWith('data:image/')
-                ? poster
-                : preview,
-          });
-          const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({
-            serverUrl: uploaded.url,
-            localPreview: String(uploaded.previewDataUrl || poster || preview).trim(),
-            stillPreview:
-              file.type.startsWith('video/') && poster.startsWith('data:image/')
-                ? poster
-                : undefined,
-          });
+          const { dataUrl, thumbUrl, uploadKey } = await finishComposerAttachmentUpload(
+            file,
+            preview,
+            pending.thumbUrl
+          );
           setContextChips((prev) => {
             if (!prev.some((c) => c.key === key)) {
-              if (uploaded.uploadKey) {
-                async function purgeOrphanUpload() {
-                  try {
-                    await deleteUploadedFile(uploaded.uploadKey);
-                  } catch {
-                    /* ignore */
-                  }
-                }
-                purgeOrphanUpload();
-              }
+              if (uploadKey) void deleteUploadedFile(uploadKey).catch(() => undefined);
               return prev;
             }
             return prev.map((c) =>
@@ -1653,7 +1637,7 @@ function AgentDock({
                     ...c,
                     dataUrl,
                     thumbUrl,
-                    uploadKey: uploaded.uploadKey || undefined,
+                    uploadKey: uploadKey || undefined,
                     uploadStatus: 'ready' as const,
                   }
                 : c
@@ -2279,8 +2263,40 @@ function AgentDock({
     }
     clearContextChips();
     setSending(true);
-    // Clear prior Ask chips in the same write — a separate setMessages(clear)
-    // would be overwritten by this replace with stale baseMessages.
+    const assistantMediaSeed = runVideoGen
+      ? buildVideoAssistantSeed({
+          videoGenAspect,
+          videoGenAspectRatio,
+          canPickModel,
+          model,
+          selectedModel,
+        })
+      : runAudioGen
+        ? buildAudioAssistantSeed({
+            canPickModel,
+            model,
+            selectedModel:
+              audioGenModels.find((m) => m.id === model) || selectedModel,
+          })
+        : runLottieGen
+          ? buildLottieAssistantSeed({
+              lottieGenAspect,
+              lottieGenAspectRatio,
+              canPickModel,
+              model,
+              selectedModel:
+                lottieChatModels.find((m) => m.id === model) || selectedModel,
+            })
+          : buildStreamingAssistantSeed({
+              imageGenCount,
+              imageGenAspect,
+              imageGenAspectRatio,
+              canPickModel,
+              model,
+              selectedModel,
+              models,
+              t,
+            });
     setMessages([
       ...baseMessages.map(clearAskProposalFields),
       userMsg,
@@ -2288,40 +2304,7 @@ function AgentDock({
         id: assistantId,
         role: 'assistant',
         content: '',
-        ...(runVideoGen
-          ? buildVideoAssistantSeed({
-              videoGenAspect,
-              videoGenAspectRatio,
-              canPickModel,
-              model,
-              selectedModel,
-            })
-          : runAudioGen
-            ? buildAudioAssistantSeed({
-                canPickModel,
-                model,
-                selectedModel:
-                  audioGenModels.find((m) => m.id === model) || selectedModel,
-              })
-            : runLottieGen
-              ? buildLottieAssistantSeed({
-                  lottieGenAspect,
-                  lottieGenAspectRatio,
-                  canPickModel,
-                  model,
-                  selectedModel:
-                    lottieChatModels.find((m) => m.id === model) || selectedModel,
-                })
-              : buildStreamingAssistantSeed({
-                  imageGenCount,
-                  imageGenAspect,
-                  imageGenAspectRatio,
-                  canPickModel,
-                  model,
-                  selectedModel,
-                  models,
-                  t,
-                })),
+        ...assistantMediaSeed,
         streaming: true,
         startedAt: Date.now(),
       },
@@ -2360,13 +2343,14 @@ function AgentDock({
         if (refImages.length) body.images = refImages;
         const res = await generateVideo(body, { signal: ac.signal });
         const url = firstGeneratedVideoUrl(res);
+        const replyText = pickGeneratedMediaText(res);
         if (ac.signal.aborted) return;
         if (!url) {
           patchAssistant(
             (m) => m.id === assistantId,
             (m) =>
               finishAssistantPatch(m, {
-                content: t('agent.requestFailed'),
+                content: replyText || t('agent.requestFailed'),
                 videoPendingCount: undefined,
                 imageAspectRatio: aspect || videoGenAspectRatio,
                 steps: [],
@@ -2374,17 +2358,28 @@ function AgentDock({
           );
           return;
         }
-        patchAssistant(
-          (m) => m.id === assistantId,
-          (m) =>
-            finishAssistantPatch(m, {
-              content: '',
-              videos: [url],
-              videoPendingCount: undefined,
-              imageAspectRatio: aspect || videoGenAspectRatio,
-              steps: [],
-            })
-        );
+        const finishVideo = () => {
+          patchAssistant(
+            (m) => m.id === assistantId,
+            (m) =>
+              finishAssistantPatch(m, {
+                content: replyText || (m.content || '').trim(),
+                videos: [url],
+                videoPendingCount: undefined,
+                imageAspectRatio: aspect || videoGenAspectRatio,
+                steps: [],
+              })
+          );
+        };
+        if (replyText) {
+          patchAssistant(
+            (m) => m.id === assistantId,
+            (m) => ({ ...m, content: replyText })
+          );
+          queueMicrotask(finishVideo);
+        } else {
+          finishVideo();
+        }
       } catch (err) {
         if (ac.signal.aborted) return;
         patchAssistant(
@@ -2440,7 +2435,7 @@ function AgentDock({
           (m) => m.id === assistantId,
           (m) =>
             finishAssistantPatch(m, {
-              content: '',
+              content: (m.content || '').trim(),
               audios: [url],
               audioPendingCount: undefined,
               steps: [],
@@ -2518,7 +2513,7 @@ function AgentDock({
           (m) => m.id === assistantId,
           (m) =>
             finishAssistantPatch(m, {
-              content: '',
+              content: (m.content || '').trim(),
               lotties: [
                 {
                   animationData,
@@ -2551,7 +2546,6 @@ function AgentDock({
       return;
     }
 
-    // Image model → Seedream gallery; Ask / forceAgent stay on design agent.
     if (
       shouldRunImageGenPath({
         isImageModelSelected,
@@ -2618,7 +2612,7 @@ function AgentDock({
                     ? t('agent.imageFilledOnCanvas', {
                         defaultValue: 'Filled selection with image',
                       })
-                    : '',
+                    : (m.content || '').trim(),
                   images: urls,
                   imagePendingCount: undefined,
                   imageAspectRatio: aspect,
@@ -2660,9 +2654,18 @@ function AgentDock({
               });
               const res = await generateImage(imageBody, { signal: ac.signal });
               const url = firstGeneratedImageUrl(res);
+              const replyText = pickGeneratedMediaText(res);
+              if (replyText) {
+                patchAssistant(
+                  (m) => m.id === assistantId,
+                  (m) => ({ ...m, content: replyText })
+                );
+              }
               if (!url) return;
               slotUrls[i] = url;
-              publishSlots();
+              const publish = () => publishSlots();
+              if (replyText) queueMicrotask(publish);
+              else publish();
             } catch (err) {
               slotErrors.push(err);
             }

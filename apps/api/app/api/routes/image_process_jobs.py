@@ -22,9 +22,10 @@ from worker.tasks import run_image_process_job
 router = APIRouter(prefix="/image/process", tags=["image-process-jobs"])
 _log = logging.getLogger(__name__)
 _KIND = "image_process"
-_PROGRESS_START = 15
-_PROGRESS_CAP = 85
-_PROGRESS_DONE = 90
+# Smooth 0→100 curve owned by execute_image_process (Celery must not stomp mid-flight).
+_PROGRESS_FLOOR = 5
+_PROGRESS_CAP = 95
+_PROGRESS_DONE = 100
 
 
 class ImageProcessJobCreateRequest(ImageProcessIn):
@@ -56,28 +57,33 @@ async def execute_image_process(job: dict[str, Any]) -> dict[str, Any]:
     image = str(job.get("image") or "").strip()
     credits = int(job.get("credits_charged") or 0)
 
-    last_pct = _PROGRESS_START
+    last_pct = max(_PROGRESS_FLOOR, int(job.get("progress") or 0))
 
-    def _set_progress(pct: int) -> None:
+    def _set_progress(pct: int, *, final: bool = False) -> None:
         nonlocal last_pct
         if not job_id:
             return
-        pct = max(_PROGRESS_START, min(_PROGRESS_CAP, pct))
-        if pct <= last_pct:
+        next_pct = _PROGRESS_DONE if final else max(last_pct, min(_PROGRESS_CAP, int(pct)))
+        if next_pct <= last_pct:
             return
-        last_pct = pct
-        update_job(job_id, kind=_KIND, progress=pct)
+        last_pct = next_pct
+        update_job(job_id, kind=_KIND, progress=next_pct)
 
     def _on_ilp_progress(pct: int, _stage: str = "") -> None:
-        _set_progress(_PROGRESS_START + int(pct * 0.7))
+        span = _PROGRESS_CAP - _PROGRESS_FLOOR
+        mapped = _PROGRESS_FLOOR + int(max(0, min(100, int(pct))) * span / 100)
+        _set_progress(mapped)
 
     async def _heartbeat() -> None:
-        while last_pct < _PROGRESS_CAP - 1:
-            await asyncio.sleep(3)
-            _set_progress(last_pct + 4)
+        """Slow crawl for tools without real progress callbacks (抠图 / 放大 / …)."""
+        while last_pct < _PROGRESS_CAP - 2:
+            await asyncio.sleep(2.5)
+            gap = _PROGRESS_CAP - last_pct
+            step = max(1, min(3, gap // 6))
+            _set_progress(last_pct + step)
 
     if job_id:
-        update_job(job_id, kind=_KIND, progress=_PROGRESS_START)
+        _set_progress(max(last_pct, 8))
 
     heartbeat = asyncio.create_task(_heartbeat())
     try:
@@ -98,8 +104,7 @@ async def execute_image_process(job: dict[str, Any]) -> dict[str, Any]:
             await heartbeat
 
     if job_id:
-        update_job(job_id, kind=_KIND, progress=_PROGRESS_DONE)
-
+        _set_progress(_PROGRESS_DONE, final=True)
     if not isinstance(result, dict):
         raise RuntimeError(f"image process returned unexpected type: {type(result)!r}")
     image = str(result.get("image") or "").strip()
@@ -133,7 +138,7 @@ async def create_image_process_job(
         "kind": _KIND,
         "tool_kind": tool_kind,
         "status": "queued",
-        "progress": 0,
+        "progress": 5,
         "user_id": current_user.id,
         "image": image,
         "meta": body.meta,

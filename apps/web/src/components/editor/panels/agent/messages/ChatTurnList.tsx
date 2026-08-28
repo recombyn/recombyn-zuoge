@@ -1,9 +1,7 @@
 import { forwardRef, useRef, type ReactNode, type Ref, memo } from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import lottie, { type AnimationItem } from 'lottie-web';
 import {
-  HiOutlineArrowDownTray,
   HiOutlineArrowUturnLeft,
   HiOutlineCheckCircle,
   HiOutlineChevronRight,
@@ -15,7 +13,6 @@ import {
 } from 'react-icons/hi2';
 import ChatMarkdown from '@/components/editor/panels/ChatMarkdown';
 import { ContextChipPill } from '@/components/editor/panels/AgentComposerInput';
-import { Image } from '@/components/base/image';
 import {
   SoftGlowSurface,
   VirtualList,
@@ -28,9 +25,6 @@ import {
 } from '@/utils/chatImageDrag';
 import { UserAssetCard } from '@/components/home/UserAssetMediaCard';
 import type { UserAsset } from '@/models/assets';
-import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
-import { imageSrcToFile, toDisplayMediaUrl } from '@/utils/uploadImage';
-import VideoJsPlayer from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
 import {
   localizeAgentProcessCopy,
   looksLikeKernelProcessDump,
@@ -1696,18 +1690,20 @@ function AssistantTurn({
     !(streaming && processRunning) &&
     !replyDuplicatesProcessThought(contentTrim, assistant.steps);
 
+  const mediaReplyReady = Boolean(contentTrim);
+  const imagePending = Math.max(0, Number(assistant.imagePendingCount) || 0);
+  const videoPending = Math.max(0, Number(assistant.videoPendingCount) || 0);
+  const audioPending = Math.max(0, Number(assistant.audioPendingCount) || 0);
+  const lottiePending = Math.max(0, Number(assistant.lottiePendingCount) || 0);
+
   const showImageGallery =
-    Boolean(assistant.images?.length) ||
-    (Number(assistant.imagePendingCount) || 0) > 0;
+    Boolean(assistant.images?.length) || (imagePending > 0 && mediaReplyReady);
   const showVideoGallery =
-    Boolean(assistant.videos?.length) ||
-    (Number(assistant.videoPendingCount) || 0) > 0;
+    Boolean(assistant.videos?.length) || (videoPending > 0 && mediaReplyReady);
   const showAudioGallery =
-    Boolean(assistant.audios?.length) ||
-    (Number(assistant.audioPendingCount) || 0) > 0;
+    Boolean(assistant.audios?.length) || (audioPending > 0 && mediaReplyReady);
   const showLottieGallery =
-    Boolean(assistant.lotties?.length) ||
-    (Number(assistant.lottiePendingCount) || 0) > 0;
+    Boolean(assistant.lotties?.length) || (lottiePending > 0 && mediaReplyReady);
   const showMediaGallery =
     showImageGallery ||
     showVideoGallery ||
@@ -1751,6 +1747,15 @@ function AssistantTurn({
       ) : null}
       <DeveloperDebugPanel events={assistant.debugEvents} />
 
+      {showReplyText ? (
+        <div className="w-full min-w-0 overflow-x-hidden text-[13px] leading-[1.7] text-[var(--ink)] [&_.rcb-chat-md_p:first-child]:font-semibold">
+          <ChatMarkdown content={assistant.content || ''} />
+          {streaming ? (
+            <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle opacity-50" />
+          ) : null}
+        </div>
+      ) : null}
+
       {showImageGallery ? (
         <ImageGenGallery assistant={assistant} sending={sending} />
       ) : null}
@@ -1765,15 +1770,6 @@ function AssistantTurn({
 
       {showLottieGallery ? (
         <LottieGenGallery assistant={assistant} sending={sending} />
-      ) : null}
-
-      {showReplyText ? (
-        <div className="w-full min-w-0 overflow-x-hidden text-[13px] leading-[1.7] text-[var(--ink)] [&_.rcb-chat-md_p:first-child]:font-semibold">
-          <ChatMarkdown content={assistant.content || ''} />
-          {streaming ? (
-            <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-current align-middle opacity-50" />
-          ) : null}
-        </div>
       ) : null}
 
       {doneMilestone ? (
@@ -1819,100 +1815,79 @@ function AssistantTurn({
   );
 }
 
-function ChatResultImageCard({
-  src,
+function ChatMediaPendingSlot({
+  seed,
   box,
 }: {
-  src: string;
+  seed: string;
   box: { width: number; height: number };
 }): ReactNode {
-  const { t } = useTranslation();
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const draggedRef = useRef(false);
-
-  const download = async () => {
-    try {
-      const file = await imageSrcToFile(src, 'image.png');
-      const objectUrl = URL.createObjectURL(file);
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = file.name || 'image.png';
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(objectUrl);
-    } catch {
-      window.open(src, '_blank', 'noopener,noreferrer');
-    }
-  };
-
   return (
-    <div
-      className="group relative shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--canvas)]"
+    <SoftGlowSurface
+      seed={seed}
+      className="shrink-0 rounded-[8px] border border-[var(--line)]"
       style={{ width: box.width, height: box.height }}
-    >
-      <button
-        type="button"
-        draggable
-        aria-label={t('agent.previewImage', { defaultValue: '预览图片' })}
-        className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
-        onDragStart={(e) => {
-          draggedRef.current = true;
-          setMediaAssetDragData(e.dataTransfer, {
-            kind: 'image',
-            src,
-            width: box.width,
-            height: box.height,
-            name: 'Image',
-          });
-        }}
-        onDragEnd={() => {
-          // Click often follows a completed drag — ignore the next click once.
-          scheduleClearMediaAssetDragData(300);
-          window.setTimeout(() => {
-            draggedRef.current = false;
-          }, 0);
-        }}
-        onClick={() => {
-          if (draggedRef.current) {
-            draggedRef.current = false;
-            return;
-          }
-          setPreviewOpen(true);
-        }}
-      >
-        <img
-          src={src}
-          alt=""
-          draggable={false}
-          loading="lazy"
-          className="pointer-events-none block h-full w-full object-cover"
-        />
-      </button>
-      <button
-        type="button"
-        aria-label={t('agent.downloadImage', { defaultValue: '下载图片' })}
-        title={t('agent.downloadImage', { defaultValue: '下载图片' })}
-        className="absolute bottom-1.5 right-1.5 z-[1] inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-black/55 text-white shadow-sm backdrop-blur-[2px] transition-colors hover:bg-black/70"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          download();
-        }}
-      >
-        <HiOutlineArrowDownTray className="h-3.5 w-3.5" strokeWidth={1.75} />
-      </button>
-      <Image
-        src={src}
-        alt=""
-        lazy={false}
-        preview={{ open: previewOpen, onOpenChange: setPreviewOpen, previewOnClick: false }}
-        className="pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0"
-        imgClassName="!hidden"
-      />
+      aria-hidden
+    />
+  );
+}
+
+function chatGenGalleryShell(children: ReactNode): ReactNode {
+  return (
+    <div className="mt-1 flex max-w-full gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
+      {children}
     </div>
   );
+}
+
+function chatResultAssetFromImage(
+  src: string,
+  index: number,
+  assistantId: string,
+  box: { width: number; height: number }
+): UserAsset {
+  return {
+    id: `${assistantId}-img-${index}`,
+    kind: 'image',
+    url: src,
+    source: 'ai_image',
+    width: box.width,
+    height: box.height,
+  };
+}
+
+function chatResultAssetFromVideo(
+  src: string,
+  index: number,
+  assistantId: string,
+  box: { width: number; height: number }
+): UserAsset {
+  return {
+    id: `${assistantId}-vid-${index}`,
+    kind: 'video',
+    url: src,
+    source: 'ai_video',
+    width: box.width,
+    height: box.height,
+  };
+}
+
+function chatResultAssetFromLottie(
+  item: NonNullable<ChatUiMessage['lotties']>[number],
+  index: number,
+  assistantId: string,
+  box: { width: number; height: number }
+): UserAsset {
+  const animationData = item.animationData;
+  return {
+    id: `${assistantId}-lottie-${index}`,
+    kind: 'lottie',
+    url: String(item.url || '').trim(),
+    source: 'ai_lottie',
+    width: item.w ?? box.width,
+    height: item.h ?? box.height,
+    ...(animationData ? { animationData } : {}),
+  };
 }
 
 function VideoGenGallery({
@@ -1927,170 +1902,39 @@ function VideoGenGallery({
   if (slots <= 0) return null;
   const box = cardBoxFromAspect(assistant.imageAspectRatio);
 
-  return (
-    <div className="mt-1 flex max-w-full gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
-      {Array.from({ length: slots }, (_, i) => {
-        const src = videos[i];
-        if (src) {
-          return (
-            <div
-              key={`${assistant.id}-vid-${i}`}
-              className="group relative shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-black"
-              style={{ width: box.width, height: box.height }}
-            >
-              <button
-                type="button"
-                draggable
-                aria-label="将视频拖到画布"
-                className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
-                onDragStart={(e) =>
-                  setMediaAssetDragData(e.dataTransfer, {
-                    kind: 'video',
-                    src,
-                    width: box.width,
-                    height: box.height,
-                    name: 'Video',
-                  })
-                }
-                onDragEnd={() => scheduleClearMediaAssetDragData(300)}
-              >
-                <VideoJsPlayer
-                  src={src}
-                  layout="fill"
-                  controlsMode="always"
-                  muted
-                  className="h-full w-full"
-                />
-              </button>
-            </div>
-          );
-        }
+  return chatGenGalleryShell(
+    Array.from({ length: slots }, (_, i) => {
+      const src = videos[i];
+      if (src) {
+        const asset = chatResultAssetFromVideo(src, i, assistant.id, box);
         return (
-          <SoftGlowSurface
-            key={`${assistant.id}-vshimmer-${i}`}
-            seed={`${assistant.id}-v-${i}`}
-            className="shrink-0 rounded-lg border border-[var(--line)]"
-            style={{ width: box.width, height: box.height }}
-            aria-hidden
-          />
+          <div key={asset.id} className="shrink-0" style={{ width: box.width }}>
+            <UserAssetCard
+              asset={asset}
+              dense
+              editorMediaPreview
+              onDragStart={(e, a) => {
+                setMediaAssetDragData(e.dataTransfer, {
+                  kind: 'video',
+                  src: String(a.url || src),
+                  width: box.width,
+                  height: box.height,
+                  name: 'Video',
+                });
+              }}
+              onDragEnd={() => scheduleClearMediaAssetDragData(300)}
+            />
+          </div>
         );
-      })}
-    </div>
-  );
-}
-
-function cloneLottiePayload(data: Record<string, unknown>): Record<string, unknown> {
-  if (typeof structuredClone === 'function') return structuredClone(data);
-  return JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
-}
-
-async function fetchLottieAnimationFromUrl(url: string): Promise<Record<string, unknown> | null> {
-  const src = toDisplayMediaUrl(String(url || '').trim());
-  if (!src) return null;
-  try {
-    const res = await fetch(src);
-    if (!res.ok) return null;
-    const json: unknown = await res.json();
-    return parseLottieAnimationData(json);
-  } catch {
-    return null;
-  }
-}
-
-function ChatResultLottieCard({
-  item,
-  box,
-}: {
-  item: NonNullable<ChatUiMessage['lotties']>[number];
-  box: { width: number; height: number };
-}): ReactNode {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const draggedRef = useRef(false);
-  const [animationData, setAnimationData] = useState<Record<string, unknown> | null>(() =>
-    parseLottieAnimationData(item.animationData)
-  );
-
-  useEffect(() => {
-    if (animationData) return;
-    const url = String(item.url || '').trim();
-    if (!url) return;
-    let cancelled = false;
-    void fetchLottieAnimationFromUrl(url).then((parsed) => {
-      if (!cancelled && parsed) setAnimationData(parsed);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [animationData, item.url, item.animationData]);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || !animationData) return undefined;
-    let anim: AnimationItem | null = null;
-    host.innerHTML = '';
-    try {
-      anim = lottie.loadAnimation({
-        container: host,
-        renderer: 'svg',
-        loop: true,
-        autoplay: true,
-        animationData: cloneLottiePayload(animationData),
-        rendererSettings: { preserveAspectRatio: 'xMidYMid meet' },
-      });
-    } catch {
-      /* invalid payload */
-    }
-    return () => {
-      anim?.destroy();
-      host.innerHTML = '';
-    };
-  }, [animationData]);
-
-  const url = String(item.url || '').trim();
-  if (!animationData && !url) return null;
-
-  const dragW = item.w ?? box.width;
-  const dragH = item.h ?? box.height;
-
-  return (
-    <div
-      className="group relative shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-gradient-to-b from-[#3a3a3a] to-[#151515]"
-      style={{ width: box.width, height: box.height }}
-    >
-      <button
-        type="button"
-        draggable={Boolean(animationData || url)}
-        aria-label="将 Lottie 拖到画布"
-        className="block h-full w-full cursor-grab border-0 bg-transparent p-0 active:cursor-grabbing"
-        onDragStart={(e) => {
-          if (!animationData && !url) return;
-          draggedRef.current = true;
-          setMediaAssetDragData(e.dataTransfer, {
-            kind: 'lottie',
-            src: url,
-            width: dragW,
-            height: dragH,
-            name: 'Lottie',
-            ...(animationData ? { animationData } : {}),
-          });
-        }}
-        onDragEnd={() => {
-          scheduleClearMediaAssetDragData(300);
-          window.setTimeout(() => {
-            draggedRef.current = false;
-          }, 0);
-        }}
-      >
-        <div ref={hostRef} className="pointer-events-none h-full w-full" />
-        {!animationData ? (
-          <SoftGlowSurface
-            seed={url || 'lottie-loading'}
-            className="pointer-events-none absolute inset-0 rounded-none border-0"
-            aria-hidden
-          />
-        ) : null}
-      </button>
-    </div>
+      }
+      return (
+        <ChatMediaPendingSlot
+          key={`${assistant.id}-vshimmer-${i}`}
+          seed={`${assistant.id}-v-${i}`}
+          box={box}
+        />
+      );
+    })
   );
 }
 
@@ -2115,45 +1959,37 @@ function AudioGenGallery({
   if (slots <= 0) return null;
   const box = cardBoxFromAspect('1:1');
 
-  return (
-    <div className="mt-1 flex max-w-full gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
-      {Array.from({ length: slots }, (_, i) => {
-        const src = audios[i];
-        if (src) {
-          const asset = chatResultAssetFromAudio(src, i, assistant.id);
-          return (
-            <div
-              key={asset.id}
-              className="shrink-0"
-              style={{ width: box.width }}
-            >
-              <UserAssetCard
-                asset={asset}
-                dense
-                editorMediaPreview
-                onDragStart={(e, a) => {
-                  setMediaAssetDragData(e.dataTransfer, {
-                    kind: 'audio',
-                    src: String(a.url || src),
-                    name: 'Audio',
-                  });
-                }}
-                onDragEnd={() => scheduleClearMediaAssetDragData(300)}
-              />
-            </div>
-          );
-        }
+  return chatGenGalleryShell(
+    Array.from({ length: slots }, (_, i) => {
+      const src = audios[i];
+      if (src) {
+        const asset = chatResultAssetFromAudio(src, i, assistant.id);
         return (
-          <SoftGlowSurface
-            key={`${assistant.id}-ashimmer-${i}`}
-            seed={`${assistant.id}-a-${i}`}
-            className="shrink-0 rounded-lg border border-[var(--line)]"
-            style={{ width: box.width, height: box.width }}
-            aria-hidden
-          />
+          <div key={asset.id} className="shrink-0" style={{ width: box.width }}>
+            <UserAssetCard
+              asset={asset}
+              dense
+              editorMediaPreview
+              onDragStart={(e, a) => {
+                setMediaAssetDragData(e.dataTransfer, {
+                  kind: 'audio',
+                  src: String(a.url || src),
+                  name: 'Audio',
+                });
+              }}
+              onDragEnd={() => scheduleClearMediaAssetDragData(300)}
+            />
+          </div>
         );
-      })}
-    </div>
+      }
+      return (
+        <ChatMediaPendingSlot
+          key={`${assistant.id}-ashimmer-${i}`}
+          seed={`${assistant.id}-a-${i}`}
+          box={{ width: box.width, height: box.width }}
+        />
+      );
+    })
   );
 }
 
@@ -2169,30 +2005,41 @@ function LottieGenGallery({
   if (slots <= 0) return null;
   const box = cardBoxFromAspect(assistant.imageAspectRatio);
 
-  return (
-    <div className="mt-1 flex max-w-full gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
-      {Array.from({ length: slots }, (_, i) => {
-        const item = lotties[i];
-        if (item) {
-          return (
-            <ChatResultLottieCard
-              key={`${assistant.id}-lottie-${i}`}
-              item={item}
-              box={box}
-            />
-          );
-        }
+  return chatGenGalleryShell(
+    Array.from({ length: slots }, (_, i) => {
+      const item = lotties[i];
+      if (item) {
+        const asset = chatResultAssetFromLottie(item, i, assistant.id, box);
         return (
-          <SoftGlowSurface
-            key={`${assistant.id}-lshimmer-${i}`}
-            seed={`${assistant.id}-l-${i}`}
-            className="shrink-0 rounded-lg border border-[var(--line)]"
-            style={{ width: box.width, height: box.height }}
-            aria-hidden
-          />
+          <div key={asset.id} className="shrink-0" style={{ width: box.width }}>
+            <UserAssetCard
+              asset={asset}
+              dense
+              editorMediaPreview
+              onDragStart={(e, a) => {
+                const anim = a.animationData ?? a.meta?.animationData;
+                setMediaAssetDragData(e.dataTransfer, {
+                  kind: 'lottie',
+                  src: String(a.url || item.url || ''),
+                  width: a.width ?? box.width,
+                  height: a.height ?? box.height,
+                  name: 'Lottie',
+                  ...(anim && typeof anim === 'object' ? { animationData: anim as Record<string, unknown> } : {}),
+                });
+              }}
+              onDragEnd={() => scheduleClearMediaAssetDragData(300)}
+            />
+          </div>
         );
-      })}
-    </div>
+      }
+      return (
+        <ChatMediaPendingSlot
+          key={`${assistant.id}-lshimmer-${i}`}
+          seed={`${assistant.id}-l-${i}`}
+          box={box}
+        />
+      );
+    })
   );
 }
 
@@ -2208,30 +2055,39 @@ function ImageGenGallery({
   if (slots <= 0) return null;
   const box = cardBoxFromAspect(assistant.imageAspectRatio);
 
-  return (
-    <div className="mt-1 flex max-w-full gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
-      {Array.from({ length: slots }, (_, i) => {
-        const src = images[i];
-        if (src) {
-          return (
-            <ChatResultImageCard
-              key={`${assistant.id}-img-${i}`}
-              src={src}
-              box={box}
-            />
-          );
-        }
+  return chatGenGalleryShell(
+    Array.from({ length: slots }, (_, i) => {
+      const src = images[i];
+      if (src) {
+        const asset = chatResultAssetFromImage(src, i, assistant.id, box);
         return (
-          <SoftGlowSurface
-            key={`${assistant.id}-shimmer-${i}`}
-            seed={`${assistant.id}-i-${i}`}
-            className="shrink-0 rounded-lg border border-[var(--line)]"
-            style={{ width: box.width, height: box.height }}
-            aria-hidden
-          />
+          <div key={asset.id} className="shrink-0" style={{ width: box.width }}>
+            <UserAssetCard
+              asset={asset}
+              dense
+              editorMediaPreview
+              onDragStart={(e, a) => {
+                setMediaAssetDragData(e.dataTransfer, {
+                  kind: 'image',
+                  src: String(a.url || src),
+                  width: box.width,
+                  height: box.height,
+                  name: 'Image',
+                });
+              }}
+              onDragEnd={() => scheduleClearMediaAssetDragData(300)}
+            />
+          </div>
         );
-      })}
-    </div>
+      }
+      return (
+        <ChatMediaPendingSlot
+          key={`${assistant.id}-shimmer-${i}`}
+          seed={`${assistant.id}-i-${i}`}
+          box={box}
+        />
+      );
+    })
   );
 }
 

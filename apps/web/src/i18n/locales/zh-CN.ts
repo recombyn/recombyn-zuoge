@@ -1982,6 +1982,7 @@ const zhCN = {
     imageFilledOnCanvas: '已填充到选中图形',
     imageFailed: '图片生成失败',
     requestFailed: '请求失败',
+    checkpointUnavailable: '对话状态库连接中断，请重试一次；若仍失败请重启本地 API。',
     designExecFailed: '执行失败，请重试或把需求说得更清楚一些。',
     intentClassifyFailed: '意图识别失败，请重试。',
     modelRouteFailed: '模型路由失败，请重试。',

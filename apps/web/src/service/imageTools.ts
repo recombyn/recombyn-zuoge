@@ -6,6 +6,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { abortAfter, apiClient } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
+import { createMonotonicProgress } from '@/components/rcb/scene/document/processJobAttrs';
 import { request } from '@/utils/request';
 import { sse } from '@/utils/sse';
 
@@ -173,12 +174,11 @@ export async function createImageProcessJob(
 function handleImageProcessJobPayload(
   job: ImageProcessJobState,
   queuedSince: { at: number | null },
-  opts: { onProgress?: (pct: number) => void }
+  report: (pct: number) => void
 ): ImageProcessResult | 'pending' {
-  const progress = Math.max(0, Math.min(100, Number(job.progress) || 0));
-  opts.onProgress?.(progress);
-
+  report(Number(job.progress) || 0);
   if (job.status === 'done') {
+    report(100);
     if (!job.result || typeof job.result !== 'object') {
       throw new Error(job.error || 'image process job missing result');
     }
@@ -207,6 +207,7 @@ export async function waitForImageProcessJob(
 ): Promise<ImageProcessResult> {
   const deadline = Date.now() + IMAGE_PROCESS_JOB_TIMEOUT_MS;
   const queuedSince = { at: null as number | null };
+  const report = opts?.onProgress ?? (() => {});
 
   return new Promise<ImageProcessResult>((resolve, reject) => {
     let settled = false;
@@ -247,7 +248,7 @@ export async function waitForImageProcessJob(
           return;
         }
         try {
-          const outcome = handleImageProcessJobPayload(job, queuedSince, opts || {});
+          const outcome = handleImageProcessJobPayload(job, queuedSince, report);
           if (outcome !== 'pending') finish(() => resolve(outcome));
         } catch (err) {
           finish(() => reject(err instanceof Error ? err : new Error(String(err))));
@@ -279,6 +280,6 @@ export async function processImageToolAsync(
   if (!opts?.jobId) opts?.onJobCreated?.(jobId);
   return waitForImageProcessJob(jobId, {
     signal: opts?.signal,
-    onProgress: opts?.onProgress,
+    onProgress: createMonotonicProgress(opts?.onProgress),
   });
 }

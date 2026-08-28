@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import i18n from '@/i18n';
 import { message } from '@/components/base';
 import {
+  formatProcessProgressLabel,
   processJobAttrPatch,
   readProcessJobIds,
   stripProcessProgressLabel,
@@ -232,23 +233,27 @@ function ImageProcessWatcher() {
         if (resolution) processBody.resolution = resolution;
 
         const existingJobIds = readProcessJobIds(liveNode);
-        const onProgress = (pct: number) => {
-          if (cancelled) return;
-          dispatch(
-            patchDocumentNode({
-              nodeId: pendingId,
-              skipHistory: true,
-              patch: {
-                attrs: { processLabel: `${labelBase} ${Math.round(pct)}%` },
-              },
-            })
-          );
-        };
-
         const res = await processImageToolAsync(processBody, {
           signal: ac.signal,
           jobId: existingJobIds[0],
-          onProgress,
+          onProgress: (pct) => {
+            if (cancelled) return;
+            dispatch(
+              patchDocumentNode({
+                nodeId: pendingId,
+                skipHistory: true,
+                patch: {
+                  attrs: {
+                    processLabel: formatProcessProgressLabel(
+                      labelBase,
+                      pct,
+                      labelBase || '处理中'
+                    ),
+                  },
+                },
+              })
+            );
+          },
           onJobCreated: (jobId) => {
             if (cancelled) return;
             dispatch(

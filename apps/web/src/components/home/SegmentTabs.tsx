@@ -66,7 +66,7 @@ function SegmentTabs<T extends string>({
               role="tab"
               aria-selected={active}
               className={cn(
-                'relative inline-flex items-center rounded-lg border transition-colors',
+                'relative inline-flex items-center whitespace-nowrap rounded-lg border transition-colors',
                 fill ? 'min-w-0 flex-1 basis-0 justify-center px-1 py-1.5' : cn('shrink-0', chipPad),
                 pillLabelSize,
                 active
@@ -75,15 +75,11 @@ function SegmentTabs<T extends string>({
               )}
               onClick={() => onChange(tab.id)}
             >
-              <span className="invisible font-semibold" aria-hidden>
+              {/* Width lock only — do not re-pad the overlay or CJK labels (e.g. 动效) wrap. */}
+              <span className="invisible font-semibold whitespace-nowrap" aria-hidden>
                 {tab.label}
               </span>
-              <span
-                className={cn(
-                  'absolute inset-0 flex items-center justify-center',
-                  fill ? 'px-1' : chipPad
-                )}
-              >
+              <span className="absolute inset-0 flex items-center justify-center whitespace-nowrap">
                 {tab.label}
               </span>
             </button>
@@ -115,7 +111,7 @@ function SegmentTabs<T extends string>({
               role="tab"
               aria-selected={active}
               className={cn(
-                'relative inline-flex shrink-0 items-center rounded-full px-3.5 py-1.5 transition-colors sm:px-4',
+                'relative inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-3.5 py-1.5 transition-colors sm:px-4',
                 pillLabelSize,
                 active
                   ? cn(
@@ -126,10 +122,10 @@ function SegmentTabs<T extends string>({
               )}
               onClick={() => onChange(tab.id)}
             >
-              <span className="invisible font-semibold" aria-hidden>
+              <span className="invisible font-semibold whitespace-nowrap" aria-hidden>
                 {tab.label}
               </span>
-              <span className="absolute inset-0 flex items-center justify-center px-3.5 sm:px-4">
+              <span className="absolute inset-0 flex items-center justify-center whitespace-nowrap">
                 {tab.label}
               </span>
             </button>
@@ -154,7 +150,7 @@ function SegmentTabs<T extends string>({
             role="tab"
             aria-selected={active}
             className={cn(
-              'relative inline-flex items-center transition-colors',
+              'relative inline-flex items-center whitespace-nowrap transition-colors',
               labelSize,
               active
                 ? 'font-semibold text-[var(--ink)]'
@@ -163,10 +159,10 @@ function SegmentTabs<T extends string>({
             onClick={() => onChange(tab.id)}
           >
             {/* Invisible bold twin locks width — avoids jitter when weight changes. */}
-            <span className="invisible font-semibold" aria-hidden>
+            <span className="invisible font-semibold whitespace-nowrap" aria-hidden>
               {tab.label}
             </span>
-            <span className="absolute inset-0 flex items-center">{tab.label}</span>
+            <span className="absolute inset-0 flex items-center whitespace-nowrap">{tab.label}</span>
           </button>
         );
       })}

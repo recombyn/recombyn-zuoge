@@ -1,12 +1,21 @@
 import { message } from '@/components/base';
 import { getHttpErrorMessage } from '@/service/client';
-import { uploadImageFile, readFileAsDataUrl, beginNodeUpload, finishNodeUpload, waitForImageReady } from '@/utils/uploadImage';
 import {
-  measureImageNaturalSize
-} from '@/components/rcb/scene/document/nodeFactories';
+  uploadImageFile,
+  createFilePreviewUrl,
+  beginNodeUpload,
+  finishNodeUpload,
+  revokeFilePreviewUrl,
+  waitForImageReady,
+} from '@/utils/uploadImage';
+import { measureImageNaturalSize } from '@/components/rcb/scene/document/nodeFactories';
 import { finishImageProcess, patchDocumentNode } from '@/store/modules/editor';
 
 type DispatchLike = (action: unknown) => unknown;
+
+function heightForKeepWidth(keepWidth: number, nw: number, nh: number): number {
+  return Math.max(1, Math.round((keepWidth * nh) / Math.max(1, nw)));
+}
 
 /**
  * Replace an image node's media (upload to COS). Keeps node width; height follows aspect.
@@ -23,27 +32,24 @@ export async function replaceImageNodeFromFile(opts: {
   const alive = opts.isAlive ?? (() => true);
   if (!file.type.startsWith('image/')) return;
 
+  let preview = '';
   try {
-    const preview = await readFileAsDataUrl(file);
+    preview = createFilePreviewUrl(file);
     const naturalPreview = await measureImageNaturalSize(preview);
-    const previewH = Math.max(
-      1,
-      Math.round((keepWidth * naturalPreview.height) / Math.max(1, naturalPreview.width))
-    );
     if (!alive()) return;
+
     dispatch(
       patchDocumentNode({
         nodeId,
         patch: {
           width: keepWidth,
-          height: previewH,
+          height: heightForKeepWidth(keepWidth, naturalPreview.width, naturalPreview.height),
           attrs: {
             src: preview,
             processStatus: 'running',
             processKind: 'upload',
             processLabel: '上传中',
             processStartedAt: String(Date.now()),
-            // Local replace — drop AI prompt / multi-gen stack so Quick Edit stays empty.
             genPrompt: '',
             imageVariants: '',
           },
@@ -53,60 +59,57 @@ export async function replaceImageNodeFromFile(opts: {
 
     const signal = beginNodeUpload(nodeId);
     try {
-      const uploaded = await uploadImageFile(file, {
-        signal,
-        dispatch,
-        nodeId,
-      });
-    const src = uploaded.url;
-    if (!alive()) return;
+      const uploaded = await uploadImageFile(file, { signal, dispatch, nodeId });
+      if (!alive()) return;
 
-    const remoteReady = await waitForImageReady(src);
-    if (!alive()) return;
+      const src = uploaded.url;
+      const remoteReady = await waitForImageReady(src);
+      if (!alive()) return;
 
-    let naturalW = Number(uploaded.width) || 0;
-    let naturalH = Number(uploaded.height) || 0;
-    if (!(naturalW > 0 && naturalH > 0)) {
-      const natural = await measureImageNaturalSize(remoteReady ? src : preview);
-      naturalW = natural.width;
-      naturalH = natural.height;
-    }
-    const height = Math.max(1, Math.round((keepWidth * naturalH) / Math.max(1, naturalW)));
-    const assetKind =
-      file.type === 'image/svg+xml' || String(uploaded.mime || '').includes('svg')
-        ? 'icon'
-        : 'image';
+      let naturalW = Number(uploaded.width) || 0;
+      let naturalH = Number(uploaded.height) || 0;
+      if (!(naturalW > 0 && naturalH > 0)) {
+        const natural = await measureImageNaturalSize(remoteReady ? src : preview);
+        naturalW = natural.width;
+        naturalH = natural.height;
+      }
 
-    dispatch(
-      finishImageProcess({
-        nodeId,
-        ...(remoteReady ? { src } : {}),
-        attrs: {
-          assetKind,
-          genPrompt: '',
-          imageVariants: '',
-          ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
-        },
-      })
-    );
-    dispatch(
-      patchDocumentNode({
-        nodeId,
-        patch: {
-          width: keepWidth,
-          height,
-          attrs: { genPrompt: '', imageVariants: '' },
-        },
-        skipHistory: true,
-      })
-    );
+      const assetKind =
+        file.type === 'image/svg+xml' || String(uploaded.mime || '').includes('svg')
+          ? 'icon'
+          : 'image';
+
+      dispatch(
+        finishImageProcess({
+          nodeId,
+          ...(remoteReady ? { src } : {}),
+          attrs: {
+            assetKind,
+            genPrompt: '',
+            imageVariants: '',
+            ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
+          },
+        })
+      );
+      revokeFilePreviewUrl(preview);
+      dispatch(
+        patchDocumentNode({
+          nodeId,
+          patch: {
+            width: keepWidth,
+            height: heightForKeepWidth(keepWidth, naturalW, naturalH),
+            attrs: { genPrompt: '', imageVariants: '' },
+          },
+          skipHistory: true,
+        })
+      );
     } finally {
       finishNodeUpload(nodeId);
     }
-  } catch (err: any) {
-    if (alive()) {
-      dispatch(finishImageProcess({ nodeId }));
-      message.error(getHttpErrorMessage(err, '替换图片失败'));
-    }
+  } catch (err: unknown) {
+    if (!alive()) return;
+    revokeFilePreviewUrl(preview);
+    dispatch(finishImageProcess({ nodeId }));
+    message.error(getHttpErrorMessage(err, '替换图片失败'));
   }
 }

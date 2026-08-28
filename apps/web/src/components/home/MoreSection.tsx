@@ -209,22 +209,29 @@ function MoreSection({ section, onOpenCase }: Props): ReactNode {
     ...LIVE_HOME_LIST_OPTS,
   });
 
+  const assetsListInput = (pageParam: number) => ({
+    query: {
+      page: pageParam,
+      pageSize: ASSETS_PAGE_SIZE,
+      ...(assetActiveTab !== 'all' ? { kind: assetActiveTab } : {}),
+      ...(assetSearchQ ? { q: assetSearchQ } : {}),
+    },
+  });
+
   const assetsQuery = useInfiniteQuery({
     ...apiQuery.assetsListMyAssets.infiniteOptions({
-      input: (pageParam: number) => ({
-        query: {
-          page: pageParam,
-          pageSize: ASSETS_PAGE_SIZE,
-          ...(assetActiveTab !== 'all' ? { kind: assetActiveTab } : {}),
-          ...(assetSearchQ ? { q: assetSearchQ } : {}),
-        },
-      }),
+      input: assetsListInput,
       initialPageParam: 1,
       getNextPageParam: (last: unknown) => {
         const page = last as AssetsListPage;
         return page?.hasMore ? (page.page || 0) + 1 : undefined;
       },
       enabled: isAssets && authed,
+    }),
+    // Pin key to live filters so search/tab never reuse an unfiltered cache entry.
+    queryKey: apiQuery.assetsListMyAssets.infiniteKey({
+      input: assetsListInput,
+      initialPageParam: 1,
     }),
     ...LIVE_HOME_LIST_OPTS,
     staleTime: assetSearchQ ? 0 : LIVE_HOME_LIST_OPTS.staleTime,

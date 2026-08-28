@@ -66,24 +66,18 @@ function UploadJobWatcher() {
       );
       const assetKind = String(liveNode?.attrs?.assetKind || '').trim();
       const isRaster = assetKind !== 'video' && assetKind !== 'audio';
-      let lastProgress = -1;
 
       try {
         const uploaded = await resumeOrWaitUploadJob(jobIds[0], {
           signal: ac.signal,
           onProgress: (pct) => {
             if (cancelled) return;
-            const rounded = Math.round(pct);
-            if (rounded === lastProgress) return;
-            lastProgress = rounded;
             dispatch(
               patchDocumentNode({
                 nodeId: pendingId,
                 skipHistory: true,
                 patch: {
-                  attrs: {
-                    processLabel: formatProcessProgressLabel(labelBase, rounded, '上传中'),
-                  },
+                  attrs: { processLabel: formatProcessProgressLabel(labelBase, pct, '上传中') },
                 },
               })
             );
