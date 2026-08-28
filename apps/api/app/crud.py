@@ -1090,20 +1090,23 @@ def delete_asset(*, session: Session, asset_id: str) -> Asset | None:
 
 
 def _user_asset_q_clause(q: str | None) -> Any | None:
-    """Match user-facing prompt / object key only.
+    """Match user-facing prompt (and long object-key needles) only.
 
-    Do not scan ``meta_json`` (lottie animation blobs) or url/id — those cause
-    false hits and are not what the assets search box means.
+    Do **not** scan ``meta_json`` — lottie / embed blobs are mostly base64 and
+    make short queries like ``sxas`` match nearly every row.
+    Do **not** use unescaped LIKE ``%q%`` on full object keys either: UUID hex
+    paths match single letters (``a``–``f``) and look like “search returns all”.
     """
     raw = (q or "").strip()
     if not raw:
         return None
-    # Escape LIKE wildcards so a query of "%" cannot match every row.
-    escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    like = f"%{escaped}%"
-    return col(Asset.prompt).like(like, escape="\\") | col(Asset.object_key).like(
-        like, escape="\\"
-    )
+    # Literal substring (INSTR) — no LIKE wildcard surprises across dialects.
+    prompt_hit = func.instr(func.coalesce(Asset.prompt, ""), raw) > 0
+    if len(raw) < 4:
+        return prompt_hit
+    # Longer needles may also hit the storage key / filename.
+    key_hit = func.instr(func.coalesce(Asset.object_key, ""), raw) > 0
+    return prompt_hit | key_hit
 
 
 def _user_asset_where(
