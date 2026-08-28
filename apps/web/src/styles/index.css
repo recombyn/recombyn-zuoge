@@ -8,7 +8,7 @@
   :root {
     /* fallback before data-theme applies */
     --surface: #ffffff;
-    --canvas: #F5F5F5;
+    --canvas: #F2F2F2;
     --rail: #f3f3f3;
     --gen-empty: #e9eaee;
     /* Inset track behind waveform bars — darker than plate (--gen-empty). */

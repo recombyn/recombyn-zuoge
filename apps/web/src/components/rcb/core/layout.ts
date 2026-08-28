@@ -244,6 +244,9 @@ export function generatorEmptyIconSize(boxW: number, boxH: number): number {
 /** On-screen target when placing new text (T-tool, paste, agent). ~18 CSS px ≈ readable body copy. */
 export const RCB_PLACE_TEXT_SCREEN_PX = 18;
 
+/** On-screen target for pen / pencil default stroke (~1 CSS px ≈ “1p”). */
+export const RCB_PLACE_STROKE_SCREEN_PX = 1;
+
 /**
  * Default font size when placing text with the T tool.
  * Targets ~`screenPx` CSS pixels on screen so high zoom does not spawn
@@ -288,4 +291,19 @@ export function rcbPlaceTextFontSize(
     }
   }
   return rcbDefaultPlaceFontSize(z, screenPx);
+}
+
+/**
+ * Scene stroke width for pen / pencil (~`screenPx` on screen).
+ * Same zoom fit as text place; clamped to the pen toolbar range (1–200).
+ */
+export function rcbPlaceStrokeWidth(
+  zoom: number,
+  screenPx = RCB_PLACE_STROKE_SCREEN_PX,
+  opts?: RcbPlaceTextFontSizeOpts
+): number {
+  return Math.max(
+    1,
+    Math.min(200, Math.round(rcbPlaceTextFontSize(zoom, screenPx, opts)))
+  );
 }

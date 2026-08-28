@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   RCB_PLACE_TEXT_SCREEN_PX,
+  RCB_PLACE_STROKE_SCREEN_PX,
   rcbDefaultPlaceFontSize,
   rcbPlaceTextFontSize,
+  rcbPlaceStrokeWidth,
 } from '../layout';
 import { createTextNode } from '../../scene/document/nodeFactories';
 import { parseNodeTextStyle } from '../../scene/document/sceneText';
@@ -59,5 +61,28 @@ describe('rcbPlaceTextFontSize (fit-to-board inference)', () => {
     expect(rcbPlaceTextFontSize(1, undefined, { viewportWidth: 1000, docWidth: 1000 })).toBe(
       18
     );
+  });
+});
+
+describe('rcbPlaceStrokeWidth (pen / pencil 1p at zoom)', () => {
+  it('default 1p at 100% zoom is 1 scene px', () => {
+    expect(RCB_PLACE_STROKE_SCREEN_PX).toBe(1);
+    expect(rcbPlaceStrokeWidth(1)).toBe(1);
+  });
+
+  it('at 50% zoom grows so on-screen size stays ~1 CSS px', () => {
+    expect(rcbPlaceStrokeWidth(0.5)).toBe(2);
+  });
+
+  it('at 12.5% zoom is 8 scene px (not invisible 1)', () => {
+    expect(rcbPlaceStrokeWidth(0.125)).toBe(8);
+  });
+
+  it('respects a larger screen preference from the toolbar', () => {
+    expect(rcbPlaceStrokeWidth(0.5, 4)).toBe(8);
+  });
+
+  it('clamps to the pen toolbar max of 200', () => {
+    expect(rcbPlaceStrokeWidth(0.01, 10)).toBe(200);
   });
 });

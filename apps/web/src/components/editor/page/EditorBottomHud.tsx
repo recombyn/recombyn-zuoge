@@ -354,9 +354,11 @@ const THEME_FOLLOW_CANVAS_BGS = new Set([
   '#fff',
   '#ffffff',
   '#f0f0f0',
+  '#f2f2f2',
   '#f3f3f3',
   '#f5f5f5',
   '#fafafa',
+  '#fcfcfc',
   // Dark theme `--canvas` / near-canvas neutrals
   '#1e1e1e',
   '#141414',

@@ -185,7 +185,7 @@ function computeWorldSurface(doc: SceneDocument, frames: ArtboardFrame[]) {
 }
 
 function useThemeCanvasColor() {
-  const [color, setColor] = useState('#f5f5f5');
+  const [color, setColor] = useState('#f2f2f2');
   useEffect(() => {
     const read = () => {
       const v = getComputedStyle(document.documentElement)
@@ -1632,6 +1632,9 @@ function EditorPage() {
               onPathEditSubtool={setPathEditSubtool}
               onPathEditExit={() => setPathEditOpen(false)}
               activeTool={activeTool}
+              zoom={camera.zoom}
+              viewportWidth={stageEl?.clientWidth}
+              docWidth={Number(document?.width) || undefined}
             />
 
             <EditorStageWorld

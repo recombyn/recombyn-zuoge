@@ -221,7 +221,7 @@ export function videoMediaFromElement(el: HTMLVideoElement): VideoMediaControl {
 
 /**
  * Optional grow for wide fullscreen / non-camera players (≥1).
- * Shrink-to-fit comes from `videoChromeLayout(...).fit`.
+ * Pair with `layoutW / grow` so on-screen width stays within the plate.
  */
 export function videoPlaybackBarScale(screenWidth: number): number {
   const w = Math.max(1, screenWidth);

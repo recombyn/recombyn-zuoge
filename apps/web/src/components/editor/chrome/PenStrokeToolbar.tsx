@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, memo, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineAdjustmentsHorizontal } from 'react-icons/hi2';
@@ -27,6 +27,10 @@ import {
   setPenStrokeOpacity,
   setPenStrokeWidth,
 } from '@/store/modules/editor';
+import {
+  RCB_PLACE_STROKE_SCREEN_PX,
+  rcbPlaceStrokeWidth,
+} from '@/components/rcb/core/layout';
 import { cn } from '@/utils/classnames';
 
 function formatBrushValue(value: number, digits: number): string {
@@ -393,6 +397,12 @@ function SettingColorRow({
 type PenStrokeToolbarProps = {
   /** Which tool's options to show. */
   mode: 'pen' | 'pencil';
+  /** Camera zoom — fits default ~1p stroke into scene units. */
+  zoom?: number;
+  /** Stage viewport width (CSS px) for fit-to-board zoom inference. */
+  viewportWidth?: number;
+  /** Document / artboard width (scene px). */
+  docWidth?: number;
   /**
    * `anchor` — float above the bottom tool strip.
    * `dock` — fixed at page top-center; brush menu opens downward.
@@ -406,6 +416,9 @@ type PenStrokeToolbarProps = {
  */
 function PenStrokeToolbar({
   mode,
+  zoom = 1,
+  viewportWidth,
+  docWidth,
   placement = 'anchor',
   className,
 }: PenStrokeToolbarProps) {
@@ -413,6 +426,7 @@ function PenStrokeToolbar({
   const dispatch = useDispatch();
   const isPencil = mode === 'pencil';
   const docked = placement === 'dock';
+  const tipSide = docked ? 'bottom' : 'top';
   const color = useSelector((s: any) => String(s.editor.penStrokeColor || '#333333'));
   const fillColor = useSelector((s: any) => String(s.editor.penFillColor ?? 'transparent'));
   const width = useSelector((s: any) => {
@@ -428,62 +442,41 @@ function PenStrokeToolbar({
   });
   const brush = findPencilBrush(brushId);
   const strokeColor = brush.outlineStrokeColor || color;
-  const barWidth = width;
-  const barWidthTip = isPencil ? t('editor.pencilBrushSize') : t('editor.pencilBrushWidth');
   const [, setBrushRev] = useState(0);
   const [brushOpen, setBrushOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  /** Manual edits pin width until the tool remounts / mode switches. */
+  const userPinnedRef = useRef(false);
+  const prevModeRef = useRef(mode);
+
+  // Fit ~1 screen px into scene units and write the toolbar attribute.
+  useEffect(() => {
+    if (prevModeRef.current !== mode) {
+      prevModeRef.current = mode;
+      userPinnedRef.current = false;
+    }
+    if (userPinnedRef.current) return;
+    const next = rcbPlaceStrokeWidth(zoom, RCB_PLACE_STROKE_SCREEN_PX, {
+      viewportWidth: viewportWidth && viewportWidth > 0 ? viewportWidth : undefined,
+      docWidth: docWidth && docWidth > 0 ? docWidth : undefined,
+    });
+    if (width !== next) dispatch(setPenStrokeWidth(next));
+  }, [zoom, viewportWidth, docWidth, dispatch, width, mode]);
 
   const exitPenEdit = useCallback(() => {
-    // Let PenDrawFeature commit the open path, then ensure we leave the tool.
     window.dispatchEvent(new Event('resume:exit-pen'));
     dispatch(setActiveTool('select'));
   }, [dispatch]);
 
-  const onStrokeColorChange = useCallback(
-    (hex: string) => dispatch(setPenStrokeColor(hex)),
-    [dispatch]
-  );
-  const onFillColorChange = useCallback(
-    (hex: string) => dispatch(setPenFillColor(hex)),
-    [dispatch]
-  );
-  const onStrokeOpacityChange = useCallback(
-    (pct: number) => dispatch(setPenStrokeOpacity(pct)),
-    [dispatch]
-  );
-  const onStrokeWidthChange = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
-      const n = Math.round(Number(e.target.value));
-      dispatch(setPenStrokeWidth(n || 1));
+  const pinStrokeWidth = useCallback(
+    (n: number) => {
+      userPinnedRef.current = true;
+      dispatch(setPenStrokeWidth(Math.max(1, Math.round(n) || 1)));
     },
     [dispatch]
   );
-  const onBrushStrokeColorChange = useCallback(
-    (value: string) => {
-      updatePencilBrushInk(brush.id, { outlineStrokeColor: value });
-      setBrushRev((revision) => revision + 1);
-    },
-    [brush.id]
-  );
-  const onBrushFillColorChange = useCallback(
-    (value: string) => dispatch(setPenStrokeColor(value)),
-    [dispatch]
-  );
-  const onBrushStrokeWidthChange = useCallback(
-    (value: number) => dispatch(setPenStrokeWidth(value)),
-    [dispatch]
-  );
-  const onBrushOpacityChange = useCallback(
-    (pct: number) => dispatch(setPenStrokeOpacity(pct)),
-    [dispatch]
-  );
-  const onBrushSettingsChanged = useCallback(() => {
-    setBrushRev((revision) => revision + 1);
-  }, []);
-  const toggleBrushOpen = useCallback(() => {
-    setBrushOpen((open) => !open);
-  }, []);
+
+  const bumpBrush = useCallback(() => setBrushRev((r) => r + 1), []);
 
   useEffect(() => {
     if (!isPencil) setBrushOpen(false);
@@ -507,6 +500,15 @@ function PenStrokeToolbar({
     ? 'absolute left-1/2 top-[calc(100%+8px)] z-40 -translate-x-1/2'
     : 'absolute bottom-[calc(100%+8px)] left-1/2 z-40 -translate-x-1/2';
 
+  const swatchClass =
+    'inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--accent-soft)]';
+  const colorPanelProps = {
+    placement: tipSide as 'bottom' | 'top',
+    offset: 10,
+    shiftMainAxis: false,
+    className: swatchClass,
+  };
+
   return (
     <div
       ref={rootRef}
@@ -520,41 +522,32 @@ function PenStrokeToolbar({
       <FloatingToolbar className="relative h-8 gap-1 px-2 py-0">
         {isPencil ? (
           <ColorPanelPopover
+            {...colorPanelProps}
             value={color}
-            onChange={onStrokeColorChange}
+            onChange={(hex) => dispatch(setPenStrokeColor(hex))}
             opacity={opacity}
-            onOpacityChange={onStrokeOpacityChange}
-            showAlpha={isPencil}
+            onOpacityChange={(pct) => dispatch(setPenStrokeOpacity(pct))}
+            showAlpha
             title={t('editor.pencilBrushFill')}
-            placement={docked ? 'bottom' : 'top'}
-            offset={10}
-            shiftMainAxis={false}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--accent-soft)]"
           >
             <FillColorSwatch color={color} />
           </ColorPanelPopover>
         ) : (
           <>
             <ColorPanelPopover
+              {...colorPanelProps}
               value={fillColor}
-              onChange={onFillColorChange}
+              onChange={(hex) => dispatch(setPenFillColor(hex))}
               showAlpha
               title={t('editor.fill', { defaultValue: '背景' })}
-              placement={docked ? 'bottom' : 'top'}
-              offset={10}
-              shiftMainAxis={false}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--accent-soft)]"
             >
               <FillColorSwatch color={fillColor} />
             </ColorPanelPopover>
             <ColorPanelPopover
+              {...colorPanelProps}
               value={color}
-              onChange={onStrokeColorChange}
+              onChange={(hex) => dispatch(setPenStrokeColor(hex))}
               title={t('editor.stroke', { defaultValue: '描边' })}
-              placement={docked ? 'bottom' : 'top'}
-              offset={10}
-              shiftMainAxis={false}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--accent-soft)]"
             >
               <StrokeColorSwatch color={color} />
             </ColorPanelPopover>
@@ -565,15 +558,12 @@ function PenStrokeToolbar({
 
         {isPencil ? (
           <div className="relative">
-            <Tooltip
-              tip={t('editor.pencilBrushTitle')}
-              placement={docked ? 'bottom' : 'top'}
-            >
+            <Tooltip tip={t('editor.pencilBrushTitle')} placement={tipSide}>
               <button
                 type="button"
                 aria-label={t('editor.pencilBrushTitle')}
                 aria-expanded={brushOpen}
-                onClick={toggleBrushOpen}
+                onClick={() => setBrushOpen((open) => !open)}
                 className={cn(
                   'inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors',
                   brushOpen ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--accent-soft)]'
@@ -601,11 +591,14 @@ function PenStrokeToolbar({
                     strokeColor={strokeColor}
                     strokeWidth={width}
                     opacity={opacity}
-                    onFillColorChange={onBrushFillColorChange}
-                    onStrokeColorChange={onBrushStrokeColorChange}
-                    onStrokeWidthChange={onBrushStrokeWidthChange}
-                    onOpacityChange={onBrushOpacityChange}
-                    onChanged={onBrushSettingsChanged}
+                    onFillColorChange={(value) => dispatch(setPenStrokeColor(value))}
+                    onStrokeColorChange={(value) => {
+                      updatePencilBrushInk(brush.id, { outlineStrokeColor: value });
+                      bumpBrush();
+                    }}
+                    onStrokeWidthChange={pinStrokeWidth}
+                    onOpacityChange={(pct) => dispatch(setPenStrokeOpacity(pct))}
+                    onChanged={bumpBrush}
                   />
                 </div>
               </DropdownPanel>
@@ -615,19 +608,18 @@ function PenStrokeToolbar({
 
         {isPencil ? <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden /> : null}
 
-        {/* Width — pencil Size and pen stroke width share the same Px field. */}
         <label
           className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[4px] bg-[var(--accent-soft)] px-1.5"
           onPointerDown={(e) => e.stopPropagation()}
-          title={barWidthTip}
+          title={isPencil ? t('editor.pencilBrushSize') : t('editor.pencilBrushWidth')}
         >
           <Icon name="editor-stroke-weight" className="h-3.5 w-3.5 shrink-0 text-[var(--ink)]" />
           <input
             type="number"
             min={1}
             max={200}
-            value={barWidth}
-            onChange={onStrokeWidthChange}
+            value={width}
+            onChange={(e) => pinStrokeWidth(Number(e.target.value))}
             step={1}
             className="h-full w-10 min-w-0 bg-transparent text-[11px] leading-none tabular-nums outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
@@ -635,7 +627,7 @@ function PenStrokeToolbar({
         </label>
 
         <span className="mx-0.5 h-3.5 w-px bg-[var(--line)]" aria-hidden />
-        <Tooltip tip={`${t('editor.pathEditExit')} (Esc)`} placement={docked ? 'bottom' : 'top'}>
+        <Tooltip tip={`${t('editor.pathEditExit')} (Esc)`} placement={tipSide}>
           <button
             type="button"
             aria-label={t('editor.pathEditExit')}

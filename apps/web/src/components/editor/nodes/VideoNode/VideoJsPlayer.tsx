@@ -275,25 +275,24 @@ function VideoJsPlayer({
     const el = shellRef.current;
     if (!el || controlsMode === 'none') return;
     const sync = () => {
-      const rect = el.getBoundingClientRect();
+      const { width: w, height: h } = el.getBoundingClientRect();
       if (compactChrome) {
-        const w = Math.max(1, rect.width);
-        const h = Math.max(1, rect.height);
         const layoutW = 240;
         const fit = Math.min(1, w / layoutW, h / VIDEO_PLAYBACK_BAR_H);
-        setChromeFit({
-          layoutW,
-          fit: Math.max(fit, w / layoutW),
-          visible: true,
-        });
+        setChromeFit({ layoutW, fit: Math.max(fit, w / layoutW), visible: true });
         return;
       }
-      const chrome = videoChromeLayout(rect.width, rect.height);
-      const grow = videoPlaybackBarScale(rect.width);
+      const chrome = videoChromeLayout(w, h);
+      if (!chrome.visible) {
+        setChromeFit({ layoutW: chrome.layoutW, fit: 0, visible: false });
+        return;
+      }
+      // Grow density on wide previews without spilling past the plate width.
+      const grow = chrome.fit >= 1 ? videoPlaybackBarScale(w) : 1;
       setChromeFit({
-        layoutW: chrome.layoutW,
-        fit: chrome.visible ? chrome.fit * grow : 0,
-        visible: chrome.visible,
+        layoutW: chrome.layoutW / grow,
+        fit: chrome.fit * grow,
+        visible: true,
       });
     };
     sync();
