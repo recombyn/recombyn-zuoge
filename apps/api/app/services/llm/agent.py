@@ -6,7 +6,6 @@ import logging
 import re
 import threading
 from collections.abc import AsyncIterator, Iterator, Sequence
-from pathlib import Path
 from typing import Any, Literal
 
 from app.services.llm import (
@@ -573,19 +572,6 @@ def _checkpoint_mysql_url() -> str:
     return raw.replace("mysql+pymysql://", "mysql://", 1)
 
 
-def _checkpoint_sqlite_path() -> Path:
-    from app.core.config import _API_ROOT, settings
-
-    raw = (settings.langgraph_checkpoint_sqlite_path or "").strip()
-    if not raw:
-        raw = "storage/langgraph_checkpoints.db"
-    p = Path(raw)
-    if not p.is_absolute():
-        p = _API_ROOT / p
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
-
-
 def _checkpoint_serde() -> Any:
     """Shared checkpoint serde (no pickle)."""
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -609,7 +595,7 @@ def _mysql_version_ok_for_langgraph(version: str) -> bool:
 
 
 def _checkpointer_async_is_stub(saver: Any) -> bool:
-    """True when ``aget_tuple`` is NotImplemented / SqliteSaver's raise stub."""
+    """True when ``aget_tuple`` is NotImplemented / a sync-only raise stub."""
     import inspect
 
     try:
@@ -682,7 +668,7 @@ def _wrap_sync_checkpointer_for_async(
 ) -> Any:
     """Bridge sync savers for ``graph.astream`` (``aget_*`` / ``aput_*``).
 
-    Sqlite/PyMySQL are sync-only; conn uses ``check_same_thread=False`` / autocommit.
+    PyMySQL is sync-only; conn uses autocommit.
     Optional ``ensure_conn(force=False)`` pings/reconnects before each call.
     """
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -804,7 +790,7 @@ def _build_mysql_checkpointer() -> Any | None:
 
     global _CHECKPOINTER_CONN
     # App parser unquotes password; PyMySQLSaver.parse_conn_string does not
-    # (``!`` / ``&`` in DATABASE_URL → Access denied → false sqlite fallback).
+    # (``!`` / ``&`` in DATABASE_URL → Access denied → false memory fallback).
     cfg = _parse_mysql_url(url)
     conn = pymysql.connect(
         host=cfg["host"],
@@ -828,7 +814,7 @@ def _build_mysql_checkpointer() -> Any | None:
         if not _mysql_version_ok_for_langgraph(ver):
             _log.warning(
                 "MySQL %s below langgraph-checkpoint-mysql requirement "
-                "(MySQL >= 8.0.19 / MariaDB >= 10.7.1); using sqlite",
+                "(MySQL >= 8.0.19 / MariaDB >= 10.7.1); falling back to memory",
                 ver,
             )
             conn.close()
@@ -849,32 +835,8 @@ def _build_mysql_checkpointer() -> Any | None:
     return _wrap_sync_checkpointer_for_async(saver, ensure_conn=_ensure)
 
 
-def _build_sqlite_checkpointer() -> Any:
-    import sqlite3
-
-    from langgraph.checkpoint.sqlite import SqliteSaver
-
-    global _CHECKPOINTER_CONN
-    path = str(_checkpoint_sqlite_path())
-    conn = sqlite3.connect(path, check_same_thread=False, timeout=30.0)
-    try:
-        from app.services.db import configure_sqlite_connection
-
-        configure_sqlite_connection(conn)
-    except Exception:
-        try:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA busy_timeout = 30000")
-        except Exception:
-            pass
-    saver = SqliteSaver(conn, serde=_checkpoint_serde())
-    saver.setup()
-    _CHECKPOINTER_CONN = conn
-    return _wrap_sync_checkpointer_for_async(saver)
-
-
 def get_agent_checkpointer() -> Any:
-    """Durable checkpointer: MySQL → Sqlite+async-bridge → memory."""
+    """Durable checkpointer: MySQL → InMemorySaver."""
     global _CHECKPOINTER, _CHECKPOINTER_BACKEND
     if _CHECKPOINTER is not None:
         return _CHECKPOINTER
@@ -890,19 +852,6 @@ def get_agent_checkpointer() -> Any:
                 return _CHECKPOINTER
         except Exception:
             _log.warning("MySQL checkpointer unavailable; falling back", exc_info=True)
-        try:
-            _CHECKPOINTER = _build_sqlite_checkpointer()
-            _CHECKPOINTER_BACKEND = "sqlite"
-            _log.info(
-                "LangGraph checkpointer: Sqlite+async-bridge (%s)",
-                _checkpoint_sqlite_path(),
-            )
-            return _CHECKPOINTER
-        except Exception:
-            _log.warning(
-                "Sqlite checkpointer unavailable; using InMemorySaver",
-                exc_info=True,
-            )
         from langgraph.checkpoint.memory import InMemorySaver
 
         _CHECKPOINTER = InMemorySaver(serde=_checkpoint_serde())
@@ -911,7 +860,7 @@ def get_agent_checkpointer() -> Any:
 
 
 def checkpointer_backend() -> str:
-    """mysql | sqlite | memory — for logs / tests."""
+    """mysql | memory — for logs / tests."""
     get_agent_checkpointer()
     return _CHECKPOINTER_BACKEND or "memory"
 

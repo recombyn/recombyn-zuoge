@@ -22,8 +22,11 @@ venv/
 apps/api/storage/uploads/*
 apps/api/storage/results/*
 apps/api/storage/backups/*
+# Legacy local *.db files under storage/
 apps/api/storage/*.db
 apps/api/storage/langgraph_*.db
+apps/api/storage/*.db-shm
+apps/api/storage/*.db-wal
 apps/api/storage/*.alembic.lock
 !apps/api/storage/uploads/.gitkeep
 !apps/api/storage/results/.gitkeep
@@ -139,9 +142,6 @@ infra/langfuse/
 # sync strip dry-run scratch
 pub-test/
 
-# SQLite WAL side files (local dev fallback only)
-apps/api/storage/*.db-shm
-apps/api/storage/*.db-wal
 apps/web/src-tauri/sidecars/
 
 

@@ -19,26 +19,147 @@
     &nbsp;
     <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
   </p>
-
-  <p><strong>做个，设计从未如此简单</strong></p>
 </div>
 
-**左格**是开源 AI 设计工作台：无限矢量画布、LangGraph Design Agent，以及 **MCP 服务**——Cursor 等外部工具可读写同一项目。Docker Compose 自托管。
+# 左格（zuoge）
 
-## 在 GitHub 上给我们点个赞 ⭐
+开源 AI 设计工作台：无限矢量画布、LangGraph Design Agent，以及 MCP 服务——Cursor 等外部工具可读写同一项目。用 Docker Compose 自托管。
 
-开源不易，如果觉得左格对你有帮助，欢迎在 GitHub 仓库右上角点个 ⭐ Star。
+**做个，设计从未如此简单。**
 
-→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
+🌐 官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
-## MCP 画布
+## ✨ 功能
 
-外部客户端通过 [Model Context Protocol](https://modelcontextprotocol.io) 连接，使用与内置 Agent 相同的 `tool_ops` 合约。
+🎨 **无限画布** — `SceneDocument` 矢量场景，缩放 5%–10000%，SVG 节点、Path2D 命中、Canvas2D LOD。
 
-| 模式 | 行为 |
-|------|------|
-| **Live** | 编辑器打开 → 浏览器实时 apply |
-| **Headless** | 编辑器关闭 → API 直接 patch 文档 |
+🤖 **Design Agent** — 同一张画布上的流式对话：规划 → 挂 Skill → 产出 `tool_ops` → 落笔。LangGraph 内核固定；行为由 AgentProfile YAML、阶段提示词、Skills 与工具注册表配置。
+
+🔌 **MCP 画布** — 外部客户端使用与内置 Agent 相同的 `tool_ops` 合约。Live：编辑器打开时在浏览器 apply；Headless：编辑器关闭时由 API 直接 patch 文档。
+
+🧩 **插件** — Skill 包在 `plugins/skills/`，画布插件在 `plugins/canvas/`，可打包为 `.recombyn-plugin`。
+
+👥 **实时协作** — Yjs WebSocket 多端同编。
+
+🖥️ **桌面端** — Tauri v2，与浏览器共用同一套 API。
+
+🗄️ **自托管栈** — Compose 提供 MySQL、Redis、MinIO、Web、API、Worker、Collab。`DATABASE_URL` 必须为 MySQL 或 PostgreSQL。
+
+## 🚀 快速开始
+
+### 环境要求
+
+- Docker 与 Docker Compose
+- Node.js 20+（本地跑 Web / Collab 脚本时）
+- 至少一个 LLM API Key（DeepSeek、豆包、OpenRouter 等）
+
+### Compose 自托管
+
+克隆仓库：
+
+```bash
+git clone https://github.com/recombyn/zuoge.git
+cd recombyn
+```
+
+复制 API 环境变量并填入模型密钥：
+
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
+启动：
+
+```bash
+docker compose up -d --build
+```
+
+浏览器打开：
+
+- 编辑器 → http://localhost:3000
+- API 文档 → http://localhost:8000/docs
+- 宿主机 MySQL → `127.0.0.1:3306` · 用户/密码 `recombyn` / `recombyn`
+
+Compose 内默认库地址：`mysql://recombyn:recombyn@mysql:3306/recombyn`。对外部署前请修改 `MYSQL_PASSWORD` / `DATABASE_URL`。
+
+完整说明：[docs/self-hosting.md](docs/self-hosting.md)。切 Postgres：[docs/postgres-switch.md](docs/postgres-switch.md)。
+
+### Compose 配方
+
+基础栈（web + api + collab + mysql + redis + worker）：
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+基础栈 + ClamAV 上传扫描：
+
+```bash
+docker compose --profile av \
+  -f docker-compose.yml \
+  -f docker-compose.av.yml \
+  up -d --build
+```
+
+基础栈 + 可选 Design Intelligence HTTP：
+
+```bash
+docker compose --profile intelligence \
+  -f docker-compose.yml \
+  -f docker-compose.intelligence.yml \
+  up -d --build
+```
+
+使用预构建 GHCR 镜像：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Compose 变量放仓库根 `.env`；API 应用变量放 `apps/api/.env`。不要在 shell 里内联密钥。
+
+### 本地开发
+
+只起基础设施：
+
+```bash
+docker compose up -d mysql redis   # 或: npm run dev:infra
+npm install
+cp apps/api/.env.example apps/api/.env
+```
+
+在 `apps/api/.env` 中设置：
+
+```env
+DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn
+```
+
+分别启动：
+
+```bash
+npm run dev:api              # 需要 MySQL DATABASE_URL
+npm run dev:collab           # Yjs WS :1234（可选）
+npm run dev:web
+```
+
+协作 WSS：[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss) · [apps/collab/README.md](apps/collab/README.md)。
+
+### 桌面端（Tauri）
+
+需要 Rust 与平台工具链，详见 [docs/desktop.md](docs/desktop.md)。
+
+```bash
+npm run dev:desktop
+npm run build:desktop
+# 有公网部署时再设 VITE_API_BASE_URL
+```
+
+安装包：`apps/web/src-tauri/target/release/bundle/`；主程序：`…/target/release/recombyn.exe`。
+
+## 🔌 MCP 画布
+
+在 API 与 Web 启用：
 
 ```bash
 # apps/api/.env
@@ -65,112 +186,88 @@ Cursor — 写入 `.cursor/mcp.json`：
 }
 ```
 
-→ [docs/mcp-canvas.md](docs/mcp-canvas.md)
+**Live**：编辑器打开，浏览器实时 apply。  
+**Headless**：编辑器关闭，API 直接 patch 项目文档。
 
-## 画布
+详情：[docs/mcp-canvas.md](docs/mcp-canvas.md)。
 
-无限矢量画布（`SceneDocument`，5%–10000% 缩放）：SVG 节点、Path2D 命中、Canvas2D LOD。画板、形状、文字、图片、钢笔/铅笔、布尔运算、描边对齐、导出、**Yjs** 协作。
-
-→ [docs/canvas-architecture.md](docs/canvas-architecture.md) · [docs/scene-json-spec.md](docs/scene-json-spec.md)
-
-## Design Agent
-
-同一张画布上的流式对话：规划 → 挂 Skill → 产出 `tool_ops` → 落笔。LangGraph 内核固定（`canvas_ops_v1`）；行为由 **AgentProfile** YAML、阶段提示词、**Skills** 与工具注册表配置。
-
-| 定制项 | 位置 |
-|--------|------|
-| Profile / 路由 | [`design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml)、[`bindings.yaml`](apps/api/seeds/agents/bindings.yaml) |
-| Skills | [`skills/`](skills/) · [`plugins/skills/`](plugins/skills/) |
-| 画布 ops | [`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) |
-
-流程图、环境变量、增删 Profile：**[docs/agent-profile.md](docs/agent-profile.md)** · [zuoge Harness](docs/agent-harness.md) · [seeds README](apps/api/seeds/README.md)
-
-## 插件与扩展
-
-| 类型 | 路径 | 文档 |
-|------|------|------|
-| **Skill 包** | [`plugins/skills/<key>/`](plugins/skills/) | [skill-extensions.md](docs/skill-extensions.md) |
-| **画布插件** | [`plugins/canvas/<id>/`](plugins/canvas/) | [canvas-plugins.md](docs/canvas-plugins.md) |
-
-打包：`node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster` → [plugin-packs.md](docs/plugin-packs.md)
-
-## 快速开始（自托管）
-
-```bash
-git clone https://github.com/recombyn/zuoge.git
-cd recombyn
-cp apps/api/.env.example apps/api/.env   # 填入 LLM_API_KEY 等
-docker compose up -d --build
-```
-
-| 服务 | 地址 |
-|------|------|
-| Web | http://localhost:3000 |
-| API 文档 | http://localhost:8000/docs |
-| MySQL | `127.0.0.1:3306` · `recombyn` / `recombyn` |
-
-更多选项（环境变量、模型密钥、生产加固）：**[docs/self-hosting.md](docs/self-hosting.md)** · Postgres：**[docs/postgres-switch.md](docs/postgres-switch.md)**
-
-### 本地开发
-
-```bash
-docker compose up -d redis
-npm install
-cp apps/api/.env.example apps/api/.env
-npm run dev:api              # 空 DATABASE_URL → SQLite
-npm run dev:collab           # Yjs WS :1234（可选；Vite DEV 默认开协作）
-npm run dev:web
-```
-
-Canvas Live / WSS：**[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
-
-### 桌面端（Tauri）
-
-详见 **[docs/desktop.md](docs/desktop.md)**。需要 **Rust** 与平台工具链。
-
-```bash
-# 桌面端 — 与浏览器同一套 API（:8000 / .env）
-npm run dev:desktop
-npm run build:desktop
-# 有公网部署时再设 VITE_API_BASE_URL
-```
-
-打包产物：`apps/web/src-tauri/target/release/bundle/`（安装包）；主程序 `…/target/release/recombyn.exe`。
-
-## 仓库结构
+## 🏗️ 仓库结构
 
 ```
-apps/web/          React 画布 + Agent UI + Yjs 客户端
-  src-tauri/       Tauri v2 桌面壳（zuoge）
-apps/api/          FastAPI（含 collab room-token）
-apps/collab/       Yjs WebSocket 服务（y-websocket）
-plugins/           扩展（skills + canvas）— Compose 已挂载
-packages/          共享协议
-docs/              自托管、计费、Agent、插件、桌面端、画布
-deploy/            Dockerfile / Nginx
-e2e/               Playwright
+recombyn/
+├── apps/
+│   ├── web/                 # React 画布 + Agent UI + Yjs 客户端
+│   │   └── src-tauri/       # Tauri v2 桌面壳
+│   ├── api/                 # FastAPI — Scene、Agent、广场、钱包、MCP
+│   └── collab/              # Yjs WebSocket 服务
+├── plugins/
+│   ├── skills/              # Skill 扩展包
+│   └── canvas/              # 画布插件
+├── packages/                # 共享协议与构建器
+├── docs/                    # 自托管、Agent、画布、插件、桌面端
+├── deploy/                  # Dockerfile / Nginx / VPS
+├── e2e/                     # Playwright
+└── skills/                  # 内置 Skill 剧本
 ```
 
-用户文档：[recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/)（由本仓库 `gh-pages` 发布）。
+## 🛠️ 技术栈
 
-## 文档与社区
+- **React + TypeScript** — Web 编辑器与 Agent UI
+- **FastAPI + Python** — API、Design Agent、计费、广场
+- **LangGraph** — Design Agent 图（MySQL checkpointer，失败则 memory）
+- **MySQL 8** — 主库（可选 Postgres）
+- **Redis + Celery** — 队列与 Worker
+- **MinIO** — S3 兼容对象存储
+- **Yjs** — 实时协作
+- **Vite** — Web 构建与开发服务器
+- **Tauri v2** — 桌面壳
+- **Docker Compose** — 自托管与本地基础设施
 
-| | |
-|--|--|
-| 用户文档 | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
-| MCP 画布（Cursor / 外部 AI） | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
-| 自托管 / 架构 | [docs/self-hosting.md](docs/self-hosting.md) |
-| 积分与计费（`WALLET_BILLING_ENABLED`） | [docs/billing.md](docs/billing.md) |
-| Skill 扩展 | [docs/skill-extensions.md](docs/skill-extensions.md) |
-| 画布插件 | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
-| 插件包（`.recombyn-plugin`） | [docs/plugin-packs.md](docs/plugin-packs.md) |
-| AgentProfile / 子代理 | [docs/agent-profile.md](docs/agent-profile.md) |
-| zuoge Harness（seams / trace） | [docs/agent-harness.md](docs/agent-harness.md) |
-| 画布（RCB / SVG / Path2D / LOD） | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
-| Web 数据层（Query / oRPC / nuqs） | [docs/web-frontend.md](docs/web-frontend.md) |
-| Scene JSON | [docs/scene-json-spec.md](docs/scene-json-spec.md) |
-| 桌面端 | [docs/desktop.md](docs/desktop.md) |
-| Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
-| 贡献 · 安全 · 行为准则 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+## 🎨 核心模块
 
-官网：[recombyn.com](https://recombyn.com) · 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · 源码：[github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
+### 画布
+
+无限矢量工作区：画板、形状、文字、图片、钢笔/铅笔、布尔运算、描边对齐、导出。协议：[docs/scene-json-spec.md](docs/scene-json-spec.md)。架构：[docs/canvas-architecture.md](docs/canvas-architecture.md)。
+
+### Design Agent
+
+画布上的流式设计回合。Profile 见 [`design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) 与 [`bindings.yaml`](apps/api/seeds/agents/bindings.yaml)。Skills 在 [`skills/`](skills/) 与 [`plugins/skills/`](plugins/skills/)。画布 ops 种子：[`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json)。文档：[docs/agent-profile.md](docs/agent-profile.md) · [docs/agent-harness.md](docs/agent-harness.md)。
+
+### 插件与扩展
+
+Skill 扩展：[docs/skill-extensions.md](docs/skill-extensions.md)。画布插件：[docs/canvas-plugins.md](docs/canvas-plugins.md)。打包：`node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster` — [docs/plugin-packs.md](docs/plugin-packs.md)。
+
+## 📚 文档
+
+- 用户文档 — [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
+- 自托管 / 架构 — [docs/self-hosting.md](docs/self-hosting.md)
+- MCP 画布 — [docs/mcp-canvas.md](docs/mcp-canvas.md)
+- 积分与计费 — [docs/billing.md](docs/billing.md)
+- Web 数据层 — [docs/web-frontend.md](docs/web-frontend.md)
+- 桌面端 — [docs/desktop.md](docs/desktop.md)
+- 切 Postgres — [docs/postgres-switch.md](docs/postgres-switch.md)
+- 贡献 · 安全 · 行为准则 — [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+## 🤝 贡献
+
+1. Fork 本仓库
+2. 新建分支（`git checkout -b feature/amazing-feature`）
+3. 提交修改（`git commit -m 'Add amazing feature'`）
+4. 推送分支（`git push origin feature/amazing-feature`）
+5. 打开 Pull Request
+
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全漏洞请按 [SECURITY.md](SECURITY.md) 私下报告。
+
+## 📄 许可证
+
+Apache-2.0 — 见 [LICENSE](LICENSE)。
+
+## 📞 支持
+
+- Issues：[GitHub Issues](https://github.com/recombyn/zuoge/issues)
+- 文档：[recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
+- 官网：[recombyn.com](https://recombyn.com)
+
+## ⭐ Star
+
+开源不易。如果左格对你有帮助，欢迎在 [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge) 点个 Star。

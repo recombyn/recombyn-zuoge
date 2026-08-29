@@ -702,7 +702,7 @@ async def design_lottie_generate(
     prompt = body.prompt.strip()
     if not prompt:
         raise http_error(400, "empty_prompt", locale)
-    from app.services.design.ops.lottie_hydrate import generate_lottie_animation
+    from app.services.design.ops.animation_hydrate import generate_lottie_animation
 
     animation = await generate_lottie_animation(
         prompt=prompt,

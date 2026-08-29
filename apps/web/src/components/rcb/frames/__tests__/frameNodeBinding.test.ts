@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import {
   bindUnownedNodesToFrames,
   canBindNodeToArtboardFrame,
@@ -6,7 +6,12 @@ import {
   shouldBindUnownedNodeToFrame,
   shouldCoMoveNodeWithFrames,
 } from '../frameNodeBinding';
+import { setAnimationWorkbenchTimelineFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+
+afterEach(() => {
+  setAnimationWorkbenchTimelineFocus(null);
+});
 
 const docWithFrames = (): SceneDocument =>
   ({
@@ -110,7 +115,7 @@ describe('frameNodeBinding', () => {
     expect(next.deltaSetLike['shape-1'].attrs?.frameId).toBe('other');
   });
 
-  it('rejects video/audio on Lottie 合成台', () => {
+  it('rejects video/audio on 动画工作台; preview blocks new binds until timeline open', () => {
     const lottie = {
       id: 'lot',
       kind: 'lottie',
@@ -127,8 +132,9 @@ describe('frameNodeBinding', () => {
     expect(canBindNodeToArtboardFrame(lottie as any, video)).toBe(false);
     expect(canBindNodeToArtboardFrame(lottie as any, audio)).toBe(false);
     expect(canBindNodeToArtboardFrame(lottie as any, shape)).toBe(true);
+    // Timeline closed = preview — no auto-bind into workbench.
     expect(shouldBindUnownedNodeToFrame(video, lottie as any)).toBe(false);
-    expect(shouldBindUnownedNodeToFrame(shape, lottie as any)).toBe(true);
+    expect(shouldBindUnownedNodeToFrame(shape, lottie as any)).toBe(false);
 
     const doc = {
       frames: [lottie],
@@ -140,7 +146,7 @@ describe('frameNodeBinding', () => {
     } as any as SceneDocument;
     const next = bindUnownedNodesToFrames(doc, ['lot']);
     expect(next.deltaSetLike.v1.attrs?.frameId).toBeUndefined();
-    expect(next.deltaSetLike.s1.attrs?.frameId).toBe('lot');
+    expect(next.deltaSetLike.s1.attrs?.frameId).toBeUndefined();
     expect(
       frameForNodeIntersectPlacement(
         doc,
@@ -154,6 +160,69 @@ describe('frameNodeBinding', () => {
         { left: 20, top: 20, width: 40, height: 40 },
         shape
       )
+    ).toBeNull();
+
+    setAnimationWorkbenchTimelineFocus('lot');
+    expect(shouldBindUnownedNodeToFrame(shape, lottie as any)).toBe(true);
+    expect(
+      frameForNodeIntersectPlacement(
+        doc,
+        { left: 20, top: 20, width: 40, height: 40 },
+        shape
+      )
     ).toBe('lot');
+    const bound = bindUnownedNodesToFrames(doc, ['lot']);
+    expect(bound.deltaSetLike.s1.attrs?.frameId).toBe('lot');
+  });
+
+  it('under timeline focus never binds to a non-focus 主画板', () => {
+    setAnimationWorkbenchTimelineFocus('anim');
+    const doc = {
+      frames: [
+        {
+          id: 'main',
+          kind: 'artboard',
+          x: 0,
+          y: 0,
+          width: 400,
+          height: 400,
+          backgroundColor: '#fff',
+          clipContent: true,
+        },
+        {
+          id: 'anim',
+          kind: 'animation',
+          x: 500,
+          y: 0,
+          width: 200,
+          height: 200,
+          backgroundColor: '#fff',
+          clipContent: true,
+        },
+      ],
+      deltaSetLike: {},
+    } as any as SceneDocument;
+    // Overlaps only the main artboard — must stay unbound (surround), not 主画板.
+    expect(
+      frameForNodeIntersectPlacement(doc, { left: 40, top: 40, width: 40, height: 40 }, {
+        key: 'shape',
+      })
+    ).toBeNull();
+    expect(
+      frameForNodeIntersectPlacement(doc, { left: 40, top: 40, width: 40, height: 40 }, {
+        key: 'text',
+      })
+    ).toBeNull();
+    expect(
+      frameForNodeIntersectPlacement(doc, { left: 520, top: 40, width: 40, height: 40 }, {
+        key: 'shape',
+      })
+    ).toBe('anim');
+    expect(
+      canBindNodeToArtboardFrame(doc.frames![1], {
+        key: 'image',
+        attrs: { imageGenerator: true },
+      } as any)
+    ).toBe(false);
   });
 });

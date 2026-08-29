@@ -415,11 +415,15 @@ async def load_deferred_resources(
     turn["need_subagents"] = need_subagents
     # Auto skills are for design/create turns. Explicit pins and need_skills
     # still work for every intent; ordinary edits must stay deterministic.
-    auto_skill_intents = {"create", "design"}
+    auto_skill_intents = {"create", "design", "animation"}
     classified = str(getattr(rt, "classified_intent", None) or intent_l).strip().lower()
     brief = getattr(rt, "design_brief", None)
     has_brief = isinstance(brief, dict) and bool(brief)
-    if intent_l in auto_skill_intents and classified != "canvas_op":
+    # Animation path pins animation_workbench only — skip poster auto-triggers.
+    if (
+        intent_l in auto_skill_intents
+        and classified not in ("canvas_op", "animation")
+    ):
         for k in resolve_triggered_skill_keys(
             scene=rt.scene_key or "",
             empty_canvas=_canvas_is_empty(rt),

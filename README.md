@@ -20,25 +20,147 @@
     &nbsp;
     <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
   </p>
-  <p><strong>Make it — design has never been this simple</strong></p>
 </div>
 
-**zuoge** is an open-source AI design workspace: infinite vector canvas, LangGraph Design Agent, and an **MCP server** so tools like Cursor can read and edit the same projects. Self-host with Docker Compose.
+# zuoge
 
-## Star us on GitHub ⭐
+An open-source AI design workspace. Infinite vector canvas, LangGraph Design Agent, and an MCP server so tools like Cursor can read and edit the same projects — self-host with Docker Compose.
 
-Open source takes time. If zuoge helps you, please hit **⭐ Star** in the top-right of the GitHub repo.
+**Make it — design has never been this simple.**
 
-→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
+🌐 Product: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
-## MCP canvas
+## ✨ Features
 
-External clients connect via [Model Context Protocol](https://modelcontextprotocol.io) and use the same `tool_ops` contract as the built-in Agent.
+🎨 **Infinite canvas** — Vector scenes (`SceneDocument`) with zoom from 5% to 10000%, SVG nodes, Path2D hit testing, and Canvas2D LOD.
 
-| Mode | Behavior |
-|------|----------|
-| **Live** | Editor open → ops apply in the browser |
-| **Headless** | Editor closed → API patches the project document |
+🤖 **Design Agent** — Streaming chat on the same canvas: plan → Skills → `tool_ops` → apply. Fixed LangGraph kernel; behavior from AgentProfile YAML, stage prompts, Skills, and the tool registry.
+
+🔌 **MCP canvas** — External clients use the same `tool_ops` contract as the built-in Agent. Live mode applies ops in the open editor; headless mode patches the project document via the API.
+
+🧩 **Plugins** — Skill packs under `plugins/skills/` and canvas plugins under `plugins/canvas/`, packable as `.recombyn-plugin`.
+
+👥 **Realtime collab** — Yjs WebSocket rooms for multiplayer editing.
+
+🖥️ **Desktop** — Tauri v2 shell that talks to the same API as the browser.
+
+🗄️ **Self-host stack** — Docker Compose with MySQL, Redis, MinIO, web, API, worker, and collab. `DATABASE_URL` must be MySQL or PostgreSQL.
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Docker & Docker Compose
+- Node.js 20+ (for local web / collab scripts)
+- An LLM API key (DeepSeek, Doubao, OpenRouter, …)
+
+### Self-host with Compose
+
+Clone the repository:
+
+```bash
+git clone https://github.com/recombyn/zuoge.git
+cd recombyn
+```
+
+Copy API env and add provider keys:
+
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
+Start the stack:
+
+```bash
+docker compose up -d --build
+```
+
+Open your browser:
+
+- Web editor → http://localhost:3000
+- API docs → http://localhost:8000/docs
+- MySQL (host) → `127.0.0.1:3306` · user/password `recombyn` / `recombyn`
+
+Default database URL inside Compose: `mysql://recombyn:recombyn@mysql:3306/recombyn`. Change `MYSQL_PASSWORD` / `DATABASE_URL` before any public deploy.
+
+Full env, LLM, production hardening: [docs/self-hosting.md](docs/self-hosting.md). Postgres: [docs/postgres-switch.md](docs/postgres-switch.md).
+
+### Compose recipes
+
+Base stack (web + api + collab + mysql + redis + worker):
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+Base + ClamAV upload scanning:
+
+```bash
+docker compose --profile av \
+  -f docker-compose.yml \
+  -f docker-compose.av.yml \
+  up -d --build
+```
+
+Base + optional Design Intelligence HTTP provider:
+
+```bash
+docker compose --profile intelligence \
+  -f docker-compose.yml \
+  -f docker-compose.intelligence.yml \
+  up -d --build
+```
+
+Base from pre-built GHCR images (skip local builds):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Keep Compose variables in the repo-root `.env` (for example `RECOMBYN_TAG`). Keep API app variables in `apps/api/.env`. Avoid passing secrets inline in the shell.
+
+### Local development
+
+Infra only (MySQL + Redis + MinIO):
+
+```bash
+docker compose up -d mysql redis   # or: npm run dev:infra
+npm install
+cp apps/api/.env.example apps/api/.env
+```
+
+Set in `apps/api/.env`:
+
+```env
+DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn
+```
+
+Run processes:
+
+```bash
+npm run dev:api              # requires MySQL DATABASE_URL
+npm run dev:collab           # Yjs WS on :1234 (optional)
+npm run dev:web
+```
+
+Canvas Live / WSS: [docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss) · [apps/collab/README.md](apps/collab/README.md).
+
+### Desktop (Tauri)
+
+Needs Rust and the platform toolchain. See [docs/desktop.md](docs/desktop.md).
+
+```bash
+npm run dev:desktop
+npm run build:desktop
+# Optional: VITE_API_BASE_URL=https://your.host
+```
+
+Installers land under `apps/web/src-tauri/target/release/bundle/`; the main binary is `…/target/release/recombyn.exe`.
+
+## 🔌 MCP Canvas
+
+Enable on API and web:
 
 ```bash
 # apps/api/.env
@@ -65,147 +187,88 @@ Cursor — add to `.cursor/mcp.json`:
 }
 ```
 
-→ [docs/mcp-canvas.md](docs/mcp-canvas.md)
+**Live** — editor open; ops apply in the browser.  
+**Headless** — editor closed; API patches the project document.
 
-## Canvas
+Details: [docs/mcp-canvas.md](docs/mcp-canvas.md).
 
-Infinite vector canvas (`SceneDocument`, 5%–10000% zoom): SVG nodes, Path2D hit testing, Canvas2D LOD. Frames, shapes, text, images, pen/pencil, boolean ops, stroke align, export, **Yjs** collab.
-
-→ [docs/canvas-architecture.md](docs/canvas-architecture.md) · [docs/scene-json-spec.md](docs/scene-json-spec.md)
-
-## Design Agent
-
-Streaming chat on the same canvas: plan → Skills → `tool_ops` → apply. Fixed LangGraph kernel (`canvas_ops_v1`); behavior from **AgentProfile** YAML, stage prompts, **Skills**, and the tool registry.
-
-| Customize | Where |
-|-----------|--------|
-| Profile / routing | [`design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml), [`bindings.yaml`](apps/api/seeds/agents/bindings.yaml) |
-| Skills | [`skills/`](skills/) · [`plugins/skills/`](plugins/skills/) |
-| Canvas ops | [`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) |
-
-Graph, env knobs, add/swap profiles: **[docs/agent-profile.md](docs/agent-profile.md)** · [zuoge Harness seams](docs/agent-harness.md) · [seeds README](apps/api/seeds/README.md)
-
-## Plugins & extensions
-
-| Kind | Path | Docs |
-|------|------|------|
-| **Skill pack** | [`plugins/skills/<key>/`](plugins/skills/) | [skill-extensions.md](docs/skill-extensions.md) |
-| **Canvas plugin** | [`plugins/canvas/<id>/`](plugins/canvas/) | [canvas-plugins.md](docs/canvas-plugins.md) |
-
-Pack: `node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster` → [plugin-packs.md](docs/plugin-packs.md)
-
-## Quick start (self-host)
-
-```bash
-git clone https://github.com/recombyn/zuoge.git
-cd recombyn
-cp apps/api/.env.example apps/api/.env   # add LLM_API_KEY / provider keys
-docker compose up -d --build
-```
-
-| Service | URL |
-|---------|-----|
-| Web | http://localhost:3000 |
-| API docs | http://localhost:8000/docs |
-| MySQL | `127.0.0.1:3306` · `recombyn` / `recombyn` |
-
-More options (env, LLM keys, production hardening): **[docs/self-hosting.md](docs/self-hosting.md)** · Postgres: **[docs/postgres-switch.md](docs/postgres-switch.md)**
-
-### Compose recipes
-
-Use `docker-compose.yml` as the base stack, then layer overrides only when needed:
-
-```bash
-# 1) Base self-host stack (web + api + collab + mysql + redis + worker)
-docker compose -f docker-compose.yml up -d --build
-
-# 2) Base + ClamAV upload scanning
-docker compose --profile av \
-  -f docker-compose.yml \
-  -f docker-compose.av.yml \
-  up -d --build
-
-# 3) Base + optional Design Intelligence HTTP provider
-docker compose --profile intelligence \
-  -f docker-compose.yml \
-  -f docker-compose.intelligence.yml \
-  up -d --build
-
-# 4) Base stack from pre-built GHCR images (skip local image builds)
-docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
-docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
-```
-
-Tip: if you layer `*.av.yml` or `*.intelligence.yml`, keep the matching profile flag (`--profile av` / `--profile intelligence`) in the same command.
-
-Env tip: keep Compose variables in repo-root `.env` (for example `RECOMBYN_TAG`, `RECOMBYN_INTELLIGENCE_*`) and API app variables in `apps/api/.env`; avoid passing env values inline in shell commands.
-
-### Local development
-
-```bash
-docker compose up -d redis   # or: mysql redis
-npm install
-cp apps/api/.env.example apps/api/.env
-npm run dev:api              # empty DATABASE_URL → SQLite
-npm run dev:collab           # Yjs WS on :1234 (optional; Vite DEV defaults collab on)
-npm run dev:web
-```
-
-Canvas Live / WSS setup: **[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
-
-### Desktop (Tauri)
-
-See **[docs/desktop.md](docs/desktop.md)**. Needs **Rust** + platform toolchain.
-
-```bash
-# Desktop — same API as browser (:8000 / .env)
-npm run dev:desktop
-npm run build:desktop
-# Optional: VITE_API_BASE_URL=https://your.host
-```
-
-Build output: `apps/web/src-tauri/target/release/bundle/` (installers); main binary `…/target/release/recombyn.exe`.
-
-## Repository layout
+## 🏗️ Project Structure
 
 ```
-apps/web/          React canvas + Agent UI + Yjs client
-  src-tauri/       Tauri v2 desktop shell (zuoge)
-apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
-apps/collab/       Yjs WebSocket server (y-websocket)
-plugins/           Extensions (skills + canvas) — Compose-mounted
-packages/          Shared builders & schemas
-docs/              self-hosting, deployment-modes, billing, agent-profile, plugins, desktop, canvas
-deploy/            Dockerfiles / Nginx
-e2e/               Playwright
+recombyn/
+├── apps/
+│   ├── web/                 # React canvas + Agent UI + Yjs client
+│   │   └── src-tauri/       # Tauri v2 desktop shell
+│   ├── api/                 # FastAPI — Scene, Agent, plaza, wallet, MCP
+│   └── collab/              # Yjs WebSocket server
+├── plugins/
+│   ├── skills/              # Skill pack extensions
+│   └── canvas/              # Canvas plugins
+├── packages/                # Shared builders & schemas
+├── docs/                    # Self-host, agent, canvas, plugins, desktop
+├── deploy/                  # Dockerfiles / Nginx / VPS
+├── e2e/                     # Playwright
+└── skills/                  # Built-in skill playbooks
 ```
 
-User docs: [recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/) (published from this repo’s `gh-pages`).
+## 🛠️ Technologies Used
 
-## Documentation
+- **React + TypeScript** — Web editor and Agent UI
+- **FastAPI + Python** — API, Design Agent, billing, plaza
+- **LangGraph** — Durable Design Agent graph (MySQL checkpointer → memory fallback)
+- **MySQL 8** — Primary database (PostgreSQL optional)
+- **Redis + Celery** — Queues and workers
+- **MinIO** — S3-compatible object storage
+- **Yjs** — Realtime collaboration
+- **Vite** — Web bundler / dev server
+- **Tauri v2** — Desktop shell
+- **Docker Compose** — Self-host and local infra
 
-| | |
-|--|--|
-| User docs | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
-| MCP canvas (Cursor / external AI) | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
-| Self-host / architecture | [docs/self-hosting.md](docs/self-hosting.md) |
-| Billing & credits (`WALLET_BILLING_ENABLED`) | [docs/billing.md](docs/billing.md) |
-| Skill extensions | [docs/skill-extensions.md](docs/skill-extensions.md) |
-| Canvas plugins | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
-| Plugin packs (`.recombyn-plugin`) | [docs/plugin-packs.md](docs/plugin-packs.md) |
-| AgentProfile / sub-agents | [docs/agent-profile.md](docs/agent-profile.md) |
-| zuoge Harness (seams / trace) | [docs/agent-harness.md](docs/agent-harness.md) |
-| Canvas (RCB / SVG / Path2D / LOD) | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
-| Web data layer (Query / oRPC / nuqs) | [docs/web-frontend.md](docs/web-frontend.md) |
-| Scene JSON | [docs/scene-json-spec.md](docs/scene-json-spec.md) |
-| Desktop | [docs/desktop.md](docs/desktop.md) |
-| Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
-| Contributing · Security · CoC | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+## 🎨 Key Components
 
-## Community
+### Canvas
 
-- **Issues** — bug & feature templates under `.github/ISSUE_TEMPLATE/`
-- **PRs** — see [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Security** — report privately per [SECURITY.md](SECURITY.md)
+Infinite vector workspace with frames, shapes, text, images, pen/pencil, boolean ops, stroke align, and export. Scene protocol: [docs/scene-json-spec.md](docs/scene-json-spec.md). Architecture: [docs/canvas-architecture.md](docs/canvas-architecture.md).
 
-Official: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
+### Design Agent
+
+Streaming design turns on the canvas. Customize profiles in [`design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml) and [`bindings.yaml`](apps/api/seeds/agents/bindings.yaml). Skills live in [`skills/`](skills/) and [`plugins/skills/`](plugins/skills/). Canvas ops seed: [`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json). See [docs/agent-profile.md](docs/agent-profile.md) and [docs/agent-harness.md](docs/agent-harness.md).
+
+### Plugins & extensions
+
+Skill packs: [docs/skill-extensions.md](docs/skill-extensions.md). Canvas plugins: [docs/canvas-plugins.md](docs/canvas-plugins.md). Pack with `node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster` — [docs/plugin-packs.md](docs/plugin-packs.md).
+
+## 📚 Documentation
+
+- User docs — [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
+- Self-host / architecture — [docs/self-hosting.md](docs/self-hosting.md)
+- MCP canvas — [docs/mcp-canvas.md](docs/mcp-canvas.md)
+- Billing & credits — [docs/billing.md](docs/billing.md)
+- Web data layer — [docs/web-frontend.md](docs/web-frontend.md)
+- Desktop — [docs/desktop.md](docs/desktop.md)
+- Postgres switch — [docs/postgres-switch.md](docs/postgres-switch.md)
+- Contributing · Security · Code of Conduct — [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
+
+## 📄 License
+
+Apache-2.0 — see [LICENSE](LICENSE).
+
+## 📞 Support
+
+- Issues: [GitHub Issues](https://github.com/recombyn/zuoge/issues)
+- Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
+- Site: [recombyn.com](https://recombyn.com)
+
+## ⭐ Star
+
+Open source takes time. If zuoge helps you, please hit **Star** on [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge).

@@ -57,7 +57,7 @@ Default `vector-ink`. Emit one of:
 | Simple precise geometry / icons | shape tools / `icon_set` |
 | UI chrome | `shadcn_ui` |
 | Complex photo / rich atmosphere | `image_gen` / `poster_craft` |
-| Looping motion | `motion_lottie` |
+| Looping motion | `motion_animation` |
 
 ## Honesty
 

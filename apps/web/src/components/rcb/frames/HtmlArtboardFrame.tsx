@@ -34,6 +34,7 @@ import {
   FRAME_HIGHLIGHT_STROKE,
   FRAME_PLATE_STROKE,
   framePlateStrokeSceneWidth,
+  isAnimationArtboardKind,
 } from '@/components/rcb/frames/types';
 
 type HtmlArtboardFrameProps = {
@@ -63,17 +64,60 @@ type HtmlArtboardFrameProps = {
 export type ArtboardFrameGeometry = Pick<ArtboardFrame, 'id' | 'x' | 'y' | 'width' | 'height'>;
 
 /**
+ * Gesture-time plate geometry (ADR 0027). Selection chrome updates every move;
+ * React still holds the pre-gesture Redux frame — without this map, a layout
+ * effect would rebuild the plate from stale width/height and desync the white
+ * plate from the blue selection box (and leave clipContent one frame behind).
+ */
+const liveArtboardGeomById = new Map<string, ArtboardFrameGeometry>();
+
+export function getLiveArtboardFrameGeometry(id: string): ArtboardFrameGeometry | null {
+  const key = String(id || '').trim();
+  if (!key) return null;
+  return liveArtboardGeomById.get(key) ?? null;
+}
+
+/** Drop live overrides after commit / cancelled transform. */
+export function clearLiveArtboardFrameGeometry(ids?: readonly string[]): void {
+  if (!ids || !ids.length) {
+    liveArtboardGeomById.clear();
+    return;
+  }
+  for (const id of ids) liveArtboardGeomById.delete(String(id || '').trim());
+}
+
+function resolvePaintFrameGeometry(frame: ArtboardFrameGeometry): ArtboardFrameGeometry {
+  const live = getLiveArtboardFrameGeometry(frame.id);
+  if (!live) return frame;
+  return {
+    id: frame.id,
+    x: live.x,
+    y: live.y,
+    width: live.width,
+    height: live.height,
+  };
+}
+
+/**
  * Drag-time frame paint follows the same immediate SVG path as scene nodes.
  * React receives the final document position on pointer-up; repainting through
  * Redux during the drag puts frame paint one animation frame behind its nodes.
  */
-export function previewArtboardFrameGeometry(frame: ArtboardFrameGeometry): boolean {
-  const el = getShapeHost(String(frame.id))?.el as SVGGElement | null | undefined;
-  if (!el) return false;
+export function previewArtboardFrameGeometry(
+  frame: ArtboardFrameGeometry,
+  opts?: { recordLive?: boolean }
+): boolean {
+  const id = String(frame.id || '').trim();
+  if (!id) return false;
   const x = Number(frame.x) || 0;
   const y = Number(frame.y) || 0;
   const width = Math.max(1, Number(frame.width) || 1);
   const height = Math.max(1, Number(frame.height) || 1);
+  if (opts?.recordLive !== false) {
+    liveArtboardGeomById.set(id, { id, x, y, width, height });
+  }
+  const el = getShapeHost(id)?.el as SVGGElement | null | undefined;
+  if (!el) return false;
   setAttrs(el, { transform: `translate(${x} ${y})` });
   const host = el as typeof el & {
     __sceneLeft?: number;
@@ -240,7 +284,8 @@ function HtmlArtboardFrame({
     sceneLayer.removeAttribute('data-rcb-shape-layer');
     sceneLayer.setAttribute('data-rcb-frame-layer', frame.id);
     sceneLayer.setAttribute('data-z', String(zIndex));
-    const el = paintFramePlate(sceneLayer, frame, selected, highlighted, generating, z);
+    const paintFrame = { ...frame, ...resolvePaintFrameGeometry(frame) };
+    const el = paintFramePlate(sceneLayer, paintFrame, selected, highlighted, generating, z);
     registerShapeHost({ nodeId: frame.id, root, layer: sceneLayer, el, kind: 'svg' });
     updateShapeHostElement(frame.id, el);
 
@@ -265,7 +310,10 @@ function HtmlArtboardFrame({
     if (layer !== 'body') return;
     const sceneLayer = layerRef.current;
     if (!sceneLayer) return;
-    const el = paintFramePlate(sceneLayer, frame, selected, highlighted, generating, z);
+    // Prefer gesture-time live geom so a Redux-stale `frame` cannot wipe the
+    // plate back while selection chrome already shows the resized box.
+    const paintFrame = { ...frame, ...resolvePaintFrameGeometry(frame) };
+    const el = paintFramePlate(sceneLayer, paintFrame, selected, highlighted, generating, z);
     updateShapeHostElement(frame.id, el);
   }, [layer, selected, highlighted, generating, z, frame]);
 
@@ -279,20 +327,21 @@ function HtmlArtboardFrame({
     syncSharedMountPaintOrder(shapesMount);
   }, [layer, zIndex]);
   if (layer === 'label') {
+    const live = resolvePaintFrameGeometry(frame);
     return (
       <>
         <NodeTitleLabel
           box={{
-            left: frame.x,
-            top: frame.y,
-            width: frame.width,
-            height: frame.height,
+            left: live.x,
+            top: live.y,
+            width: live.width,
+            height: live.height,
           }}
           name={frame.name || 'Frame'}
-          sizeWidth={frame.width}
-          sizeHeight={frame.height}
+          sizeWidth={live.width}
+          sizeHeight={live.height}
           dataAttr="frame-label"
-          icon={frame.kind === 'lottie' ? 'lottie' : 'frame'}
+          icon={isAnimationArtboardKind(frame.kind) ? 'lottie' : 'frame'}
           dataProps={{ 'data-frame-id': frame.id }}
           hidden={hideTitle}
           onSelect={onSelect}
@@ -300,8 +349,8 @@ function HtmlArtboardFrame({
           onMove={onMove}
           onMoveStart={onMoveStart}
           onMoveEnd={onMoveEnd}
-          originX={frame.x}
-          originY={frame.y}
+          originX={live.x}
+          originY={live.y}
           renameAriaLabel="Frame name"
           nodeId={frame.id}
         />

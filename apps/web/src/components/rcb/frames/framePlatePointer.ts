@@ -1,6 +1,10 @@
 import { frameForFullBleedPlate } from '@/components/rcb/selection/selectionLogic';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
-import { isNodeHiddenInDocument } from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  isAnimationFrameHostNode,
+  isNodeHiddenInDocument,
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 export type FrameSceneBox = {
@@ -45,8 +49,9 @@ export function frameIsEmpty(doc: SceneDocument, frameId: string): boolean {
   return !nodeIdsBoundToFrames(doc, [frameId]).some((id) => {
     const node = doc.deltaSetLike?.[id];
     if (!node || isNodeHiddenInDocument(doc, node)) return false;
-    // Full-bleed background plate is chrome, not content.
+    // Full-bleed background plate / Lottie host are chrome, not content.
     if (frameForFullBleedPlate(doc, id) === frameId) return false;
+    if (isAnimationFrameHostNode(node, doc)) return false;
     return true;
   });
 }
@@ -100,6 +105,7 @@ export function resolveFramePlateDragMode(
 /**
  * Frame plate pick: pointer inside artboard, no real shape ink under cursor.
  * Full-bleed background rects count as plate, not content.
+ * Preview-mode workbench children also count as plate (select workbench, not child).
  */
 export function resolveFramePlateTarget(
   doc: SceneDocument,
@@ -111,5 +117,13 @@ export function resolveFramePlateTarget(
   if (!frameId) return null;
   if (!hitId) return frameId;
   if (frameForFullBleedPlate(doc, hitId) === frameId) return frameId;
+  const hitNode = doc.deltaSetLike?.[hitId];
+  if (
+    hitNode &&
+    String(hitNode.attrs?.frameId || '').trim() === frameId &&
+    isAnimationWorkbenchPreviewChild(doc, hitNode)
+  ) {
+    return frameId;
+  }
   return null;
 }

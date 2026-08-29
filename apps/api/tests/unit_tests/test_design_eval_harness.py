@@ -428,52 +428,36 @@ def test_intent_classify_create_ignores_clarification(monkeypatch):
     assert rt.run.choice_ui is None
 
 
-def test_chat_persists_ask_fields(tmp_path, monkeypatch):
-    db_path = tmp_path / "chat_ask.db"
-    monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
-    monkeypatch.setenv("DATABASE_URL", "")
-    from app.core.config import settings as settings_mod
-    from app.core.db import reset_engine
-    import app.services.db as db_mod
-    from tests.conftest import restore_default_sqlite_engine
-
-    settings_mod.sqlite_db_path = str(db_path)
-    settings_mod.database_url = ""
-    db_mod._SCHEMA_READY = False
-    reset_engine()
-
-    try:
-        session = chat_store.upsert_session(
-            "u_ask",
-            "proj_1",
-            title="ask",
-            messages=[
-                {
-                    "id": "a1",
-                    "role": "assistant",
-                    "content": "?????",
-                    "proposedOps": [{"name": "create_text", "args": {"x": 1}}],
-                    "proposalId": "prop_z",
-                    "designTaskId": "task_z",
-                    "choiceUi": {
-                        "mode": "confirm",
-                        "options": [
-                            {"label": "??", "action": "apply"},
-                            {"label": "??", "action": "dismiss"},
-                        ],
-                    },
-                }
-            ],
-        )
-        msgs = session.get("messages") or []
-        assert msgs
-        m = msgs[0]
-        assert m.get("proposalId") == "prop_z"
-        assert m.get("designTaskId") == "task_z"
-        assert m.get("proposedOps")
-        assert m.get("choiceUi", {}).get("mode") == "confirm"
-    finally:
-        restore_default_sqlite_engine()
+def test_chat_persists_ask_fields():
+    session = chat_store.upsert_session(
+        "u_ask",
+        "proj_1",
+        title="ask",
+        messages=[
+            {
+                "id": "a1",
+                "role": "assistant",
+                "content": "确认？",
+                "proposedOps": [{"name": "create_text", "args": {"x": 1}}],
+                "proposalId": "prop_z",
+                "designTaskId": "task_z",
+                "choiceUi": {
+                    "mode": "confirm",
+                    "options": [
+                        {"label": "应用", "action": "apply"},
+                        {"label": "取消", "action": "dismiss"},
+                    ],
+                },
+            }
+        ],
+    )
+    msgs = session.get("messages") or []
+    assert msgs
+    m = msgs[0]
+    assert m.get("proposalId") == "prop_z"
+    assert m.get("designTaskId") == "task_z"
+    assert m.get("proposedOps")
+    assert m.get("choiceUi", {}).get("mode") == "confirm"
 
 
 def test_intent_chat_with_images_runs_vision_reply(monkeypatch):

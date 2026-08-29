@@ -47,6 +47,7 @@ import {
   RCB_MAX_ZOOM,
   RCB_MIN_ZOOM,
   rcbFitCamera,
+  rcbFitCameraInBand,
   rcbViewportSceneBounds,
   zoomAtPoint,
   PENCIL_CURSOR,
@@ -104,11 +105,17 @@ import EditorOnboardingTour, {
 import EditorTopChrome, { flushAndGoHome } from '@/components/editor/page/EditorTopChrome';
 import EditorToolDocks from '@/components/editor/page/EditorToolDocks';
 import EditorBottomHud, { isThemeFollowCanvasBg } from '@/components/editor/page/EditorBottomHud';
+import {
+  useLeftDockWidth,
+  useRightDockWidth,
+} from '@/components/editor/page/editorBottomHudLayout';
 import { loadFontCatalog } from '@/components/rcb/scene/document/fontCatalog';
 import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
-import LottieTimelineDock, {
-  getLottieTimelineDockHeight,
-} from '@/components/editor/nodes/LottieNode/LottieTimelineDock';
+import AnimationTimelineDock from '@/components/editor/nodes/AnimationNode/AnimationTimelineDock';
+import AnimationTimelineFocusHost from '@/components/editor/nodes/AnimationNode/AnimationTimelineFocusHost';
+import AnimationPrecompEditFocusHost from '@/components/editor/nodes/AnimationNode/AnimationPrecompEditFocusHost';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import { setAnimationWorkbenchTimelineFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 const BOOT_MIN_MS = 520;
 const BOOT_EXIT_MS = 280;
@@ -675,38 +682,63 @@ function EditorPage() {
   const workspaceMode = useSelector(
     (state: any) => state.editor.workspaceMode || 'design'
   ) as 'design' | 'dev';
-  const lottieTimelineOpen = useSelector(
-    (state: any) => Boolean(state.editor.lottieTimelinePanel?.nodeId)
+  const lottieTimelineNodeId = useSelector((state: any) =>
+    String(state.editor.lottieTimelinePanel?.nodeId || '')
   );
-  const [lottieTimelineHeight, setLottieTimelineHeight] = useState(0);
+  const lottieTimelineOpen = Boolean(lottieTimelineNodeId);
+  const workbenchFocusFrameId = useMemo(() => {
+    if (!lottieTimelineOpen || !document || !lottieTimelineNodeId) return null;
+    return resolveAnimationFrameId(
+      document,
+      document.deltaSetLike?.[lottieTimelineNodeId]
+    );
+  }, [document, lottieTimelineNodeId, lottieTimelineOpen]);
+  // Keep paint/hit focus in sync before children render.
+  setAnimationWorkbenchTimelineFocus(workbenchFocusFrameId);
 
+  const [toolsTimelineLiftPx, setToolsTimelineLiftPx] = useState(0);
   useEffect(() => {
     if (!lottieTimelineOpen) {
-      setLottieTimelineHeight(0);
+      setToolsTimelineLiftPx(0);
       return undefined;
     }
+    let observed: Element | null = null;
+    const ro = new ResizeObserver(() => {
+      const el = window.document.querySelector(
+        '[data-lottie-timeline-dock]'
+      ) as HTMLElement | null;
+      setToolsTimelineLiftPx(el ? Math.round(el.getBoundingClientRect().height) : 240);
+    });
     const sync = () => {
       const el = window.document.querySelector(
         '[data-lottie-timeline-dock]'
       ) as HTMLElement | null;
-      setLottieTimelineHeight(
-        Math.round(el?.getBoundingClientRect().height || getLottieTimelineDockHeight())
-      );
+      setToolsTimelineLiftPx(el ? Math.round(el.getBoundingClientRect().height) : 240);
+      if (el !== observed) {
+        if (observed) ro.unobserve(observed);
+        observed = el;
+        if (el) ro.observe(el);
+      }
     };
     sync();
-    const observer = new ResizeObserver(sync);
-    const raf = window.requestAnimationFrame(() => {
-      const el = window.document.querySelector('[data-lottie-timeline-dock]');
-      if (el) observer.observe(el);
-      sync();
-    });
-    window.addEventListener('resize', sync);
+    const mo = new MutationObserver(sync);
+    mo.observe(window.document.body, { childList: true, subtree: true });
+    const raf = window.requestAnimationFrame(sync);
     return () => {
       window.cancelAnimationFrame(raf);
-      observer.disconnect();
-      window.removeEventListener('resize', sync);
+      mo.disconnect();
+      ro.disconnect();
     };
   }, [lottieTimelineOpen]);
+
+  // Desktop docks overlay the stage — center tools in the free band between them.
+  const desktop = !isMobileViewport;
+  const toolsLeftDockPx = useLeftDockWidth(desktop && layersOpen);
+  const toolsRightDockPx = useRightDockWidth(
+    desktop && agentOpen,
+    desktop && inspectOpen,
+    workspaceMode
+  );
 
   useEffect(() => {
     const onPathEdit = (e: Event) => {
@@ -1235,20 +1267,14 @@ function EditorPage() {
     setShareOpen(true);
   }, [currentId, document, t, templates]);
 
+  // Layers (left dock) and assets (floating HUD panel) can stay open together —
+  // opening one must not dismiss the other.
   const toggleLayersOpen = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
-    setLayersOpen((prev) => {
-      const next = typeof v === 'function' ? v(prev) : v;
-      if (next) setAssetsOpen(false);
-      return next;
-    });
+    setLayersOpen((prev) => (typeof v === 'function' ? v(prev) : v));
   }, []);
 
   const toggleAssetsOpen = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
-    setAssetsOpen((prev) => {
-      const next = typeof v === 'function' ? v(prev) : v;
-      if (next) setLayersOpen(false);
-      return next;
-    });
+    setAssetsOpen((prev) => (typeof v === 'function' ? v(prev) : v));
   }, []);
 
   const finishBoot = useCallback(() => {
@@ -1368,25 +1394,46 @@ function EditorPage() {
 
   /** Tool sessions push a fit-to-node camera and pop on exit. */
   useEffect(() => {
-    const onSessionCamera = (e: Event) => {
-      const detail = (e as CustomEvent<SessionCameraDetail>).detail;
-      if (!detail) return;
+    const fitFromDetail = (detail: Extract<SessionCameraDetail, { bounds: unknown }>) => {
       const el = stageRef.current;
       if (!el) return;
       const vw = el.clientWidth;
       const vh = el.clientHeight;
       if (vw < 40 || vh < 40) return;
+      const legacyBottom = Math.max(0, Number(detail.viewportHeightInset) || 0);
+      const band = {
+        top: Math.max(0, Number(detail.bandInsets?.top) || 0),
+        right: Math.max(0, Number(detail.bandInsets?.right) || 0),
+        bottom: Math.max(
+          0,
+          Number(detail.bandInsets?.bottom) || 0,
+          legacyBottom
+        ),
+        left: Math.max(0, Number(detail.bandInsets?.left) || 0),
+      };
+      const next = rcbFitCameraInBand(
+        { width: vw, height: vh },
+        detail.bounds,
+        band,
+        detail.padding ?? 96,
+        detail.maxZoom ?? 4,
+        detail.bandAnchorY ?? 0.5
+      );
+      setZoomFitActive(false);
+      setCamera(next);
+    };
+
+    const onSessionCamera = (e: Event) => {
+      const detail = (e as CustomEvent<SessionCameraDetail>).detail;
+      if (!detail) return;
 
       if (detail.action === 'push') {
         sessionCameraStackRef.current.push(cameraRef.current);
-        const next = rcbFitCamera(
-          { width: vw, height: vh },
-          detail.bounds,
-          detail.padding ?? 96,
-          detail.maxZoom ?? 4
-        );
-        setZoomFitActive(false);
-        setCamera(next);
+        fitFromDetail(detail);
+        return;
+      }
+      if (detail.action === 'fit') {
+        fitFromDetail(detail);
         return;
       }
       if (detail.action === 'pop') {
@@ -1658,6 +1705,8 @@ function EditorPage() {
               onRename={renameProjectFromChrome}
               onShare={openShareDialog}
               onOpenAgent={openAgentPanel}
+              bandLeftPx={toolsLeftDockPx}
+              bandRightPx={toolsRightDockPx}
             />
 
             <EditorToolDocks
@@ -1670,6 +1719,19 @@ function EditorPage() {
               zoom={camera.zoom}
               viewportWidth={stageEl?.clientWidth}
               docWidth={Number(document?.width) || undefined}
+            />
+
+            <AnimationTimelineFocusHost
+              document={document}
+              stageEl={stageEl}
+              bandLeftPx={toolsLeftDockPx}
+              bandRightPx={toolsRightDockPx}
+            />
+            <AnimationPrecompEditFocusHost
+              document={document}
+              stageEl={stageEl}
+              bandLeftPx={toolsLeftDockPx}
+              bandRightPx={toolsRightDockPx}
             />
 
             <EditorStageWorld
@@ -1700,6 +1762,7 @@ function EditorPage() {
               frames={frames}
               selectedFrames={selectedFrames}
               activeFrame={activeFrame}
+              workbenchFocusFrameId={workbenchFocusFrameId}
               canvasFillValue={canvasFillValue}
               canvasBgOpen={canvasBgOpen}
               canvasMeshSelectedIndex={canvasMeshSelectedIndex}
@@ -1721,9 +1784,11 @@ function EditorPage() {
 
             <div
               data-tour="editor-tools"
-              className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
+              className="pointer-events-none absolute z-20 -translate-x-1/2"
               style={{
-                bottom: lottieTimelineOpen ? Math.max(16, lottieTimelineHeight + 12) : 16,
+                // Free-band center: leftDock + (stage - left - right) / 2
+                left: `calc(${toolsLeftDockPx}px + (100% - ${toolsLeftDockPx + toolsRightDockPx}px) / 2)`,
+                bottom: Math.max(16, toolsTimelineLiftPx + 16),
               }}
             >
               <div className="pointer-events-auto">
@@ -1787,7 +1852,7 @@ function EditorPage() {
           ) : null}
 
           {lottieTimelineOpen && !isMobileViewport ? (
-            <LottieTimelineDock
+            <AnimationTimelineDock
               layersOpen={layersOpen}
               agentOpen={agentOpen}
               workspaceMode={workspaceMode === 'dev' ? 'dev' : 'design'}

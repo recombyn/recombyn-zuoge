@@ -329,7 +329,37 @@ def test_heuristic_user_intent_gate():
         "design",
         "create",
     )
+    assert normalize_intent_decision("animation", "create") == (
+        "animation",
+        "create",
+    )
     assert paint_ops_intent("canvas_op", "edit") == "edit"
+    assert paint_ops_intent("animation", "create") == "create"
+
+    anim = heuristic_user_intent("做个 loading 动效", has_images=False)
+    assert anim.intent == "animation"
+    assert anim.paint_lane == "create"
+    assert anim.rationale == "heuristic_animation"
+    lottie = heuristic_user_intent("生成一个 Lottie 加载动画", has_images=False)
+    assert lottie.intent == "animation"
+
+    from app.services.design.runtime.models_route import intent_after_proposal_apply
+
+    assert (
+        intent_after_proposal_apply(
+            "chat",
+            {"ops": [{"name": "create_lottie", "args": {}}]},
+        )
+        == "animation"
+    )
+    assert (
+        intent_after_proposal_apply(
+            "chat",
+            {"ops": [{"name": "create_frame", "args": {}}]},
+        )
+        == "design"
+    )
+    assert intent_after_proposal_apply("animation", {"ops": []}) == "animation"
 
     from app.services.design.runtime.models_route import normalize_session_action
 

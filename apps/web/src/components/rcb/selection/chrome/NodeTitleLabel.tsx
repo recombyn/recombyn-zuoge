@@ -17,7 +17,7 @@ import {
 } from 'react';
 import { LuAudioLines, LuImagePlus, LuType } from 'react-icons/lu';
 import { RiVideoAiLine } from 'react-icons/ri';
-import { LottieOutlineIcon } from '@/components/editor/nodes/LottieNode/LottieOutlineIcon';
+import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -238,7 +238,7 @@ function TitleIcon({ kind }: { kind: NodeTitleIcon }): ReactNode {
     case 'lottie':
     case 'lottie-generator':
       return (
-        <LottieOutlineIcon
+        <AnimationOutlineIcon
           size={TITLE_ICON_PX}
           strokeWidth={1.75}
           className="shrink-0"

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatChatMediaError,
   resolveAskChoiceSend,
+  resolveDesignFocusFrameId,
 } from '@/components/editor/panels/agent/agentSendPath';
 import type { ChatUiMessage } from '@/components/editor/panels/agent/messages/ChatTurnList';
 
@@ -23,6 +24,41 @@ describe('formatChatMediaError', () => {
   it('surfaces provider error text', () => {
     const err = new Error('Image generation failed: model not found');
     expect(formatChatMediaError(t, err)).toBe('Image generation failed: model not found');
+  });
+});
+
+describe('resolveDesignFocusFrameId', () => {
+  it('prefers open animation workbench over chip frame', () => {
+    expect(
+      resolveDesignFocusFrameId({
+        freeCanvasMention: false,
+        editTargetId: null,
+        chipFrameId: 'chip-frame',
+        animationWorkbenchFrameId: 'workbench-frame',
+      })
+    ).toBe('workbench-frame');
+  });
+
+  it('falls back to chip when timeline closed', () => {
+    expect(
+      resolveDesignFocusFrameId({
+        freeCanvasMention: false,
+        editTargetId: null,
+        chipFrameId: 'chip-frame',
+        animationWorkbenchFrameId: null,
+      })
+    ).toBe('chip-frame');
+  });
+
+  it('clears focus on free-canvas mention', () => {
+    expect(
+      resolveDesignFocusFrameId({
+        freeCanvasMention: true,
+        editTargetId: null,
+        chipFrameId: 'chip-frame',
+        animationWorkbenchFrameId: 'workbench-frame',
+      })
+    ).toBeNull();
   });
 });
 

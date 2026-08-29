@@ -56,7 +56,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 
 | Capability | Status | Next |
 |-----------|--------|------|
-| 关系库 | SQLite / MySQL via settings | Document HA as ops guide; shard only with metrics |
+| 关系库 | MySQL（或 Postgres）via `DATABASE_URL` | Document HA as ops guide; shard only with metrics |
 | 任务与协同缓存 | Job store + collab wait | Cache hot project meta; no premature cluster |
 | 协同日志独立 | Collab room vs project DB | ADR when splitting durable collab persistence |
 | 对象存储 | S3-style hooks | Default path for uploads in prod compose |

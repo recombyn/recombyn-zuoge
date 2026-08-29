@@ -1,7 +1,7 @@
 import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
-import { isNodeHiddenInDocument, isTextFrameNode } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isNodeStructurallyHiddenInDocument, isTextFrameNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
 import { resolveGenPlateFill } from '@/components/rcb/scene/document/nodeFactories';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
@@ -33,7 +33,7 @@ function TextFrameOverlay({
     const children: string[] = document?.deltaSetLike?.ROOT?.children || [];
     return children.filter((id) => {
       const node = document?.deltaSetLike?.[id];
-      return isTextFrameNode(node) && !isNodeHiddenInDocument(document, node);
+      return isTextFrameNode(node) && !isNodeStructurallyHiddenInDocument(document, node);
     });
   }, [document]);
   const selected = useMemo(() => new Set(selectedNodeIds.filter(Boolean)), [selectedNodeIds]);

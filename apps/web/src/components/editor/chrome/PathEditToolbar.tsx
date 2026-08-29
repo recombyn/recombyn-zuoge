@@ -19,10 +19,13 @@ function PathEditToolbar({
   subtool,
   onSubtoolChange,
   onExit,
+  chrome = 'pill',
 }: {
   subtool: PathEditSubtool;
   onSubtoolChange: (tool: PathEditSubtool) => void;
   onExit: () => void;
+  /** `flat` when embedded in the timeline top rail (no pill border/shadow). */
+  chrome?: 'pill' | 'flat';
 }): ReactNode {
   const { t } = useTranslation();
   const selectLabel = t('editor.pathEditSelect');
@@ -31,7 +34,10 @@ function PathEditToolbar({
   const curveLabel = t('editor.pathEditCurve');
   const doneLabel = t('editor.pathEditExit');
   return (
-    <FloatingToolbar className="pointer-events-auto h-8 gap-1.5 px-3 py-0">
+    <FloatingToolbar
+      variant={chrome}
+      className="pointer-events-auto h-8 gap-1.5 px-3 py-0"
+    >
       <Tooltip tip={selectLabel} placement="bottom">
         <button
           type="button"

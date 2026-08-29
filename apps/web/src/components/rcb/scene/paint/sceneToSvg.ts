@@ -43,6 +43,7 @@ import {
   isImageGeneratorNode,
   isImageProcessRunning,
   isLottieNode,
+  isAnimationFrameHostNode,
   shouldSkipNodeInSvgPaint,
   isOutlinedPath,
   isTextFrameNode,
@@ -192,6 +193,25 @@ function num(v: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Anchor as 0–100% of box. Prefer `anchorPreset` (动画工作台) over raw anchorX/Y. */
+function anchorPercentsFromAttrs(attrs: Record<string, unknown> | null | undefined): {
+  anchorX: number;
+  anchorY: number;
+} {
+  const preset = String(attrs?.anchorPreset || '')
+    .trim()
+    .toLowerCase();
+  if (/^[tmb][lmr]$/.test(preset)) {
+    const col = preset.endsWith('l') ? 0 : preset.endsWith('r') ? 100 : 50;
+    const row = preset.startsWith('t') ? 0 : preset.startsWith('b') ? 100 : 50;
+    return { anchorX: col, anchorY: row };
+  }
+  return {
+    anchorX: Math.max(0, Math.min(100, num(attrs?.anchorX, 50))),
+    anchorY: Math.max(0, Math.min(100, num(attrs?.anchorY, 50))),
+  };
+}
+
 function sceneOrigin(document: SceneDocument | null | undefined) {
   return { ox: num(document?.x, 0), oy: num(document?.y, 0) };
 }
@@ -202,16 +222,24 @@ export function nodeLeftTop(document: SceneDocument | null | undefined, node: Sc
 }
 
 function objectMeta(node: SceneNodeInput) {
+  const attrs = (node.attrs || {}) as Record<string, unknown>;
+  const { anchorX, anchorY } = anchorPercentsFromAttrs(attrs);
+  const skewAmount = num(attrs.skewX ?? attrs.skew, 0);
+  // AE-style skew axis (动画工作台 Sa). Legacy independent skewY only when Sa absent.
+  const hasSkewAxis = attrs.skewAxis != null && attrs.skewAxis !== '';
+  const skewAxis = hasSkewAxis ? num(attrs.skewAxis, 0) : 0;
+  const skewY = hasSkewAxis ? 0 : num(attrs.skewY, 0);
   return {
-    angle: num(node.attrs?.angle, 0),
-    skewX: num(node.attrs?.skewX, 0),
-    skewY: num(node.attrs?.skewY, 0),
-    anchorX: Math.max(0, Math.min(100, num(node.attrs?.anchorX, 50))),
-    anchorY: Math.max(0, Math.min(100, num(node.attrs?.anchorY, 50))),
-    opacity: Math.min(1, Math.max(0, num(node.attrs?.opacity, 1))),
-    blendMode: String(node.attrs?.blendMode || 'pass-through'),
-    flipX: boolEffectAttr(node.attrs?.flipX, false),
-    flipY: boolEffectAttr(node.attrs?.flipY, false),
+    angle: num(attrs.angle, 0),
+    skewX: skewAmount,
+    skewY,
+    skewAxis,
+    anchorX,
+    anchorY,
+    opacity: Math.min(1, Math.max(0, num(attrs.opacity, 1))),
+    blendMode: String(attrs.blendMode || 'pass-through'),
+    flipX: boolEffectAttr(attrs.flipX, false),
+    flipY: boolEffectAttr(attrs.flipY, false),
   };
 }
 
@@ -400,6 +428,7 @@ export type SceneSvgHost = SVGElement & {
   __sceneAngle?: number;
   __sceneSkewX?: number;
   __sceneSkewY?: number;
+  __sceneSkewAxis?: number;
   __sceneAnchorX?: number;
   __sceneAnchorY?: number;
   __sceneFlipX?: boolean;
@@ -489,6 +518,7 @@ function applyMeta(
   anyEl.__sceneAngle = meta.angle;
   anyEl.__sceneSkewX = meta.skewX;
   anyEl.__sceneSkewY = meta.skewY;
+  anyEl.__sceneSkewAxis = meta.skewAxis;
   anyEl.__sceneAnchorX = meta.anchorX;
   anyEl.__sceneAnchorY = meta.anchorY;
   anyEl.__sceneFlipX = meta.flipX;
@@ -564,6 +594,7 @@ function reapplySceneTransform(el: SVGElement, left: number, top: number, width:
   const angle = Number(anyEl.__sceneAngle) || 0;
   const skewX = Number(anyEl.__sceneSkewX) || 0;
   const skewY = Number(anyEl.__sceneSkewY) || 0;
+  const skewAxis = Number(anyEl.__sceneSkewAxis) || 0;
   const anchorX = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorX ?? 50)));
   const anchorY = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorY ?? 50)));
   const flipX = !!anyEl.__sceneFlipX;
@@ -577,13 +608,26 @@ function reapplySceneTransform(el: SVGElement, left: number, top: number, width:
 
   const rx = abs ? left + (width * anchorX) / 100 : (width * anchorX) / 100;
   const ry = abs ? top + (height * anchorY) / 100 : (height * anchorY) / 100;
-  if (angle) parts.push(`rotate(${angle} ${rx} ${ry})`);
-  if (skewX) parts.push(`skewX(${skewX})`);
-  if (skewY) parts.push(`skewY(${skewY})`);
-  if ((flipX || flipY) && !isolateFlip) {
-    const sx = flipX ? -1 : 1;
-    const sy = flipY ? -1 : 1;
-    parts.push(`translate(${rx} ${ry}) scale(${sx} ${sy}) translate(${-rx} ${-ry})`);
+  const doFlip = (flipX || flipY) && !isolateFlip;
+  const needPivot =
+    Math.abs(angle) > 1e-6 ||
+    Math.abs(skewX) > 1e-6 ||
+    Math.abs(skewY) > 1e-6 ||
+    Math.abs(skewAxis) > 1e-6 ||
+    doFlip;
+
+  if (needPivot) {
+    // Pivot all of R / Sk / Sa / flip about Anchor (matches Lottie ks.a).
+    parts.push(`translate(${rx} ${ry})`);
+    if (angle) parts.push(`rotate(${angle})`);
+    if (skewAxis) parts.push(`rotate(${skewAxis})`);
+    if (skewX) parts.push(`skewX(${skewX})`);
+    if (skewAxis) parts.push(`rotate(${-skewAxis})`);
+    if (skewY) parts.push(`skewY(${skewY})`);
+    if (doFlip) {
+      parts.push(`scale(${flipX ? -1 : 1} ${flipY ? -1 : 1})`);
+    }
+    parts.push(`translate(${-rx} ${-ry})`);
   }
 
   if (parts.length) setAttrs(el, { transform: parts.join(' ') });
@@ -1530,11 +1574,15 @@ export async function nodeToSvgElement(
     const clipD = roundedRectPath(boxW, boxH, cornerR);
     const g = appendChild(parent, svgEl('g'));
     const svgOwnsPixels = videoSvgOwnsPixels(root);
+    const frameHost = isAnimationFrameHostNode(node, document);
     const rawLottieFill = String(node.attrs?.['fill-color'] || '').trim();
     // Default surface plate — map empty/transparent to theme surface (not black).
-    const plateFill = resolveThemeSurfaceFill(
-      !rawLottieFill || rawLottieFill === 'transparent' ? '' : rawLottieFill
-    );
+    // Invisible workbench host: no plate fill (playback ink only via HTML overlay).
+    const plateFill = frameHost
+      ? 'none'
+      : resolveThemeSurfaceFill(
+          !rawLottieFill || rawLottieFill === 'transparent' ? '' : rawLottieFill
+        );
     const plateStrokeW = framePlateStrokeSceneWidth(getInfiniteSvgPaintZoom());
 
     // Same process plate as image/video — shimmer chrome overlays this node.
@@ -1574,24 +1622,36 @@ export async function nodeToSvgElement(
     // Idle hairline matches artboard; selection chrome owns the blue box when selected.
     const plate = appendChild(g, svgEl('path', { d: clipD }));
     setFill(plate, plateFill);
-    setStroke(plate, {
-      color: FRAME_PLATE_STROKE,
-      width: plateStrokeW,
-    });
+    if (frameHost) {
+      // Host is timeline chrome only — never intercept picks meant for children.
+      setAttrs(plate, { 'pointer-events': 'none' });
+      setStroke(plate, 'none');
+    } else {
+      setStroke(plate, {
+        color: FRAME_PLATE_STROKE,
+        width: plateStrokeW,
+      });
+    }
     setAttrs(plate, {
       'data-radius-body': '1',
       'data-baseline': '1',
       'shape-rendering': 'crispEdges',
-      ...(!svgOwnsPixels ? { 'data-rcb-lottie-html-hit': '1' } : {}),
+      ...(!svgOwnsPixels && !frameHost ? { 'data-rcb-lottie-html-hit': '1' } : {}),
     });
     if (!svgOwnsPixels) {
-      // Clip HTML ink to the plate (same idea as artboard clipContent).
+      // Always mount HTML for Lottie (incl. 动画工作台 host) so timeline seek/play
+      // has a live lottie-web instance. Frame-host ink is hidden in the overlay;
+      // scene children show the scrubbed pose via playhead sync.
       const ink = appendChild(g, svgEl('g'));
-      const clipId = nextClipId(`lottie-clip-${nodeId}`);
-      const defs = ensureDefs(root);
-      const clip = appendChild(defs, svgEl('clipPath', { id: clipId }));
-      appendChild(clip, svgEl('path', { d: clipD }));
-      setAttrs(ink, { 'clip-path': urlRef(clipId) });
+      if (!frameHost) {
+        const clipId = nextClipId(`lottie-clip-${nodeId}`);
+        const defs = ensureDefs(root);
+        const clip = appendChild(defs, svgEl('clipPath', { id: clipId }));
+        appendChild(clip, svgEl('path', { d: clipD }));
+        setAttrs(ink, { 'clip-path': urlRef(clipId) });
+      } else {
+        setAttrs(ink, { 'pointer-events': 'none' });
+      }
       appendHtmlMediaMount(ink, { nodeId, width: boxW, height: boxH, kind: 'lottie' });
     }
     rememberSceneCornerRadii(g, cornerR);
@@ -2643,6 +2703,7 @@ export function previewSvgNodeTransform(
     anyEl.__sceneAngle = meta.angle;
     anyEl.__sceneSkewX = meta.skewX;
     anyEl.__sceneSkewY = meta.skewY;
+    anyEl.__sceneSkewAxis = meta.skewAxis;
     anyEl.__sceneAnchorX = meta.anchorX;
     anyEl.__sceneAnchorY = meta.anchorY;
     anyEl.__sceneFlipX = meta.flipX;
@@ -2686,6 +2747,7 @@ function reapplySceneTransformScaled(
   const angle = Number(anyEl.__sceneAngle) || 0;
   const skewX = Number(anyEl.__sceneSkewX) || 0;
   const skewY = Number(anyEl.__sceneSkewY) || 0;
+  const skewAxis = Number(anyEl.__sceneSkewAxis) || 0;
   const anchorX = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorX ?? 50)));
   const anchorY = Math.max(0, Math.min(100, Number(anyEl.__sceneAnchorY ?? 50)));
   const flipX = !!anyEl.__sceneFlipX;
@@ -2704,13 +2766,25 @@ function reapplySceneTransformScaled(
 
   const rx = abs ? left + (baseW * sx * anchorX) / 100 : (baseW * anchorX) / 100;
   const ry = abs ? top + (baseH * sy * anchorY) / 100 : (baseH * anchorY) / 100;
-  if (angle) parts.push(`rotate(${angle} ${rx} ${ry})`);
-  if (skewX) parts.push(`skewX(${skewX})`);
-  if (skewY) parts.push(`skewY(${skewY})`);
-  if ((flipX || flipY) && !isolateFlip) {
-    const fsx = flipX ? -1 : 1;
-    const fsy = flipY ? -1 : 1;
-    parts.push(`translate(${rx} ${ry}) scale(${fsx} ${fsy}) translate(${-rx} ${-ry})`);
+  const doFlip = (flipX || flipY) && !isolateFlip;
+  const needPivot =
+    Math.abs(angle) > 1e-6 ||
+    Math.abs(skewX) > 1e-6 ||
+    Math.abs(skewY) > 1e-6 ||
+    Math.abs(skewAxis) > 1e-6 ||
+    doFlip;
+
+  if (needPivot) {
+    parts.push(`translate(${rx} ${ry})`);
+    if (angle) parts.push(`rotate(${angle})`);
+    if (skewAxis) parts.push(`rotate(${skewAxis})`);
+    if (skewX) parts.push(`skewX(${skewX})`);
+    if (skewAxis) parts.push(`rotate(${-skewAxis})`);
+    if (skewY) parts.push(`skewY(${skewY})`);
+    if (doFlip) {
+      parts.push(`scale(${flipX ? -1 : 1} ${flipY ? -1 : 1})`);
+    }
+    parts.push(`translate(${-rx} ${-ry})`);
   }
 
   if (parts.length) setAttrs(el, { transform: parts.join(' ') });

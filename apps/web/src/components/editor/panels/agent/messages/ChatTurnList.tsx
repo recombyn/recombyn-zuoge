@@ -1,5 +1,6 @@
 import { forwardRef, useRef, type ReactNode, type Ref, memo } from 'react';
 import { useEffect, useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineArrowUturnLeft,
@@ -18,6 +19,7 @@ import {
   VirtualList,
   type VirtualListHandle,
 } from '@/components/base';
+import { message } from '@/components/base';
 import { cn } from '@/utils/classnames';
 import {
   scheduleClearMediaAssetDragData,
@@ -29,6 +31,7 @@ import {
   localizeAgentProcessCopy,
   looksLikeKernelProcessDump,
 } from '@/components/editor/panels/agent/agentProcessI18n';
+import { placeMediaAsset } from '@/store/modules/editor';
 
 /** Leading icon tone for process / explore rows. */
 export type ExploreItemTone = 'ok' | 'warn' | 'error';
@@ -1999,6 +2002,8 @@ function LottieGenGallery({
   assistant: ChatUiMessage;
   sending?: boolean;
 }): ReactNode {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
   const lotties = assistant.lotties || [];
   const pending = Math.max(0, Number(assistant.lottiePendingCount) || 0);
   const slots = Math.max(lotties.length, pending);
@@ -2010,12 +2015,38 @@ function LottieGenGallery({
       const item = lotties[i];
       if (item) {
         const asset = chatResultAssetFromLottie(item, i, assistant.id, box);
+        const placeOnCanvas = () => {
+          const anim = asset.animationData ?? item.animationData;
+          if (!anim || typeof anim !== 'object') {
+            message.warning(
+              t('agent.lottiePlaceMissing', {
+                defaultValue: '无法添加到画布：缺少动画数据',
+              })
+            );
+            return;
+          }
+          dispatch(
+            placeMediaAsset({
+              kind: 'lottie',
+              animationData: anim,
+              width: asset.width ?? box.width,
+              height: asset.height ?? box.height,
+              name: '动画工作台',
+            })
+          );
+          message.success(
+            t('agent.lottiePlacedOnBoard', {
+              defaultValue: '已添加到动画工作台',
+            })
+          );
+        };
         return (
           <div key={asset.id} className="shrink-0" style={{ width: box.width }}>
             <UserAssetCard
               asset={asset}
               dense
               editorMediaPreview
+              onActivate={() => placeOnCanvas()}
               onDragStart={(e, a) => {
                 const anim = a.animationData ?? a.meta?.animationData;
                 setMediaAssetDragData(e.dataTransfer, {

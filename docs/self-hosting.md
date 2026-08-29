@@ -199,11 +199,12 @@ Profile / sub-agents: [agent-profile.md](./agent-profile.md).
 
 | URL | Backend |
 |-----|---------|
-| empty | SQLite (WAL + busy timeout + process write lock) |
 | `mysql://…` | MySQL pool; optional `DATABASE_READONLY_URL` |
 | `postgresql://…` | psycopg pool — **migrate schema first**; see [postgres-switch.md](./postgres-switch.md) |
 
-Periodic backups (default on): SQLite online copy under `DB_BACKUP_DIR` (`storage/backups/`); MySQL/Postgres write a dump hint. Celery beat: `run_db_backup_job`.
+`DATABASE_URL` is **required**. Local default: compose MySQL `mysql://recombyn:recombyn@127.0.0.1:3306/recombyn`.
+
+Periodic backups (default on): MySQL/Postgres write a dump hint under `DB_BACKUP_DIR` (`storage/backups/`). Celery beat: `run_db_backup_job`.
 
 LangGraph checkpoints: [postgres-switch.md](./postgres-switch.md#langgraph-checkpointer-design-agent--create_agent).
 
@@ -228,7 +229,7 @@ User turn
 | Layer | Owns | Does not own |
 |-------|------|----------------|
 | AgentProfile | Stages, roles, subagent catalog, `$kv` policy | Pack prose / skill steps |
-| `type=system` packs | JSON contract, Ask/Agent gates, FOCUS/size, when to `need_*` | Poster layout, brush args, Lottie playbook |
+| `type=system` packs | JSON contract, Ask/Agent gates, FOCUS/size, when to `need_*` | Poster layout, brush args, Animation playbook |
 | `type=template` packs | One-line inject strings (headers, empty states) | “How to use” / `format_*` / code-path notes |
 | Skills | How a class of work is done | Stage JSON / HITL `choice_ui` |
 | Sub-agents | Forked specialist turns (`ReviewTurn`) | Parent chat history; look-at-image (Decide) |
@@ -261,7 +262,7 @@ Canonical layout: `_meta.json` + `SKILL.md` (+ optional `schema.json`, `handler.
 | How a design job is done | Skill seed or `design_skills/<pack>/SKILL.md` |
 | One inject line | `snippets.md` section — keep short |
 
-Do not duplicate craft into `paint_system` / `react_system`. Brush / Lottie → ext skills `brush_ops` / `motion_lottie`; core skills only route to them.
+Do not duplicate craft into `paint_system` / `react_system`. Brush / Animation → ext skills `brush_ops` / `motion_animation`; core skills only route to them.
 
 ## BYOK / secrets
 

@@ -11,6 +11,7 @@
 - chat: greeting / identity / no canvas work / session meta-commands
 - canvas_op: the request can be fulfilled by one or a few ops from the canvas tools catalog (create_*/update_*/delete_*/move_*/resize_* …). Prefer canvas_op whenever catalog tools are sufficient. Places freely on the infinite canvas (or inside a user-@ / FOCUS board when given) — do **not** treat this as “open a new artboard”.
 - design: creative composition that needs a deliverable plate / layout judgment — new page, poster, landing, multi-section IA, multi-screen UI set, multiple distinct artboards, redesign from reference beyond a single property/tool call. Host may open a loading artboard when the user did not pin one.
+- animation: UI motion / Lottie / loading·success·empty loops / heartbeat — deliverable is an **动画工作台** motion piece (create_lottie), **not** a static poster artboard. Prefer animation over design when the user asks for 动效/动画/Lottie/loading motion.
 
 # session_action (optional; **intent LLM decides** — no keyword short-circuit)
 - clear_context — user wants a fresh dialogue (清空上下文 / 清空对话 / new chat / clear context). Host wipes chat history; reply briefly confirming.
@@ -20,7 +21,7 @@
 - Do NOT use session_action when the user is asking to design/edit canvas content (e.g. "重新开始做一张海报" is design, not clear_context).
 - When session_action is set → intent=chat, paint_lane="", **reply must be a short confirmation in the user's language (model-authored; host must not invent copy)**.
 
-# paint_lane (required when intent is canvas_op or design; empty for chat)
+# paint_lane (required when intent is canvas_op, design, or animation; empty for chat)
 - create: primarily adding new nodes (create_* tools)
 - edit: primarily changing existing nodes (update_*/delete_*); use when a Target element / pinned node is being modified
 
@@ -28,6 +29,7 @@
 - Decide from the tools catalog + user prompt + scene facts + RECENT_DIALOGUE/MEMORY when present.
 - If catalog tools can do it → **canvas_op** (even if the ask uses words like “设计/做个” but the deliverable is still a single catalog shape/text/icon/edit).
 - If it needs layout/composition/creative judgment beyond catalog ops → **design**.
+- If the deliverable is motion / Lottie / loading loop / success settle / heartbeat → **animation** (not design). Do not open a poster loading artboard for animation.
 - Attached reference image used as style/layout source for a full piece → usually design.
 - When has_images=true and the user asks about attached content (describe / answer / OCR / math / "告诉我答案" / what is this) → intent=chat with **empty reply**. The host runs a vision turn on the pixels. Never claim you cannot see the problem when has_images=true.
 - Adding/moving/recoloring/deleting shapes, text, icons near existing boards → canvas_op.
@@ -58,11 +60,13 @@
 - "添加一个红色矩形" / "加个圆" / "把标题改成红色" / "删除这个圆" / "在画板旁边加个按钮形状" → canvas_op
 - "做一张万圣节海报" / "设计移动端登录页" / "做一套 landing + dashboard" → design
 - "重新开始做一张海报" → design (not clear_context)
+- "做个 loading 动效" / "生成一个 Lottie 加载动画" / "加个心跳点赞动效" → animation
+- "把这个动效改成循环" / "加快 loading 速度" (+ Target / FOCUS 动画工作台) → animation + paint_lane=edit
 
 # proposal_action (only when PENDING_PROPOSAL is in the user message)
 - apply — user confirms held ops (ok / yes / confirm / apply / Chinese equivalents)
 - dismiss — user cancels (cancel / never mind / Chinese equivalents)
-- revise — user changes requirements; also set intent to canvas_op|design
+- revise — user changes requirements; also set intent to canvas_op|design|animation
 - Never set intent=chat for a confirmation of a pending proposal
 - intent=chat or proposal_action=dismiss → short reply in user language; otherwise reply empty
 

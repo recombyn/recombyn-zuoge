@@ -26,7 +26,7 @@ import {
   tryConsumeLottieTimelineCopy,
   tryConsumeLottieTimelineDelete,
   tryConsumeLottieTimelinePaste,
-} from '@/components/editor/nodes/LottieNode/lottieTimelineHotkeys';
+} from '@/components/editor/nodes/AnimationNode/animationTimelineHotkeys';
 
 type UseCanvasHotkeysArgs = {
   readOnly: boolean;

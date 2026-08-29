@@ -15,6 +15,7 @@ import {
 } from '@/components/rcb/scene/document/sceneFill';
 import { boolEffectAttr } from '@/components/rcb/scene/document/sceneEffects';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import {
   addNodeToDocument,
   removeNodesFromDocument
@@ -41,6 +42,7 @@ import {
   isGeneratorNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
+  ensureAnimationFrameMedia,
   openShapeStylePanel,
   patchDocumentNodes,
   setDocument,
@@ -48,6 +50,12 @@ import {
   setSelectedNodeId,
   setSelectedNodeIds,
 } from '@/store/modules/editor';
+import { resolveBooleanResultFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  tagCreatedNodeForWorkbenchSurround,
+  WORKBENCH_SURROUND_ATTR,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { cn } from '@/utils/classnames';
 import {
   SEL_ICON_BTN,
@@ -140,6 +148,26 @@ type NodeBox = {
   sides?: number;
   attrs?: Record<string, unknown>;
 };
+
+/** Axis-aligned overlap (strict) — boolean ops need shared area to be meaningful. */
+function sceneBoxesOverlap(a: SceneBox, b: SceneBox): boolean {
+  return (
+    a.left < b.left + b.width &&
+    a.left + a.width > b.left &&
+    a.top < b.top + b.height &&
+    a.top + a.height > b.top
+  );
+}
+
+/** True when at least one pair of shape AABBs overlaps. */
+function selectionHasShapeOverlap(boxes: SceneBox[]): boolean {
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      if (sceneBoxesOverlap(boxes[i], boxes[j])) return true;
+    }
+  }
+  return false;
+}
 
 function readBoxes(document: SceneDocument, nodeIds: string[]): NodeBox[] {
   return nodeIds
@@ -373,7 +401,10 @@ function MultiSelectionToolbar({
     opNodeIds.length > 0 &&
     opNodeIds.every((id) => pred(document?.deltaSetLike?.[id]));
 
-  const showBoolean = shapeBoxes.length >= 2 && allSupport(supportsBooleanOp);
+  const showBoolean =
+    shapeBoxes.length >= 2 &&
+    allSupport(supportsBooleanOp) &&
+    selectionHasShapeOverlap(shapeBoxes);
   const showStroke = allSupport(supportsStroke);
   const showFill = allSupport(supportsFill);
   const showCornerRadius =
@@ -428,6 +459,10 @@ function MultiSelectionToolbar({
       message.warning(t('editor.selectionToolbar.boolNeed2'));
       return;
     }
+    if (!selectionHasShapeOverlap(shapeBoxes)) {
+      message.warning(t('editor.selectionToolbar.boolNoOverlap'));
+      return;
+    }
 
     const ids = shapeBoxes.map((b) => b.id);
     const { result, usedFallback, hasNonRect } = computeShapeBoolean(shapeBoxes, mode);
@@ -447,11 +482,42 @@ function MultiSelectionToolbar({
       message.warning(t('editor.selectionToolbar.boolApprox'));
     }
 
-    const sample = shapeBoxes[0];
+    const sample =
+      shapeBoxes.find((b) => {
+        const a = b.attrs || {};
+        const fill = String(a['fill-color'] || b.fill || '');
+        return (
+          fill &&
+          fill !== 'transparent' &&
+          fill !== 'none' &&
+          a['fill-enabled'] !== false &&
+          a['fill-enabled'] !== 'false'
+        );
+      }) ||
+      shapeBoxes.find((b) => {
+        const a = b.attrs || {};
+        return (
+          a['stroke-enabled'] !== false &&
+          a['stroke-enabled'] !== 'false' &&
+          Number(a['border-width'] ?? b.borderWidth) > 0
+        );
+      }) ||
+      shapeBoxes[0];
     const sampleNode = document?.deltaSetLike?.[sample.id];
+    // Prefer a shared frameId from operands (paint sample may lack it).
+    const operandFrameIds = shapeBoxes
+      .map((b) => String(document?.deltaSetLike?.[b.id]?.attrs?.frameId || '').trim())
+      .filter(Boolean);
+    const origin = sceneToDocumentCoords(document, result.x, result.y);
+    const frameId = resolveBooleanResultFrameId(
+      document,
+      operandFrameIds,
+      origin.x + result.width / 2,
+      origin.y + result.height / 2
+    );
     const { id, node } = createShapeNode({
-      x: result.x,
-      y: result.y,
+      x: origin.x,
+      y: origin.y,
       width: result.width,
       height: result.height,
       shapeType: 'path',
@@ -466,15 +532,35 @@ function MultiSelectionToolbar({
     attrs.closed = 'true';
     // Same as 轮廓化 — densified boolean path: no corner-radius chrome.
     attrs.outlined = 'true';
+    // Bind only when the result sits inside the plate — never force timeline focus.
+    if (frameId) {
+      attrs.frameId = frameId;
+      const orders = shapeBoxes
+        .map((b) => Number(document?.deltaSetLike?.[b.id]?.attrs?.frameOrder))
+        .filter(Number.isFinite);
+      if (orders.length) attrs.frameOrder = Math.max(...orders) + 1;
+      // Result is inside the plate — never mark as workbench surround pasteboard.
+      delete attrs[WORKBENCH_SURROUND_ATTR];
+    }
     applyBooleanResultPaint(
       attrs,
       sampleNode?.attrs as Record<string, unknown> | undefined,
-      { stroke: sample.stroke, borderWidth: sample.borderWidth }
+      { stroke: sample.stroke, borderWidth: sample.borderWidth, fill: sample.fill }
     );
 
     let next = addNodeToDocument(document, id, node);
     next = removeNodesFromDocument(next, ids);
+    // Outside the plate while timeline is open → pasteboard surround, not a track layer.
+    if (!frameId) {
+      next = tagCreatedNodeForWorkbenchSurround(next, id);
+    }
     dispatch(setDocument(next));
+    if (frameId) {
+      const frame = (next.frames || []).find((f) => String(f?.id) === frameId);
+      if (frame && isAnimationArtboardKind(frame.kind)) {
+        dispatch(ensureAnimationFrameMedia({ frameId }));
+      }
+    }
     dispatch(setSelectedNodeIds([id]));
     dispatch(setSelectedNodeId(id));
     setDistributeOpen(false);
@@ -482,16 +568,21 @@ function MultiSelectionToolbar({
   };
 
   useEffect(() => {
+    if (!showBoolean) setBooleanOpen(false);
+  }, [showBoolean]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || !e.altKey) return;
       if (e.key.toLowerCase() !== 'u') return;
+      if (!showBoolean) return;
       e.preventDefault();
       runBoolean('union');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document, shapeBoxes]);
+  }, [document, shapeBoxes, showBoolean]);
 
   useEffect(() => {
     if (!distributeOpen && !booleanOpen) return;

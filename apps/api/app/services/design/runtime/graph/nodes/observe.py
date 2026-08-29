@@ -815,7 +815,7 @@ def _should_route_to_review(rt: Any) -> bool:
         from app.services.design.runtime.models_route import normalize_user_intent
 
         intent = normalize_user_intent(getattr(rt, "classified_intent", None))
-        if intent == "canvas_op":
+        if intent in ("canvas_op", "animation"):
             return False
     except Exception:
         pass

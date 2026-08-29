@@ -13,7 +13,7 @@ import reducer, {
   removeDocumentNodes,
   spawnAudioGenerator,
   spawnImageGenerator,
-  spawnLottieGenerator,
+  spawnAnimationBoard,
   spawnLottieGeneratorPlate,
   spawnVideoGenerator,
 } from '@/store/modules/editor';
@@ -74,14 +74,14 @@ describe('canvas generators (store)', () => {
     }
   });
 
-  it('spawnLottieGenerator creates a Lottie 合成台 artboard', () => {
+  it('spawnAnimationBoard creates a 动画工作台 artboard', () => {
     let state = seed();
-    state = reducer(state, spawnLottieGenerator({ x: 10, y: 20, width: 300, height: 300 }));
+    state = reducer(state, spawnAnimationBoard({ x: 10, y: 20, width: 300, height: 300 }));
     expect(state.selectedNodeId).toBeNull();
     expect(state.selectedFrameIds.length).toBe(1);
     const frame = state.document!.frames?.find((f) => f.id === state.selectedFrameIds[0]);
-    expect(frame?.kind).toBe('lottie');
-    expect(frame?.name).toMatch(/合成台|Lottie/);
+    expect(frame?.kind).toBe('animation');
+    expect(frame?.name).toMatch(/动画工作台|Animation/);
   });
 
   it('factory helpers produce distinct generator kinds', () => {
@@ -158,8 +158,17 @@ describe('canvas generators (store)', () => {
         genPrompt: 'lot-prompt',
       })
     );
-    expect(state.document!.deltaSetLike[id].attrs?.lottieGenerator).toBeFalsy();
-    expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('lot-prompt');
+    // Generator plate is replaced by an animation workbench + host.
+    expect(state.document!.deltaSetLike[id]).toBeUndefined();
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    expect(frameId).toBeTruthy();
+    const frame = state.document!.frames?.find((f) => String(f.id) === frameId);
+    expect(frame?.kind).toBe('animation');
+    const host = Object.values(state.document!.deltaSetLike || {}).find(
+      (n) => n?.attrs?.animationFrameHost && String(n?.attrs?.frameId) === frameId
+    );
+    expect(host?.attrs?.genPrompt).toBe('lot-prompt');
+    expect(host?.attrs?.lottieGenerator).toBeFalsy();
   });
 
   it('allows deleting image generator while processStatus is running', () => {

@@ -38,18 +38,29 @@ import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFa
 const PAGE_SIZE = 30;
 const ASSET_GRID_FLOW =
   'grid w-full grid-cols-5 gap-2 [&_[data-asset-card]]:mb-0';
+/** Outside-click ignore — panel, toggle, media portals, toasts. */
 const DISMISS_IGNORE =
-  '[data-assets-toggle],[data-asset-media-preview],[data-asset-audio-inline-preview],[data-asset-video-inline-player],[aria-label="Image preview"]';
+  '[data-asset-panel],[data-assets-toggle],[data-asset-card],[data-asset-media-preview],[data-asset-audio-inline-preview],[data-asset-audio-inline-player],[data-asset-video-inline-player],[aria-label="Image preview"],.ant-message,.ant-message-notice,.vjs-modal-dialog';
 
 function isMediaKind(kind: string): kind is 'image' | 'video' | 'audio' | 'lottie' {
   return kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'lottie';
 }
 
+function eventInsideDismissIgnore(e: Event): boolean {
+  for (const node of e.composedPath()) {
+    if (!(node instanceof Element)) continue;
+    if (node.matches?.(DISMISS_IGNORE) || node.closest?.(DISMISS_IGNORE)) return true;
+  }
+  return false;
+}
+
 type Props = {
   onClose: () => void;
+  /** Cap panel height (e.g. when timeline lifts the bottom HUD). */
+  maxHeightPx?: number;
 };
 
-function AssetPanel({ onClose }: Props): ReactNode {
+function AssetPanel({ onClose, maxHeightPx }: Props): ReactNode {
   const { t, i18n } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -70,15 +81,21 @@ function AssetPanel({ onClose }: Props): ReactNode {
   useEffect(() => {
     const onPointer = (e: PointerEvent) => {
       if (previewOpenRef.current) return;
+      if (eventInsideDismissIgnore(e)) return;
       const el = rootRef.current;
-      if (!el) return;
       const target = e.target;
-      if (target instanceof Node && el.contains(target)) return;
-      if (target instanceof Element && target.closest(DISMISS_IGNORE)) return;
+      if (el && target instanceof Node && el.contains(target)) return;
       onCloseRef.current();
     };
-    window.addEventListener('pointerdown', onPointer, true);
-    return () => window.removeEventListener('pointerdown', onPointer, true);
+    // Defer bind so the opening click cannot immediately dismiss; bubble (not capture)
+    // so portaled media chrome can stopPropagation first.
+    const timer = window.setTimeout(() => {
+      window.addEventListener('pointerdown', onPointer);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('pointerdown', onPointer);
+    };
   }, []);
 
   useEffect(() => {
@@ -190,71 +207,73 @@ function AssetPanel({ onClose }: Props): ReactNode {
         role="dialog"
         aria-label={t('editor.assets.panelTitle', { defaultValue: '资源' })}
         className={cn(
-          'pointer-events-auto mb-2 flex h-[400px] shrink-0 flex-col overflow-hidden',
+          'pointer-events-auto mb-2 flex shrink-0 flex-col overflow-hidden',
           'w-[min(680px,calc(100vw-2rem))] rounded-xl bg-[var(--surface)]',
           'shadow-[0_12px_40px_rgba(15,23,42,0.18)] ring-1 ring-[var(--line)]'
         )}
+        style={{
+          height: maxHeightPx && maxHeightPx > 0 ? Math.min(400, maxHeightPx) : 400,
+          maxHeight: maxHeightPx && maxHeightPx > 0 ? maxHeightPx : undefined,
+        }}
         data-asset-panel
+        onPointerDown={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between gap-3 px-4 pt-4">
-          <h2 className="min-w-0 truncate text-[15px] font-semibold leading-none text-[var(--ink)]">
-            {t('editor.assets.panelTitle', { defaultValue: '资源' })}
-          </h2>
-          <button
-            type="button"
-            aria-label={t('editor.assets.close', { defaultValue: '关闭' })}
-            onClick={onClose}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
-          >
-            <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
-          </button>
+        <div className="shrink-0 border-b border-[var(--line)] bg-[var(--surface)] px-4 pb-3 pt-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="min-w-0 truncate text-[15px] font-semibold leading-none text-[var(--ink)]">
+              {t('editor.assets.panelTitle', { defaultValue: '资源' })}
+            </h2>
+            <button
+              type="button"
+              aria-label={t('editor.assets.close', { defaultValue: '关闭' })}
+              onClick={onClose}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)]"
+            >
+              <HiOutlineXMark className="h-4 w-4" strokeWidth={2} />
+            </button>
+          </div>
+          <AssetKindFilterBar
+            tabsNowrap
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            searchInput={searchInput}
+            onSearchInputChange={setSearchInput}
+          />
         </div>
 
-        <div className="rcb-edge-scroll min-h-0 flex-1 overflow-y-auto">
-          <div className="sticky top-0 z-10 bg-[var(--surface)] px-4 pb-3 pt-2">
-            <AssetKindFilterBar
-              tabsNowrap
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-              searchInput={searchInput}
-              onSearchInputChange={setSearchInput}
+        <div className="rcb-edge-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <InfiniteScrollSection
+            loading={loading && items.length === 0}
+            loadingMore={loadingMore}
+            hasMore={hasMore}
+            onLoadMore={() => {
+              if (!loading && !loadingMore && hasMore) assetsQuery.fetchNextPage();
+            }}
+            isEmpty={items.length === 0}
+            empty={<EmptyState hint={emptyHint} className="px-1.5 py-6 text-[12px]" />}
+            gridClassName={ASSET_GRID_FLOW}
+            skeleton={Array.from({ length: USER_ASSET_SKELETON_COUNT }, (_, i) => (
+              <UserAssetCardSkeleton key={i} index={i} dense />
+            ))}
+          >
+            <AssetDayGroupedGrid
+              groups={assetDayGroups}
+              renderItem={(asset) => (
+                <UserAssetCard
+                  key={asset.id}
+                  asset={asset}
+                  dense
+                  editorMediaPreview
+                  onActivate={onCardActivate}
+                  onDragStart={isMediaKind(asset.kind) ? onCardDragStart : undefined}
+                  onDragEnd={() => {
+                    scheduleClearMediaAssetDragData(300);
+                    draggedRef.current = false;
+                  }}
+                />
+              )}
             />
-          </div>
-
-          <div className="px-4 pb-4">
-            <InfiniteScrollSection
-              loading={loading && items.length === 0}
-              loadingMore={loadingMore}
-              hasMore={hasMore}
-              onLoadMore={() => {
-                if (!loading && !loadingMore && hasMore) assetsQuery.fetchNextPage();
-              }}
-              isEmpty={items.length === 0}
-              empty={<EmptyState hint={emptyHint} className="px-1.5 py-6 text-[12px]" />}
-              gridClassName={ASSET_GRID_FLOW}
-              skeleton={Array.from({ length: USER_ASSET_SKELETON_COUNT }, (_, i) => (
-                <UserAssetCardSkeleton key={i} index={i} dense />
-              ))}
-            >
-              <AssetDayGroupedGrid
-                groups={assetDayGroups}
-                renderItem={(asset) => (
-                  <UserAssetCard
-                    key={asset.id}
-                    asset={asset}
-                    dense
-                    editorMediaPreview
-                    onActivate={onCardActivate}
-                    onDragStart={isMediaKind(asset.kind) ? onCardDragStart : undefined}
-                    onDragEnd={() => {
-                      scheduleClearMediaAssetDragData(300);
-                      draggedRef.current = false;
-                    }}
-                  />
-                )}
-              />
-            </InfiniteScrollSection>
-          </div>
+          </InfiniteScrollSection>
         </div>
       </div>
 

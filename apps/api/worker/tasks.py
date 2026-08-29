@@ -640,7 +640,7 @@ def run_chat_lottie_job(self, job_id: str) -> dict:
     """Fill POST /chat/lottie/jobs via lottie LLM hydrate (ADR 0005)."""
 
     async def _execute(job: dict) -> dict:
-        from app.api.routes.chat_lottie_jobs import execute_lottie_generate
+        from app.api.routes.chat_animation_jobs import execute_lottie_generate
 
         return await execute_lottie_generate(
             str(job.get("user_id") or ""),
@@ -658,7 +658,7 @@ def run_chat_lottie_job(self, job_id: str) -> dict:
 
 @celery.task(name="worker.tasks.run_db_backup_job")
 def run_db_backup_job(reason: str = "celery") -> dict:
-    """Periodic DB backup (SQLite snapshot or MySQL/Postgres dump hint)."""
+    """Periodic DB backup (MySQL/Postgres dump hint)."""
     from app.services.db.backup import run_db_backup
 
     return run_db_backup(reason=reason or "celery")

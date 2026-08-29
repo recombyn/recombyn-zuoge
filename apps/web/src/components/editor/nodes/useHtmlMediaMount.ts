@@ -1,15 +1,24 @@
 /**
  * Resolve the foreignObject HTML mount painted into a scene node’s SVG layer.
  * Lottie / video / audio portal here so CSS z-index is not a parallel stack.
+ *
+ * Subscribes per-node only — selecting / remounting an unrelated host must not
+ * recreate WaveSurfer / video / Lottie portals (selection flash).
  */
-import { useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
-  getShapeHostEpoch,
-  subscribeShapeHosts,
+  getShapeHostNodeEpoch,
+  subscribeShapeHost,
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import { findHtmlMediaMount } from '@/components/rcb/scene/paint/sceneToSvg';
 
 export function useHtmlMediaMount(nodeId: string): HTMLElement | null {
-  const epoch = useSyncExternalStore(subscribeShapeHosts, getShapeHostEpoch, () => 0);
-  return useMemo(() => findHtmlMediaMount(nodeId), [nodeId, epoch]);
+  const id = String(nodeId || '');
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => subscribeShapeHost(id, onStoreChange),
+    [id]
+  );
+  const getSnapshot = useCallback(() => getShapeHostNodeEpoch(id), [id]);
+  const epoch = useSyncExternalStore(subscribe, getSnapshot, () => 0);
+  return useMemo(() => findHtmlMediaMount(id), [id, epoch]);
 }

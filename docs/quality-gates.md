@@ -56,7 +56,7 @@ npm run test:gate
 | Admin (users/plaza/fonts/…) | ✓ | — |
 | Notices / fonts / assets / users search | ✓ | account/home |
 
-Canvas Image/Video/Audio/Lottie generator plates + text tool (browser): `npm run test:canvas:generators` (`e2e/tests/canvas.generators.spec.ts`). Includes **mocked** `/chat/image` promote (no provider keys). Store spawn/finish covered by Vitest `canvasGenerators.store` + `quickEditGenPromptEcho.stress`.
+Canvas Image/Video/Audio/Animation generator plates + text tool (browser): `npm run test:canvas:generators` (`e2e/tests/canvas.generators.spec.ts`). Includes **mocked** `/chat/image` promote (no provider keys). Store spawn/finish covered by Vitest `canvasGenerators.store` + `quickEditGenPromptEcho.stress`.
 
 Full canvas stress matrix (store + RCB + foundations/generators + product E2E): `npm run test:canvas:stress`. Product-only E2E (ops, upload/mark, tools, density): `npm run test:canvas:product`.
 

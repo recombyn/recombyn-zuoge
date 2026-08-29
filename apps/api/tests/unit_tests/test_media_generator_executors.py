@@ -64,7 +64,7 @@ def test_execute_video_generate_rehosts_urls(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_execute_lottie_generate_persists_json(monkeypatch: pytest.MonkeyPatch):
-    from app.api.routes.chat_lottie_jobs import execute_lottie_generate
+    from app.api.routes.chat_animation_jobs import execute_lottie_generate
 
     anim = {"v": "5.5.2", "fr": 30, "w": 128, "h": 128, "layers": []}
 
@@ -72,7 +72,7 @@ def test_execute_lottie_generate_persists_json(monkeypatch: pytest.MonkeyPatch):
         return anim
 
     monkeypatch.setattr(
-        "app.services.design.ops.lottie_hydrate.generate_lottie_animation",
+        "app.services.design.ops.animation_hydrate.generate_lottie_animation",
         _gen,
     )
     monkeypatch.setattr(

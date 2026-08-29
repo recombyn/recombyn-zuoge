@@ -1,0 +1,396 @@
+/**
+ * Timeline focus for 动画工作台:
+ * - Surround pasteboard nodes (`animationWorkbenchSurround`) belong to a workbench
+ *   but live outside its plate; saved with the project, shown only while that
+ *   workbench's timeline is open.
+ * - While the timeline is open, unrelated frames/nodes are paint/hit hidden.
+ * - Bound children outside the playhead in/out range are visually hidden and
+ *   not pickable (same inRange rule as AnimationPlayheadSceneSync).
+ */
+
+import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
+
+export const WORKBENCH_SURROUND_ATTR = 'animationWorkbenchSurround';
+
+let timelineFocusFrameId: string | null = null;
+let timelinePlayheadSec = 0;
+
+export function setAnimationWorkbenchTimelineFocus(frameId: string | null) {
+  const next = String(frameId || '').trim();
+  timelineFocusFrameId = next || null;
+  if (!timelineFocusFrameId) timelinePlayheadSec = 0;
+}
+
+export function getAnimationWorkbenchTimelineFocus(): string | null {
+  return timelineFocusFrameId;
+}
+
+export function setAnimationWorkbenchPlayheadSec(sec: number) {
+  timelinePlayheadSec = Number.isFinite(sec) ? Math.max(0, Number(sec)) : 0;
+}
+
+export function getAnimationWorkbenchPlayheadSec(): number {
+  return timelinePlayheadSec;
+}
+
+/** Default canvas file picker: image + AV + JSON. */
+export const CANVAS_MEDIA_FILE_ACCEPT =
+  'image/*,video/*,audio/*,.json,application/json';
+
+/** File input accept when timeline focus blocks AV (image + JSON only). */
+export const WORKBENCH_IMAGE_JSON_FILE_ACCEPT =
+  'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.json';
+
+/**
+ * React-friendly accept string: pass timeline-open from Redux (`lottieTimelinePanel`).
+ * Prefer this over reading the module focus flag (does not trigger re-render).
+ */
+export function mediaFileAcceptForWorkbenchTimeline(timelineOpen: boolean): string {
+  return timelineOpen ? WORKBENCH_IMAGE_JSON_FILE_ACCEPT : CANVAS_MEDIA_FILE_ACCEPT;
+}
+
+export const AV_BLOCKED_IN_WORKBENCH_I18N = 'editor.animation.noAvInWorkbench';
+export const AV_BLOCKED_IN_WORKBENCH_DEFAULT =
+  '动画时间轴模式下不支持视频/音频，请使用图片或 JSON';
+
+export const ARTBOARD_BLOCKED_IN_WORKBENCH_I18N = 'editor.animation.noArtboardInWorkbench';
+export const ARTBOARD_BLOCKED_IN_WORKBENCH_DEFAULT =
+  '动画时间轴模式下不能新建普通画板，请在当前工作台内绘制或上传';
+
+export const NEW_BOARD_BLOCKED_IN_WORKBENCH_I18N = 'editor.animation.noNewBoardInWorkbench';
+export const NEW_BOARD_BLOCKED_IN_WORKBENCH_DEFAULT =
+  '动画时间轴模式下请使用当前工作台，不要再新建动画板';
+
+export const WORKBENCH_PREVIEW_ONLY_I18N = 'editor.animation.previewOnly';
+export const WORKBENCH_PREVIEW_ONLY_DEFAULT =
+  '工作台预览中：请先打开关键帧时间轴再编辑内部元素';
+
+function isAnimationPlateKind(kind: unknown): boolean {
+  const k = String(kind || '');
+  return k === 'animation' || k === 'lottie';
+}
+
+function isAnimationFrameHostAttrs(
+  attrs: Record<string, unknown> | null | undefined
+): boolean {
+  if (!attrs) return false;
+  return (
+    attrs.animationFrameHost === true ||
+    attrs.animationFrameHost === 'true' ||
+    attrs.lottieFrameHost === true ||
+    attrs.lottieFrameHost === 'true'
+  );
+}
+
+/**
+ * Timeline dock open for this plate — children selectable / bindable / editable.
+ * Pass frameId to check a specific workbench; omit to mean “any workbench is in edit”.
+ */
+export function isAnimationWorkbenchEditOpen(frameId?: string | null): boolean {
+  const focus = timelineFocusFrameId;
+  if (!focus) return false;
+  if (frameId != null && String(frameId).trim()) {
+    return focus === String(frameId).trim();
+  }
+  return true;
+}
+
+/** Animation plate accepts new binds / imports only while its timeline is focused. */
+export function canEditAnimationWorkbenchPlate(
+  frameId: string | null | undefined
+): boolean {
+  return isAnimationWorkbenchEditOpen(frameId);
+}
+
+/**
+ * Bound child of a 动画工作台 whose timeline is closed — visible preview only:
+ * not pickable, not editable. The workbench frame itself stays selectable.
+ */
+export function isAnimationWorkbenchPreviewChild(
+  document:
+    | { frames?: Array<{ id?: unknown; kind?: unknown }> | null }
+    | null
+    | undefined,
+  node: { attrs?: Record<string, unknown> | null } | null | undefined
+): boolean {
+  if (!node || !document) return false;
+  if (isAnimationFrameHostAttrs(node.attrs)) return false;
+  const frameId = String(node.attrs?.frameId || '').trim();
+  if (!frameId) return false;
+  if (isAnimationWorkbenchEditOpen(frameId)) return false;
+  const plate = (Array.isArray(document.frames) ? document.frames : []).find(
+    (f) => String(f?.id) === frameId
+  );
+  return Boolean(plate && isAnimationPlateKind(plate.kind));
+}
+
+/** Timeline focus is open — video/audio plates must not be created. */
+export function isAvBlockedByAnimationWorkbenchFocus(): boolean {
+  return Boolean(timelineFocusFrameId);
+}
+
+/** Timeline focus is open — world artboards / extra workbenches must not be created. */
+export function isNewPlateBlockedByAnimationWorkbenchFocus(): boolean {
+  return Boolean(timelineFocusFrameId);
+}
+
+/**
+ * UI gate: warn once and return true when AV is blocked under timeline focus.
+ * Reducers use {@link isAvBlockedByAnimationWorkbenchFocus} silently.
+ */
+export function warnIfAvBlockedByAnimationWorkbenchFocus(
+  warn: (msg: string) => void,
+  t?: (key: string, opts?: { defaultValue?: string }) => string
+): boolean {
+  if (!timelineFocusFrameId) return false;
+  warn(
+    t
+      ? t(AV_BLOCKED_IN_WORKBENCH_I18N, { defaultValue: AV_BLOCKED_IN_WORKBENCH_DEFAULT })
+      : AV_BLOCKED_IN_WORKBENCH_DEFAULT
+  );
+  return true;
+}
+
+/** UI gate: block `#` artboard / spawnAnimationBoard while a workbench timeline is focused. */
+export function warnIfNewPlateBlockedByAnimationWorkbenchFocus(
+  warn: (msg: string) => void,
+  t?: (key: string, opts?: { defaultValue?: string }) => string,
+  kind: 'artboard' | 'animationBoard' = 'artboard'
+): boolean {
+  if (!timelineFocusFrameId) return false;
+  const key =
+    kind === 'animationBoard'
+      ? NEW_BOARD_BLOCKED_IN_WORKBENCH_I18N
+      : ARTBOARD_BLOCKED_IN_WORKBENCH_I18N;
+  const fallback =
+    kind === 'animationBoard'
+      ? NEW_BOARD_BLOCKED_IN_WORKBENCH_DEFAULT
+      : ARTBOARD_BLOCKED_IN_WORKBENCH_DEFAULT;
+  warn(t ? t(key, { defaultValue: fallback }) : fallback);
+  return true;
+}
+
+export function workbenchSurroundFrameId(
+  node: { attrs?: Record<string, unknown> | null } | null | undefined
+): string | null {
+  const id = String(node?.attrs?.[WORKBENCH_SURROUND_ATTR] || '').trim();
+  return id || null;
+}
+
+/** True → skip paint / hit-test for this node under current timeline focus. */
+export function isHiddenByAnimationWorkbenchFocus(
+  node: { attrs?: Record<string, unknown> | null } | null | undefined
+): boolean {
+  if (!node) return true;
+  const surround = workbenchSurroundFrameId(node);
+  const frameId = String(node.attrs?.frameId || '').trim();
+  const focus = timelineFocusFrameId;
+
+  if (focus) {
+    if (frameId === focus) return false;
+    if (surround === focus) return false;
+    return true;
+  }
+
+  // Timeline closed: surround pasteboard stays saved but invisible.
+  return Boolean(surround);
+}
+
+export function shouldShowArtboardInWorkbenchFocus(
+  frame: { id?: unknown } | null | undefined
+): boolean {
+  const focus = timelineFocusFrameId;
+  if (!focus) return true;
+  return String(frame?.id || '') === focus;
+}
+
+/**
+ * Bound workbench child whose layer in/out excludes the current playhead.
+ * Same rule whether the timeline dock is open or closed (playhead stays at 0
+ * after exit = first frame). Pass `playheadSec` from Redux during React render.
+ */
+export function isInactiveAtAnimationPlayhead(
+  document: {
+    frames?: Array<{ id?: unknown; fps?: unknown; kind?: unknown }> | null;
+  } | null | undefined,
+  node: { attrs?: Record<string, unknown> | null; key?: unknown } | null | undefined,
+  playheadSec?: number
+): boolean {
+  if (!node || !document) return false;
+  const frameId = String(node.attrs?.frameId || '').trim();
+  if (!frameId) return false;
+
+  const focus = timelineFocusFrameId;
+  // Timeline focus: only trim children of the focused plate.
+  // Focus cleared (dock closed): still trim animation-plate children — same gate.
+  if (focus && frameId !== focus) return false;
+
+  const plate = (Array.isArray(document.frames) ? document.frames : []).find(
+    (f) => String(f?.id) === frameId
+  );
+  if (!plate) return false;
+  const kind = String(plate.kind || '');
+  if (kind !== 'animation' && kind !== 'lottie') return false;
+
+  if (workbenchSurroundFrameId(node)) return false;
+  if (
+    node.attrs?.animationFrameHost === true ||
+    node.attrs?.animationFrameHost === 'true' ||
+    node.attrs?.lottieFrameHost === true ||
+    node.attrs?.lottieFrameHost === 'true'
+  ) {
+    return false;
+  }
+
+  const ip = Number(node.attrs?.lottieInFrame);
+  const op = Number(node.attrs?.lottieOutFrame);
+  if (!Number.isFinite(ip) && !Number.isFinite(op)) return false;
+
+  const fps = Math.max(1, Number(plate.fps) || 30);
+  const t =
+    playheadSec != null && Number.isFinite(playheadSec)
+      ? Math.max(0, Number(playheadSec))
+      : timelinePlayheadSec;
+  const frameN = secToFrame(t, fps);
+  const inRange =
+    (!Number.isFinite(ip) || frameN >= ip - 1e-6) &&
+    (!Number.isFinite(op) || frameN < op - 1e-6);
+  return !inRange;
+}
+
+/**
+ * After create/bind: outside the focused plate → mark as workbench surround;
+ * inside the plate → clear surround.
+ */
+export function tagCreatedNodeForWorkbenchSurround<T extends {
+  deltaSetLike?: Record<string, any> | null;
+}>(doc: T, nodeId: string): T {
+  const focus = timelineFocusFrameId;
+  const id = String(nodeId || '').trim();
+  if (!focus || !id || !doc?.deltaSetLike?.[id]) return doc;
+  const node = doc.deltaSetLike[id];
+  if (!node || id === 'ROOT') return doc;
+
+  const fid = String(node.attrs?.frameId || '').trim();
+  const attrs = { ...(node.attrs || {}) } as Record<string, unknown>;
+
+  if (fid === focus) {
+    if (!(WORKBENCH_SURROUND_ATTR in attrs)) return doc;
+    delete attrs[WORKBENCH_SURROUND_ATTR];
+  } else if (!fid) {
+    if (attrs[WORKBENCH_SURROUND_ATTR] === focus) return doc;
+    attrs[WORKBENCH_SURROUND_ATTR] = focus;
+  } else {
+    return doc;
+  }
+
+  return {
+    ...doc,
+    deltaSetLike: {
+      ...doc.deltaSetLike,
+      [id]: { ...node, attrs },
+    },
+  };
+}
+
+/** Keep surround attr in sync when frame binding changes. */
+export function syncWorkbenchSurroundOnFrameBind(
+  attrs: Record<string, unknown>,
+  nextFrameId: string | null
+): Record<string, unknown> {
+  const focus = timelineFocusFrameId;
+  const next = { ...attrs };
+  if (nextFrameId) {
+    delete next[WORKBENCH_SURROUND_ATTR];
+    return next;
+  }
+  if (focus) {
+    next[WORKBENCH_SURROUND_ATTR] = focus;
+  } else {
+    delete next[WORKBENCH_SURROUND_ATTR];
+  }
+  return next;
+}
+
+/** True when attrs mark a generator plate (any media key). Avoids importing nodeCapabilities (cycle). */
+function isGeneratorPlateAttrs(attrs: Record<string, unknown> | null | undefined): boolean {
+  if (!attrs) return false;
+  return (
+    attrs.imageGenerator === true ||
+    attrs.imageGenerator === 'true' ||
+    attrs.videoGenerator === true ||
+    attrs.videoGenerator === 'true' ||
+    attrs.audioGenerator === true ||
+    attrs.audioGenerator === 'true' ||
+    attrs.lottieGenerator === true ||
+    attrs.lottieGenerator === 'true'
+  );
+}
+
+/**
+ * Bind into the focused plate when geometry intersects; otherwise mark surround.
+ * Call after spawning nodes while the timeline is open — otherwise they have
+ * neither frameId nor surround and are paint-hidden by focus.
+ *
+ * Uses local geometry (avoids importing frameNodeBinding → circular deps).
+ */
+export function finalizeNodeForAnimationWorkbenchFocus<T extends {
+  deltaSetLike?: Record<string, any> | null;
+  frames?: any[];
+}>(doc: T, nodeId: string): T {
+  const id = String(nodeId || '').trim();
+  const focus = timelineFocusFrameId;
+  if (!focus || !id || !doc?.deltaSetLike?.[id]) return doc;
+  const node = doc.deltaSetLike[id];
+  if (!node || id === 'ROOT') return doc;
+
+  const key = String(node.key || '');
+  // Generators / AV stay on the workbench pasteboard (not timeline layers).
+  if (key === 'video' || key === 'audio' || isGeneratorPlateAttrs(node.attrs)) {
+    return tagCreatedNodeForWorkbenchSurround(doc, id);
+  }
+
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  const plate = frames.find((f: any) => String(f?.id) === focus);
+  if (!plate) return tagCreatedNodeForWorkbenchSurround(doc, id);
+
+  const left = Number(node.x) || 0;
+  const top = Number(node.y) || 0;
+  const width = Math.max(1, Number(node.width) || 1);
+  const height = Math.max(1, Number(node.height) || 1);
+  const fx = Number(plate.x) || 0;
+  const fy = Number(plate.y) || 0;
+  const fw = Math.max(1, Number(plate.width) || 1);
+  const fh = Math.max(1, Number(plate.height) || 1);
+  const intersects =
+    left < fx + fw && left + width > fx && top < fy + fh && top + height > fy;
+
+  if (!intersects) {
+    return tagCreatedNodeForWorkbenchSurround(doc, id);
+  }
+
+  const attrs = { ...(node.attrs || {}) } as Record<string, unknown>;
+  if (String(attrs.frameId || '').trim() === focus) {
+    delete attrs[WORKBENCH_SURROUND_ATTR];
+    if (!(WORKBENCH_SURROUND_ATTR in (node.attrs || {}))) return doc;
+    return {
+      ...doc,
+      deltaSetLike: { ...doc.deltaSetLike, [id]: { ...node, attrs } },
+    };
+  }
+
+  const orders = Object.values(doc.deltaSetLike || {})
+    .filter((item: any) => String(item?.attrs?.frameId || '').trim() === focus)
+    .map((item: any) => Number(item?.attrs?.frameOrder))
+    .filter(Number.isFinite);
+  attrs.frameId = focus;
+  attrs.frameOrder = orders.length ? Math.max(...orders) + 1 : 0;
+  delete attrs[WORKBENCH_SURROUND_ATTR];
+  return {
+    ...doc,
+    deltaSetLike: {
+      ...doc.deltaSetLike,
+      [id]: { ...node, attrs },
+    },
+  };
+}

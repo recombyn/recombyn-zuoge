@@ -106,7 +106,7 @@ def test_tool_node_and_official_agent_factory():
     assert any(getattr(t, "name", None) == "generate_image" for t in server)
     cp = get_agent_checkpointer()
     assert cp is not None
-    assert checkpointer_backend() in ("mysql", "sqlite", "memory")
+    assert checkpointer_backend() in ("mysql", "memory")
     assert agent_thread_config("sess-1") == {
         "configurable": {"thread_id": "sess-1"}
     }
@@ -162,31 +162,22 @@ def test_build_official_agent_accepts_response_format():
     assert "model" in agent.nodes
 
 
-def test_sqlite_checkpointer_setup_and_thread_config(tmp_path, monkeypatch):
+def test_checkpointer_setup_and_thread_config(monkeypatch):
     import asyncio
 
     from langgraph.checkpoint.base import BaseCheckpointSaver
-    from app.core.config import settings as settings_mod
     from app.services.llm import agent as agent_mod
 
-    monkeypatch.setattr(settings_mod, "database_url", "")
-    monkeypatch.setattr(settings_mod, "langgraph_checkpoint_url", "")
-    monkeypatch.setattr(
-        settings_mod,
-        "langgraph_checkpoint_sqlite_path",
-        str(tmp_path / "cp.db"),
-    )
-    # Reset singleton so this test controls the backend.
+    # Reset singleton so this test observes the live mysql|memory backend.
     agent_mod._CHECKPOINTER = None
     agent_mod._CHECKPOINTER_BACKEND = ""
     agent_mod._CHECKPOINTER_CONN = None
     cp = agent_mod.get_agent_checkpointer()
-    assert agent_mod.checkpointer_backend() in ("sqlite", "memory")
+    assert agent_mod.checkpointer_backend() in ("mysql", "memory")
     assert cp is not None
     assert isinstance(cp, BaseCheckpointSaver)
     cfg = agent_mod.agent_thread_config("unit-thread")
     assert cfg and cfg["configurable"]["thread_id"] == "unit-thread"
-    # graph.astream needs aget_tuple; bare SqliteSaver raises NotImplementedError.
     assert asyncio.run(cp.aget_tuple(cfg)) is None
 
 
@@ -224,25 +215,17 @@ def test_summarization_middleware_matches_docs(monkeypatch):
     assert mw[0].keep == ("messages", 20)
 
 
-def test_langgraph_store_long_term_put_search(tmp_path, monkeypatch):
+def test_langgraph_store_long_term_put_search(monkeypatch):
     """Docs long-term memory: Store put/search under (user_id, namespace)."""
-    from app.core.config import settings as settings_mod
     from app.services.agent_memory import long_term as lt
 
-    monkeypatch.setattr(settings_mod, "database_url", "")
-    monkeypatch.setattr(settings_mod, "langgraph_store_url", "")
-    monkeypatch.setattr(
-        settings_mod,
-        "langgraph_store_sqlite_path",
-        str(tmp_path / "store.db"),
-    )
     lt._STORE = None
     lt._STORE_BACKEND = ""
     lt._STORE_CONN = None
 
     store = lt.get_agent_store()
     assert store is not None
-    assert lt.store_backend() in ("sqlite", "memory")
+    assert lt.store_backend() in ("mysql", "memory")
     mid = lt.put_long_term_store(
         "user_test",
         key="pref_1",

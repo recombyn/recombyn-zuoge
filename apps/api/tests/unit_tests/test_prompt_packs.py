@@ -22,23 +22,14 @@ def test_playbooks_live_in_design_skills_packs():
     assert "skill: poster_craft" in details or "poster_craft" in details
 
 
-def test_ensure_prompt_packs_resyncs_body_from_seed(tmp_path, monkeypatch):
+def test_ensure_prompt_packs_resyncs_body_from_seed(monkeypatch):
     """Re-running ensure overwrites DB body with git seed (seed is source of truth)."""
     from sqlmodel import Session
 
     from app import crud
-    from app.core.db import engine, reset_engine
+    from app.core.db import engine
     from app.services.design.prompts import prompt_pack_store as pps
-    from tests.conftest import restore_default_sqlite_engine
 
-    db_path = tmp_path / "packs.db"
-    monkeypatch.setenv("SQLITE_DB_PATH", str(db_path))
-    monkeypatch.setenv("DATABASE_URL", "")
-    from app.core.config import settings as settings_mod
-
-    settings_mod.sqlite_db_path = str(db_path)
-    settings_mod.database_url = ""
-    reset_engine()
     pps._PACKS_READY = False
     try:
         pps.ensure_design_prompt_packs()
@@ -65,7 +56,6 @@ def test_ensure_prompt_packs_resyncs_body_from_seed(tmp_path, monkeypatch):
             ).strip()
     finally:
         pps._PACKS_READY = False
-        restore_default_sqlite_engine()
 
 
 def test_oss_ask_system_seed_documents_choice_ui():

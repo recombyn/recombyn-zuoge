@@ -22,6 +22,10 @@ import {
   startImageProcess,
   updateArtboardFrame,
   updateArtboardFrames,
+  ensureAnimationFrameMedia,
+  spawnAnimationBoard,
+  importLottieIntoAnimationFrame,
+  openLottieTimelinePanel,
   type ArtboardFrame,
 } from '@/store/modules/editor';
 import { exportFabricImage } from '@/components/rcb/scene/paint/exportImage';
@@ -34,12 +38,21 @@ import {
 } from '@/components/rcb/scene/document/sceneDocument';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { canBindNodeToArtboardFrame } from '@/components/rcb/frames/frameNodeBinding';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
+import {
+  getAnimationWorkbenchTimelineFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  findFrameAnimationMediaId,
+  resolveActiveAnimationFrameId,
+} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   createImageNode,
   createShapeNode,
   createSvgNode,
   createLottieNode,
-  createTextNode
+  createTextNode,
+  parseLottieAnimationData,
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   supportsBooleanOp
@@ -61,6 +74,12 @@ import { serializeFillGradient, serializeFillImageAttrs } from '@/components/rcb
 import { createMeshGrid, type MeshSize } from '@/components/rcb/scene/document/sceneDiffuseMesh';
 import { isStrokeStyle } from '@/components/rcb/scene/document/sceneStrokeStyle';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
+import { resolveBooleanResultFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  tagCreatedNodeForWorkbenchSurround,
+  WORKBENCH_SURROUND_ATTR,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   computeShapeBoolean,
   applyBooleanResultPaint,
@@ -3264,8 +3283,7 @@ function execCreateLottie(
   doc: SceneDocument,
   pushHistory: () => void
 ): AgentToolResult {
-  const raw =
-    args.animationData;
+  const raw = args.animationData;
   if (raw == null || (typeof raw === 'string' && !String(raw).trim())) {
     return {
       status: 'error',
@@ -3311,40 +3329,90 @@ function execCreateLottie(
     };
   }
 
-  const missXY = requireCreateXY('create_lottie', args);
-  if (missXY) return missXY;
-  let draft;
-  try {
-    draft = createLottieNode({
-      animationData: raw,
-      name: String(args.name || 'Lottie'),
-      width: args.width != null ? num(args.width, 0) || undefined : undefined,
-      height: args.height != null ? num(args.height, 0) || undefined : undefined,
-    });
-  } catch {
+  const parsed = parseLottieAnimationData(raw);
+  if (!parsed) {
     return {
       status: 'error',
       summary: 'create_lottie: invalid Lottie JSON (need layers + canvas size).',
       next_actions: ['Fix animationData schema', 'Retry create_lottie'],
     };
   }
-  const width = Math.max(8, num(args.width, draft.node.width));
-  const height = Math.max(8, num(args.height, draft.node.height));
-  const target = ctx.targetFrameId ? frameById(doc, ctx.targetFrameId) : null;
+
+  const width = Math.max(
+    8,
+    num(args.width, Number(parsed.w) || 200) || Number(parsed.w) || 200
+  );
+  const height = Math.max(
+    8,
+    num(args.height, Number(parsed.h) || 200) || Number(parsed.h) || 200
+  );
+  const boardName = String(args.name || '动画工作台').trim() || '动画工作台';
+
+  // Prefer open timeline / active 动画工作台. Ignore non-animation targetFrameId
+  // (design loading shimmer) so we don't leave an empty 主画板 + spawn a blank board.
+  const focusId = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+  const activeAnimId = resolveActiveAnimationFrameId(doc, undefined);
+  const preferredId = focusId || activeAnimId || String(ctx.targetFrameId || '').trim();
+  const target = preferredId ? frameById(doc, preferredId) : null;
+  if (target && isAnimationArtboardKind(target.kind)) {
+    ctx.dispatch(
+      importLottieIntoAnimationFrame({
+        frameId: target.id,
+        animationData: parsed,
+        name: boardName,
+      })
+    );
+    const afterImport = ctx.getDocument();
+    const hostId = findFrameAnimationMediaId(afterImport, target.id);
+    if (hostId) {
+      ctx.dispatch(openLottieTimelinePanel({ nodeId: hostId }));
+    }
+    return {
+      status: 'success',
+      summary: `Imported lottie into animation board ${target.id}`,
+      artifacts: { frameId: target.id, shapeType: 'lottie' },
+      next_actions: ['Continue layout'],
+    };
+  }
+
+  const missXY = requireCreateXY('create_lottie', args);
+  if (missXY) return missXY;
   const origin = resolveCreateXY(args, target, width, height);
-  const placed = fitIntoFrame(target, origin.x, origin.y, width, height);
-  const placeErr = placementRewriteError('create_lottie', args, placed);
-  if (placeErr) return placeErr;
-  draft.node.x = placed.x;
-  draft.node.y = placed.y;
-  draft.node.width = placed.width;
-  draft.node.height = placed.height;
-  pushHistory();
-  ctx.dispatch(setDocument(addNodeToDocument(ctx.getDocument(), draft.id, draft.node)));
+  ctx.dispatch(
+    spawnAnimationBoard({
+      x: origin.x,
+      y: origin.y,
+      width,
+      height,
+      name: boardName,
+    })
+  );
+  const after = ctx.getDocument();
+  const frameId = String(after?.activeFrameId || '').trim();
+  if (!frameId) {
+    return {
+      status: 'error',
+      summary: 'create_lottie: failed to spawn animation workbench.',
+      next_actions: ['Retry create_lottie'],
+    };
+  }
+  ctx.dispatch(
+    importLottieIntoAnimationFrame({
+      frameId,
+      animationData: parsed,
+      name: boardName,
+      skipHistory: true,
+    })
+  );
+  const afterBoard = ctx.getDocument();
+  const hostId = findFrameAnimationMediaId(afterBoard, frameId);
+  if (hostId) {
+    ctx.dispatch(openLottieTimelinePanel({ nodeId: hostId }));
+  }
   return {
     status: 'success',
-    summary: `Created lottie ${draft.id}`,
-    artifacts: { nodeId: draft.id, shapeType: 'lottie' },
+    summary: `Created animation workbench ${frameId}`,
+    artifacts: { frameId, shapeType: 'lottie' },
     next_actions: ['Continue layout'],
   };
 }
@@ -3565,9 +3633,19 @@ function execBooleanOp(
     }
     const sample = boxes[0];
     const sampleNode = doc?.deltaSetLike?.[sample.id];
+    const operandFrameIds = boxes
+      .map((b) => String(doc?.deltaSetLike?.[b.id]?.attrs?.frameId || '').trim())
+      .filter(Boolean);
+    const origin = sceneToDocumentCoords(doc, result.x, result.y);
+    const frameId = resolveBooleanResultFrameId(
+      doc,
+      operandFrameIds,
+      origin.x + result.width / 2,
+      origin.y + result.height / 2
+    );
     const { id, node } = createShapeNode({
-      x: result.x,
-      y: result.y,
+      x: origin.x,
+      y: origin.y,
       width: result.width,
       height: result.height,
       shapeType: 'path',
@@ -3580,6 +3658,14 @@ function execBooleanOp(
     const attrs = node.attrs as Record<string, unknown>;
     attrs['fill-rule'] = result.fillRule;
     attrs.closed = 'true';
+    if (frameId) {
+      attrs.frameId = frameId;
+      const orders = boxes
+        .map((b) => Number(doc?.deltaSetLike?.[b.id]?.attrs?.frameOrder))
+        .filter(Number.isFinite);
+      if (orders.length) attrs.frameOrder = Math.max(...orders) + 1;
+      delete attrs[WORKBENCH_SURROUND_ATTR];
+    }
     applyBooleanResultPaint(
       attrs,
       sampleNode?.attrs as Record<string, unknown> | undefined,
@@ -3588,14 +3674,23 @@ function execBooleanOp(
     applyBooleanResultRadii(attrs, boxes);
     let next = addNodeToDocument(doc, id, node);
     next = removeNodesFromDocument(next, boxes.map((b) => b.id));
+    if (!frameId) {
+      next = tagCreatedNodeForWorkbenchSurround(next, id);
+    }
     pushHistory();
     ctx.dispatch(setDocument(next));
+    if (frameId) {
+      const frame = (next.frames || []).find((f) => String(f?.id) === frameId);
+      if (frame && isAnimationArtboardKind(frame.kind)) {
+        ctx.dispatch(ensureAnimationFrameMedia({ frameId }));
+      }
+    }
     return {
       status: usedFallback ? 'warning' : 'success',
       summary: usedFallback
         ? `Boolean ${mode} → ${id} (bbox fallback)`
         : `Boolean ${mode} → ${id}`,
-      artifacts: { nodeId: id, mode, removed: boxes.map((b) => b.id) },
+      artifacts: { nodeId: id, mode, removed: boxes.map((b) => b.id), frameId: frameId || undefined },
     };
 
 }
@@ -3844,7 +3939,7 @@ function execBindNodesToFrame(
   if (!boundIds.length) {
     return {
       status: 'error',
-      summary: 'Lottie 合成台不支持绑定视频/音频节点',
+      summary: '动画工作台不支持绑定视频/音频节点',
       artifacts: { rejectedNodeIds: rejectedIds, frameId },
     };
   }

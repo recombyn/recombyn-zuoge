@@ -1,24 +1,20 @@
-"""DB backend — MySQL or local SQLite."""
+"""DB backend — MySQL or PostgreSQL only."""
 
 from __future__ import annotations
 
 import re
-import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any, Iterator, Literal
 from urllib.parse import unquote, urlparse
 
-from app.core.config import _API_ROOT, settings
+from app.core.config import settings
 
-Dialect = Literal["mysql", "sqlite", "postgres"]
+Dialect = Literal["mysql", "postgres"]
 
 # RLock: init_schema holds this while calling connect() → pool checkout.
 _LOCK = threading.RLock()
-# Serializes SQLite writers inside one process (pairs with BEGIN IMMEDIATE + WAL).
-_SQLITE_WRITE_LOCK = threading.RLock()
 _MYSQL_POOL: Any = None  # queue.Queue of live pymysql connections
 _MYSQL_POOL_SIZE = 8
 _MYSQL_RO_POOL: Any = None
@@ -27,8 +23,6 @@ _PG_RO_POOL: Any = None
 _PG_POOL_SIZE = 8
 _SCHEMA_READY = False
 
-_SQLITE_FALLBACK = _API_ROOT / "storage" / "recombyn.db"
-
 
 def dialect() -> Dialect:
     url = (settings.database_url or "").strip().lower()
@@ -36,37 +30,15 @@ def dialect() -> Dialect:
         return "mysql"
     if url.startswith("postgres://") or url.startswith("postgresql://"):
         return "postgres"
-    if url and not url.startswith("sqlite"):
-        # Avoid silently treating postgres typos / other engines as SQLite.
+    if not url:
         raise RuntimeError(
-            f"Unsupported DATABASE_URL scheme (expected mysql://, postgresql://, "
-            f"or empty for SQLite): {settings.database_url[:32]}…"
+            "DATABASE_URL is required (mysql://… or postgresql://…). "
+            "Set DATABASE_URL in apps/api/.env."
         )
-    return "sqlite"
-
-
-def configure_sqlite_connection(conn: Any, *, wal: bool | None = None) -> None:
-    """Apply WAL / busy_timeout / foreign_keys on a raw sqlite3 connection."""
-    try:
-        conn.execute("PRAGMA foreign_keys = ON")
-    except Exception:
-        pass
-    use_wal = bool(settings.sqlite_wal) if wal is None else bool(wal)
-    if use_wal:
-        try:
-            conn.execute("PRAGMA journal_mode = WAL")
-        except Exception:
-            pass
-    busy_ms = int(getattr(settings, "sqlite_busy_timeout_ms", 30000) or 0)
-    if busy_ms > 0:
-        try:
-            conn.execute(f"PRAGMA busy_timeout = {busy_ms}")
-        except Exception:
-            pass
-    try:
-        conn.execute("PRAGMA synchronous = NORMAL")
-    except Exception:
-        pass
+    raise RuntimeError(
+        f"Unsupported DATABASE_URL scheme (expected mysql:// or postgresql://): "
+        f"{settings.database_url[:32]}…"
+    )
 
 
 def _parse_mysql_url(url: str) -> dict[str, Any]:
@@ -355,38 +327,9 @@ def _pg_pool_put(raw: Any, *, readonly: bool = False) -> None:
                 pool._opened = max(0, int(pool._opened) - 1)  # type: ignore[attr-defined]
 
 
-def _sqlite_path() -> Path:
-    """Resolve SQLite file path; prefer ``DATABASE_URL`` when it is sqlite."""
-    raw_url = (settings.database_url or "").strip()
-    if raw_url.lower().startswith("sqlite:"):
-        # sqlite:///rel.db | sqlite:////abs/path.db — strip scheme + optional query.
-        rest = raw_url.split(":", 1)[1].lstrip("/")
-        # Windows absolute: sqlite:///C:/... → after lstrip one leading / remains as C:/...
-        if rest.startswith("/") and len(rest) > 2 and rest[2] == ":":
-            rest = rest[1:]
-        rest = unquote(rest.split("?", 1)[0])
-        path = Path(rest)
-        if not path.is_absolute():
-            path = (_API_ROOT / path).resolve()
-        else:
-            path = path.resolve()
-    else:
-        raw = (settings.sqlite_db_path or "").strip()
-        if raw:
-            path = Path(raw)
-            if not path.is_absolute():
-                path = _API_ROOT / path
-        else:
-            path = _SQLITE_FALLBACK
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def _adapt_sql(sql: str) -> str:
-    """Normalize SQLite-oriented SQL for the active dialect."""
+    """Normalize app SQL for the active dialect (MySQL / PostgreSQL)."""
     d = dialect()
-    if d == "sqlite":
-        return sql
     out = sql
     out = out.replace("COLLATE NOCASE", "")
     if d == "mysql":
@@ -405,7 +348,7 @@ def _adapt_sql(sql: str) -> str:
         )
         out = re.sub(r"excluded\.(\w+)", r"VALUES(\1)", out, flags=re.IGNORECASE)
     else:
-        # PostgreSQL: keep ON CONFLICT / excluded.*; map SQLite helpers.
+        # PostgreSQL: keep ON CONFLICT / excluded.*; map helpers.
         out = re.sub(
             r"\blast_insert_rowid\s*\(\s*\)",
             "lastval()",
@@ -413,7 +356,6 @@ def _adapt_sql(sql: str) -> str:
             flags=re.IGNORECASE,
         )
         out = out.replace("AUTOINCREMENT", "")
-        # MySQL-only FOR UPDATE is fine on PG; IMMEDIATE is SQLite-only — strip if present.
         out = re.sub(r"\bBEGIN\s+IMMEDIATE\b", "BEGIN", out, flags=re.IGNORECASE)
     # pymysql / psycopg use %s placeholders; escape literal % first.
     out = out.replace("%", "%%")
@@ -439,10 +381,6 @@ class CursorWrapper:
         return self
 
     def executescript(self, script: str):
-        if self._dialect == "sqlite":
-            self._cur.executescript(script)
-            return self
-        # MySQL: split on semicolons carefully
         for stmt in _split_sql(script):
             stmt = stmt.strip()
             if not stmt:
@@ -454,14 +392,10 @@ class CursorWrapper:
         row = self._cur.fetchone()
         if row is None:
             return None
-        if self._dialect == "sqlite":
-            return row
         return _DictRow(row)
 
     def fetchall(self):
         rows = self._cur.fetchall()
-        if self._dialect == "sqlite":
-            return rows
         return [_DictRow(r) for r in rows]
 
     @property
@@ -474,7 +408,7 @@ class CursorWrapper:
 
 
 class _DictRow(dict):
-    """sqlite3.Row-like access for MySQL dict rows."""
+    """Dict-row access with integer index support (MySQL/PostgreSQL)."""
 
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, int):
@@ -549,55 +483,28 @@ def connect(
 ) -> Iterator[ConnectionWrapper]:
     """Yield a connection; commits on success, rolls back on error.
 
-    - ``readonly``: prefer read replica (``DATABASE_READONLY_URL``) or SQLite
-      ``mode=ro`` URI — no process write lock.
-    - ``immediate``: SQLite ``BEGIN IMMEDIATE`` (writer lock); MySQL/Postgres
-      ``START TRANSACTION`` / ``BEGIN``. Prefer for wallet / balance mutations.
+    - ``readonly``: prefer read replica (``DATABASE_READONLY_URL``).
+    - ``immediate``: MySQL ``START TRANSACTION`` / Postgres ``BEGIN``.
+      Prefer for wallet / balance mutations.
     """
     d = dialect()
     pooled = False
-    write_lock_held = False
     raw: Any = None
     conn: ConnectionWrapper | None = None
-
-    if d == "sqlite" and not readonly:
-        _SQLITE_WRITE_LOCK.acquire()
-        write_lock_held = True
 
     try:
         if d == "mysql":
             raw = _mysql_pool_get(readonly=readonly)
             conn = ConnectionWrapper(raw, "mysql")
             pooled = True
-        elif d == "postgres":
+        else:
             raw = _pg_pool_get(readonly=readonly)
             conn = ConnectionWrapper(raw, "postgres")
             pooled = True
-        else:
-            path = _sqlite_path()
-            timeout_s = max(
-                5.0,
-                float(getattr(settings, "sqlite_busy_timeout_ms", 30000) or 30000) / 1000.0,
-            )
-            if readonly:
-                # file:///…?mode=ro — Path.as_uri() is portable on Windows/Unix.
-                uri = f"{path.resolve().as_uri()}?mode=ro"
-                raw = sqlite3.connect(
-                    uri, uri=True, check_same_thread=False, timeout=timeout_s
-                )
-            else:
-                raw = sqlite3.connect(
-                    str(path), check_same_thread=False, timeout=timeout_s
-                )
-            raw.row_factory = sqlite3.Row
-            configure_sqlite_connection(raw)
-            conn = ConnectionWrapper(raw, "sqlite")
 
         assert conn is not None
         if immediate and not readonly:
-            if d == "sqlite":
-                conn.execute("BEGIN IMMEDIATE")
-            elif d == "mysql":
+            if d == "mysql":
                 conn.execute("START TRANSACTION")
             else:
                 conn.execute("BEGIN")
@@ -615,22 +522,18 @@ def connect(
         if pooled and raw is not None:
             if d == "mysql":
                 _mysql_pool_put(raw, readonly=readonly)
-            elif d == "postgres":
+            else:
                 _pg_pool_put(raw, readonly=readonly)
         elif conn is not None:
             try:
                 conn.close()
             except Exception:
                 pass
-        if write_lock_held:
-            _SQLITE_WRITE_LOCK.release()
 
 
 def begin_write(conn: ConnectionWrapper) -> None:
     """Take a write transaction on an open connection (wallet / critical sections)."""
-    if conn.dialect == "sqlite":
-        conn.execute("BEGIN IMMEDIATE")
-    elif conn.dialect == "mysql":
+    if conn.dialect == "mysql":
         conn.execute("START TRANSACTION")
     else:
         conn.execute("BEGIN")
@@ -656,5 +559,3 @@ def init_schema() -> None:
             logging.getLogger(__name__).exception(
                 "design catalog seed on init_schema failed"
             )
-
-

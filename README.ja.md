@@ -20,25 +20,147 @@
     &nbsp;
     <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
   </p>
-  <p><strong>作ろう、デザインがこんなに簡単だったことはない</strong></p>
 </div>
 
-**zuoge** はオープンソースの AI デザインワークスペースです。無限ベクターキャンバス、LangGraph Design Agent、**MCP サーバー**（Cursor など外部クライアントが同一プロジェクトを編集）を備えます。Docker Compose でセルフホスト。
+# zuoge
 
-## GitHub で ⭐ Star を
+オープンソースの AI デザインワークスペース。無限ベクターキャンバス、LangGraph Design Agent、Cursor などから同じプロジェクトを編集できる MCP サーバー。Docker Compose でセルフホストできます。
 
-オープンソースは時間がかかります。zuoge が役に立ったら、右上の **⭐ Star** をお願いします。
+**作ろう、デザインがこんなに簡単だったことはない。**
 
-→ [https://github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
+🌐 サイト: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
 
-## MCP キャンバス
+## ✨ Features
 
-外部クライアントは [Model Context Protocol](https://modelcontextprotocol.io) 経由で接続し、内蔵 Agent と同じ `tool_ops` 契約を使います。
+🎨 **無限キャンバス** — `SceneDocument` ベクターシーン、ズーム 5%–10000%、SVG ノード、Path2D ヒット、Canvas2D LOD。
 
-| モード | 動作 |
-|--------|------|
-| **Live** | エディタ起動中 → ブラウザで apply |
-| **Headless** | エディタ未起動 → API がドキュメントを patch |
+🤖 **Design Agent** — 同一キャンバス上のストリーミング会話：計画 → Skill → `tool_ops` → 適用。LangGraph カーネル固定；挙動は AgentProfile YAML、段階プロンプト、Skills、ツール登録で設定。
+
+🔌 **MCP キャンバス** — 外部クライアントは内蔵 Agent と同じ `tool_ops` 契約。Live：エディタ起動中にブラウザで apply。Headless：エディタ未起動時は API がドキュメントを patch。
+
+🧩 **プラグイン** — Skill パックは `plugins/skills/`、キャンバスプラグインは `plugins/canvas/`。`.recombyn-plugin` にパック可能。
+
+👥 **リアルタイムコラボ** — Yjs WebSocket による共同編集。
+
+🖥️ **デスクトップ** — Tauri v2。ブラウザと同じ API を利用。
+
+🗄️ **セルフホスト構成** — Compose で MySQL、Redis、MinIO、web、api、worker、collab。`DATABASE_URL` は MySQL または PostgreSQL 必須。
+
+## 🚀 Quick Start
+
+### 前提条件
+
+- Docker と Docker Compose
+- Node.js 20+（ローカルで web / collab を動かす場合）
+- LLM API キー（DeepSeek、Doubao、OpenRouter など）
+
+### Compose でセルフホスト
+
+リポジトリをクローン：
+
+```bash
+git clone https://github.com/recombyn/zuoge.git
+cd recombyn
+```
+
+API の env をコピーし、プロバイダキーを設定：
+
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
+起動：
+
+```bash
+docker compose up -d --build
+```
+
+ブラウザで開く：
+
+- Web エディタ → http://localhost:3000
+- API docs → http://localhost:8000/docs
+- ホスト側 MySQL → `127.0.0.1:3306` · ユーザー/パスワード `recombyn` / `recombyn`
+
+Compose 内のデフォルト DB：`mysql://recombyn:recombyn@mysql:3306/recombyn`。公開前に `MYSQL_PASSWORD` / `DATABASE_URL` を変更してください。
+
+詳細：[docs/self-hosting.md](docs/self-hosting.md)。Postgres：[docs/postgres-switch.md](docs/postgres-switch.md)。
+
+### Compose レシピ
+
+ベース構成（web + api + collab + mysql + redis + worker）：
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+ベース + ClamAV：
+
+```bash
+docker compose --profile av \
+  -f docker-compose.yml \
+  -f docker-compose.av.yml \
+  up -d --build
+```
+
+ベース + Design Intelligence HTTP：
+
+```bash
+docker compose --profile intelligence \
+  -f docker-compose.yml \
+  -f docker-compose.intelligence.yml \
+  up -d --build
+```
+
+GHCR の事前ビルドイメージ：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+```
+
+Compose 変数はリポジトリ直下の `.env`、API アプリ変数は `apps/api/.env` に置きます。
+
+### ローカル開発
+
+インフラのみ：
+
+```bash
+docker compose up -d mysql redis   # または: npm run dev:infra
+npm install
+cp apps/api/.env.example apps/api/.env
+```
+
+`apps/api/.env` に設定：
+
+```env
+DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn
+```
+
+プロセス起動：
+
+```bash
+npm run dev:api              # MySQL の DATABASE_URL 必須
+npm run dev:collab           # Yjs WS :1234（任意）
+npm run dev:web
+```
+
+Canvas Live / WSS：[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss) · [apps/collab/README.md](apps/collab/README.md)。
+
+### デスクトップ（Tauri）
+
+Rust と OS ビルドツールが必要です。[docs/desktop.md](docs/desktop.md) を参照。
+
+```bash
+npm run dev:desktop
+npm run build:desktop
+# 公開時は VITE_API_BASE_URL
+```
+
+インストーラ：`apps/web/src-tauri/target/release/bundle/`。本体：`…/target/release/recombyn.exe`。
+
+## 🔌 MCP キャンバス
+
+API と Web で有効化：
 
 ```bash
 # apps/api/.env
@@ -47,7 +169,7 @@ MCP_CANVAS_ENABLED=true
 VITE_MCP_CANVAS_ENABLED=true
 ```
 
-Cursor — `.cursor/mcp.json` に追加:
+Cursor — `.cursor/mcp.json` に追加：
 
 ```json
 {
@@ -65,109 +187,87 @@ Cursor — `.cursor/mcp.json` に追加:
 }
 ```
 
-→ [docs/mcp-canvas.md](docs/mcp-canvas.md)
+**Live** — エディタ起動中、ブラウザで apply。  
+**Headless** — エディタ未起動、API がプロジェクトを patch。
 
-## キャンバス
+詳細：[docs/mcp-canvas.md](docs/mcp-canvas.md)。
 
-無限ベクターキャンバス（`SceneDocument`、5%–10000% ズーム）：SVG ノード、Path2D ヒット、Canvas2D LOD。フレーム、図形、テキスト、画像、ペン/鉛筆、ブール演算、ストローク揃え、エクスポート、**Yjs** コラボ。
-
-→ [docs/canvas-architecture.md](docs/canvas-architecture.md) · [docs/scene-json-spec.md](docs/scene-json-spec.md)
-
-## Design Agent
-
-同一キャンバス上のストリーミング会話：計画 → Skill → `tool_ops` → 適用。LangGraph カーネル固定（`canvas_ops_v1`）；挙動は **AgentProfile** YAML、段階プロンプト、**Skills**、ツール登録で設定。
-
-| カスタム | 場所 |
-|----------|------|
-| Profile / ルーティング | [`design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml)、[`bindings.yaml`](apps/api/seeds/agents/bindings.yaml) |
-| Skills | [`skills/`](skills/) · [`plugins/skills/`](plugins/skills/) |
-| キャンバス ops | [`canvas_actions_seed.json`](apps/api/seeds/canvas_actions_seed.json) |
-
-グラフ、env、Profile 追加/差替：**[docs/agent-profile.md](docs/agent-profile.md)** · [seeds README](apps/api/seeds/README.md)
-
-## プラグインと拡張
-
-| 種類 | パス | ドキュメント |
-|------|------|--------------|
-| **Skill パック** | [`plugins/skills/<key>/`](plugins/skills/) | [skill-extensions.md](docs/skill-extensions.md) |
-| **Canvas プラグイン** | [`plugins/canvas/<id>/`](plugins/canvas/) | [canvas-plugins.md](docs/canvas-plugins.md) |
-
-パック：`node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster` → [plugin-packs.md](docs/plugin-packs.md)
-
-## クイックスタート（セルフホスト）
-
-```bash
-git clone https://github.com/recombyn/zuoge.git
-cd recombyn
-cp apps/api/.env.example apps/api/.env   # LLM_API_KEY / プロバイダキーを設定
-docker compose up -d --build
-```
-
-| サービス | URL |
-|---------|-----|
-| Web | http://localhost:3000 |
-| API docs | http://localhost:8000/docs |
-| MySQL | `127.0.0.1:3306` · `recombyn` / `recombyn` |
-
-詳細（env、LLM、本番 hardening）: **[docs/self-hosting.md](docs/self-hosting.md)** · Postgres: **[docs/postgres-switch.md](docs/postgres-switch.md)**
-
-### ローカル開発
-
-```bash
-docker compose up -d redis   # または: mysql redis
-npm install
-cp apps/api/.env.example apps/api/.env
-npm run dev:api              # 空 DATABASE_URL → SQLite
-npm run dev:collab           # Yjs WS :1234（任意）
-npm run dev:web
-```
-
-Canvas Live / WSS: **[docs/self-hosting.md § Canvas multiplayer](docs/self-hosting.md#canvas-multiplayer-yjs--wss)** · [apps/collab/README.md](apps/collab/README.md)
-
-### デスクトップ（Tauri）
-
-**[docs/desktop.md](docs/desktop.md)** を参照。**Rust** と OS ビルドツールが必要です。
-
-```bash
-# デスクトップ — ブラウザと同じ API（:8000 / .env）
-npm run dev:desktop
-npm run build:desktop
-# 公開デプロイ時は VITE_API_BASE_URL
-```
-
-成果物: `apps/web/src-tauri/target/release/bundle/`（インストーラ）；本体 `…/target/release/recombyn.exe`。
-
-## リポジトリ構成
+## 🏗️ リポジトリ構成
 
 ```
-apps/web/          React キャンバス + Agent UI + Yjs クライアント
-  src-tauri/       Tauri v2 デスクトップシェル（zuoge）
-apps/api/          FastAPI — Scene, Agent, plaza, wallet, collab tokens
-apps/collab/       Yjs WebSocket サーバー（y-websocket）
-plugins/           拡張（skills + canvas）— Compose マウント
-packages/          共有ビルダー & スキーマ
-docs/              セルフホスト、デプロイ、課金、Agent、プラグイン、デスクトップ、キャンバス
-deploy/            Dockerfile / Nginx
-e2e/               Playwright
+recombyn/
+├── apps/
+│   ├── web/                 # React キャンバス + Agent UI + Yjs
+│   │   └── src-tauri/       # Tauri v2 シェル
+│   ├── api/                 # FastAPI — Scene, Agent, plaza, wallet, MCP
+│   └── collab/              # Yjs WebSocket
+├── plugins/
+│   ├── skills/              # Skill 拡張
+│   └── canvas/              # Canvas プラグイン
+├── packages/                # 共有スキーマ / ビルダー
+├── docs/                    # セルフホスト、Agent、キャンバス、プラグイン
+├── deploy/                  # Dockerfile / Nginx / VPS
+├── e2e/                     # Playwright
+└── skills/                  # 内蔵 Skill プレイブック
 ```
 
-ユーザー向けドキュメント：[recombyn.github.io/recombyn/](https://recombyn.github.io/recombyn/)（本リポジトリの `gh-pages` から公開）。
+## 🛠️ Technologies Used
 
-## ドキュメント / コミュニティ
+- **React + TypeScript** — Web エディタと Agent UI
+- **FastAPI + Python** — API、Design Agent、課金、plaza
+- **LangGraph** — Design Agent グラフ（MySQL checkpointer → memory）
+- **MySQL 8** — メイン DB（Postgres 可）
+- **Redis + Celery** — キューとワーカー
+- **MinIO** — S3 互換ストレージ
+- **Yjs** — リアルタイムコラボ
+- **Vite** — Web バンドラ / 開発サーバー
+- **Tauri v2** — デスクトップシェル
+- **Docker Compose** — セルフホストとローカルインフラ
 
-| | |
-|--|--|
-| ユーザー向け | [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) |
-| MCP キャンバス（Cursor / 外部 AI） | [docs/mcp-canvas.md](docs/mcp-canvas.md) |
-| セルフホスト / 構成 | [docs/self-hosting.md](docs/self-hosting.md) |
-| 課金・クレジット | [docs/billing.md](docs/billing.md) |
-| Skill 拡張 | [docs/skill-extensions.md](docs/skill-extensions.md) |
-| Canvas プラグイン | [docs/canvas-plugins.md](docs/canvas-plugins.md) |
-| プラグインパック（`.recombyn-plugin`） | [docs/plugin-packs.md](docs/plugin-packs.md) |
-| AgentProfile | [docs/agent-profile.md](docs/agent-profile.md) |
-| キャンバス | [docs/canvas-architecture.md](docs/canvas-architecture.md) |
-| デスクトップ | [docs/desktop.md](docs/desktop.md) |
-| Postgres | [docs/postgres-switch.md](docs/postgres-switch.md) |
-| コントリビュート · セキュリティ · CoC | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+## 🎨 Key Components
 
-公式: [recombyn.com](https://recombyn.com) · Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/) · Source: [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge)
+### Canvas
+
+フレーム、図形、テキスト、画像、ペン/鉛筆、ブール演算、ストローク揃え、エクスポート。[docs/scene-json-spec.md](docs/scene-json-spec.md) · [docs/canvas-architecture.md](docs/canvas-architecture.md)。
+
+### Design Agent
+
+キャンバス上のストリーミング設計ターン。Profile：[`design.canvas.yaml`](apps/api/seeds/agents/profiles/design.canvas.yaml)、[`bindings.yaml`](apps/api/seeds/agents/bindings.yaml)。Skills：[`skills/`](skills/)、[`plugins/skills/`](plugins/skills/)。[docs/agent-profile.md](docs/agent-profile.md) · [docs/agent-harness.md](docs/agent-harness.md)。
+
+### プラグイン
+
+Skill 拡張：[docs/skill-extensions.md](docs/skill-extensions.md)。Canvas プラグイン：[docs/canvas-plugins.md](docs/canvas-plugins.md)。パック：`node scripts/pack-recombyn-plugin.mjs plugins/skills/festival_poster` — [docs/plugin-packs.md](docs/plugin-packs.md)。
+
+## 📚 Documentation
+
+- ユーザー向け — [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
+- セルフホスト — [docs/self-hosting.md](docs/self-hosting.md)
+- MCP キャンバス — [docs/mcp-canvas.md](docs/mcp-canvas.md)
+- 課金 — [docs/billing.md](docs/billing.md)
+- デスクトップ — [docs/desktop.md](docs/desktop.md)
+- Postgres — [docs/postgres-switch.md](docs/postgres-switch.md)
+- Contributing · Security · CoC — [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
+## 🤝 Contributing
+
+1. リポジトリをフォーク
+2. 機能ブランチを作成（`git checkout -b feature/amazing-feature`）
+3. コミット（`git commit -m 'Add amazing feature'`）
+4. プッシュ（`git push origin feature/amazing-feature`）
+5. Pull Request を作成
+
+詳細は [CONTRIBUTING.md](CONTRIBUTING.md)。セキュリティ報告は [SECURITY.md](SECURITY.md)。
+
+## 📄 License
+
+Apache-2.0 — [LICENSE](LICENSE) を参照。
+
+## 📞 Support
+
+- Issues: [GitHub Issues](https://github.com/recombyn/zuoge/issues)
+- Docs: [recombyn.github.io/recombyn](https://recombyn.github.io/recombyn/)
+- Site: [recombyn.com](https://recombyn.com)
+
+## ⭐ Star
+
+オープンソースは時間がかかります。zuoge が役に立ったら [github.com/recombyn/zuoge](https://github.com/recombyn/zuoge) で Star をお願いします。

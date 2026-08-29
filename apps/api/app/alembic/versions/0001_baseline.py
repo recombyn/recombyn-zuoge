@@ -4,7 +4,7 @@ Revision ID: 0001_baseline
 Revises:
 Create Date: 2026-08-06
 
-Greenfield: create_all. Existing MySQL/SQLite with tables already present:
+Greenfield: create_all. Existing MySQL with tables already present:
 create_all is a no-op for existing tables; alembic_version is stamped.
 """
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import {
   isNodeHidden,
   isNodeHiddenInDocument,
@@ -7,6 +7,10 @@ import {
   shouldSkipNodeInSvgPaint,
 } from '../nodeCapabilities';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import {
+  setAnimationWorkbenchPlayheadSec,
+  setAnimationWorkbenchTimelineFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 describe('nodeCapabilities visibility', () => {
   it('isNodeHiddenInDocument is true when owning artboard is hidden', () => {
@@ -55,5 +59,79 @@ describe('nodeCapabilities visibility', () => {
     const node = doc.deltaSetLike!.n1;
     expect(isNodeOverlayHidden(doc, node, true)).toBe(true);
     expect(isNodeOverlayHidden(doc, node, false)).toBe(false);
+  });
+});
+
+describe('nodeCapabilities playhead hide', () => {
+  afterEach(() => {
+    setAnimationWorkbenchTimelineFocus(null);
+    setAnimationWorkbenchPlayheadSec(0);
+  });
+
+  it('isNodeHiddenInDocument is true when playhead is before layer in-frame', () => {
+    setAnimationWorkbenchTimelineFocus('af1');
+    setAnimationWorkbenchPlayheadSec(0);
+    const doc = {
+      frames: [{ id: 'af1', kind: 'animation', x: 0, y: 0, width: 400, height: 300, fps: 30 }],
+      deltaSetLike: {
+        ROOT: { children: ['img'] },
+        img: {
+          id: 'img',
+          key: 'image',
+          x: 10,
+          y: 10,
+          width: 40,
+          height: 40,
+          attrs: { frameId: 'af1', lottieInFrame: 30, lottieOutFrame: 90 },
+        },
+      },
+    } as unknown as SceneDocument;
+    expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.img)).toBe(true);
+    expect(shouldSkipNodeInSvgPaint(doc, doc.deltaSetLike!.img, false)).toBe(false);
+    expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.img, 1.5)).toBe(false);
+  });
+
+  it('isNodeHiddenInDocument trims playhead without timeline focus', () => {
+    setAnimationWorkbenchTimelineFocus(null);
+    setAnimationWorkbenchPlayheadSec(0);
+    const doc = {
+      frames: [{ id: 'af1', kind: 'animation', x: 0, y: 0, width: 400, height: 300, fps: 30 }],
+      deltaSetLike: {
+        ROOT: { children: ['img'] },
+        img: {
+          id: 'img',
+          key: 'image',
+          x: 10,
+          y: 10,
+          width: 40,
+          height: 40,
+          attrs: { frameId: 'af1', lottieInFrame: 30, lottieOutFrame: 90 },
+        },
+      },
+    } as unknown as SceneDocument;
+    expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.img)).toBe(true);
+    expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.img, 1.5)).toBe(false);
+  });
+
+  it('isNodeOverlayHidden ignores playhead trim (sync owns ink)', () => {
+    setAnimationWorkbenchTimelineFocus('af1');
+    setAnimationWorkbenchPlayheadSec(0);
+    const doc = {
+      frames: [{ id: 'af1', kind: 'animation', x: 0, y: 0, width: 400, height: 300, fps: 30 }],
+      deltaSetLike: {
+        ROOT: { children: ['img'] },
+        img: {
+          id: 'img',
+          key: 'image',
+          x: 10,
+          y: 10,
+          width: 40,
+          height: 40,
+          attrs: { frameId: 'af1', lottieInFrame: 30, lottieOutFrame: 90 },
+        },
+      },
+    } as unknown as SceneDocument;
+    expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.img)).toBe(true);
+    expect(isNodeOverlayHidden(doc, doc.deltaSetLike!.img)).toBe(false);
   });
 });

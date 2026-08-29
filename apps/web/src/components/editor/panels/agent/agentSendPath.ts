@@ -15,7 +15,7 @@ import type {
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
 import {
   DEFAULT_LOTTIE_ASPECT,
-} from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
+} from '@/components/editor/panels/agent/shared/AnimationSettingsPanel';
 import {
   modelIsAudioGenerator,
 } from '@/components/editor/nodes/shared/generatorModelLists';
@@ -602,12 +602,17 @@ export function uniqueVisionUrls(urls: Array<string | null | undefined>, max = 4
     .slice(0, max);
 }
 
-function resolveDesignFocusFrameId(opts: {
+/** Prefer open 动画工作台 timeline over ambient chip. */
+export function resolveDesignFocusFrameId(opts: {
   freeCanvasMention: boolean;
   editTargetId: string | null | undefined;
   chipFrameId: string | null | undefined;
+  /** Open 动画工作台 timeline — preferred over ambient chip. */
+  animationWorkbenchFrameId?: string | null;
 }): string | null {
   if (opts.freeCanvasMention) return null;
+  const workbench = String(opts.animationWorkbenchFrameId || '').trim();
+  if (workbench) return workbench;
   return opts.chipFrameId || null;
 }
 
@@ -979,6 +984,8 @@ export function buildDesignSceneSnapshot(opts: {
   lastAgentFrameId: string | null;
   taskStateFrameId?: string | null;
   canvasUi?: CanvasUiBridge | null;
+  /** Timeline-open 动画工作台 frame id (from lottieTimelinePanel). */
+  animationWorkbenchFrameId?: string | null;
 }) {
   let chipFrameId = opts.chipFrameId;
   if (!chipFrameId && opts.mentionNodeIds.length && opts.docNow) {
@@ -995,6 +1002,7 @@ export function buildDesignSceneSnapshot(opts: {
     freeCanvasMention,
     editTargetId: editTarget?.id,
     chipFrameId,
+    animationWorkbenchFrameId: opts.animationWorkbenchFrameId,
   });
   const sceneNodes = opts.docNow
     ? buildSceneNodesForCanvas(opts.docNow, {

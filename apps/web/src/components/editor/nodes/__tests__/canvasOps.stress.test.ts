@@ -17,7 +17,7 @@ import reducer, {
   setShapeKind,
   spawnAudioGenerator,
   spawnImageGenerator,
-  spawnLottieGenerator,
+  spawnAnimationBoard,
   spawnLottieGeneratorPlate,
   spawnVideoGenerator,
   startImageUploadPlaceholder,

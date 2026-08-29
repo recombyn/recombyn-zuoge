@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
-import { isLottieTimelineUiActive } from '@/components/editor/nodes/LottieNode/lottieTimelineHotkeys';
+import { isLottieTimelineUiActive } from '@/components/editor/nodes/AnimationNode/animationTimelineHotkeys';
+import { isAnimationWorkbenchSelection, resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import ImageVariantsOverlay from '@/components/editor/nodes/ImageNode/ImageVariantsOverlay';
 import { useImageVariantsExpandedNodeId } from '@/components/editor/nodes/ImageNode/imageVariantsExpand';
@@ -59,9 +60,10 @@ import {
   isAudioGeneratorNode,
   isImageGeneratorNode,
   isLottieGeneratorNode,
-  isLottieFrameHostNode,
+  isAnimationFrameHostNode,
   isVideoGeneratorNode,
   isNodeHidden,
+  isNodeHiddenInDocument,
   isNodeLocked,
   isTextFrameNode,
   supportsCornerRadius,
@@ -199,12 +201,13 @@ import {
 import { frameSelId, parseFrameSelId } from './frameSelectionIds';
 import {
   getFrameBox,
+  frameIsEmpty,
   isPointOnFrameEdge,
   resolveFramePlateDragMode,
   resolveFramePlateTarget,
 } from '@/components/rcb/frames/framePlatePointer';
 
-/** One frame of live transform chrome + paint (ADR 0027 — RAF preview). */
+/** One frame of live transform chrome + paint (ADR 0027 ??RAF preview). */
 export type TransformPreviewBatch = {
   union?: SceneBox | null;
   origins?: Array<{ nodeId: string; box: SceneBox }> | null;
@@ -219,7 +222,7 @@ export type TransformPreviewBatch = {
 
 /**
  * Coalesce pointermove transform previews to one rAF.
- * Commit path must {@link TransformPreviewCoalescer.cancel} — do not flush stale
+ * Commit path must {@link TransformPreviewCoalescer.cancel} ??do not flush stale
  * mid-gesture paint over the final pointerup geometry.
  */
 export type TransformPreviewCoalescer = {
@@ -274,7 +277,7 @@ export function createTransformPreviewCoalescer(handlers: {
 
 type SelectionFeatureProps = {
   enabled: boolean;
-  /** Share/preview: select + Dev annotations only — no move/resize/edit. */
+  /** Share/preview: select + Dev annotations only ??no move/resize/edit. */
   readOnly?: boolean;
   document: SceneDocument;
   selectedNodeIds: string[];
@@ -342,7 +345,7 @@ type SelectionFeatureProps = {
   /** Fires when move / resize / rotate starts or ends (for hiding node titles). */
   onTransformingChange?: (transforming: boolean) => void;
   /**
-   * Composer "Add from canvas" pick mode — clicks attach via onSelect and must
+   * Composer "Add from canvas" pick mode ??clicks attach via onSelect and must
    * not start a move (already-selected hits would otherwise skip onSelect).
    */
   attachPickActive?: boolean;
@@ -416,12 +419,17 @@ function SelectionFeature({
   const shapeStylePanel = useSelector(
     (s: any) => s.editor.shapeStylePanel as null | { kind: string }
   );
+  // Scrubbing updates host `__sceneAngle` without Redux attrs ? re-read chrome angle.
+  // Same playhead gate whether the timeline dock is open or closed (exit leaves t=0).
+  const lottiePlayheadSec = useSelector(
+    (s: any) => Number(s.editor.lottiePlayheadSec) || 0
+  );
   /** Radius panel keeps chrome (rounded outline) but hides floating toolbars. */
   const suppressToolbars = suppressChrome || shapeStylePanel?.kind === 'radius';
   const imageVariantsExpandedId = useImageVariantsExpandedNodeId();
   const variantsStackOpen = Boolean(imageVariantsExpandedId);
   const effectiveSuppressToolbars = suppressToolbars || variantsStackOpen;
-  /** Share preview / Dev: select↔hover spacing + orange pair chrome. */
+  /** Share preview / Dev: select?hover spacing + orange pair chrome. */
   const inspectDev = workspaceMode === 'dev' || readOnly;
   const dragRef = useRef<DragState | null>(null);
   const liveUnionRef = useRef<SceneBox | null>(null);
@@ -455,8 +463,8 @@ function SelectionFeature({
   const onTransformingChangeRef = useRef(onTransformingChange);
   onTransformingChangeRef.current = onTransformingChange;
 
-  // Keep pointer handlers stable — document identity churn must not tear down
-  // window listeners mid-marquee (setMarquee re-render used to drop pointerup → stuck brush).
+  // Keep pointer handlers stable ??document identity churn must not tear down
+  // window listeners mid-marquee (setMarquee re-render used to drop pointerup ??stuck brush).
   const documentRef = useRef(document);
   const getNodeBoxRef = useRef(getNodeBox);
   const listNodeIdsRef = useRef(listNodeIds);
@@ -482,7 +490,7 @@ function SelectionFeature({
   const readOnlyRef = useRef(readOnly);
   const attachPickActiveRef = useRef(attachPickActive);
   const imageToolSessionNodeIdRef = useRef(imageToolSessionNodeId);
-  /** Latest chrome pick options — read on pointer events (not effect deps). */
+  /** Latest chrome pick options ??read on pointer events (not effect deps). */
   const chromePickOptsRef = useRef({
     zoom: 1,
     showHandles: false,
@@ -525,7 +533,7 @@ function SelectionFeature({
     null
   );
   const [liveAngle, setLiveAngle] = useState(0);
-  /** Host mount / sticky re-align after draw — force live boxes to match paint. */
+  /** Host mount / sticky re-align after draw ??force live boxes to match paint. */
   const [hostEpoch, setHostEpoch] = useState(0);
   useEffect(() => subscribeShapeHosts(() => setHostEpoch((n) => n + 1)), []);
   const [marquee, setMarquee] = useState<SceneBox | null>(null);
@@ -562,7 +570,7 @@ function SelectionFeature({
     // Derive ids from keys so a new array reference does not recreate origins
     // every render (that caused Maximum update depth loops).
     const ids = idsKey ? idsKey.split('|').filter(Boolean) : [];
-    // Soft frame focus uses plate edge highlight only — never feed frames into control chrome.
+    // Soft frame focus uses plate edge highlight only ??never feed frames into control chrome.
     const fids =
       frameChromeMode === 'full' && frameIdsKey
         ? frameIdsKey.split('|').filter(Boolean)
@@ -651,7 +659,7 @@ function SelectionFeature({
       setLiveAngle(0);
       return;
     }
-    // Frame-only or multi without shared rotation — use current union.
+    // Frame-only or multi without shared rotation ??use current union.
     if (!idsKey || Math.abs(selectionSharedRotation) < 0.01) {
       const prev = multiChromeRef.current;
       const selKey = `${idsKey}#${frameIdsKey}`;
@@ -772,6 +780,13 @@ function SelectionFeature({
         }
       }
 
+      // Inspector docks over E resize seats ??do not paint chrome cursors through it.
+      if (target?.closest?.('[data-lottie-inspector]')) {
+        clearChromeCursor();
+        applyHover(null);
+        return;
+      }
+
       if (isSelectionHoverUiTarget(target)) {
         if (paintedChromeHover(e, hoverScene, false)) {
           applyHover(null);
@@ -806,7 +821,7 @@ function SelectionFeature({
         applyHover(nodeHit);
         return;
       }
-      // Empty artboard / frame chrome: still measure select↔hover spacing.
+      // Empty artboard / frame chrome: still measure select?hover spacing.
       const frameHit = hitTestFrameRef.current?.(p.x, p.y) ?? null;
       applyHover(frameHit ? frameSelId(frameHit) : null);
     };
@@ -846,6 +861,12 @@ function SelectionFeature({
   useEffect(() => {
     if (!enabled || !hitEl) return undefined;
 
+    // Recover from a stuck scrub flag left by a missed pointerup.
+    // Use window.document ??`document` in this scope is the scene model.
+    if (window.document.documentElement.hasAttribute('data-lottie-scrubbing')) {
+      window.document.documentElement.removeAttribute('data-lottie-scrubbing');
+    }
+
     const previewCoalesce = createTransformPreviewCoalescer({
       applyChrome: (batch) => {
         if (batch.union !== undefined) setLiveUnion(batch.union);
@@ -874,7 +895,7 @@ function SelectionFeature({
     };
 
     const getPointerCtx = () => ({
-      // Scene model — never shadow DOM Document (elementsFromPoint / querySelector).
+      // Scene model ??never shadow DOM Document (elementsFromPoint / querySelector).
       sceneDoc: documentRef.current,
       toScene: toSceneRef.current,
       zoom: zoomRef.current,
@@ -930,7 +951,7 @@ function SelectionFeature({
 
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
-      // New gesture — drop any brush left stuck after a lost pointerup.
+      // New gesture ??drop any brush left stuck after a lost pointerup.
       setMarquee(null);
       const {
         sceneDoc,
@@ -944,7 +965,15 @@ function SelectionFeature({
         onSelect,
         onSelectFrame,
       } = getPointerCtx();
-      const target = e.target as HTMLElement;
+      // Text nodes are not Elements ??normalize so `.closest` cannot throw and miss UI docks.
+      const targetNode = e.target as Node | null;
+      const target = (
+        targetNode && targetNode.nodeType === 1
+          ? (targetNode as Element)
+          : targetNode?.parentElement
+      ) as HTMLElement | null;
+      if (!target) return;
+      if (window.document.documentElement.hasAttribute('data-lottie-scrubbing')) return;
       const seed = (
         mode: DragState['mode'],
         ev: { clientX: number; clientY: number },
@@ -959,7 +988,18 @@ function SelectionFeature({
       const lockedSelection = isSelectionOriginsLocked(sceneDoc, liveOriginsNow);
       const pickOpts = chromePickOptsRef.current;
 
-      // One pick: overlay seats → geometry chrome → DOM chrome.
+      // UI panels own the gesture before geometric chrome pick. The Lottie
+      // inspector docks on the selection's E edge and overlaps resize seats ??      // `[data-lottie-inspector]` below must win.
+      if (target.closest('[data-sel-toolbar],[data-frame-toolbar]')) return;
+      if (
+        target.closest(
+          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-media-quick-edit],[data-mark-composer],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-fill-image-preview],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-mockup-session],[data-mockup-toolbar],[data-upscale-toolbar],[data-mark-overlay],[data-mark-pin-overlay],[data-mark-prompt],[data-lottie-inspector],[data-lottie-kf-popover]'
+        )
+      ) {
+        return;
+      }
+
+      // One pick: overlay seats ??geometry chrome ??DOM chrome.
       // Scene point shared with CameraTransform (ADR 0027).
       let chromePick: ChromeHandlePick | null = null;
       if (
@@ -1072,15 +1112,6 @@ function SelectionFeature({
         return;
       }
 
-      // Toolbars own their pointers (shape dots go through pickSelectionInk above).
-      if (target.closest('[data-sel-toolbar],[data-frame-toolbar]')) return;
-      if (
-        target.closest(
-          '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-media-quick-edit],[data-mark-composer],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-fill-image-preview],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-mockup-session],[data-mockup-toolbar],[data-upscale-toolbar],[data-mark-overlay],[data-mark-pin-overlay],[data-mark-prompt]'
-        )
-      )
-        return;
-
       const beginMoveSelection = () => {
         if (readOnly || !liveUnionNow || !liveOriginsNow?.length) return false;
         if (lockedSelection) return false;
@@ -1108,7 +1139,7 @@ function SelectionFeature({
       const frameAtPoint = hitTestFrame?.(p.x, p.y) ?? null;
       let hitId = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
       const selectedIds = liveOriginsNow?.map((o) => o.nodeId) ?? [];
-      // Bbox fallback only outside artboard interior — frame plate owns its blank area.
+      // Bbox fallback only outside artboard interior ??frame plate owns its blank area.
       if (!hitId && !frameAtPoint && selectedIds.some((id) => parseFrameSelId(id))) {
         hitId = fallbackVisibleNodeHit(sceneDoc, p, listNodeIds(), getNodeBox);
       }
@@ -1126,12 +1157,9 @@ function SelectionFeature({
         const box = getFrameBox(sceneDoc, frameId);
         const empty = mode === 'frame_move';
         const onEdge = box ? isPointOnFrameEdge(p, box, zoom) : false;
-        const reselecting =
-          (liveOriginsNow?.length ?? 0) === 0 &&
-          selectedNodeIds.length === 0 &&
-          selectedFrameIds.length === 0;
-        const chrome: 'soft' | 'full' =
-          empty || onEdge || reselecting ? 'full' : 'soft';
+        // Occupied interior: soft focus only (no handles / no move). Empty or
+        // border band still get full chrome. First-click must not force full.
+        const chrome: 'soft' | 'full' = empty || onEdge ? 'full' : 'soft';
         onSelectFrame?.(frameId, { chrome });
 
         if (!box || !empty) {
@@ -1189,7 +1217,7 @@ function SelectionFeature({
         return;
       }
 
-      // Full-bleed background plate outside frame match — marquee only.
+      // Full-bleed background plate outside frame match ??marquee only.
       if (hitId && plateFrameId) {
         e.preventDefault();
         if (!e.shiftKey && !readOnly) {
@@ -1296,6 +1324,11 @@ function SelectionFeature({
         const frameId = parseFrameSelId(liveOriginsNow[0].nodeId);
         const box = liveUnionNow;
         if (frameId && box) {
+          // Occupied artboard/workbench: interior stays soft + marquee, never drag plate.
+          if (!frameIsEmpty(sceneDoc, frameId)) {
+            beginFramePlateGesture(frameId);
+            return;
+          }
           e.preventDefault();
           e.stopPropagation();
           const origins = [{ nodeId: frameSelId(frameId), box: { ...box } }];
@@ -1345,6 +1378,14 @@ function SelectionFeature({
     };
 
     const onMove = (e: PointerEvent) => {
+      if (window.document.documentElement.hasAttribute('data-lottie-scrubbing')) {
+        if (dragRef.current) {
+          dragRef.current = null;
+          setTransformingNotify(false);
+          clearSelectionChromeCursor(hitEl);
+        }
+        return;
+      }
       const drag = dragRef.current;
       if (!drag) return;
       const {
@@ -1362,13 +1403,13 @@ function SelectionFeature({
       drag.currentShift = e.shiftKey;
       const screenDistSq = screenDragDistSq(drag, e.clientX, e.clientY);
       if (drag.mode === 'blank') {
-        // Abandon soft click once past drag threshold (≥1 CSS px).
+        // Abandon soft click once past drag threshold (?? CSS px).
         if (screenDistSq >= DRAG_DISTANCE_SQUARED) {
           dragRef.current = null;
         }
         return;
       }
-      // PointingCanvas → Brushing after dual screen-px gate.
+      // PointingCanvas ??Brushing after dual screen-px gate.
       if (drag.mode === 'pointing_canvas') {
         if (readOnly) return;
         const { passed, box } = evaluateBrushGate(
@@ -1425,7 +1466,7 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'rotate' && drag.center && drag.pointerAngle0 != null) {
-        // Soft-click on rotate knob — ignore OS pointer jitter.
+        // Soft-click on rotate knob ??ignore OS pointer jitter.
         if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
         const { next, delta } = computeRotateDelta(drag, p, e.shiftKey);
         if (drag.origins.length === 1) {
@@ -1468,7 +1509,7 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'move') {
-        // Follow the pointer immediately — only grid may quantize (no travel gate).
+        // Follow the pointer immediately ??only grid may quantize (no travel gate).
         const { dx: cdx, dy: cdy } = shiftConstrainedMoveDelta(drag, dx, dy, e.shiftKey);
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
         const threshold = smartSnapThreshold(zoom);
@@ -1516,7 +1557,7 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'resize' && drag.handle) {
-        // Soft-click on a handle must not resize: at 3% zoom, 2px jitter → 60+
+        // Soft-click on a handle must not resize: at 3% zoom, 2px jitter ??60+
         // scene units and snap threshold is huge (8/zoom), so the box jumps.
         if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
         const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y, e.shiftKey);
@@ -1605,9 +1646,9 @@ function SelectionFeature({
 
     const onUp = (e: PointerEvent) => {
       const drag = dragRef.current;
-      // Drop pending rAF preview — pointerup recomputes and commits final geom.
+      // Drop pending rAF preview ??pointerup recomputes and commits final geom.
       previewCoalesce.cancel();
-      // Always clear the brush — even if the gesture ref was lost mid-flight
+      // Always clear the brush ??even if the gesture ref was lost mid-flight
       // (effect remount used to drop pointerup and leave the box stuck).
       setMarquee(null);
       if (!drag) return;
@@ -1703,7 +1744,7 @@ function SelectionFeature({
           clientY,
           e.pointerType || 'mouse'
         );
-        // Still under brush gate — treat as an empty click, not an artboard pick.
+        // Still under brush gate ??treat as an empty click, not an artboard pick.
         if (!passed) {
           const pin = imageToolSessionNodeIdRef.current;
           if (pin) {
@@ -1715,7 +1756,7 @@ function SelectionFeature({
           endTransform();
           return;
         }
-        // Pad spatial prefilter the same as fine hit — tiny nodes near the brush edge.
+        // Pad spatial prefilter the same as fine hit ??tiny nodes near the brush edge.
         const queryPad = marqueeHitPadScene(zoom) + MARQUEE_MIN_HIT_SCREEN_PX / Math.max(0.05, zoom);
         const queryBox = expandSceneBox(box, queryPad);
         const candidates = queryIdsInRect?.(queryBox) ?? [];
@@ -1990,7 +2031,7 @@ function SelectionFeature({
         return;
       }
       let hit = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
-      // Selection chrome covers the glyph — fall back to the single selected node.
+      // Selection chrome covers the glyph ??fall back to the single selected node.
       if (!hit && target?.closest?.('[data-sel-box]')) {
         const ids = liveOriginsRef.current?.map((o) => o.nodeId) || [];
         if (ids.length === 1) hit = ids[0];
@@ -2030,7 +2071,7 @@ function SelectionFeature({
       const el = e.target as HTMLElement | null;
       if (
         el?.closest?.(
-          'input,textarea,button,a,select,[role="button"],[contenteditable="true"],[data-agent-dock],[data-agent-composer]'
+          'input,textarea,button,a,select,[role="button"],[contenteditable="true"],[data-agent-dock],[data-agent-composer],[data-lottie-inspector],[data-lottie-timeline-dock],[data-lottie-kf-popover]'
         )
       ) {
         return;
@@ -2083,7 +2124,7 @@ function SelectionFeature({
     };
   }, [enabled, hitEl, overlayRoot]);
 
-  /** Arrow keys nudge selection 1px (Shift = 10px). Grid mode: step = gridSize (Shift = 5×). */
+  /** Arrow keys nudge selection 1px (Shift = 10px). Grid mode: step = gridSize (Shift = 5?). */
   useEffect(() => {
     if (!enabled || suppressChrome || readOnly) return undefined;
     const onKey = (e: KeyboardEvent) => {
@@ -2100,7 +2141,7 @@ function SelectionFeature({
           t.tagName === 'TEXTAREA' ||
           t.isContentEditable ||
           t.closest?.(
-            '[data-fill-panel],[data-color-panel],[data-stroke-panel],[data-shape-style-panel],[data-sel-toolbar],[data-frame-toolbar],[data-text-inline-editor],[data-lottie-timeline-dock]'
+            '[data-fill-panel],[data-color-panel],[data-stroke-panel],[data-shape-style-panel],[data-sel-toolbar],[data-frame-toolbar],[data-text-inline-editor],[data-lottie-timeline-dock],[data-lottie-inspector]'
           ))
       ) {
         return;
@@ -2161,25 +2202,62 @@ function SelectionFeature({
 
   const singleId = singleNode ? selectedNodeIds[0] : null;
   const singleNodeData = singleId ? document?.deltaSetLike?.[singleId] : null;
+  /**
+   * Same gate as LayerPanel hide (`isNodeHiddenInDocument`): no control box,
+   * path outlines, or toolbars while the layer is hidden (incl. playhead trim).
+   */
+  const selectionFullyHidden = Boolean(
+    selectedNodeIds.length > 0 &&
+      selectedNodeIds.every((id) => {
+        const n = document?.deltaSetLike?.[id];
+        return (
+          !n ||
+          isNodeHiddenInDocument(
+            document,
+            n,
+            lottiePlayheadSec
+          )
+        );
+      })
+  );
+  const hideSelectionChrome = suppressChrome || selectionFullyHidden;
+  const hideSelectionToolbars =
+    effectiveSuppressToolbars || selectionFullyHidden;
+  /** Workbench multi-select: canvas MultiSelectionToolbar ? animation inspector. */
+  const lottieWorkbenchMulti =
+    !single &&
+    isAnimationWorkbenchSelection(document, selectedNodeIds, selectedFrameIds);
+  const lottieMultiPrimaryId = lottieWorkbenchMulti
+    ? selectedNodeIds[selectedNodeIds.length - 1]
+    : null;
+  const lottieMultiPrimaryData = lottieMultiPrimaryId
+    ? document?.deltaSetLike?.[lottieMultiPrimaryId]
+    : null;
+  const contextToolbarNodeId = singleNode
+    ? selectedNodeIds[0]
+    : lottieMultiPrimaryId;
+  const contextToolbarNodeData = singleNode ? singleNodeData : lottieMultiPrimaryData;
   const selectedIsImageGen = Boolean(singleNodeData && isImageGeneratorNode(singleNodeData));
   const selectedIsVideoGen = Boolean(singleNodeData && isVideoGeneratorNode(singleNodeData));
   const selectedIsLottieGen = Boolean(singleNodeData && isLottieGeneratorNode(singleNodeData));
   const selectedIsAudioGen = Boolean(singleNodeData && isAudioGeneratorNode(singleNodeData));
   const selectedIsVideo = Boolean(singleNodeData && singleNodeData.key === 'video' && !selectedIsVideoGen);
   const selectedIsTextFrame = Boolean(singleNodeData && isTextFrameNode(singleNodeData));
-  /** SoftGlow / mockup bake / etc. — hide in-node knobs (radius, sides) while running. */
+  /** SoftGlow / mockup bake / etc. ??hide in-node knobs (radius, sides) while running. */
   const selectedNodeProcessing =
     String(singleNodeData?.attrs?.processStatus || '') === 'running';
   const textFrameTitle = useMemo(() => {
     if (!selectedIsTextFrame || !singleNodeData) return null;
+    if (resolveAnimationFrameId(document, singleNodeData)) return null;
     return textFrameTitleChrome({
       name: singleNodeData.attrs?.name,
       plainText: parseNodeText(singleNodeData.attrs || {}),
     });
-  }, [selectedIsTextFrame, singleNodeData]);
+  }, [selectedIsTextFrame, singleNodeData, document]);
   const mediaTitle = useMemo(() => {
     if (!singleNodeData || selectedIsTextFrame) return null;
-    if (isLottieFrameHostNode(singleNodeData, document)) return null;
+    if (isAnimationFrameHostNode(singleNodeData, document)) return null;
+    // ?????????????????????????    if (resolveAnimationFrameId(document, singleNodeData)) return null;
     return mediaTitleChrome({
       key: singleNodeData.key,
       name: singleNodeData.attrs?.name,
@@ -2219,7 +2297,7 @@ function SelectionFeature({
     liveAngle,
   });
 
-  /** Single node or single frame — inspect size badge + hover spacing. */
+  /** Single node or single frame ??inspect size badge + hover spacing. */
   const inspectPrimaryId = resolveInspectPrimaryId(selectedNodeIds, selectedFrameIds);
 
   const measurePairId = resolveMeasurePairNodeId({
@@ -2252,9 +2330,9 @@ function SelectionFeature({
     smartGuides,
     idleMeasureGuides
   );
-  // WxH under the box: inspect/preview only — edit already has the title size label.
+  // WxH under the box: inspect/preview only ??edit already has the title size label.
   const measureSizeBox =
-    inspectDev && inspectPrimaryId && !suppressChrome
+    inspectDev && inspectPrimaryId && !hideSelectionChrome
       ? transforming && liveUnion
         ? liveUnion
         : measurePrimaryBox
@@ -2262,7 +2340,7 @@ function SelectionFeature({
 
   const shapeOutlines = buildShapeOutlines({
     enabled,
-    suppressChrome,
+    suppressChrome: hideSelectionChrome,
     readOnly,
     document,
     selectedNodeIds,
@@ -2281,6 +2359,7 @@ function SelectionFeature({
     multiUnionBox: !single ? liveUnion || selectionUnion : null,
     multiUnionAngle: !single ? chromeAngle : 0,
     getNodeBox,
+    playheadSec: lottiePlayheadSec,
   });
 
   const hostInjectedSelection = isHostInjectedSelection(
@@ -2314,7 +2393,7 @@ function SelectionFeature({
       if (n) strokeOuterScene = Math.max(strokeOuterScene, strokeOuterClearanceScene(n));
     }
   }
-  // Outside stroke ink (screen px) — applied inside scale(1/zoom) so the pill
+  // Outside stroke ink (screen px) ??applied inside scale(1/zoom) so the pill
   // clears painted stroke at any zoom without scene-space drift.
   const strokeUiPadScreen = Math.max(0, strokeOuterScene) * zoom;
 
@@ -2333,7 +2412,7 @@ function SelectionFeature({
     lineMode: Boolean(lineChrome),
     cornerHandlesOnly: !single,
     edgeHandles,
-    suppressChrome,
+    suppressChrome: hideSelectionChrome,
     strokeOuterScene,
     clientToScene: (clientX, clientY) => toScene(clientX, clientY),
   };
@@ -2381,7 +2460,7 @@ function SelectionFeature({
     return getNodeBox(hoverImageVariantsId);
   }, [hoverImageVariantsId, document, getNodeBox]);
 
-  // Marquee only — path multi-select uses host silhouettes + world union box.
+  // Marquee only ??path multi-select uses host silhouettes + world union box.
   // Vector ink uses host path chrome; non-path uses SelectionChrome (handles / box).
 
   if (!enabled) return null;
@@ -2399,10 +2478,10 @@ function SelectionFeature({
         sizeBox={measureSizeBox}
       />
 
-      {/* World SelectionChrome — path single/multi use host-mirrored chrome instead.
+      {/* World SelectionChrome ??path single/multi use host-mirrored chrome instead.
           Multi non-path keeps chrome while rotating so the control box can tilt. */}
       {selectionChromeBox &&
-      !suppressChrome &&
+      !hideSelectionChrome &&
       selectionCount > 0 &&
       !skipWorldSelectionChrome &&
       !hideMultiMoveChrome &&
@@ -2427,6 +2506,47 @@ function SelectionFeature({
           interactiveBox={frameChromeMode === 'full' && selectedFrameIds.length > 0}
           edgeHandles={edgeHandles}
           strokeOuterScene={strokeOuterScene}
+          anchorX={
+            singleNodeData
+              ? (() => {
+                  const p = String(singleNodeData.attrs?.anchorPreset || '')
+                    .trim()
+                    .toLowerCase();
+                  if (/^[tmb][lmr]$/.test(p)) {
+                    return p.endsWith('l') ? 0 : p.endsWith('r') ? 100 : 50;
+                  }
+                  const n = Number(singleNodeData.attrs?.anchorX);
+                  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+                })()
+              : 50
+          }
+          anchorY={
+            singleNodeData
+              ? (() => {
+                  const p = String(singleNodeData.attrs?.anchorPreset || '')
+                    .trim()
+                    .toLowerCase();
+                  if (/^[tmb][lmr]$/.test(p)) {
+                    return p.startsWith('t') ? 0 : p.startsWith('b') ? 100 : 50;
+                  }
+                  const n = Number(singleNodeData.attrs?.anchorY);
+                  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+                })()
+              : 50
+          }
+          skewX={
+            singleNodeData
+              ? Number(singleNodeData.attrs?.skewX ?? singleNodeData.attrs?.skew) || 0
+              : 0
+          }
+          skewAxis={
+            singleNodeData
+              ? singleNodeData.attrs?.skewAxis != null &&
+                singleNodeData.attrs?.skewAxis !== ''
+                ? Number(singleNodeData.attrs.skewAxis) || 0
+                : 0
+              : 0
+          }
         />
       ) : null}
 
@@ -2440,7 +2560,7 @@ function SelectionFeature({
       supportsCornerRadius(singleNodeData) &&
       !supportsShapeSides(singleNodeData) &&
       !lineChrome &&
-      !suppressChrome &&
+      !hideSelectionChrome &&
       !selectedIsImageGen &&
       !selectedNodeProcessing ? (
         <CornerRadiusHandlesOverlay
@@ -2464,7 +2584,7 @@ function SelectionFeature({
       (String(singleNodeData?.attrs?.shapeType || '') === 'circle' ||
         singleNodeData?.key === 'ellipse') &&
       !lineChrome &&
-      !suppressChrome &&
+      !hideSelectionChrome &&
       !selectedIsImageGen &&
       !selectedNodeProcessing ? (
         <CircleShapeHandlesOverlay
@@ -2487,7 +2607,7 @@ function SelectionFeature({
       singleNodeData &&
       String(singleNodeData?.attrs?.shapeType || '') === 'polygon' &&
       !lineChrome &&
-      !suppressChrome &&
+      !hideSelectionChrome &&
       !selectedIsImageGen &&
       !selectedNodeProcessing ? (
         <PolygonShapeHandlesOverlay
@@ -2510,7 +2630,7 @@ function SelectionFeature({
       singleNodeData &&
       String(singleNodeData?.attrs?.shapeType || '') === 'star' &&
       !lineChrome &&
-      !suppressChrome &&
+      !hideSelectionChrome &&
       !selectedIsImageGen &&
       !selectedNodeProcessing ? (
         <StarShapeHandlesOverlay
@@ -2524,26 +2644,36 @@ function SelectionFeature({
         />
       ) : null}
 
-      {!inspectDev && chromeUnion && singleNode && !transforming && !effectiveSuppressToolbars &&
+      {!inspectDev &&
+      chromeUnion &&
+      contextToolbarNodeId &&
+      contextToolbarNodeData &&
+      !transforming &&
+      !hideSelectionToolbars &&
       !selectedNodeProcessing ? (
         <SelectionContextToolbar
           document={document}
-          nodeId={selectedNodeIds[0]}
+          nodeId={contextToolbarNodeId}
           {...selectionToolbarDock(chromeUnion, {
             angle: chromeAngle,
             edgePadScene: strokeUiPadScreen,
-            lineChrome,
-            node: singleNodeData,
+            lineChrome: singleNode ? lineChrome : false,
+            node: contextToolbarNodeData,
           })}
           valueBox={
-            singleNodeData
+            chromeGeomBox || chromeUnion
               ? {
-                  left: Number(singleNodeData.x) || 0,
-                  top: Number(singleNodeData.y) || 0,
-                  width: Math.max(1, Number(singleNodeData.width) || 1),
-                  height: Math.max(1, Number(singleNodeData.height) || 1),
+                  left: (chromeGeomBox || chromeUnion)!.left,
+                  top: (chromeGeomBox || chromeUnion)!.top,
+                  width: (chromeGeomBox || chromeUnion)!.width,
+                  height: (chromeGeomBox || chromeUnion)!.height,
                 }
-              : undefined
+              : {
+                  left: Number(contextToolbarNodeData.x) || 0,
+                  top: Number(contextToolbarNodeData.y) || 0,
+                  width: Math.max(1, Number(contextToolbarNodeData.width) || 1),
+                  height: Math.max(1, Number(contextToolbarNodeData.height) || 1),
+                }
           }
           onOpenAgent={onOpenAgent}
         />
@@ -2554,7 +2684,7 @@ function SelectionFeature({
       singleNode &&
       singleId &&
       !transforming &&
-      !suppressToolbars &&
+      !hideSelectionToolbars &&
       (singleNodeData?.key === 'image' ||
         singleNodeData?.key === 'video' ||
         singleNodeData?.key === 'lottie' ||
@@ -2591,7 +2721,7 @@ function SelectionFeature({
       singleNode &&
       singleId &&
       !transforming &&
-      !suppressToolbars &&
+      !hideSelectionToolbars &&
       singleNodeData?.key === 'image' &&
       listImageVariantUrls(singleNodeData).length > 1 &&
       !selectedNodeProcessing ? (
@@ -2609,7 +2739,7 @@ function SelectionFeature({
       hoverImageVariantsId &&
       hoverImageVariantsBox &&
       !transforming &&
-      !suppressToolbars ? (
+      !hideSelectionToolbars ? (
         <ImageVariantsOverlay
           document={document}
           nodeId={hoverImageVariantsId}
@@ -2620,14 +2750,15 @@ function SelectionFeature({
         />
       ) : null}
 
-      {/* Multi-select bar: show whenever the union has 2+ items and at least one
-          scene node. Do not hide just because an artboard is co-selected. */}
+      {/* Multi-select bar: canvas/?????only.
+          ?????????????????????????/?????*/}
       {!inspectDev &&
       chromeUnion &&
       !single &&
       selectedNodeIds.length >= 1 &&
       !transforming &&
-      !suppressToolbars ? (
+      !hideSelectionToolbars &&
+      !isAnimationWorkbenchSelection(document, selectedNodeIds, selectedFrameIds) ? (
         <MultiSelectionToolbar
           document={document}
           nodeIds={selectedNodeIds}

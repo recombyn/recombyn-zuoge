@@ -22,7 +22,6 @@ import {
   spawnAudioUploadPlaceholderNode,
   promoteImageGeneratorToImage,
   promoteVideoGeneratorToVideo,
-  promoteLottieGeneratorToLottie,
   promoteAudioGeneratorToAudio,
   applyImageDecomposeLayers,
   detachImageVariantToNode,
@@ -37,6 +36,8 @@ import {
   createImageNode,
   createVideoNode,
   MEDIA_PLACE_DEFAULT,
+  parseLottieAnimationData,
+  serializeLottieAnimationData,
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   isEphemeralUploadNode
@@ -49,13 +50,28 @@ import {
   type TemplateSource,
 } from '@/utils/templatesStorage';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { bindUnownedNodesToFrames } from '@/components/rcb/frames/frameNodeBinding';
+import { frameIsEmpty } from '@/components/rcb/frames/framePlatePointer';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
-import { createBlankLottieAnimation } from '@/components/editor/nodes/LottieNode/lottieComposeLayers';
-import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/LottieNode/lottieFrameSync';
-import { isLottieFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
+import { createBlankLottieAnimation } from '@/components/editor/nodes/AnimationNode/animationComposeLayers';
+import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
+import {
+  findAnimationFrameAtDocPoint,
+  resolveAnimationFrameId,
+} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  finalizeNodeForAnimationWorkbenchFocus,
+  getAnimationWorkbenchTimelineFocus,
+  isAnimationWorkbenchPreviewChild,
+  isAvBlockedByAnimationWorkbenchFocus,
+  isNewPlateBlockedByAnimationWorkbenchFocus,
+  setAnimationWorkbenchPlayheadSec,
+  setAnimationWorkbenchTimelineFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   asHistoryEntry,
   cloneDocument,
@@ -300,22 +316,23 @@ function createFrame(partial?: Partial<ArtboardFrame>): ArtboardFrame {
   const hasH = partial?.height != null && Number.isFinite(Number(partial.height));
   const width = Math.max(1, Math.round(hasW ? Number(partial!.width) : 794));
   const height = Math.max(1, Math.round(hasH ? Number(partial!.height) : 1123));
-  const kind =
-    partial?.kind === 'lottie' ? 'lottie' : partial?.kind === 'artboard' ? 'artboard' : undefined;
-  const durationSec =
-    kind === 'lottie'
-      ? Math.max(
-          0.5,
-          Number.isFinite(Number(partial?.durationSec)) ? Number(partial!.durationSec) : 5
-        )
-      : partial?.durationSec;
-  const fps =
-    kind === 'lottie'
-      ? Math.max(1, Math.round(Number.isFinite(Number(partial?.fps)) ? Number(partial!.fps) : 30))
-      : partial?.fps;
+  const kind = isAnimationArtboardKind(partial?.kind)
+    ? 'animation'
+    : partial?.kind === 'artboard'
+      ? 'artboard'
+      : undefined;
+  const durationSec = isAnimationArtboardKind(kind)
+    ? Math.max(
+        0.5,
+        Number.isFinite(Number(partial?.durationSec)) ? Number(partial!.durationSec) : 5
+      )
+    : partial?.durationSec;
+  const fps = isAnimationArtboardKind(kind)
+    ? Math.max(1, Math.round(Number.isFinite(Number(partial?.fps)) ? Number(partial!.fps) : 30))
+    : partial?.fps;
   return {
     id: partial?.id || nanoid(8),
-    name: partial?.name || (kind === 'lottie' ? 'Lottie 合成台' : 'Frame'),
+    name: partial?.name || (isAnimationArtboardKind(kind) ? '动画工作台' : 'Frame'),
     x: Math.round(partial?.x ?? 0),
     y: Math.round(partial?.y ?? 0),
     width,
@@ -430,10 +447,26 @@ const initialState = {
   },
   /** Bottom timeline dock for a Lottie plate. */
   lottieTimelinePanel: null as null | { nodeId: string },
-  /** Lottie 合成台 (artboard) workbench — quick edit on the plate. */
-  lottieFramePanel: null as null | { frameId: string; kind: 'quickEdit' | 'timeline' },
-  /** Playhead time (seconds) while the Lottie timeline dock is open. */
+  /**
+   * Precomp isolation edit (timeline scene tab).
+   * hostNodeId = timeline Lottie host; assetId = precomp asset id (e.g. lot_<nodeId>).
+   */
+  lottiePrecompEdit: null as null | {
+    hostNodeId: string;
+    assetId: string;
+    selectedLayerInd: number | null;
+  },
+  /** 动画工作台 (artboard) workbench — quick edit on the plate. */
+  animationFramePanel: null as null | { frameId: string; kind: 'quickEdit' | 'timeline' },
+  /** Playhead time (seconds) — shared by dock scrub and undocked playback. */
   lottiePlayheadSec: 0 as number,
+  /** Shared transport playing flag (dock + frame/host toolbars). */
+  lottiePlaying: false as boolean,
+  /**
+   * Host node for canvas playback without opening the timeline dock.
+   * Same playhead sync path as `lottieTimelinePanel.nodeId`.
+   */
+  lottiePlayingHostId: null as string | null,
   /** Fill / stroke panel docked to the right of the selection (hides top chrome while open). */
   shapeStylePanel: null as null | { kind: 'fill' | 'stroke' | 'radius'; nodeIds: string[] },
   /** Shared stroke settings for pen / pencil tools. */
@@ -568,7 +601,10 @@ function commitSpawnedGenerator(
   created: { id: string; node: SceneNode }
 ) {
   const { id, node } = created;
-  state.document = addNodeToDocument(state.document, id, node);
+  let next = addNodeToDocument(state.document, id, node);
+  // Timeline focus hides unbound nodes — mark surround / bind so the plate is visible.
+  next = finalizeNodeForAnimationWorkbenchFocus(next, id);
+  state.document = next;
   state.dirty = true;
   state.documentPatchToken += 1;
   state.lastPatchedNodeIds = [id];
@@ -768,7 +804,10 @@ const editorSlice = createSlice({
       clearPendingProcessIfNodeGone(state);
 
       state.dirty = true;
-      state.sceneReloadToken += 1;
+      // Surgical paint: deleted hosts unmount via id cull; do not remount every
+      // survivor (audio WaveSurfer flash on delete / select-clear).
+      state.documentPatchToken += 1;
+      state.lastPatchedNodeIds = nodeIds;
       syncLibraryOnEdit(state);
     },
     setDocumentFromCanvas(state, action) {
@@ -842,38 +881,62 @@ const editorSlice = createSlice({
       syncLibraryOnEdit(state);
     },
     setSelectedNodeId(state, action) {
-      state.selectedNodeId = action.payload;
-      state.selectedNodeIds = action.payload ? [action.payload] : [];
+      const id = action.payload ? String(action.payload) : null;
+      // Preview / host: promote to parent 动画工作台 (workbench stays selectable).
+      if (id && state.document) {
+        const node = state.document.deltaSetLike?.[id];
+        const promoteFrame =
+          isAnimationFrameHostNode(node, state.document) ||
+          isAnimationWorkbenchPreviewChild(state.document, node);
+        if (promoteFrame) {
+          const fid = String(node?.attrs?.frameId || '').trim();
+          if (fid) {
+            const next = normalizeDocument(state.document);
+            next.activeFrameId = fid;
+            state.document = next;
+            state.selectedNodeId = null;
+            state.selectedNodeIds = [];
+            state.selectedFrameIds = [fid];
+            state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
+            return;
+          }
+        }
+      }
+      state.selectedNodeId = id;
+      state.selectedNodeIds = id ? [id] : [];
       // Selecting a node clears artboard multi-select (single-target click).
-      if (action.payload) state.selectedFrameIds = [];
-      if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, action.payload)) {
+      if (id) state.selectedFrameIds = [];
+      if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, id)) {
         state.imageToolPanel = null;
       }
-      if (!action.payload || state.videoToolPanel?.nodeId !== action.payload) {
+      if (!id || state.videoToolPanel?.nodeId !== id) {
         state.videoToolPanel = null;
       }
-      if (!action.payload || state.audioToolPanel?.nodeId !== action.payload) {
+      if (!id || state.audioToolPanel?.nodeId !== id) {
         state.audioToolPanel = null;
       }
-      if (!action.payload || state.lottieComposePanel?.nodeId !== action.payload) {
+      if (!id || state.lottieComposePanel?.nodeId !== id) {
         state.lottieComposePanel = null;
       }
       // Keep Lottie timeline dock open across selection changes (close via X / delete).
       if (
-        !action.payload ||
+        !id ||
         !state.shapeStylePanel?.nodeIds?.length ||
         state.shapeStylePanel.nodeIds.length !== 1 ||
-        state.shapeStylePanel.nodeIds[0] !== action.payload
+        state.shapeStylePanel.nodeIds[0] !== id
       ) {
         state.shapeStylePanel = null;
       }
     },
     setSelectedNodeIds(state, action) {
       let ids = Array.isArray(action.payload) ? action.payload.filter(Boolean).map(String) : [];
-      // 合成台内部播放宿主不是第二块板：点到它时改选父画板。
+      // 动画工作台内部播放宿主 / 预览态子元素：点到时改选父画板。
       if (ids.length === 1 && state.document) {
         const host = state.document.deltaSetLike?.[ids[0]!];
-        if (isLottieFrameHostNode(host, state.document)) {
+        if (
+          isAnimationFrameHostNode(host, state.document) ||
+          isAnimationWorkbenchPreviewChild(state.document, host)
+        ) {
           const fid = String(host?.attrs?.frameId || '').trim();
           if (fid) {
             const next = normalizeDocument(state.document);
@@ -882,10 +945,21 @@ const editorSlice = createSlice({
             state.selectedNodeIds = [];
             state.selectedNodeId = null;
             state.selectedFrameIds = [fid];
-            state.frameChromeMode = 'full';
+            // Occupied workbench → soft (no handles); empty plate keeps full chrome.
+            state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
             return;
           }
         }
+      }
+      // Drop any preview-locked workbench children from multi-select.
+      if (state.document && ids.length) {
+        ids = ids.filter(
+          (nid) =>
+            !isAnimationWorkbenchPreviewChild(
+              state.document,
+              state.document?.deltaSetLike?.[nid]
+            )
+        );
       }
       state.selectedNodeIds = ids;
       state.selectedNodeId = ids[0] || null;
@@ -912,6 +986,9 @@ const editorSlice = createSlice({
     },
     addArtboardFrame(state, action) {
       if (!state.document) return;
+      // Timeline focus: only the current 动画工作台 is visible — a new world
+      // artboard would steal activeFrameId and vanish under focus.
+      if (isNewPlateBlockedByAnimationWorkbenchFocus()) return;
       pushHistory(state);
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? [...next.frames] : [];
@@ -997,10 +1074,10 @@ const editorSlice = createSlice({
           .map((f) => String(f?.id || ''))
           .filter(Boolean)
       );
-      // Solo 合成台 host → select parent frame only.
+      // Solo 动画工作台 host → select parent frame only.
       if (nodeIds.length === 1 && !frameIdsRaw.length) {
         const host = next.deltaSetLike?.[nodeIds[0]!];
-        if (isLottieFrameHostNode(host, next)) {
+        if (isAnimationFrameHostNode(host, next)) {
           const fid = String(host?.attrs?.frameId || '').trim();
           if (fid && valid.has(fid)) {
             next.activeFrameId = fid;
@@ -1008,7 +1085,7 @@ const editorSlice = createSlice({
             state.selectedNodeIds = [];
             state.selectedNodeId = null;
             state.selectedFrameIds = [fid];
-            state.frameChromeMode = 'full';
+            state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
             return;
           }
         }
@@ -1102,9 +1179,10 @@ const editorSlice = createSlice({
       }
       if (state.lottieTimelinePanel && nodeIdSet.has(state.lottieTimelinePanel.nodeId)) {
         state.lottieTimelinePanel = null;
+        state.lottiePrecompEdit = null;
       }
-      if (state.lottieFramePanel && idSet.has(state.lottieFramePanel.frameId)) {
-        state.lottieFramePanel = null;
+      if (state.animationFramePanel && idSet.has(state.animationFramePanel.frameId)) {
+        state.animationFramePanel = null;
       }
       if (
         state.pendingImportPlaceholderId &&
@@ -1116,7 +1194,9 @@ const editorSlice = createSlice({
       state.document = next;
       clearPendingProcessIfNodeGone(state);
       state.dirty = true;
-      state.sceneReloadToken += 1;
+      // Same as removeDocumentNodes — avoid remounting surviving media plates.
+      state.documentPatchToken += 1;
+      state.lastPatchedNodeIds = nodeIds;
       syncLibraryOnEdit(state);
     },
     renameArtboardFrame(state, action) {
@@ -1186,6 +1266,8 @@ const editorSlice = createSlice({
       const chromeKeys = new Set([
         'x',
         'y',
+        'width',
+        'height',
         'locked',
         'hidden',
         'processStatus',
@@ -1204,7 +1286,11 @@ const editorSlice = createSlice({
         const onlyChrome =
           keys.length > 0 &&
           keys.every((k) => chromeKeys.has(k)) &&
-          !(Boolean(frame.clipContent) && (keys.includes('x') || keys.includes('y')));
+          !(Boolean(frame.clipContent) &&
+            (keys.includes('x') ||
+              keys.includes('y') ||
+              keys.includes('width') ||
+              keys.includes('height')));
         if (!onlyChrome && !skipHistory) needsReload = true;
       }
       next.frames = frames;
@@ -1778,6 +1864,7 @@ const editorSlice = createSlice({
     /** Spawn canvas Video Generator plate at given document coords. */
     spawnVideoGenerator(state, action) {
       if (!state.document) return;
+      if (isAvBlockedByAnimationWorkbenchFocus()) return;
       pushHistory(state);
       commitSpawnedGenerator(
         state,
@@ -1790,10 +1877,13 @@ const editorSlice = createSlice({
         })
       );
     },
-    /** Spawn Lottie 合成台 as a real artboard (same clip / children as 画板). */
-    spawnLottieGenerator(state, action) {
+    /** Spawn 动画工作台 as a real artboard (same clip / children as 画板). */
+    spawnAnimationBoard(state, action) {
       if (!state.document) return;
-      pushHistory(state);
+      // Already inside a focused workbench — do not spawn an empty second board
+      // (that lands as a blank plate and closes the open timeline).
+      if (isNewPlateBlockedByAnimationWorkbenchFocus()) return;
+      if (!action.payload?.skipHistory) pushHistory(state);
       const width = Math.max(1, Math.round(Number(action.payload?.width) || 364));
       const height = Math.max(1, Math.round(Number(action.payload?.height) || 364));
       const next = normalizeDocument(state.document);
@@ -1803,8 +1893,8 @@ const editorSlice = createSlice({
         y: action.payload?.y,
         width,
         height,
-        name: action.payload?.name || 'Lottie 合成台',
-        kind: 'lottie',
+        name: action.payload?.name || '动画工作台',
+        kind: 'animation',
         clipContent: true,
       });
       frames.push(frame);
@@ -1830,7 +1920,7 @@ const editorSlice = createSlice({
       state.sceneReloadToken += 1;
       state.activeTool = 'select';
       state.lottieComposePanel = null;
-      state.lottieFramePanel = null;
+      state.animationFramePanel = null;
       state.lottieTimelinePanel = null;
       state.imageToolPanel = null;
       state.videoToolPanel = null;
@@ -1839,7 +1929,7 @@ const editorSlice = createSlice({
       state.pendingImageSrc = null;
       syncLibraryOnEdit(state);
     },
-    /** Spawn AI Lottie generator plate (composer) — secondary to 合成台. */
+    /** Spawn AI Lottie generator plate (composer) — secondary to 动画工作台. */
     spawnLottieGeneratorPlate(state, action) {
       if (!state.document) return;
       pushHistory(state);
@@ -1857,6 +1947,7 @@ const editorSlice = createSlice({
     /** Spawn canvas Audio Generator plate at given document coords. */
     spawnAudioGenerator(state, action) {
       if (!state.document) return;
+      if (isAvBlockedByAnimationWorkbenchFocus()) return;
       pushHistory(state);
       commitSpawnedGenerator(
         state,
@@ -1869,33 +1960,48 @@ const editorSlice = createSlice({
         })
       );
     },
-    /** Spawn finished Lottie plate (sample or Agent JSON) at document coords. */
+    /** Spawn Lottie as a 动画工作台 (same path as toolstrip / placeMediaAsset). */
     spawnLottie(state, action) {
       if (!state.document) return;
-      pushHistory(state);
-      try {
-        const { id, node } = createLottieNode({
+      const animationData = action.payload?.animationData;
+      const parsed = parseLottieAnimationData(animationData);
+      if (!parsed) return;
+      const width = Math.max(
+        32,
+        Math.round(Number(action.payload?.width) || Number(parsed.w) || 200)
+      );
+      const height = Math.max(
+        32,
+        Math.round(Number(action.payload?.height) || Number(parsed.h) || 200)
+      );
+      const name =
+        String(action.payload?.name || '').trim() || '动画工作台';
+      editorSlice.caseReducers.spawnAnimationBoard(state, {
+        type: 'editor/spawnAnimationBoard',
+        payload: {
           x: action.payload?.x,
           y: action.payload?.y,
-          width: action.payload?.width,
-          height: action.payload?.height,
-          name: action.payload?.name,
-          animationData: action.payload?.animationData,
-        });
-        state.document = addNodeToDocument(state.document, id, node);
-        state.dirty = true;
-        state.sceneReloadToken += 1;
-        state.selectedNodeId = id;
-        state.selectedNodeIds = [id];
-        state.pendingImageSrc = null;
-        state.activeTool = 'select';
-      } catch {
-        /* invalid animationData — no-op */
-      }
+          width,
+          height,
+          name,
+        },
+      });
+      const frameId = String(state.selectedFrameIds?.[0] || '').trim();
+      if (!frameId) return;
+      editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
+        type: 'editor/importLottieIntoAnimationFrame',
+        payload: {
+          frameId,
+          animationData: parsed,
+          name,
+          skipHistory: true,
+        },
+      });
     },
     /** Spawn finished audio plate (upload / paste) at document coords. */
     spawnAudio(state, action) {
       if (!state.document) return;
+      if (isAvBlockedByAnimationWorkbenchFocus()) return;
       const src = String(action.payload?.src || '').trim();
       if (!src) return;
       pushHistory(state);
@@ -1943,35 +2049,83 @@ const editorSlice = createSlice({
     placeMediaAsset(state, action) {
       if (!state.document) return;
       const kind = String(action.payload?.kind || '').trim().toLowerCase();
+      if (
+        (kind === 'video' || kind === 'audio') &&
+        isAvBlockedByAnimationWorkbenchFocus()
+      ) {
+        return;
+      }
       const src = String(action.payload?.src || '').trim();
       if (kind === 'lottie') {
         const animationData = action.payload?.animationData;
         if (!animationData && !src) return;
-        pushHistory(state);
-        try {
-          const x = Number(action.payload?.x);
-          const y = Number(action.payload?.y);
-          const name = String(action.payload?.name || '').trim() || undefined;
-          const prompt = String(action.payload?.prompt || '').trim();
-          const { id, node } = createLottieNode({
-            x: Number.isFinite(x) ? x : 40,
-            y: Number.isFinite(y) ? y : 40,
-            width: action.payload?.width,
-            height: action.payload?.height,
-            name: name || 'Lottie',
-            animationData: animationData || undefined,
+        const dropX = Number(action.payload?.x);
+        const dropY = Number(action.payload?.y);
+        const hitFrameId =
+          Number.isFinite(dropX) && Number.isFinite(dropY)
+            ? findAnimationFrameAtDocPoint(state.document, dropX, dropY)
+            : null;
+        // Preview (timeline closed): cannot add into an existing workbench —
+        // only import while that plate's timeline is focused.
+        const focusFrameId = getAnimationWorkbenchTimelineFocus();
+        const targetFrameId =
+          focusFrameId && (!hitFrameId || hitFrameId === focusFrameId)
+            ? focusFrameId
+            : null;
+        if (targetFrameId && animationData) {
+          editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
+            type: 'editor/importLottieIntoAnimationFrame',
+            payload: {
+              frameId: targetFrameId,
+              animationData,
+              name: String(action.payload?.name || '').trim() || undefined,
+              genPrompt: String(action.payload?.prompt || action.payload?.genPrompt || '').trim() || undefined,
+            },
           });
-          if (prompt) node.attrs.genPrompt = prompt;
-          state.document = addNodeToDocument(state.document, id, node);
-          state.dirty = true;
-          state.sceneReloadToken += 1;
-          state.selectedNodeId = id;
-          state.selectedNodeIds = [id];
-          state.pendingImageSrc = null;
-          state.activeTool = 'select';
-          syncLibraryOnEdit(state);
-        } catch {
-          /* invalid animationData — no-op */
+          return;
+        }
+        // Animation track: always land in a 动画工作台 (not a free Lottie plate).
+        // Under timeline focus spawn is blocked — require a target above.
+        if (animationData && !isNewPlateBlockedByAnimationWorkbenchFocus()) {
+          const dropX = Number(action.payload?.x);
+          const dropY = Number(action.payload?.y);
+          const parsed = parseLottieAnimationData(animationData);
+          const width = Math.max(
+            32,
+            Number(action.payload?.width) || Number(parsed?.w) || 200
+          );
+          const height = Math.max(
+            32,
+            Number(action.payload?.height) || Number(parsed?.h) || 200
+          );
+          const name = String(action.payload?.name || '').trim() || '动画工作台';
+          const genPrompt =
+            String(action.payload?.prompt || action.payload?.genPrompt || '').trim() ||
+            undefined;
+          editorSlice.caseReducers.spawnAnimationBoard(state, {
+            type: 'editor/spawnAnimationBoard',
+            payload: {
+              x: Number.isFinite(dropX) ? dropX : undefined,
+              y: Number.isFinite(dropY) ? dropY : undefined,
+              width,
+              height,
+              name,
+            },
+          });
+          const frameId = String(state.selectedFrameIds?.[0] || '').trim();
+          if (frameId) {
+            editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
+              type: 'editor/importLottieIntoAnimationFrame',
+              payload: {
+                frameId,
+                animationData,
+                name,
+                genPrompt,
+                skipHistory: true,
+              },
+            });
+          }
+          return;
         }
         return;
       }
@@ -2028,6 +2182,7 @@ const editorSlice = createSlice({
         if (prompt) node.attrs.genPrompt = prompt;
       }
       state.document = addNodeToDocument(state.document, id, node);
+      state.document = finalizeNodeForAnimationWorkbenchFocus(state.document, id);
       state.dirty = true;
       state.sceneReloadToken += 1;
       state.selectedNodeId = id;
@@ -2051,7 +2206,7 @@ const editorSlice = createSlice({
         state.historyPast.pop();
         return;
       }
-      state.document = next;
+      state.document = finalizeNodeForAnimationWorkbenchFocus(next, id);
       state.dirty = true;
       state.sceneReloadToken += 1;
       state.selectedNodeId = id;
@@ -2126,36 +2281,68 @@ const editorSlice = createSlice({
       if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
       syncLibraryOnEdit(state);
     },
-    /** Convert Lottie Generator plate → normal Lottie node (same id). */
+    /** Convert Lottie Generator plate → 动画工作台 + host (not a free Lottie plate). */
     finishLottieGenerator(state, action) {
       const nodeId = String(action.payload?.nodeId || '');
       const animationData = action.payload?.animationData;
       if (!state.document || !nodeId || animationData == null) return;
-      if (!state.document.deltaSetLike?.[nodeId]) {
+      const plate = state.document.deltaSetLike?.[nodeId];
+      if (!plate) {
         if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
         return;
       }
+      const x =
+        action.payload?.x != null ? Number(action.payload.x) : Number(plate.x) || 0;
+      const y =
+        action.payload?.y != null ? Number(action.payload.y) : Number(plate.y) || 0;
+      const width = Math.max(
+        32,
+        Number(action.payload?.width) || Number(plate.width) || 200
+      );
+      const height = Math.max(
+        32,
+        Number(action.payload?.height) || Number(plate.height) || 200
+      );
+      const name =
+        String(action.payload?.name || plate.attrs?.name || '').trim() || '动画工作台';
+      const genPrompt = String(action.payload?.genPrompt || '').trim();
+
       pushHistory(state);
-      const next = promoteLottieGeneratorToLottie(state.document, nodeId, {
-        animationData,
-        width: action.payload?.width,
-        height: action.payload?.height,
-        x: action.payload?.x,
-        y: action.payload?.y,
-        name: action.payload?.name,
-        genPrompt: action.payload?.genPrompt,
-      });
-      if (next === state.document) {
-        state.historyPast.pop();
-        return;
-      }
-      state.document = next;
-      state.dirty = true;
-      state.sceneReloadToken += 1;
-      state.selectedNodeId = nodeId;
-      state.selectedNodeIds = [nodeId];
+      state.document = removeNodesFromDocument(state.document, [nodeId]);
       if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
-      syncLibraryOnEdit(state);
+
+      editorSlice.caseReducers.spawnAnimationBoard(state, {
+        type: 'editor/spawnAnimationBoard',
+        payload: {
+          x,
+          y,
+          width,
+          height,
+          name,
+          skipHistory: true,
+        },
+      });
+      const frameId = String(state.selectedFrameIds?.[0] || '').trim();
+      if (!frameId) return;
+      editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
+        type: 'editor/importLottieIntoAnimationFrame',
+        payload: {
+          frameId,
+          animationData,
+          name,
+          skipHistory: true,
+        },
+      });
+      if (genPrompt) {
+        const hostId = Object.keys(state.document?.deltaSetLike || {}).find((id) => {
+          const n = state.document?.deltaSetLike?.[id];
+          return isAnimationFrameHostNode(n, state.document);
+        });
+        if (hostId && String(state.document?.deltaSetLike?.[hostId]?.attrs?.frameId || '') === frameId) {
+          const host = state.document!.deltaSetLike[hostId];
+          host.attrs = { ...(host.attrs || {}), genPrompt };
+        }
+      }
     },
     /** Convert Audio Generator plate → normal audio node (same id). */
     finishAudioGenerator(state, action) {
@@ -2195,7 +2382,7 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const src = String(action.payload?.src || '');
       if (!src) return;
-      const { document: next, id } = spawnImageUploadPlaceholderNode(state.document, {
+      const { document: spawned, id } = spawnImageUploadPlaceholderNode(state.document, {
         src,
         width: Number(action.payload?.width) || 200,
         height: Number(action.payload?.height) || 200,
@@ -2205,6 +2392,7 @@ const editorSlice = createSlice({
         name: action.payload?.name,
       });
       if (!id) return;
+      const next = finalizeNodeForAnimationWorkbenchFocus(spawned, id);
       state.document = next;
       state.dirty = true;
       state.sceneReloadToken += 1;
@@ -2213,10 +2401,19 @@ const editorSlice = createSlice({
       state.selectedNodeIds = [id];
       state.pendingImageSrc = null;
       state.activeTool = 'select';
+      const focus = getAnimationWorkbenchTimelineFocus();
+      const boundFid = String(next.deltaSetLike?.[id]?.attrs?.frameId || '').trim();
+      if (focus && boundFid === focus) {
+        editorSlice.caseReducers.ensureAnimationFrameMedia(state, {
+          type: 'editor/ensureAnimationFrameMedia',
+          payload: { frameId: focus },
+        });
+      }
     },
     /** Spawn video node with local preview while remote upload runs. */
     startVideoUploadPlaceholder(state, action) {
       if (!state.document) return;
+      if (isAvBlockedByAnimationWorkbenchFocus()) return;
       const src = String(action.payload?.src || '');
       if (!src) return;
       const { document: next, id } = spawnVideoUploadPlaceholderNode(state.document, {
@@ -2243,6 +2440,7 @@ const editorSlice = createSlice({
     /** Spawn audio plate with local preview while remote upload runs (same sweep chrome). */
     startAudioUploadPlaceholder(state, action) {
       if (!state.document) return;
+      if (isAvBlockedByAnimationWorkbenchFocus()) return;
       const src = String(action.payload?.src || '');
       if (!src) return;
       const { document: next, id } = spawnAudioUploadPlaceholderNode(state.document, {
@@ -2460,6 +2658,7 @@ const editorSlice = createSlice({
         tool: allowed.has(tool) ? tool : 'select',
       };
       state.lottieTimelinePanel = null;
+      state.lottiePrecompEdit = null;
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.audioToolPanel = null;
@@ -2481,10 +2680,28 @@ const editorSlice = createSlice({
       const nodeId = String(action.payload?.nodeId || '').trim();
       if (!nodeId) return;
       state.lottieTimelinePanel = { nodeId };
-      // Keep existing playhead when reopening the same node; otherwise leave as-is
-      // (host sync / seek happens in the dock on mount).
+      // Panel host supersedes undocked play session.
+      state.lottiePlayingHostId = null;
+      // Always enter at t=0 — stale playhead / host time must not stick.
+      state.lottiePlayheadSec = 0;
+      setAnimationWorkbenchPlayheadSec(0);
+      // Optional: start playing after open (legacy callers may still pass play).
+      state.lottiePlaying = Boolean(action.payload?.play);
+      // Point activeFrameId at the workbench so new uploads / JSON land in-plate
+      // (spawn centers + Lottie import resolve via activeFrameId).
+      const host = state.document?.deltaSetLike?.[nodeId];
+      const frameId = resolveAnimationFrameId(state.document, host);
+      if (frameId && state.document) {
+        state.document = { ...state.document, activeFrameId: frameId };
+        state.selectedFrameIds = [frameId];
+        // Sync module focus immediately (do not wait for React paint).
+        setAnimationWorkbenchTimelineFocus(frameId);
+      }
+      if (state.lottiePrecompEdit?.hostNodeId !== nodeId) {
+        state.lottiePrecompEdit = null;
+      }
       state.lottieComposePanel = null;
-      state.lottieFramePanel = null;
+      state.animationFramePanel = null;
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.audioToolPanel = null;
@@ -2492,17 +2709,73 @@ const editorSlice = createSlice({
     },
     closeLottieTimelinePanel(state) {
       state.lottieTimelinePanel = null;
+      state.lottiePrecompEdit = null;
+      state.lottiePlaying = false;
+      state.lottiePlayingHostId = null;
+      // Exit at first frame so the canvas isn't left mid-scrub.
+      state.lottiePlayheadSec = 0;
+      setAnimationWorkbenchTimelineFocus(null);
+      setAnimationWorkbenchPlayheadSec(0);
+      // Preview mode: inner elements are not selectable — clear child picks.
+      if (state.document && state.selectedNodeIds?.length) {
+        const kept = state.selectedNodeIds.filter(
+          (nid) =>
+            !isAnimationWorkbenchPreviewChild(
+              state.document,
+              state.document?.deltaSetLike?.[nid]
+            )
+        );
+        if (kept.length !== state.selectedNodeIds.length) {
+          state.selectedNodeIds = kept;
+          state.selectedNodeId = kept[0] || null;
+        }
+      }
+    },
+    enterLottiePrecompEdit(state, action) {
+      const hostNodeId = String(action.payload?.hostNodeId || '').trim();
+      const assetId = String(action.payload?.assetId || '').trim();
+      if (!hostNodeId || !assetId) return;
+      state.lottiePrecompEdit = {
+        hostNodeId,
+        assetId,
+        selectedLayerInd: null,
+      };
+    },
+    exitLottiePrecompEdit(state) {
+      state.lottiePrecompEdit = null;
+    },
+    setLottiePrecompSelectedLayer(state, action) {
+      if (!state.lottiePrecompEdit) return;
+      const ind = action.payload;
+      state.lottiePrecompEdit.selectedLayerInd =
+        ind == null || !Number.isFinite(Number(ind)) ? null : Math.round(Number(ind));
     },
     setLottiePlayhead(state, action) {
       const n = Number(action.payload);
       if (!Number.isFinite(n)) return;
       state.lottiePlayheadSec = Math.max(0, n);
+      setAnimationWorkbenchPlayheadSec(state.lottiePlayheadSec);
     },
-    openLottieFramePanel(state, action) {
+    setLottiePlaying(state, action) {
+      const payload = action.payload;
+      if (payload && typeof payload === 'object') {
+        state.lottiePlaying = Boolean((payload as { playing?: unknown }).playing);
+        const hostRaw = (payload as { hostNodeId?: unknown }).hostNodeId;
+        if (hostRaw != null) {
+          const id = String(hostRaw || '').trim();
+          // Keep host on pause so playhead/pose don't reset to t=0.
+          if (id) state.lottiePlayingHostId = id;
+        }
+        return;
+      }
+      state.lottiePlaying = Boolean(payload);
+      // Pausing must not clear the playhead host (SceneSync would seek 0).
+    },
+    openAnimationFramePanel(state, action) {
       const frameId = String(action.payload?.frameId || '').trim();
       const kind = action.payload?.kind;
       if (!frameId || (kind !== 'quickEdit' && kind !== 'timeline')) return;
-      state.lottieFramePanel = { frameId, kind };
+      state.animationFramePanel = { frameId, kind };
       state.lottieComposePanel = null;
       state.imageToolPanel = null;
       state.videoToolPanel = null;
@@ -2513,31 +2786,38 @@ const editorSlice = createSlice({
         state.lottieTimelinePanel = null;
       }
     },
-    closeLottieFramePanel(state) {
-      state.lottieFramePanel = null;
+    closeAnimationFramePanel(state) {
+      state.animationFramePanel = null;
     },
     /**
-     * Ensure a full-bleed Lottie media node exists inside a 合成台 frame
+     * Ensure a full-bleed Lottie media node exists inside a 动画工作台 frame
      * (playback / timeline host). Invisible — not a second user plate.
      * Syncs artboard children (shapes / images) into animationData layers.
      * Does not change selection.
      */
-    ensureLottieFrameMedia(state, action) {
+    ensureAnimationFrameMedia(state, action) {
       if (!state.document) return;
       const frameId = String(action.payload?.frameId || '').trim();
       if (!frameId) return;
       const frames = Array.isArray(state.document.frames) ? state.document.frames : [];
       const frame = frames.find((f) => String(f?.id) === frameId);
-      if (!frame) return;
+      if (!frame || !isAnimationArtboardKind(frame.kind)) return;
       const hostAttrs = {
         frameId,
         frameOrder: 0,
-        /** Invisible host under 合成台 — not a second plate. */
-        lottieFrameHost: true,
+        /** Invisible host under 动画工作台 — not a second plate. */
+        animationFrameHost: true,
         'fill-color': 'transparent',
         locked: true,
         name: '',
       } as const;
+
+      const applyHostGeometry = (host: SceneNode) => {
+        host.x = Number(frame.x) || 0;
+        host.y = Number(frame.y) || 0;
+        host.width = Math.max(1, Number(frame.width) || 1);
+        host.height = Math.max(1, Number(frame.height) || 1);
+      };
 
       const finishSync = (hostId: string) => {
         if (!state.document) return;
@@ -2545,8 +2825,16 @@ const editorSlice = createSlice({
         if (!synced) return;
         const hostBefore = state.document.deltaSetLike?.[hostId];
         const prevJson = String(hostBefore?.attrs?.animationData || '');
+        const hasHostFlag =
+          hostBefore?.attrs?.animationFrameHost === true ||
+          hostBefore?.attrs?.lottieFrameHost === true;
+        const geomNeed =
+          Math.round(Number(hostBefore?.x) || 0) !== Math.round(Number(frame.x) || 0) ||
+          Math.round(Number(hostBefore?.y) || 0) !== Math.round(Number(frame.y) || 0) ||
+          Math.round(Number(hostBefore?.width) || 0) !== Math.round(Number(frame.width) || 0) ||
+          Math.round(Number(hostBefore?.height) || 0) !== Math.round(Number(frame.height) || 0);
         const attrsNeedHost =
-          hostBefore?.attrs?.lottieFrameHost !== true ||
+          !hasHostFlag ||
           String(hostBefore?.attrs?.['fill-color'] || '') !== 'transparent' ||
           hostBefore?.attrs?.locked !== true ||
           String(hostBefore?.attrs?.name || '').trim() !== '';
@@ -2572,12 +2860,15 @@ const editorSlice = createSlice({
             break;
           }
         }
-        if (!attrsNeedHost && !childrenNeed && prevJson === synced.animationJson) return;
+        if (!attrsNeedHost && !childrenNeed && !geomNeed && prevJson === synced.animationJson) {
+          return;
+        }
 
         pushHistory(state);
         const next = normalizeDocument(state.document);
         const host = next.deltaSetLike?.[hostId];
         if (!host) return;
+        applyHostGeometry(host);
         host.attrs = {
           ...(host.attrs || {}),
           ...hostAttrs,
@@ -2602,10 +2893,17 @@ const editorSlice = createSlice({
       };
 
       const bound = nodeIdsBoundToFrames(state.document, [frameId]);
+      let flaggedHostId: string | null = null;
       for (const id of bound) {
         const n = state.document.deltaSetLike?.[id];
         if (n?.key !== 'lottie') continue;
-        finishSync(id);
+        if (isAnimationFrameHostNode(n, state.document)) {
+          flaggedHostId = id;
+          break;
+        }
+      }
+      if (flaggedHostId) {
+        finishSync(flaggedHostId);
         return;
       }
       pushHistory(state);
@@ -2635,6 +2933,10 @@ const editorSlice = createSlice({
           const next = normalizeDocument(state.document);
           const host = next.deltaSetLike?.[id];
           if (host) {
+            host.x = Number(frame.x) || 0;
+            host.y = Number(frame.y) || 0;
+            host.width = Math.max(1, Number(frame.width) || 1);
+            host.height = Math.max(1, Number(frame.height) || 1);
             host.attrs = {
               ...(host.attrs || {}),
               ...hostAttrs,
@@ -2662,6 +2964,170 @@ const editorSlice = createSlice({
         /* invalid animationData */
       }
     },
+    /**
+     * Import Bodymovin JSON into a 动画工作台 host (full-bleed playback + timeline layers).
+     * Does not spawn a second free Lottie plate.
+     */
+    importLottieIntoAnimationFrame(state, action) {
+      if (!state.document) return;
+      const frameId = String(action.payload?.frameId || '').trim();
+      const parsed = parseLottieAnimationData(action.payload?.animationData);
+      if (!frameId || !parsed) return;
+      const frames = Array.isArray(state.document.frames) ? [...state.document.frames] : [];
+      const frameIdx = frames.findIndex((f) => String(f?.id) === frameId);
+      if (frameIdx < 0) return;
+      const frame = frames[frameIdx];
+      if (!frame || !isAnimationArtboardKind(frame.kind)) return;
+
+      const json = serializeLottieAnimationData(parsed);
+      if (!json) return;
+
+      const fps = Math.max(1, Math.round(Number(parsed.fr) || Number(frame.fps) || 30));
+      const ip = Number(parsed.ip) || 0;
+      const op = Number(parsed.op);
+      const durationSec =
+        Number.isFinite(op) && op > ip
+          ? Math.max(0.5, (op - ip) / fps)
+          : Math.max(0.5, Number(frame.durationSec) || 5);
+      const natW = Math.max(32, Math.round(Number(parsed.w) || Number(frame.width) || 200));
+      const natH = Math.max(32, Math.round(Number(parsed.h) || Number(frame.height) || 200));
+
+      const hostAttrs = {
+        frameId,
+        frameOrder: 0,
+        animationFrameHost: true,
+        'fill-color': 'transparent',
+        locked: true,
+        name: '',
+      } as const;
+      const genPrompt = String(
+        action.payload?.genPrompt || action.payload?.prompt || ''
+      ).trim();
+
+      if (!action.payload?.skipHistory) pushHistory(state);
+      let next = normalizeDocument(state.document);
+      // Match plate to composition so imported layers aren't stranded in a corner.
+      frames[frameIdx] = {
+        ...frame,
+        width: natW,
+        height: natH,
+        durationSec,
+        fps,
+      };
+      next.frames = frames;
+      const sizedFrame = frames[frameIdx];
+
+      const bound = nodeIdsBoundToFrames(next, [frameId]);
+      let hostId: string | null = null;
+      for (const id of bound) {
+        const n = next.deltaSetLike?.[id];
+        if (isAnimationFrameHostNode(n, next)) {
+          hostId = id;
+          break;
+        }
+      }
+
+      if (!hostId) {
+        try {
+          const { id, node } = createLottieNode({
+            x: sizedFrame.x,
+            y: sizedFrame.y,
+            width: sizedFrame.width,
+            height: sizedFrame.height,
+            name: ' ',
+            animationData: parsed,
+          });
+          node.attrs = {
+            ...(node.attrs || {}),
+            ...hostAttrs,
+            animationData: json,
+          };
+          next = addNodeToDocument(next, id, node);
+          hostId = id;
+        } catch {
+          return;
+        }
+      } else {
+        const host = next.deltaSetLike?.[hostId];
+        if (!host) return;
+        host.x = Number(sizedFrame.x) || 0;
+        host.y = Number(sizedFrame.y) || 0;
+        host.width = Math.max(1, Number(sizedFrame.width) || 1);
+        host.height = Math.max(1, Number(sizedFrame.height) || 1);
+        host.attrs = {
+          ...(host.attrs || {}),
+          ...hostAttrs,
+          animationData: json,
+        };
+      }
+
+      // Drop stray free Lottie plates on this board — they looked like blue
+      // placeholders and are not syncable scene layers.
+      const removeIds: string[] = [];
+      for (const id of nodeIdsBoundToFrames(next, [frameId])) {
+        if (id === hostId) continue;
+        const n = next.deltaSetLike?.[id];
+        if (n?.key === 'lottie' && !isAnimationFrameHostNode(n, next)) {
+          removeIds.push(id);
+        }
+      }
+      if (removeIds.length) {
+        next = removeNodesFromDocument(next, removeIds);
+      }
+
+      const synced = hostId
+        ? syncArtboardChildrenIntoAnimation(next, frameId, hostId)
+        : null;
+      if (synced && hostId) {
+        const host = next.deltaSetLike?.[hostId];
+        if (host) {
+          host.attrs = {
+            ...(host.attrs || {}),
+            ...hostAttrs,
+            animationData: synced.animationJson,
+          };
+          for (const p of synced.childAttrPatches) {
+            const child = next.deltaSetLike?.[p.nodeId];
+            if (!child) continue;
+            child.attrs = {
+              ...(child.attrs || {}),
+              lottieLayerInd: p.lottieLayerInd,
+              ...(p.lottieInFrame != null ? { lottieInFrame: p.lottieInFrame } : null),
+              ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null),
+            };
+          }
+        }
+      }
+
+      next.activeFrameId = frameId;
+      if (genPrompt && hostId) {
+        const host = next.deltaSetLike?.[hostId];
+        if (host) {
+          host.attrs = { ...(host.attrs || {}), genPrompt };
+        }
+      }
+      state.document = next;
+      state.selectedFrameIds = [frameId];
+      state.selectedNodeId = null;
+      state.selectedNodeIds = [];
+      state.frameChromeMode = 'full';
+      state.dirty = true;
+      state.sceneReloadToken += 1;
+      state.documentPatchToken += 1;
+      state.lastPatchedNodeIds = hostId ? [hostId] : [];
+      state.lastPatchTransformOnly = false;
+      state.activeTool = 'select';
+      // Do not auto-open the timeline dock on import/upload — user opens via 关键帧.
+      state.animationFramePanel = null;
+      state.lottieComposePanel = null;
+      state.imageToolPanel = null;
+      state.videoToolPanel = null;
+      state.audioToolPanel = null;
+      state.shapeStylePanel = null;
+      state.pendingImageSrc = null;
+      state.lottiePlayheadSec = 0;
+      syncLibraryOnEdit(state);
+    },
     openShapeStylePanel(state, action) {
       const kind = action.payload?.kind;
       const nodeIds = Array.isArray(action.payload?.nodeIds)
@@ -2673,8 +3139,7 @@ const editorSlice = createSlice({
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
-      state.lottieTimelinePanel = null;
-      state.lottieFramePanel = null;
+      // Keep animation timeline / 动画工作台 dock open while editing fill/stroke/radius.
     },
     closeShapeStylePanel(state) {
       state.shapeStylePanel = null;
@@ -2901,13 +3366,14 @@ export const {
   startAudioUploadPlaceholder,
   spawnImageGenerator,
   spawnVideoGenerator,
-  spawnLottieGenerator,
+  spawnAnimationBoard,
   spawnLottieGeneratorPlate,
   spawnAudioGenerator,
   spawnLottie,
   spawnAudio,
   spawnCreatedNode,
   placeMediaAsset,
+  importLottieIntoAnimationFrame,
   finishImageGenerator,
   finishVideoGenerator,
   finishLottieGenerator,
@@ -2928,10 +3394,14 @@ export const {
   closeLottieComposePanel,
   openLottieTimelinePanel,
   closeLottieTimelinePanel,
+  enterLottiePrecompEdit,
+  exitLottiePrecompEdit,
+  setLottiePrecompSelectedLayer,
   setLottiePlayhead,
-  openLottieFramePanel,
-  closeLottieFramePanel,
-  ensureLottieFrameMedia,
+  setLottiePlaying,
+  openAnimationFramePanel,
+  closeAnimationFramePanel,
+  ensureAnimationFrameMedia,
   openShapeStylePanel,
   closeShapeStylePanel,
   setPenStrokeColor,

@@ -1,0 +1,48 @@
+{
+  "skill_key": "motion_animation",
+  "name": "motion_animation",
+  "displayName": "Motion / Lottie",
+  "description": "UI loop motion — loading, success, empty-state, heartbeat",
+  "when_to_use": "Legacy design-path Lottie / 动效 — prefer animation_workbench when intent=animation",
+  "category": "motion",
+  "scenes": "all",
+  "sort_weight": 66,
+  "version": "2.0.2",
+  "preferred_tools": [
+    "create_lottie",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "create",
+        "edit"
+      ],
+      "prompt_includes_any": [
+        "Lottie",
+        "动效",
+        "动画",
+        "loading",
+        "加载动效",
+        "heartbeat",
+        "motion",
+        "lottie"
+      ]
+    }
+  ],
+  "mutex_group": "motion",
+  "prompt_negative": "When Lottie/motion is requested, prefer create_lottie over still stand-ins. Prefer simple static marks as vector instead of Lottie. Complex still atmosphere belongs in image/poster skills, not motion. Do not emit create_frame for motion.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "动效 / Lottie",
+      "description": "UI 循环动效（加载/成功/空状态/心跳）"
+    },
+    "en": {
+      "displayName": "Motion / Lottie",
+      "description": "UI loop motion — loading, success, empty, heartbeat"
+    }
+  }
+}

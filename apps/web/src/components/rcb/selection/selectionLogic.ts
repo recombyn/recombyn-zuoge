@@ -40,6 +40,7 @@ import { expandSelectionWithGroups } from '@/components/rcb/scene/document/scene
 import {
   isAudioGeneratorNode,
   isImageGeneratorNode,
+  isAnimationFrameHostNode,
   isLottieGeneratorNode,
   isVideoGeneratorNode,
   isNodeHiddenInDocument,
@@ -49,6 +50,7 @@ import {
   supportsFill,
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { nodeIdsInsideFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
@@ -71,6 +73,7 @@ import type { TextResizeMode } from '@/components/rcb/scene/paint/svgToScene';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   liveShapeGeomBox,
+  hostAngleDeg,
   nodeUsesPathChrome,
   shapeNeedsSelectedPathSilhouette,
   nodeUsesOpenStrokeEndpoints,
@@ -419,7 +422,13 @@ export function isHostInjectedSelection(
 /** Near-full-bleed artboard plate ??must not block marquee (looks empty but hits as a shape). */
 export function frameForFullBleedPlate(doc: SceneDocument, nodeId: string): string | null {
   const node = doc?.deltaSetLike?.[nodeId];
-  if (!node || node.key !== 'shape') return null;
+  if (!node) return null;
+  // Invisible 动画工作台 host / preview children are plate chrome, not selectable content.
+  if (isAnimationFrameHostNode(node, doc) || isAnimationWorkbenchPreviewChild(doc, node)) {
+    const fid = String(node.attrs?.frameId || '').trim();
+    return fid || null;
+  }
+  if (node.key !== 'shape') return null;
   const shapeType = String(node.attrs?.shapeType || 'rect');
   if (shapeType !== 'rect') return null;
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
@@ -1624,6 +1633,9 @@ export function resizeOpenPathByEndpoint(
 }
 
 export function readNodeAngle(document: SceneDocument, nodeId: string) {
+  // Prefer live host angle (playhead scrub / in-progress transform) over attrs.
+  const live = hostAngleDeg(nodeId, Number.NaN);
+  if (Number.isFinite(live)) return live;
   const node = document?.deltaSetLike?.[nodeId];
   const n = Number(node?.attrs?.angle);
   return Number.isFinite(n) ? n : 0;
@@ -1773,6 +1785,8 @@ export function buildShapeOutlines(opts: {
   multiUnionBox?: SceneBox | null;
   multiUnionAngle?: number;
   getNodeBox: (id: string) => SceneBox | null;
+  /** Redux playhead — same hide gate as selection chrome / hit-test. */
+  playheadSec?: number;
 }): ShapeOutlineItem[] {
   if (!opts.enabled || opts.suppressChrome) return [];
 
@@ -1788,6 +1802,9 @@ export function buildShapeOutlines(opts: {
 
   const pushId = (id: string | null | undefined) => {
     if (!id || parseFrameSelId(id) || ids.includes(id)) return;
+    const node = opts.document?.deltaSetLike?.[id];
+    // One hide gate: attrs.hidden, workbench focus, playhead trim, …
+    if (node && isNodeHiddenInDocument(opts.document, node, opts.playheadSec)) return;
     ids.push(id);
   };
 

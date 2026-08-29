@@ -12,20 +12,25 @@ const intelligenceMarker = path.join(
 const win = process.platform === 'win32';
 const venvPy = path.join(apiRoot, '.venv', win ? 'Scripts/python.exe' : 'bin/python');
 const py = existsSync(venvPy) ? venvPy : 'python';
-const sqliteRel = path.join('storage', 'recombyn.db').replace(/\\/g, '/');
 const devApiPort = resolveDevApiPort(process.env);
 
-/** Local web dev: default SQLite unless apps/api/.env sets DATABASE_URL or USE_REMOTE_DB=1. */
+/** Local API — requires MySQL/Postgres ``DATABASE_URL`` in apps/api/.env. */
 function devApiEnv() {
+  // Prefer .env over a stale shell DATABASE_URL.
   const fileEnv = loadApiDotEnv();
   const env = { ...process.env, ...fileEnv, RECOMBYN_API_ROOT: apiRoot };
-  const useRemote =
-    String(env.USE_REMOTE_DB || '').trim() === '1' ||
-    String(env.USE_REMOTE_DB || '').toLowerCase() === 'true' ||
-    Boolean(String(env.DATABASE_URL || '').trim());
-  if (!useRemote) {
-    env.DATABASE_URL = `sqlite:///${sqliteRel}`;
-    env.SQLITE_DB_PATH = sqliteRel;
+  const db = String(env.DATABASE_URL || '').trim();
+  if (!db) {
+    console.error(
+      '[dev:api] DATABASE_URL is required (mysql://…). See apps/api/.env / docker compose.'
+    );
+    process.exit(1);
+  }
+  if (!/^mysql/i.test(db) && !/^postgres(ql)?:/i.test(db)) {
+    console.error(
+      '[dev:api] DATABASE_URL must be mysql://… or postgresql://…. See apps/api/.env / docker compose.'
+    );
+    process.exit(1);
   }
   if (existsSync(intelligenceMarker) && !String(env.RECOMBYN_INTELLIGENCE_URL || '').trim()) {
     env.RECOMBYN_INTELLIGENCE_MODE = env.RECOMBYN_INTELLIGENCE_MODE || 'cloud';

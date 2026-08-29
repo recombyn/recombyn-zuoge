@@ -128,7 +128,7 @@ async def _vision_chat_reply(rt: AgentRuntime) -> str:
 
 
 async def _node_intent_classify(state: GraphState) -> Command:
-    """Cheap intent gate: chat → end; canvas_op → paint; design → decide (+ skills).
+    """Cheap intent gate: chat → end; canvas_op → paint; design → decide; animation → animation_decide.
 
     With Ask PENDING_PROPOSAL: proposal_action apply|dismiss|revise routes first.
     """
@@ -354,8 +354,12 @@ async def _node_intent_classify(state: GraphState) -> Command:
     # otherwise early-open / paint rewrites the previous plate.
     _release_ambient_focus_for_new_design(rt)
 
-    _emit_design_loading_artboard(rt)
-    # Intent LLM owns routing: canvas_op → paint; design → full design_agent.
+    # Design-only shimmer: animation never opens a poster loading artboard.
+    if intent == "design":
+        _emit_design_loading_artboard(rt)
+
     if intent == "canvas_op":
         return _goto_cmd(rt, frm="intent_classify", to="paint_ops")
+    if intent == "animation":
+        return _goto_cmd(rt, frm="intent_classify", to="animation_decide")
     return _goto_cmd(rt, frm="intent_classify", to="design_agent")

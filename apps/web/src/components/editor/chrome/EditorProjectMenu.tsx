@@ -23,8 +23,8 @@ type Props = {
   onNewProject: () => void;
   onDuplicateProject: () => void;
   onImportJson: (file: File) => void;
-  /** titlebar = desktop custom titlebar; float = canvas overlay */
-  variant: 'float' | 'titlebar';
+  /** titlebar = desktop custom titlebar; float = canvas overlay; toolrail = timeline top strip */
+  variant: 'float' | 'titlebar' | 'toolrail';
 };
 
 function MenuRow({ label, onClick }: { label: string; onClick: () => void }) {
@@ -53,7 +53,9 @@ function EditorProjectMenu({
   const [open, setOpen] = useState(false);
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const titlebar = variant === 'titlebar';
-  const avatarSize = titlebar ? 26 : 28;
+  const toolrail = variant === 'toolrail';
+  /** Match ToolBtn `h-8 w-8` when docked beside the drawing strip. */
+  const avatarSize = toolrail ? 32 : titlebar ? 26 : 28;
 
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -86,19 +88,31 @@ function EditorProjectMenu({
     <button
       type="button"
       className={cn(
-        'inline-flex shrink-0 items-center rounded-[10px] text-[var(--ink)] transition',
-        titlebar
-          ? 'py-0.5 hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]'
-          : 'py-0.5 hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]'
+        'inline-flex shrink-0 items-center text-[var(--ink)] transition',
+        toolrail
+          ? 'size-8 items-center justify-center rounded-lg hover:bg-[var(--accent-soft)]'
+          : 'rounded-[10px] py-0.5 hover:bg-[color-mix(in_srgb,var(--ink)_6%,transparent)]'
       )}
       aria-expanded={open}
       aria-haspopup="menu"
       title={authed ? user?.name || user?.email || t('home.account') : t('home.login')}
     >
       {authed ? (
-        <UserAvatar name={user.name} email={user.email} avatar={user.avatar} size={avatarSize} />
+        <UserAvatar
+          name={user.name}
+          email={user.email}
+          avatar={user.avatar}
+          size={avatarSize}
+          rounded={toolrail ? 'lg' : 'full'}
+        />
       ) : (
-        <UserAvatar size={avatarSize} name={null} email={null} avatar={null} />
+        <UserAvatar
+          size={avatarSize}
+          name={null}
+          email={null}
+          avatar={null}
+          rounded={toolrail ? 'lg' : 'full'}
+        />
       )}
     </button>
   );

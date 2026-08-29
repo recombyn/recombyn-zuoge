@@ -90,18 +90,14 @@ class Settings(BaseSettings):
     s3_addressing_style: str = "virtual"
     s3_acl_public_read: bool = True
 
-    # Empty → SQLite at sqlite_db_path.
+    # Required: mysql://… or postgresql://…
     database_url: str = ""
     database_readonly_url: str = ""
-    sqlite_db_path: str = "storage/recombyn.db"
-    sqlite_busy_timeout_ms: int = 30000
-    sqlite_wal: bool = True
     db_backup_enabled: bool = True
     db_backup_interval_hours: float = 24.0
     db_backup_dir: str = "storage/backups"
     db_backup_keep: int = 14
     langgraph_checkpoint_url: str = ""
-    langgraph_checkpoint_sqlite_path: str = "storage/langgraph_checkpoints.db"
     design_graph_checkpoint: bool = True
     design_graph_retry_attempts: int = 3
     design_graph_node_timeout_sec: float = 180.0
@@ -129,7 +125,6 @@ class Settings(BaseSettings):
     design_run_lease_ttl_sec: float = 90.0
     design_scene_wait_poll_ms: float = 150.0
     langgraph_store_url: str = ""
-    langgraph_store_sqlite_path: str = "storage/langgraph_store.db"
     byok_aes_key: str = ""
     rate_limit_enabled: bool = True
     rate_limit_window_sec: int = 60

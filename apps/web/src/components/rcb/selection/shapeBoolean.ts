@@ -986,11 +986,14 @@ export function applyBooleanResultRadii(attrs: Record<string, unknown>, boxes: S
 /**
  * Apply the primary operand's fill + stroke onto a boolean result path node.
  * Uses center stroke — outside underlays often disappear on tight path AABBs.
+ *
+ * Stroke-only wireframes (transparent fill) used to vanish when the sample had
+ * stroke disabled / zero width — ensure at least one visible paint channel.
  */
 export function applyBooleanResultPaint(
   attrs: Record<string, unknown>,
   sampleAttrs: Record<string, unknown> | null | undefined,
-  fallback: { stroke: string; borderWidth: number }
+  fallback: { stroke: string; borderWidth: number; fill?: string }
 ) {
   const src =
     sampleAttrs && typeof sampleAttrs === 'object' ? sampleAttrs : ({} as Record<string, unknown>);
@@ -999,12 +1002,16 @@ export function applyBooleanResultPaint(
       key.startsWith('fill') ||
       key.startsWith('stroke') ||
       key.startsWith('border') ||
-      key === 'opacity' ||
       key === 'blendMode' ||
       key.startsWith('gradient') ||
       key.startsWith('mesh')
     ) {
       attrs[key] = src[key];
+    }
+    // Skip opacity ≤ 0 — a ghosted operand must not make the merge invisible.
+    if (key === 'opacity') {
+      const o = Number(src[key]);
+      if (Number.isFinite(o) && o > 0) attrs[key] = src[key];
     }
   }
 
@@ -1018,14 +1025,41 @@ export function applyBooleanResultPaint(
   if (strokeOff) {
     attrs['stroke-enabled'] = 'false';
     attrs['stroke-visible'] = 'false';
-    return;
+  } else {
+    const bw = parseFloat(String(attrs['border-width'] ?? fallback.borderWidth));
+    attrs['stroke-enabled'] = 'true';
+    attrs['stroke-visible'] = 'true';
+    attrs['border-color'] = String(attrs['border-color'] || fallback.stroke || '#333333');
+    attrs['border-width'] =
+      Number.isFinite(bw) && bw > 0 ? bw : Math.max(1, Number(fallback.borderWidth) || 1);
+    attrs.strokeAlign = 'center';
   }
 
-  const bw = parseFloat(String(attrs['border-width'] ?? fallback.borderWidth));
-  attrs['stroke-enabled'] = 'true';
-  attrs['stroke-visible'] = 'true';
-  attrs['border-color'] = String(attrs['border-color'] || fallback.stroke || '#333333');
-  attrs['border-width'] =
-    Number.isFinite(bw) && bw > 0 ? bw : Math.max(1, Number(fallback.borderWidth) || 1);
-  attrs.strokeAlign = 'center';
+  const fillColor = String(attrs['fill-color'] || '').trim();
+  const fillOff =
+    attrs['fill-enabled'] === false ||
+    attrs['fill-enabled'] === 'false' ||
+    attrs['fill-visible'] === false ||
+    attrs['fill-visible'] === 'false' ||
+    !fillColor ||
+    fillColor === 'transparent' ||
+    fillColor === 'none';
+  const strokeOn =
+    attrs['stroke-enabled'] !== false &&
+    attrs['stroke-enabled'] !== 'false' &&
+    attrs['stroke-visible'] !== false &&
+    attrs['stroke-visible'] !== 'false' &&
+    Number(attrs['border-width']) > 0;
+
+  // No fill and no stroke → paint a solid so the boolean result stays visible.
+  if (fillOff && !strokeOn) {
+    const ink = String(
+      attrs['border-color'] || fallback.stroke || fallback.fill || '#111111'
+    ).trim();
+    attrs['fill-color'] =
+      ink && ink !== 'transparent' && ink !== 'none' ? ink : '#111111';
+    attrs['fill-type'] = 'solid';
+    attrs['fill-enabled'] = 'true';
+    attrs['fill-visible'] = 'true';
+  }
 }

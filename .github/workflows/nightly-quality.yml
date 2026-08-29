@@ -69,8 +69,7 @@ jobs:
       - name: Start API
         working-directory: apps/api
         env:
-          DATABASE_URL: ''
-          SQLITE_DB_PATH: storage/ci-nightly.db
+          DATABASE_URL: mysql://recombyn:recombyn@127.0.0.1:3306/recombyn
           REDIS_URL: redis://127.0.0.1:6379/0
           SUPER_ADMIN_TEST_CODE: ${{ env.SUPER_ADMIN_TEST_CODE }}
           COLLAB_TOKEN_SECRET: ${{ env.COLLAB_TOKEN_SECRET }}

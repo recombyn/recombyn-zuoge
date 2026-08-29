@@ -1,4 +1,4 @@
-"""Alembic environment — SQLModel metadata + app DATABASE_URL / SQLite."""
+"""Alembic environment — SQLModel metadata + app DATABASE_URL."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         compare_type=True,
-        render_as_batch=url.startswith("sqlite"),
+        render_as_batch=False,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -37,13 +37,12 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Use the app engine so Session and Alembic always hit the same DB."""
-    url = get_url()
     with engine.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
-            render_as_batch=url.startswith("sqlite"),
+            render_as_batch=False,
         )
         with context.begin_transaction():
             context.run_migrations()

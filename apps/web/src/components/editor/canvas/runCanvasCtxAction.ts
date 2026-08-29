@@ -31,13 +31,14 @@ import {
   setSelectedNodeIds,
   spawnImageGenerator,
   spawnVideoGenerator,
-  spawnLottieGenerator,
+  spawnAnimationBoard,
   spawnAudioGenerator,
   undo,
   redo,
 } from '@/store/modules/editor';
 import { layoutGeneratorPlateAtScene } from './canvasSession';
 import { MEDIA_PLACE_DEFAULT } from '@/components/rcb/scene/document/nodeFactories';
+import { warnIfAvBlockedByAnimationWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { ctxMenuSeedNodeIds, filterChatAttachNodeIds } from './attachPick';
 import { ctxMenuTargetHasProcessing } from './ctxMenuGuards';
 import type { CanvasClipboardApi } from './clipboard/useCanvasClipboard';
@@ -176,9 +177,15 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
   if (
     action === 'spawnImageGenerator' ||
     action === 'spawnVideoGenerator' ||
-    action === 'spawnLottieGenerator' ||
+    action === 'spawnAnimationBoard' ||
     action === 'spawnAudioGenerator'
   ) {
+    if (
+      (action === 'spawnVideoGenerator' || action === 'spawnAudioGenerator') &&
+      warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)
+    ) {
+      return;
+    }
     const doc = documentRef.current;
     if (!doc) return;
     const specs = {
@@ -194,11 +201,11 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
         nameKey: 'editor.tools.videoGenerator' as const,
         dispatch: spawnVideoGenerator,
       },
-      spawnLottieGenerator: {
+      spawnAnimationBoard: {
         natural: { width: 364, height: 364 },
         fit: { minRatio: 0.22, maxRatio: 0.42 },
-        nameKey: 'editor.tools.lottieGenerator' as const,
-        dispatch: spawnLottieGenerator,
+        nameKey: 'editor.tools.animationBoard' as const,
+        dispatch: spawnAnimationBoard,
       },
       spawnAudioGenerator: {
         natural: { ...MEDIA_PLACE_DEFAULT },

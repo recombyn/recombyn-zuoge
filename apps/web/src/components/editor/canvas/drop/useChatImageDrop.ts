@@ -25,6 +25,7 @@ import {
 } from '@/utils/chatImageDrag';
 import { getHttpErrorMessage } from '@/service/client';
 import { message } from '@/components/base';
+import { warnIfAvBlockedByAnimationWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import store from '@/store';
 import {
   failImageProcess,
@@ -138,6 +139,12 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
       clientX: number,
       clientY: number
     ) => {
+      if (
+        (payload.kind === 'video' || payload.kind === 'audio') &&
+        warnIfAvBlockedByAnimationWorkbenchFocus(message.warning)
+      ) {
+        return;
+      }
       const hydrated = await hydrateAssetSrcForCanvas(payload);
       const placePayload = {
         ...payload,

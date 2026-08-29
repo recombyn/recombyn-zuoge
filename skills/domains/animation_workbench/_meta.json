@@ -1,0 +1,47 @@
+{
+  "skill_key": "animation_workbench",
+  "name": "animation_workbench",
+  "displayName": "Animation Workbench",
+  "description": "Agent animation path — Lottie / UI motion on 动画工作台",
+  "when_to_use": "intent=animation — loading / success / empty / heartbeat Lottie on the animation workbench (not posters)",
+  "category": "motion",
+  "scenes": "all",
+  "sort_weight": 70,
+  "version": "1.0.0",
+  "preferred_tools": [
+    "create_lottie",
+    "update_node"
+  ],
+  "allowed_resources": [
+    "tools"
+  ],
+  "triggers": [
+    {
+      "intent_in": [
+        "animation"
+      ],
+      "prompt_includes_any": [
+        "Lottie",
+        "动效",
+        "动画",
+        "loading",
+        "加载动效",
+        "heartbeat",
+        "motion",
+        "lottie"
+      ]
+    }
+  ],
+  "mutex_group": "motion",
+  "prompt_negative": "Never use create_image or create_frame as a motion stand-in. Prefer create_lottie into the focused 动画工作台. Static posters belong to design/poster_craft.",
+  "locales": {
+    "zh-CN": {
+      "displayName": "动画工作台",
+      "description": "Agent 动画路径 — 在动画工作台生成 Lottie / UI 动效"
+    },
+    "en": {
+      "displayName": "Animation Workbench",
+      "description": "Agent animation path — Lottie / UI motion on the workbench"
+    }
+  }
+}

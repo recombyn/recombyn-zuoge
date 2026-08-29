@@ -534,22 +534,12 @@ def merge_task_meta(task_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     tid = str(task_id or "").strip()
     if not tid:
         return {}
-    from sqlalchemy import text
     from sqlmodel import Session
 
     from app.repositories import design_tasks
     from app.core.db import engine
-    from app.services.db import dialect
 
     with Session(engine) as session:
-        # SQLite has no SELECT ... FOR UPDATE. BEGIN IMMEDIATE acquires its
-        # write lock before the read/merge/write sequence; other dialects use
-        # the row-level lock in CRUD.
-        if dialect() == "sqlite":
-            try:
-                session.connection().execute(text("BEGIN IMMEDIATE"))
-            except Exception:
-                pass
         row = design_tasks.get_design_task_for_update(session=session, task_id=tid)
         if not row:
             return {}
@@ -900,23 +890,16 @@ def _claim_lease_db_cas(
     ttl: float,
     steal_if_expired: bool,
 ) -> dict[str, Any]:
-    """Transactional claim: Session + ``FOR UPDATE`` (SQLite: BEGIN IMMEDIATE)."""
-    from sqlalchemy import text
+    """Transactional claim: Session + ``FOR UPDATE``."""
     from sqlmodel import Session
 
     from app.repositories import design_tasks
     from app.core.db import engine
-    from app.services.db import dialect
 
     now = time.time()
     lease = _new_lease(owner, ttl, now=now)
     try:
         with Session(engine) as session:
-            if dialect() == "sqlite":
-                try:
-                    session.connection().execute(text("BEGIN IMMEDIATE"))
-                except Exception:
-                    pass
             row = design_tasks.get_design_task_for_update(session=session, task_id=tid)
             if not row:
                 return {"ok": True, "lease": lease, "via": "pending"}

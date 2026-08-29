@@ -408,6 +408,8 @@ type PenStrokeToolbarProps = {
    * `dock` — fixed at page top-center; brush menu opens downward.
    */
   placement?: 'anchor' | 'dock';
+  /** `flat` when embedded in the timeline top rail (no pill border/shadow). */
+  chrome?: 'pill' | 'flat';
   className?: string;
 };
 
@@ -420,6 +422,7 @@ function PenStrokeToolbar({
   viewportWidth,
   docWidth,
   placement = 'anchor',
+  chrome = 'pill',
   className,
 }: PenStrokeToolbarProps) {
   const { t } = useTranslation();
@@ -519,7 +522,7 @@ function PenStrokeToolbar({
         className
       )}
     >
-      <FloatingToolbar className="relative h-8 gap-1 px-2 py-0">
+      <FloatingToolbar variant={chrome} className="relative h-8 gap-1 px-2 py-0">
         {isPencil ? (
           <ColorPanelPopover
             {...colorPanelProps}

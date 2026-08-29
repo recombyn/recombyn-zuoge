@@ -27,13 +27,14 @@ export type ArtboardFrame = {
   /** Artboard fill alpha, stored as a percentage from 0 to 100. */
   backgroundOpacity?: number;
   /**
-   * Plate role. `lottie` = Lottie 合成台 (same HtmlArtboardFrame + clip,
-   * different selection toolbar). Default / omitted = normal artboard.
+   * Plate role. `animation` = 动画工作台 (same HtmlArtboardFrame + clip,
+   * different selection toolbar). `lottie` is legacy alias for the same plate.
+   * Default / omitted = normal artboard.
    */
-  kind?: 'artboard' | 'lottie';
-  /** Lottie 合成台 composition length (seconds). */
+  kind?: 'artboard' | 'animation' | 'lottie';
+  /** 动画工作台 composition length (seconds). */
   durationSec?: number;
-  /** Lottie 合成台 frame rate. */
+  /** 动画工作台 frame rate. */
   fps?: number;
   layoutMode?: 'auto' | 'manual';
   /** When true, frame cannot be moved or resized. */
@@ -55,3 +56,10 @@ export type ArtboardFrame = {
   processLabel?: string;
   processKind?: 'design' | 'import' | string;
 };
+
+/** True for 动画工作台 plates (`animation` or legacy `lottie`). */
+export function isAnimationArtboardKind(
+  kind: ArtboardFrame['kind'] | string | null | undefined
+): boolean {
+  return kind === 'animation' || kind === 'lottie';
+}

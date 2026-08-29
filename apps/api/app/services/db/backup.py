@@ -1,4 +1,4 @@
-"""Periodic database backups — SQLite online backup + dump hints for MySQL/Postgres."""
+"""Periodic database backups — dump hints for MySQL/Postgres."""
 
 from __future__ import annotations
 
@@ -43,29 +43,14 @@ def _prune_backups(directory: Path, *, keep: int, prefix: str) -> None:
             _log.debug("prune backup failed path=%s", old, exc_info=True)
 
 
-def backup_sqlite_file(src: Path, dest: Path) -> Path:
-    """Consistent SQLite snapshot via sqlite3 backup API (works with WAL)."""
-    import sqlite3
-
-    src = Path(src)
-    dest = Path(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if not src.is_file():
-        raise FileNotFoundError(str(src))
-    with sqlite3.connect(str(src)) as src_conn:
-        with sqlite3.connect(str(dest)) as dst_conn:
-            src_conn.backup(dst_conn)
-    return dest
-
-
 def run_db_backup(*, reason: str = "scheduled") -> dict[str, Any]:
     """
-    Backup primary app DB (+ sibling LangGraph SQLite files when present).
+    Backup primary app DB.
 
     MySQL/Postgres: writes a sidecar ``.hint`` with dump command (operator runs
     mysqldump / pg_dump or uses cloud automated backups).
     """
-    from app.services.db import dialect, _sqlite_path
+    from app.services.db import dialect
 
     if not bool(getattr(settings, "db_backup_enabled", True)):
         return {"ok": False, "skipped": True, "reason": "disabled"}
@@ -77,58 +62,30 @@ def run_db_backup(*, reason: str = "scheduled") -> dict[str, Any]:
         d = dialect()
         created: list[str] = []
 
-        if d == "sqlite":
-            src = _sqlite_path()
-            dest = out_dir / f"recombyn-{stamp}.db"
-            backup_sqlite_file(src, dest)
-            created.append(str(dest))
-            _prune_backups(out_dir, keep=keep, prefix="recombyn-")
-
-            # Sibling LangGraph local DBs (best-effort).
-            for attr, prefix in (
-                ("langgraph_checkpoint_sqlite_path", "langgraph-checkpoints-"),
-                ("langgraph_store_sqlite_path", "langgraph-store-"),
-            ):
-                raw = str(getattr(settings, attr, "") or "").strip()
-                if not raw:
-                    continue
-                path = Path(raw)
-                if not path.is_absolute():
-                    path = _API_ROOT / path
-                if not path.is_file():
-                    continue
-                dest2 = out_dir / f"{prefix}{stamp}.db"
-                try:
-                    backup_sqlite_file(path, dest2)
-                    created.append(str(dest2))
-                    _prune_backups(out_dir, keep=keep, prefix=prefix)
-                except Exception:
-                    _log.warning("backup skipped for %s", path, exc_info=True)
+        hint = out_dir / f"{d}-dump-{stamp}.hint.txt"
+        url = (settings.database_url or "").strip()
+        if d == "mysql":
+            body = (
+                f"# Generated {stamp} reason={reason}\n"
+                f"# Run on a secure host (never commit credentials):\n"
+                f"mysqldump --single-transaction --routines --triggers \\\n"
+                f"  --databases <db> > recombyn-{stamp}.sql\n"
+                f"# Or enable CynosDB / RDS automated backups.\n"
+                f"# DATABASE_URL scheme present: mysql\n"
+            )
         else:
-            hint = out_dir / f"{d}-dump-{stamp}.hint.txt"
-            url = (settings.database_url or "").strip()
-            if d == "mysql":
-                body = (
-                    f"# Generated {stamp} reason={reason}\n"
-                    f"# Run on a secure host (never commit credentials):\n"
-                    f"mysqldump --single-transaction --routines --triggers \\\n"
-                    f"  --databases <db> > recombyn-{stamp}.sql\n"
-                    f"# Or enable CynosDB / RDS automated backups.\n"
-                    f"# DATABASE_URL scheme present: mysql\n"
-                )
-            else:
-                body = (
-                    f"# Generated {stamp} reason={reason}\n"
-                    f"# Run on a secure host:\n"
-                    f"pg_dump --format=custom --no-owner --dbname=\"$DATABASE_URL\" \\\n"
-                    f"  -f recombyn-{stamp}.dump\n"
-                    f"# Restore: pg_restore --clean --if-exists -d \"$DATABASE_URL\" file.dump\n"
-                )
-            hint.write_text(body, encoding="utf-8")
-            created.append(str(hint))
-            _prune_backups(out_dir, keep=keep, prefix=f"{d}-dump-")
-            # Optional: copy hint only; do not embed URL secrets.
-            del url
+            body = (
+                f"# Generated {stamp} reason={reason}\n"
+                f"# Run on a secure host:\n"
+                f"pg_dump --format=custom --no-owner --dbname=\"$DATABASE_URL\" \\\n"
+                f"  -f recombyn-{stamp}.dump\n"
+                f"# Restore: pg_restore --clean --if-exists -d \"$DATABASE_URL\" file.dump\n"
+            )
+        hint.write_text(body, encoding="utf-8")
+        created.append(str(hint))
+        _prune_backups(out_dir, keep=keep, prefix=f"{d}-dump-")
+        # Optional: copy hint only; do not embed URL secrets.
+        del url
 
         result = {
             "ok": True,
