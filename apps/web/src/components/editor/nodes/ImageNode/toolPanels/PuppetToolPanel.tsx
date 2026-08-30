@@ -10,11 +10,15 @@ import ImageToolPanelShell, { PanelIconBtn } from './ImageToolPanelShell';
 
 function PuppetToolPanel({
   density,
+  keyframeCount,
+  timelineOpen,
   onDensityChange,
   onReset,
   onClose,
 }: {
   density: number;
+  keyframeCount: number;
+  timelineOpen: boolean;
   onDensityChange: (v: number) => void;
   onReset: () => void;
   onClose: () => void;
@@ -38,7 +42,7 @@ function PuppetToolPanel({
         </PanelIconBtn>
       }
     >
-      <div className="flex flex-col items-stretch gap-3 py-3">
+      <div className="flex flex-col items-stretch gap-2 pb-0.5 pt-0">
         <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--ink)]">
           <span>
             {t('editor.imageToolbar.puppetDensity', { defaultValue: '网格密度' })}
@@ -55,6 +59,20 @@ function PuppetToolPanel({
           thumbWidth={16}
           thumbHeight={16}
         />
+        <p className="text-[10px] leading-snug text-[var(--ink-soft)]">
+          {timelineOpen
+            ? keyframeCount > 0
+              ? t('editor.imageToolbar.puppetKfCount', {
+                  defaultValue: '时间轴「人偶」· {{count}} 个关键帧',
+                  count: keyframeCount,
+                })
+              : t('editor.imageToolbar.puppetKfHint', {
+                  defaultValue: '拖钉点写入当前帧；换时间再拖即可做动画',
+                })
+            : t('editor.imageToolbar.puppetOpenTimeline', {
+                defaultValue: '打开关键帧时间轴后，拖钉点可写入动画',
+              })}
+        </p>
       </div>
     </ImageToolPanelShell>
   );

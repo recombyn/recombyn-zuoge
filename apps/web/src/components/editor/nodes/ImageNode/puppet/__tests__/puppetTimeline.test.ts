@@ -51,6 +51,46 @@ describe('enrichTimelineScenesWithPuppet', () => {
     expect(puppet!.times).toEqual([0, 1]);
   });
 
+  it('matches image by lottieLayerInd when sceneNodeId is missing', () => {
+    const scenes: LottieTimelineScene[] = [
+      {
+        id: 'main',
+        label: 'Main',
+        kind: 'main',
+        fr: 30,
+        ip: 0,
+        op: 30,
+        durationSec: 1,
+        layers: [
+          {
+            id: 'layer-3',
+            ind: 3,
+            name: 'Photo',
+            clipKind: 'image',
+            inSec: 0,
+            outSec: 1,
+            props: [],
+          },
+        ],
+      },
+    ];
+    const document = {
+      deltaSetLike: {
+        img3: {
+          id: 'img3',
+          key: 'image',
+          attrs: {
+            lottieLayerInd: 3,
+            puppetEnabled: true,
+            puppetTrack: [{ f: 0, pins: [] }],
+          },
+        },
+      },
+    } as unknown as SceneDocument;
+    const next = enrichTimelineScenesWithPuppet(scenes, document);
+    expect(next[0]!.layers[0]!.props.some((p) => p.key === 'puppet')).toBe(true);
+  });
+
   it('skips non-image layers', () => {
     const scenes: LottieTimelineScene[] = [
       {

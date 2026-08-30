@@ -4,10 +4,10 @@ import {
   HiOutlineAdjustmentsHorizontal,
   HiOutlineArrowsPointingOut,
   HiOutlineEllipsisHorizontal,
-  HiOutlinePencilSquare,
   HiOutlineScissors,
 } from 'react-icons/hi2';
 import { MdOutlineFlip, MdOutlineOpacity } from 'react-icons/md';
+import { SlVector } from 'react-icons/sl';
 import { TbDroplet, TbShirt } from 'react-icons/tb';
 import { Dropdown } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
@@ -157,7 +157,7 @@ function ImageToolbarMoreDownload({
       },
       {
         key: 'vectorize',
-        icon: <HiOutlinePencilSquare className="h-4 w-4" />,
+        icon: <SlVector className="h-4 w-4" />,
         label: t('editor.imageToolbar.vectorize', { defaultValue: '矢量化' }),
         disabled: !vectorizeEnabled,
       }

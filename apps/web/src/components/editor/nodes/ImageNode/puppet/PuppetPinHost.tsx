@@ -11,7 +11,6 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type SVGProps,
 } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RcbOverlayPortal, useRcbCamera, rcbSceneToScreen } from '@/components/rcb';
@@ -20,11 +19,7 @@ import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { buildPuppetWarpGrid, bakePuppetWarpDataUrl } from '@/components/rcb/scene/paint/puppetWarp';
 import { getFillImageReady } from '@/components/rcb/render/sceneRenderer';
 import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
-import { resolveAnimationLayerLink } from '@/components/editor/nodes/AnimationNode/animationAutoKey';
-import {
-  getAnimationWorkbenchPlayheadSec,
-  getAnimationWorkbenchTimelineFocus,
-} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { getAnimationWorkbenchPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import type { ImageToolPanelState } from '@/store/modules/editor';
 import { patchDocumentNode } from '@/store/modules/editor';
@@ -35,10 +30,9 @@ import {
   nodeNeedsPuppetWarp,
   readPuppetDensity,
   readPuppetPins,
-  readPuppetTrack,
-  upsertPuppetTrackKeyframe,
   type PuppetPin,
 } from './puppetModel';
+import { autoKeyPuppetPins, expandPuppetTimelineLayer } from './puppetTimeline';
 
 const HANDLE = 12;
 const MESH_STROKE = 'rgba(255, 107, 53, 0.55)';
@@ -63,18 +57,6 @@ function meshPathD(pins: PuppetPin[], density: number, stageW: number, stageH: n
     parts.push(`M ${col.join(' L ')}`);
   }
   return parts.join(' ');
-}
-
-function autoKeyTrack(nodeId: string, pins: PuppetPin[], playheadSec: number) {
-  const focus = getAnimationWorkbenchTimelineFocus();
-  if (!focus) return null;
-  const state = store.getState() as { editor?: { document?: any } };
-  const document = state.editor?.document;
-  const link = resolveAnimationLayerLink(document, nodeId);
-  if (!link || link.frameId !== focus) return null;
-  const attrs = (document?.deltaSetLike?.[nodeId]?.attrs || {}) as Record<string, unknown>;
-  const fps = Math.max(1, Number(link.animationData.fr) || 30);
-  return upsertPuppetTrackKeyframe(readPuppetTrack(attrs), secToFrame(playheadSec, fps), pins);
 }
 
 function PuppetOverlay({
@@ -113,9 +95,15 @@ function PuppetOverlay({
 
   const commitPins = useCallback(
     (next: PuppetPin[], skipHistory?: boolean) => {
-      const playheadSec =
-        Number((store.getState() as any).editor?.lottiePlayheadSec) || 0;
-      const track = autoKeyTrack(nodeId, next, playheadSec);
+      const state = store.getState() as {
+        editor?: { document?: unknown; lottiePlayheadSec?: number };
+      };
+      const keyed = autoKeyPuppetPins({
+        document: state.editor?.document,
+        nodeId,
+        pins: next,
+        playheadSec: Number(state.editor?.lottiePlayheadSec) || 0,
+      });
       dispatch(
         patchDocumentNode({
           nodeId,
@@ -123,7 +111,7 @@ function PuppetOverlay({
             attrs: {
               puppetEnabled: true,
               puppetPins: next,
-              ...(track ? { puppetTrack: track } : null),
+              ...(keyed ? { puppetTrack: keyed.track } : null),
             },
           },
           skipHistory,
@@ -305,29 +293,6 @@ function PuppetWarpSync({ document }: { document: SceneDocument }) {
   return null;
 }
 
-/** AE-style puppet control point: crosshair + node. */
-export function PuppetPinIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden
-      {...props}
-    >
-      <path
-        d="M8 1.5v13M1.5 8h13"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <circle cx="8" cy="8" r="2.75" fill="currentColor" />
-      <circle cx="8" cy="8" r="1.15" fill="var(--surface, #fff)" />
-    </svg>
-  );
-}
-
 function PuppetPinHost({
   document,
   hidden = false,
@@ -344,6 +309,7 @@ function PuppetPinHost({
     const nodeId = String(panel.nodeId);
     const node = document.deltaSetLike?.[nodeId];
     if (!node || node.key !== 'image') return null;
+    if (!resolveAnimationFrameId(document, node)) return null;
     const { left, top } = nodeLeftTop(document, node);
     const attrs = (node.attrs || {}) as Record<string, unknown>;
     return {
@@ -355,13 +321,30 @@ function PuppetPinHost({
       angle: Number(node.attrs?.angle) || 0,
       pins: readPuppetPins(attrs),
       density: readPuppetDensity(attrs),
+      layerNode: node,
     };
   }, [document, hidden, panel]);
+
+  useEffect(() => {
+    if (!entry?.layerNode) return;
+    expandPuppetTimelineLayer(entry.layerNode);
+  }, [entry?.nodeId, entry?.layerNode]);
 
   return (
     <>
       <PuppetWarpSync document={document} />
-      {entry ? <PuppetOverlay {...entry} /> : null}
+      {entry ? (
+        <PuppetOverlay
+          nodeId={entry.nodeId}
+          left={entry.left}
+          top={entry.top}
+          width={entry.width}
+          height={entry.height}
+          angle={entry.angle}
+          pins={entry.pins}
+          density={entry.density}
+        />
+      ) : null}
     </>
   );
 }

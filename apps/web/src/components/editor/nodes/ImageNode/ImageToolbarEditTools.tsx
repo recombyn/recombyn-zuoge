@@ -16,7 +16,7 @@ import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
 import ImageDecomposeMenu, { type DecomposeMode } from './ImageDecomposeMenu';
 
 import { ImageToolSep, imageToolBtn } from './imageToolbarShared';
-import { PuppetPinIcon } from './puppet/PuppetPinHost';
+import { GiPuppet } from 'react-icons/gi';
 
 
 
@@ -166,7 +166,7 @@ function ImageToolbarEditTools({
           active={puppetActive}
         >
 
-          <PuppetPinIcon className="h-4 w-4" />
+          <GiPuppet className="h-4 w-4" />
 
         </Tool>
 

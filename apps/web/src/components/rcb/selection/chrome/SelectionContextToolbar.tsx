@@ -93,6 +93,7 @@ import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
 import { canMarkNode } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
+import { expandPuppetTimelineLayer } from '@/components/editor/nodes/ImageNode/puppet/puppetTimeline';
 import { AI_IMAGE_PROCESS_KINDS, useImageToolCapabilities } from '@/service/imageTools';
 import { probeMockupUiInstalled } from '@/components/editor/nodes/ImageNode/mockup/mockupUiLoader';
 import ImageToolbarMoreDownload, {
@@ -879,16 +880,25 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     )
                 : undefined
             }
-            onPuppet={() => {
-              dispatch(openImageToolPanel({ nodeId, kind: 'puppet' }));
-              dispatch(
-                patchDocumentNode({
-                  nodeId,
-                  patch: { attrs: { puppetEnabled: true } },
-                })
-              );
-            }}
-            puppetActive={imageToolPanel?.kind === 'puppet' && imageToolPanel?.nodeId === nodeId}
+            onPuppet={
+              animationFrameId
+                ? () => {
+                    dispatch(openImageToolPanel({ nodeId, kind: 'puppet' }));
+                    dispatch(
+                      patchDocumentNode({
+                        nodeId,
+                        patch: { attrs: { puppetEnabled: true } },
+                      })
+                    );
+                    expandPuppetTimelineLayer(node);
+                  }
+                : undefined
+            }
+            puppetActive={
+              Boolean(animationFrameId) &&
+              imageToolPanel?.kind === 'puppet' &&
+              imageToolPanel?.nodeId === nodeId
+            }
             onReplaceText={
               String(node?.attrs?.letteringText || '').trim()
                 ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))

@@ -55,7 +55,9 @@ import BlendModeToolPanel from './BlendModeToolPanel';
 import {
   PUPPET_DENSITY_DEFAULT,
   readPuppetDensity,
+  readPuppetTrack,
 } from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /** Local erase → right-side cutout node (source image untouched), same pattern as 抠图. */
@@ -171,6 +173,7 @@ function ImageToolPanelHost({
     nodeId: string;
     kind: ImageToolPanelKind;
   });
+  const timelineOpen = useSelector((s: any) => Boolean(s.editor.lottieTimelinePanel));
   const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
   const selectedNodeIds = useSelector(
     (s: any) => (s.editor.selectedNodeIds as string[]) || []
@@ -220,6 +223,11 @@ function ImageToolPanelHost({
       return;
     }
     if (!isNodeLayerToolPanelKind(panel.kind) && node.key !== 'image') {
+      dispatch(closeImageToolPanel());
+      return;
+    }
+    // Puppet is workbench-only (needs timeline / playhead sampling).
+    if (panel.kind === 'puppet' && !resolveAnimationFrameId(document, node)) {
       dispatch(closeImageToolPanel());
     }
   }, [document, panel, dispatch]);
@@ -403,9 +411,12 @@ function ImageToolPanelHost({
     }
     case 'puppet': {
       const node = document?.deltaSetLike?.[panel.nodeId];
+      const attrs = (node?.attrs || {}) as Record<string, unknown>;
       body = (
         <PuppetToolPanel
-          density={readPuppetDensity(node?.attrs as Record<string, unknown>)}
+          density={readPuppetDensity(attrs)}
+          keyframeCount={readPuppetTrack(attrs).length}
+          timelineOpen={timelineOpen}
           onDensityChange={(v) =>
             writeAttrPatch(
               { puppetEnabled: true, puppetDensity: Math.round(v) },

@@ -42,7 +42,8 @@ import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/
 import ImageToolbarMoreDownload, {
   type ImageMoreAction,
 } from '@/components/editor/nodes/ImageNode/ImageToolbarMoreDownload';
-import { PuppetPinIcon } from '@/components/editor/nodes/ImageNode/puppet/PuppetPinHost';
+import { GiPuppet } from 'react-icons/gi';
+import { expandPuppetTimelineLayer } from '@/components/editor/nodes/ImageNode/puppet/puppetTimeline';
 import { SelectionToolbarShell } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import {
   parseAnchorPreset,
@@ -1339,9 +1340,10 @@ function AnimationFrameChildToolbar({
                   patch: { attrs: { puppetEnabled: true } },
                 })
               );
+              expandPuppetTimelineLayer(node);
             }}
           >
-            <PuppetPinIcon className="h-4 w-4" />
+            <GiPuppet className="h-4 w-4" />
             <span>{t('editor.imageToolbar.puppet', { defaultValue: '人偶' })}</span>
           </button>
         </Tooltip>
