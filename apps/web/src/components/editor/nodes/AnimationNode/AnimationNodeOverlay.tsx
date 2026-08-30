@@ -14,6 +14,7 @@ import {
   memo,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useSelector } from 'react-redux';
 import lottie, { type AnimationItem } from 'lottie-web';
 import { useRcbCamera } from '@/components/rcb';
 import {
@@ -112,6 +113,10 @@ function LottiePlate({
   const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const fill = resolveLottiePlateFill(plateFill, frameHost);
+  const reduxPlaying = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
+  const playingHostId = useSelector((s: any) =>
+    String(s.editor.lottiePlayingHostId || '').trim()
+  );
 
   useEffect(() => {
     const host = hostEl;
@@ -124,6 +129,8 @@ function LottiePlate({
       | {
           lottieTimelinePanel?: { nodeId?: string } | null;
           lottiePlayheadSec?: number;
+          lottiePlaying?: boolean;
+          lottiePlayingHostId?: string | null;
         }
       | undefined;
     const timelineOwns =
@@ -136,9 +143,9 @@ function LottiePlate({
         // FO + CSS zoom scale still works for path ink; dock/lightbox also use SVG.
         renderer: 'svg',
         loop,
-        // When the timeline dock owns this node, stay paused at the playhead
-        // so JSON patches don't jump back to t=0 with autoplay.
-        autoplay: !timelineOwns,
+        // Never autoplay — Redux transport owns play/pause. Leftover autoplay
+        // kept the ink moving while the toolbar still showed the play icon.
+        autoplay: false,
         animationData: structuredClone
           ? structuredClone(data)
           : JSON.parse(JSON.stringify(data)),
@@ -188,8 +195,14 @@ function LottiePlate({
       getDurationSec: durationSec,
     };
     lottieHosts.set(nodeId, api);
-    if (timelineOwns) {
-      api.seek(Math.min(restoreSec, durationSec()));
+    const at = Math.min(restoreSec, durationSec());
+    const hostMatches =
+      !String(editorState?.lottiePlayingHostId || '').trim() ||
+      String(editorState?.lottiePlayingHostId) === String(nodeId);
+    if (Boolean(editorState?.lottiePlaying) && hostMatches && !timelineOwns) {
+      api.playFrom(at);
+    } else {
+      api.seek(at);
     }
     return () => {
       anim.destroy();
@@ -212,6 +225,18 @@ function LottiePlate({
     if (!anim) return;
     anim.setSpeed(speed);
   }, [speed]);
+
+  // Keep host ink in lockstep with Redux play/pause (icon ↔ visual).
+  useEffect(() => {
+    const api = lottieHosts.get(nodeId);
+    if (!api) return;
+    const mine = !playingHostId || playingHostId === String(nodeId);
+    if (reduxPlaying && mine) {
+      if (api.isPaused()) api.play();
+    } else if (!api.isPaused()) {
+      api.pause();
+    }
+  }, [reduxPlaying, playingHostId, nodeId, hostEl, animationJson]);
 
   return createPortal(
     <div
