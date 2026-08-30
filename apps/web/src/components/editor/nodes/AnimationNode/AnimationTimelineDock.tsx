@@ -2055,9 +2055,7 @@ function AnimationTimelineDock({
                   setKfAnchor(null);
                   getLottieHost(nodeId)?.pause();
                   if (scene.kind === 'precomp' && scene.assetId) {
-                    // LOT tab = editable isolation (overlay). Main scene = preview.
-                    dispatch(setSelectedNodeIds([]));
-                    dispatch(setSelectedFrameIds([]));
+                    // LOT tab = materialize insides + resize workbench to the plate.
                     const firstInd = scene.layers[0]?.ind;
                     dispatch(
                       enterLottiePrecompEdit({
@@ -2067,7 +2065,7 @@ function AnimationTimelineDock({
                       })
                     );
                   } else {
-                    // ???: exit tab edit ? children are preview-only.
+                    // 主场景: exit tab edit — children / insides are preview-only.
                     dispatch(exitLottiePrecompEdit());
                     dispatch(setLottiePrecompSelectedLayer(null));
                     dispatch(setSelectedNodeIds([]));

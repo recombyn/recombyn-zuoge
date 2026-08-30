@@ -60,6 +60,11 @@ import { createBlankLottieAnimation } from '@/components/editor/nodes/AnimationN
 import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
 import { materializeRootShapeLayers } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
 import {
+  beginPrecompEditSession,
+  endPrecompEditFromState,
+  type LottiePrecompEditState,
+} from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
+import {
   findAnimationFrameAtDocPoint,
   findFrameAnimationMediaId,
   resolveAnimationFrameId,
@@ -458,12 +463,9 @@ const initialState = {
   /**
    * Precomp isolation edit (timeline scene tab).
    * hostNodeId = timeline Lottie host; assetId = precomp asset id (e.g. lot_<nodeId>).
+   * On enter: workbench resizes to the lot plate and JSON layers become real scene nodes.
    */
-  lottiePrecompEdit: null as null | {
-    hostNodeId: string;
-    assetId: string;
-    selectedLayerInd: number | null;
-  },
+  lottiePrecompEdit: null as null | LottiePrecompEditState,
   /** 动画工作台 (artboard) workbench — quick edit on the plate. */
   animationFramePanel: null as null | { frameId: string; kind: 'quickEdit' | 'timeline' },
   /** Playhead time (seconds) — shared by dock scrub and undocked playback. */
@@ -583,6 +585,29 @@ function clearSelection(state: typeof initialState) {
 function pauseLottieIfPlaying(state: typeof initialState) {
   if (!state.lottiePlaying) return;
   state.lottiePlaying = false;
+}
+
+function readSelectedLayerInd(raw: unknown, fallback: number | null = null): number | null {
+  if (raw == null || !Number.isFinite(Number(raw))) return fallback;
+  return Number(raw);
+}
+
+/** Restore workbench geom + drop LOT-tab session shapes. Returns true if document changed. */
+function tearDownLottiePrecompEdit(state: typeof initialState): boolean {
+  const prev = state.lottiePrecompEdit;
+  if (!prev || !state.document) return false;
+  const next = endPrecompEditFromState(state.document, prev);
+  if (!next) return false;
+  state.document = next;
+  state.documentPatchToken += 1;
+  state.sceneReloadToken += 1;
+  return true;
+}
+
+function clearLottiePrecompEdit(state: typeof initialState): boolean {
+  const changed = tearDownLottiePrecompEdit(state);
+  state.lottiePrecompEdit = null;
+  return changed;
 }
 
 /** Drop pending process id when its node was deleted (upload-in-flight must not revive it). */
@@ -1201,7 +1226,7 @@ const editorSlice = createSlice({
       }
       if (state.lottieTimelinePanel && nodeIdSet.has(state.lottieTimelinePanel.nodeId)) {
         state.lottieTimelinePanel = null;
-        state.lottiePrecompEdit = null;
+        clearLottiePrecompEdit(state);
       }
       if (state.animationFramePanel && idSet.has(state.animationFramePanel.frameId)) {
         state.animationFramePanel = null;
@@ -2044,10 +2069,8 @@ const editorSlice = createSlice({
         state.sceneReloadToken += 1;
         state.selectedNodeId = id;
         state.selectedNodeIds = [id];
-        // Keep the open workbench selected while editing; free plate on pasteboard.
-        if (!focusId) {
-          state.selectedFrameIds = [];
-        }
+        // Select the free LOT alone so selection chrome (toolbar / title gates) mounts.
+        state.selectedFrameIds = [];
         state.activeTool = 'select';
         state.pendingImageSrc = null;
         syncLibraryOnEdit(state);
@@ -2149,7 +2172,7 @@ const editorSlice = createSlice({
         state.lottieTimelinePanel = { nodeId: hostId };
         setAnimationWorkbenchTimelineFocus(frameId);
         // Stay on 主场景 (preview). User clicks the LOT tab to edit.
-        state.lottiePrecompEdit = null;
+        clearLottiePrecompEdit(state);
         state.lottiePlayingHostId = hostId;
         state.lottiePlayheadSec = 0;
         setAnimationWorkbenchPlayheadSec(0);
@@ -2807,7 +2830,7 @@ const editorSlice = createSlice({
         tool: allowed.has(tool) ? tool : 'select',
       };
       state.lottieTimelinePanel = null;
-      state.lottiePrecompEdit = null;
+      clearLottiePrecompEdit(state);
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.audioToolPanel = null;
@@ -2887,7 +2910,7 @@ const editorSlice = createSlice({
         setAnimationWorkbenchTimelineFocus(frameId);
       }
       if (state.lottiePrecompEdit?.hostNodeId !== nodeId) {
-        state.lottiePrecompEdit = null;
+        clearLottiePrecompEdit(state);
       }
       state.lottieComposePanel = null;
       state.animationFramePanel = null;
@@ -2897,8 +2920,8 @@ const editorSlice = createSlice({
       state.shapeStylePanel = null;
     },
     closeLottieTimelinePanel(state) {
+      if (clearLottiePrecompEdit(state)) state.dirty = true;
       state.lottieTimelinePanel = null;
-      state.lottiePrecompEdit = null;
       state.lottiePlaying = false;
       state.lottiePlayingHostId = null;
       // Exit at first frame so the canvas isn't left mid-scrub.
@@ -2923,22 +2946,68 @@ const editorSlice = createSlice({
     enterLottiePrecompEdit(state, action) {
       const hostNodeId = String(action.payload?.hostNodeId || '').trim();
       const assetId = String(action.payload?.assetId || '').trim();
-      if (!hostNodeId || !assetId) return;
+      if (!hostNodeId || !assetId || !state.document) return;
+
+      const layerInd = readSelectedLayerInd(action.payload?.selectedLayerInd);
+      const sameSession =
+        state.lottiePrecompEdit?.hostNodeId === hostNodeId &&
+        state.lottiePrecompEdit?.assetId === assetId;
+
+      if (state.lottiePrecompEdit && !sameSession) {
+        clearLottiePrecompEdit(state);
+      }
+
+      if (sameSession && state.lottiePrecompEdit) {
+        if (layerInd != null) state.lottiePrecompEdit.selectedLayerInd = layerInd;
+        return;
+      }
+
+      pushHistory(state);
+      const begun = beginPrecompEditSession({
+        document: state.document,
+        hostNodeId,
+        assetId,
+      });
+      if (!begun) {
+        state.lottiePrecompEdit = { hostNodeId, assetId, selectedLayerInd: layerInd };
+        state.selectedNodeId = null;
+        state.selectedNodeIds = [];
+        return;
+      }
+
+      state.document = begun.document;
+      state.documentPatchToken += 1;
+      state.sceneReloadToken += 1;
+      state.dirty = true;
       state.lottiePrecompEdit = {
         hostNodeId,
         assetId,
-        selectedLayerInd:
-          action.payload?.selectedLayerInd != null &&
-          Number.isFinite(Number(action.payload.selectedLayerInd))
-            ? Number(action.payload.selectedLayerInd)
-            : null,
+        selectedLayerInd: layerInd,
+        frameId: begun.frameId,
+        frameSnapshot: begun.frameSnapshot,
+        lotNodeId: begun.lotNodeId,
+        sessionNodeIds: begun.sessionNodeIds,
       };
-      // Tabs are editable — never select the whole lot plate chrome.
-      state.selectedNodeId = null;
-      state.selectedNodeIds = [];
+      state.document.activeFrameId = begun.frameId;
+      state.selectedFrameIds = [begun.frameId];
+      const first = begun.sessionNodeIds[0] || null;
+      state.selectedNodeId = first;
+      state.selectedNodeIds = first ? [first] : [];
     },
     exitLottiePrecompEdit(state) {
+      const prev = state.lottiePrecompEdit;
+      if (!prev) return;
+      if (prev.frameId && prev.frameSnapshot) {
+        pushHistory(state);
+        if (tearDownLottiePrecompEdit(state)) {
+          state.dirty = true;
+          state.document!.activeFrameId = prev.frameId;
+          state.selectedFrameIds = [prev.frameId];
+        }
+      }
       state.lottiePrecompEdit = null;
+      state.selectedNodeId = null;
+      state.selectedNodeIds = [];
     },
     setLottiePrecompSelectedLayer(state, action) {
       if (!state.lottiePrecompEdit) return;
@@ -3367,7 +3436,7 @@ const editorSlice = createSlice({
       // user opens via 关键帧.
       state.animationFramePanel = null;
       state.lottieComposePanel = null;
-      state.lottiePrecompEdit = null;
+      clearLottiePrecompEdit(state);
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.audioToolPanel = null;
