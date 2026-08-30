@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -96,7 +97,10 @@ import {
   shouldCoMoveNodeWithFrames,
 } from '@/components/rcb/frames/frameNodeBinding';
 import { previewArtboardFrameGeometry, clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
-import { warnIfNewPlateBlockedByAnimationWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  shouldShowArtboardInWorkbenchFocus,
+  warnIfNewPlateBlockedByAnimationWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 const EDITOR_PAN_BLOCK_SELECTOR = [
   '[data-scene-node-id]',
@@ -477,6 +481,10 @@ function EditorStageWorld({
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
   const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
   const [selectionTransforming, setSelectionTransforming] = useState(false);
+  // Drop snap guides that may still point at plates hidden by timeline focus.
+  useEffect(() => {
+    setFrameSmartGuides([]);
+  }, [workbenchFocusFrameId]);
   const frameDragRef = useRef<{
     frames: Array<{
       id: string;
@@ -491,8 +499,9 @@ function EditorStageWorld({
   const showWorkbenchFrame = useCallback(
     (frame: ArtboardFrame) => {
       if (frame.hidden) return false;
-      if (!workbenchFocusFrameId) return true;
-      return String(frame.id) === workbenchFocusFrameId;
+      // Prefer the React focus id (same render as setAnimationWorkbenchTimelineFocus).
+      if (workbenchFocusFrameId) return String(frame.id) === workbenchFocusFrameId;
+      return shouldShowArtboardInWorkbenchFocus(frame);
     },
     [workbenchFocusFrameId]
   );

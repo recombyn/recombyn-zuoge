@@ -20,7 +20,10 @@ import {
   supportsFill,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
-import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  isAnimationWorkbenchPreviewChild,
+  shouldShowArtboardInWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
@@ -239,6 +242,7 @@ export function frameIdAtPoint(
   for (let i = frames.length - 1; i >= 0; i -= 1) {
     const frame = frames[i];
     if (!frame || frame.locked || frame.hidden) continue;
+    if (!shouldShowArtboardInWorkbenchFocus(frame)) continue;
     const fx = Number(frame.x) || 0;
     const fy = Number(frame.y) || 0;
     const fw = Math.max(1, Number(frame.width) || 1);
