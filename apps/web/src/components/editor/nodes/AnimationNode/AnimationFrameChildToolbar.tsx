@@ -1369,7 +1369,20 @@ function AnimationFrameChildToolbar({
             <span>{t('editor.lottieToolbar.timeline')}</span>
           </button>
         </Tooltip>
-        ) : null}
+        ) : (
+        <Tooltip
+          tip={t('editor.lottieToolbar.propertiesTip')}
+          placement="top"
+        >
+          <button
+            type="button"
+            className={imageToolBtn}
+            onClick={onOpenKeyframes}
+          >
+            <span>{t('editor.lottieToolbar.properties')}</span>
+          </button>
+        </Tooltip>
+        )}
         {isImage ? (
           <ImageToolbarMoreDownload
             showCornerRadius={supportsCornerRadius(node)}
@@ -1443,7 +1456,7 @@ function AnimationFrameChildToolbar({
             </button>
           </Tooltip>
         </div>
-        <div className="h-[500px] min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain">
+        <div className="max-h-[min(70vh,500px)] min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain">
         {/* Name + transform */}
         <div className="space-y-1.5 px-3 py-2.5">
           <div className="flex h-8 items-center gap-1.5">

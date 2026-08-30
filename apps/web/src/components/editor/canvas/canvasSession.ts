@@ -361,13 +361,10 @@ function applyNodeFrameBindings(
     } else {
       delete attrs.frameId;
       delete attrs.frameOrder;
-      // Nested LOT dragged to empty pasteboard → independent preview (always visible).
-      // Other ink may stay workbench-surround while the timeline is focused.
-      if (String(node.key || '') === 'lottie') {
-        delete attrs[WORKBENCH_SURROUND_ATTR];
-      } else {
-        attrs = syncWorkbenchSurroundOnFrameBind(attrs, null);
-      }
+      // Unowned under timeline focus → keep/restore surround so isolation does not
+      // paint-hide the plate (looks like it “vanished” onto the main canvas).
+      // When focus is closed, sync clears surround for everyone including LOT.
+      attrs = syncWorkbenchSurroundOnFrameBind(attrs, null);
     }
     bindingPatches.push({ nodeId: patch.nodeId, patch: { attrs } });
   }
