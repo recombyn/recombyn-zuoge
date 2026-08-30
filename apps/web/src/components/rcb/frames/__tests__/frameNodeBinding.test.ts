@@ -170,6 +170,19 @@ describe('frameNodeBinding', () => {
     expect(canBindNodeToArtboardFrame(lottie as any, video)).toBe(false);
     expect(canBindNodeToArtboardFrame(lottie as any, audio)).toBe(false);
     expect(canBindNodeToArtboardFrame(lottie as any, shape)).toBe(true);
+    // Free Lottie plates bind into 动画工作台 → sync as lot_* precomp tabs.
+    expect(
+      canBindNodeToArtboardFrame(lottie as any, {
+        key: 'lottie',
+        attrs: { animationData: '{}' },
+      })
+    ).toBe(true);
+    expect(
+      canBindNodeToArtboardFrame(lottie as any, {
+        key: 'lottie',
+        attrs: { animationFrameHost: true },
+      })
+    ).toBe(true);
     // Timeline closed = preview — no auto-bind into workbench.
     expect(shouldBindUnownedNodeToFrame(video, lottie as any)).toBe(false);
     expect(shouldBindUnownedNodeToFrame(shape, lottie as any)).toBe(false);

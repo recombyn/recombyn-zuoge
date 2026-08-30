@@ -10,6 +10,8 @@ import reducer, {
   createTemplate,
   openLottieTimelinePanel,
   spawnLottie,
+  spawnAnimationBoard,
+  placeUploadedLottie,
   patchDocumentNode,
 } from '@/store/modules/editor';
 import { createEmptyDocument } from '@/components/rcb/scene/document/sceneDocument';
@@ -24,17 +26,16 @@ import {
   snapSecToFrame,
   secToFrame,
 } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
-import { findFrameAnimationMediaId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   upsertTransformKeyframe,
   setLayerTimeRange,
   setTransformKeyframeValue,
   readTransformKeyframe,
 } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
-import { animationHostHasUnlinkedInk } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
 import {
   setAnimationWorkbenchPlayheadSec,
   setAnimationWorkbenchTimelineFocus,
+  getAnimationWorkbenchTimelineFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 const FIXTURES = join(
@@ -93,7 +94,7 @@ describe('Lottie import → timeline (integration)', () => {
     expect(scale?.times).toEqual([0, 1, 2]);
   });
 
-  it('toolstrip-style JSON upload: parse → spawnLottie → open timeline panel', () => {
+  it('toolstrip-style JSON upload: parse → spawnLottie → independent preview plate', () => {
     const text = JSON.stringify(SAMPLE_LOTTIE_ANIMATION);
     const animationData = parseLottieAnimationData(text);
     expect(animationData).toBeTruthy();
@@ -110,52 +111,143 @@ describe('Lottie import → timeline (integration)', () => {
         name: 'pulse-upload',
       })
     );
-    // spawnLottie lands in a 动画工作台 — select frame, host is the timeline node.
-    const frameId = String(state.selectedFrameIds?.[0] || '');
-    expect(frameId).toBeTruthy();
-    const nodeId = findFrameAnimationMediaId(state.document, frameId);
-    expect(nodeId).toBeTruthy();
-    const node = state.document!.deltaSetLike[nodeId!];
-    expect(node.key).toBe('lottie');
-    expect(parseLottieAnimationData(node.attrs?.animationData)).toBeTruthy();
-
-    state = reducer(state, openLottieTimelinePanel({ nodeId }));
-    expect(state.lottieTimelinePanel).toEqual({ nodeId });
-
-    const scenes = buildLottieTimelineScenes(
-      parseLottieAnimationData(node.attrs?.animationData),
-      String(node.attrs?.name || ''),
-      { includeEmptyProps: true }
+    const plateId = String(state.selectedNodeId || '');
+    expect(plateId).toBeTruthy();
+    const plate = state.document!.deltaSetLike[plateId];
+    expect(plate.key).toBe('lottie');
+    expect(plate.attrs?.animationFrameHost).toBeFalsy();
+    expect(plate.attrs?.frameId).toBeFalsy();
+    expect(state.selectedFrameIds || []).toEqual([]);
+    const animFrames = (state.document!.frames || []).filter(
+      (f: any) => f?.kind === 'animation'
     );
-    expect(scenes[0].layers[0].props.some((p) => p.times.length > 0)).toBe(true);
+    expect(animFrames).toHaveLength(0);
+
+    const stored = parseLottieAnimationData(plate.attrs?.animationData);
+    expect(stored).toBeTruthy();
+    expect((stored!.layers as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it('desktop retake LOT JSON imports with visible unlinked host ink', () => {
-    const raw = loadFixture('retake-lot-edited.json');
-    const animationData = parseLottieAnimationData(raw);
+  it('spawnLottie with frameId still lands as free preview (does not nest into workbench)', () => {
+    const animationData = parseLottieAnimationData(SAMPLE_LOTTIE_ANIMATION);
     expect(animationData).toBeTruthy();
-    expect(animationData!.w).toBe(240);
-    expect(animationData!.h).toBe(240);
-    expect((animationData!.layers as unknown[]).length).toBe(1);
 
     let state = seed();
     state = reducer(
       state,
+      spawnAnimationBoard({
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        name: '动画工作台',
+      })
+    );
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    expect(frameId).toBeTruthy();
+    setAnimationWorkbenchTimelineFocus(frameId);
+
+    state = reducer(
+      state,
       spawnLottie({
+        animationData,
+        name: 'free-preview',
+        frameId,
+      })
+    );
+    const plateId = String(state.selectedNodeId || '');
+    expect(plateId).toBeTruthy();
+    const plate = state.document!.deltaSetLike[plateId];
+    expect(plate.key).toBe('lottie');
+    expect(plate.attrs?.frameId).toBeFalsy();
+    expect(plate.attrs?.animationFrameHost).toBeFalsy();
+    // Edit isolation: pasteboard surround — not nested into the plate.
+    expect(String(plate.attrs?.animationWorkbenchSurround || '')).toBe(frameId);
+    expect(state.lottiePrecompEdit).toBeNull();
+  });
+
+  it('desktop retake LOT promote nests as lot plate with precomp tab (not exploded shapes)', () => {
+    const raw = loadFixture('retake-lot-edited.json');
+    const animationData = parseLottieAnimationData(raw);
+    expect(animationData).toBeTruthy();
+
+    let state = seed();
+    state = reducer(
+      state,
+      placeUploadedLottie({
         animationData,
         name: '重测生成LOT-edited',
       })
     );
     const frameId = String(state.selectedFrameIds?.[0] || '');
     expect(frameId).toBeTruthy();
-    const nodeId = findFrameAnimationMediaId(state.document, frameId);
-    expect(nodeId).toBeTruthy();
-    const host = state.document!.deltaSetLike[nodeId!];
-    const stored = parseLottieAnimationData(host.attrs?.animationData);
-    expect(stored).toBeTruthy();
-    expect((stored!.layers as unknown[]).length).toBe(1);
-    expect(String((stored!.layers as any[])[0]?.nm || '')).toBe('Blue Square');
-    expect(animationHostHasUnlinkedInk(host.attrs?.animationData)).toBe(true);
+    const hostId = Object.keys(state.document!.deltaSetLike || {}).find((id) => {
+      const n = state.document!.deltaSetLike[id];
+      return (
+        n?.key === 'lottie' &&
+        (n.attrs?.animationFrameHost === true || n.attrs?.animationFrameHost === 'true') &&
+        String(n.attrs?.frameId || '') === frameId
+      );
+    });
+    expect(hostId).toBeTruthy();
+    expect(state.lottieTimelinePanel?.nodeId).toBe(hostId);
+    expect(state.lottiePrecompEdit).toBeNull();
+
+    const nested = Object.entries(state.document!.deltaSetLike || {}).find(
+      ([id, n]) =>
+        id !== hostId &&
+        n?.key === 'lottie' &&
+        String(n.attrs?.frameId || '') === frameId &&
+        !n.attrs?.animationFrameHost
+    );
+    expect(nested).toBeTruthy();
+    const [lotId] = nested!;
+
+    const host = state.document!.deltaSetLike[hostId!];
+    const hostAnim = parseLottieAnimationData(host.attrs?.animationData);
+    const scenes = buildLottieTimelineScenes(hostAnim, 'wb', { includeEmptyProps: true });
+    expect(scenes.some((s) => s.id === 'main')).toBe(true);
+    expect(scenes.some((s) => s.id === `precomp:lot_${lotId}`)).toBe(true);
+  });
+
+  it('openLottieTimelinePanel promotes free LOT plate into workbench with LOT tab', () => {
+    const animationData = parseLottieAnimationData(SAMPLE_LOTTIE_ANIMATION);
+    expect(animationData).toBeTruthy();
+    let state = seed();
+    state = reducer(
+      state,
+      spawnLottie({
+        animationData,
+        name: 'free-lot',
+        x: 10,
+        y: 10,
+      })
+    );
+    const freeId = String(state.selectedNodeId || '');
+    expect(freeId).toBeTruthy();
+    expect(state.selectedFrameIds || []).toEqual([]);
+
+    state = reducer(state, openLottieTimelinePanel({ nodeId: freeId }));
+    expect(state.document!.deltaSetLike[freeId]).toBeUndefined();
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    expect(frameId).toBeTruthy();
+    expect(getAnimationWorkbenchTimelineFocus()).toBe(frameId);
+    expect(state.lottieTimelinePanel?.nodeId).toBeTruthy();
+    expect(state.lottiePrecompEdit).toBeNull();
+
+    const hostId = String(state.lottieTimelinePanel!.nodeId);
+    const nested = Object.entries(state.document!.deltaSetLike || {}).find(
+      ([id, n]) =>
+        id !== hostId &&
+        n?.key === 'lottie' &&
+        String(n.attrs?.frameId || '') === frameId
+    );
+    expect(nested).toBeTruthy();
+    const hostAnim = parseLottieAnimationData(
+      state.document!.deltaSetLike[hostId].attrs?.animationData
+    );
+    const scenes = buildLottieTimelineScenes(hostAnim, 'wb', { includeEmptyProps: true });
+    expect(scenes.some((s) => s.kind === 'precomp')).toBe(true);
   });
 
   it('recognizes real LottieFiles export with precomps (cannons)', () => {
@@ -309,17 +401,25 @@ describe('Lottie import → timeline (integration)', () => {
         name: 'patch-me',
       })
     );
-    const frameId = String(state.selectedFrameIds?.[0] || '');
-    const nodeId = findFrameAnimationMediaId(state.document, frameId)!;
-    state = reducer(state, openLottieTimelinePanel({ nodeId }));
+    const freeId = String(state.selectedNodeId || '');
+    expect(freeId).toBeTruthy();
+    state = reducer(state, openLottieTimelinePanel({ nodeId: freeId }));
+    // Free plate is promoted to workbench host on open.
+    const nodeId = String(state.lottieTimelinePanel?.nodeId || '');
+    expect(nodeId).toBeTruthy();
 
     const data = parseLottieAnimationData(
       state.document!.deltaSetLike[nodeId].attrs?.animationData
     )!;
+    const before = buildLottieTimelineScenes(data, 'patch-me', { includeEmptyProps: true });
+    const pre = before.find((s) => s.kind === 'precomp' && s.layers.length > 0);
+    expect(pre).toBeTruthy();
+    const layerInd = pre!.layers[0].ind;
     const mutated = upsertTransformKeyframe({
       animationData: data,
-      sceneKind: 'main',
-      layerInd: 1,
+      sceneKind: 'precomp',
+      assetId: pre!.assetId,
+      layerInd,
       propKey: 'r',
       frame: 30,
       value: 45,
@@ -341,8 +441,12 @@ describe('Lottie import → timeline (integration)', () => {
       'patch-me',
       { includeEmptyProps: true }
     );
-    const rot = scenes[0].layers[0].props.find((p) => p.key === 'r');
-    expect(rot?.times).toContain(snapSecToFrame(30 / 60, 60));
+    const pre2 = scenes.find((s) => s.id === pre!.id);
+    expect(pre2).toBeTruthy();
+    const rot = pre2!.layers
+      .find((l) => l.ind === layerInd)
+      ?.props.find((p) => p.key === 'r');
+    expect(rot?.times.length).toBeGreaterThan(0);
   });
 
   it('does not treat image-only assets as timeline scenes', () => {

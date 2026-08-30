@@ -1,6 +1,6 @@
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
-import { getAnimationWorkbenchTimelineFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { getAnimationWorkbenchTimelineFocus, canEditAnimationWorkbenchPlate } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 function isFlaggedAnimationHost(node: any): boolean {
   return (
@@ -37,6 +37,40 @@ export function findAnimationFrameAtDocPoint(
     const fw = Math.max(1, Number(f.width) || 1);
     const fh = Math.max(1, Number(f.height) || 1);
     if (x >= fx && x <= fx + fw && y >= fy && y <= fy + fh) return String(f.id);
+  }
+  return null;
+}
+
+/**
+ * Frame id to nest an uploaded Lottie onto (selectable lot layer + precomp tab).
+ * Prefer open workbench timeline; else hit-test drop point while that plate is in edit.
+ */
+export function resolveLottieNestFrameId(
+  document: any,
+  opts?: {
+    timelineHostId?: string | null;
+    x?: number | null;
+    y?: number | null;
+  }
+): string | null {
+  if (!document) return null;
+  const hostId = String(opts?.timelineHostId || '').trim();
+  if (hostId) {
+    const host = document.deltaSetLike?.[hostId];
+    const fromTimeline = resolveAnimationFrameId(document, host);
+    if (fromTimeline && canEditAnimationWorkbenchPlate(fromTimeline)) return fromTimeline;
+  }
+  const focus = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+  if (focus && canEditAnimationWorkbenchPlate(focus)) {
+    const frames = Array.isArray(document.frames) ? document.frames : [];
+    const fr = frames.find((f: any) => String(f?.id) === focus);
+    if (fr && isAnimationArtboardKind(fr.kind)) return focus;
+  }
+  const x = Number(opts?.x);
+  const y = Number(opts?.y);
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    const hit = findAnimationFrameAtDocPoint(document, x, y);
+    if (hit && canEditAnimationWorkbenchPlate(hit)) return hit;
   }
   return null;
 }

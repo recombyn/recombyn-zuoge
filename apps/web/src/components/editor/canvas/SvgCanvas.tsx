@@ -12,6 +12,7 @@ import {
   createShapeNode,
   measureImageNaturalSize,
   parseLottieAnimationData,
+  serializeLottieAnimationData,
   prepareVideoUploadPreview,
   fitMediaIntoViewport,
   MEDIA_PLACE_DEFAULT,
@@ -102,7 +103,7 @@ import {
   finishImageProcess,
   failImageProcess,
   spawnAnimationBoard,
-  importLottieIntoAnimationFrame,
+  spawnLottie,
   undo,
   redo,
   clearCanvasAttachPick,
@@ -142,12 +143,10 @@ import {
   resolveAttachPayloadFlyOrigin,
 } from '@/components/editor/panels/agent/composer/flyToChat';
 import {
-  findAnimationFrameAtDocPoint,
-  resolveActiveAnimationFrameId,
   resolveAnimationFrameId,
 } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
-  mediaFileAcceptForWorkbenchTimeline,
+  getWorkbenchToolPolicy,
   warnIfAvBlockedByAnimationWorkbenchFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
@@ -1699,57 +1698,47 @@ function SvgCanvas({
     }
     const doc = documentRef.current;
     const anchor = payload.anchor ?? null;
-    const hitFrameId =
-      anchor && doc
-        ? findAnimationFrameAtDocPoint(doc, anchor.x, anchor.y)
-        : null;
     const timelineHostId = String(
       (store.getState() as any)?.editor?.lottieTimelinePanel?.nodeId || ''
     ).trim();
-    const timelineFrameId = timelineHostId
-      ? resolveAnimationFrameId(doc, doc?.deltaSetLike?.[timelineHostId])
-      : null;
-    const targetFrameId =
-      hitFrameId ||
-      timelineFrameId ||
-      resolveActiveAnimationFrameId(doc, selectedFrameIdsRef.current);
-    if (targetFrameId) {
+    const timelineHost = timelineHostId ? doc?.deltaSetLike?.[timelineHostId] : null;
+    const timelineOnWorkbench = Boolean(resolveAnimationFrameId(doc, timelineHost));
+    // Replace JSON only when editing an existing free preview plate (not workbench).
+    if (timelineHostId && timelineHost?.key === 'lottie' && !timelineOnWorkbench) {
+      const json = serializeLottieAnimationData(data);
+      if (!json) {
+        message.error(t('editor.tools.lottieGenInvalidJson'));
+        return;
+      }
       dispatch(
-        importLottieIntoAnimationFrame({
-          frameId: targetFrameId,
-          animationData: data,
-          name: payload.name,
+        patchDocumentNode({
+          nodeId: timelineHostId,
+          patch: {
+            attrs: {
+              animationData: json,
+              ...(payload.name ? { name: payload.name } : {}),
+            },
+          },
         })
       );
       finishToSelect();
       return;
     }
-    // Same as toolstrip: always land in a 动画工作台 (not a free Lottie plate).
     const natW = Math.max(1, Math.round(Number(data.w) || 200));
     const natH = Math.max(1, Math.round(Number(data.h) || 200));
     const { width, height } = imageSizeForViewport({ width: natW, height: natH });
     const origin = placeOriginForSize({ width, height }, anchor);
+    // Always independent preview plate — open 「关键帧」 to promote into a workbench.
     dispatch(
-      spawnAnimationBoard({
+      spawnLottie({
         width,
         height,
         x: origin?.x,
         y: origin?.y,
-        name: payload.name || t('editor.tools.animationBoard', { defaultValue: '动画工作台' }),
+        name: payload.name || 'Lottie',
+        animationData: data,
       })
     );
-    const after = store.getState() as any;
-    const frameId = String(after?.editor?.selectedFrameIds?.[0] || '').trim();
-    if (frameId) {
-      dispatch(
-        importLottieIntoAnimationFrame({
-          frameId,
-          animationData: data,
-          name: payload.name,
-          skipHistory: true,
-        })
-      );
-    }
     finishToSelect();
   };
 
@@ -2215,7 +2204,7 @@ function SvgCanvas({
       <input
         ref={imageInputRef}
         type="file"
-        accept={mediaFileAcceptForWorkbenchTimeline(animationTimelineOpen)}
+        accept={getWorkbenchToolPolicy().fileAccept}
         className="hidden"
         onChange={(e) => {
           onMediaFile(e.target.files?.[0] || null);

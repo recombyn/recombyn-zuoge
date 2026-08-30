@@ -1260,6 +1260,7 @@ const ja = {
         '文字認識完了（編集可能 {{textCount}} 箇所、アート文字 {{rasterCount}} 箇所は画像のまま）',
       nameCutout: '切り抜き',
       nameEraser: '消しゴム',
+      nameVector: 'ベクター',
       multiAngle: '多角度',
       more: 'その他',
       lockAspect: '縦横比を固定',

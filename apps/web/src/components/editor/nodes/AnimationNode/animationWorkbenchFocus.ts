@@ -119,6 +119,7 @@ export function canEditAnimationWorkbenchPlate(
 /**
  * Bound child of a 动画工作台 whose timeline is closed — visible preview only:
  * not pickable, not editable. The workbench frame itself stays selectable.
+ * (LOT content editing is separate: 主场景 = plate only; click LOT tab to edit insides.)
  */
 export function isAnimationWorkbenchPreviewChild(
   document:
@@ -140,12 +141,12 @@ export function isAnimationWorkbenchPreviewChild(
 
 /** Timeline focus is open — video/audio plates must not be created. */
 export function isAvBlockedByAnimationWorkbenchFocus(): boolean {
-  return Boolean(timelineFocusFrameId);
+  return getWorkbenchToolPolicy().avBlocked;
 }
 
 /** Timeline focus is open — world artboards / extra workbenches must not be created. */
 export function isNewPlateBlockedByAnimationWorkbenchFocus(): boolean {
-  return Boolean(timelineFocusFrameId);
+  return getWorkbenchToolPolicy().newPlateBlocked;
 }
 
 /**
@@ -156,7 +157,7 @@ export function warnIfAvBlockedByAnimationWorkbenchFocus(
   warn: (msg: string) => void,
   t?: (key: string, opts?: { defaultValue?: string }) => string
 ): boolean {
-  if (!timelineFocusFrameId) return false;
+  if (!getWorkbenchToolPolicy().avBlocked) return false;
   warn(
     t
       ? t(AV_BLOCKED_IN_WORKBENCH_I18N, { defaultValue: AV_BLOCKED_IN_WORKBENCH_DEFAULT })
@@ -171,7 +172,7 @@ export function warnIfNewPlateBlockedByAnimationWorkbenchFocus(
   t?: (key: string, opts?: { defaultValue?: string }) => string,
   kind: 'artboard' | 'animationBoard' = 'artboard'
 ): boolean {
-  if (!timelineFocusFrameId) return false;
+  if (!getWorkbenchToolPolicy().newPlateBlocked) return false;
   const key =
     kind === 'animationBoard'
       ? NEW_BOARD_BLOCKED_IN_WORKBENCH_I18N
@@ -216,6 +217,55 @@ export function shouldShowArtboardInWorkbenchFocus(
   const focus = timelineFocusFrameId;
   if (!focus) return true;
   return String(frame?.id || '') === focus;
+}
+
+/**
+ * Unified frame visibility under workbench isolation.
+ * Includes `frame.hidden` + timeline focus filter.
+ */
+export function isArtboardVisibleInDocument(
+  frame: { id?: unknown; hidden?: unknown } | null | undefined
+): boolean {
+  if (!frame || frame.hidden) return false;
+  return shouldShowArtboardInWorkbenchFocus(frame);
+}
+
+/**
+ * Unified bind/edit gate: frame must be visible; animation plates also need
+ * timeline focus for that plate.
+ */
+export function canBindToArtboard(
+  frame: { id?: unknown; hidden?: unknown; kind?: unknown } | null | undefined
+): boolean {
+  if (!isArtboardVisibleInDocument(frame)) return false;
+  const id = String(frame?.id || '').trim();
+  if (!id) return false;
+  if (isAnimationPlateKind(frame?.kind)) {
+    return canEditAnimationWorkbenchPlate(id);
+  }
+  return true;
+}
+
+export type WorkbenchToolPolicy = {
+  /** Timeline dock open for some workbench. */
+  timelineOpen: boolean;
+  /** Block video/audio plate creation. */
+  avBlocked: boolean;
+  /** Block new world artboard / extra workbench. */
+  newPlateBlocked: boolean;
+  /** `<input type=file accept>` for canvas media pickers. */
+  fileAccept: string;
+};
+
+/** Single tool-gate snapshot for toolbar / drop / spawn paths. */
+export function getWorkbenchToolPolicy(): WorkbenchToolPolicy {
+  const timelineOpen = Boolean(timelineFocusFrameId);
+  return {
+    timelineOpen,
+    avBlocked: timelineOpen,
+    newPlateBlocked: timelineOpen,
+    fileAccept: mediaFileAcceptForWorkbenchTimeline(timelineOpen),
+  };
 }
 
 /**

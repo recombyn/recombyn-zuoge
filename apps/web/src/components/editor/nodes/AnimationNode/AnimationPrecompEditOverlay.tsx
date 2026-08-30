@@ -341,10 +341,7 @@ function AnimationPrecompEditOverlay({
     height: Math.max(1, boardScreenBr.y - boardScreen.y),
     zIndex: 42,
     pointerEvents: 'auto',
-    background:
-      'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.12) 1px, transparent 0)',
-    backgroundSize: `${Math.max(8, 12 * z)}px ${Math.max(8, 12 * z)}px`,
-    backgroundColor: '#E8EBF0',
+    backgroundColor: '#FFFFFF',
     boxShadow: 'inset 0 0 0 1px rgba(15,23,42,0.12)',
   };
 

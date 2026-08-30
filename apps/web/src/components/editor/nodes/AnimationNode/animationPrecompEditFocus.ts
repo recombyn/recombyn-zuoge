@@ -24,25 +24,12 @@ export function getLottiePrecompEditFocus(): {
 
 /** True → skip paint / hit for this node under precomp edit isolation. */
 export function isHiddenByLottiePrecompEditFocus(
-  nodeId: string,
-  node: { attrs?: Record<string, unknown> | null; key?: string } | null | undefined
+  _nodeId: string,
+  _node: { attrs?: Record<string, unknown> | null; key?: string } | null | undefined
 ): boolean {
   if (!precompEditActive) return false;
-  if (!node) return true;
-  const lotId = precompEditLotNodeId;
-  // Prefer showing the linked lot plate only.
-  if (lotId) {
-    return String(nodeId) !== lotId;
-  }
-  // No linked node (imported precomp): hide non-host lottie plates; keep frame host
-  // invisible anyway. Hide everything except animation frame hosts so overlay can draw.
-  if (
-    node.attrs?.animationFrameHost === true ||
-    node.attrs?.animationFrameHost === 'true' ||
-    node.attrs?.lottieFrameHost === true
-  ) {
-    return false;
-  }
+  // Overlay owns the board + layer picks — hide every scene node (incl. lot plate).
+  // Nested lot stays unmovable while on the LOT tab (cannot drag out).
   return true;
 }
 

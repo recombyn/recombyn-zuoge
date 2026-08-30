@@ -58,8 +58,10 @@ import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { createBlankLottieAnimation } from '@/components/editor/nodes/AnimationNode/animationComposeLayers';
 import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
+import { materializeRootShapeLayers } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
 import {
   findAnimationFrameAtDocPoint,
+  findFrameAnimationMediaId,
   resolveAnimationFrameId,
 } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
@@ -70,6 +72,7 @@ import {
   isNewPlateBlockedByAnimationWorkbenchFocus,
   setAnimationWorkbenchPlayheadSec,
   setAnimationWorkbenchTimelineFocus,
+  tagCreatedNodeForWorkbenchSurround,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
@@ -576,6 +579,12 @@ function clearSelection(state: typeof initialState) {
   state.shapeStylePanel = null;
 }
 
+/** Selecting scene elements while playing → pause (keep host so pose stays). */
+function pauseLottieIfPlaying(state: typeof initialState) {
+  if (!state.lottiePlaying) return;
+  state.lottiePlaying = false;
+}
+
 /** Drop pending process id when its node was deleted (upload-in-flight must not revive it). */
 function clearPendingProcessIfNodeGone(state: typeof initialState) {
   const pending = state.pendingImageProcessId;
@@ -903,6 +912,7 @@ const editorSlice = createSlice({
             state.selectedNodeIds = [];
             state.selectedFrameIds = [fid];
             state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
+            pauseLottieIfPlaying(state);
             return;
           }
         }
@@ -910,7 +920,10 @@ const editorSlice = createSlice({
       state.selectedNodeId = id;
       state.selectedNodeIds = id ? [id] : [];
       // Selecting a node clears artboard multi-select (single-target click).
-      if (id) state.selectedFrameIds = [];
+      if (id) {
+        state.selectedFrameIds = [];
+        pauseLottieIfPlaying(state);
+      }
       if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, id)) {
         state.imageToolPanel = null;
       }
@@ -952,6 +965,7 @@ const editorSlice = createSlice({
             state.selectedFrameIds = [fid];
             // Occupied workbench → soft (no handles); empty plate keeps full chrome.
             state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
+            pauseLottieIfPlaying(state);
             return;
           }
         }
@@ -970,6 +984,7 @@ const editorSlice = createSlice({
       state.selectedNodeId = ids[0] || null;
       // Do not clear selectedFrameIds here — marquee may select frames + nodes together.
       // Callers that want nodes-only should also dispatch setSelectedFrameIds([]).
+      if (ids.length) pauseLottieIfPlaying(state);
       if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, ids[0] || null)) {
         state.imageToolPanel = null;
       }
@@ -1091,6 +1106,7 @@ const editorSlice = createSlice({
             state.selectedNodeId = null;
             state.selectedFrameIds = [fid];
             state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
+            pauseLottieIfPlaying(state);
             return;
           }
         }
@@ -1111,6 +1127,7 @@ const editorSlice = createSlice({
       state.selectedFrameIds = frameIds;
       // Marquee / interior work stays soft — title / layer panel set full explicitly.
       state.frameChromeMode = 'soft';
+      if (nodeIds.length) pauseLottieIfPlaying(state);
       if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, nodeIds[0] || null)) {
         state.imageToolPanel = null;
       }
@@ -1962,9 +1979,89 @@ const editorSlice = createSlice({
         })
       );
     },
-    /** Spawn Lottie as a 动画工作台 (same path as toolstrip / placeMediaAsset). */
+    /** Spawn finished Lottie as free preview — never auto-nests into 动画工作台. */
     spawnLottie(state, action) {
       if (!state.document) return;
+      const animationData = action.payload?.animationData;
+      const parsed = parseLottieAnimationData(animationData);
+      if (!parsed) return;
+      if (!action.payload?.skipHistory) pushHistory(state);
+      const width = Math.max(
+        32,
+        Math.round(Number(action.payload?.width) || Number(parsed.w) || 200)
+      );
+      const height = Math.max(
+        32,
+        Math.round(Number(action.payload?.height) || Number(parsed.h) || 200)
+      );
+      const name = String(action.payload?.name || '').trim() || 'Lottie';
+      let x = Number(action.payload?.x);
+      let y = Number(action.payload?.y);
+      // While a workbench timeline is open, keep the plate on the pasteboard
+      // (outside the plate) so edit isolation does not hide it on the world canvas.
+      const focusId = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+      if (focusId && state.document.frames && (!Number.isFinite(x) || !Number.isFinite(y))) {
+        const fr = state.document.frames.find((f) => String(f?.id) === focusId);
+        if (fr) {
+          const fx = Number(fr.x) || 0;
+          const fy = Number(fr.y) || 0;
+          const fw = Math.max(1, Number(fr.width) || 1);
+          // Sit just to the right of the plate — still "outside", user drags in.
+          x = fx + fw + 24;
+          y = fy;
+        }
+      }
+      try {
+        const { id, node } = createLottieNode({
+          x: Number.isFinite(x) ? x : undefined,
+          y: Number.isFinite(y) ? y : undefined,
+          width,
+          height,
+          name,
+          animationData: parsed,
+        });
+        // Free preview only — never frameId / host. User drags into the workbench.
+        if (node.attrs) {
+          delete node.attrs.animationFrameHost;
+          delete node.attrs.lottieFrameHost;
+          delete node.attrs.frameId;
+          delete node.attrs.frameOrder;
+        }
+        const genPrompt = String(
+          action.payload?.genPrompt || action.payload?.prompt || ''
+        ).trim();
+        if (genPrompt) {
+          node.attrs = { ...(node.attrs || {}), genPrompt };
+        }
+        state.document = addNodeToDocument(state.document, id, node);
+        // Edit mode: mark surround so focus isolation keeps this LOT visible
+        // (do NOT finalize/bind — that would auto-embed into the plate).
+        if (focusId) {
+          state.document = tagCreatedNodeForWorkbenchSurround(state.document, id);
+        }
+
+        state.dirty = true;
+        state.sceneReloadToken += 1;
+        state.selectedNodeId = id;
+        state.selectedNodeIds = [id];
+        // Keep the open workbench selected while editing; free plate on pasteboard.
+        if (!focusId) {
+          state.selectedFrameIds = [];
+        }
+        state.activeTool = 'select';
+        state.pendingImageSrc = null;
+        syncLibraryOnEdit(state);
+      } catch {
+        /* invalid animationData */
+      }
+    },
+    /**
+     * Promote free LOT → 动画工作台 with nested lot plate + precomp tab.
+     * Main scene stays preview; click the LOT tab to edit. Upload uses spawnLottie.
+     */
+    placeUploadedLottie(state, action) {
+      if (!state.document) return;
+      if (isNewPlateBlockedByAnimationWorkbenchFocus()) return;
       const animationData = action.payload?.animationData;
       const parsed = parseLottieAnimationData(animationData);
       if (!parsed) return;
@@ -1976,29 +2073,97 @@ const editorSlice = createSlice({
         32,
         Math.round(Number(action.payload?.height) || Number(parsed.h) || 200)
       );
-      const name =
-        String(action.payload?.name || '').trim() || '动画工作台';
+      const lotName =
+        String(action.payload?.name || '').trim() ||
+        String(parsed.nm || '').trim() ||
+        'Lottie';
+      const boardName =
+        String(action.payload?.boardName || '').trim() || lotName;
+      const x = Number(action.payload?.x);
+      const y = Number(action.payload?.y);
+      if (!action.payload?.skipHistory) pushHistory(state);
       editorSlice.caseReducers.spawnAnimationBoard(state, {
         type: 'editor/spawnAnimationBoard',
         payload: {
-          x: action.payload?.x,
-          y: action.payload?.y,
+          x: Number.isFinite(x) ? x : undefined,
+          y: Number.isFinite(y) ? y : undefined,
           width,
           height,
-          name,
-        },
-      });
-      const frameId = String(state.selectedFrameIds?.[0] || '').trim();
-      if (!frameId) return;
-      editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
-        type: 'editor/importLottieIntoAnimationFrame',
-        payload: {
-          frameId,
-          animationData: parsed,
-          name,
+          name: boardName,
           skipHistory: true,
         },
       });
+      const frameId = String(state.selectedFrameIds?.[0] || '').trim();
+      if (!frameId || !state.document) return;
+      const frame = (state.document.frames || []).find((f) => String(f?.id) === frameId);
+      if (!frame) return;
+
+      editorSlice.caseReducers.ensureAnimationFrameMedia(state, {
+        type: 'editor/ensureAnimationFrameMedia',
+        payload: { frameId, skipHistory: true },
+      });
+      const hostId = findFrameAnimationMediaId(state.document, frameId);
+      if (!hostId) return;
+
+      const fx = Number(frame.x) || 0;
+      const fy = Number(frame.y) || 0;
+      const fw = Math.max(1, Number(frame.width) || width);
+      const fh = Math.max(1, Number(frame.height) || height);
+      const nestW = Math.min(width, fw);
+      const nestH = Math.min(height, fh);
+      try {
+        const { id, node } = createLottieNode({
+          x: fx + Math.max(0, (fw - nestW) / 2),
+          y: fy + Math.max(0, (fh - nestH) / 2),
+          width: nestW,
+          height: nestH,
+          name: lotName,
+          animationData: parsed,
+        });
+        if (node.attrs) {
+          delete node.attrs.animationFrameHost;
+          delete node.attrs.lottieFrameHost;
+        }
+        const bound = nodeIdsBoundToFrames(state.document, [frameId]);
+        const orders = bound
+          .map((nid) => Number(state.document?.deltaSetLike?.[nid]?.attrs?.frameOrder))
+          .filter(Number.isFinite);
+        node.attrs = {
+          ...(node.attrs || {}),
+          frameId,
+          frameOrder: orders.length ? Math.max(...orders) + 1 : 1,
+        };
+        const genPrompt = String(
+          action.payload?.genPrompt || action.payload?.prompt || ''
+        ).trim();
+        if (genPrompt) {
+          node.attrs = { ...(node.attrs || {}), genPrompt };
+        }
+        state.document = addNodeToDocument(state.document, id, node);
+
+        editorSlice.caseReducers.ensureAnimationFrameMedia(state, {
+          type: 'editor/ensureAnimationFrameMedia',
+          payload: { frameId, skipHistory: true },
+        });
+
+        state.lottieTimelinePanel = { nodeId: hostId };
+        setAnimationWorkbenchTimelineFocus(frameId);
+        // Stay on 主场景 (preview). User clicks the LOT tab to edit.
+        state.lottiePrecompEdit = null;
+        state.lottiePlayingHostId = hostId;
+        state.lottiePlayheadSec = 0;
+        setAnimationWorkbenchPlayheadSec(0);
+        state.dirty = true;
+        state.sceneReloadToken += 1;
+        state.selectedNodeId = null;
+        state.selectedNodeIds = [];
+        state.selectedFrameIds = [frameId];
+        state.activeTool = 'select';
+        state.pendingImageSrc = null;
+        syncLibraryOnEdit(state);
+      } catch {
+        /* invalid animationData */
+      }
     },
     /** Spawn finished audio plate (upload / paste) at document coords. */
     spawnAudio(state, action) {
@@ -2061,34 +2226,8 @@ const editorSlice = createSlice({
       if (kind === 'lottie') {
         const animationData = action.payload?.animationData;
         if (!animationData && !src) return;
-        const dropX = Number(action.payload?.x);
-        const dropY = Number(action.payload?.y);
-        const hitFrameId =
-          Number.isFinite(dropX) && Number.isFinite(dropY)
-            ? findAnimationFrameAtDocPoint(state.document, dropX, dropY)
-            : null;
-        // Preview (timeline closed): cannot add into an existing workbench —
-        // only import while that plate's timeline is focused.
-        const focusFrameId = getAnimationWorkbenchTimelineFocus();
-        const targetFrameId =
-          focusFrameId && (!hitFrameId || hitFrameId === focusFrameId)
-            ? focusFrameId
-            : null;
-        if (targetFrameId && animationData) {
-          editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
-            type: 'editor/importLottieIntoAnimationFrame',
-            payload: {
-              frameId: targetFrameId,
-              animationData,
-              name: String(action.payload?.name || '').trim() || undefined,
-              genPrompt: String(action.payload?.prompt || action.payload?.genPrompt || '').trim() || undefined,
-            },
-          });
-          return;
-        }
-        // Animation track: always land in a 动画工作台 (not a free Lottie plate).
-        // Under timeline focus spawn is blocked — require a target above.
-        if (animationData && !isNewPlateBlockedByAnimationWorkbenchFocus()) {
+        // Workbench edit → free lot at drop; otherwise new 动画工作台 + import JSON.
+        if (animationData) {
           const dropX = Number(action.payload?.x);
           const dropY = Number(action.payload?.y);
           const parsed = parseLottieAnimationData(animationData);
@@ -2100,34 +2239,21 @@ const editorSlice = createSlice({
             32,
             Number(action.payload?.height) || Number(parsed?.h) || 200
           );
-          const name = String(action.payload?.name || '').trim() || '动画工作台';
-          const genPrompt =
-            String(action.payload?.prompt || action.payload?.genPrompt || '').trim() ||
-            undefined;
-          editorSlice.caseReducers.spawnAnimationBoard(state, {
-            type: 'editor/spawnAnimationBoard',
+          const name = String(action.payload?.name || '').trim() || 'Lottie';
+          // Upload / drop always lands as an independent preview plate.
+          editorSlice.caseReducers.spawnLottie(state, {
+            type: 'editor/spawnLottie',
             payload: {
               x: Number.isFinite(dropX) ? dropX : undefined,
               y: Number.isFinite(dropY) ? dropY : undefined,
               width,
               height,
               name,
+              animationData,
+              prompt: action.payload?.prompt,
+              genPrompt: action.payload?.genPrompt,
             },
           });
-          const frameId = String(state.selectedFrameIds?.[0] || '').trim();
-          if (frameId) {
-            editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
-              type: 'editor/importLottieIntoAnimationFrame',
-              payload: {
-                frameId,
-                animationData,
-                name,
-                genPrompt,
-                skipHistory: true,
-              },
-            });
-          }
-          return;
         }
         return;
       }
@@ -2525,7 +2651,30 @@ const editorSlice = createSlice({
         return;
       }
 
+      const nextSvg = String(action.payload?.svg || '').trim();
       let next = clearImageProcessAttrs(state.document, nodeId);
+      // Vectorize: convert process clone from image → editable svg node.
+      if (nextSvg) {
+        const extra = (action.payload?.attrs || {}) as Record<string, unknown>;
+        const prev = next.deltaSetLike?.[nodeId];
+        const attrs = { ...(prev?.attrs || {}) } as Record<string, unknown>;
+        delete attrs.src;
+        delete attrs.cutout;
+        delete attrs.assetKind;
+        delete attrs.uploadKey;
+        delete attrs.imageVariants;
+        delete attrs.imageVariantPrompts;
+        attrs.svg = nextSvg;
+        attrs.name = String(extra.name || attrs.name || 'SVG');
+        next = updateNodeInDocument(next, nodeId, { key: 'svg', attrs } as any);
+        state.document = next;
+        state.dirty = true;
+        state.sceneReloadToken += 1;
+        if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
+        syncLibraryOnEdit(state);
+        return;
+      }
+
       if (nextSrc) {
         const extra = (action.payload?.attrs || {}) as Record<string, unknown>;
         next = updateNodeInDocument(next, nodeId, {
@@ -2677,11 +2826,51 @@ const editorSlice = createSlice({
       state.lottieComposePanel = null;
     },
     openLottieTimelinePanel(state, action) {
-      const nodeId = String(action.payload?.nodeId || '').trim();
+      let nodeId = String(action.payload?.nodeId || '').trim();
+      if (!nodeId || !state.document) return;
+      let host = state.document.deltaSetLike?.[nodeId];
+      // Free LOT preview plate → promote to 动画工作台 (layers + isolation) then open.
+      if (
+        host?.key === 'lottie' &&
+        !isAnimationFrameHostNode(host, state.document) &&
+        !resolveAnimationFrameId(state.document, host)
+      ) {
+        const animationData = parseLottieAnimationData(host.attrs?.animationData);
+        if (animationData && !isNewPlateBlockedByAnimationWorkbenchFocus()) {
+          const x = Number(host.x) || 0;
+          const y = Number(host.y) || 0;
+          const width = Math.max(32, Number(host.width) || Number(animationData.w) || 200);
+          const height = Math.max(32, Number(host.height) || Number(animationData.h) || 200);
+          const name =
+            String(host.attrs?.name || '').trim() ||
+            String(animationData.nm || '').trim() ||
+            '动画工作台';
+          pushHistory(state);
+          state.document = removeNodesFromDocument(state.document, [nodeId]);
+          editorSlice.caseReducers.placeUploadedLottie(state, {
+            type: 'editor/placeUploadedLottie',
+            payload: {
+              animationData,
+              x,
+              y,
+              width,
+              height,
+              name,
+              skipHistory: true,
+            },
+          });
+          const frameId = String(state.selectedFrameIds?.[0] || '').trim();
+          const promoted = frameId
+            ? findFrameAnimationMediaId(state.document, frameId)
+            : null;
+          if (promoted) nodeId = promoted;
+          host = state.document?.deltaSetLike?.[nodeId];
+        }
+      }
       if (!nodeId) return;
       state.lottieTimelinePanel = { nodeId };
-      // Panel host supersedes undocked play session.
-      state.lottiePlayingHostId = null;
+      // Bind play session to this host so other plates do not co-play.
+      state.lottiePlayingHostId = nodeId;
       // Always enter at t=0 — stale playhead / host time must not stick.
       state.lottiePlayheadSec = 0;
       setAnimationWorkbenchPlayheadSec(0);
@@ -2689,7 +2878,7 @@ const editorSlice = createSlice({
       state.lottiePlaying = Boolean(action.payload?.play);
       // Point activeFrameId at the workbench so new uploads / JSON land in-plate
       // (spawn centers + Lottie import resolve via activeFrameId).
-      const host = state.document?.deltaSetLike?.[nodeId];
+      host = state.document?.deltaSetLike?.[nodeId];
       const frameId = resolveAnimationFrameId(state.document, host);
       if (frameId && state.document) {
         state.document = { ...state.document, activeFrameId: frameId };
@@ -2738,8 +2927,15 @@ const editorSlice = createSlice({
       state.lottiePrecompEdit = {
         hostNodeId,
         assetId,
-        selectedLayerInd: null,
+        selectedLayerInd:
+          action.payload?.selectedLayerInd != null &&
+          Number.isFinite(Number(action.payload.selectedLayerInd))
+            ? Number(action.payload.selectedLayerInd)
+            : null,
       };
+      // Tabs are editable — never select the whole lot plate chrome.
+      state.selectedNodeId = null;
+      state.selectedNodeIds = [];
     },
     exitLottiePrecompEdit(state) {
       state.lottiePrecompEdit = null;
@@ -2810,6 +3006,7 @@ const editorSlice = createSlice({
       if (!state.document) return;
       const frameId = String(action.payload?.frameId || '').trim();
       if (!frameId) return;
+      const skipHistory = Boolean(action.payload?.skipHistory);
       const frames = Array.isArray(state.document.frames) ? state.document.frames : [];
       const frame = frames.find((f) => String(f?.id) === frameId);
       if (!frame || !isAnimationArtboardKind(frame.kind)) return;
@@ -2875,7 +3072,7 @@ const editorSlice = createSlice({
           return;
         }
 
-        pushHistory(state);
+        if (!skipHistory) pushHistory(state);
         const next = normalizeDocument(state.document);
         const host = next.deltaSetLike?.[hostId];
         if (!host) return;
@@ -2917,7 +3114,7 @@ const editorSlice = createSlice({
         finishSync(flaggedHostId);
         return;
       }
-      pushHistory(state);
+      if (!skipHistory) pushHistory(state);
       try {
         const blank = createBlankLottieAnimation({
           width: Math.max(32, Math.round(frame.width)),
@@ -3086,6 +3283,35 @@ const editorSlice = createSlice({
         next = removeNodesFromDocument(next, removeIds);
       }
 
+      // Explode simple shape layers into editable scene nodes (not one LOT blob).
+      let maturedIds: string[] = [];
+      if (hostId) {
+        const hostBefore = next.deltaSetLike?.[hostId];
+        const matured = materializeRootShapeLayers({
+          document: next,
+          frameId,
+          animationData: hostBefore?.attrs?.animationData ?? parsed,
+          plate: {
+            x: Number(sizedFrame.x) || 0,
+            y: Number(sizedFrame.y) || 0,
+            width: Math.max(1, Number(sizedFrame.width) || 1),
+            height: Math.max(1, Number(sizedFrame.height) || 1),
+          },
+        });
+        if (matured) {
+          next = matured.document;
+          maturedIds = matured.nodeIds;
+          const hostM = next.deltaSetLike?.[hostId];
+          if (hostM) {
+            hostM.attrs = {
+              ...(hostM.attrs || {}),
+              ...hostAttrs,
+              animationData: matured.animationJson,
+            };
+          }
+        }
+      }
+
       const synced = hostId
         ? syncArtboardChildrenIntoAnimation(next, frameId, hostId)
         : null;
@@ -3119,13 +3345,17 @@ const editorSlice = createSlice({
       }
       state.document = next;
       state.selectedFrameIds = [frameId];
-      state.selectedNodeId = null;
-      state.selectedNodeIds = [];
+      // Pick first exploded shape so the canvas shows a real editable element.
+      const pickId = maturedIds[0] || null;
+      state.selectedNodeId = pickId;
+      state.selectedNodeIds = pickId ? [pickId] : [];
       state.frameChromeMode = 'full';
       state.dirty = true;
       state.sceneReloadToken += 1;
       state.documentPatchToken += 1;
-      state.lastPatchedNodeIds = hostId ? [hostId] : [];
+      state.lastPatchedNodeIds = hostId
+        ? [hostId, ...maturedIds]
+        : maturedIds;
       state.lastPatchTransformOnly = false;
       state.activeTool = 'select';
       // Keep timeline dock open on the playback host when already editing.
@@ -3137,6 +3367,7 @@ const editorSlice = createSlice({
       // user opens via 关键帧.
       state.animationFramePanel = null;
       state.lottieComposePanel = null;
+      state.lottiePrecompEdit = null;
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.audioToolPanel = null;
@@ -3388,6 +3619,7 @@ export const {
   spawnLottieGeneratorPlate,
   spawnAudioGenerator,
   spawnLottie,
+  placeUploadedLottie,
   spawnAudio,
   spawnCreatedNode,
   placeMediaAsset,

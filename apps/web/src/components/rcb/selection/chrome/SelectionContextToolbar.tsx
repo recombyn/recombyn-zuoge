@@ -418,6 +418,9 @@ function SelectionContextToolbar(props: Props): ReactNode {
   const imageToolPanel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
+  const lotTabEditing = useSelector(
+    (s: any) => Boolean(s.editor.lottiePrecompEdit?.assetId)
+  );
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const mockupIntelEnabled = imageToolCaps?.mockup?.enabled === true;
@@ -515,6 +518,10 @@ function SelectionContextToolbar(props: Props): ReactNode {
   // 动画工作台内子元素：属性检视器（AI 走右侧 Agent chat）。
   const animationFrameId = resolveAnimationFrameId(document, node);
   if (animationFrameId) {
+    // Nested LOT on 主场景: move / drag-out only — edit insides via the LOT tab.
+    if (node.key === 'lottie' && !lotTabEditing) {
+      return null;
+    }
     return (
       <AnimationFrameChildToolbar
         document={document}

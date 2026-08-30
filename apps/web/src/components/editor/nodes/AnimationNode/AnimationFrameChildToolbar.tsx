@@ -775,6 +775,9 @@ function AnimationFrameChildToolbar({
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
   const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
+  const timelinePanelNodeId = useSelector(
+    (s: any) => String(s.editor.lottieTimelinePanel?.nodeId || '').trim()
+  );
   const imageToolPanel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
@@ -788,6 +791,8 @@ function AnimationFrameChildToolbar({
     return frames.find((f: any) => String(f?.id) === frameId) || null;
   }, [document, frameId]);
   const hostId = frameId ? findFrameAnimationMediaId(document, frameId) : null;
+  /** Timeline dock open — hide diamond 「关键帧」 (dock owns keyframes). */
+  const editModeOpen = Boolean(timelinePanelNodeId);
   const host = hostId ? document?.deltaSetLike?.[hostId] : null;
   const anim = useMemo(
     () => parseLottieAnimationData(host?.attrs?.animationData),
@@ -1343,10 +1348,11 @@ function AnimationFrameChildToolbar({
               expandPuppetTimelineLayer(node);
             }}
           >
-            <GiPuppet className="h-4 w-4" />
+            <GiPuppet className="h-3 w-3" />
             <span>{t('editor.imageToolbar.puppet', { defaultValue: '人偶' })}</span>
           </button>
         </Tooltip>
+        {!editModeOpen ? (
         <Tooltip
           tip={t('editor.lottieToolbar.propertiesTip')}
           placement="top"
@@ -1363,6 +1369,7 @@ function AnimationFrameChildToolbar({
             <span>{t('editor.lottieToolbar.timeline')}</span>
           </button>
         </Tooltip>
+        ) : null}
         {isImage ? (
           <ImageToolbarMoreDownload
             showCornerRadius={supportsCornerRadius(node)}

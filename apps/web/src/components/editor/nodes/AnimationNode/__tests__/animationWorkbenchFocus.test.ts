@@ -2,8 +2,11 @@ import { describe, expect, it, afterEach, vi } from 'vitest';
 import {
   WORKBENCH_SURROUND_ATTR,
   CANVAS_MEDIA_FILE_ACCEPT,
+  canBindToArtboard,
   finalizeNodeForAnimationWorkbenchFocus,
+  getWorkbenchToolPolicy,
   isAnimationWorkbenchPreviewChild,
+  isArtboardVisibleInDocument,
   isAvBlockedByAnimationWorkbenchFocus,
   isHiddenByAnimationWorkbenchFocus,
   isInactiveAtAnimationPlayhead,
@@ -11,6 +14,7 @@ import {
   mediaFileAcceptForWorkbenchTimeline,
   setAnimationWorkbenchPlayheadSec,
   setAnimationWorkbenchTimelineFocus,
+  shouldShowArtboardInWorkbenchFocus,
   warnIfAvBlockedByAnimationWorkbenchFocus,
   WORKBENCH_IMAGE_JSON_FILE_ACCEPT,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
@@ -288,5 +292,81 @@ describe('isInactiveAtAnimationPlayhead', () => {
     });
     expect(isInactiveAtAnimationPlayhead(doc, doc.deltaSetLike.img)).toBe(true);
     expect(isInactiveAtAnimationPlayhead(doc, doc.deltaSetLike.img, 0.5)).toBe(false);
+  });
+});
+
+/** Same hide rules EditorMinimap uses for edit vs preview isolation. */
+describe('workbench focus isolation (minimap / canvas)', () => {
+  it('edit: only focused artboard stays visible; other plates hide', () => {
+    expect(shouldShowArtboardInWorkbenchFocus({ id: 'main' })).toBe(true);
+    expect(shouldShowArtboardInWorkbenchFocus({ id: 'af1' })).toBe(true);
+    setAnimationWorkbenchTimelineFocus('af1');
+    expect(shouldShowArtboardInWorkbenchFocus({ id: 'af1' })).toBe(true);
+    expect(shouldShowArtboardInWorkbenchFocus({ id: 'main' })).toBe(false);
+  });
+
+  it('edit: nodes on other plates hide; focused plate + surround stay', () => {
+    setAnimationWorkbenchTimelineFocus('af1');
+    expect(
+      isHiddenByAnimationWorkbenchFocus({ attrs: { frameId: 'af1' } })
+    ).toBe(false);
+    expect(
+      isHiddenByAnimationWorkbenchFocus({
+        attrs: { [WORKBENCH_SURROUND_ATTR]: 'af1' },
+      })
+    ).toBe(false);
+    expect(
+      isHiddenByAnimationWorkbenchFocus({ attrs: { frameId: 'main' } })
+    ).toBe(true);
+  });
+
+  it('preview: surround hides; unbound / plate children without surround show', () => {
+    setAnimationWorkbenchTimelineFocus(null);
+    expect(
+      isHiddenByAnimationWorkbenchFocus({
+        attrs: { [WORKBENCH_SURROUND_ATTR]: 'af1' },
+      })
+    ).toBe(true);
+    expect(
+      isHiddenByAnimationWorkbenchFocus({ attrs: { frameId: 'af1' } })
+    ).toBe(false);
+    expect(shouldShowArtboardInWorkbenchFocus({ id: 'main' })).toBe(true);
+  });
+});
+
+describe('WorkbenchIsolationPolicy', () => {
+  it('isArtboardVisibleInDocument: focus on/off + frame.hidden', () => {
+    expect(isArtboardVisibleInDocument({ id: 'main' })).toBe(true);
+    expect(isArtboardVisibleInDocument({ id: 'main', hidden: true })).toBe(false);
+    setAnimationWorkbenchTimelineFocus('af1');
+    expect(isArtboardVisibleInDocument({ id: 'af1' })).toBe(true);
+    expect(isArtboardVisibleInDocument({ id: 'main' })).toBe(false);
+    expect(isArtboardVisibleInDocument({ id: 'af1', hidden: true })).toBe(false);
+  });
+
+  it('canBindToArtboard: animation plate only while focused', () => {
+    const anim = { id: 'af1', kind: 'animation' as const };
+    const board = { id: 'main', kind: 'artboard' as const };
+    expect(canBindToArtboard(anim)).toBe(false);
+    expect(canBindToArtboard(board)).toBe(true);
+    setAnimationWorkbenchTimelineFocus('af1');
+    expect(canBindToArtboard(anim)).toBe(true);
+    expect(canBindToArtboard(board)).toBe(false);
+  });
+
+  it('getWorkbenchToolPolicy: AV / new plate / file accept', () => {
+    expect(getWorkbenchToolPolicy()).toMatchObject({
+      timelineOpen: false,
+      avBlocked: false,
+      newPlateBlocked: false,
+      fileAccept: CANVAS_MEDIA_FILE_ACCEPT,
+    });
+    setAnimationWorkbenchTimelineFocus('af1');
+    expect(getWorkbenchToolPolicy()).toMatchObject({
+      timelineOpen: true,
+      avBlocked: true,
+      newPlateBlocked: true,
+      fileAccept: WORKBENCH_IMAGE_JSON_FILE_ACCEPT,
+    });
   });
 });

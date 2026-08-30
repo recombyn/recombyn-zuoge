@@ -17,7 +17,7 @@ const panelBtn =
 
 /**
  * Image-tool 积分 costs — sync with apps/api `image_tools.py` `_KIND_CREDIT_COST`.
- * No LLM (removeBg / editText / editElements / CSS adjust) → 0.
+ * No LLM (removeBg / editText / editElements / vector / CSS adjust) → 0.
  * BYOK also skip platform credits on the server.
  */
 export const IMAGE_TOOL_CREDIT_COST = {
@@ -29,7 +29,7 @@ export const IMAGE_TOOL_CREDIT_COST = {
   editText: 0,
   editElements: 0,
   replaceText: 30,
-  vector: 20,
+  vector: 0,
   adjust: 0,
 } as const;
 

@@ -4,6 +4,7 @@
  * Frame-host lottie-web is hidden; children are the visible ink.
  *
  * Host = timeline panel OR undocked play session → full geometry pose.
+ * Playing a non-workbench plate must not scrub other workbenches.
  * No host: ink in/out at Redux playhead; do **not** seek(0) — pause / end
  * must leave the playhead where it is.
  */
@@ -37,6 +38,10 @@ function AnimationPlayheadSceneSync({
   document: SceneDocument;
 }): ReactNode {
   const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
+  const playing = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
+  const playingHostId = useSelector((s: any) =>
+    String(s.editor.lottiePlayingHostId || '').trim()
+  );
   const hostNodeId = useSelector((s: any) => resolveLottiePlayheadHostId(s.editor));
   const host = hostNodeId ? document?.deltaSetLike?.[hostNodeId] : null;
   const primaryActive =
@@ -59,23 +64,39 @@ function AnimationPlayheadSceneSync({
         playheadSec: playhead,
         applyGeometry: true,
       });
+      // Freeze sibling workbenches at document geometry (do not scrub with this playhead).
+      for (const id of listAnimationFrameHostIds(document)) {
+        if (id === hostNodeId) continue;
+        applyAnimationPlayheadScenePose({
+          document,
+          hostNodeId: id,
+          playheadSec: 0,
+          applyGeometry: false,
+        });
+      }
       return;
     }
 
-    // Resting / no session host: ink at current playhead, geometry from document.
-    // Never seek hosts to 0 here — that made pause/end jump to the start.
+    // Playing a free LOT / non-frame host: keep workbench poses resting.
+    const playingNode = playingHostId ? document?.deltaSetLike?.[playingHostId] : null;
+    const foreignPlay =
+      playing &&
+      playingHostId &&
+      playingNode?.key === 'lottie' &&
+      !isAnimationFrameHostNode(playingNode, document);
+
     const hosts = listAnimationFrameHostIds(document);
     let last = '';
     for (const id of hosts) {
       last = applyAnimationPlayheadScenePose({
         document,
         hostNodeId: id,
-        playheadSec: playhead,
+        playheadSec: foreignPlay ? 0 : playhead,
         applyGeometry: false,
       });
     }
     lastAppliedRef.current = last;
-  }, [primaryActive, document, hostNodeId, playhead]);
+  }, [primaryActive, document, hostNodeId, playhead, playing, playingHostId]);
 
   return null;
 }

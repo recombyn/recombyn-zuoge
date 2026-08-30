@@ -166,7 +166,7 @@ function ImageToolbarEditTools({
           active={puppetActive}
         >
 
-          <GiPuppet className="h-4 w-4" />
+          <GiPuppet className="h-3 w-3" />
 
         </Tool>
 

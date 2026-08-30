@@ -80,8 +80,8 @@ function AnimationToolbarEditTools({
   const document = useSelector((s: any) => s.editor.document);
   const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
   const [playbackReady, setPlaybackReady] = useState(false);
-  const timelineOpen = useSelector(
-    (s: any) => s.editor.lottieTimelinePanel?.nodeId === nodeId
+  const timelinePanelNodeId = useSelector(
+    (s: any) => String(s.editor.lottieTimelinePanel?.nodeId || '').trim()
   );
   const lottiePlaying = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
 
@@ -101,6 +101,9 @@ function AnimationToolbarEditTools({
     [node?.attrs?.animationData]
   );
   const animationIntent = Boolean(animationFrameId);
+
+  // Dock owns 关键帧 + transport whenever edit mode is open (any plate selected).
+  const timelineOpen = Boolean(timelinePanelNodeId);
 
   const bounds = useMemo(() => {
     const animationData = parseLottieAnimationData(node?.attrs?.animationData);
