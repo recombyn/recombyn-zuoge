@@ -257,7 +257,7 @@ async def _node_apply_confirm(state: GraphState) -> Command:
         _image_model_from_rules,
         hydrate_tool_ops_images,
     )
-    from app.services.design.ops.lottie_hydrate import hydrate_tool_ops_lottie
+    from app.services.design.ops.animation_hydrate import hydrate_tool_ops_lottie
 
     # Size / shimmer before hydrate so the plate is visible while images generate.
     if _ops_have_create_frame(step_ops):
@@ -435,7 +435,7 @@ async def _node_action(state: GraphState) -> Command:
         _image_model_from_rules,
         hydrate_tool_ops_images,
     )
-    from app.services.design.ops.lottie_hydrate import hydrate_tool_ops_lottie
+    from app.services.design.ops.animation_hydrate import hydrate_tool_ops_lottie
 
     # Safety net: size/shimmer before hydrate (paint_ops usually already did this).
     if _ops_have_create_frame(step_ops):

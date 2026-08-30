@@ -56,13 +56,17 @@ function finishPlaceholderUpload(
     waitDecode?: boolean;
   }
 ): void {
-  const doc = (store.getState() as { editor?: { document?: unknown } }).editor?.document;
-  revokeNodePreviewSrc(doc as Parameters<typeof revokeNodePreviewSrc>[0], nodeId);
   const attrs = {
     ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
     ...opts.extraAttrs,
   };
   const useRemote = opts.waitDecode === false || opts.remoteReady;
+  // Only drop the local blob after a usable remote URL is applied — otherwise a
+  // bad S3/public URL leaves a huge empty plate with a revoked blob: src.
+  if (useRemote) {
+    const doc = (store.getState() as { editor?: { document?: unknown } }).editor?.document;
+    revokeNodePreviewSrc(doc as Parameters<typeof revokeNodePreviewSrc>[0], nodeId);
+  }
   dispatch(
     finishImageProcess({
       nodeId,

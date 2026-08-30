@@ -597,6 +597,11 @@ function UserAssetCard({
       onToggle?.();
       return;
     }
+    // Chat / agent: clicking a Lottie card places onto 动画工作台.
+    if (lottieInlineEnabled && onActivate) {
+      onActivate(asset);
+      return;
+    }
     if (lottieInlineEnabled || videoInlineEnabled || audioInlineEnabled) return;
     if (onActivate) handleAssetCardActivate(asset, url, onActivate);
   };
@@ -659,19 +664,22 @@ function UserAssetCard({
           </div>
         </div>
       ) : lottieInlineEnabled ? (
-        <div
+        <button
+          type="button"
           draggable={canDrag}
           onDragStart={canDrag ? onBodyDragStart : undefined}
           onDragEnd={onBodyDragEnd}
+          onClick={onPrimary}
           className={cn(
-            'relative block w-full',
-            canDrag && 'cursor-grab active:cursor-grabbing'
+            'relative block w-full appearance-none border-0 bg-transparent p-0 text-left',
+            canDrag && 'cursor-grab active:cursor-grabbing',
+            onActivate && 'cursor-pointer'
           )}
         >
           <div className="relative w-full overflow-hidden" style={frameStyle}>
             <LottieAssetThumb asset={asset} onNaturalAspect={setNaturalAspect} />
           </div>
-        </div>
+        </button>
       ) : (
       <button
         type="button"

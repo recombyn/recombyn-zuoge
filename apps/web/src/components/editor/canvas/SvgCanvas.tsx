@@ -57,7 +57,10 @@ import {
   rcbScreenToScene,
   type SvgBoardHandle,
 } from '@/components/rcb';
-import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import {
+  clearLiveArtboardFrameGeometry,
+  previewArtboardFrameGeometry,
+} from '@/components/rcb/frames/HtmlArtboardFrame';
 import { previewSvgNodeTransform } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   abortNodeUpload,
@@ -98,7 +101,8 @@ import {
   startAudioUploadPlaceholder,
   finishImageProcess,
   failImageProcess,
-  spawnLottie,
+  spawnAnimationBoard,
+  importLottieIntoAnimationFrame,
   undo,
   redo,
   clearCanvasAttachPick,
@@ -138,6 +142,14 @@ import {
   resolveAttachPayloadFlyOrigin,
 } from '@/components/editor/panels/agent/composer/flyToChat';
 import {
+  findAnimationFrameAtDocPoint,
+  resolveActiveAnimationFrameId,
+} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  mediaFileAcceptForWorkbenchTimeline,
+  warnIfAvBlockedByAnimationWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
   useCanvasClipboard,
   type CanvasClipboardApi,
 } from './clipboard/useCanvasClipboard';
@@ -165,9 +177,9 @@ import AudioNodeOverlay, {
 import VideoNodeOverlay, {
   type VideoGeomOverride,
 } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
-import LottieNodeOverlay, {
+import AnimationNodeOverlay, {
   type LottieGeomOverride,
-} from '@/components/editor/nodes/LottieNode/LottieNodeOverlay';
+} from '@/components/editor/nodes/AnimationNode/AnimationNodeOverlay';
 import type { SceneDocument, ScenePage } from '@/components/rcb/sceneNode';
 import TextInlineEditor from '@/components/editor/nodes/TextNode/TextInlineEditor';
 import TextFrameOverlay from '@/components/editor/nodes/TextNode/TextFrameOverlay';
@@ -344,6 +356,9 @@ function SvgCanvas({
   const selectedFrameIds = useSelector(
     (s: RootState) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
+  const animationTimelineOpen = useSelector(
+    (s: RootState) => Boolean(s.editor.lottieTimelinePanel?.nodeId)
+  );
 
   const paperRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -399,9 +414,11 @@ function SvgCanvas({
   const clearFrameGeometryPreview = useCallback(() => {
     const liveDoc = documentRef.current;
     const frames = Array.isArray(liveDoc?.frames) ? liveDoc.frames : [];
-    frameGeometryPreviewIdsRef.current.forEach((id) => {
+    const previewIds = [...frameGeometryPreviewIdsRef.current];
+    clearLiveArtboardFrameGeometry(previewIds);
+    previewIds.forEach((id) => {
       const frame = frames.find((item: any) => String(item?.id) === id);
-      if (frame) previewArtboardFrameGeometry(frame);
+      if (frame) previewArtboardFrameGeometry(frame, { recordLive: false });
     });
     frameGeometryPreviewIdsRef.current.clear();
   }, []);
@@ -1579,6 +1596,7 @@ function SvgCanvas({
 
   const onVideoFile = async (file: File | null) => {
     if (!file) return;
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     const at = imagePlaceAtRef.current;
     imagePlaceAtRef.current = null;
     try {
@@ -1627,6 +1645,7 @@ function SvgCanvas({
 
   const onAudioFile = async (file: File | null) => {
     if (!file) return;
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     const at = imagePlaceAtRef.current;
     imagePlaceAtRef.current = null;
     try {
@@ -1683,20 +1702,52 @@ function SvgCanvas({
       message.error(t('editor.tools.lottieGenInvalidJson'));
       return;
     }
+    const doc = documentRef.current;
+    const anchor = payload.anchor ?? null;
+    const hitFrameId =
+      anchor && doc
+        ? findAnimationFrameAtDocPoint(doc, anchor.x, anchor.y)
+        : null;
+    const targetFrameId =
+      hitFrameId ||
+      resolveActiveAnimationFrameId(doc, selectedFrameIdsRef.current);
+    if (targetFrameId) {
+      dispatch(
+        importLottieIntoAnimationFrame({
+          frameId: targetFrameId,
+          animationData: data,
+          name: payload.name,
+        })
+      );
+      finishToSelect();
+      return;
+    }
+    // Same as toolstrip: always land in a 动画工作台 (not a free Lottie plate).
     const natW = Math.max(1, Math.round(Number(data.w) || 200));
     const natH = Math.max(1, Math.round(Number(data.h) || 200));
     const { width, height } = imageSizeForViewport({ width: natW, height: natH });
-    const origin = placeOriginForSize({ width, height }, payload.anchor ?? null);
+    const origin = placeOriginForSize({ width, height }, anchor);
     dispatch(
-      spawnLottie({
-        animationData: data,
+      spawnAnimationBoard({
         width,
         height,
         x: origin?.x,
         y: origin?.y,
-        name: payload.name || t('editor.tools.lottie'),
+        name: payload.name || t('editor.tools.animationBoard', { defaultValue: '动画工作台' }),
       })
     );
+    const after = store.getState() as any;
+    const frameId = String(after?.editor?.selectedFrameIds?.[0] || '').trim();
+    if (frameId) {
+      dispatch(
+        importLottieIntoAnimationFrame({
+          frameId,
+          animationData: data,
+          name: payload.name,
+          skipHistory: true,
+        })
+      );
+    }
     finishToSelect();
   };
 
@@ -1963,7 +2014,7 @@ function SvgCanvas({
           />
         ) : null}
         {infinite ? (
-          <LottieNodeOverlay
+          <AnimationNodeOverlay
             document={document}
             geometryOverrides={videoLiveGeom as Record<string, LottieGeomOverride> | null}
           />
@@ -2154,7 +2205,7 @@ function SvgCanvas({
       <input
         ref={imageInputRef}
         type="file"
-        accept="image/*,video/*,audio/*,.json,application/json"
+        accept={mediaFileAcceptForWorkbenchTimeline(animationTimelineOpen)}
         className="hidden"
         onChange={(e) => {
           onMediaFile(e.target.files?.[0] || null);

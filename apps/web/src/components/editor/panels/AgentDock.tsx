@@ -52,6 +52,7 @@ import {
   EMPTY_ID_LIST,
   setAgentBusy,
   setHoveredMarkPin,
+  placeMediaAsset,
   type PendingMarkContextChip,
 } from '@/store/modules/editor';
 import type { RootState } from '@/store';
@@ -70,6 +71,11 @@ import {
   finishComposerAttachmentUpload,
 } from '@/utils/uploadImage';
 import { message } from '@/components/base';
+import {
+  mediaFileAcceptForWorkbenchTimeline,
+  warnIfAvBlockedByAnimationWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   chipBaseKey,
   parseAtMentionQuery,
@@ -164,7 +170,7 @@ import { type CanvasUiBridge } from '@/components/editor/panels/agent/designTool
 import {
   DEFAULT_LOTTIE_ASPECT,
   DEFAULT_LOTTIE_DURATION,
-} from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
+} from '@/components/editor/panels/agent/shared/AnimationSettingsPanel';
 import {
   buildAudioGeneratorModelList,
   buildLottieChatModelList,
@@ -299,6 +305,20 @@ function applyDraftInteractionMode(opts: {
     }
     return;
   }
+  if (mode === 'audio') {
+    setInteractionMode('audio');
+    setComposerMode('agent');
+    if (!modelAllowed) {
+      const pool = buildAudioGeneratorModelList({ models });
+      setModel(nextAudioModelId(pool, '') || pool[0]?.id || models[0]?.id || 'auto');
+    }
+    return;
+  }
+  if (mode === 'lottie') {
+    setInteractionMode('lottie');
+    setComposerMode('agent');
+    return;
+  }
   if (mode === 'ask') {
     setInteractionMode('agent');
     setComposerMode('agent');
@@ -333,6 +353,16 @@ function applyBootInteractionMode(
   if (mode === 'video') {
     setInteractionMode('video');
     setComposerMode('video');
+    return;
+  }
+  if (mode === 'audio') {
+    setInteractionMode('audio');
+    setComposerMode('agent');
+    return;
+  }
+  if (mode === 'lottie') {
+    setInteractionMode('lottie');
+    setComposerMode('agent');
   }
 }
 
@@ -476,7 +506,6 @@ const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = [
   'image',
   'video',
   'audio',
-  'lottie',
 ];
 
 type FinishAssistant = (
@@ -803,6 +832,20 @@ function AgentDock({
   const [dockWidth, setDockWidth] = useState(readStoredAgentDockWidth);
   const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
   const currentId = useSelector((s: RootState) => s.editor.currentId as string | null);
+  const animationTimelineOpen = useSelector(
+    (s: RootState) => Boolean(s.editor.lottieTimelinePanel?.nodeId)
+  );
+  const lottieTimelineNodeId = useSelector((s: RootState) =>
+    String(s.editor.lottieTimelinePanel?.nodeId || '')
+  );
+  const editorDocument = useSelector((s: RootState) => s.editor.document);
+  const animationWorkbenchFrameId = useMemo(() => {
+    if (!lottieTimelineNodeId || !editorDocument) return null;
+    return resolveAnimationFrameId(
+      editorDocument,
+      editorDocument.deltaSetLike?.[lottieTimelineNodeId]
+    );
+  }, [editorDocument, lottieTimelineNodeId]);
   const canvasAttachPick = useSelector(
     (s: RootState) => s.editor.canvasAttachPick as null | { target: string }
   );
@@ -1530,6 +1573,9 @@ function AgentDock({
       const isImage = mime.startsWith('image/');
       const isAudio = mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || '');
       const isLottie = mime === 'application/json' || mime === 'text/json' || /\.json$/i.test(file.name || '');
+      if ((isVideo || isAudio) && warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) {
+        continue;
+      }
       if (!isImage && !isVideo && !isAudio && !isLottie) {
         message.warning(t('agent.attachImageOnly', { name: file.name }));
         continue;
@@ -1813,7 +1859,14 @@ function AgentDock({
     onAttachFiles: attachFull ? undefined : handleAttachFiles,
     attachTooltip: attachFull
       ? t('agent.attachMaxReached', { count: attachmentLimit })
-      : t('agent.uploadImage'),
+      : animationTimelineOpen
+        ? t('agent.uploadImageOrJson', {
+            defaultValue: '上传图片或 JSON',
+          })
+        : t('agent.uploadImage'),
+    fileAcceptOverride: animationTimelineOpen
+      ? mediaFileAcceptForWorkbenchTimeline(true)
+      : undefined,
     // Mobile floating dock: canvas pick is not usable — hide the control.
     onPickFromCanvas: floating
       ? undefined
@@ -2509,6 +2562,17 @@ function AgentDock({
           );
           return;
         }
+        // Animation track: land on 动画工作台 (also keep chat card for preview/drag).
+        dispatch(
+          placeMediaAsset({
+            kind: 'lottie',
+            animationData,
+            width: res.w ?? width,
+            height: res.h ?? height,
+            name: text.slice(0, 48) || '动画工作台',
+            prompt: text,
+          })
+        );
         patchAssistant(
           (m) => m.id === assistantId,
           (m) =>
@@ -2717,6 +2781,7 @@ function AgentDock({
       lastAgentFrameId: lastAgentFrameIdRef.current,
       taskStateFrameId: taskState?.canvas?.last_agent_frame_id || null,
       canvasUi,
+      animationWorkbenchFrameId,
     });
     const sendImages = uniqueVisionUrls(
       await Promise.all(

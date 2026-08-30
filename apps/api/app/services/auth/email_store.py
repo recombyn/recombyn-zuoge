@@ -1,4 +1,4 @@
-"""Email/password users + verification codes — shared MySQL / SQLite."""
+"""Email/password users + verification codes — MySQL / PostgreSQL."""
 
 from __future__ import annotations
 

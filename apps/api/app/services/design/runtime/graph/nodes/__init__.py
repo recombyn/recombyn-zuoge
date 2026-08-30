@@ -2,6 +2,8 @@ from app.services.design.runtime.graph.nodes.bootstrap import _node_bootstrap
 from app.services.design.runtime.graph.nodes.memory import _node_memory
 from app.services.design.runtime.graph.nodes.intent import _node_intent_classify
 from app.services.design.runtime.graph.nodes.decide import _node_design_agent
+from app.services.design.runtime.graph.nodes.animation_decide import _node_animation_decide
+from app.services.design.runtime.graph.nodes.animation_paint import _node_animation_paint
 from app.services.design.runtime.graph.nodes.paint import _node_paint_ops
 from app.services.design.runtime.graph.nodes.apply import (
     _node_apply_confirm,
@@ -17,6 +19,8 @@ __all__ = [
     "_node_memory",
     "_node_intent_classify",
     "_node_design_agent",
+    "_node_animation_decide",
+    "_node_animation_paint",
     "_node_paint_ops",
     "_node_apply_confirm",
     "_node_propose",

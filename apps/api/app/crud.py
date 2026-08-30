@@ -398,7 +398,7 @@ def get_user_balance(*, session: Session, user_id: str) -> UserBalance | None:
 
 
 def get_user_balance_for_update(*, session: Session, user_id: str) -> UserBalance | None:
-    """Row lock on MySQL/Postgres; SQLite ignores FOR UPDATE."""
+    """Row lock on MySQL/Postgres (``SELECT … FOR UPDATE``)."""
     stmt = select(UserBalance).where(UserBalance.user_id == user_id).with_for_update()
     return session.exec(stmt).first()
 

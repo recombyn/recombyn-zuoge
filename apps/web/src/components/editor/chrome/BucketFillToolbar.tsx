@@ -30,7 +30,14 @@ function bucketFillToPanelValue(raw: any): FillPanelValue {
 /**
  * Paint-bucket options: same FillPanel as shape fill (solid / gradient / image).
  */
-function BucketFillToolbar({ className }: { className?: string }) {
+function BucketFillToolbar({
+  className,
+  chrome = 'pill',
+}: {
+  className?: string;
+  /** `flat` when embedded in the timeline top rail (no pill border/shadow). */
+  chrome?: 'pill' | 'flat';
+}) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const bucketFill = useSelector((s: any) => s.editor.bucketFill);
@@ -39,7 +46,7 @@ function BucketFillToolbar({ className }: { className?: string }) {
 
   return (
     <div className={cn('pointer-events-auto', className)}>
-      <FloatingToolbar className="h-8 gap-1 px-2 py-0">
+      <FloatingToolbar variant={chrome} className="h-8 gap-1 px-2 py-0">
         <FillPanelPopover
           value={value}
           onChange={(next) => dispatch(setBucketFill(next))}

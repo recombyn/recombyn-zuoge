@@ -169,6 +169,45 @@ describe('framePlatePointer', () => {
     expect(frameIsEmpty(doc, 'f1')).toBe(true);
   });
 
+  it('resolveFramePlateTarget treats Lottie frame host as plate', () => {
+    const doc = {
+      frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'lottie' }],
+      deltaSetLike: {
+        ROOT: { children: ['host'] },
+        host: {
+          id: 'host',
+          key: 'lottie',
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 300,
+          attrs: { frameId: 'lot', lottieFrameHost: true },
+        },
+      },
+    } as unknown as SceneDocument;
+    const hitTestFrame = () => 'lot';
+    expect(resolveFramePlateTarget(doc, { x: 50, y: 50 }, 'host', hitTestFrame)).toBe('lot');
+  });
+
+  it('frameIsEmpty ignores Lottie frame host (host-only plate is empty)', () => {
+    const doc = {
+      frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'lottie' }],
+      deltaSetLike: {
+        ROOT: { children: ['host'] },
+        host: {
+          id: 'host',
+          key: 'lottie',
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 300,
+          attrs: { frameId: 'lot', lottieFrameHost: true },
+        },
+      },
+    } as unknown as SceneDocument;
+    expect(frameIsEmpty(doc, 'lot')).toBe(true);
+  });
+
   it('isPointOnFrameEdge detects border band', () => {
     const box = { left: 0, top: 0, width: 300, height: 300 };
     const band = framePlateEdgeBandScene(1);

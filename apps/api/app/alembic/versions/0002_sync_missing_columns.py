@@ -1,11 +1,11 @@
-"""Sync columns missing from pre-Alembic SQLite (stamped 0001 no-op).
+"""Sync columns missing from pre-Alembic DBs (stamped 0001 no-op).
 
 Revision ID: 0002_sync_missing_columns
 Revises: 0001_baseline
 Create Date: 2026-08-08
 
 ``0001_baseline`` used ``create_all``, which does not ALTER existing tables.
-Local SQLite DBs stamped at 0001 can lack columns added to SQLModel later
+DBs stamped at 0001 can lack columns added to SQLModel later
 (e.g. ``users.default_avatar``).
 """
 

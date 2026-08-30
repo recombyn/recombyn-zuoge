@@ -11,8 +11,12 @@ import {
   type Placement,
 } from '@floating-ui/react';
 import { useTranslation } from 'react-i18next';
-import { useSelector } from 'react-redux';
-import { EMPTY_ID_LIST } from '@/store/modules/editor';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  EMPTY_ID_LIST,
+  ensureAnimationFrameMedia,
+} from '@/store/modules/editor';
+import store from '@/store';
 import {
   HiOutlineArrowDownTray,
   HiOutlineArrowUpTray,
@@ -50,12 +54,23 @@ import {
 } from '@/components/rcb/scene/document/nodeFactories';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { downloadVideoNodeAsset } from '@/components/editor/nodes/VideoNode/VideoDownloadButton';
+import {
+  downloadLottieAsGif,
+  downloadLottieAsVideo,
+  prepareLottieJsonForExport,
+} from '@/components/editor/nodes/AnimationNode/animationVideoExport';
+import {
+  findFrameAnimationMediaId,
+  resolveAnimationFrameId,
+} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import { cn } from '@/utils/classnames';
 import { SEL_ICON_BTN } from '@/components/rcb/selection/chrome/ToolbarValueSlider';
-import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 type VideoExportFormat = 'mp4' | 'mp3';
 type LottieExportFormat = 'json';
+/** Animation workbench export — Lottie first; video / GIF / stills secondary. */
+type AnimationWorkbenchFormat = 'lottie' | 'mp4' | 'gif' | 'png' | 'svg';
 
 const VIDEO_FORMAT_OPTIONS: { value: VideoExportFormat; label: string }[] = [
   { value: 'mp4', label: 'MP4' },
@@ -63,7 +78,18 @@ const VIDEO_FORMAT_OPTIONS: { value: VideoExportFormat; label: string }[] = [
 ];
 
 const LOTTIE_FORMAT_OPTIONS: { value: LottieExportFormat; label: string }[] = [
-  { value: 'json', label: 'JSON' },
+  { value: 'json', label: 'Lottie JSON' },
+];
+
+const ANIMATION_WORKBENCH_FORMAT_OPTIONS: {
+  value: AnimationWorkbenchFormat;
+  label: string;
+}[] = [
+  { value: 'lottie', label: 'Lottie' },
+  { value: 'mp4', label: 'MP4' },
+  { value: 'gif', label: 'GIF' },
+  { value: 'png', label: 'PNG' },
+  { value: 'svg', label: 'SVG' },
 ];
 
 function videoNodesForExport(document: SceneDocument, ids: string[]) {
@@ -72,13 +98,44 @@ function videoNodesForExport(document: SceneDocument, ids: string[]) {
     .filter((node: SceneNodeInput) => isVideoNode(node) && String(node?.attrs?.src || '').trim());
 }
 
-function lottieNodesForExport(document: SceneDocument, ids: string[]) {
+function lottieNodesForExport(document: SceneDocument | null | undefined, ids: string[]) {
   return ids
     .map((id) => document?.deltaSetLike?.[id])
     .filter(
       (node: SceneNodeInput) =>
         isLottieNode(node) && Boolean(parseLottieAnimationData(node?.attrs?.animationData))
     );
+}
+
+/** Resolve 动画工作台 frame id from explicit prop or selected Lottie host. */
+function resolveExportAnimationFrameId(
+  document: SceneDocument | null | undefined,
+  animationFrameId: string | undefined,
+  ids: string[]
+): string | null {
+  const explicit = String(animationFrameId || '').trim();
+  if (explicit) return explicit;
+  if (!document) return null;
+  for (const id of ids) {
+    const node = document.deltaSetLike?.[id];
+    const fid = resolveAnimationFrameId(document, node);
+    if (fid) return fid;
+  }
+  return null;
+}
+
+/**
+ * Sync artboard children into host animationData (sync reducer — read store after).
+ * Returns fresh document + media host id for Lottie / MP4 export.
+ */
+function syncAnimationFrameForExport(frameId: string): {
+  document: SceneDocument | null;
+  mediaId: string | null;
+} {
+  store.dispatch(ensureAnimationFrameMedia({ frameId }));
+  const document = (store.getState()?.editor?.document as SceneDocument | null) ?? null;
+  const mediaId = findFrameAnimationMediaId(document, frameId);
+  return { document, mediaId };
 }
 
 function isVideoOnlyExport(document: SceneDocument, ids: string[], hasCrop: boolean): boolean {
@@ -94,9 +151,8 @@ function isLottieOnlyExport(document: SceneDocument, ids: string[], hasCrop: boo
 }
 
 async function downloadLottieJson(node: SceneNodeInput, fallbackName: string) {
-  const data = parseLottieAnimationData(node?.attrs?.animationData);
-  if (!data) throw new Error('invalid lottie');
-  const raw = JSON.stringify(data);
+  const prepared = await prepareLottieJsonForExport(node?.attrs?.animationData);
+  const raw = JSON.stringify(prepared);
   const blob = new Blob([raw], { type: 'application/json' });
   const base = String(node?.attrs?.name || node?.name || fallbackName || 'lottie')
     .replace(/[\\/:*?"<>|]+/g, '_')
@@ -308,6 +364,13 @@ function ExportSelectionPanel({
   className,
   /** Flat embed (inspect sidebar) — no floating card chrome / title. */
   variant = 'popover',
+  /**
+   * Animation workbench: prefer Lottie JSON; crop is only used for still PNG/SVG.
+   * When set, crop must not force the design-artboard image-only UI.
+   */
+  intent = 'default',
+  /** Parent 动画工作台 frame — sync host animationData before Lottie/MP4 export. */
+  animationFrameId,
 }: {
   nodeIds?: string[];
   /** Artboard / frame region export (scene crop). */
@@ -318,9 +381,12 @@ function ExportSelectionPanel({
   onClose?: () => void;
   className?: string;
   variant?: 'popover' | 'inline';
+  intent?: 'default' | 'animation';
+  animationFrameId?: string;
 }) {
   const { t } = useTranslation();
   const tipId = useId();
+  const dispatch = useDispatch();
   const document = useSelector((s: any) => s.editor.document);
   const ids = useMemo(() => {
     const raw = nodeIds || [];
@@ -339,15 +405,29 @@ function ExportSelectionPanel({
   }, [crop, crops]);
   const [slot, setSlot] = useState<ExportSlotConfig>(() => defaultSlot());
   const [videoFormat, setVideoFormat] = useState<VideoExportFormat>('mp4');
+  const [animFormat, setAnimFormat] = useState<AnimationWorkbenchFormat>('lottie');
   const [compress, setCompress] = useState(false);
   const [busy, setBusy] = useState(false);
   const inline = variant === 'inline';
-  const canExport = cropList.length > 0 || ids.length > 0;
+  const animationIntent = intent === 'animation';
+  const resolvedAnimFrameId = useMemo(
+    () => resolveExportAnimationFrameId(document, animationFrameId, ids),
+    [animationFrameId, document, ids]
+  );
+  const canExport =
+    cropList.length > 0 || ids.length > 0 || (animationIntent && Boolean(resolvedAnimFrameId));
   const videoOnly = isVideoOnlyExport(document, ids, cropList.length > 0);
-  const lottieOnly = isLottieOnlyExport(document, ids, cropList.length > 0);
-  const isSvg = slot.format === 'svg';
-  const isJpeg = slot.format === 'jpeg';
-  const format = slot.format;
+  // Animation workbench: Lottie path even when a still-crop is provided for PNG/SVG.
+  const lottieOnly =
+    animationIntent && animFormat === 'lottie'
+      ? lottieNodesForExport(document, ids).length > 0
+      : isLottieOnlyExport(document, ids, animationIntent ? false : cropList.length > 0);
+  const stillFromAnim = animationIntent && (animFormat === 'png' || animFormat === 'svg');
+  const videoFromAnim = animationIntent && animFormat === 'mp4';
+  const gifFromAnim = animationIntent && animFormat === 'gif';
+  const isSvg = stillFromAnim ? animFormat === 'svg' : slot.format === 'svg';
+  const isJpeg = !animationIntent && slot.format === 'jpeg';
+  const format = stillFromAnim ? (animFormat as ExportImageFormat) : slot.format;
   const sourceSize = useMemo(
     () => exportSourceSize(document, ids, cropList),
     [document, ids, cropList]
@@ -361,6 +441,12 @@ function ExportSelectionPanel({
   }, [isSvg, sourceSize.height, sourceSize.width]);
   const scaleSafe =
     isSvg || isExportScaleSafe(sourceSize.width, sourceSize.height, slot.scale);
+
+  // Keep workbench host animationData fresh when the export panel opens.
+  useEffect(() => {
+    if (!animationIntent || !resolvedAnimFrameId) return;
+    dispatch(ensureAnimationFrameMedia({ frameId: resolvedAnimFrameId }));
+  }, [animationIntent, dispatch, resolvedAnimFrameId]);
 
   // Drop to the largest safe preset when the current scale no longer fits.
   useEffect(() => {
@@ -381,6 +467,30 @@ function ExportSelectionPanel({
     { value: 'prefix', label: t('editor.exportPrefix') },
     { value: 'suffix', label: t('editor.exportSuffix') },
   ];
+
+  /** Sync host → read store → resolve Lottie nodes for animation workbench export. */
+  const prepareAnimationLottieNodes = useCallback((): {
+    nodes: SceneNodeInput[];
+    document: SceneDocument | null;
+  } => {
+    let doc = (document as SceneDocument | null) ?? null;
+    let exportIds = ids;
+    const frameId = resolveExportAnimationFrameId(doc, animationFrameId, ids);
+    if (frameId) {
+      const synced = syncAnimationFrameForExport(frameId);
+      doc = synced.document;
+      if (synced.mediaId) exportIds = [synced.mediaId];
+    }
+    return { nodes: lottieNodesForExport(doc, exportIds), document: doc };
+  }, [animationFrameId, document, ids]);
+
+  const warnAnimationEmpty = useCallback(() => {
+    message.warning(
+      t('editor.exportAnimationEmpty', {
+        defaultValue: '动画数据为空，请先在工作台添加图层或关键帧后再导出',
+      })
+    );
+  }, [t]);
 
   const runVideoExport = async () => {
     const nodes = videoNodesForExport(document, ids);
@@ -423,9 +533,12 @@ function ExportSelectionPanel({
   };
 
   const runLottieExport = async () => {
-    const nodes = lottieNodesForExport(document, ids);
+    const { nodes } = animationIntent
+      ? prepareAnimationLottieNodes()
+      : { nodes: lottieNodesForExport(document, ids) };
     if (!nodes.length) {
-      message.warning(t('editor.noSelectionExport'));
+      if (animationIntent) warnAnimationEmpty();
+      else message.warning(t('editor.noSelectionExport'));
       return;
     }
     setBusy(true);
@@ -455,6 +568,92 @@ function ExportSelectionPanel({
     }
   };
 
+  const runLottieVideoExport = async () => {
+    const { nodes } = animationIntent
+      ? prepareAnimationLottieNodes()
+      : { nodes: lottieNodesForExport(document, ids) };
+    if (!nodes.length) {
+      if (animationIntent) warnAnimationEmpty();
+      else message.warning(t('editor.noSelectionExport'));
+      return;
+    }
+    setBusy(true);
+    const hideLoading = message.loading(
+      t('editor.exportingLottieVideo', { defaultValue: '正在导出动画视频…' }),
+      0
+    );
+    try {
+      for (const node of nodes) {
+        const result = await downloadLottieAsVideo({
+          animationData: node?.attrs?.animationData,
+          baseName: String(node?.attrs?.name || name || 'animation'),
+        });
+        if (result === 'cancelled') return;
+      }
+      hideLoading();
+      message.success(
+        t('editor.exportedLottieVideo', { defaultValue: '已导出动画视频（MP4）' })
+      );
+      try {
+        onClose?.();
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      hideLoading();
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === 'download cancelled') return;
+      console.warn('[export-lottie-video]', err);
+      message.error(t('editor.exportFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runLottieGifExport = async () => {
+    const { nodes } = animationIntent
+      ? prepareAnimationLottieNodes()
+      : { nodes: lottieNodesForExport(document, ids) };
+    if (!nodes.length) {
+      if (animationIntent) warnAnimationEmpty();
+      else message.warning(t('editor.noSelectionExport'));
+      return;
+    }
+    setBusy(true);
+    const hideLoading = message.loading(
+      t('editor.exportingLottieGif', { defaultValue: '正在导出 GIF…' }),
+      0
+    );
+    try {
+      for (const node of nodes) {
+        const result = await downloadLottieAsGif({
+          animationData: node?.attrs?.animationData,
+          baseName: String(node?.attrs?.name || name || 'animation'),
+        });
+        if (result === 'cancelled') return;
+      }
+      hideLoading();
+      message.success(t('editor.exportedLottieGif', { defaultValue: '已导出 GIF' }));
+      try {
+        onClose?.();
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      hideLoading();
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === 'download cancelled') return;
+      console.warn('[export-lottie-gif]', err);
+      message.error(
+        t('editor.exportGifFailed', {
+          defaultValue: 'GIF 导出失败（首次可能需加载转换组件）',
+        })
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runExport = async () => {
     if (!canExport) {
       message.warning(t('editor.noSelectionExport'));
@@ -464,8 +663,26 @@ function ExportSelectionPanel({
       await runVideoExport();
       return;
     }
-    if (lottieOnly) {
+    // Animation formats must be checked before lottieOnly — ids are often a
+    // single Lottie host, which would otherwise always take the JSON path.
+    if (videoFromAnim) {
+      await runLottieVideoExport();
+      return;
+    }
+    if (gifFromAnim) {
+      await runLottieGifExport();
+      return;
+    }
+    if (lottieOnly || (animationIntent && animFormat === 'lottie')) {
       await runLottieExport();
+      return;
+    }
+    if (stillFromAnim && !cropList.length) {
+      message.warning(
+        t('editor.exportStillNeedsFrame', {
+          defaultValue: '静态帧导出需要工作台范围',
+        })
+      );
       return;
     }
     if (!isSvg && !isExportScaleSafe(sourceSize.width, sourceSize.height, slot.scale)) {
@@ -477,6 +694,12 @@ function ExportSelectionPanel({
     let cancelled = 0;
     let failed = 0;
     try {
+      // Still PNG/SVG from 动画工作台: sync host geometry, then crop scene ink.
+      let exportDoc = document as SceneDocument | null;
+      if (animationIntent && resolvedAnimFrameId) {
+        const synced = syncAnimationFrameForExport(resolvedAnimFrameId);
+        exportDoc = synced.document;
+      }
       const resolved = resolveExportSlot({ ...slot, format });
       const useCompress = isJpeg && compress;
       if (cropList.length > 0) {
@@ -491,7 +714,7 @@ function ExportSelectionPanel({
             baseName: pageName,
             compress: useCompress,
             slots: [resolved],
-            document,
+            document: exportDoc,
           });
           saved += tally.saved;
           cancelled += tally.cancelled;
@@ -503,7 +726,7 @@ function ExportSelectionPanel({
           baseName: name,
           compress: useCompress,
           slots: [resolved],
-          document,
+          document: exportDoc,
         });
         saved = tally.saved;
         cancelled = tally.cancelled;
@@ -528,6 +751,17 @@ function ExportSelectionPanel({
     if (cancelled > 0 && failed === 0) return;
     message.error(t('editor.exportFailed'));
   };
+
+  // Animation Lottie/MP4: do not silently disable when animationData is stale —
+  // Export click syncs the host; warn if still empty.
+  const exportDisabled =
+    busy ||
+    !canExport ||
+    (animationIntent &&
+    (animFormat === 'lottie' || animFormat === 'mp4' || animFormat === 'gif')
+      ? false
+      : !videoOnly && !lottieOnly && !stillFromAnim && !scaleSafe) ||
+    (stillFromAnim && (!cropList.length || !scaleSafe));
 
   return (
     <div
@@ -558,6 +792,77 @@ function ExportSelectionPanel({
           className={selectFieldClass}
           placement="bottom-start"
         />
+      ) : animationIntent ? (
+        <>
+          <Select
+            size="small"
+            type="filled"
+            value={animFormat}
+            options={ANIMATION_WORKBENCH_FORMAT_OPTIONS.map((o) => ({
+              value: o.value,
+              label:
+                o.value === 'lottie'
+                  ? t('editor.exportFormatLottie', { defaultValue: 'Lottie' })
+                  : o.label,
+            }))}
+            onChange={(v) => {
+              const next = String(v);
+              if (
+                next === 'png' ||
+                next === 'svg' ||
+                next === 'lottie' ||
+                next === 'mp4' ||
+                next === 'gif'
+              ) {
+                setAnimFormat(next);
+              }
+            }}
+            className={selectFieldClass}
+            placement="bottom-start"
+          />
+          {stillFromAnim ? (
+            <div className={cn('mt-1.5 grid grid-cols-2 gap-1.5', inline && 'gap-2')}>
+              <Select
+                size="small"
+                type="filled"
+                value={isSvg ? 1 : slot.scale}
+                options={scaleOptions}
+                disabled={isSvg}
+                onChange={(v) => setSlot((s) => ({ ...s, scale: Number(v) || 1 }))}
+                className={selectFieldClass}
+                placement="bottom-start"
+              />
+              <Select
+                size="small"
+                type="filled"
+                value={slot.affixMode}
+                options={affixOptions}
+                onChange={(v) =>
+                  setSlot((s) => ({
+                    ...s,
+                    affixMode: parseAffixMode(String(v)),
+                  }))
+                }
+                className={selectFieldClass}
+                placement="bottom-start"
+              />
+            </div>
+          ) : (
+            <p className="mt-1.5 text-[11px] text-[var(--muted)]">
+              {videoFromAnim
+                ? t('editor.exportLottieVideoHint', {
+                    defaultValue: '录制后尽量转为 MP4（首次可能需加载转换组件）',
+                  })
+                : gifFromAnim
+                  ? t('editor.exportLottieGifHint', {
+                      defaultValue: '录制后转为 GIF（体积较大时会压缩帧率）',
+                    })
+                  : t('editor.exportLottieHint', {
+                      defaultValue: '导出工作台动画 JSON（Bodymovin / Lottie）',
+                    })}
+            </p>
+          )}
+        </>
       ) : lottieOnly ? (
         <Select
           size="small"
@@ -635,7 +940,7 @@ function ExportSelectionPanel({
 
       <button
         type="button"
-        disabled={busy || !canExport || (!videoOnly && !lottieOnly && !scaleSafe)}
+        disabled={exportDisabled}
         onClick={() => runExport()}
         className="mt-3 flex h-7 w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ink)] text-[12px] font-medium text-[var(--surface)] disabled:opacity-40"
       >
@@ -656,6 +961,10 @@ export type ExportSelectionPopoverProps = {
   className?: string;
   triggerClassName?: string;
   children?: ReactNode;
+  /** Animation workbench: Lottie-first export UI. */
+  intent?: 'default' | 'animation';
+  /** Parent 动画工作台 frame — sync host before opening / exporting. */
+  animationFrameId?: string;
 };
 
 /** Download trigger: scale / format / compress panel. */
@@ -668,8 +977,11 @@ function ExportSelectionPopover({
   className,
   triggerClassName,
   children,
+  intent = 'default',
+  animationFrameId,
 }: ExportSelectionPopoverProps) {
   const { t } = useTranslation();
+  const dispatch = useDispatch();
   const document = useSelector((s: any) => s.editor.document);
   const [open, setOpen] = useState(false);
   const ids = useMemo(() => {
@@ -681,7 +993,17 @@ function ExportSelectionPopover({
       return isExportableSceneNode(node);
     });
   }, [document, nodeIds]);
-  const canExport = Boolean(crop) || ids.length > 0;
+  const resolvedAnimFrameId = useMemo(
+    () =>
+      intent === 'animation'
+        ? resolveExportAnimationFrameId(document, animationFrameId, ids)
+        : null,
+    [animationFrameId, document, ids, intent]
+  );
+  const canExport =
+    intent === 'animation'
+      ? ids.length > 0 || Boolean(crop) || Boolean(resolvedAnimFrameId)
+      : Boolean(crop) || ids.length > 0;
 
   const { refs, floatingStyles, context } = useFloating({
     open,
@@ -711,13 +1033,29 @@ function ExportSelectionPopover({
 
   const onTriggerClick = useCallback(() => {
     if (disabled || !canExport) return;
+    // Sync workbench host before the panel mounts so Lottie/MP4 see fresh animationData.
+    if (intent === 'animation' && resolvedAnimFrameId) {
+      dispatch(ensureAnimationFrameMedia({ frameId: resolvedAnimFrameId }));
+    }
     setOpen((v) => !v);
-  }, [canExport, disabled]);
+  }, [canExport, disabled, dispatch, intent, resolvedAnimFrameId]);
+
+  // After sync on open, prefer the resolved media host id for the panel.
+  const panelNodeIds = useMemo(() => {
+    if (intent !== 'animation' || !resolvedAnimFrameId) return ids;
+    const mediaId = findFrameAnimationMediaId(document, resolvedAnimFrameId);
+    if (mediaId) return [mediaId];
+    return ids;
+  }, [document, ids, intent, resolvedAnimFrameId]);
 
   return (
     <>
       <Tooltip
-        tip={t('editor.exportImage')}
+        tip={
+          intent === 'animation'
+            ? t('editor.exportAnimation', { defaultValue: '导出动画' })
+            : t('editor.exportImage')
+        }
         placement="top"
         disabled={disabled || !canExport || open}
       >
@@ -725,7 +1063,11 @@ function ExportSelectionPopover({
           type="button"
           ref={refs.setReference}
           disabled={disabled || !canExport}
-          aria-label={t('editor.exportImage')}
+          aria-label={
+            intent === 'animation'
+              ? t('editor.exportAnimation', { defaultValue: '导出动画' })
+              : t('editor.exportImage')
+          }
           aria-expanded={open}
           className={cn(triggerClassName || SEL_ICON_BTN, className)}
           {...getReferenceProps({
@@ -745,9 +1087,11 @@ function ExportSelectionPopover({
             {...getFloatingProps()}
           >
             <ExportSelectionPanel
-              nodeIds={ids}
+              nodeIds={panelNodeIds}
               crop={crop}
               baseName={baseName}
+              intent={intent}
+              animationFrameId={resolvedAnimFrameId || animationFrameId}
               onClose={() => setOpen(false)}
             />
           </div>

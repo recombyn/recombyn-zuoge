@@ -266,6 +266,30 @@ def _paint_ops_for_host(ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _prompt_compact_len(prompt: str | None) -> int:
     return len(re.sub(r"\s+", "", str(prompt or "")))
 
+def _is_animation_paint_turn(rt: Any) -> bool:
+    if bool((getattr(rt, "flags", None) or {}).get("animation_path")):
+        return True
+    return normalize_user_intent(getattr(rt, "classified_intent", None)) == "animation"
+
+
+def _format_motion_brief_for_paint(brief: Any) -> str:
+    if not isinstance(brief, dict) or not brief:
+        return ""
+    lines: list[str] = []
+    goal = str(brief.get("goal") or "").strip()
+    if goal:
+        lines.append(f"- goal: {goal[:600]}")
+    if "loop" in brief:
+        lines.append(f"- loop: {bool(brief.get('loop'))}")
+    tempo = str(brief.get("tempo") or "").strip()
+    if tempo:
+        lines.append(f"- tempo: {tempo}")
+    movers = brief.get("movers")
+    if movers is not None:
+        lines.append(f"- movers: {movers}")
+    return "\n".join(lines)
+
+
 def _is_lean_paint_turn(rt: Any) -> bool:
     """Slim paint path for LLM-classified canvas_op only (no length/keyword guess)."""
     if bool(getattr(rt, "images", None)):
@@ -283,6 +307,7 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
       or the model silently falls back to create_image.
     - update/delete when paint_lane=edit and scene has nodes.
     - Plus preferred_tools from loaded skills and any tools already in tools_loaded.
+    - animation intent: create_lottie (+ update_node on edit) only — no poster/image stand-ins.
     """
     from app.services.design.runtime.graph.turns import _resolve_paint_want
     st = rt.run
@@ -296,7 +321,14 @@ def _paint_tool_keys_for_turn(rt: Any) -> list[str]:
         if isinstance(n, dict) and n.get("id")
     ]
 
-    keys: list[str] = ["create_shape", "create_text"]
+    # Dedicated animation path — never substitute create_image / create_frame.
+    if _is_animation_paint_turn(rt):
+        keys: list[str] = ["create_lottie"]
+        if want == "edit" and nodes:
+            keys.append("update_node")
+        return keys
+
+    keys = ["create_shape", "create_text"]
     # Intent LLM owns the split: only design/create may open a plate.
     allow_frame = classified == "design" and want == "create"
     if allow_frame:
@@ -370,15 +402,16 @@ def _paint_ops_system(rt: Any) -> str:
     ask_mode = str(flags.get("mode") or "").strip().lower() == "ask"
     fonts_block = ""
     want_fonts = True
+    anim = _is_animation_paint_turn(rt)
     try:
         from app.services.design.runtime.graph.turns import _resolve_paint_want
 
         want = _resolve_paint_want(rt)
         lean = _is_lean_paint_turn(rt)
-        # Lean canvas_op rarely needs font catalog; skip when edit-only short ops.
-        want_fonts = not lean or want == "create"
+        # Lean canvas_op / animation rarely need font catalog.
+        want_fonts = not anim and (not lean or want == "create")
     except Exception:
-        want_fonts = True
+        want_fonts = not anim
     if want_fonts:
         try:
             from app.services.fonts_store import format_fonts_catalog
@@ -386,12 +419,23 @@ def _paint_ops_system(rt: Any) -> str:
             fonts_block = format_fonts_catalog()
         except Exception:
             fonts_block = ""
+    catalog = [fonts_block] if fonts_block else None
+    if anim:
+        anim_overlay = (
+            "ANIMATION_PATH (authoritative for this turn):\n"
+            "- Emit create_lottie with a tight genPrompt (what moves, loop vs one-shot, "
+            "tempo, colors, purpose). Prefer FOCUS / open 动画工作台 when present.\n"
+            "- Never emit create_frame, create_image, or create_shape as a motion stand-in.\n"
+            "- Do NOT open a poster loading artboard. Size via create_lottie width/height.\n"
+            "- Follow SKILL_DETAILS (animation_workbench) and MOTION_BRIEF when present."
+        )
+        catalog = [*(catalog or []), anim_overlay]
     return assemble_stage_system(
         rt.rules,
         stage="paint",
         ask_mode=ask_mode,
         persona=str(getattr(rt, "persona", "") or ""),
-        catalog_blocks=[fonts_block] if fonts_block else None,
+        catalog_blocks=catalog,
         locale=str((getattr(rt, "flags", None) or {}).get("output_locale") or "") or None,
     )
 
@@ -408,6 +452,7 @@ def _paint_ops_user(rt: Any) -> str:
     focus_frame = _focus_frame_from_rt(rt)
     spatial_hint = _format_spatial_placement(spatial, focus_frame=focus_frame)
     lean = _is_lean_paint_turn(rt)
+    anim = _is_animation_paint_turn(rt)
     parts = [
         f"USER_PROMPT:\n{vars_['prompt']}",
         f"CANVAS_SIZE: {vars_['canvas_size']}",
@@ -417,13 +462,42 @@ def _paint_ops_user(rt: Any) -> str:
         vars_["plan_block"],
         vars_["pending_blocks"],
     ]
+    motion = _format_motion_brief_for_paint(
+        (getattr(rt, "flags", None) or {}).get("motion_brief")
+    )
+    if anim and motion:
+        parts.append(
+            "MOTION_BRIEF (authoritative — execute this; genPrompt must match):\n"
+            + motion
+        )
     brief = format_design_brief_for_paint(getattr(rt, "design_brief", None))
-    if brief and not lean:
+    skip_design_brief = bool(
+        (getattr(rt, "flags", None) or {}).get("skip_design_brief")
+    )
+    if brief and not lean and not anim and not skip_design_brief:
         parts.append(
             "DESIGN_BRIEF (authoritative — execute this; genPrompt must match):\n"
             + brief[:2000]
         )
-    if not lean:
+    if anim:
+        skill_keys = list(getattr(getattr(rt, "run", None), "skills_loaded", None) or [])
+        if skill_keys:
+            from app.services.design.prompts.skill_store import format_skills_details
+
+            paint_skills = format_skills_details(
+                keys=skill_keys,
+                scene=str(getattr(rt, "scene_key", "") or ""),
+                role="paint",
+                stage="paint",
+                has_design_brief=False,
+            )
+            if paint_skills:
+                parts.append(paint_skills[:4000])
+        parts.append(
+            "ANIMATION_PAINT: emit create_lottie only (update_node on edit). "
+            "Never create_frame / create_image. Prefer FOCUS animation workbench."
+        )
+    elif not lean:
         skill_keys = list(getattr(getattr(rt, "run", None), "skills_loaded", None) or [])
         if skill_keys:
             from app.services.design.prompts.skill_store import format_skills_details
@@ -452,7 +526,7 @@ def _paint_ops_user(rt: Any) -> str:
     parts.append(vars_["error_block"])
     parts.append("Emit PaintOpsSchema now: non-empty tool_ops first.")
     user = "\n\n".join(p for p in parts if str(p or "").strip())
-    _log.debug("paint user_chars=%s lean=%s", len(user), lean)
+    _log.debug("paint user_chars=%s lean=%s anim=%s", len(user), lean, anim)
     return user
 
 def _op_errors_for_log(errors: list[Any] | None, *, limit: int = 20) -> list[str] | None:
@@ -515,6 +589,8 @@ __all__ = [
     '_paint_ops_for_host',
     '_prompt_compact_len',
     '_is_lean_paint_turn',
+    '_is_animation_paint_turn',
+    '_format_motion_brief_for_paint',
     '_paint_tool_keys_for_turn',
     '_ensure_paint_tool_details',
     '_paint_ops_system',

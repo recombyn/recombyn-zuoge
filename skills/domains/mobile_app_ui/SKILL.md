@@ -47,7 +47,7 @@ Typical stack: optional header → vector chrome / icons → type → primary CT
 
 ## Related
 
-`image_gen`, `shadcn_ui`, `icon_set`, `motion_lottie` when motion is explicit
+`image_gen`, `shadcn_ui`, `icon_set`, `motion_animation` when motion is explicit
 
 ## Done when
 

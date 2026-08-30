@@ -22,6 +22,7 @@ export {
   rcbScreenPxToScene,
   rcbZoomAtPoint,
   rcbFitCamera,
+  rcbFitCameraInBand,
   rcbViewportSceneBounds,
   rcbStepZoom,
 } from './core/math';

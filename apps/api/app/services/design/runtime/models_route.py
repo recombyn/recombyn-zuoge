@@ -65,15 +65,27 @@ class ModelRouteDecision(BaseModel):
 
 
 # Gate intents — judged by LLM against the canvas tools catalog.
-USER_INTENTS = ("chat", "canvas_op", "design")
+USER_INTENTS = ("chat", "canvas_op", "design", "animation")
 # Continues into paint / decide (not chat-end).
-CANVAS_WORK_INTENTS = frozenset({"canvas_op", "design"})
-# Paint tool family for canvas_op / design (create_* vs update_*).
+CANVAS_WORK_INTENTS = frozenset({"canvas_op", "design", "animation"})
+# Paint tool family for canvas_op / design / animation (create_* vs update_*).
 PAINT_LANES = ("create", "edit")
 # Ask pending proposal side-channel (only when PENDING_PROPOSAL is injected).
 PROPOSAL_ACTIONS = ("apply", "dismiss", "revise")
 # Host session meta-commands (clear chat / stop generation) — not canvas work.
 SESSION_ACTIONS = ("clear_context", "stop")
+
+_ANIMATION_HEURISTIC_HINTS = (
+    "动效",
+    "动画",
+    "lottie",
+    "loading",
+    "加载动效",
+    "heartbeat",
+    "motion",
+    "spinner",
+    "loop animation",
+)
 
 
 class ClarificationOption(BaseModel):
@@ -92,7 +104,7 @@ class DesignPlan(BaseModel):
     """
 
     goal: str
-    intent: Literal["canvas_op", "design"]
+    intent: Literal["canvas_op", "design", "animation"]
     paint_lane: Literal["create", "edit"]
     target_node_ids: list[str] = Field(default_factory=list)
     target_frame_id: str = ""
@@ -145,17 +157,18 @@ class IntentClassifyDecision(BaseModel):
     - session_action: host UI control (clear chat / stop) — intent stays chat
     """
 
-    intent: Literal["chat", "canvas_op", "design"] = Field(
+    intent: Literal["chat", "canvas_op", "design", "animation"] = Field(
         default="chat",
         description=(
             "chat=greet/end; canvas_op=doable via canvas tool catalog; "
-            "design=creative layout/page/poster work"
+            "design=creative layout/page/poster work; "
+            "animation=Lottie/UI motion/loading loops on 动画工作台"
         ),
     )
     paint_lane: Literal["create", "edit", ""] = Field(
         default="",
         description=(
-            "When intent is canvas_op or design: create=add new nodes; "
+            "When intent is canvas_op, design, or animation: create=add new nodes; "
             "edit=change existing. Empty when intent=chat."
         ),
     )
@@ -249,9 +262,26 @@ def _pending_proposal_user_block(pending: dict[str, Any]) -> str:
         f"ops_summary={detail or '(ops prepared)'}\n"
         "Set proposal_action: apply=user confirms held ops; "
         "dismiss=user cancels; revise=user wants changes — then also set "
-        "intent to canvas_op|design as usual.\n"
+        "intent to canvas_op|design|animation as usual.\n"
         "Do NOT set intent=chat for a confirmation like 确认/ok/yes.\n\n"
     )
+
+
+def intent_after_proposal_apply(
+    intent: str,
+    pending_proposal: dict[str, Any] | None,
+) -> str:
+    """When confirming held ops, keep canvas work intents; else infer from ops."""
+    if intent in CANVAS_WORK_INTENTS:
+        return intent
+    ops: list[dict[str, Any]] = []
+    if isinstance(pending_proposal, dict):
+        ops = [
+            o for o in (pending_proposal.get("ops") or []) if isinstance(o, dict)
+        ]
+    if any(str(o.get("name") or "") == "create_lottie" for o in ops):
+        return "animation"
+    return "design"
 
 
 def normalize_paint_lane(raw: str | None, *, intent: str) -> str:
@@ -886,6 +916,15 @@ def heuristic_user_intent(
             rationale="heuristic_empty",
             output_locale=_heuristic_locale(),  # type: ignore[arg-type]
         )
+    core_l = _user_request_core(full).lower()
+    if any(h.lower() in core_l for h in _ANIMATION_HEURISTIC_HINTS):
+        return IntentClassifyDecision(
+            intent="animation",
+            paint_lane="create",
+            reply="",
+            rationale="heuristic_animation",
+            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
+        )
     return IntentClassifyDecision(
         intent="design",
         paint_lane="create",
@@ -1001,7 +1040,7 @@ async def classify_user_intent(
         reply_s = ""
     # Confirm held ops — do not short-circuit as chat.
     if action == "apply":
-        intent = "design"
+        intent = intent_after_proposal_apply(intent, pending_proposal)
         lane = lane or "create"
         reply_s = ""
         session_action = ""

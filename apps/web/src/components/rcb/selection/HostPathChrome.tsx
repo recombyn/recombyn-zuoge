@@ -44,6 +44,35 @@ function liveNodeEl(nodeId: string): Element | null {
   );
 }
 
+function hostAnchorPercents(nodeId: string): { ax: number; ay: number } {
+  const el = liveNodeEl(nodeId) as {
+    __sceneAnchorX?: number;
+    __sceneAnchorY?: number;
+  } | null;
+  return {
+    ax: Math.max(0, Math.min(100, Number(el?.__sceneAnchorX ?? 50))),
+    ay: Math.max(0, Math.min(100, Number(el?.__sceneAnchorY ?? 50))),
+  };
+}
+
+function hostSkewDeg(nodeId: string): { skewX: number; skewAxis: number } {
+  const el = liveNodeEl(nodeId) as {
+    __sceneSkewX?: number;
+    __sceneSkewAxis?: number;
+  } | null;
+  return {
+    skewX: Number(el?.__sceneSkewX) || 0,
+    skewAxis: Number(el?.__sceneSkewAxis) || 0,
+  };
+}
+
+/** Live rotation from the mounted shape host (playhead preview writes `__sceneAngle`). */
+function hostAngleDeg(nodeId: string, fallback = 0): number {
+  const el = liveNodeEl(nodeId) as { __sceneAngle?: number } | null;
+  const n = Number(el?.__sceneAngle);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 /** Live geometry from the mounted shape host (same numbers paint uses). */
 function liveShapeGeomBox(nodeId: string): SceneBox | null {
   const el = liveNodeEl(nodeId) as (SVGElement & {
@@ -245,7 +274,7 @@ function hostSelHandlesKey(
     top.toFixed(4),
     width.toFixed(4),
     height.toFixed(4),
-    (Number(o.angle) || 0).toFixed(3),
+    hostAngleDeg(o.id, Number(o.angle) || 0).toFixed(3),
     o.flipX ? 1 : 0,
     o.flipY ? 1 : 0,
     Number(o.chromeOutset) || 0,
@@ -570,20 +599,31 @@ function syncHostSelUnionChrome(
     chrome.setAttribute('pointer-events', 'none');
     root.appendChild(chrome);
   }
-  const angle = Number(o.angle) || 0;
   // Multi-node union AABB stays on o.box — never first member live (shrinks chrome).
   // Single frame: prefer live plate geom (mirrorHostId) so chrome tracks ink.
   const frameHostId =
     typeof o.id === 'string' && o.id.startsWith('__frame__:')
       ? o.mirrorHostId || o.id.slice('__frame__:'.length)
       : null;
+  const angle = hostAngleDeg(frameHostId || o.id, Number(o.angle) || 0);
   const liveFrame = frameHostId ? liveShapeGeomBox(frameHostId) : null;
   const paintBox = liveFrame || o.box;
+  const { ax, ay } = hostAnchorPercents(frameHostId || o.id);
+  const { skewX, skewAxis } = hostSkewDeg(frameHostId || o.id);
   chrome.setAttribute(
     'transform',
-    sceneChromeBodyTransform(paintBox, angle, Boolean(o.flipX), Boolean(o.flipY))
+    sceneChromeBodyTransform(
+      paintBox,
+      angle,
+      Boolean(o.flipX),
+      Boolean(o.flipY),
+      ax,
+      ay,
+      skewX,
+      skewAxis
+    )
   );
-  syncHostSelHandlesIfNeeded(chrome, { ...o, box: paintBox }, stroke, inv, '', camera, dpr);
+  syncHostSelHandlesIfNeeded(chrome, { ...o, box: paintBox, angle }, stroke, inv, '', camera, dpr);
   return true;
 }
 
@@ -631,7 +671,7 @@ function syncHostSelOutline(
         }
       });
   }
-  const angle = Number(o.angle) || 0;
+  const angle = hostAngleDeg(o.id, Number(o.angle) || 0);
   const root = ensureSharedChromeGroup(o.id);
   if (!root) return false;
 
@@ -646,9 +686,20 @@ function syncHostSelOutline(
   // Control box (selected handles): one paint AABB for CTM + knobs.
   // Hover path silhouette (`showPath`) is best-effort and not alignment-critical.
   const paintBox = liveShapeGeomBox(o.id) || o.box;
+  const { ax, ay } = hostAnchorPercents(o.id);
+  const { skewX, skewAxis } = hostSkewDeg(o.id);
   chrome.setAttribute(
     'transform',
-    sceneChromeBodyTransform(paintBox, angle, Boolean(o.flipX), Boolean(o.flipY))
+    sceneChromeBodyTransform(
+      paintBox,
+      angle,
+      Boolean(o.flipX),
+      Boolean(o.flipY),
+      ax,
+      ay,
+      skewX,
+      skewAxis
+    )
   );
 
   let outline = chrome.querySelector(
@@ -671,7 +722,7 @@ function syncHostSelOutline(
   outline.setAttribute('stroke-linejoin', roundStroke ? 'round' : 'miter');
   outline.setAttribute('stroke-linecap', roundStroke ? 'round' : 'butt');
 
-  const handleItem = { ...o, box: paintBox };
+  const handleItem = { ...o, box: paintBox, angle };
   if (o.withHandles) syncHostSelHandlesIfNeeded(chrome, handleItem, stroke, inv, d, camera, dpr);
   else syncHostSelHandlesIfNeeded(chrome, { ...handleItem, withHandles: false }, stroke, inv, d, camera, dpr);
 
@@ -698,9 +749,16 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
           (hostEl.querySelector?.('[data-baseline="1"]') as SVGElement | null));
       const liveD = readBaselinePathD(baseline, o.pathD);
       const tf = hostEl?.getAttribute?.('transform') || '';
-      const anyEl = hostEl as { __sceneLeft?: number; __sceneTop?: number } | null | undefined;
+      const anyEl = hostEl as {
+        __sceneLeft?: number;
+        __sceneTop?: number;
+        __sceneAngle?: number;
+      } | null | undefined;
       const origin = `${Number(anyEl?.__sceneLeft) || o.box.left},${Number(anyEl?.__sceneTop) || o.box.top}`;
-      return `${o.id}:${o.unionChrome ? 1 : 0}:${o.mirrorHostId || ''}:${liveD.length}:${liveD.slice(0, 24)}:${liveD.slice(-24)}:${o.box.left.toFixed(1)},${o.box.top.toFixed(1)},${o.box.width}x${o.box.height}:${o.angle.toFixed(2)}:${o.flipX ? 1 : 0}:${o.flipY ? 1 : 0}:${o.withHandles ? 1 : 0}:${o.showPath === false ? 0 : 1}:${o.lineMode ? 1 : 0}:${o.shaftEndpoints ? 1 : 0}:${o.showRotate ? 1 : 0}:${o.cornerHandlesOnly ? 1 : 0}:${o.edgeHandles || 'all'}:${o.color || ''}:${tf}:${origin}`;
+      const liveAngle = Number.isFinite(Number(anyEl?.__sceneAngle))
+        ? Number(anyEl?.__sceneAngle)
+        : o.angle;
+      return `${o.id}:${o.unionChrome ? 1 : 0}:${o.mirrorHostId || ''}:${liveD.length}:${liveD.slice(0, 24)}:${liveD.slice(-24)}:${o.box.left.toFixed(1)},${o.box.top.toFixed(1)},${o.box.width}x${o.box.height}:${liveAngle.toFixed(2)}:${o.flipX ? 1 : 0}:${o.flipY ? 1 : 0}:${o.withHandles ? 1 : 0}:${o.showPath === false ? 0 : 1}:${o.lineMode ? 1 : 0}:${o.shaftEndpoints ? 1 : 0}:${o.showRotate ? 1 : 0}:${o.cornerHandlesOnly ? 1 : 0}:${o.edgeHandles || 'all'}:${o.color || ''}:${tf}:${origin}`;
     })
     .join('|');
   const outlinesRef = useRef(outlines);
@@ -775,6 +833,7 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
 
 export {
   liveShapeGeomBox,
+  hostAngleDeg,
   nodeUsesPathChrome,
   shapeNeedsSelectedPathSilhouette,
   nodeUsesOpenStrokeEndpoints,

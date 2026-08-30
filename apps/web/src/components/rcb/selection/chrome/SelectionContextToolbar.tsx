@@ -29,20 +29,16 @@ import {
   openImageToolPanel,
   openVideoToolPanel,
   openAudioToolPanel,
-  openLottieComposePanel,
-  setLottieComposeTool,
-  closeLottieComposePanel,
   isImageToolSidePanelKind,
   isQuickEditMarkPanel,
   type ImageToolPanelState,
 } from '@/store/modules/editor';
 import FlipRotateToolbar from '@/components/editor/nodes/ImageNode/FlipRotateToolbar';
-import LottieQuickEditComposer from '@/components/editor/nodes/LottieNode/LottieQuickEditComposer';
-import LottieComposeToolbar from '@/components/editor/nodes/LottieNode/LottieComposeToolbar';
-import type { LottieComposeTool } from '@/components/editor/nodes/LottieNode/lottieComposeLayers';
 import VideoQuickEditComposer from '@/components/editor/nodes/VideoNode/VideoQuickEditComposer';
 import AudioQuickEditComposer from '@/components/editor/nodes/AudioNode/AudioQuickEditComposer';
-import LottieToolbarEditTools from '@/components/editor/nodes/LottieNode/LottieToolbarEditTools';
+import AnimationToolbarEditTools from '@/components/editor/nodes/AnimationNode/AnimationToolbarEditTools';
+import AnimationFrameChildToolbar from '@/components/editor/nodes/AnimationNode/AnimationFrameChildToolbar';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import { ExportSelectionPopover } from '@/components/editor/panels/ExportSelectionPanel';
 import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import {
@@ -74,13 +70,14 @@ import {
   isImageGeneratorNode,
   isImageProcessRunning,
   isLottieGeneratorNode,
+  isAnimationFrameHostNode,
   isTextFrameNode,
   isVideoGeneratorNode,
   supportsCornerRadius,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import ImageGeneratorCard from '@/components/editor/nodes/ImageGeneratorNode/ImageGeneratorCard';
 import VideoGeneratorCard from '@/components/editor/nodes/VideoGeneratorNode/VideoGeneratorCard';
-import LottieGeneratorCard from '@/components/editor/nodes/LottieGeneratorNode/LottieGeneratorCard';
+import AnimationGeneratorCard from '@/components/editor/nodes/AnimationGeneratorNode/AnimationGeneratorCard';
 import AudioGeneratorCard from '@/components/editor/nodes/AudioGeneratorNode/AudioGeneratorCard';
 import { type ImageProcessKind } from '@/components/rcb/scene/document/mediaLifecycle';
 import ToolbarMenuSelect from './ToolbarMenuSelect';
@@ -397,10 +394,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
   const imageToolPanel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
-  const lottieComposePanel = useSelector(
-    (s: any) =>
-      s.editor.lottieComposePanel as null | { nodeId: string; tool: LottieComposeTool }
-  );
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const mockupIntelEnabled = imageToolCaps?.mockup?.enabled === true;
@@ -447,10 +440,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
     kind,
     ['lottie']
   );
-  const lottieComposeOpen =
-    kind === 'lottie' &&
-    lottieComposePanel?.nodeId === nodeId &&
-    Boolean(lottieComposePanel);
   const imageSidePanelOpen =
     imageToolPanel?.nodeId != null && isImageToolSidePanelKind(imageToolPanel.kind);
   const [mdOpen, setMdOpen] = useState(false);
@@ -490,9 +479,26 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [decorationOpen, alignOpen]);
 
   if (!node || !box) return null;
+  // Timeline host under 动画工作台 — select frame instead; no node chrome.
+  if (isAnimationFrameHostNode(node, document)) return null;
 
   const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
   const genBox = { x: box.left, y: box.top, width: box.width, height: box.height };
+
+  // 动画工作台内子元素：属性检视器（AI 走右侧 Agent chat）。
+  const animationFrameId = resolveAnimationFrameId(document, node);
+  if (animationFrameId) {
+    return (
+      <AnimationFrameChildToolbar
+        document={document}
+        nodeId={nodeId}
+        box={box}
+        valueBox={valueBox}
+        edgePadScene={edgePadScene}
+        angle={placementAngle}
+      />
+    );
+  }
 
   // Same mount gate as image/video toolbars (SelectionFeature). Content only differs.
   if (isImageGeneratorNode(node)) {
@@ -502,7 +508,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     return <VideoGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
   }
   if (isLottieGeneratorNode(node)) {
-    return <LottieGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
+    return <AnimationGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
   }
   if (isAudioGeneratorNode(node)) {
     return <AudioGeneratorCard nodeId={nodeId} sceneBox={genBox} />;
@@ -510,29 +516,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
 
   if (isImageProcessRunning(node)) return null;
 
-  // Lottie compose mode — artboard-like tools replace default chrome.
-  if (lottieComposeOpen) {
-    return (
-      <SelectionToolbarShell
-        box={box}
-        edgePadScene={edgePadScene}
-        angle={placementAngle}
-      >
-        <LottieComposeToolbar
-          tool={lottieComposePanel!.tool}
-          onToolChange={(next) => {
-            if (next === 'pen') message.info(t('editor.lottieCompose.penSoon'));
-            if (next === 'text') message.info(t('editor.lottieCompose.textSoon'));
-            dispatch(setLottieComposeTool(next));
-          }}
-          onUploadSvg={() => {
-            window.dispatchEvent(new CustomEvent('resume:lottie-compose-upload-svg'));
-          }}
-          onExit={() => dispatch(closeLottieComposePanel())}
-        />
-      </SelectionToolbarShell>
-    );
-  }
   if (imageSidePanelOpen) return null;
 
   if (quickEditComposerOpen || lottieEditOpen) {
@@ -543,9 +526,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     if (kind === 'audio') {
       return <AudioQuickEditComposer document={document} nodeId={nodeId} box={box} />;
     }
-    if (kind === 'lottie') {
-      return <LottieQuickEditComposer document={document} nodeId={nodeId} box={box} />;
-    }
+    // Lottie: use right-side Agent chat — no on-canvas quick-edit composer.
   }
 
   const fontSizePx = normalizeTextFontSize(style?.fontSize);
@@ -1267,16 +1248,20 @@ function SelectionContextToolbar(props: Props): ReactNode {
           {videoToolbarChrome}
 
           {kind === 'lottie' ? (
-            <LottieToolbarEditTools
-              nodeId={nodeId}
-              loop={!(
-                node?.attrs?.lottieLoop === false ||
-                node?.attrs?.lottieLoop === 'false' ||
-                node?.attrs?.lottieLoop === 0 ||
-                node?.attrs?.lottieLoop === '0'
-              )}
-              speed={Math.max(0.25, Number(node?.attrs?.lottieSpeed) || 1)}
-            />
+            <>
+              <AnimationToolbarEditTools
+                nodeId={nodeId}
+                loop={!(
+                  node?.attrs?.lottieLoop === false ||
+                  node?.attrs?.lottieLoop === 'false' ||
+                  node?.attrs?.lottieLoop === 0 ||
+                  node?.attrs?.lottieLoop === '0'
+                )}
+                speed={Math.max(0.25, Number(node?.attrs?.lottieSpeed) || 1)}
+              />
+              <Sep />
+              <ExportSelectionPopover nodeIds={[nodeId]} />
+            </>
           ) : null}
 
           {kind === 'audio' ? (

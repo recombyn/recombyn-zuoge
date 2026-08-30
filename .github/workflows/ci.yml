@@ -74,6 +74,9 @@ jobs:
           --cov-report=term-missing
           --cov-fail-under=95
       - name: API unit tests
+        env:
+          TEST_DATABASE_URL: mysql://recombyn:recombyn@127.0.0.1:3306/recombyn_test
+          DATABASE_URL: mysql://recombyn:recombyn@127.0.0.1:3306/recombyn_test
         run: python -m pytest tests/unit_tests -n auto
       - name: ILP BFF routing smoke (offline)
         run: python scripts/test_ilp_bff_smoke.py --mock

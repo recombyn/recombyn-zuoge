@@ -39,13 +39,15 @@ def test_build_lc_design_graph_nodes():
         "memory",
         "intent_classify",
         "design_agent",
+        "animation_decide",
+        "animation_paint",
         "paint_ops",
         "action",
         "propose",
         "__settle__",
     } <= nodes
     assert "thought" not in nodes
-    # Durable checkpointer (MySQL/Sqlite/memory) enables thread_id resume / get_state.
+    # Durable checkpointer (MySQL/memory) enables thread_id resume / get_state.
     assert compiled.checkpointer is not None
 
 
@@ -62,7 +64,7 @@ def test_design_graph_uses_shared_durable_checkpointer():
 
     cp = _get_design_graph_checkpointer()
     assert cp is get_agent_checkpointer()
-    assert checkpointer_backend() in ("mysql", "sqlite", "memory")
+    assert checkpointer_backend() in ("mysql", "memory")
     compiled = _build_lc_design_graph()
     assert compiled.checkpointer is cp
 

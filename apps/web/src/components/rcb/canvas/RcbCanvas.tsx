@@ -42,6 +42,7 @@ import { setInfiniteSvgPaintCamera } from '../scene/paint/sceneToSvg';
 import { notifyShapeHostGeometry, setSceneWorldRoot } from '../shapes/shapeHostRegistry';
 import { DEFAULT_GRID_SIZE, shouldShowPixelGrid } from '../selection/alignGuides';
 import { textFrameBlocksBrowserZoom, wheelShouldStayLocal } from './wheelScrollOwners';
+import { tryConsumeLottieTimelineSpace } from '@/components/editor/nodes/AnimationNode/animationTimelineHotkeys';
 
 const EMPTY_SCENE_DOC: SceneDocument = {
   deltaSetLike: {
@@ -293,6 +294,11 @@ function RcbCanvas({
         t instanceof HTMLTextAreaElement ||
         t?.isContentEditable
       ) {
+        return;
+      }
+      if (tryConsumeLottieTimelineSpace()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
         return;
       }
       if (e.repeat) return;

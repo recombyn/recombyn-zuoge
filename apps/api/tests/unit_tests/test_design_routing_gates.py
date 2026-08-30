@@ -11,23 +11,10 @@ from app.services.design.readpath.canvas_scene import resolve_agent_scene
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _catalog(tmp_path_factory):
-    db_path = tmp_path_factory.mktemp("design_eval") / "test.db"
-    import os
-
-    os.environ["SQLITE_DB_PATH"] = str(db_path)
-    os.environ["DATABASE_URL"] = ""
-    from app.core.config import settings as settings_mod
-    from app.core.db import reset_engine
-    from tests.conftest import restore_default_sqlite_engine
-
-    settings_mod.sqlite_db_path = str(db_path)
-    settings_mod.database_url = ""
-    reset_engine()
+def _catalog():
     ensure_design_catalog(force=True)
     ensure_stage_rules()
     yield
-    restore_default_sqlite_engine()
 
 def test_probe_target_chip_detects_payload_only():
     prompt = "[Target element: rect-1]\n?????8px"

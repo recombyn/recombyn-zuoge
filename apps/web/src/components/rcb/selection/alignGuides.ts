@@ -162,6 +162,8 @@ function overlapMid(a0: number, a1: number, b0: number, b1: number): number | nu
 /** Align guides: match edges/centers within `epsilon`.
  * `at` is the **target** edge so proximity lines sit on the sibling (not a
  * near-miss line glued to the mover that looked like a wall).
+ * Artboards (`guideKind: 'frame'`): only edge↔edge or center↔center — same rule
+ * as {@link snapTranslateToPeers} — so midlines do not light up for a corner/edge.
  */
 function collectAlignGuides(box: SceneBox, targets: SceneBox[], epsilon: number): SmartGuideAlign[] {
   const eps = Math.max(0.5, epsilon);
@@ -175,9 +177,13 @@ function collectAlignGuides(box: SceneBox, targets: SceneBox[], epsilon: number)
   ) => {
     for (const t of targets) {
       if (!(t.width > 0) || !(t.height > 0)) continue;
+      const guideKind = (t as SmartGuideTarget).guideKind;
       for (const m of boxMarks) {
         for (const tm of targetMarks(t)) {
           if (Math.abs(tm.value - m.value) > eps) continue;
+          if (guideKind === 'frame' && (m.role === 'mid') !== (tm.role === 'mid')) {
+            continue;
+          }
           const ext = extent(t);
           const at = tm.value;
           const marks = mergeMarks(
@@ -506,6 +512,7 @@ function roundSnapDist(n: number): number {
  * Frames and peer nodes share the same corner, edge, and center candidates.
  * Frame edges prefer their matching edge over an equally-close center point,
  * so content snaps flush to an artboard boundary.
+ * Mid↔mid (center) snaps are stickier so boxes prefer aligning through the middle.
  */
 export function snapTranslateToPeers(
   box: SceneBox,
@@ -530,61 +537,84 @@ export function snapTranslateToPeers(
     return { box, nudgeX: 0, nudgeY: 0, guides: [] };
   }
 
-  let minOffsetX = thr;
-  let minOffsetY = thr;
-  let nudgeX = 0;
-  let nudgeY = 0;
-  let exactRoleX = false;
-  let exactRoleY = false;
+  // Prefer center-to-center over corner/edge-to-center when both are in range.
+  // Artboard midlines use a stronger bias so content centers catch the crosshair.
+  const midBias = Math.min(3, thr * 0.45);
+  const frameMidBias = Math.min(thr * 0.9, Math.max(midBias, thr - 0.25));
 
-  const considerX = (self: SnapPoint, other: OtherPt, preferExactRole: boolean) => {
-    const selfX = self.x;
-    const otherX = other.x;
-    const offsetX = Math.abs(selfX - otherX);
-    if (offsetX > minOffsetX + 1e-9) return;
-    const exactRole = preferExactRole && self.roleX === other.roleX;
+  type AxisBest = { score: number; nudge: number; pref: number };
+  let bestX: AxisBest | null = null;
+  let bestY: AxisBest | null = null;
+
+  const rolePref = (
+    selfRole: SnapPoint['roleX'],
+    otherRole: SnapPoint['roleX']
+  ): number => {
+    if (selfRole === otherRole) return selfRole === 'mid' ? 3 : 2;
+    if (selfRole === 'mid' || otherRole === 'mid') return 1;
+    return 0;
+  };
+
+  const midPairBias = (selfMid: boolean, other: OtherPt) => {
+    if (!selfMid) return 0;
+    // other mid role checked by caller
+    return other.guideKind === 'frame' ? frameMidBias : midBias;
+  };
+
+  const considerX = (self: SnapPoint, other: OtherPt) => {
+    const offset = Math.abs(self.x - other.x);
+    if (offset > thr + 1e-9) return;
+    const pref = rolePref(self.roleX, other.roleX);
+    const score =
+      offset -
+      (self.roleX === 'mid' && other.roleX === 'mid'
+        ? midPairBias(true, other)
+        : 0);
     if (
-      offsetX < minOffsetX - 1e-9 ||
-      (Math.abs(offsetX - minOffsetX) <= 1e-9 && exactRole && !exactRoleX) ||
-      !(Math.abs(nudgeX) > 1e-9)
+      !bestX ||
+      score < bestX.score - 1e-9 ||
+      (Math.abs(score - bestX.score) <= 1e-9 && pref > bestX.pref)
     ) {
-      minOffsetX = offsetX;
-      nudgeX = otherX - selfX;
-      exactRoleX = exactRole;
+      bestX = { score, nudge: other.x - self.x, pref };
     }
   };
-  const considerY = (self: SnapPoint, other: OtherPt, preferExactRole: boolean) => {
-    const selfY = self.y;
-    const otherY = other.y;
-    const offsetY = Math.abs(selfY - otherY);
-    if (offsetY > minOffsetY + 1e-9) return;
-    const exactRole = preferExactRole && self.roleY === other.roleY;
+  const considerY = (self: SnapPoint, other: OtherPt) => {
+    const offset = Math.abs(self.y - other.y);
+    if (offset > thr + 1e-9) return;
+    const pref = rolePref(self.roleY, other.roleY);
+    const score =
+      offset -
+      (self.roleY === 'mid' && other.roleY === 'mid'
+        ? midPairBias(true, other)
+        : 0);
     if (
-      offsetY < minOffsetY - 1e-9 ||
-      (Math.abs(offsetY - minOffsetY) <= 1e-9 && exactRole && !exactRoleY) ||
-      !(Math.abs(nudgeY) > 1e-9)
+      !bestY ||
+      score < bestY.score - 1e-9 ||
+      (Math.abs(score - bestY.score) <= 1e-9 && pref > bestY.pref)
     ) {
-      minOffsetY = offsetY;
-      nudgeY = otherY - selfY;
-      exactRoleY = exactRole;
+      bestY = { score, nudge: other.y - self.y, pref };
     }
   };
 
   for (const self of selectionPts) {
     for (const other of otherPts) {
       if (other.guideKind === 'frame') {
+        // Artboard: only edge↔edge or center↔center (no corner-to-midline).
         if ((self.roleX === 'mid') === (other.roleX === 'mid')) {
-          considerX(self, other, true);
+          considerX(self, other);
         }
         if ((self.roleY === 'mid') === (other.roleY === 'mid')) {
-          considerY(self, other, true);
+          considerY(self, other);
         }
         continue;
       }
-      considerX(self, other, false);
-      considerY(self, other, false);
+      considerX(self, other);
+      considerY(self, other);
     }
   }
+
+  const nudgeX = bestX?.nudge ?? 0;
+  const nudgeY = bestY?.nudge ?? 0;
 
   if (!(Math.abs(nudgeX) > 1e-9) && !(Math.abs(nudgeY) > 1e-9)) {
     return {

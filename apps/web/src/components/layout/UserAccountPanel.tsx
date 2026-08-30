@@ -99,12 +99,15 @@ function UserAvatar({
   avatar,
   size = 40,
   className,
+  /** Match tool-button hit target (`rounded-lg`) in the timeline tool rail. */
+  rounded = 'full',
 }: {
   name?: string | null;
   email?: string | null;
   avatar?: string | null;
   size?: number;
   className?: string;
+  rounded?: 'full' | 'lg';
 }) {
   const url = typeof avatar === 'string' && avatar.trim() ? avatar.trim() : null;
   const [imgFailed, setImgFailed] = useState(false);
@@ -113,13 +116,15 @@ function UserAvatar({
   }, [url]);
 
   const dim = `${size}px`;
+  const radius = rounded === 'lg' ? 'rounded-lg' : 'rounded-full';
   const isBrandLogo =
     url != null && /\/logo(-mark|192|512)?\.png(?:\?|$)/i.test(url.split('?')[0] || '');
   if (url && isBrandLogo) {
     return (
       <span
         className={cn(
-          'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-[var(--line)]',
+          'inline-flex shrink-0 items-center justify-center overflow-hidden ring-1 ring-[var(--line)]',
+          radius,
           className
         )}
         style={{ width: dim, height: dim, backgroundColor: '#ffffff' }}
@@ -140,10 +145,7 @@ function UserAvatar({
         alt=""
         width={size}
         height={size}
-        className={cn(
-          'shrink-0 rounded-full object-cover ring-1 ring-[var(--line)]',
-          className
-        )}
+        className={cn('shrink-0 object-cover ring-1 ring-[var(--line)]', radius, className)}
         style={{ width: dim, height: dim }}
         onError={() => setImgFailed(true)}
       />
@@ -153,7 +155,8 @@ function UserAvatar({
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-full bg-[var(--accent)] font-semibold text-[var(--on-brand)]',
+        'inline-flex shrink-0 items-center justify-center bg-[var(--accent)] font-semibold text-[var(--on-brand)]',
+        radius,
         className
       )}
       style={{ width: dim, height: dim, fontSize }}

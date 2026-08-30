@@ -1,4 +1,4 @@
-"""SQL dialect adaptation for MySQL vs SQLite."""
+"""SQL dialect adaptation for MySQL / Postgres."""
 
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ def test_adapt_sql_rewrites_last_insert_rowid_for_mysql() -> None:
     assert "last_insert_rowid" not in out.lower()
 
 
-def test_adapt_sql_leaves_last_insert_rowid_on_sqlite() -> None:
-    with patch("app.services.db.dialect", return_value="sqlite"):
-        sql = "SELECT last_insert_rowid() AS id"
-        assert _adapt_sql(sql) == sql
+def test_adapt_sql_rewrites_last_insert_rowid_for_postgres() -> None:
+    with patch("app.services.db.dialect", return_value="postgres"):
+        out = _adapt_sql("SELECT last_insert_rowid() AS id")
+    assert "lastval()" in out
+    assert "last_insert_rowid" not in out.lower()
 
 
 def test_adapt_sql_placeholders_and_upsert_for_mysql() -> None:

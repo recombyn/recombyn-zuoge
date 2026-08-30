@@ -10,8 +10,8 @@ import {
 } from '../core/spatialIndex';
 import {
   isImageProcessRunning,
-  isNodeHiddenInDocument,
   isNodeOverlayHidden,
+  isNodeStructurallyHiddenInDocument,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   stackZIndex
@@ -343,7 +343,8 @@ function RcbShapesLayer({
       hiddenNodeId: hiddenNodeId ?? null,
       getNodeBox: (id) => {
         const node = sceneDoc.deltaSetLike?.[id];
-        if (!node || isNodeHiddenInDocument(sceneDoc, node)) return null;
+        // Structural only — playhead in/out is AnimationPlayheadSceneSync (DOM).
+        if (!node || isNodeStructurallyHiddenInDocument(sceneDoc, node)) return null;
         const { left, top } = nodeLeftTop(sceneDoc, node);
         return {
           left,

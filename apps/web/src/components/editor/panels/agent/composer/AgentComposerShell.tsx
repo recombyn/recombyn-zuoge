@@ -43,7 +43,7 @@ import ImageAspectRatioPicker, {
   AspectRatioGlyph,
 } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import { VideoSettingsPanel } from '@/components/editor/panels/agent/shared/VideoSettingsPanel';
-import { LottieSettingsPanel } from '@/components/editor/panels/agent/shared/LottieSettingsPanel';
+import { AnimationSettingsPanel } from '@/components/editor/panels/agent/shared/AnimationSettingsPanel';
 import {
   isCanvasSizeAutoHint,
 } from '@/components/editor/chrome/SizePresetPanel';
@@ -53,7 +53,7 @@ import { cn } from '@/utils/classnames';
 /** Run mode — Auto toggle = agent; image/video models still use composerMode for gen UI. */
 export type ComposerRunMode = 'agent' | 'image' | 'video';
 
-/** Agent = edit canvas; Ask = propose / clarify first; Image / Video / Audio / Lottie = direct gen in chat. */
+/** Agent = edit canvas; Ask = propose / clarify first; Image / Video / Audio = direct gen in chat. */
 export type ComposerInteractionMode = 'agent' | 'ask' | 'image' | 'video' | 'audio' | 'lottie';
 
 const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = [
@@ -61,7 +61,6 @@ const DEFAULT_INTERACTION_MODES: ComposerInteractionMode[] = [
   'image',
   'video',
   'audio',
-  'lottie',
 ];
 
 /** Controls shown when `interactionMode === 'image'` (mirrors ImageGeneratorCard footer). */
@@ -150,6 +149,11 @@ type Props = {
   onAttachFiles?: (files: File[], opts?: { mention?: boolean }) => void;
   /** Tooltip for the attach (+) button. */
   attachTooltip?: string;
+  /**
+   * Override file input accept. When timeline/workbench is focused, pass
+   * image+json only so the picker matches canvas rules.
+   */
+  fileAcceptOverride?: string;
   /**
    * Enter canvas pick mode (Add to Chat) — click a node/group on the board to
    * insert a context chip. When set, a pick button is shown next to +.
@@ -280,6 +284,15 @@ function attachmentPreviewKind(a: ComposerContext): 'image' | 'audio' | 'video' 
   const blob = `${data} ${thumb} ${payload}`;
   const isVideoPayload =
     /\[Canvas video\]/i.test(payload) || /\[Attached video\]/i.test(payload);
+
+  // JSON / Lottie — never treat object-URL as a still image (img decode fails → empty chip).
+  if (
+    /\[Attached lottie\]/i.test(payload) ||
+    /\.json(\?|#|$)/i.test(String(a.label || '')) ||
+    /\.json(\?|#|$)/i.test(blob)
+  ) {
+    return null;
+  }
 
   // Still thumb with video media / payload → video chip (poster + playable).
   if (isStillPreviewUrl(data) || isStillPreviewUrl(thumb)) {
@@ -943,6 +956,7 @@ function AgentComposerShell({
   sendDisabledReason,
   onAttachFiles,
   attachTooltip,
+  fileAcceptOverride,
   onPickFromCanvas,
   pickingFromCanvas = false,
   pickFromCanvasTooltip,
@@ -1082,7 +1096,9 @@ function AgentComposerShell({
 
   let fileAccept =
     'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,video/*,audio/*,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
-  if (isVideoMode || isLottieMode) {
+  if (fileAcceptOverride) {
+    fileAccept = fileAcceptOverride;
+  } else if (isVideoMode || isLottieMode) {
     fileAccept =
       'image/*,video/*,audio/*,application/json,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
   } else if (isAudioMode) {
@@ -1387,7 +1403,7 @@ function AgentComposerShell({
                 <p className="mb-2.5 text-[13px] font-semibold text-[var(--ink)]">
                   {t('editor.tools.lottieSettings', { defaultValue: 'Lottie settings' })}
                 </p>
-                <LottieSettingsPanel
+                <AnimationSettingsPanel
                   aspectRatio={lottieModeControls.aspectRatio}
                   duration={lottieModeControls.duration}
                   onAspectRatioChange={lottieModeControls.onAspectRatioChange}

@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown, HiOutlineChevronUp } from 'react-icons/hi2';
 import { LuLayers2, LuMapPinned } from 'react-icons/lu';
@@ -430,6 +430,15 @@ type Props = {
   onZoomOut: () => void;
   onFitView: () => void;
   zoomAtStageCenter: (zoom: number) => void;
+  /**
+   * `floating` — left pill above canvas (default).
+   * `docked` — chrome-less HUD cluster for the timeline tool rail (parent positions).
+   */
+  layout?: 'floating' | 'docked';
+  /** Where the docked strip sits — controls panel order + border edge. */
+  dockPlacement?: 'top' | 'bottom';
+  /** Appended after zoom when docked (drawing tools strip). */
+  dockedTrailing?: ReactNode;
 };
 
 function EditorBottomHud({
@@ -467,6 +476,9 @@ function EditorBottomHud({
   onZoomOut,
   onFitView,
   zoomAtStageCenter,
+  layout = 'floating',
+  dockPlacement = 'bottom',
+  dockedTrailing = null,
 }: Props) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
@@ -474,12 +486,58 @@ function EditorBottomHud({
   const [fpsHudOn, setFpsHudOn] = useState(readFpsHudEnabled);
   const bottomHudRef = useRef<HTMLDivElement | null>(null);
   const leftHudInsetPx = useLeftDockInset(layersOpen);
+  const docked = layout === 'docked';
   const stackBottomHud = useBottomHudStackState({
     stageEl,
     hudRef: bottomHudRef,
     leftHudInsetPx,
-    layersOpen,
+    layersOpen: layersOpen || docked,
   });
+  const lottieTimelineOpen = useSelector(
+    (s: any) => Boolean(s.editor.lottieTimelinePanel?.nodeId)
+  );
+  const [timelineLiftPx, setTimelineLiftPx] = useState(0);
+  const [viewportH, setViewportH] = useState(
+    () => (typeof window !== 'undefined' ? window.innerHeight : 800)
+  );
+  useEffect(() => {
+    const onResize = () => setViewportH(window.innerHeight);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  useEffect(() => {
+    if (docked || !lottieTimelineOpen) {
+      setTimelineLiftPx(0);
+      return undefined;
+    }
+    let observed: Element | null = null;
+    const ro = new ResizeObserver(() => {
+      const el = window.document.querySelector(
+        '[data-lottie-timeline-dock]'
+      ) as HTMLElement | null;
+      setTimelineLiftPx(el ? Math.round(el.getBoundingClientRect().height) : 0);
+    });
+    const sync = () => {
+      const el = window.document.querySelector(
+        '[data-lottie-timeline-dock]'
+      ) as HTMLElement | null;
+      setTimelineLiftPx(el ? Math.round(el.getBoundingClientRect().height) : 0);
+      if (el !== observed) {
+        if (observed) ro.unobserve(observed);
+        observed = el;
+        if (el) ro.observe(el);
+      }
+    };
+    sync();
+    const mo = new MutationObserver(sync);
+    mo.observe(window.document.body, { childList: true, subtree: true });
+    const raf = window.requestAnimationFrame(sync);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      mo.disconnect();
+      ro.disconnect();
+    };
+  }, [docked, lottieTimelineOpen]);
 
   useEffect(() => {
     const sync = () => setFpsHudOn(readFpsHudEnabled());
@@ -564,38 +622,93 @@ function EditorBottomHud({
     [onFitView, onZoomIn, onZoomOut, zoomAtStageCenter]
   );
 
+  const dockedTop = docked && dockPlacement === 'top';
+
+  /** Keep assets panel below top chrome when the timeline lifts this stack. */
+  const assetsMaxHeightPx = timelineLiftPx
+    ? Math.max(220, viewportH - timelineLiftPx - 120)
+    : undefined;
+
+  const floatingPanels = (
+    <>
+      {minimapOpen ? (
+        <EditorMinimap
+          document={document}
+          frames={frames}
+          camera={camera}
+          stageEl={stageEl}
+          activeFrameId={activeFrameId}
+          selectedFrameIds={selectedFrameIds}
+          selectedNodeIds={selectedNodeIds}
+          onCameraChange={onCameraChange}
+          canvasBg={stageBackground}
+        />
+      ) : null}
+      {assetsOpen ? (
+        <AssetPanel
+          onClose={() => setAssetsOpen(false)}
+          maxHeightPx={assetsMaxHeightPx}
+        />
+      ) : null}
+      {shortcutsOpen ? (
+        <EditorShortcutsPanel onClose={() => setShortcutsOpen(false)} />
+      ) : null}
+    </>
+  );
+
   return (
     <>
       {fpsHudOn ? <FpsHudOverlay /> : null}
       <div
         className={cn(
-          'pointer-events-none absolute z-20 flex flex-col items-start gap-2',
-          stackBottomHud ? 'bottom-[4.75rem]' : 'bottom-4'
+          'pointer-events-none flex flex-col items-start gap-2',
+          docked
+            ? 'relative z-20 w-full'
+            : cn(
+                'absolute z-20',
+                !timelineLiftPx && (stackBottomHud ? 'bottom-[4.75rem]' : 'bottom-4')
+              )
         )}
-        style={{ left: leftHudInsetPx }}
+        style={
+          docked
+            ? undefined
+            : {
+                left: leftHudInsetPx,
+                ...(timelineLiftPx
+                  ? {
+                      bottom: Math.max(
+                        16,
+                        timelineLiftPx + (stackBottomHud ? 56 : 16)
+                      ),
+                    }
+                  : null),
+              }
+        }
       >
-        {minimapOpen ? (
-          <EditorMinimap
-            document={document}
-            frames={frames}
-            camera={camera}
-            stageEl={stageEl}
-            activeFrameId={activeFrameId}
-            selectedFrameIds={selectedFrameIds}
-            selectedNodeIds={selectedNodeIds}
-            onCameraChange={onCameraChange}
-            canvasBg={stageBackground}
-          />
-        ) : null}
-        {assetsOpen ? (
-          <AssetPanel onClose={() => setAssetsOpen(false)} />
-        ) : null}
-        {shortcutsOpen ? (
-          <EditorShortcutsPanel onClose={() => setShortcutsOpen(false)} />
-        ) : null}
+        {dockedTop ? null : floatingPanels}
+        <div
+          className={cn(
+            'pointer-events-auto flex items-center',
+            docked &&
+              cn(
+                'w-full gap-1 rounded-none bg-[var(--surface)] px-1.5 py-1 shadow-none',
+                dockedTop
+                  ? 'border-b border-[var(--line)]'
+                  : 'border-t border-[var(--line)]'
+              )
+          )}
+          data-tour={docked ? 'editor-tools' : undefined}
+        >
         <FloatingToolbar
           ref={bottomHudRef}
-          className="pointer-events-auto w-fit px-2 text-[12px] text-[var(--ink)] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+          bare={docked}
+          variant={docked ? 'flat' : 'pill'}
+          className={cn(
+            'w-fit text-[12px] text-[var(--ink)]',
+            docked
+              ? 'px-0.5 shadow-none'
+              : 'px-2 shadow-[0_8px_24px_rgba(0,0,0,0.14)]'
+          )}
         >
         {!isDevMode ? (
           <>
@@ -704,7 +817,7 @@ function EditorBottomHud({
           trigger="click"
           open={zoomMenuOpen}
           onOpenChange={setZoomMenuOpen}
-          placement="top-start"
+          placement={dockedTop ? 'bottom-start' : 'top-start'}
           strategy="fixed"
           items={zoomMenuItems}
           onClick={onZoomMenuClick}
@@ -726,6 +839,14 @@ function EditorBottomHud({
           </button>
         </Dropdown>
         </FloatingToolbar>
+        {docked && dockedTrailing ? (
+          <>
+            <span className="mx-0.5 h-4 w-px shrink-0 bg-[var(--line)]" aria-hidden />
+            <div className="min-w-0">{dockedTrailing}</div>
+          </>
+        ) : null}
+        </div>
+        {dockedTop ? floatingPanels : null}
       </div>
     </>
   );

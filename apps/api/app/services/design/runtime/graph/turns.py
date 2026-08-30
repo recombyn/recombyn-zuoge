@@ -301,6 +301,7 @@ def _append_pending_reinject(
 def _canvas_size_block(rt: Any) -> str:
     from app.services.design.readpath.canvas_scene import explicit_canvas_size
     from app.services.design.runtime.graph.llm_io import _prompt_text
+    from app.services.design.runtime.models_route import normalize_user_intent
 
     try:
         w = int(getattr(rt, "w", 0) or 0)
@@ -318,6 +319,16 @@ def _canvas_size_block(rt: Any) -> str:
                 "with a different size."
             )
         return canvas_size
+    anim = bool((getattr(rt, "flags", None) or {}).get("animation_path")) or (
+        normalize_user_intent(getattr(rt, "classified_intent", None)) == "animation"
+    )
+    if anim:
+        return (
+            "auto\n"
+            "ANIMATION_SIZE: infer width×height on create_lottie from USER_PROMPT "
+            "(loading icon often ~120–240; full-bleed motion may match FOCUS plate). "
+            "Do NOT emit create_frame."
+        )
     if _as_text(getattr(rt, "canvas_size", "")).strip().lower() in ("", "auto"):
         hint = (
             getattr(rt, "size_auto_hint", None)

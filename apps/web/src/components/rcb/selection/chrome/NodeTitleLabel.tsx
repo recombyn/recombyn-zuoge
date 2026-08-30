@@ -16,7 +16,8 @@ import {
   memo,
 } from 'react';
 import { LuAudioLines, LuImagePlus, LuType } from 'react-icons/lu';
-import { RiClapperboardFill, RiVideoAiLine } from 'react-icons/ri';
+import { RiVideoAiLine } from 'react-icons/ri';
+import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -234,8 +235,16 @@ function TitleIcon({ kind }: { kind: NodeTitleIcon }): ReactNode {
       return <LucideTitleIcon Icon={LuImagePlus} />;
     case 'video-generator':
       return <LucideTitleIcon Icon={RiVideoAiLine} opacity={0.72} />;
+    case 'lottie':
     case 'lottie-generator':
-      return <LucideTitleIcon Icon={RiClapperboardFill} />;
+      return (
+        <AnimationOutlineIcon
+          size={TITLE_ICON_PX}
+          strokeWidth={1.75}
+          className="shrink-0"
+          style={{ color: MUTED }}
+        />
+      );
     case 'frame':
       return (
         <SvgTitleIcon>

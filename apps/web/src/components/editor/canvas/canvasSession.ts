@@ -23,6 +23,13 @@ import {
   isLottieNode,
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  getAnimationWorkbenchTimelineFocus,
+  syncWorkbenchSurroundOnFrameBind,
+  tagCreatedNodeForWorkbenchSurround,
+  shouldShowArtboardInWorkbenchFocus,
+  WORKBENCH_SURROUND_ATTR,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { clearImageProcessAttrs } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   STROKE_GEOMETRY_HEIGHT,
@@ -64,10 +71,19 @@ import {
 } from '@/components/rcb';
 import { parseFrameSelId } from '@/components/rcb/selection/frameSelectionIds';
 import { syncFrameContentClip } from '@/components/rcb/frames/frameContentClip';
-import { frameForNodeIntersectPlacement } from '@/components/rcb/frames/frameNodeBinding';
+import {
+  canBindNodeToArtboardFrame,
+  frameForNodeIntersectPlacement,
+} from '@/components/rcb/frames/frameNodeBinding';
+import { findFrameAnimationMediaId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  autoKeyAnimatedGeometry,
+  autoKeyAnimatedRotation,
+} from '@/components/editor/nodes/AnimationNode/animationAutoKey';
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 import type { createDragWriteCoalescer } from './dragWriteCoalescer';
 import type { ArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import store from '@/store';
 import {
   patchDocumentNode,
   pushEditorHistory,
@@ -221,6 +237,7 @@ export function hitTestFrameInDoc(doc: SceneDocument | null | undefined, x: numb
   for (let i = frames.length - 1; i >= 0; i -= 1) {
     const frame = frames[i];
     if (!frame || frame.locked || frame.hidden) continue;
+    if (!shouldShowArtboardInWorkbenchFocus(frame)) continue;
     const fx = Number(frame.x) || 0;
     const fy = Number(frame.y) || 0;
     const fw = Math.max(1, Number(frame.width) || 1);
@@ -247,9 +264,12 @@ function rectIntersectsFrame(
 
 function frameForNodePlacement(
   doc: SceneDocument,
-  rect: { left: number; top: number; width: number; height: number }
+  rect: { left: number; top: number; width: number; height: number },
+  node?: { key?: unknown; attrs?: Record<string, unknown> | null } | null
 ) {
-  return frameForNodeIntersectPlacement(doc, rect);
+  // Single choke point for every tool (shape / pen / text / image / generator):
+  // under timeline focus only the workbench plate is eligible — never 主画板.
+  return frameForNodeIntersectPlacement(doc, rect, node);
 }
 
 /** Maintain one explicit artboard binding through node moves and resizes. */
@@ -260,6 +280,7 @@ function applyNodeFrameBindings(
 ): SceneDocument {
   const bindingPatches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  const focus = getAnimationWorkbenchTimelineFocus();
   for (const patch of patches) {
     const node = doc.deltaSetLike?.[patch.nodeId];
     if (!node) continue;
@@ -276,16 +297,35 @@ function applyNodeFrameBindings(
     let nextId = currentId || null;
     if (currentId) {
       const owner = frames.find((frame) => String(frame.id) === currentId);
-      if (owner && rectIntersectsFrame(rect, owner)) {
+      // Do not keep a hidden「主画板」owner while the workbench timeline is open.
+      const ownerOk =
+        Boolean(owner) &&
+        rectIntersectsFrame(rect, owner!) &&
+        shouldShowArtboardInWorkbenchFocus(owner) &&
+        canBindNodeToArtboardFrame(owner, node);
+      if (ownerOk) {
         nextId = currentId;
       } else {
-        nextId = frameForNodePlacement(doc, rect);
+        nextId = frameForNodePlacement(doc, rect, node);
       }
     } else {
-      nextId = frameForNodePlacement(doc, rect);
+      nextId = frameForNodePlacement(doc, rect, node);
     }
-    if (nextId === currentId) continue;
-    const attrs = { ...(node.attrs || {}) };
+    const surround = String(node.attrs?.[WORKBENCH_SURROUND_ATTR] || '').trim();
+    // Same plate / still unbound: still refresh surround under focus so tools
+    // that skipped finalize do not vanish (neither frameId nor surround).
+    if (nextId === currentId) {
+      if (focus && !currentId && surround !== focus) {
+        bindingPatches.push({
+          nodeId: patch.nodeId,
+          patch: {
+            attrs: syncWorkbenchSurroundOnFrameBind({ ...(node.attrs || {}) }, null),
+          },
+        });
+      }
+      continue;
+    }
+    let attrs = { ...(node.attrs || {}) } as Record<string, unknown>;
     if (nextId) {
       attrs.frameId = nextId;
       if (nextId !== currentId) {
@@ -295,9 +335,11 @@ function applyNodeFrameBindings(
           .filter(Number.isFinite);
         attrs.frameOrder = orders.length ? Math.max(...orders) + 1 : 0;
       }
+      attrs = syncWorkbenchSurroundOnFrameBind(attrs, nextId);
     } else {
       delete attrs.frameId;
       delete attrs.frameOrder;
+      attrs = syncWorkbenchSurroundOnFrameBind(attrs, null);
     }
     bindingPatches.push({ nodeId: patch.nodeId, patch: { attrs } });
   }
@@ -342,7 +384,8 @@ export function bindCreatedNodeToFrame(
   nodeId: string,
   rect: { left: number; top: number; width: number; height: number }
 ): SceneDocument {
-  return applyNodeFrameBindings(doc, [{ nodeId, ...rect }]);
+  const bound = applyNodeFrameBindings(doc, [{ nodeId, ...rect }]);
+  return tagCreatedNodeForWorkbenchSurround(bound, nodeId);
 }
 
 function promoteNodesToWorldTop(doc: SceneDocument, nodeIds: Iterable<string>): SceneDocument {
@@ -489,11 +532,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         node.attrs.frameId = requestedFrameId;
       }
       const created = addNodeToDocument(doc, id, node);
-      const bound = requestedFrameId
+      const boundRaw = requestedFrameId
         ? created
         : applyNodeFrameBindings(created, [
             { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
           ]);
+      const bound = tagCreatedNodeForWorkbenchSurround(boundRaw, id);
       deps.setDocumentLocal(bound);
       // History without sceneReloadToken — remounting every host caused a one-frame jump.
       deps.dispatch(pushEditorHistory());
@@ -521,11 +565,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       node.attrs.frameId = requestedFrameId;
     }
     const next = addNodeToDocument(doc, id, node);
-    const bound = requestedFrameId
+    const boundRaw = requestedFrameId
       ? next
       : applyNodeFrameBindings(next, [
           { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
         ]);
+    const bound = tagCreatedNodeForWorkbenchSurround(boundRaw, id);
     deps.setDocumentLocal(bound);
     deps.dispatch(pushEditorHistory());
     deps.dispatch(setDocumentFromCanvas(bound));
@@ -574,9 +619,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       fontSize,
     });
     const next = addNodeToDocument(doc, id, node);
-    const bound = applyNodeFrameBindings(next, [
-      { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
-    ]);
+    const bound = tagCreatedNodeForWorkbenchSurround(
+      applyNodeFrameBindings(next, [
+        { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
+      ]),
+      id
+    );
     deps.setDocumentLocal(bound);
     deps.dispatch(setDocument(bound));
     deps.dispatch(setSelectedNodeIds([id]));
@@ -610,9 +658,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         src,
       });
       const placedDoc = addNodeToDocument(latest, id, node);
-      const bound = applyNodeFrameBindings(placedDoc, [
-        { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
-      ]);
+      const bound = tagCreatedNodeForWorkbenchSurround(
+        applyNodeFrameBindings(placedDoc, [
+          { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
+        ]),
+        id
+      );
       deps.dispatch(setDocument(bound));
       deps.dispatch(setSelectedNodeId(id));
       deps.dispatch(setPendingImageSrc(null));
@@ -762,6 +813,45 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           return { ...f, x: hit.x, y: hit.y, width: hit.width, height: hit.height };
         }),
       };
+      // Keep animation workbench host glued to the plate on commit.
+      const hostPatches: Array<{ nodeId: string; patch: Record<string, unknown> }> = [];
+      for (const frame of frames) {
+        const hostId = findFrameAnimationMediaId(next, frame.id);
+        if (!hostId) continue;
+        const host = next.deltaSetLike?.[hostId];
+        if (!host) continue;
+        const patch: Record<string, unknown> = {
+          x: frame.x,
+          y: frame.y,
+          width: frame.width,
+          height: frame.height,
+        };
+        // Keep Bodymovin w/h in lockstep so timeline / export match the plate
+        // without a second ensureAnimationFrameMedia history entry.
+        if (host.key === 'lottie' && host.attrs?.animationData) {
+          try {
+            const raw = host.attrs.animationData;
+            const data =
+              typeof raw === 'string' ? (JSON.parse(raw) as Record<string, unknown>) : raw;
+            if (data && typeof data === 'object') {
+              patch.attrs = {
+                ...(host.attrs || {}),
+                animationData: JSON.stringify({
+                  ...data,
+                  w: frame.width,
+                  h: frame.height,
+                }),
+              };
+            }
+          } catch {
+            /* ignore malformed animation JSON */
+          }
+        }
+        hostPatches.push({ nodeId: hostId, patch });
+      }
+      if (hostPatches.length) {
+        next = updateNodesInDocument(next, hostPatches);
+      }
     }
     const latestCommitted = deps.getCommittedDocument?.() ?? committed;
     if (latestCommitted && touchedNodeIds.length) {
@@ -779,11 +869,50 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       deps.dispatch(pushEditorHistory());
     }
     deps.dispatch(setDocumentFromCanvas(next));
+    // Auto-key animated p/s when moving/resizing on a 动画工作台.
+    const playheadSec = Number(store.getState()?.editor?.lottiePlayheadSec) || 0;
+    for (const id of touchedNodeIds) {
+      const before = doc.deltaSetLike?.[id];
+      const after = next.deltaSetLike?.[id];
+      if (!before || !after) continue;
+      const moved =
+        Math.abs((Number(before.x) || 0) - (Number(after.x) || 0)) > 0.01 ||
+        Math.abs((Number(before.y) || 0) - (Number(after.y) || 0)) > 0.01;
+      const resized =
+        Math.abs((Number(before.width) || 0) - (Number(after.width) || 0)) > 0.01 ||
+        Math.abs((Number(before.height) || 0) - (Number(after.height) || 0)) > 0.01;
+      if (!moved && !resized) continue;
+      const keyed = autoKeyAnimatedGeometry({
+        document: next,
+        nodeId: id,
+        playheadSec,
+        moved,
+        resized,
+      });
+      if (!keyed) continue;
+      deps.dispatch(
+        patchDocumentNode({
+          nodeId: keyed.hostId,
+          patch: { attrs: { animationData: keyed.animationJson } },
+          skipHistory: Boolean(options?.skipHistory),
+        })
+      );
+    }
     // Same React turn as Redux doc — HTML plates must not fall back to stale
     // coords between commit and onTransformingChange(false).
     deps.clearVideoLiveGeom();
     deps.clearFrameGeometryPreview();
     clearNodeTransformPreviews();
+    if (frames.length && board?.root) {
+      for (const [nodeId, el] of board.nodeEls.entries()) {
+        const node = next.deltaSetLike?.[nodeId];
+        if (!node) continue;
+        syncFrameContentClip(board.root, el, next, node as Record<string, unknown>, {
+          zoom: deps.getZoom(),
+          revealOverflow: shapeHostRevealsOverflow(nodeId),
+        });
+      }
+    }
     frameMoveOwners.clear();
     detachedNodeIds.clear();
   };
@@ -823,7 +952,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       }
     }
     const translated = translateFrameContent(next, frames, frameMoveOwners);
-    const previewDocument = frames.length
+    let previewDocument = frames.length
       ? {
           ...translated,
           frames: (Array.isArray(translated.frames) ? translated.frames : []).map((frame) => {
@@ -939,13 +1068,58 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           plainText: after.key === 'text' ? parseNodeText(after.attrs || {}) : undefined,
           textStyle: after.key === 'text' ? parseNodeTextStyle(after.attrs || {}) : undefined,
         });
-        const el = board.nodeEls.get(nodeId);
-        if (el && board.root) {
-          syncFrameContentClip(board.root, el, previewDocument, after, {
-            zoom: deps.getZoom(),
-            revealOverflow: shapeHostRevealsOverflow(nodeId),
-          });
+      }
+      // Animation frame host must track plate size during resize — otherwise the
+      // invisible Lottie FO / clip lattice lags the blue selection chrome.
+      let hostDelta = previewDocument.deltaSetLike || {};
+      let hostDeltaDirty = false;
+      for (const frame of frames) {
+        const hostId = findFrameAnimationMediaId(previewDocument, frame.id);
+        if (!hostId) continue;
+        const host = hostDelta[hostId];
+        if (!host) continue;
+        const box = {
+          left: frame.x,
+          top: frame.y,
+          width: frame.width,
+          height: frame.height,
+        };
+        previewSvgNodeGeometry(board.nodeEls, hostId, box);
+        if (host.key === 'lottie' || host.key === 'video' || host.key === 'image') {
+          hasVideo = true;
+          videoOverrides[hostId] = {
+            left: box.left,
+            top: box.top,
+            width: box.width,
+            height: box.height,
+            angle: Number(host.attrs?.angle) || 0,
+          };
         }
+        if (!hostDeltaDirty) {
+          hostDelta = { ...hostDelta };
+          hostDeltaDirty = true;
+        }
+        hostDelta[hostId] = {
+          ...host,
+          x: box.left,
+          y: box.top,
+          width: box.width,
+          height: box.height,
+        };
+      }
+      if (hostDeltaDirty) {
+        previewDocument = { ...previewDocument, deltaSetLike: hostDelta };
+        deps.setDocumentLocal(previewDocument);
+      }
+      // Resize (not only translate): re-clip every mounted node against the
+      // preview frame box — same as EditorStageWorld frame-move live sync.
+      for (const [nodeId, el] of board.nodeEls.entries()) {
+        const node = previewDocument.deltaSetLike?.[nodeId];
+        if (!node || !board.root) continue;
+        syncFrameContentClip(board.root, el, previewDocument, node as Record<string, unknown>, {
+          zoom: deps.getZoom(),
+          revealOverflow: shapeHostRevealsOverflow(nodeId),
+        });
       }
     }
     // Fact-layer preview for Canvas underlay / chrome (ADR 0027) — not SVG-DOM-only.
@@ -999,6 +1173,23 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         skipHistory: Boolean(options?.skipHistory),
       })
     );
+    // When rotation is already keyframed, write the live angle into the curve
+    // at the playhead (frame sync skips animated `r`, so attrs-only would no-op).
+    const keyed = autoKeyAnimatedRotation({
+      document: deps.getDocument() || doc,
+      nodeId,
+      angleDeg: nextAngle,
+      playheadSec: Number(store.getState()?.editor?.lottiePlayheadSec) || 0,
+    });
+    if (keyed) {
+      deps.dispatch(
+        patchDocumentNode({
+          nodeId: keyed.hostId,
+          patch: { attrs: { animationData: keyed.animationJson } },
+          skipHistory: Boolean(options?.skipHistory),
+        })
+      );
+    }
     clearNodeTransformPreviews([nodeId]);
   };
 

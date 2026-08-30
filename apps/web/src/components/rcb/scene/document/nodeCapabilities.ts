@@ -3,6 +3,8 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import type { SceneNodeAttrs } from '@/components/rcb/sceneNode';
+import { isHiddenByAnimationWorkbenchFocus, isInactiveAtAnimationPlayhead, isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { isHiddenByLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
 
 /**
  * Predicate input — full `SceneNode` or a key/attrs stub (layer list, tests).
@@ -95,15 +97,52 @@ export function findArtboardFrame(
   return document.frames.find((f) => String(f?.id) === id);
 }
 
-/** Node hidden or bound to a hidden artboard — paint / hit-test / overlays. */
-export function isNodeHiddenInDocument(
+function resolveNodeId(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeRef
+): string {
+  const direct = String((node as { id?: unknown })?.id || '').trim();
+  if (direct) return direct;
+  const map = document?.deltaSetLike;
+  if (!map || !node) return '';
+  for (const [id, n] of Object.entries(map)) {
+    if (n === node) return id;
+  }
+  return '';
+}
+
+/**
+ * Structural hide (attrs.hidden / workbench focus / precomp / parent frame).
+ * Same contract as LayerPanel `attrs.hidden` — does not include playhead trim.
+ */
+export function isNodeStructurallyHiddenInDocument(
   document: SceneDocument | null | undefined,
   node: SceneNodeRef
 ): boolean {
   if (!node || isNodeHidden(node)) return true;
+  if (isHiddenByAnimationWorkbenchFocus(node)) return true;
+  if (isHiddenByLottiePrecompEditFocus(resolveNodeId(document, node), node)) return true;
   const frameId = String(node.attrs?.frameId || '').trim();
   if (!frameId) return false;
   return isArtboardFrameHidden(findArtboardFrame(document, frameId));
+}
+
+/**
+ * Editor visibility for hit / chrome / marquee.
+ * Includes playhead out-of-range (same as hiding the layer for interaction).
+ * Pass `playheadSec` from Redux during React render when needed for sync.
+ *
+ * Do **not** use this to drive SVG/host paint opacity — playhead ink hide is
+ * live DOM in AnimationPlayheadSceneSync; React hosts that skip playhead
+ * subscriptions would stay at opacity 0 until an unrelated re-render.
+ */
+export function isNodeHiddenInDocument(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeRef,
+  playheadSec?: number
+): boolean {
+  if (isNodeStructurallyHiddenInDocument(document, node)) return true;
+  return isInactiveAtAnimationPlayhead(document, node, playheadSec);
 }
 
 /** Marquee + smart guides skip hidden (incl. parent frame) and locked nodes. */
@@ -111,25 +150,37 @@ export function isNodeMarqueeSkippable(
   document: SceneDocument | null | undefined,
   node: SceneNodeRef
 ): boolean {
-  return isNodeHiddenInDocument(document, node) || isNodeLocked(node);
+  return (
+    isNodeHiddenInDocument(document, node) ||
+    isNodeLocked(node) ||
+    isAnimationWorkbenchPreviewChild(document, node)
+  );
 }
 
+/**
+ * SVG paint list — structural hide only.
+ * Playhead in/out ink is applied live in AnimationPlayheadSceneSync (one place).
+ */
 export function shouldSkipNodeInSvgPaint(
   document: SceneDocument | null | undefined,
   node: SceneNodeRef,
   omitNonExportable: boolean
 ): boolean {
   if (omitNonExportable) return !isExportableSceneNode(node);
-  return isNodeHiddenInDocument(document, node);
+  return isNodeStructurallyHiddenInDocument(document, node);
 }
 
-/** Overlay hosts: session hide + document/frame hide. */
+/**
+ * Overlay / shape-host mount hide: structural (+ session) only.
+ * Playhead trim must not go through forceHidden — hosts often do not
+ * re-render on scrub; AnimationPlayheadSceneSync owns in/out ink.
+ */
 export function isNodeOverlayHidden(
   document: SceneDocument | null | undefined,
   node: SceneNodeRef,
   sessionHidden = false
 ): boolean {
-  return sessionHidden || isNodeHiddenInDocument(document, node);
+  return sessionHidden || isNodeStructurallyHiddenInDocument(document, node);
 }
 
 /**
@@ -205,6 +256,23 @@ export function isNodeLocked(node: SceneNodeRef): boolean {
 /** Finished Lottie plate (not a generator composer). */
 export function isLottieNode(node: SceneNodeRef): boolean {
   return Boolean(node) && node!.key === 'lottie' && !isLottieGeneratorNode(node);
+}
+
+/**
+ * Invisible playback/timeline host inside a 动画工作台 artboard.
+ * Not a second user-facing plate — selection should promote to the parent frame.
+ * Requires an explicit host flag (do not treat every bound Lottie as host — that
+ * hid imported plates and left a blue placeholder with no editable layers).
+ */
+export function isAnimationFrameHostNode(
+  node: SceneNodeRef,
+  _document?: SceneDocument | null
+): boolean {
+  if (!isLottieNode(node)) return false;
+  return (
+    attrFlagTrue(node!.attrs?.animationFrameHost) ||
+    attrFlagTrue(node!.attrs?.lottieFrameHost)
+  );
 }
 
 /** True for icon-library assets that still use an SVG source. */

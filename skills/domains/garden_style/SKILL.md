@@ -38,7 +38,7 @@ Purple→indigo gradients on white; Inter/Roboto/Arial as “design”; warm cre
 - Color: one dominant + sharp accent; copy clears the background.
 - Space: generous whitespace **or** controlled density — soft-avoid “everything centered, nothing focal.”
 - Decoration only when they serve the theme.
-- Motion (if allowed): 1–2 high-impact beats via `motion_lottie`.
+- Motion (if allowed): 1–2 high-impact beats via `motion_animation`.
 
 ## Far / near check
 

@@ -1,4 +1,4 @@
-"""Plaza DB — shared MySQL / SQLite."""
+"""Plaza DB — MySQL / PostgreSQL."""
 
 from __future__ import annotations
 

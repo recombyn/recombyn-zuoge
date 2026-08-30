@@ -1,4 +1,4 @@
-"""Chat session persistence — MySQL/SQLite via services.db."""
+"""Chat session persistence — MySQL/PostgreSQL via services.db."""
 
 from __future__ import annotations
 

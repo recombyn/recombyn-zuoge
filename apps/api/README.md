@@ -14,14 +14,15 @@ pip install -e ../../packages/scene-builder-py
 pip install -e ../../packages/protocol
 pip install -e ../../packages/intelligence-client
 pip install -e ".[dev]"
-# Redis: 仓库根 docker compose up -d redis
+# MySQL + Redis: 仓库根 docker compose up -d mysql redis（或 npm run dev:infra）
+# apps/api/.env 必须设置 DATABASE_URL=mysql://recombyn:recombyn@127.0.0.1:3306/recombyn
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 # 或仓库根: npm run dev:api
 ```
 
 Worker：`celery -A worker.celery_app.celery worker -l info`（Windows 加 `--pool=solo`）。
 
-环境变量：复制 `.env.example` 或 `.env.selfhost.example`。种子：`seeds/`（提示词包以 git 为准；Admin 改过的 Skill 等以 DB 为准）。测试：`npm run test:api`（仓库根）。
+环境变量：复制 `.env.example`（需配置 MySQL 或 Postgres 的 `DATABASE_URL`）。种子：`seeds/`（提示词包以 git 为准；Admin 改过的 Skill 等以 DB 为准）。测试：`npm run test:api`（仓库根；连 `recombyn_test` MySQL 库）。
 
 ## 认证
 

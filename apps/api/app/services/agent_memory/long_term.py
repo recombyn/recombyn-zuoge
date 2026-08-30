@@ -6,7 +6,6 @@ import logging
 import threading
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from langchain.tools import ToolRuntime, tool
@@ -49,21 +48,8 @@ def _store_mysql_url() -> str:
     return raw.replace("mysql+pymysql://", "mysql://", 1)
 
 
-def _store_sqlite_path() -> Path:
-    from app.core.config import _API_ROOT, settings
-
-    raw = (settings.langgraph_store_sqlite_path or "").strip()
-    if not raw:
-        raw = "storage/langgraph_store.db"
-    p = Path(raw)
-    if not p.is_absolute():
-        p = _API_ROOT / p
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def _optional_sqlite_index() -> Any | None:
-    """IndexConfig for Sqlite/InMemory semantic search (CLIP Embeddings)."""
+def _optional_store_index() -> Any | None:
+    """IndexConfig for InMemory semantic search (CLIP Embeddings)."""
     try:
         from langgraph.store.base import IndexConfig
         from app.services.agent_memory.clip_encoder import EMB_DIM
@@ -94,39 +80,11 @@ def _build_mysql_store() -> Any | None:
     return store
 
 
-def _build_sqlite_store() -> Any:
-    import sqlite3
-
-    from langgraph.store.sqlite import SqliteStore
-
-    global _STORE_CONN
-    path = str(_store_sqlite_path())
-    conn = sqlite3.connect(
-        path, check_same_thread=False, isolation_level=None, timeout=30.0
-    )
-    try:
-        from app.services.db import configure_sqlite_connection
-
-        configure_sqlite_connection(conn)
-    except Exception:
-        try:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA busy_timeout = 30000")
-        except Exception:
-            pass
-    index = _optional_sqlite_index()
-    store = SqliteStore(conn, index=index) if index is not None else SqliteStore(conn)
-    store.setup()
-    _STORE_CONN = conn
-    return store
-
-
 def get_agent_store() -> Any:
     """
     Official LangGraph Store for long-term memory (docs).
 
-    Priority: MySQL (``langgraph.store.mysql``) → SqliteStore (+ optional CLIP index)
-    → InMemoryStore.
+    Priority: MySQL (``langgraph.store.mysql``) → InMemoryStore (+ optional CLIP index).
     """
     global _STORE, _STORE_BACKEND
     if _STORE is not None:
@@ -143,22 +101,16 @@ def get_agent_store() -> Any:
                 return _STORE
         except Exception:
             logger.warning("MySQL Store unavailable; falling back", exc_info=True)
-        try:
-            _STORE = _build_sqlite_store()
-            _STORE_BACKEND = "sqlite"
-            logger.info("LangGraph Store: SqliteStore (%s)", _store_sqlite_path())
-            return _STORE
-        except Exception:
-            logger.warning("Sqlite Store unavailable; using InMemoryStore", exc_info=True)
         from langgraph.store.memory import InMemoryStore
 
-        index = _optional_sqlite_index()
+        index = _optional_store_index()
         _STORE = InMemoryStore(index=index) if index is not None else InMemoryStore()
         _STORE_BACKEND = "memory"
         return _STORE
 
 
 def store_backend() -> str:
+    """mysql | memory — for logs / tests."""
     get_agent_store()
     return _STORE_BACKEND or "memory"
 

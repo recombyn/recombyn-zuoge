@@ -18,7 +18,7 @@ def test_health_api_check_always_ok(client):
         patch("app.api.routes.health._check_redis", return_value=False),
         patch("app.api.routes.health._check_worker", return_value=False),
         patch("app.api.routes.health._check_ocr", return_value=False),
-        patch("app.api.routes.health._check_db", return_value={"ok": True, "dialect": "sqlite"}),
+        patch("app.api.routes.health._check_db", return_value={"ok": True, "dialect": "mysql"}),
     ):
         res = client.get("/api/v1/health")
     assert res.status_code == 200

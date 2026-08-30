@@ -22,6 +22,7 @@ export type ShapeHostHandle = {
 const hosts = new Map<string, ShapeHostHandle>();
 const hostListeners = new Set<() => void>();
 const nodeHostListeners = new Map<string, Set<() => void>>();
+const nodeHostEpochs = new Map<string, number>();
 let hostEpoch = 0;
 
 /** Shared nodeId → paint element map used by preview/replace. */
@@ -37,14 +38,20 @@ function notifyListeners(listeners: Iterable<() => void>) {
   }
 }
 
+function bumpNodeEpoch(nodeId: string) {
+  nodeHostEpochs.set(nodeId, (nodeHostEpochs.get(nodeId) || 0) + 1);
+}
+
 function bumpHostEpoch(nodeId?: string) {
   hostEpoch += 1;
   notifyListeners(hostListeners);
   if (nodeId) {
+    bumpNodeEpoch(nodeId);
     notifyListeners(nodeHostListeners.get(nodeId) || []);
     return;
   }
-  for (const listeners of nodeHostListeners.values()) {
+  for (const [id, listeners] of nodeHostListeners) {
+    bumpNodeEpoch(id);
     notifyListeners(listeners);
   }
 }
@@ -81,6 +88,11 @@ export function notifyShapeHostGeometry(nodeId?: string) {
 
 export function getShapeHostEpoch() {
   return hostEpoch;
+}
+
+/** Per-node epoch for media portals — unrelated host remounts must not tear WaveSurfer. */
+export function getShapeHostNodeEpoch(nodeId: string) {
+  return nodeHostEpochs.get(String(nodeId || '')) || 0;
 }
 
 export function setSharedNodeEls(map: Map<string, SceneHostEl> | null) {

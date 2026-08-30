@@ -41,7 +41,7 @@ Draw each simple mark as real geometry; then optional labels. Load `image_gen` o
 
 ## Related
 
-`mobile_app_ui`, `dashboard_ui`, `shadcn_ui`, `image_gen`, `motion_lottie` (motion only)
+`mobile_app_ui`, `dashboard_ui`, `shadcn_ui`, `image_gen`, `motion_animation` (motion only)
 
 ## Done when
 

@@ -14,7 +14,12 @@ import {
   resolveStroke,
   resolveStrokeAlign,
 } from '@/components/rcb/scene/document/sceneEffects';
-import { isNodeHiddenInDocument, supportsFill } from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  isAnimationFrameHostNode,
+  isNodeHiddenInDocument,
+  supportsFill,
+} from '@/components/rcb/scene/document/nodeCapabilities';
+import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
@@ -178,6 +183,17 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
   for (const id of order) {
     const node = doc?.deltaSetLike?.[id];
     if (!node || isNodeHiddenInDocument(doc, node)) {
+      boxes.push({ id, box: null, hit: false });
+      continue;
+    }
+    // 动画工作台 invisible host is plate chrome — never steal picks from nested
+    // Lottie / shape children underneath the full-bleed plate.
+    if (isAnimationFrameHostNode(node, doc)) {
+      boxes.push({ id, box: null, hit: false });
+      continue;
+    }
+    // Timeline closed: workbench children are preview-only (select the plate instead).
+    if (isAnimationWorkbenchPreviewChild(doc, node)) {
       boxes.push({ id, box: null, hit: false });
       continue;
     }

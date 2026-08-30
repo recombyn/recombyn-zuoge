@@ -13,7 +13,8 @@ import reducer, {
   removeDocumentNodes,
   spawnAudioGenerator,
   spawnImageGenerator,
-  spawnLottieGenerator,
+  spawnAnimationBoard,
+  spawnLottieGeneratorPlate,
   spawnVideoGenerator,
 } from '@/store/modules/editor';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
@@ -58,7 +59,7 @@ describe('canvas generators (store)', () => {
     const specs = [
       { action: spawnImageGenerator, flag: 'imageGenerator' },
       { action: spawnVideoGenerator, flag: 'videoGenerator' },
-      { action: spawnLottieGenerator, flag: 'lottieGenerator' },
+      { action: spawnLottieGeneratorPlate, flag: 'lottieGenerator' },
       { action: spawnAudioGenerator, flag: 'audioGenerator' },
     ] as const;
 
@@ -71,6 +72,16 @@ describe('canvas generators (store)', () => {
       expect(node).toBeTruthy();
       expect(Boolean((node.attrs as any)?.[flag])).toBe(true);
     }
+  });
+
+  it('spawnAnimationBoard creates a 动画工作台 artboard', () => {
+    let state = seed();
+    state = reducer(state, spawnAnimationBoard({ x: 10, y: 20, width: 300, height: 300 }));
+    expect(state.selectedNodeId).toBeNull();
+    expect(state.selectedFrameIds.length).toBe(1);
+    const frame = state.document!.frames?.find((f) => f.id === state.selectedFrameIds[0]);
+    expect(frame?.kind).toBe('animation');
+    expect(frame?.name).toMatch(/动画工作台|Animation/);
   });
 
   it('factory helpers produce distinct generator kinds', () => {
@@ -137,7 +148,7 @@ describe('canvas generators (store)', () => {
     expect(state.document!.deltaSetLike[id].attrs?.audioGenerator).toBeFalsy();
     expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('aud-prompt');
 
-    state = reducer(state, spawnLottieGenerator({ x: 3, y: 3 }));
+    state = reducer(state, spawnLottieGeneratorPlate({ x: 3, y: 3 }));
     id = String(state.selectedNodeId);
     state = reducer(
       state,
@@ -147,8 +158,17 @@ describe('canvas generators (store)', () => {
         genPrompt: 'lot-prompt',
       })
     );
-    expect(state.document!.deltaSetLike[id].attrs?.lottieGenerator).toBeFalsy();
-    expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('lot-prompt');
+    // Generator plate is replaced by an animation workbench + host.
+    expect(state.document!.deltaSetLike[id]).toBeUndefined();
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    expect(frameId).toBeTruthy();
+    const frame = state.document!.frames?.find((f) => String(f.id) === frameId);
+    expect(frame?.kind).toBe('animation');
+    const host = Object.values(state.document!.deltaSetLike || {}).find(
+      (n) => n?.attrs?.animationFrameHost && String(n?.attrs?.frameId) === frameId
+    );
+    expect(host?.attrs?.genPrompt).toBe('lot-prompt');
+    expect(host?.attrs?.lottieGenerator).toBeFalsy();
   });
 
   it('allows deleting image generator while processStatus is running', () => {

@@ -19,7 +19,7 @@ type CtxAction =
   | 'addToChat'
   | 'spawnImageGenerator'
   | 'spawnVideoGenerator'
-  | 'spawnLottieGenerator'
+  | 'spawnAnimationBoard'
   | 'spawnAudioGenerator'
   | 'undo'
   | 'redo'
@@ -45,7 +45,7 @@ type CtxAction =
 type GeneratorPickAction =
   | 'spawnImageGenerator'
   | 'spawnVideoGenerator'
-  | 'spawnLottieGenerator'
+  | 'spawnAnimationBoard'
   | 'spawnAudioGenerator';
 
 export type ContextMenuState = {
@@ -197,7 +197,7 @@ function MenuItem({
 const GENERATOR_MENU_SHORTCUT: Record<GeneratorPickAction, string> = {
   spawnImageGenerator: 'A',
   spawnVideoGenerator: 'Shift A',
-  spawnLottieGenerator: 'M',
+  spawnAnimationBoard: 'M',
   spawnAudioGenerator: 'U',
 };
 
@@ -217,8 +217,8 @@ function GeneratorFlyoutButtons({
       label: t('editor.tools.videoGenerator'),
     },
     {
-      action: 'spawnLottieGenerator',
-      label: t('editor.tools.lottieGenerator'),
+      action: 'spawnAnimationBoard',
+      label: t('editor.tools.animationBoard', { defaultValue: '动画' }),
     },
     {
       action: 'spawnAudioGenerator',

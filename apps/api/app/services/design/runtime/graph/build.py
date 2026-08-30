@@ -31,6 +31,8 @@ from app.services.design.runtime.graph.scene_log import (
 )
 from app.services.design.runtime.graph.nodes import (
     _node_action,
+    _node_animation_decide,
+    _node_animation_paint,
     _node_apply_confirm,
     _node_bootstrap,
     _node_design_agent,
@@ -125,6 +127,8 @@ _CANVAS_OPS_V1_NODE_MODULES = {
     "memory": "memory",
     "intent_classify": "intent",
     "design_agent": "decide",
+    "animation_decide": "animation_decide",
+    "animation_paint": "animation_paint",
     "paint_ops": "paint",
     "action": "apply",
     "observe": "observe",
@@ -539,7 +543,7 @@ def _design_graph_paint_timeout() -> TimeoutPolicy | None:
 
 
 def _get_design_graph_checkpointer() -> Any:
-    """Shared durable checkpointer (MySQL 8+ → Sqlite+async-bridge → memory).
+    """Shared durable checkpointer (MySQL 8+ → memory).
 
     Wallet settle/refund stay on ``_bind_design_hold_fns``, not in graph state.
     When ``design_graph_require_durable_checkpoint`` is set, memory backend is refused
@@ -556,8 +560,8 @@ def _get_design_graph_checkpointer() -> Any:
     )
     if require_durable and backend == "memory":
         raise RuntimeError(
-            "design graph requires a durable checkpointer (mysql or sqlite); "
-            "got memory. Configure DATABASE_URL / SQLITE checkpointer, or set "
+            "design graph requires a durable checkpointer (mysql); "
+            "got memory. Configure DATABASE_URL / MySQL checkpointer, or set "
             "DESIGN_GRAPH_REQUIRE_DURABLE_CHECKPOINT=false for ephemeral tests."
         )
     return cp
@@ -657,6 +661,8 @@ def _build_lc_design_graph():
         "memory",
         "intent_classify",
         "design_agent",
+        "animation_decide",
+        "animation_paint",
         "paint_ops",
         "action",
         "observe",
@@ -701,6 +707,8 @@ def _build_lc_design_graph():
     g.add_node("memory", _node_memory, **io_kw)
     g.add_node("intent_classify", _node_intent_classify, **io_kw)
     g.add_node("design_agent", _node_design_agent, **io_kw)
+    g.add_node("animation_decide", _node_animation_decide, **io_kw)
+    g.add_node("animation_paint", _node_animation_paint, **paint_kw)
     g.add_node("paint_ops", _node_paint_ops, **paint_kw)
     # action: hydrate can hang on image providers — apply same once timeout as review.
     g.add_node("action", _node_action, **once_kw)

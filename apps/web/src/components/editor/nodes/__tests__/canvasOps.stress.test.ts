@@ -17,7 +17,8 @@ import reducer, {
   setShapeKind,
   spawnAudioGenerator,
   spawnImageGenerator,
-  spawnLottieGenerator,
+  spawnAnimationBoard,
+  spawnLottieGeneratorPlate,
   spawnVideoGenerator,
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
@@ -163,7 +164,7 @@ describe('canvas ops store stress', () => {
 
     state = reducer(state, spawnImageGenerator({ x: 10, y: 10 }));
     state = reducer(state, spawnVideoGenerator({ x: 20, y: 20 }));
-    state = reducer(state, spawnLottieGenerator({ x: 30, y: 30 }));
+    state = reducer(state, spawnLottieGeneratorPlate({ x: 30, y: 30 }));
     state = reducer(state, spawnAudioGenerator({ x: 40, y: 40 }));
     expect(nodeCount(state)).toBeGreaterThanOrEqual(4);
 

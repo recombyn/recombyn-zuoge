@@ -40,7 +40,7 @@ def test_public_http_url():
     assert not is_public_http_url("ftp://example.com")
 
 
-def test_byok_endpoint_resolve(monkeypatch, tmp_path):
+def test_byok_endpoint_resolve(monkeypatch):
     from app.core.config import settings
     from app.services import security as sec
     from app.services.llm import (
@@ -50,8 +50,6 @@ def test_byok_endpoint_resolve(monkeypatch, tmp_path):
     )
 
     monkeypatch.setattr(settings, "byok_aes_key", "unit-test-byok-endpoint-key-xx")
-    monkeypatch.setattr(settings, "database_url", "")
-    monkeypatch.setattr(settings, "sqlite_db_path", str(tmp_path / "byok.db"))
     sec._BYOK_READY = False
 
     item = sec.upsert_byok_provider(

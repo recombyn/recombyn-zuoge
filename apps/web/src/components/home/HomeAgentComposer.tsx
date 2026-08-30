@@ -27,7 +27,13 @@ import AgentComposerShell, {
   type ComposerInteractionMode,
   type ImageModeComposerControls,
   type VideoModeComposerControls,
+  type AudioModeComposerControls,
 } from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import { buildAudioModeControls } from '@/components/editor/panels/agent/agentSendPath';
+import {
+  buildAudioGeneratorModelList,
+  nextAudioModelId,
+} from '@/components/editor/nodes/shared/generatorModelLists';
 import {
   chipBaseKey,
   parseAtMentionQuery,
@@ -290,6 +296,8 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
   );
   const [imageModelPanelOpen, setImageModelPanelOpen] = useState(false);
   const [videoModelPanelOpen, setVideoModelPanelOpen] = useState(false);
+  const [audioModelPanelOpen, setAudioModelPanelOpen] = useState(false);
+  const [modelsCatalog, setModelsCatalog] = useState<ChatModelsResponse | null>(null);
   const [imageResolution, setImageResolution] = useState(DEFAULT_IMAGE_RESOLUTION);
   const [imageGenAspectRatio, setImageGenAspectRatio] = useState(DEFAULT_IMAGE_ASPECT_RATIO);
   const [imageGenCount, setImageGenCount] = useState(DEFAULT_IMAGE_COUNT);
@@ -306,6 +314,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     setInteractionMode('video');
     setModelTab('video');
     setModelOpen(false);
+    setAudioModelPanelOpen(false);
     setModelId(
       canPickModel ? pickPreferredVideoModelId(nextModels) : cloudVideoFallbackId() || 'auto'
     );
@@ -322,6 +331,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     setInteractionMode('image');
     setModelTab('image');
     setModelOpen(false);
+    setAudioModelPanelOpen(false);
     setModelId(
       canPickModel ? pickPreferredImageModelId(nextModels) : cloudImageFallbackId() || 'auto'
     );
@@ -334,20 +344,47 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     setImageModelPanelOpen(false);
   };
 
+  const pickAudioModelId = (catalog: ChatModelsResponse | null | undefined, list: LlmModel[]) => {
+    const pool = buildAudioGeneratorModelList(catalog ?? { models: list });
+    return nextAudioModelId(pool, '') || pool[0]?.id || 'auto';
+  };
+
+  const enterAudioMode = (
+    catalog: ChatModelsResponse | null | undefined = modelsCatalog,
+    nextModels: LlmModel[] = models
+  ) => {
+    setInteractionMode('audio');
+    setModelTab('design');
+    setModelOpen(false);
+    setImageModelPanelOpen(false);
+    setVideoModelPanelOpen(false);
+    setModelId(pickAudioModelId(catalog, nextModels));
+  };
+
+  const leaveAudioMode = () => {
+    setInteractionMode((m) => (m === 'audio' ? 'agent' : m));
+    setModelTab('design');
+    setModelId('auto');
+    setAudioModelPanelOpen(false);
+  };
+
   useEffect(() => {
     setImageAspectRatio(aspectRatioForCategory(category));
-    // Hero Image / Video tabs 鈫?composer interaction chrome.
+    // Hero Image / Video tabs → composer interaction chrome.
     if (category === 'image') {
       leaveVideoMode();
+      leaveAudioMode();
       enterImageModeWithModels();
     } else if (category === 'video') {
       leaveImageMode();
+      leaveAudioMode();
       enterVideoModeWithModels();
     } else {
       leaveImageMode();
       leaveVideoMode();
+      leaveAudioMode();
     }
-    // Only react to category 鈥?models list is read at switch time.
+    // Only react to category — models list is read at switch time.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [category, canPickModel]);
 
@@ -415,6 +452,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     }
     warmOpenrouterAvailability(res.openrouterAvailable);
     const list = normalizeModelList(res.models, res.imageModels, res.videoModels);
+    setModelsCatalog(res);
     setModels(list);
     setModelsStatus('ready');
     setModelId((prev) => resolveModelIdAfterCatalogLoad(prev, list, canPickModel));
@@ -427,7 +465,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     canPickModel,
   ]);
 
-  /** Models catalog — only when Image/Video mode or opening a model picker (not on home mount). */
+  /** Models catalog — only when Image/Video/Audio mode or opening a model picker (not on home mount). */
   const ensureModelsLoaded = async (): Promise<LlmModel[]> => {
     if (modelsStatus === 'ready') return models;
     if (modelsInflightRef.current) return modelsInflightRef.current;
@@ -442,6 +480,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
         })) as ChatModelsResponse;
         warmOpenrouterAvailability(res?.openrouterAvailable);
         const list = normalizeModelList(res?.models, res?.imageModels, res?.videoModels);
+        setModelsCatalog(res);
         setModels(list);
         setModelsStatus('ready');
         setModelId((prev) => resolveModelIdAfterCatalogLoad(prev, list, canPickModel));
@@ -470,17 +509,27 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     enterVideoMode(list);
   };
 
+  const enterAudioModeWithModels = async () => {
+    const list = await ensureModelsLoaded();
+    const cached = queryClient.getQueryData(
+      apiQuery.chatGetModels.queryOptions().queryKey
+    ) as ChatModelsResponse | undefined;
+    enterAudioMode(cached || modelsCatalog, list);
+  };
+
   const canSend = value.trim().length > 0 && !hasUploadingAttachment(contexts);
   const selectedModel =
     modelId === 'auto'
       ? ({ id: 'auto', label: 'Auto', provider: 'system', kind: 'text' } as LlmModel)
       : models.find((x) => x.id === modelId);
   const isVideoInteraction = interactionMode === 'video';
+  const isAudioInteraction = interactionMode === 'audio';
   const isVideoModelSelected =
     isVideoInteraction || modelTab === 'video' || modelTabOf(selectedModel) === 'video';
   const isImageInteraction = interactionMode === 'image';
   const isImageModelSelected =
     !isVideoInteraction &&
+    !isAudioInteraction &&
     (isImageInteraction || modelTab === 'image' || modelTabOf(selectedModel) === 'image');
 
   const imageModels = models.filter((m) => isImageKind(m));
@@ -489,6 +538,11 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     imageModels.find((m) => m.id === modelId) ||
     (imageFallbackId ? imageModels.find((m) => m.id === imageFallbackId) : undefined) ||
     imageModels[0];
+
+  const audioGenModels = useMemo(
+    () => buildAudioGeneratorModelList(modelsCatalog ?? undefined),
+    [modelsCatalog]
+  );
 
   const attachmentLimit = agentAttachmentLimit({
     models,
@@ -595,6 +649,22 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
       }
     : null;
 
+  const audioModeControls: AudioModeComposerControls | null = buildAudioModeControls({
+    active: isAudioInteraction,
+    models: audioGenModels,
+    modelId,
+    modelsStatus,
+    modelOpen: audioModelPanelOpen,
+    onModelOpenChange: (next) => {
+      if (next) void ensureModelsLoaded();
+      setAudioModelPanelOpen(next);
+    },
+    onPickModel: (id) => {
+      setModelId(id);
+      setAudioModelPanelOpen(false);
+    },
+  });
+
   const imageAspectProps = {
     // Agent canvas size defaults to Smart (auto) — no manual size popover.
     showDesignSizePicker: false,
@@ -633,26 +703,32 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
       isImageModelSelected,
       modelId,
     });
-    const isImage = !isVideoInteraction && resolveHomeIsImageSubmit({
-      isImageInteraction,
-      canPickModel,
-      category,
-      isImageModelSelected,
-      resolvedModelId,
-      models,
-    });
+    const isImage =
+      !isVideoInteraction &&
+      !isAudioInteraction &&
+      resolveHomeIsImageSubmit({
+        isImageInteraction,
+        canPickModel,
+        category,
+        isImageModelSelected,
+        resolvedModelId,
+        models,
+      });
 
     let submitMode: ComposerInteractionMode = interactionMode;
-    if (isVideoInteraction) submitMode = 'video';
+    if (isAudioInteraction) submitMode = 'audio';
+    else if (isVideoInteraction) submitMode = 'video';
     else if (isImage) submitMode = 'image';
 
     let scene: HomeAgentCategory | null = category;
-    if (isVideoInteraction || category === 'video') scene = null;
+    if (isAudioInteraction) scene = null;
+    else if (isVideoInteraction || category === 'video') scene = null;
     else if (isImage) scene = 'image';
 
     let submitAspect = imageAspectRatio;
     if (isImage) submitAspect = String(imageGenAspectRatio);
     else if (isVideoInteraction) submitAspect = String(videoGenAspectRatio);
+    else if (isAudioInteraction) submitAspect = 'auto';
     else {
       // Design agent: Smart only — LLM picks create_frame WxH (never lock category stock).
       submitAspect = 'auto';
@@ -907,7 +983,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
         sendTone="ink"
         compact
         showInteractionModePicker
-        allowedInteractionModes={['agent', 'image', 'video']}
+        allowedInteractionModes={['agent', 'image', 'video', 'audio']}
         interactionMode={interactionMode}
         onInteractionModeChange={(mode) => {
           if (mode === 'image') {
@@ -920,19 +996,31 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
             enterVideoModeWithModels();
             return;
           }
+          if (mode === 'audio') {
+            if (category === 'image' || category === 'video') {
+              onCategoryChange?.('poster');
+            }
+            leaveImageMode();
+            leaveVideoMode();
+            enterAudioModeWithModels();
+            return;
+          }
           if (category === 'image' || category === 'video') {
             // Leave Image/Video tab when leaving that mode (restore last design category in parent).
             onCategoryChange?.('poster');
           }
           leaveVideoMode();
           leaveImageMode();
+          leaveAudioMode();
           setInteractionMode(mode);
           setImageModelPanelOpen(false);
+          setAudioModelPanelOpen(false);
           setModelId('auto');
           setModelTab('design');
         }}
         imageModeControls={imageModeControls}
         videoModeControls={videoModeControls}
+        audioModeControls={audioModeControls}
         {...imageAspectProps}
         modelButtonProps={{
           variant: 'chip',

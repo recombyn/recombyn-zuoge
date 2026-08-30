@@ -15,9 +15,13 @@ describe('union chrome body transform', () => {
     expect(memberTf).toBe('translate(100 50)');
     // Same origin, different size — rotate center must use union size when angled.
     const unionRot = sceneChromeBodyTransform(union, 15);
-    expect(unionRot).toBe('translate(100 50) rotate(15 40 30)');
+    expect(unionRot).toBe(
+      'translate(100 50) translate(40 30) rotate(15) translate(-40 -30)'
+    );
     const memberRot = sceneChromeBodyTransform(member, 15);
-    expect(memberRot).toBe('translate(100 50) rotate(15 10 7.5)');
+    expect(memberRot).toBe(
+      'translate(100 50) translate(10 7.5) rotate(15) translate(-10 -7.5)'
+    );
     expect(unionRot).not.toBe(memberRot);
   });
 });

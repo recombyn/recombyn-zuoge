@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import Text, inspect
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session
 
 from app.models import AgentSessionSnapshot, Asset, DesignTask, ModelUsage
 
@@ -42,11 +42,10 @@ def test_growing_payload_columns_use_text_not_varchar255(model: type[SQLModel], 
     )
 
 
-def test_agent_session_snapshot_accepts_payload_over_255_chars(tmp_path: Path):
+def test_agent_session_snapshot_accepts_payload_over_255_chars():
     from app.crud import upsert_agent_session_snapshot
+    from app.core.db import engine
 
-    engine = create_engine(f"sqlite:///{(tmp_path / 'snap.db').as_posix()}")
-    SQLModel.metadata.create_all(engine, tables=[AgentSessionSnapshot.__table__])
     big = json.dumps(
         {
             "short_turns": [
@@ -58,10 +57,11 @@ def test_agent_session_snapshot_accepts_payload_over_255_chars(tmp_path: Path):
         ensure_ascii=False,
     )
     assert len(big) > 255
+    sid = f"sess-wide-{time.time_ns()}"
     with Session(engine) as session:
         row = upsert_agent_session_snapshot(
             session=session,
-            session_id="sess-wide",
+            session_id=sid,
             user_id="u1",
             project_id="p1",
             task_state_json=big,
@@ -69,9 +69,11 @@ def test_agent_session_snapshot_accepts_payload_over_255_chars(tmp_path: Path):
             created_at=time.time(),
         )
         assert row.task_state_json == big
-        again = session.get(AgentSessionSnapshot, "sess-wide")
+        again = session.get(AgentSessionSnapshot, sid)
         assert again is not None
         assert len(again.task_state_json) == len(big)
+        session.delete(again)
+        session.commit()
 
 
 def test_migration_0023_widen_agent_task_text_exists():
@@ -116,20 +118,20 @@ def test_migration_0025_widen_growing_text_columns_exists():
     assert "0024_assets_meta_json_longtext" in text
 
 
-def test_asset_meta_json_accepts_lottie_sized_payload(tmp_path: Path):
+def test_asset_meta_json_accepts_lottie_sized_payload():
     from app.crud import create_asset
+    from app.core.db import engine
 
-    engine = create_engine(f"sqlite:///{(tmp_path / 'asset.db').as_posix()}")
-    SQLModel.metadata.create_all(engine, tables=[Asset.__table__])
     big_meta = json.dumps(
         {"animationData": {"v": "5.5.2", "layers": [{"nm": "x" * 400} for _ in range(20)]}},
         ensure_ascii=False,
     )
     assert len(big_meta) > 255
+    asset_id = f"asset_test_{time.time_ns()}"
     with Session(engine) as session:
         row = create_asset(
             session=session,
-            asset_id="asset_test",
+            asset_id=asset_id,
             user_id="u1",
             kind="lottie",
             object_key="assets/u1/x.json",
@@ -143,9 +145,11 @@ def test_asset_meta_json_accepts_lottie_sized_payload(tmp_path: Path):
             created_at=time.time(),
         )
         assert row.meta_json == big_meta
-        again = session.get(Asset, "asset_test")
+        again = session.get(Asset, asset_id)
         assert again is not None
         assert len(again.meta_json) == len(big_meta)
+        session.delete(again)
+        session.commit()
 
 
 def test_migration_0022_checkpoint_collation_exists():

@@ -41,7 +41,7 @@ There is **no hard max node count** on the document. Capacity is governed by pai
 
 At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes stay on `gℤ` — same as `snapCoordToGrid` / pen tips; do **not** device-shift axes off the snap lattice). SVG no longer carries the grid `<path>`.
 
-**Canvas idle overflow** and **idle-capable nodes** (`canIdlePaintOnCanvas`: solid / gradient / image / diffuse fills, center stroke, image·video media, etc.) are published by `RcbShapesLayer` through `setSceneCanvasIdlePaint` and painted on the **idle ink overlay** (above SVG plates, frame-clipped). Non-center `strokeAlign`, blend modes, blur, heavy paths, text, polygons/stars, and lottie keep SVG hosts (or editor `forceFullSet`). There is no far-zoom placeholder LOD and no `[data-rcb-lod-layer]`.
+**Canvas idle overflow** and **idle-capable nodes** (`canIdlePaintOnCanvas`: solid / gradient / image / diffuse fills, center stroke, image·video media, etc.) are published by `RcbShapesLayer` through `setSceneCanvasIdlePaint` and painted on the **idle ink overlay** (above SVG plates, frame-clipped). Non-center `strokeAlign`, blend modes, blur, heavy paths, text, polygons/stars, and animation plates keep SVG hosts (or editor `forceFullSet`). There is no far-zoom placeholder LOD and no `[data-rcb-lod-layer]`.
 
 ### Committed ink → SVG hosts
 
@@ -138,7 +138,7 @@ Spatial index: `SceneSpatialRuntime` / `RcbSpatialIndex` (cell size 256 in `SvgC
 
 - **Light vectors:** hundreds → low thousands with cull + Canvas idle
 - **Dense host overflow:** Canvas idle ink (real paint), not placeholder LOD
-- **Many videos / Lotties / generators:** DOM + decode dominate before node-count alone
+- **Many videos / animations / generators:** DOM + decode dominate before node-count alone
 - **Huge path `d`:** hit-test / history pressure (`HEAVY_PATH_D_CHARS`)
 
 ## Key files (quick map)

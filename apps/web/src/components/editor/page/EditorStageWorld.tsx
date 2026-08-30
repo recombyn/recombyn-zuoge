@@ -8,6 +8,8 @@ import {
   type RefObject,
 } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
+import { message } from '@/components/base';
 import {
   RcbCanvas,
   RcbSvgDefs,
@@ -32,13 +34,19 @@ import MarkPinHost from '@/components/editor/nodes/ImageNode/mark/MarkPinHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
-import LottieComposeSessionHost from '@/components/editor/nodes/LottieNode/LottieComposeSessionHost';
+import AnimationComposeSessionHost from '@/components/editor/nodes/AnimationNode/AnimationComposeSessionHost';
+import AnimationPrecompEditOverlay from '@/components/editor/nodes/AnimationNode/AnimationPrecompEditOverlay';
+import AnimationPlayheadSceneSync from '@/components/editor/nodes/AnimationNode/AnimationPlayheadSceneSync';
+import AnimationPlayheadTransport from '@/components/editor/nodes/AnimationNode/AnimationPlayheadTransport';
+import AnimationFrameContextToolbar from '@/components/editor/nodes/AnimationNode/AnimationFrameContextToolbar';
+import AnimationFrameWorkbenchHost from '@/components/editor/nodes/AnimationNode/AnimationFrameWorkbenchHost';
 import AudioTrimSessionHost from '@/components/editor/nodes/AudioNode/AudioTrimSessionHost';
 import AudioSpeedSessionHost from '@/components/editor/nodes/AudioNode/AudioSpeedSessionHost';
 import MeshHandlesOverlay from '@/components/editor/nodes/ShapeNode/MeshHandlesOverlay';
 import FrameContextToolbar from '@/components/editor/nodes/FrameNode/FrameContextToolbar';
 import FrameMultiSelectionToolbar from '@/components/editor/nodes/FrameNode/FrameMultiSelectionToolbar';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
 import {
   stackZIndex,
@@ -87,7 +95,8 @@ import {
   bindUnownedNodesToFrames,
   shouldCoMoveNodeWithFrames,
 } from '@/components/rcb/frames/frameNodeBinding';
-import { previewArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { previewArtboardFrameGeometry, clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { warnIfNewPlateBlockedByAnimationWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 const EDITOR_PAN_BLOCK_SELECTOR = [
   '[data-scene-node-id]',
@@ -384,6 +393,8 @@ type Props = {
   frames: ArtboardFrame[];
   selectedFrames: ArtboardFrame[];
   activeFrame: ArtboardFrame | null;
+  /** Timeline focus frame — remount visibility when it changes. */
+  workbenchFocusFrameId?: string | null;
   canvasFillValue: FillPanelValue;
   canvasBgOpen: boolean;
   canvasMeshSelectedIndex: number;
@@ -425,6 +436,7 @@ function EditorStageWorld({
   frames,
   selectedFrames,
   activeFrame,
+  workbenchFocusFrameId = null,
   canvasFillValue,
   canvasBgOpen,
   canvasMeshSelectedIndex,
@@ -437,6 +449,7 @@ function EditorStageWorld({
   onAddToChat,
 }: Props) {
   const dispatch = useDispatch();
+  const { t } = useTranslation();
   const aiOperationState = useSelector(
     (state: RootState) => state.editor.aiOperationState
   );
@@ -470,14 +483,28 @@ function EditorStageWorld({
     childOrigins: Array<{ nodeId: string; x: number; y: number; width: number; height: number }>;
   } | null>(null);
   const frameMoveDocumentRef = useRef<SceneDocument | null>(document);
+  const showWorkbenchFrame = useCallback(
+    (frame: ArtboardFrame) => {
+      if (frame.hidden) return false;
+      if (!workbenchFocusFrameId) return true;
+      return String(frame.id) === workbenchFocusFrameId;
+    },
+    [workbenchFocusFrameId]
+  );
 
   const onCommitFrame = useCallback(
     (rect: { x: number; y: number; width: number; height: number }) => {
+      if (
+        warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'artboard')
+      ) {
+        dispatch(setActiveTool('select'));
+        return;
+      }
       dispatch(addArtboardFrame(rect));
       dispatch(setActiveTool('select'));
       dispatch(setSelectedNodeIds([]));
     },
-    [dispatch]
+    [dispatch, t]
   );
 
   const onMoveFrame = useCallback(
@@ -717,6 +744,7 @@ function EditorStageWorld({
       if (next !== liveDocument) {
         dispatch(setDocumentFromCanvas(next));
       }
+      clearLiveArtboardFrameGeometry(frameIds);
     }
     frameDragRef.current = null;
     frameMoveDocumentRef.current = document;
@@ -813,7 +841,7 @@ function EditorStageWorld({
         gridSize={gridSize}
       >
         {frames.map((frame) =>
-          frame.hidden ? null : (
+          !showWorkbenchFrame(frame) ? null : (
             <HtmlArtboardFrame
               key={`body-${frame.id}`}
               frame={frame}
@@ -856,7 +884,7 @@ function EditorStageWorld({
         />
 
         {frames.map((frame) =>
-          frame.hidden ? null : (
+          !showWorkbenchFrame(frame) ? null : (
             <HtmlArtboardFrame
               key={`process-${frame.id}`}
               frame={frame}
@@ -892,7 +920,11 @@ function EditorStageWorld({
         <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
         <MarkPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} hidden={selectionTransforming} />
-        <LottieComposeSessionHost document={document} hidden={selectionTransforming} />
+        <AnimationComposeSessionHost document={document} hidden={selectionTransforming} />
+        <AnimationPrecompEditOverlay document={document} hidden={selectionTransforming} />
+        <AnimationPlayheadSceneSync document={document} />
+        <AnimationPlayheadTransport document={document} />
+        <AnimationFrameWorkbenchHost document={document} hidden={selectionTransforming} />
         <AudioTrimSessionHost document={document} hidden={selectionTransforming} />
         <AudioSpeedSessionHost document={document} hidden={selectionTransforming} />
 
@@ -913,7 +945,7 @@ function EditorStageWorld({
         ) : null}
 
         {frames.map((frame) =>
-          frame.hidden ? null : (
+          !showWorkbenchFrame(frame) ? null : (
             <HtmlArtboardFrame
               key={`label-${frame.id}`}
               frame={frame}
@@ -932,7 +964,10 @@ function EditorStageWorld({
                 movingFrameId === frame.id ||
                 (selectionTransforming &&
                   frameChromeMode === 'full' &&
-                  selectedFrameIds.includes(frame.id))
+                  selectedFrameIds.includes(frame.id)) ||
+                (isAnimationArtboardKind(frame.kind) &&
+                  !selectedFrameIds.includes(frame.id) &&
+                  activeFrameId !== frame.id)
               }
               {...frameLabelInteractionProps(
                 frame.id,
@@ -956,10 +991,11 @@ function EditorStageWorld({
         ) : null}
 
         {showFrameToolbar && !showMultiFrameToolbar && activeFrame && selectedFrameBox ? (
-          <FrameContextToolbar
-            frame={activeFrame}
-            box={selectedFrameBox}
-          />
+          isAnimationArtboardKind(activeFrame.kind) ? (
+            <AnimationFrameContextToolbar frame={activeFrame} box={selectedFrameBox} />
+          ) : (
+            <FrameContextToolbar frame={activeFrame} box={selectedFrameBox} />
+          )
         ) : null}
 
         <FrameMoveFeature

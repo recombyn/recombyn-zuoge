@@ -12,7 +12,6 @@ import {
   LuImageUp,
   LuMinus,
   LuFileJson,
-  LuFilm,
   LuMusic2,
   LuMousePointer2,
   LuPenTool,
@@ -23,6 +22,12 @@ import {
   LuType,
 } from 'react-icons/lu';
 import { RiImageUploadLine, RiVideoUploadLine, RiVideoLine } from 'react-icons/ri';
+import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
+import { resolveActiveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  warnIfAvBlockedByAnimationWorkbenchFocus,
+  warnIfNewPlateBlockedByAnimationWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { Dropdown, Tooltip, message } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
@@ -35,10 +40,10 @@ import {
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
   startAudioUploadPlaceholder,
-  spawnLottie,
+  importLottieIntoAnimationFrame,
   spawnImageGenerator,
   spawnVideoGenerator,
-  spawnLottieGenerator,
+  spawnAnimationBoard,
   spawnAudioGenerator,
   finishImageProcess,
   failImageProcess,
@@ -93,6 +98,7 @@ const TOOL_SHORTCUT = {
   imageGenerator: 'A',
   videoGenerator: 'Shift A',
   lottieGenerator: 'M',
+  animationBoard: 'M',
   audioGenerator: 'U',
 } as const;
 
@@ -110,16 +116,11 @@ function pickGeneratorAction(
   actions: {
     image: () => void;
     video: () => void;
-    lottie: () => void;
     audio: () => void;
   }
 ) {
   if (key === 'video') {
     actions.video();
-    return;
-  }
-  if (key === 'lottie') {
-    actions.lottie();
     return;
   }
   if (key === 'audio') {
@@ -375,6 +376,7 @@ function EditorToolStrip({
   stageEl = null,
   compact = false,
   selectOnly = false,
+  chrome = 'pill',
 }: {
   className?: string;
   /** Used to place toolbar image uploads at the visible viewport center. */
@@ -383,12 +385,17 @@ function EditorToolStrip({
   compact?: boolean;
   /** Preview / inspect: keep the dock visible but only Select / Pan stay active. */
   selectOnly?: boolean;
+  /** `flat` when nested in the timeline-docked tool rail (no pill chrome). */
+  chrome?: 'pill' | 'flat';
 }) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
   const activeTool = useSelector((state: any) => state.editor.activeTool);
   const shapeKind = useSelector((state: any) => state.editor.shapeKind);
   const document = useSelector((state: any) => state.editor.document);
+  const timelineOpen = useSelector((state: any) =>
+    Boolean(state.editor.lottieTimelinePanel?.nodeId)
+  );
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -396,6 +403,7 @@ function EditorToolStrip({
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [pluginButtons, setPluginButtons] = useState<CanvasToolbarButton[]>([]);
   const toolsLocked = Boolean(selectOnly);
+  const newPlateLocked = toolsLocked || timelineOpen;
 
   useEffect(() => {
     let cancelled = false;
@@ -416,11 +424,17 @@ function EditorToolStrip({
     dispatch(setActiveTool('select'));
   }, [toolsLocked, activeTool, dispatch]);
 
+  useEffect(() => {
+    if (!timelineOpen) return;
+    if (activeTool !== 'frame') return;
+    dispatch(setActiveTool('select'));
+  }, [timelineOpen, activeTool, dispatch]);
+
   const L = useMemo(
     () => ({
       select: t('editor.tools.select'),
       pan: t('editor.tools.pan'),
-      frame: t('editor.tools.frame'),
+      frame: t('editor.tools.frame', { defaultValue: '画板' }),
       shape: t('editor.tools.shape'),
       pen: t('editor.tools.pen'),
       pencil: t('editor.tools.pencil'),
@@ -447,6 +461,7 @@ function EditorToolStrip({
       imageGenerator: t('editor.tools.imageGenerator'),
       videoGenerator: t('editor.tools.videoGenerator'),
       lottieGenerator: t('editor.tools.lottieGenerator'),
+      animationBoard: t('editor.tools.animationBoard', { defaultValue: '动画工作台' }),
       audioGenerator: t('editor.tools.audioGenerator'),
       uploading: t('editor.tools.uploading'),
       uploadFail: t('editor.tools.uploadFail'),
@@ -499,35 +514,42 @@ function EditorToolStrip({
   );
 
   const uploadItems: MenuItemType[] = useMemo(
-    () => [
-      {
-        key: 'image',
-        label: (
-          <MenuLabel
-            label={L.uploadImage}
-            icon={<RiImageUploadLine className={MENU_ICON_CLASS} />}
-          />
-        ),
-      },
-      {
-        key: 'video',
-        label: (
-          <MenuLabel
-            label={L.uploadVideo}
-            icon={<RiVideoUploadLine className={MENU_ICON_CLASS} />}
-          />
-        ),
-      },
-      {
-        key: 'audio',
-        label: (
-          <MenuLabel
-            label={L.uploadAudio}
-            icon={<LuMusic2 className={MENU_ICON_CLASS} strokeWidth={1.8} />}
-          />
-        ),
-      },
-      {
+    () => {
+      const items: MenuItemType[] = [
+        {
+          key: 'image',
+          label: (
+            <MenuLabel
+              label={L.uploadImage}
+              icon={<RiImageUploadLine className={MENU_ICON_CLASS} />}
+            />
+          ),
+        },
+      ];
+      // Timeline focus: no AV onto the workbench — hide entries entirely.
+      if (!timelineOpen) {
+        items.push(
+          {
+            key: 'video',
+            label: (
+              <MenuLabel
+                label={L.uploadVideo}
+                icon={<RiVideoUploadLine className={MENU_ICON_CLASS} />}
+              />
+            ),
+          },
+          {
+            key: 'audio',
+            label: (
+              <MenuLabel
+                label={L.uploadAudio}
+                icon={<LuMusic2 className={MENU_ICON_CLASS} strokeWidth={1.8} />}
+              />
+            ),
+          }
+        );
+      }
+      items.push({
         key: 'lottie',
         label: (
           <MenuLabel
@@ -535,55 +557,53 @@ function EditorToolStrip({
             icon={<LuFileJson className={MENU_ICON_CLASS} strokeWidth={1.8} />}
           />
         ),
-      },
-    ],
-    [L.uploadAudio, L.uploadImage, L.uploadLottie, L.uploadVideo]
+      });
+      return items;
+    },
+    [L.uploadAudio, L.uploadImage, L.uploadLottie, L.uploadVideo, timelineOpen]
   );
 
   const generatorItems: MenuItemType[] = useMemo(
-    () => [
-      {
-        key: 'image',
-        label: (
-          <MenuLabel
-            label={L.imageGenerator}
-            shortcut={TOOL_SHORTCUT.imageGenerator}
-            icon={<LuImagePlus className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
-          />
-        ),
-      },
-      {
-        key: 'video',
-        label: (
-          <MenuLabel
-            label={L.videoGenerator}
-            shortcut={TOOL_SHORTCUT.videoGenerator}
-            icon={<RiVideoLine className={MENU_ICON_CLASS} />}
-          />
-        ),
-      },
-      {
-        key: 'lottie',
-        label: (
-          <MenuLabel
-            label={L.lottieGenerator}
-            shortcut={TOOL_SHORTCUT.lottieGenerator}
-            icon={<LuFilm className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
-          />
-        ),
-      },
-      {
-        key: 'audio',
-        label: (
-          <MenuLabel
-            label={L.audioGenerator}
-            shortcut={TOOL_SHORTCUT.audioGenerator}
-            icon={<LuMusic2 className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
-          />
-        ),
-      },
-    ],
-    [L.audioGenerator, L.imageGenerator, L.lottieGenerator, L.videoGenerator]
+    () => {
+      const items: MenuItemType[] = [
+        {
+          key: 'image',
+          label: (
+            <MenuLabel
+              label={L.imageGenerator}
+              shortcut={TOOL_SHORTCUT.imageGenerator}
+              icon={<LuImagePlus className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
+            />
+          ),
+        },
+      ];
+      if (!timelineOpen) {
+        items.push(
+          {
+            key: 'video',
+            label: (
+              <MenuLabel
+                label={L.videoGenerator}
+                shortcut={TOOL_SHORTCUT.videoGenerator}
+                icon={<RiVideoLine className={MENU_ICON_CLASS} />}
+              />
+            ),
+          },
+          {
+            key: 'audio',
+            label: (
+              <MenuLabel
+                label={L.audioGenerator}
+                shortcut={TOOL_SHORTCUT.audioGenerator}
+                icon={<LuMusic2 className={MENU_ICON_CLASS} strokeWidth={STROKE} />}
+              />
+            ),
+          }
+        );
+      }
+      return items;
+    },
+    [L.audioGenerator, L.imageGenerator, L.videoGenerator, timelineOpen]
   );
 
   const spawnImageGeneratorAtView = () => {
@@ -621,6 +641,7 @@ function EditorToolStrip({
 
   const spawnVideoGeneratorAtView = () => {
     if (!document) return;
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     let width = 640;
     let height = 360;
     let x = 40;
@@ -652,10 +673,13 @@ function EditorToolStrip({
     );
   };
 
-  const spawnLottieGeneratorAtView = () => {
+  const spawnAnimationBoardAtView = () => {
     if (!document) return;
-    let width = 200;
-    let height = 200;
+    if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'animationBoard')) {
+      return;
+    }
+    let width = 364;
+    let height = 364;
     let x = 40;
     let y = 40;
     if (camera && stageEl) {
@@ -665,8 +689,8 @@ function EditorToolStrip({
           document,
           camera,
           stageEl,
-          natural: { width: 200, height: 200 },
-          fit: { minRatio: 0.18, maxRatio: 0.32 },
+          natural: { width: 364, height: 364 },
+          fit: { minRatio: 0.22, maxRatio: 0.42 },
         });
         width = laid.width;
         height = laid.height;
@@ -675,18 +699,19 @@ function EditorToolStrip({
       }
     }
     dispatch(
-      spawnLottieGenerator({
+      spawnAnimationBoard({
         x,
         y,
         width,
         height,
-        name: L.lottieGenerator,
+        name: L.animationBoard,
       })
     );
   };
 
   const spawnAudioGeneratorAtView = () => {
     if (!document) return;
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     let width = 360;
     let height = 200;
     let x = 40;
@@ -747,7 +772,11 @@ function EditorToolStrip({
         }
         return;
       }
-      if (key === 'f' && !e.shiftKey) dispatch(setActiveTool('frame'));
+      if (key === 'f' && !e.shiftKey) {
+        if (newPlateLocked) return;
+        if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'artboard')) return;
+        dispatch(setActiveTool('frame'));
+      }
       if (key === 't' && !e.shiftKey) dispatch(setActiveTool('text'));
       if (key === 'r' && !e.shiftKey) dispatch(setShapeKind('rect'));
       if (key === 'l' && !e.shiftKey) dispatch(setShapeKind('line'));
@@ -764,12 +793,15 @@ function EditorToolStrip({
         spawnImageGeneratorAtView();
       }
       if (key === 'a' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (timelineOpen) return;
         spawnVideoGeneratorAtView();
       }
       if (key === 'm' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        spawnLottieGeneratorAtView();
+        if (newPlateLocked) return;
+        spawnAnimationBoardAtView();
       }
       if (key === 'u' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (timelineOpen) return;
         spawnAudioGeneratorAtView();
       }
       if (key === 'p' && !e.shiftKey) dispatch(setActiveTool('pen'));
@@ -788,10 +820,12 @@ function EditorToolStrip({
     document,
     L.imageGenerator,
     L.videoGenerator,
-    L.lottieGenerator,
+    L.animationBoard,
     L.audioGenerator,
     stageEl,
     toolsLocked,
+    newPlateLocked,
+    timelineOpen,
   ]);
 
   const placeAtViewportCenter = (
@@ -851,6 +885,7 @@ function EditorToolStrip({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     try {
       const prepared = await prepareVideoUploadPreview(file);
       const { width, height, x, y } = placeAtViewportCenter({
@@ -899,6 +934,7 @@ function EditorToolStrip({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     try {
       const preview = createFilePreviewUrl(file);
       const duration = await new Promise<number | undefined>((resolve) => {
@@ -951,21 +987,50 @@ function EditorToolStrip({
     try {
       const animationData = parseLottieAnimationData(await file.text());
       if (!animationData) throw new Error('invalid lottie');
+      const state = store.getState() as any;
+      const doc = state?.editor?.document;
+      const selectedFrameIds = (state?.editor?.selectedFrameIds || []) as string[];
+      const targetFrameId = resolveActiveAnimationFrameId(doc, selectedFrameIds);
+      const importName = file.name?.replace(/\.json$/i, '') || undefined;
+      if (targetFrameId) {
+        dispatch(
+          importLottieIntoAnimationFrame({
+            frameId: targetFrameId,
+            animationData,
+            name: importName,
+          })
+        );
+        return;
+      }
+      if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'animationBoard')) {
+        return;
+      }
+      // Animation track: import into a new 动画工作台 (not a free Lottie plate).
       const natural = {
         width: Math.max(1, Number(animationData.w) || 200),
         height: Math.max(1, Number(animationData.h) || 200),
       };
       const { width, height, x, y } = placeAtViewportCenter(natural);
       dispatch(
-        spawnLottie({
-          animationData,
+        spawnAnimationBoard({
           width,
           height,
           x,
           y,
-          name: file.name?.replace(/\.json$/i, '') || 'Lottie',
+          name: importName || L.animationBoard,
         })
       );
+      const after = store.getState() as any;
+      const frameId = String(after?.editor?.selectedFrameIds?.[0] || '').trim();
+      if (frameId) {
+        dispatch(
+          importLottieIntoAnimationFrame({
+            frameId,
+            animationData,
+            name: importName,
+          })
+        );
+      }
     } catch {
       message.error(t('editor.tools.lottieGenInvalidJson', { defaultValue: 'Invalid Lottie JSON' }));
     }
@@ -976,10 +1041,12 @@ function EditorToolStrip({
   };
 
   const openVideoUpload = () => {
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     videoInputRef.current?.click();
   };
 
   const openAudioUpload = () => {
+    if (warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) return;
     audioInputRef.current?.click();
   };
 
@@ -1002,7 +1069,6 @@ function EditorToolStrip({
     pickGeneratorAction(key, {
       image: spawnImageGeneratorAtView,
       video: spawnVideoGeneratorAtView,
-      lottie: spawnLottieGeneratorAtView,
       audio: spawnAudioGeneratorAtView,
     });
   };
@@ -1034,7 +1100,16 @@ function EditorToolStrip({
   return (
     <div className="relative">
       <FloatingToolbar
-        className={cn(compact ? 'gap-1.5 px-2.5 py-1.5' : 'gap-2.5 px-3.5 py-2', className)}
+        bare={chrome === 'flat'}
+        variant={chrome === 'flat' ? 'flat' : 'pill'}
+        className={cn(
+          chrome === 'flat'
+            ? 'gap-[15px] px-0 py-0'
+            : compact
+              ? 'gap-1.5 px-2.5 py-1.5'
+              : 'gap-2.5 px-3.5 py-2',
+          className
+        )}
       >
       {/* Select / Move — click selects, hover for 选择/移动 */}
       <SplitToolButton
@@ -1124,18 +1199,52 @@ function EditorToolStrip({
       </ToolBtn>
 
       {/* 智能画板 — free-draw; toolbar appears on the frame after commit */}
-      <ToolBtn
-        tip={toolTipWithShortcut(L.frame, TOOL_SHORTCUT.frame)}
-        active={frameActive}
-        disabled={toolsLocked}
-        onClick={() => dispatch(setActiveTool('frame'))}
-      >
-        <ToolIcon className="h-3.5 w-3.5">
-          <LuFrame className="h-full w-full" strokeWidth={STROKE} />
-        </ToolIcon>
-      </ToolBtn>
+      {timelineOpen ? null : (
+        <ToolBtn
+          tip={toolTipWithShortcut(L.frame, TOOL_SHORTCUT.frame)}
+          active={frameActive}
+          disabled={toolsLocked}
+          onClick={() => {
+            if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'artboard')) {
+              return;
+            }
+            dispatch(setActiveTool('frame'));
+          }}
+        >
+          <ToolIcon className="h-3.5 w-3.5">
+            <LuFrame className="h-full w-full" strokeWidth={STROKE} />
+          </ToolIcon>
+        </ToolBtn>
+      )}
 
-      <span className="mx-0.5 h-4 w-px shrink-0 bg-[var(--line)]" aria-hidden />
+      {/* 动画工作台 — standalone after artboard (not inside generators menu). */}
+      {timelineOpen ? null : (
+        <ToolBtn
+          tip={toolTipWithShortcut(L.animationBoard, TOOL_SHORTCUT.animationBoard)}
+          disabled={toolsLocked}
+          onClick={spawnAnimationBoardAtView}
+        >
+          <ToolIcon>
+            <AnimationOutlineIcon className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
+          </ToolIcon>
+        </ToolBtn>
+      )}
+
+      {chrome === 'flat' ? null : (
+        <span className="mx-0.5 h-4 w-px shrink-0 bg-[var(--line)]" aria-hidden />
+      )}
+
+      <div
+        className={cn(
+          chrome === 'flat' ? 'relative flex items-center gap-[15px]' : 'contents'
+        )}
+      >
+        {chrome === 'flat' ? (
+          <span
+            className="absolute -left-[8px] top-1/2 h-4 w-px -translate-y-1/2 bg-[var(--line)]"
+            aria-hidden
+          />
+        ) : null}
 
       {/* 图片/视频上传 — hover opens panel (同形状工具) */}
       <SplitToolButton
@@ -1158,7 +1267,7 @@ function EditorToolStrip({
         </ToolIcon>
       </SplitToolButton>
 
-      {/* Generators — hover opens panel (same as upload / shapes). */}
+      {/* Generators — image / video / audio only (Lottie is a separate artboard tool). */}
       <SplitToolButton
         tip={toolTipWithShortcut(L.imageGenerator, TOOL_SHORTCUT.imageGenerator)}
         disabled={toolsLocked}
@@ -1202,7 +1311,7 @@ function EditorToolStrip({
           </ToolIcon>
         </ToolBtn>
       ))}
-
+      </div>
       <input
         ref={imageInputRef}
         type="file"

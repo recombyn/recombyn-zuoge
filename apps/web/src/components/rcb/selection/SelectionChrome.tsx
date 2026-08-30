@@ -60,6 +60,12 @@ type SelectionChromeProps = {
   strokeOuterScene?: number;
   /** Override selection box / handle stroke color. */
   strokeColor?: string;
+  /** Transform origin as % of box (default 50/50). Lottie Anchor drives this. */
+  anchorX?: number;
+  anchorY?: number;
+  /** AE-style skew (degrees) — must match scene ink or content leaves the box. */
+  skewX?: number;
+  skewAxis?: number;
 };
 
 /**
@@ -423,25 +429,45 @@ export function liveHostPaintOrigin(
 }
 
 /** Local chrome transform under the canonical scene camera group.
- * Order matches host ink (`reapplySceneTransform`): translate → rotate → flip about center.
+ * Order matches host ink (`reapplySceneTransform`): translate → pivot(R/Sk/Sa/flip).
  */
 export function sceneChromeBodyTransform(
   box: { left: number; top: number; width: number; height: number },
   angleDeg: number,
   flipX = false,
-  flipY = false
+  flipY = false,
+  anchorX = 50,
+  anchorY = 50,
+  skewXDeg = 0,
+  skewAxisDeg = 0
 ): string {
   const w = Math.max(1, Number(box.width) || 1);
   const h = Math.max(1, Number(box.height) || 1);
-  const cx = w / 2;
-  const cy = h / 2;
+  const ax = Math.max(0, Math.min(100, Number(anchorX) || 0));
+  const ay = Math.max(0, Math.min(100, Number(anchorY) || 0));
+  const cx = (w * ax) / 100;
+  const cy = (h * ay) / 100;
   const parts = [`translate(${box.left} ${box.top})`];
   const angle = Number(angleDeg) || 0;
-  if (Math.abs(angle) > 0.01) parts.push(`rotate(${angle} ${cx} ${cy})`);
-  if (flipX || flipY) {
-    const sx = flipX ? -1 : 1;
-    const sy = flipY ? -1 : 1;
-    parts.push(`translate(${cx} ${cy}) scale(${sx} ${sy}) translate(${-cx} ${-cy})`);
+  const skewX = Number(skewXDeg) || 0;
+  const skewAxis = Number(skewAxisDeg) || 0;
+  const needPivot =
+    Math.abs(angle) > 0.01 ||
+    flipX ||
+    flipY ||
+    Math.abs(skewX) > 1e-6 ||
+    Math.abs(skewAxis) > 1e-6;
+  if (needPivot) {
+    parts.push(`translate(${cx} ${cy})`);
+    if (Math.abs(angle) > 0.01) parts.push(`rotate(${angle})`);
+    // AE-style: rotate(Sa) → skewX(Sk) → rotate(-Sa), same as scene ink.
+    if (Math.abs(skewAxis) > 1e-6) parts.push(`rotate(${skewAxis})`);
+    if (Math.abs(skewX) > 1e-6) parts.push(`skewX(${skewX})`);
+    if (Math.abs(skewAxis) > 1e-6) parts.push(`rotate(${-skewAxis})`);
+    if (flipX || flipY) {
+      parts.push(`scale(${flipX ? -1 : 1} ${flipY ? -1 : 1})`);
+    }
+    parts.push(`translate(${-cx} ${-cy})`);
   }
   return parts.join(' ');
 }
@@ -489,8 +515,20 @@ export function WorldSvgFrame({
         | undefined)
     : null;
   const localChrome = Boolean(nodeId);
+  const hostAny = el as {
+    __sceneAnchorX?: number;
+    __sceneAnchorY?: number;
+    __sceneSkewX?: number;
+    __sceneSkewAxis?: number;
+  } | null;
+  const anchorX = Math.max(0, Math.min(100, Number(hostAny?.__sceneAnchorX ?? 50)));
+  const anchorY = Math.max(0, Math.min(100, Number(hostAny?.__sceneAnchorY ?? 50)));
+  const skewX = Number(hostAny?.__sceneSkewX) || 0;
+  const skewAxis = Number(hostAny?.__sceneSkewAxis) || 0;
 
-  const bodyTransform = localChrome ? sceneChromeBodyTransform(box, angle) : undefined;
+  const bodyTransform = localChrome
+    ? sceneChromeBodyTransform(box, angle, false, false, anchorX, anchorY, skewX, skewAxis)
+    : undefined;
   const mount = getSceneSelectionChromeMount();
 
   useLayoutEffect(() => {
@@ -1678,13 +1716,21 @@ export function pickPaintedHitZone(
   return best?.pick ?? null;
 }
 
-function rotateLocal(lx: number, ly: number, w: number, h: number, angleDeg: number) {
+function rotateLocal(
+  lx: number,
+  ly: number,
+  w: number,
+  h: number,
+  angleDeg: number,
+  anchorX = 50,
+  anchorY = 50
+) {
   if (Math.abs(angleDeg) < 0.001) return { x: lx, y: ly };
   const rad = (angleDeg * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
-  const cx = w / 2;
-  const cy = h / 2;
+  const cx = (w * Math.max(0, Math.min(100, anchorX))) / 100;
+  const cy = (h * Math.max(0, Math.min(100, anchorY))) / 100;
   const dx = lx - cx;
   const dy = ly - cy;
   return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
@@ -1704,7 +1750,9 @@ function sceneToLocal(
   sceneX: number,
   sceneY: number,
   box: SceneBox,
-  angleDeg: number
+  angleDeg: number,
+  anchorX = 50,
+  anchorY = 50
 ): { x: number; y: number } {
   const dx = sceneX - box.left;
   const dy = sceneY - box.top;
@@ -1714,8 +1762,8 @@ function sceneToLocal(
   const sin = Math.sin(rad);
   const w = box.width;
   const h = box.height;
-  const cx = w / 2;
-  const cy = h / 2;
+  const cx = (w * Math.max(0, Math.min(100, anchorX))) / 100;
+  const cy = (h * Math.max(0, Math.min(100, anchorY))) / 100;
   const rx = dx - cx;
   const ry = dy - cy;
   return { x: cx + rx * cos - ry * sin, y: cy + rx * sin + ry * cos };
@@ -1816,6 +1864,10 @@ function SelectionChrome({
   showBoxStroke = true,
   strokeOuterScene = 0,
   strokeColor,
+  anchorX = 50,
+  anchorY = 50,
+  skewX = 0,
+  skewAxis = 0,
 }: SelectionChromeProps) {
   const camera = useRcbCamera();
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
@@ -1855,7 +1907,16 @@ function SelectionChrome({
   const lClear = halfVis + CHROME_CORNER_L_CLEAR_PX * inv * hs + strokeOuter;
   const handleAttrProps = { [handleDataAttr]: handleDataValue };
 
-  const svgBoxTransform = sceneChromeBodyTransform(box, angle);
+  const svgBoxTransform = sceneChromeBodyTransform(
+    box,
+    angle,
+    false,
+    false,
+    anchorX,
+    anchorY,
+    skewX,
+    skewAxis
+  );
 
   const knobs = selectResizeKnobs({
     lineMode,
@@ -1888,7 +1949,7 @@ function SelectionChrome({
   ]);
 
   const toScenePoint = (lx: number, ly: number) => {
-    const p = rotateLocal(lx, ly, w, h, angle);
+    const p = rotateLocal(lx, ly, w, h, angle, anchorX, anchorY);
     return { x: left + p.x, y: top + p.y };
   };
 

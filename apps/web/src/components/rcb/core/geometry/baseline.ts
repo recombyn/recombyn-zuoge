@@ -103,11 +103,6 @@ export function getShapeBaseline(
           node.attrs?.videoGenerator === 'true' ||
           node.attrs?.videoGenerator === 1 ||
           node.attrs?.videoGenerator === '1')) ||
-      (key === 'lottie' &&
-        (node.attrs?.lottieGenerator === true ||
-          node.attrs?.lottieGenerator === 'true' ||
-          node.attrs?.lottieGenerator === 1 ||
-          node.attrs?.lottieGenerator === '1')) ||
       (key === 'audio' &&
         (node.attrs?.audioGenerator === true ||
           node.attrs?.audioGenerator === 'true' ||

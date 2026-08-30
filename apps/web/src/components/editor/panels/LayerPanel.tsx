@@ -12,8 +12,9 @@ import {
   LuImagePlus,
   LuLayoutGrid,
 } from 'react-icons/lu';
-import { RiClapperboardFill, RiVideoAiLine } from 'react-icons/ri';
+import { RiVideoAiLine } from 'react-icons/ri';
 import { RxText } from 'react-icons/rx';
+import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
 import {
   HiOutlineChevronDown,
   HiOutlineChevronLeft,
@@ -33,11 +34,13 @@ import {
   isGeneratorNode,
   isImageGeneratorNode,
   isAudioGeneratorNode,
+  isAnimationFrameHostNode,
   isLottieGeneratorNode,
   isVideoGeneratorNode,
   isNodeHidden,
   isNodeLocked
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import {
   listSceneNodes,
   parseStackKey,
@@ -116,7 +119,10 @@ function listFrameChildLayerRows(
   nodeById: Map<string, any>
 ): LayerStackRow[] {
   if (!document || !frameId) return [];
-  const ids = nodeIdsBoundToFrames(document, [frameId]);
+  const ids = nodeIdsBoundToFrames(document, [frameId]).filter((id) => {
+    // Invisible timeline host under 动画工作台 — not a user layer.
+    return !isAnimationFrameHostNode(nodeById.get(id), document);
+  });
   const sorted = [...ids].sort((a, b) => {
     const ao = Number(nodeById.get(a)?.attrs?.frameOrder);
     const bo = Number(nodeById.get(b)?.attrs?.frameOrder);
@@ -487,7 +493,7 @@ function LayerIcon({
   if (isLottieGeneratorNode(node)) {
     return (
       <LayerGlyphFallback>
-        <RiClapperboardFill className="block h-[13px] w-[13px] shrink-0" />
+        <AnimationOutlineIcon className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
       </LayerGlyphFallback>
     );
   }
@@ -495,7 +501,7 @@ function LayerIcon({
   if (node.key === 'lottie') {
     return (
       <LayerGlyphFallback>
-        <LuFilm className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
+        <AnimationOutlineIcon className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
       </LayerGlyphFallback>
     );
   }
@@ -761,7 +767,11 @@ function FrameLayerRow({
         className={cn(LAYER_ICON_SLOT, hidden && 'opacity-50')}
         aria-label={frameName}
       >
-        <LuFrame className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+        {isAnimationArtboardKind(frame?.kind) ? (
+          <AnimationOutlineIcon className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+        ) : (
+          <LuFrame className="h-[13px] w-[13px] block shrink-0" strokeWidth={1.75} />
+        )}
       </button>
       {isEditing ? (
         <div

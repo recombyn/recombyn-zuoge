@@ -233,6 +233,28 @@ export function rcbFitCamera(
   /** Cap so small scenes do not zoom past 100%. */
   maxZoom = 1
 ): RcbCamera {
+  return rcbFitCameraInBand(
+    viewport,
+    bounds,
+    { top: 0, right: 0, bottom: 0, left: 0 },
+    padding,
+    maxZoom
+  );
+}
+
+/**
+ * Fit + center scene bounds inside a free band of the stage
+ * (e.g. above timeline/tools, between side docks).
+ * `bandAnchorY` 0 = top of band, 1 = bottom (default 0.5 = center).
+ */
+export function rcbFitCameraInBand(
+  viewport: { width: number; height: number },
+  bounds: { x?: number; y?: number; width: number; height: number },
+  band: { top?: number; right?: number; bottom?: number; left?: number },
+  padding = 120,
+  maxZoom = 1,
+  bandAnchorY = 0.5
+): RcbCamera {
   const vw = Math.max(1, viewport.width);
   const vh = Math.max(1, viewport.height);
   const aw = Math.max(1, bounds.width);
@@ -240,14 +262,25 @@ export function rcbFitCamera(
   const ox = bounds.x || 0;
   const oy = bounds.y || 0;
   const pad = Math.max(0, padding);
+  const top = Math.max(0, Number(band.top) || 0);
+  const right = Math.max(0, Number(band.right) || 0);
+  const bottom = Math.max(0, Number(band.bottom) || 0);
+  const left = Math.max(0, Number(band.left) || 0);
   const cap = Math.max(RCB_MIN_ZOOM, Math.min(RCB_MAX_ZOOM, maxZoom));
-  const availW = Math.max(1, vw - pad * 2);
-  const availH = Math.max(1, vh - pad * 2);
+  const bandW = Math.max(1, vw - left - right);
+  const bandH = Math.max(1, vh - top - bottom);
+  const availW = Math.max(1, bandW - pad * 2);
+  const availH = Math.max(1, bandH - pad * 2);
   const zoom = rcbClampZoom(Math.min(availW / aw, availH / ah, cap));
+  const ay = Math.max(0, Math.min(1, Number(bandAnchorY) || 0.5));
+  const bandCx = left + bandW / 2;
+  const bandCy = top + bandH * ay;
+  const sceneCx = ox + aw / 2;
+  const sceneCy = oy + ah / 2;
   return {
     zoom,
-    x: (vw - aw * zoom) / 2 - ox * zoom,
-    y: (vh - ah * zoom) / 2 - oy * zoom,
+    x: bandCx - sceneCx * zoom,
+    y: bandCy - sceneCy * zoom,
   };
 }
 

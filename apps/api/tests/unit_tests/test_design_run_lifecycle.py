@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -83,50 +84,53 @@ def test_task_event_replay_is_bounded_and_never_keeps_canvas_payload(monkeypatch
 
 def test_canvas_command_ack_prevents_reconnect_replay() -> None:
     """Outbox ACK is durable: a fresh subscriber only sees unacknowledged rows."""
-    from sqlmodel import SQLModel, Session, create_engine
+    from sqlmodel import Session
 
+    from app.core.db import engine
     from app.repositories import design_tasks
 
-    engine = create_engine("sqlite://")
-    SQLModel.metadata.create_all(engine)
+    task_id = f"cmd-{time.time_ns()}"
     with Session(engine) as session:
         first = design_tasks.append_design_task_canvas_command(
-            session=session, task_id="cmd-1", command_json='{"type":"tool_ops"}', created_at=1.0
+            session=session, task_id=task_id, command_json='{"type":"tool_ops"}', created_at=1.0
         )
         second = design_tasks.append_design_task_canvas_command(
-            session=session, task_id="cmd-1", command_json='{"type":"svg_delta"}', created_at=2.0
+            session=session, task_id=task_id, command_json='{"type":"svg_delta"}', created_at=2.0
         )
         design_tasks.acknowledge_design_task_canvas_commands(
-            session=session, task_id="cmd-1", through_id=first, acknowledged_at=3.0
+            session=session, task_id=task_id, through_id=first, acknowledged_at=3.0
         )
         assert [row.id for row in design_tasks.list_design_task_canvas_commands(
-            session=session, task_id="cmd-1", after_id=0, limit=48
+            session=session, task_id=task_id, after_id=0, limit=48
         )] == [second]
-        assert design_tasks.get_design_task_canvas_command_cursors(session=session, task_id="cmd-1") == (second, first)
+        assert design_tasks.get_design_task_canvas_command_cursors(session=session, task_id=task_id) == (second, first)
 
 
 def test_outbox_prune_keeps_active_task_rows() -> None:
-    from sqlmodel import SQLModel, Session, create_engine
+    from sqlmodel import Session
 
+    from app.core.db import engine
     from app.repositories import design_tasks
     from app.models import DesignTask
 
-    engine = create_engine("sqlite://")
-    SQLModel.metadata.create_all(engine)
+    suffix = str(time.time_ns())
+    done_id = f"done-{suffix}"
+    active_id = f"active-{suffix}"
     with Session(engine) as session:
-        for task_id, status in (("done", "success"), ("active", "paused")):
+        for task_id, status in ((done_id, "success"), (active_id, "paused")):
             session.add(DesignTask(
                 id=task_id, user_id="u", task_type="agent", status=status,
                 created_at=1.0, updated_at=1.0,
             ))
         session.commit()
-        for task_id in ("done", "active"):
+        for task_id in (done_id, active_id):
             design_tasks.append_design_task_event(session=session, task_id=task_id, event_json="{}", created_at=1.0)
             design_tasks.append_design_task_canvas_command(session=session, task_id=task_id, command_json="{}", created_at=1.0)
         pruned = design_tasks.prune_design_task_outboxes(session=session, cutoff=2.0, statuses=["success", "error", "cancelled"])
-        assert pruned == {"events": 1, "commands": 1}
-        assert len(design_tasks.list_design_task_events(session=session, task_id="done", after_id=0, limit=10)) == 0
-        assert len(design_tasks.list_design_task_events(session=session, task_id="active", after_id=0, limit=10)) == 1
+        assert pruned["events"] >= 1
+        assert pruned["commands"] >= 1
+        assert len(design_tasks.list_design_task_events(session=session, task_id=done_id, after_id=0, limit=10)) == 0
+        assert len(design_tasks.list_design_task_events(session=session, task_id=active_id, after_id=0, limit=10)) == 1
 
 
 def test_snapshot_runner_forwards_behavioral_context(monkeypatch) -> None:
