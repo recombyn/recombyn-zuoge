@@ -1104,10 +1104,6 @@ function SvgCanvas({
       if (meta?.brushCategory) {
         (node.attrs as Record<string, unknown>).brushCategory = meta.brushCategory;
       }
-      const frameId = String(meta?.frameId || '').trim();
-      if (frameId && doc.frames?.some((frame) => String(frame.id) === frameId)) {
-        (node.attrs as Record<string, unknown>).frameId = frameId;
-      }
       (node.attrs as Record<string, unknown>).pressureEnabled = pencilPressureEnabled;
       const inkBrush = findPencilBrush(pencilBrushId || DEFAULT_PENCIL_BRUSH_ID);
       (node.attrs as Record<string, unknown>).pencilFill = inkBrush.fillEnabled !== false;
@@ -1118,7 +1114,8 @@ function SvgCanvas({
       const next = bindCreatedNodeToFrame(
         addNodeToDocument(doc, id, node),
         id,
-        { left: origin.x, top: origin.y, width: box.width, height: box.height }
+        { left: origin.x, top: origin.y, width: box.width, height: box.height },
+        meta?.frameId
       );
       documentRef.current = next;
       dispatch(pushEditorHistory());
@@ -1225,14 +1222,11 @@ function SvgCanvas({
         path: pathD,
         closed,
       });
-      const frameId = String(opts?.frameId || '').trim();
-      if (frameId && doc.frames?.some((frame) => String(frame.id) === frameId)) {
-        (node.attrs as Record<string, unknown>).frameId = frameId;
-      }
       const next = bindCreatedNodeToFrame(
         addNodeToDocument(doc, id, node),
         id,
-        { left: origin.x, top: origin.y, width: box.width, height: box.height }
+        { left: origin.x, top: origin.y, width: box.width, height: box.height },
+        opts?.frameId
       );
       documentRef.current = next;
       dispatch(pushEditorHistory());

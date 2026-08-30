@@ -1901,12 +1901,9 @@ const editorSlice = createSlice({
       next.frames = frames;
       const key = `frame:${frame.id}`;
       const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
+      // New 动画工作台 goes on top of the current stack (highest layer).
       if (!order.includes(key)) {
-        let insertAt = 0;
-        for (let i = 0; i < order.length; i += 1) {
-          if (order[i].startsWith('frame:')) insertAt = i + 1;
-        }
-        next.stackOrder = [...order.slice(0, insertAt), key, ...order.slice(insertAt)];
+        next.stackOrder = [...order, key];
       }
       reconcileStackOrder(next);
       const bound = bindUnownedNodesToFrames(next, [frame.id]);

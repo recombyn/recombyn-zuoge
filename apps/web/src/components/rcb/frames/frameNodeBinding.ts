@@ -17,54 +17,36 @@ export type BBox = {
   height: number;
 };
 
-/** Video / audio plates — not valid 动画工作台 children. */
 export function isAvMediaSceneNode(node: { key?: unknown } | null | undefined): boolean {
   const key = String(node?.key || '');
   return key === 'video' || key === 'audio';
 }
 
-/**
- * Whether a node may be bound to a given artboard.
- * 动画工作台 rejects AV + generators (pasteboard surround); normal artboards accept everything.
- */
+/** 动画工作台 rejects AV + generators; normal artboards accept everything. */
 export function canBindNodeToArtboardFrame(
   frame: ArtboardFrame | null | undefined,
   node: { key?: unknown; attrs?: Record<string, unknown> | null } | null | undefined
 ): boolean {
-  if (!frame || !node) return true;
-  if (!isAnimationArtboardKind(frame.kind)) return true;
-  if (isAvMediaSceneNode(node)) return false;
-  if (isGeneratorNode(node as any)) return false;
-  return true;
+  if (!frame || !node || !isAnimationArtboardKind(frame.kind)) return true;
+  return !isAvMediaSceneNode(node) && !isGeneratorNode(node as any);
 }
 
-export function nodeBBox(node: {
+export function sceneBBox(box: {
   x?: unknown;
   y?: unknown;
   width?: unknown;
   height?: unknown;
 }): BBox {
   return {
-    left: Number(node.x) || 0,
-    top: Number(node.y) || 0,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
+    left: Number(box.x) || 0,
+    top: Number(box.y) || 0,
+    width: Math.max(1, Number(box.width) || 1),
+    height: Math.max(1, Number(box.height) || 1),
   };
 }
 
-export function frameBBox(frame: {
-  x?: unknown;
-  y?: unknown;
-  width?: unknown;
-  height?: unknown;
-}): BBox {
-  return {
-    left: Number(frame.x) || 0,
-    top: Number(frame.y) || 0,
-    width: Math.max(1, Number(frame.width) || 1),
-    height: Math.max(1, Number(frame.height) || 1),
-  };
-}
+export const nodeBBox = sceneBBox;
+export const frameBBox = sceneBBox;
 
 export function boxesIntersect(a: BBox, b: BBox): boolean {
   return (
@@ -76,10 +58,8 @@ export function boxesIntersect(a: BBox, b: BBox): boolean {
 }
 
 /**
- * Topmost artboard whose plate intersects the node bbox (explicit placement).
- * Optional `node` skips 动画工作台 frames that reject that media kind.
- * While a workbench timeline is open, only the focused plate is eligible —
- * otherwise moves/pen strokes bind to a hidden「主画板」and vanish under focus.
+ * Topmost artboard under `rect`. Animation workbench only while its timeline
+ * is open; preview mode never claims via move/overlap.
  */
 export function frameForNodeIntersectPlacement(
   doc: SceneDocument,
@@ -88,27 +68,24 @@ export function frameForNodeIntersectPlacement(
 ): string | null {
   const focus = getAnimationWorkbenchTimelineFocus();
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
-  for (let index = frames.length - 1; index >= 0; index -= 1) {
-    const frame = frames[index];
-    if (!frame || frame.hidden || !boxesIntersect(rect, frameBBox(frame))) continue;
+  for (let i = frames.length - 1; i >= 0; i -= 1) {
+    const frame = frames[i];
+    if (!frame || frame.hidden) continue;
     if (focus && !shouldShowArtboardInWorkbenchFocus(frame)) continue;
-    // Preview: skip 动画工作台 for placement (edit only with timeline open).
     if (
       isAnimationArtboardKind(frame.kind) &&
       !canEditAnimationWorkbenchPlate(String(frame.id))
     ) {
       continue;
     }
+    if (!boxesIntersect(rect, sceneBBox(frame))) continue;
     if (!canBindNodeToArtboardFrame(frame, node)) continue;
     return String(frame.id);
   }
   return null;
 }
 
-/**
- * Auto-bind after artboard drag: unowned nodes that overlap the target plate.
- * Nodes with attrs.frameId are never touched — ownership is explicit only.
- */
+/** Auto-bind on artboard draw/move — workbench only when timeline is open. */
 export function shouldBindUnownedNodeToFrame(
   node: {
     key?: unknown;
@@ -122,7 +99,6 @@ export function shouldBindUnownedNodeToFrame(
 ): boolean {
   if (String(node.attrs?.frameId || '').trim()) return false;
   if (!shouldShowArtboardInWorkbenchFocus(frame)) return false;
-  // Preview: do not auto-claim into a closed workbench.
   if (
     isAnimationArtboardKind(frame.kind) &&
     !canEditAnimationWorkbenchPlate(String(frame.id))
@@ -130,14 +106,9 @@ export function shouldBindUnownedNodeToFrame(
     return false;
   }
   if (!canBindNodeToArtboardFrame(frame, node)) return false;
-  return boxesIntersect(nodeBBox(node), frameBBox(frame));
+  return boxesIntersect(sceneBBox(node), sceneBBox(frame));
 }
 
-/**
- * Bind unowned overlapping nodes to the given artboards.
- * Used on artboard draw-commit and after artboard drag — bind + default clipContent
- * are one ownership path (clipping requires attrs.frameId).
- */
 export function bindUnownedNodesToFrames(
   doc: SceneDocument,
   frameIds: string[]
@@ -145,25 +116,28 @@ export function bindUnownedNodesToFrames(
   const idSet = new Set(frameIds.map((id) => String(id || '').trim()).filter(Boolean));
   const frames = (doc.frames || []).filter((frame) => idSet.has(String(frame.id)));
   if (!frames.length) return doc;
-  const patches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
+
   const nodes = Object.values(doc.deltaSetLike || {});
+  const patches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
   for (const node of nodes) {
     if (!node?.id || node.id === 'ROOT') continue;
     const frame = frames.find((item) => shouldBindUnownedNodeToFrame(node, item));
     if (!frame) continue;
-    const siblings = nodes
+    const orders = nodes
       .filter((item) => String(item?.attrs?.frameId || '').trim() === String(frame.id))
       .map((item) => Number(item?.attrs?.frameOrder))
       .filter(Number.isFinite);
-    const { [WORKBENCH_SURROUND_ATTR]: _surround, ...restAttrs } = (node.attrs ||
-      {}) as Record<string, unknown>;
+    const { [WORKBENCH_SURROUND_ATTR]: _s, ...rest } = (node.attrs || {}) as Record<
+      string,
+      unknown
+    >;
     patches.push({
       nodeId: String(node.id),
       patch: {
         attrs: {
-          ...restAttrs,
+          ...rest,
           frameId: String(frame.id),
-          frameOrder: siblings.length ? Math.max(...siblings) + 1 : 0,
+          frameOrder: orders.length ? Math.max(...orders) + 1 : 0,
         },
       },
     });
@@ -171,17 +145,30 @@ export function bindUnownedNodesToFrames(
   return patches.length ? updateNodesInDocument(doc, patches) : doc;
 }
 
-/**
- * Co-move while dragging artboards: bound children follow their owner only;
- * free nodes co-move when they overlap the dragged plate.
- */
+/** Create-time frameId: only when the plate may own the node (timeline open for workbench). */
+export function acceptCreateFrameId(
+  doc: SceneDocument,
+  frameId: string | null | undefined,
+  node?: { key?: unknown; attrs?: Record<string, unknown> | null } | null
+): string | null {
+  const id = String(frameId || '').trim();
+  if (!id) return null;
+  const frame = (doc.frames || []).find((item) => String(item?.id) === id);
+  if (!frame || frame.hidden) return null;
+  if (isAnimationArtboardKind(frame.kind) && !canEditAnimationWorkbenchPlate(id)) return null;
+  return canBindNodeToArtboardFrame(frame, node) ? id : null;
+}
+
+/** Bound children follow owner; free ink never co-moves with an animation workbench. */
 export function shouldCoMoveNodeWithFrames(
   node: { attrs?: Record<string, unknown> },
   nodeRect: BBox,
   movedFrameIds: Set<string>,
-  frameRect: BBox
+  frameRect: BBox,
+  movedFrameKind?: ArtboardFrame['kind'] | string | null
 ): boolean {
   const ownerId = String(node.attrs?.frameId || '').trim();
   if (ownerId) return movedFrameIds.has(ownerId);
+  if (isAnimationArtboardKind(movedFrameKind)) return false;
   return boxesIntersect(nodeRect, frameRect);
 }

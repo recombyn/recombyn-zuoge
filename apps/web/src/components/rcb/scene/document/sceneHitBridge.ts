@@ -19,6 +19,7 @@ import {
   isNodeHiddenInDocument,
   supportsFill,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   HEAVY_PATH_D_CHARS,
@@ -250,8 +251,9 @@ export function frameIdAtPoint(
 }
 
 /**
- * Bound nodes (`attrs.frameId`) only pick inside their owning artboard —
- * prevents adjacent frames from stealing clicks through overflow geometry.
+ * Bound nodes only pick inside their owning artboard.
+ * Unowned ink over a clipContent artboard is pickable only inside that plate —
+ * except 动画工作台, which must not suppress world shapes that merely overlap it.
  */
 export function isNodePickableAtPoint(
   doc: SceneDocument,
@@ -260,35 +262,41 @@ export function isNodePickableAtPoint(
   y: number
 ): boolean {
   const ownerId = String(node.attrs?.frameId || '').trim();
-  if (ownerId) {
-    return frameIdAtPoint(doc, x, y) === ownerId;
-  }
+  if (ownerId) return frameIdAtPoint(doc, x, y) === ownerId;
   return isPointVisibleForFrameClip(doc, node, x, y);
 }
 
-/** Artboards clip intersecting content by default; hidden overflow must not be pickable. */
+function frameRect(frame: { x?: unknown; y?: unknown; width?: unknown; height?: unknown }) {
+  const left = Number(frame.x) || 0;
+  const top = Number(frame.y) || 0;
+  const width = Math.max(1, Number(frame.width) || 1);
+  const height = Math.max(1, Number(frame.height) || 1);
+  return { left, top, right: left + width, bottom: top + height, width, height };
+}
+
+function rectsOverlap(
+  a: { left: number; top: number; right: number; bottom: number },
+  b: { left: number; top: number; right: number; bottom: number }
+) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function pointInRect(
+  x: number,
+  y: number,
+  r: { left: number; top: number; right: number; bottom: number }
+) {
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
 function isPointVisibleForFrameClip(doc: SceneDocument, node: SceneNode, x: number, y: number) {
-  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  const left = Number(node.x) || 0;
-  const top = Number(node.y) || 0;
-  const right = left + Math.max(1, Number(node.width) || 1);
-  const bottom = top + Math.max(1, Number(node.height) || 1);
-  const clippingFrames = frames.filter((frame) => {
-    if (frame?.clipContent === false) return false;
-    const frameLeft = Number(frame.x) || 0;
-    const frameTop = Number(frame.y) || 0;
-    const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
-    const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
-    return left < frameRight && right > frameLeft && top < frameBottom && bottom > frameTop;
+  const nodeRect = frameRect(node);
+  const clipping = (doc.frames || []).filter((frame) => {
+    if (frame?.clipContent === false || isAnimationArtboardKind(frame.kind)) return false;
+    return rectsOverlap(nodeRect, frameRect(frame));
   });
-  if (!clippingFrames.length) return true;
-  return clippingFrames.some((frame) => {
-    const frameLeft = Number(frame.x) || 0;
-    const frameTop = Number(frame.y) || 0;
-    const frameRight = frameLeft + Math.max(1, Number(frame.width) || 1);
-    const frameBottom = frameTop + Math.max(1, Number(frame.height) || 1);
-    return x >= frameLeft && x <= frameRight && y >= frameTop && y <= frameBottom;
-  });
+  if (!clipping.length) return true;
+  return clipping.some((frame) => pointInRect(x, y, frameRect(frame)));
 }
 
 export function bridgeSceneHitTest(
