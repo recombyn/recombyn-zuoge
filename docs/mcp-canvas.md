@@ -1,6 +1,6 @@
 # MCP canvas control
 
-zuoge exposes a **Model Context Protocol** server so external AI clients (Cursor, Claude Desktop, custom agents) can inspect and edit design projects using the same `tool_ops` contract as the built-in Design Agent.
+zuoge exposes a **Model Context Protocol** server so external AI clients (Codex, Claude Desktop, custom agents) can inspect and edit design projects using the same `tool_ops` contract as the built-in Design Agent.
 
 ## Enable
 
@@ -35,27 +35,22 @@ Complex ops (`boolean_op`, `align_nodes`, `image_process`, …) need **Live** mo
 
 Auth: Bearer token (same as web API). Every call needs `project_id` in tool arguments (or `RECOMBYN_PROJECT_ID` in the stdio bridge env).
 
-## Cursor
+## Codex
 
-Add to project `.cursor/mcp.json`:
+Add to project `.codex/config.toml` (or `~/.codex/config.toml`):
 
-```json
-{
-  "mcpServers": {
-    "recombyn-canvas": {
-      "command": "node",
-      "args": ["scripts/mcp/recombyn_canvas_stdio.mjs"],
-      "env": {
-        "RECOMBYN_API_URL": "http://127.0.0.1:8000",
-        "RECOMBYN_TOKEN": "<your-access-token>",
-        "RECOMBYN_PROJECT_ID": "<project-id>"
-      }
-    }
-  }
-}
+```toml
+[mcp_servers.recombyn-canvas]
+command = "node"
+args = ["scripts/mcp/recombyn_canvas_stdio.mjs"]
+
+[mcp_servers.recombyn-canvas.env]
+RECOMBYN_API_URL = "http://127.0.0.1:8000"
+RECOMBYN_TOKEN = "<your-access-token>"
+RECOMBYN_PROJECT_ID = "<project-id>"
 ```
 
-Reload MCP in Cursor settings after saving.
+Restart Codex (or run `codex mcp list`) after saving so the server is picked up.
 
 **Get a token** (local dev):
 

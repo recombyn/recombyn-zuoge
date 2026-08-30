@@ -24,7 +24,7 @@
 
 # zuoge
 
-オープンソースの AI デザインワークスペース。無限ベクターキャンバス、LangGraph Design Agent、Cursor などから同じプロジェクトを編集できる MCP サーバー。Docker Compose でセルフホストできます。
+オープンソースの AI デザインワークスペース。無限ベクターキャンバス、LangGraph Design Agent、Codex などから同じプロジェクトを編集できる MCP サーバー。Docker Compose でセルフホストできます。
 
 **作ろう、デザインがこんなに簡単だったことはない。**
 
@@ -169,22 +169,17 @@ MCP_CANVAS_ENABLED=true
 VITE_MCP_CANVAS_ENABLED=true
 ```
 
-Cursor — `.cursor/mcp.json` に追加：
+Codex — `.codex/config.toml` に追加：
 
-```json
-{
-  "mcpServers": {
-    "recombyn-canvas": {
-      "command": "node",
-      "args": ["scripts/mcp/recombyn_canvas_stdio.mjs"],
-      "env": {
-        "RECOMBYN_API_URL": "http://127.0.0.1:8000",
-        "RECOMBYN_TOKEN": "<token>",
-        "RECOMBYN_PROJECT_ID": "<project-id>"
-      }
-    }
-  }
-}
+```toml
+[mcp_servers.recombyn-canvas]
+command = "node"
+args = ["scripts/mcp/recombyn_canvas_stdio.mjs"]
+
+[mcp_servers.recombyn-canvas.env]
+RECOMBYN_API_URL = "http://127.0.0.1:8000"
+RECOMBYN_TOKEN = "<token>"
+RECOMBYN_PROJECT_ID = "<project-id>"
 ```
 
 **Live** — エディタ起動中、ブラウザで apply。  
