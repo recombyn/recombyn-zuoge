@@ -4,10 +4,14 @@ import { rcbViewportSceneBounds, type RcbCamera } from '@/components/rcb';
 import {
   listSceneNodes
 } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isAnimationFrameHostNode,
+  isGeneratorNode,
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { resolveFillColor, resolveStroke } from '@/components/rcb/scene/document/sceneEffects';
 import { parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -38,20 +42,55 @@ function nodeSceneBox(doc: SceneDocument, node: SceneNodeInput): Box | null {
   return { x: left, y: top, width: w, height: h };
 }
 
+function frameSceneBox(frame: ArtboardFrame): Box {
+  return {
+    x: Number(frame.x) || 0,
+    y: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  };
+}
+
+function isMinimapFrameVisible(frame: ArtboardFrame): boolean {
+  const hidden = (frame as { hidden?: unknown }).hidden;
+  return !(hidden === true || hidden === 'true' || hidden === 1 || hidden === '1');
+}
+
+function nodeEffectiveOpacity(node: SceneNodeInput): number {
+  const raw = Number(node?.attrs?.opacity);
+  if (!Number.isFinite(raw)) return 1;
+  return raw > 1 ? raw / 100 : raw;
+}
+
+function isAttrHidden(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+/**
+ * Minimap is a navigation overview — keep hosts / generators / empty out,
+ * but do NOT apply workbench edit focus (board-outside content must stay visible).
+ */
+function isMinimapNodeVisible(doc: SceneDocument, node: SceneNodeInput): boolean {
+  if (!node) return false;
+  if (isAnimationFrameHostNode(node, doc)) return false;
+  if (isGeneratorNode(node)) return false;
+  if (String(node.attrs?.processStatus || '') === 'running') return false;
+  if (isAttrHidden(node.attrs?.hidden)) return false;
+  if (node.attrs?.visible === false || node.attrs?.visible === 'false') return false;
+  if (nodeEffectiveOpacity(node) <= 0.01) return false;
+  return true;
+}
+
 function sceneContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Box {
   let box: Box | null = null;
   for (const f of frames) {
-    box = unionBox(box, {
-      x: f.x,
-      y: f.y,
-      width: Math.max(1, f.width),
-      height: Math.max(1, f.height),
-    });
+    if (!isMinimapFrameVisible(f)) continue;
+    box = unionBox(box, frameSceneBox(f));
   }
   for (const { node } of listSceneNodes(doc)) {
+    if (!isMinimapNodeVisible(doc, node)) continue;
     const nb = nodeSceneBox(doc, node);
-    if (!nb) continue;
-    if (nb.width < 2 && nb.height < 2) continue;
+    if (!nb || (nb.width < 2 && nb.height < 2)) continue;
     box = unionBox(box, nb);
   }
   if (!box) return { x: 0, y: 0, width: 1200, height: 800 };
@@ -119,6 +158,22 @@ function EditorMinimap({
     () => rcbViewportSceneBounds(camera, stageSize),
     [camera, stageSize]
   );
+
+  const visibleFrames = useMemo(
+    () => frames.filter((f) => isMinimapFrameVisible(f)),
+    [frames]
+  );
+
+  const visibleNodeEntries = useMemo(() => {
+    const out: Array<{ id: string; node: SceneNodeInput; box: Box }> = [];
+    for (const { id, node } of listSceneNodes(document)) {
+      if (!isMinimapNodeVisible(document, node)) continue;
+      const box = nodeSceneBox(document, node);
+      if (!box || (box.width < 2 && box.height < 2)) continue;
+      out.push({ id, node, box });
+    }
+    return out;
+  }, [document]);
 
   const world = useMemo(() => {
     const content = sceneContentBounds(document, frames);
@@ -207,7 +262,6 @@ function EditorMinimap({
   const vpH = Math.max(2, viewport.height * scale);
   const selectedFrames = new Set(selectedFrameIds);
   const selectedNodes = new Set(selectedNodeIds);
-  const nodes = listSceneNodes(document);
 
   return (
     <div className="pointer-events-auto mb-2 w-[200px] rounded-xl bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.18)] ring-1 ring-[var(--line)]">
@@ -220,10 +274,11 @@ function EditorMinimap({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {frames.map((f) => {
-          const p = toMap(f.x, f.y);
-          const w = Math.max(2, f.width * scale);
-          const h = Math.max(2, f.height * scale);
+        {visibleFrames.map((f) => {
+          const fb = frameSceneBox(f);
+          const p = toMap(fb.x, fb.y);
+          const w = Math.max(2, fb.width * scale);
+          const h = Math.max(2, fb.height * scale);
           const isActive = f.id === activeFrameId || selectedFrames.has(f.id);
           return (
             <div
@@ -242,9 +297,7 @@ function EditorMinimap({
             />
           );
         })}
-        {nodes.map(({ id, node }) => {
-          const nb = nodeSceneBox(document, node);
-          if (!nb) return null;
+        {visibleNodeEntries.map(({ id, node, box: nb }) => {
           const p = toMap(nb.x, nb.y);
           const w = Math.max(2, nb.width * scale);
           const h = Math.max(2, nb.height * scale);
@@ -261,6 +314,7 @@ function EditorMinimap({
                 background: minimapNodeColor(node),
                 outline: selected ? '1.5px solid #3b82f6' : '1px solid rgba(0,0,0,0.2)',
                 borderRadius: 1,
+                opacity: Math.max(0.15, Math.min(1, nodeEffectiveOpacity(node))),
               }}
             />
           );

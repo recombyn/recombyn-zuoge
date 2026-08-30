@@ -158,7 +158,7 @@ export async function prepareMediaFileForUpload(
  */
 export async function uploadComposerAttachment(
   file: File,
-  opts?: { previewDataUrl?: string; signal?: AbortSignal }
+  opts?: { previewDataUrl?: string; signal?: AbortSignal; compress?: boolean }
 ): Promise<{
   uploadKey: string;
   url: string;
@@ -170,7 +170,7 @@ export async function uploadComposerAttachment(
     String(opts?.previewDataUrl || '').trim() || createFilePreviewUrl(file);
   const uploaded = await uploadImageFile(file, {
     signal: opts?.signal,
-    compress: true,
+    compress: opts?.compress !== false,
   });
   const url = String(uploaded.url || '').trim();
   const uploadKey = String(uploaded.key || '').trim();
@@ -357,7 +357,28 @@ export async function finishComposerAttachmentUpload(
   thumbUrl: string;
   name: string;
 }> {
-  const uploaded = await uploadComposerAttachment(file, { previewDataUrl: preview });
+  const mime = String(file.type || '').toLowerCase();
+  const name = String(file.name || '');
+  const isJsonLike =
+    mime === 'application/json' ||
+    mime === 'text/json' ||
+    mime === 'text/plain' ||
+    /\.(json|lot)$/i.test(name);
+  // JSON/Lottie: no image compress / decode wait — server stores the text file as-is.
+  const uploaded = await uploadComposerAttachment(file, {
+    previewDataUrl: preview,
+    compress: !isJsonLike,
+  });
+  if (isJsonLike) {
+    revokeFilePreviewUrl(preview);
+    return {
+      uploadKey: uploaded.uploadKey,
+      url: uploaded.url,
+      dataUrl: uploaded.url || String(uploaded.previewDataUrl || preview).trim(),
+      thumbUrl: '',
+      name: uploaded.name,
+    };
+  }
   const still =
     thumb && isSeparateStillPosterUrl(thumb, preview) ? thumb : undefined;
   const { dataUrl, thumbUrl } = await resolveComposerMediaAfterUpload({

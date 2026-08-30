@@ -150,8 +150,14 @@ function isLottieOnlyExport(document: SceneDocument, ids: string[], hasCrop: boo
   return nodes.length === ids.length && nodes.length > 0;
 }
 
-async function downloadLottieJson(node: SceneNodeInput, fallbackName: string) {
-  const prepared = await prepareLottieJsonForExport(node?.attrs?.animationData);
+async function downloadLottieJson(
+  node: SceneNodeInput,
+  fallbackName: string,
+  document?: SceneDocument | null
+) {
+  const prepared = await prepareLottieJsonForExport(node?.attrs?.animationData, {
+    document: document || null,
+  });
   const raw = JSON.stringify(prepared);
   const blob = new Blob([raw], { type: 'application/json' });
   const base = String(node?.attrs?.name || node?.name || fallbackName || 'lottie')
@@ -548,7 +554,7 @@ function ExportSelectionPanel({
     );
     try {
       for (const node of nodes) {
-        await downloadLottieJson(node, name);
+        await downloadLottieJson(node, name, document);
       }
       hideLoading();
       message.success(t('editor.exportedLottie', { defaultValue: '已导出 Lottie JSON' }));

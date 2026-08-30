@@ -21,9 +21,11 @@ import {
 import {
   isAudioNode,
   isLottieNode,
+  isNodeMarqueeSkippable,
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
+  canEditAnimationWorkbenchPlate,
   getAnimationWorkbenchTimelineFocus,
   syncWorkbenchSurroundOnFrameBind,
   tagCreatedNodeForWorkbenchSurround,
@@ -74,7 +76,9 @@ import { syncFrameContentClip } from '@/components/rcb/frames/frameContentClip';
 import {
   canBindNodeToArtboardFrame,
   frameForNodeIntersectPlacement,
+  acceptCreateFrameId,
 } from '@/components/rcb/frames/frameNodeBinding';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { findFrameAnimationMediaId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   autoKeyAnimatedGeometry,
@@ -154,6 +158,32 @@ export function listNodeIdsFromDoc(doc: SceneDocument | null | undefined): reado
   if (Array.isArray(fromPage) && fromPage.length) return fromPage;
   const rootKids = doc?.deltaSetLike?.ROOT?.children;
   return Array.isArray(rootKids) ? rootKids : [];
+}
+
+/**
+ * Ctrl/Cmd+A targets: same visibility as marquee / hit-test.
+ * Under animation timeline focus, paint-hidden main artboards and their
+ * children are excluded so select-all does not inflate a ghost AABB.
+ */
+export function collectSelectAllTargets(doc: SceneDocument | null | undefined): {
+  nodeIds: string[];
+  frameIds: string[];
+} {
+  if (!doc) return { nodeIds: [], frameIds: [] };
+  const nodeIds: string[] = [];
+  for (const id of listNodeIdsFromDoc(doc)) {
+    if (!id || id === 'ROOT') continue;
+    const node = doc.deltaSetLike?.[id];
+    if (!node || isNodeMarqueeSkippable(doc, node)) continue;
+    nodeIds.push(String(id));
+  }
+  const frameIds: string[] = [];
+  for (const f of Array.isArray(doc.frames) ? doc.frames : []) {
+    if (!f?.id || f.locked || f.hidden) continue;
+    if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
+    frameIds.push(String(f.id));
+  }
+  return { nodeIds, frameIds };
 }
 
 export function getNodeBoxFromDoc(doc: SceneDocument | null | undefined, nodeId: string): SceneBox | null {
@@ -267,9 +297,24 @@ function frameForNodePlacement(
   rect: { left: number; top: number; width: number; height: number },
   node?: { key?: unknown; attrs?: Record<string, unknown> | null } | null
 ) {
-  // Single choke point for every tool (shape / pen / text / image / generator):
-  // under timeline focus only the workbench plate is eligible — never 主画板.
   return frameForNodeIntersectPlacement(doc, rect, node);
+}
+
+function keepFrameOwner(
+  doc: SceneDocument,
+  node: SceneNode,
+  ownerId: string,
+  rect: { left: number; top: number; width: number; height: number }
+): boolean {
+  const owner = (doc.frames || []).find((frame) => String(frame.id) === ownerId);
+  if (!owner || !rectIntersectsFrame(rect, owner)) return false;
+  if (!shouldShowArtboardInWorkbenchFocus(owner)) return false;
+  if (!canBindNodeToArtboardFrame(owner, node)) return false;
+  // Preview workbench: drop stale ownership when timeline is closed.
+  if (isAnimationArtboardKind(owner.kind) && !canEditAnimationWorkbenchPlate(ownerId)) {
+    return false;
+  }
+  return true;
 }
 
 /** Maintain one explicit artboard binding through node moves and resizes. */
@@ -279,14 +324,10 @@ function applyNodeFrameBindings(
   detachedSink?: Set<string>
 ): SceneDocument {
   const bindingPatches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
-  const frames = Array.isArray(doc.frames) ? doc.frames : [];
   const focus = getAnimationWorkbenchTimelineFocus();
   for (const patch of patches) {
     const node = doc.deltaSetLike?.[patch.nodeId];
     if (!node) continue;
-    // Binding follows the geometry produced by this gesture. Reading the node
-    // first makes a moved node look like it is still at its old position and
-    // leaves a stale frameId after it has completely left the artboard.
     const rect = {
       left: Number(patch.left) || 0,
       top: Number(patch.top) || 0,
@@ -294,26 +335,11 @@ function applyNodeFrameBindings(
       height: Math.max(1, Number(patch.height) || 1),
     };
     const currentId = String(node.attrs?.frameId || '').trim();
-    let nextId = currentId || null;
-    if (currentId) {
-      const owner = frames.find((frame) => String(frame.id) === currentId);
-      // Do not keep a hidden「主画板」owner while the workbench timeline is open.
-      const ownerOk =
-        Boolean(owner) &&
-        rectIntersectsFrame(rect, owner!) &&
-        shouldShowArtboardInWorkbenchFocus(owner) &&
-        canBindNodeToArtboardFrame(owner, node);
-      if (ownerOk) {
-        nextId = currentId;
-      } else {
-        nextId = frameForNodePlacement(doc, rect, node);
-      }
-    } else {
-      nextId = frameForNodePlacement(doc, rect, node);
-    }
+    const nextId =
+      currentId && keepFrameOwner(doc, node, currentId, rect)
+        ? currentId
+        : frameForNodePlacement(doc, rect, node);
     const surround = String(node.attrs?.[WORKBENCH_SURROUND_ATTR] || '').trim();
-    // Same plate / still unbound: still refresh surround under focus so tools
-    // that skipped finalize do not vanish (neither frameId nor surround).
     if (nextId === currentId) {
       if (focus && !currentId && surround !== focus) {
         bindingPatches.push({
@@ -344,48 +370,90 @@ function applyNodeFrameBindings(
     bindingPatches.push({ nodeId: patch.nodeId, patch: { attrs } });
   }
   if (!bindingPatches.length) return doc;
+
   const nodeReplacements: Record<string, SceneNode> = {};
   for (const item of bindingPatches) {
     const node = doc.deltaSetLike?.[item.nodeId];
     if (!node) continue;
-    nodeReplacements[item.nodeId] = {
-      ...node,
-      attrs: item.patch.attrs,
-    };
+    nodeReplacements[item.nodeId] = { ...node, attrs: item.patch.attrs };
   }
   let next = {
     ...doc,
     deltaSetLike: patchDeltaSetLike(doc.deltaSetLike, nodeReplacements),
   };
 
-  // Detached nodes leave their frame-local stack. Put them at the top of the
-  // infinite-canvas stack so they cannot remain hidden behind the old frame
-  // plate or an unrelated world node after becoming visible again.
   const detachedIds = bindingPatches
     .filter(({ nodeId, patch }) => {
       const before = doc.deltaSetLike?.[nodeId];
-      return Boolean(String(before?.attrs?.frameId || '').trim()) && !String(patch.attrs?.frameId || '').trim();
+      return (
+        Boolean(String(before?.attrs?.frameId || '').trim()) &&
+        !String(patch.attrs?.frameId || '').trim()
+      );
     })
     .map(({ nodeId }) => nodeId);
   if (detachedIds.length) {
     detachedIds.forEach((id) => detachedSink?.add(id));
     const detachedKeys = new Set(detachedIds.map((id) => `node:${id}`));
     const order = Array.isArray(next?.stackOrder) ? next.stackOrder.map(String) : [];
-    const remaining = order.filter((key) => !detachedKeys.has(key));
-    next = { ...next, stackOrder: [...remaining, ...detachedIds.map((id) => `node:${id}`)] };
+    next = {
+      ...next,
+      stackOrder: [
+        ...order.filter((key) => !detachedKeys.has(key)),
+        ...detachedIds.map((id) => `node:${id}`),
+      ],
+    };
   }
   reconcileStackOrder(next);
   return next;
+}
+
+/** Insert a new node; honor create-time frameId, else auto-bind to a normal artboard. */
+function insertCreatedNode(
+  doc: SceneDocument,
+  id: string,
+  node: SceneNode,
+  preferredFrameId?: string | null
+): SceneDocument {
+  const frameId = acceptCreateFrameId(doc, preferredFrameId, node);
+  if (frameId) node.attrs.frameId = frameId;
+  const added = addNodeToDocument(doc, id, node);
+  const bound = frameId
+    ? added
+    : applyNodeFrameBindings(added, [
+        {
+          nodeId: id,
+          left: Number(node.x) || 0,
+          top: Number(node.y) || 0,
+          width: Math.max(1, Number(node.width) || 1),
+          height: Math.max(1, Number(node.height) || 1),
+        },
+      ]);
+  return tagCreatedNodeForWorkbenchSurround(bound, id);
 }
 
 /** Bind a freshly created node to the clipContent frame its bbox intersects. */
 export function bindCreatedNodeToFrame(
   doc: SceneDocument,
   nodeId: string,
-  rect: { left: number; top: number; width: number; height: number }
+  rect: { left: number; top: number; width: number; height: number },
+  preferredFrameId?: string | null
 ): SceneDocument {
-  const bound = applyNodeFrameBindings(doc, [{ nodeId, ...rect }]);
-  return tagCreatedNodeForWorkbenchSurround(bound, nodeId);
+  const node = doc.deltaSetLike?.[nodeId];
+  if (!node) return doc;
+  const frameId = acceptCreateFrameId(doc, preferredFrameId ?? node.attrs?.frameId, node);
+  let next = doc;
+  if (frameId && String(node.attrs?.frameId || '').trim() !== frameId) {
+    next = updateNodesInDocument(doc, [
+      { nodeId, patch: { attrs: { ...(node.attrs || {}), frameId } } },
+    ]);
+  }
+  if (frameId || String(next.deltaSetLike?.[nodeId]?.attrs?.frameId || '').trim()) {
+    return tagCreatedNodeForWorkbenchSurround(next, nodeId);
+  }
+  return tagCreatedNodeForWorkbenchSurround(
+    applyNodeFrameBindings(next, [{ nodeId, ...rect }]),
+    nodeId
+  );
 }
 
 function promoteNodesToWorldTop(doc: SceneDocument, nodeIds: Iterable<string>): SceneDocument {
@@ -527,19 +595,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         fill: 'transparent',
         angle: placed.angle,
       });
-      const requestedFrameId = String(box.frameId || '').trim();
-      if (requestedFrameId && doc.frames?.some((frame) => String(frame.id) === requestedFrameId)) {
-        node.attrs.frameId = requestedFrameId;
-      }
-      const created = addNodeToDocument(doc, id, node);
-      const boundRaw = requestedFrameId
-        ? created
-        : applyNodeFrameBindings(created, [
-            { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
-          ]);
-      const bound = tagCreatedNodeForWorkbenchSurround(boundRaw, id);
+      const bound = insertCreatedNode(doc, id, node, box.frameId);
       deps.setDocumentLocal(bound);
-      // History without sceneReloadToken — remounting every host caused a one-frame jump.
       deps.dispatch(pushEditorHistory());
       deps.dispatch(setDocumentFromCanvas(bound));
       deps.dispatch(setSelectedNodeIds([id]));
@@ -560,17 +617,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       shapeType: kind,
       fill: '#FFFFFF',
     });
-    const requestedFrameId = String(box.frameId || '').trim();
-    if (requestedFrameId && doc.frames?.some((frame) => String(frame.id) === requestedFrameId)) {
-      node.attrs.frameId = requestedFrameId;
-    }
-    const next = addNodeToDocument(doc, id, node);
-    const boundRaw = requestedFrameId
-      ? next
-      : applyNodeFrameBindings(next, [
-          { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
-        ]);
-    const bound = tagCreatedNodeForWorkbenchSurround(boundRaw, id);
+    const bound = insertCreatedNode(doc, id, node, box.frameId);
     deps.setDocumentLocal(bound);
     deps.dispatch(pushEditorHistory());
     deps.dispatch(setDocumentFromCanvas(bound));
@@ -618,12 +665,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       autoSize,
       fontSize,
     });
-    const next = addNodeToDocument(doc, id, node);
-    const bound = tagCreatedNodeForWorkbenchSurround(
-      applyNodeFrameBindings(next, [
-        { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
-      ]),
-      id
+    const bound = insertCreatedNode(
+      doc,
+      id,
+      node,
+      deps.hitTestFrame(origin.x, origin.y)
     );
     deps.setDocumentLocal(bound);
     deps.dispatch(setDocument(bound));
@@ -657,12 +703,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         height: placed.height,
         src,
       });
-      const placedDoc = addNodeToDocument(latest, id, node);
-      const bound = tagCreatedNodeForWorkbenchSurround(
-        applyNodeFrameBindings(placedDoc, [
-          { nodeId: id, left: node.x, top: node.y, width: node.width, height: node.height },
-        ]),
-        id
+      const bound = insertCreatedNode(
+        latest,
+        id,
+        node,
+        deps.hitTestFrame(origin.x, origin.y)
       );
       deps.dispatch(setDocument(bound));
       deps.dispatch(setSelectedNodeId(id));

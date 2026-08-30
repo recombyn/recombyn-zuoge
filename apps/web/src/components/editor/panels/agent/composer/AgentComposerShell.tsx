@@ -288,8 +288,8 @@ function attachmentPreviewKind(a: ComposerContext): 'image' | 'audio' | 'video' 
   // JSON / Lottie — never treat object-URL as a still image (img decode fails → empty chip).
   if (
     /\[Attached lottie\]/i.test(payload) ||
-    /\.json(\?|#|$)/i.test(String(a.label || '')) ||
-    /\.json(\?|#|$)/i.test(blob)
+    /\.(json|lot)(\?|#|$)/i.test(String(a.label || '')) ||
+    /\.(json|lot)(\?|#|$)/i.test(blob)
   ) {
     return null;
   }
@@ -1095,12 +1095,12 @@ function AgentComposerShell({
   };
 
   let fileAccept =
-    'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,video/*,audio/*,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
+    'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,video/*,audio/*,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json,.lot';
   if (fileAcceptOverride) {
     fileAccept = fileAcceptOverride;
   } else if (isVideoMode || isLottieMode) {
     fileAccept =
-      'image/*,video/*,audio/*,application/json,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json';
+      'image/*,video/*,audio/*,application/json,.mp4,.webm,.mov,.m4v,.mp3,.wav,.ogg,.m4a,.aac,.flac,.json,.lot';
   } else if (isAudioMode) {
     fileAccept =
       'audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac';

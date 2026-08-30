@@ -107,6 +107,7 @@ export type ImageToolPanelKind =
   | 'replaceText'
   | 'lottieEdit'
   | 'mark'
+  | 'puppet'
   | 'mockup'
   | 'upscale';
 
@@ -215,6 +216,8 @@ const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   adjust: true,
   effects: true,
   blendMode: true,
+  /** Density; pins + mesh live on PuppetPinHost while panel is open. */
+  puppet: true,
 };
 
 /** Blend / effects dock beside any selected node (not image-only tools). */
@@ -284,8 +287,10 @@ export function shouldClearImageToolPanelOnSelect(
   nextNodeId: string | null
 ): boolean {
   if (!panel) return false;
-  // Mockup / mark / quick-edit stay open while picking another image or clicking empty canvas.
-  if (panel.kind === 'mark' || panel.kind === 'quickEdit') return false;
+  // Mark / quick-edit / puppet stay open while picking empty canvas or same image.
+  if (panel.kind === 'mark' || panel.kind === 'quickEdit' || panel.kind === 'puppet') {
+    return Boolean(nextNodeId && panel.nodeId !== nextNodeId);
+  }
   return !nextNodeId || panel.nodeId !== nextNodeId;
 }
 
@@ -1901,12 +1906,9 @@ const editorSlice = createSlice({
       next.frames = frames;
       const key = `frame:${frame.id}`;
       const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
+      // New 动画工作台 goes on top of the current stack (highest layer).
       if (!order.includes(key)) {
-        let insertAt = 0;
-        for (let i = 0; i < order.length; i += 1) {
-          if (order[i].startsWith('frame:')) insertAt = i + 1;
-        }
-        next.stackOrder = [...order.slice(0, insertAt), key, ...order.slice(insertAt)];
+        next.stackOrder = [...order, key];
       }
       reconcileStackOrder(next);
       const bound = bindUnownedNodesToFrames(next, [frame.id]);
@@ -2594,7 +2596,7 @@ const editorSlice = createSlice({
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
-      state.lottieTimelinePanel = null;
+      // Keep 动画工作台 timeline edit open — tool panels nest inside edit mode.
       state.shapeStylePanel = null;
     },
     closeImageToolPanel(state) {
@@ -2624,7 +2626,6 @@ const editorSlice = createSlice({
       state.imageToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
-      state.lottieTimelinePanel = null;
       state.shapeStylePanel = null;
     },
     closeVideoToolPanel(state) {
@@ -2642,7 +2643,6 @@ const editorSlice = createSlice({
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.lottieComposePanel = null;
-      state.lottieTimelinePanel = null;
       state.shapeStylePanel = null;
     },
     closeAudioToolPanel(state) {
@@ -2758,18 +2758,29 @@ const editorSlice = createSlice({
     },
     setLottiePlaying(state, action) {
       const payload = action.payload;
+      const wasPlaying = Boolean(state.lottiePlaying);
+      let playing = false;
       if (payload && typeof payload === 'object') {
-        state.lottiePlaying = Boolean((payload as { playing?: unknown }).playing);
+        playing = Boolean((payload as { playing?: unknown }).playing);
+        state.lottiePlaying = playing;
         const hostRaw = (payload as { hostNodeId?: unknown }).hostNodeId;
         if (hostRaw != null) {
           const id = String(hostRaw || '').trim();
           // Keep host on pause so playhead/pose don't reset to t=0.
           if (id) state.lottiePlayingHostId = id;
         }
-        return;
+      } else {
+        playing = Boolean(payload);
+        state.lottiePlaying = playing;
+        // Pausing must not clear the playhead host (SceneSync would seek 0).
       }
-      state.lottiePlaying = Boolean(payload);
-      // Pausing must not clear the playhead host (SceneSync would seek 0).
+      // Drop selection chrome when playback starts (handles / toolbars hide).
+      if (playing && !wasPlaying) {
+        state.selectedNodeId = null;
+        state.selectedNodeIds = [];
+        state.imageToolPanel = null;
+        state.shapeStylePanel = null;
+      }
     },
     openAnimationFramePanel(state, action) {
       const frameId = String(action.payload?.frameId || '').trim();
@@ -3117,7 +3128,13 @@ const editorSlice = createSlice({
       state.lastPatchedNodeIds = hostId ? [hostId] : [];
       state.lastPatchTransformOnly = false;
       state.activeTool = 'select';
-      // Do not auto-open the timeline dock on import/upload — user opens via 关键帧.
+      // Keep timeline dock open on the playback host when already editing.
+      if (hostId && (state.lottieTimelinePanel?.nodeId || getAnimationWorkbenchTimelineFocus())) {
+        state.lottieTimelinePanel = { nodeId: hostId };
+        setAnimationWorkbenchTimelineFocus(frameId);
+      }
+      // Do not auto-open the timeline dock on import/upload when it was closed —
+      // user opens via 关键帧.
       state.animationFramePanel = null;
       state.lottieComposePanel = null;
       state.imageToolPanel = null;
@@ -3126,6 +3143,7 @@ const editorSlice = createSlice({
       state.shapeStylePanel = null;
       state.pendingImageSrc = null;
       state.lottiePlayheadSec = 0;
+      setAnimationWorkbenchPlayheadSec(0);
       syncLibraryOnEdit(state);
     },
     openShapeStylePanel(state, action) {

@@ -6,6 +6,14 @@ import { downloadFileBlob } from '@/components/rcb/scene/paint/exportImage';
 import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import { getFFmpeg } from '@/utils/audioExporter';
 import { fetchFile } from '@ffmpeg/util';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { nodeNeedsPuppetWarp } from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import { bakePuppetDataUrlForNode } from '@/components/editor/nodes/ImageNode/puppet/puppetBake';
+import {
+  getAnimationWorkbenchPlayheadSec,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 
 function pickRecorderMime(): { mime: string; ext: string } {
   const candidates: { mime: string; ext: string }[] = [
@@ -257,9 +265,15 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 /**
  * Make Lottie JSON portable for external players: embed image assets as data URLs.
+ * When `document` is provided, puppet-warped images bake at the current playhead
+ * (external players cannot replay attrs.puppetTrack).
  */
 export async function prepareLottieJsonForExport(
-  animationData: unknown
+  animationData: unknown,
+  opts?: {
+    document?: SceneDocument | null;
+    playheadSec?: number;
+  }
 ): Promise<Record<string, unknown>> {
   const data = parseLottieAnimationData(animationData);
   if (!data) throw new Error('invalid lottie');
@@ -267,6 +281,11 @@ export async function prepareLottieJsonForExport(
     ? (structuredClone(data) as Record<string, unknown>)
     : (JSON.parse(JSON.stringify(data)) as Record<string, unknown>);
   const assets = Array.isArray(root.assets) ? (root.assets as Record<string, unknown>[]) : [];
+  const doc = opts?.document || null;
+  const playheadSec =
+    typeof opts?.playheadSec === 'number' && Number.isFinite(opts.playheadSec)
+      ? opts.playheadSec
+      : getAnimationWorkbenchPlayheadSec();
   const nextAssets: Record<string, unknown>[] = [];
   for (const raw of assets) {
     if (!raw || typeof raw !== 'object') {
@@ -292,6 +311,32 @@ export async function prepareLottieJsonForExport(
         }
       } catch {
         /* keep original path */
+      }
+    }
+
+    const assetId = String(asset.id || '').trim();
+    if (doc && assetId.startsWith('img_')) {
+      const nodeId = assetId.slice(4);
+      const node = doc.deltaSetLike?.[nodeId];
+      if (node && nodeNeedsPuppetWarp(node)) {
+        let fps = 30;
+        const frameId = resolveAnimationFrameId(doc, node);
+        if (frameId) {
+          const frame = (doc.frames || []).find((f) => String(f?.id) === frameId);
+          const n = Math.round(Number(frame?.fps) || 30);
+          if (n > 0) fps = n;
+        }
+        const baked = await bakePuppetDataUrlForNode(node, {
+          frame: secToFrame(playheadSec, fps),
+          sourceDataUrl: String(asset.p || '').startsWith('data:')
+            ? String(asset.p)
+            : undefined,
+        });
+        if (baked) {
+          asset.p = baked;
+          asset.u = '';
+          asset.e = 1;
+        }
       }
     }
     nextAssets.push(asset);

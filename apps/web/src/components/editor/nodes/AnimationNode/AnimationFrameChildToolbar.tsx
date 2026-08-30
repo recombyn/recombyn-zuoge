@@ -39,6 +39,11 @@ import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipb
 import AnimationAnchorMarker from '@/components/editor/nodes/AnimationNode/AnimationAnchorMarker';
 import { IconCornerRadius } from '@/components/rcb/selection/chrome/StyleToolbarIcons';
 import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
+import ImageToolbarMoreDownload, {
+  type ImageMoreAction,
+} from '@/components/editor/nodes/ImageNode/ImageToolbarMoreDownload';
+import { GiPuppet } from 'react-icons/gi';
+import { expandPuppetTimelineLayer } from '@/components/editor/nodes/ImageNode/puppet/puppetTimeline';
 import { SelectionToolbarShell } from '@/components/rcb/selection/chrome/SelectionToolbarShell';
 import {
   parseAnchorPreset,
@@ -59,11 +64,14 @@ import {
 } from '@/components/editor/nodes/AnimationNode/animationAutoKey';
 import {
   ensureAnimationFrameMedia,
+  openImageToolPanel,
+  closeImageToolPanel,
   openShapeStylePanel,
   patchDocumentNode,
   patchDocumentNodes,
   startImageProcess,
 } from '@/store/modules/editor';
+import type { ImageToolPanelState } from '@/store/modules/editor';
 import { AI_IMAGE_PROCESS_KINDS } from '@/service/imageTools';
 import {
   parseLottieAnimationData,
@@ -767,6 +775,11 @@ function AnimationFrameChildToolbar({
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
   const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
+  const imageToolPanel = useSelector(
+    (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
+  );
+  const puppetActive =
+    imageToolPanel?.kind === 'puppet' && imageToolPanel?.nodeId === nodeId;
   const node = document?.deltaSetLike?.[nodeId] as SceneNode | undefined;
   const frameId = resolveAnimationFrameId(document, node);
   const frame = useMemo(() => {
@@ -1293,6 +1306,48 @@ function AnimationFrameChildToolbar({
         </div>
         <ImageToolSep />
         <Tooltip
+          tip={
+            isImage
+              ? t('editor.imageToolbar.puppet', { defaultValue: '人偶' })
+              : t('editor.imageToolbar.puppetDisabled', {
+                  defaultValue: '仅位图可使用人偶钉',
+                })
+          }
+          placement="top"
+        >
+          <button
+            type="button"
+            className={cn(
+              imageToolBtn,
+              !isImage && 'opacity-40',
+              puppetActive && 'bg-[var(--accent-soft)]'
+            )}
+            disabled={!isImage}
+            aria-label={t('editor.imageToolbar.puppet', { defaultValue: '人偶' })}
+            aria-pressed={puppetActive}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isImage) return;
+              if (puppetActive) {
+                dispatch(closeImageToolPanel());
+                return;
+              }
+              // Open panel first so chrome stays in puppet mode even if attrs patch re-renders.
+              dispatch(openImageToolPanel({ nodeId, kind: 'puppet' }));
+              dispatch(
+                patchDocumentNode({
+                  nodeId,
+                  patch: { attrs: { puppetEnabled: true } },
+                })
+              );
+              expandPuppetTimelineLayer(node);
+            }}
+          >
+            <GiPuppet className="h-4 w-4" />
+            <span>{t('editor.imageToolbar.puppet', { defaultValue: '人偶' })}</span>
+          </button>
+        </Tooltip>
+        <Tooltip
           tip={t('editor.lottieToolbar.propertiesTip')}
           placement="top"
         >
@@ -1308,6 +1363,45 @@ function AnimationFrameChildToolbar({
             <span>{t('editor.lottieToolbar.timeline')}</span>
           </button>
         </Tooltip>
+        {isImage ? (
+          <ImageToolbarMoreDownload
+            showCornerRadius={supportsCornerRadius(node)}
+            vectorizeEnabled={AI_IMAGE_PROCESS_KINDS.has('vector')}
+            onAction={(key: ImageMoreAction) => {
+              if (key === 'vectorize') {
+                if (!AI_IMAGE_PROCESS_KINDS.has('vector')) {
+                  message.warning(t('editor.lottieToolbar.vectorizeUnavailable'));
+                  return;
+                }
+                dispatch(
+                  startImageProcess({
+                    sourceId: nodeId,
+                    kind: 'vector',
+                    label: t('editor.imageToolbar.vectorize', {
+                      defaultValue: '矢量化',
+                    }),
+                  })
+                );
+                return;
+              }
+              if (key === 'cornerRadius') {
+                dispatch(openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] }));
+                return;
+              }
+              if (
+                key === 'expand' ||
+                key === 'crop' ||
+                key === 'adjust' ||
+                key === 'blendMode' ||
+                key === 'effects' ||
+                key === 'flipRotate' ||
+                key === 'opacity'
+              ) {
+                dispatch(openImageToolPanel({ nodeId, kind: key }));
+              }
+            }}
+          />
+        ) : null}
       </SelectionToolbarShell>
       ) : null}
 
@@ -1771,7 +1865,7 @@ function AnimationFrameChildToolbar({
           </>
         ) : null}
 
-        {/* Image Options ? raster images only */}
+        {/* Image Options — name only; 矢量化 lives on the image toolbar More menu. */}
         {isImage ? (
           <div className="border-t border-[var(--line)]">
             <SectionHeader
@@ -1787,27 +1881,6 @@ function AnimationFrameChildToolbar({
                   value={String(node?.attrs?.name || imageFileLabel)}
                   onChange={(e) => patchAttrs({ name: e.target.value })}
                 />
-                <button
-                  type="button"
-                  className="flex h-8 w-full items-center justify-center rounded-sm bg-[var(--accent-soft)] text-[12px] font-medium text-[var(--ink)] transition-colors hover:bg-[var(--line)]"
-                  onClick={() => {
-                    if (!AI_IMAGE_PROCESS_KINDS.has('vector')) {
-                      message.warning(
-                        t('editor.lottieToolbar.vectorizeUnavailable')
-                      );
-                      return;
-                    }
-                    dispatch(
-                      startImageProcess({
-                        sourceId: nodeId,
-                        kind: 'vector',
-                        label: t('editor.lottieToolbar.vectorize'),
-                      })
-                    );
-                  }}
-                >
-                  {t('editor.lottieToolbar.vectorize')}
-                </button>
               </div>
             ) : null}
           </div>

@@ -179,6 +179,36 @@ export function nodeSceneAabb(
     maxX = cx + bw / 2;
     maxY = cy + bh / 2;
   }
+  // Puppet pin displacements can pull ink outside the plate — expand pick AABB.
+  const attrs = (node.attrs || {}) as Record<string, unknown>;
+  if (
+    node.key === 'image' &&
+    (attrs.puppetEnabled === true || attrs.puppetEnabled === 'true')
+  ) {
+    let maxOut = 0;
+    const consider = (raw: unknown) => {
+      if (!Array.isArray(raw)) return;
+      for (const item of raw) {
+        if (!item || typeof item !== 'object') continue;
+        const o = item as Record<string, unknown>;
+        const dx = Number(o.dx) || 0;
+        const dy = Number(o.dy) || 0;
+        maxOut = Math.max(maxOut, Math.abs(dx) * w, Math.abs(dy) * h);
+      }
+    };
+    consider(attrs.puppetPins);
+    if (Array.isArray(attrs.puppetTrack)) {
+      for (const k of attrs.puppetTrack) {
+        if (k && typeof k === 'object') consider((k as Record<string, unknown>).pins);
+      }
+    }
+    if (maxOut > 0) {
+      minX -= maxOut;
+      minY -= maxOut;
+      maxX += maxOut;
+      maxY += maxOut;
+    }
+  }
   const stroke = Math.max(
     0,
     Number(node.attrs?.['border-width'] ?? 0) ||

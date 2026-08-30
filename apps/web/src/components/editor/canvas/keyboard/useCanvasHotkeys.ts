@@ -6,6 +6,7 @@ import {
 import {
   resolveSelectionNodeIds
 } from '@/components/rcb/scene/document/sceneClipboard';
+import { collectSelectAllTargets } from '@/components/editor/canvas/canvasSession';
 import {
   clearCanvasAttachPick,
   closeImageToolPanel,
@@ -158,11 +159,8 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       if (mod && e.key.toLowerCase() === 'a' && activeTool === 'select' && !typing) {
         e.preventDefault();
         const doc = documentRef.current;
-        const nodeIds = listNodeIds();
-        const frameIds = (Array.isArray(doc?.frames) ? doc.frames : [])
-          .filter((f: any) => f?.id && !f.locked)
-          .map((f: any) => String(f.id));
-        onSelectMixed([...nodeIds], frameIds);
+        const { nodeIds, frameIds } = collectSelectAllTargets(doc);
+        onSelectMixed(nodeIds, frameIds);
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'i') {
         e.preventDefault();

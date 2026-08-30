@@ -100,6 +100,7 @@ export const AI_IMAGE_PROCESS_KINDS = new Set<string>([
   'editText',
   'editElements',
   'replaceText',
+  'vector',
   'adjust',
 ]);
 

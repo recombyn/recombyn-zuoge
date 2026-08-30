@@ -7,6 +7,7 @@ import {
   HiOutlineScissors,
 } from 'react-icons/hi2';
 import { MdOutlineFlip, MdOutlineOpacity } from 'react-icons/md';
+import { SlVector } from 'react-icons/sl';
 import { TbDroplet, TbShirt } from 'react-icons/tb';
 import { Dropdown } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
@@ -25,16 +26,18 @@ export type ImageMoreAction =
   | 'cornerRadius'
   | 'opacity'
   | 'crop'
-  | 'flipRotate';
+  | 'flipRotate'
+  | 'vectorize';
 
 export type ToolbarMoreItem = {
   key: string;
   icon: ReactNode;
   label: string;
+  disabled?: boolean;
 };
 
-function moreItem(key: string, icon: ReactNode, label: string): MenuItemType {
-  return { key, label: imageMoreRow(icon, label) };
+function moreItem(key: string, icon: ReactNode, label: string, disabled?: boolean): MenuItemType {
+  return { key, label: imageMoreRow(icon, label), disabled };
 }
 
 /** Shared “…” overflow used by image and element selection toolbars. */
@@ -50,7 +53,7 @@ export function ToolbarMoreMenu({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const menuItems: MenuItemType[] = useMemo(
-    () => items.map((item) => moreItem(item.key, item.icon, item.label)),
+    () => items.map((item) => moreItem(item.key, item.icon, item.label, item.disabled)),
     [items]
   );
   if (!items.length) return null;
@@ -89,10 +92,13 @@ function ImageToolbarMoreDownload({
   onAction,
   showCornerRadius = true,
   mockupEnabled = false,
+  vectorizeEnabled = false,
 }: {
   onAction: (key: ImageMoreAction) => void;
   showCornerRadius?: boolean;
   mockupEnabled?: boolean;
+  /** When false, 矢量化 stays in the menu but is disabled. */
+  vectorizeEnabled?: boolean;
 }): ReactNode {
   const { t } = useTranslation();
   const items: ToolbarMoreItem[] = useMemo(() => {
@@ -148,10 +154,16 @@ function ImageToolbarMoreDownload({
         key: 'flipRotate',
         icon: <MdOutlineFlip className="h-4 w-4" />,
         label: t('editor.imageToolbar.flipRotate'),
+      },
+      {
+        key: 'vectorize',
+        icon: <SlVector className="h-4 w-4" />,
+        label: t('editor.imageToolbar.vectorize', { defaultValue: '矢量化' }),
+        disabled: !vectorizeEnabled,
       }
     );
     return list;
-  }, [t, showCornerRadius, mockupEnabled]);
+  }, [t, showCornerRadius, mockupEnabled, vectorizeEnabled]);
 
   return <ToolbarMoreMenu items={items} onAction={(key) => onAction(key as ImageMoreAction)} />;
 }

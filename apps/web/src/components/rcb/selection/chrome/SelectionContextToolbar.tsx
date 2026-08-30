@@ -93,7 +93,8 @@ import TextEditDialog from '@/components/editor/nodes/TextNode/TextEditDialog';
 import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotateToolbar';
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
 import { canMarkNode } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
-import { useImageToolCapabilities } from '@/service/imageTools';
+import { expandPuppetTimelineLayer } from '@/components/editor/nodes/ImageNode/puppet/puppetTimeline';
+import { AI_IMAGE_PROCESS_KINDS, useImageToolCapabilities } from '@/service/imageTools';
 import { probeMockupUiInstalled } from '@/components/editor/nodes/ImageNode/mockup/mockupUiLoader';
 import ImageToolbarMoreDownload, {
   ToolbarMoreMenu,
@@ -288,7 +289,8 @@ function openImageMoreTool(
   dispatch: ReturnType<typeof useDispatch>,
   nodeId: string,
   key: ImageMoreAction,
-  document?: SceneDocument
+  document?: SceneDocument,
+  t?: (key: string, opts?: { defaultValue?: string }) => string
 ) {
   if (key === 'cornerRadius') {
     dispatch(openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] }));
@@ -324,6 +326,28 @@ function openImageMoreTool(
           },
         },
         skipHostReload: true,
+      })
+    );
+    return;
+  }
+  if (key === 'vectorize') {
+    if (!AI_IMAGE_PROCESS_KINDS.has('vector')) {
+      message.warning(
+        t
+          ? t('editor.lottieToolbar.vectorizeUnavailable', {
+              defaultValue: '矢量化暂不可用',
+            })
+          : '矢量化暂不可用'
+      );
+      return;
+    }
+    dispatch(
+      startImageProcess({
+        sourceId: nodeId,
+        kind: 'vector',
+        label: t
+          ? t('editor.imageToolbar.vectorize', { defaultValue: '矢量化' })
+          : '矢量化',
       })
     );
     return;
@@ -441,7 +465,10 @@ function SelectionContextToolbar(props: Props): ReactNode {
     ['lottie']
   );
   const imageSidePanelOpen =
-    imageToolPanel?.nodeId != null && isImageToolSidePanelKind(imageToolPanel.kind);
+    imageToolPanel?.nodeId != null &&
+    isImageToolSidePanelKind(imageToolPanel.kind) &&
+    // Keep image toolbar mounted in puppet mode (pins + density panel).
+    imageToolPanel.kind !== 'puppet';
   const [mdOpen, setMdOpen] = useState(false);
   const [fontCatalogTick, setFontCatalogTick] = useState(0);
   const style = useMemo(
@@ -853,6 +880,25 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     )
                 : undefined
             }
+            onPuppet={
+              animationFrameId
+                ? () => {
+                    dispatch(openImageToolPanel({ nodeId, kind: 'puppet' }));
+                    dispatch(
+                      patchDocumentNode({
+                        nodeId,
+                        patch: { attrs: { puppetEnabled: true } },
+                      })
+                    );
+                    expandPuppetTimelineLayer(node);
+                  }
+                : undefined
+            }
+            puppetActive={
+              Boolean(animationFrameId) &&
+              imageToolPanel?.kind === 'puppet' &&
+              imageToolPanel?.nodeId === nodeId
+            }
             onReplaceText={
               String(node?.attrs?.letteringText || '').trim()
                 ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))
@@ -881,7 +927,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <ImageToolbarMoreDownload
             mockupEnabled={mockupEnabled}
             showCornerRadius={supportsCornerRadius(node)}
-            onAction={(key) => openImageMoreTool(dispatch, nodeId, key, document)}
+            vectorizeEnabled={AI_IMAGE_PROCESS_KINDS.has('vector')}
+            onAction={(key) => openImageMoreTool(dispatch, nodeId, key, document, t)}
           />
           <Sep />
           <Tooltip
