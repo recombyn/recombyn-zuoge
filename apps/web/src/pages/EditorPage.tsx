@@ -114,8 +114,15 @@ import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
 import AnimationTimelineDock from '@/components/editor/nodes/AnimationNode/AnimationTimelineDock';
 import AnimationTimelineFocusHost from '@/components/editor/nodes/AnimationNode/AnimationTimelineFocusHost';
 import AnimationPrecompEditFocusHost from '@/components/editor/nodes/AnimationNode/AnimationPrecompEditFocusHost';
-import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
-import { setAnimationWorkbenchTimelineFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  resolveActiveAnimationFrameId,
+  resolveAnimationFrameId,
+} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import { setAnimationWorkbenchTimelineFocus, shouldShowArtboardInWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  isAnimationFrameHostNode,
+  isNodeStructurallyHiddenInDocument,
+} from '@/components/rcb/scene/document/nodeCapabilities';
 
 const BOOT_MIN_MS = 520;
 const BOOT_EXIT_MS = 280;
@@ -247,10 +254,13 @@ function unionSceneBox(a: SceneBox | null, b: SceneBox): SceneBox {
   };
 }
 
-/** Union of artboards + scene nodes for zoom-to-fit. */
+/** Union of artboards + scene nodes for zoom-to-fit (respects workbench edit focus). */
 function editorContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): SceneBox {
   let box: SceneBox | null = null;
   for (const f of frames) {
+    if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
+    const hidden = (f as { hidden?: unknown }).hidden;
+    if (hidden === true || hidden === 'true' || hidden === 1 || hidden === '1') continue;
     box = unionSceneBox(box, {
       x: f.x,
       y: f.y,
@@ -260,6 +270,8 @@ function editorContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Scene
   }
   for (const { node } of listSceneNodes(doc)) {
     if (!node) continue;
+    if (isAnimationFrameHostNode(node, doc)) continue;
+    if (isNodeStructurallyHiddenInDocument(doc, node)) continue;
     const { left, top } = nodeLeftTop(doc, node);
     const w = Math.max(1, Number(node.width) || 0);
     const h = Math.max(1, Number(node.height) || 0);
@@ -270,13 +282,16 @@ function editorContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Scene
   return box;
 }
 
-/** True when the scene has real artboards/nodes 鈥?not the empty-doc fallback box. */
+/** True when the scene has real artboards/nodes — not the empty-doc fallback box. */
 function editorHasFitContent(doc: SceneDocument, frames: ArtboardFrame[]): boolean {
   for (const f of frames) {
+    if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
     if ((Number(f.width) || 0) >= 2 && (Number(f.height) || 0) >= 2) return true;
   }
   for (const { node } of listSceneNodes(doc)) {
     if (!node) continue;
+    if (isAnimationFrameHostNode(node, doc)) continue;
+    if (isNodeStructurallyHiddenInDocument(doc, node)) continue;
     const w = Math.max(0, Number(node.width) || 0);
     const h = Math.max(0, Number(node.height) || 0);
     if (w >= 2 && h >= 2) return true;
@@ -688,11 +703,14 @@ function EditorPage() {
   const lottieTimelineOpen = Boolean(lottieTimelineNodeId);
   const workbenchFocusFrameId = useMemo(() => {
     if (!lottieTimelineOpen || !document || !lottieTimelineNodeId) return null;
-    return resolveAnimationFrameId(
+    const fromHost = resolveAnimationFrameId(
       document,
       document.deltaSetLike?.[lottieTimelineNodeId]
     );
-  }, [document, lottieTimelineNodeId, lottieTimelineOpen]);
+    if (fromHost) return fromHost;
+    // Host without frameId (rare) — still hide other plates while timeline is open.
+    return resolveActiveAnimationFrameId(document, selectedFrameIds);
+  }, [document, lottieTimelineNodeId, lottieTimelineOpen, selectedFrameIds]);
   // Keep paint/hit focus in sync before children render.
   setAnimationWorkbenchTimelineFocus(workbenchFocusFrameId);
 
@@ -1359,13 +1377,14 @@ function EditorPage() {
     const el = stageRef.current;
     const vw = el?.clientWidth || 0;
     const vh = el?.clientHeight || 0;
-    // Match RcbCanvas autofit gate 鈥?tiny/unlaid-out stages must not count as fitted.
+    // Match RcbCanvas autofit gate — tiny/unlaid-out stages must not count as fitted.
     if (vw < 40 || vh < 40) {
       return false;
     }
-    const doc = (store.getState() as any).editor?.document;
+    const state = store.getState() as any;
+    const doc = state.editor?.document;
     const fr: ArtboardFrame[] = Array.isArray(doc?.frames) ? doc.frames : [];
-    // Empty scene 鈫?100%. With content 鈫?fit all artboards/nodes with 120px margins.
+    // Empty scene → 100%. With content → fit visible artboards/nodes with 120px margins.
     if (!editorHasFitContent(doc, fr)) {
       const next = { ...DEFAULT_CAMERA, zoom: 1 };
       setCamera(next);
@@ -1373,11 +1392,22 @@ function EditorPage() {
       return true;
     }
     const bounds = editorContentBounds(doc, fr);
-    const next = rcbFitCamera({ width: vw, height: vh }, bounds, 120, 1);
+    // Fit into the free band (above timeline / between side docks), not the full stage.
+    const left = toolsLeftDockPx;
+    const right = toolsRightDockPx;
+    const bottom = Math.max(0, toolsTimelineLiftPx);
+    const next = rcbFitCameraInBand(
+      { width: vw, height: vh },
+      bounds,
+      { top: 0, right, bottom, left },
+      120,
+      1,
+      0.5
+    );
     setCamera(next);
     setZoomFitActive(true);
     return true;
-  }, []);
+  }, [toolsLeftDockPx, toolsRightDockPx, toolsTimelineLiftPx]);
 
   /** Manual fit (toolbar / shortcut) 鈥?stop auto re-fit after this. */
   const onFitViewManual = useCallback((): boolean => {

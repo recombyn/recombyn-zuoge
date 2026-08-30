@@ -72,6 +72,7 @@ import {
 } from '@/utils/uploadImage';
 import { message } from '@/components/base';
 import {
+  isLottieJsonFile,
   mediaFileAcceptForWorkbenchTimeline,
   warnIfAvBlockedByAnimationWorkbenchFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
@@ -616,12 +617,15 @@ function readStoredAgentDockWidth(): number {
 }
 
 function mentionAttachKindLabel(
-  kind: 'image' | 'video' | 'audio',
+  kind: 'image' | 'video' | 'audio' | 'lottie',
   n: number,
   t: (key: string, opts?: Record<string, unknown>) => string
 ): string {
   if (kind === 'video') return t('agent.mentionAttachVideoN', { n });
   if (kind === 'audio') return t('agent.mentionAttachAudioN', { n });
+  if (kind === 'lottie') {
+    return t('agent.mentionAttachLottieN', { n, defaultValue: `附件动画 ${n}` });
+  }
   return t('agent.mentionAttachImageN', { n });
 }
 
@@ -639,9 +643,13 @@ function mediaAssetKindFallbackLabel(
   return t('me.assetKindImage');
 }
 
-function mentionAttachRefPayload(kind: 'image' | 'video' | 'audio', ordinal: number): string {
+function mentionAttachRefPayload(
+  kind: 'image' | 'video' | 'audio' | 'lottie',
+  ordinal: number
+): string {
   if (kind === 'video') return `[Ref: Attached video ${ordinal}]`;
   if (kind === 'audio') return `[Ref: Attached audio ${ordinal}]`;
+  if (kind === 'lottie') return `[Ref: Attached lottie ${ordinal}]`;
   return `[Ref: Attached image ${ordinal}]`;
 }
 
@@ -1568,19 +1576,27 @@ function AgentDock({
         message.warning(t('agent.attachMaxReached', { count: limit }));
         break;
       }
+      const name = file.name || '';
+      if (/\.lottie$/i.test(name)) {
+        message.warning(
+          t('editor.tools.lottieGenNeedJson', {
+            defaultValue: '请上传 Bodymovin JSON（.json / .lot），暂不支持 .lottie 压缩包',
+          })
+        );
+        continue;
+      }
       const mime = (file.type || '').toLowerCase();
       const isVideo = mime.startsWith('video/');
       const isImage = mime.startsWith('image/');
-      const isAudio = mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || '');
-      const isLottie = mime === 'application/json' || mime === 'text/json' || /\.json$/i.test(file.name || '');
+      const isAudio = mime.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(name);
+      const isLottie = isLottieJsonFile(file);
       if ((isVideo || isAudio) && warnIfAvBlockedByAnimationWorkbenchFocus(message.warning, t)) {
         continue;
       }
       if (!isImage && !isVideo && !isAudio && !isLottie) {
-        message.warning(t('agent.attachImageOnly', { name: file.name }));
+        message.warning(t('agent.attachImageOnly', { name }));
         continue;
       }
-      // No byte ceiling — oversized media is soft-compressed in uploadComposerAttachment.
       accepted.push(file);
       remaining -= 1;
     }
@@ -1618,8 +1634,9 @@ function AgentDock({
     }> = readable.map(({ file, preview, thumb }) => {
       const key = `attachment:${file.name}:${file.size}:${file.lastModified}:${Math.random().toString(36).slice(2, 8)}`;
       const isVideo = file.type.startsWith('video/');
-      const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || '');
-      const isLottie = file.type === 'application/json' || file.type === 'text/json' || /\.json$/i.test(file.name || '');
+      const isAudio =
+        file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name || '');
+      const isLottie = isLottieJsonFile(file);
       let attachmentPayload = `[Attached image]\nname: ${file.name}\nmime: ${file.type}`;
       if (isVideo) {
         attachmentPayload = `[Attached video]\nname: ${file.name}\nmime: ${file.type}`;
@@ -1634,7 +1651,8 @@ function AgentDock({
         kind: 'attachment',
         payload: attachmentPayload,
         dataUrl: preview,
-        thumbUrl: thumb,
+        // JSON has no raster thumb — leave empty so the chip doesn't try <img> decode.
+        thumbUrl: isLottie ? '' : thumb,
         uploadStatus: 'uploading',
       };
       pinnedContextKeysRef.current.add(key);
@@ -1648,7 +1666,7 @@ function AgentDock({
           kind: 'image',
           payload: pending.payload || `[User attachment ${n}]`,
           dataUrl: preview,
-          thumbUrl: thumb,
+          thumbUrl: isLottie ? '' : thumb,
         };
       }
       return { file, key, preview, pending, mentionCtx };
@@ -1861,12 +1879,14 @@ function AgentDock({
       ? t('agent.attachMaxReached', { count: attachmentLimit })
       : animationTimelineOpen
         ? t('agent.uploadImageOrJson', {
-            defaultValue: '上传图片或 JSON',
+            defaultValue: '上传图片或 JSON（.json / .lot）',
           })
         : t('agent.uploadImage'),
     fileAcceptOverride: animationTimelineOpen
       ? mediaFileAcceptForWorkbenchTimeline(true)
-      : undefined,
+      : isLottieInteraction
+        ? 'image/*,video/*,audio/*,application/json,.json,.lot'
+        : undefined,
     // Mobile floating dock: canvas pick is not usable — hide the control.
     onPickFromCanvas: floating
       ? undefined

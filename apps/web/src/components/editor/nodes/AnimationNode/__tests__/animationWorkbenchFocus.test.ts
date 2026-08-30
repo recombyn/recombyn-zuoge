@@ -7,6 +7,7 @@ import {
   isAvBlockedByAnimationWorkbenchFocus,
   isHiddenByAnimationWorkbenchFocus,
   isInactiveAtAnimationPlayhead,
+  isLottieJsonFile,
   mediaFileAcceptForWorkbenchTimeline,
   setAnimationWorkbenchPlayheadSec,
   setAnimationWorkbenchTimelineFocus,
@@ -163,7 +164,14 @@ describe('AV blocked under workbench focus', () => {
   it('exposes image+JSON accept for timeline attach', () => {
     expect(WORKBENCH_IMAGE_JSON_FILE_ACCEPT).toContain('image/png');
     expect(WORKBENCH_IMAGE_JSON_FILE_ACCEPT).toContain('application/json');
+    expect(WORKBENCH_IMAGE_JSON_FILE_ACCEPT).toContain('.lot');
     expect(WORKBENCH_IMAGE_JSON_FILE_ACCEPT).not.toContain('video/');
+  });
+
+  it('isLottieJsonFile accepts .json / .lot and rejects .lottie zip', () => {
+    expect(isLottieJsonFile({ name: 'a.json', type: 'application/json' })).toBe(true);
+    expect(isLottieJsonFile({ name: 'a.lot', type: '' })).toBe(true);
+    expect(isLottieJsonFile({ name: 'a.lottie', type: 'application/zip' })).toBe(false);
   });
 
   it('mediaFileAcceptForWorkbenchTimeline switches canvas vs workbench accept', () => {

@@ -16,6 +16,7 @@ import ImageRemoveBgMenu, { type RemoveBgMode } from './ImageRemoveBgMenu';
 import ImageDecomposeMenu, { type DecomposeMode } from './ImageDecomposeMenu';
 
 import { ImageToolSep, imageToolBtn } from './imageToolbarShared';
+import { GiPuppet } from 'react-icons/gi';
 
 
 
@@ -81,6 +82,10 @@ function ImageToolbarEditTools({
 
   onMark,
 
+  onPuppet,
+
+  puppetActive,
+
   onReplaceText,
 
   onEditText,
@@ -102,6 +107,10 @@ function ImageToolbarEditTools({
   onEraser: () => void;
 
   onMark?: () => void;
+
+  onPuppet?: () => void;
+
+  puppetActive?: boolean;
 
   onReplaceText?: () => void;
 
@@ -144,6 +153,20 @@ function ImageToolbarEditTools({
         <Tool label={t('editor.imageToolbar.mark')} onClick={onMark}>
 
           <PiSelectionPlus className="h-4 w-4" />
+
+        </Tool>
+
+      ) : null}
+
+      {onPuppet ? (
+
+        <Tool
+          label={t('editor.imageToolbar.puppet', { defaultValue: '人偶' })}
+          onClick={onPuppet}
+          active={puppetActive}
+        >
+
+          <GiPuppet className="h-4 w-4" />
 
         </Tool>
 

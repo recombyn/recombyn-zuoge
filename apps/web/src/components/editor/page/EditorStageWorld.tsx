@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -31,6 +32,7 @@ import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessi
 import { CommercialEditorHosts } from '@/commercial/editorHosts';
 import ImageQuickEditSessionHost from '@/components/editor/nodes/ImageNode/ImageQuickEditSessionHost';
 import MarkPinHost from '@/components/editor/nodes/ImageNode/mark/MarkPinHost';
+import PuppetPinHost from '@/components/editor/nodes/ImageNode/puppet/PuppetPinHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
@@ -96,7 +98,10 @@ import {
   shouldCoMoveNodeWithFrames,
 } from '@/components/rcb/frames/frameNodeBinding';
 import { previewArtboardFrameGeometry, clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
-import { warnIfNewPlateBlockedByAnimationWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  shouldShowArtboardInWorkbenchFocus,
+  warnIfNewPlateBlockedByAnimationWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 const EDITOR_PAN_BLOCK_SELECTOR = [
   '[data-scene-node-id]',
@@ -225,32 +230,37 @@ function frameBox(frame: ArtboardFrame) {
 /** Nodes that visually sit inside moved frames — co-move + exclude from smart guides. */
 function nodeIdsOverlappingFrames(
   doc: SceneDocument,
-  movedFrames: Array<{ id: string; startX: number; startY: number; width: number; height: number }>
+  movedFrames: Array<{
+    id: string;
+    startX: number;
+    startY: number;
+    width: number;
+    height: number;
+    kind?: string | null;
+  }>
 ) {
   const movedFrameIds = new Set(movedFrames.map((frame) => frame.id));
-  const frameBoxes = movedFrames.map((frame) => ({
-    id: frame.id,
-    box: {
-      x: frame.startX,
-      y: frame.startY,
-      width: frame.width,
-      height: frame.height,
-    },
-  }));
   const out: string[] = [];
   for (const [nodeId, node] of Object.entries(doc.deltaSetLike || {})) {
     if (!node || nodeId === 'ROOT') continue;
     const box = nodeBox(node);
     const nodeRect = { left: box.x, top: box.y, width: box.width, height: box.height };
-    const matched = frameBoxes.some(({ box: fb }) =>
-      shouldCoMoveNodeWithFrames(node, nodeRect, movedFrameIds, {
-        left: fb.x,
-        top: fb.y,
-        width: fb.width,
-        height: fb.height,
-      })
-    );
-    if (matched) out.push(nodeId);
+    const hits = movedFrames.some((frame) => {
+      const plate = (doc.frames || []).find((f) => String(f?.id) === String(frame.id));
+      return shouldCoMoveNodeWithFrames(
+        node,
+        nodeRect,
+        movedFrameIds,
+        {
+          left: frame.startX,
+          top: frame.startY,
+          width: frame.width,
+          height: frame.height,
+        },
+        frame.kind ?? plate?.kind
+      );
+    });
+    if (hits) out.push(nodeId);
   }
   return out;
 }
@@ -472,6 +482,10 @@ function EditorStageWorld({
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
   const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
   const [selectionTransforming, setSelectionTransforming] = useState(false);
+  // Drop snap guides that may still point at plates hidden by timeline focus.
+  useEffect(() => {
+    setFrameSmartGuides([]);
+  }, [workbenchFocusFrameId]);
   const frameDragRef = useRef<{
     frames: Array<{
       id: string;
@@ -486,8 +500,9 @@ function EditorStageWorld({
   const showWorkbenchFrame = useCallback(
     (frame: ArtboardFrame) => {
       if (frame.hidden) return false;
-      if (!workbenchFocusFrameId) return true;
-      return String(frame.id) === workbenchFocusFrameId;
+      // Prefer the React focus id (same render as setAnimationWorkbenchTimelineFocus).
+      if (workbenchFocusFrameId) return String(frame.id) === workbenchFocusFrameId;
+      return shouldShowArtboardInWorkbenchFocus(frame);
     },
     [workbenchFocusFrameId]
   );
@@ -699,7 +714,8 @@ function EditorStageWorld({
           startY: Number(item.y) || 0,
           width: Math.max(1, Number(item.width) || 1),
           height: Math.max(1, Number(item.height) || 1),
-      }));
+          kind: item.kind,
+        }));
       if (movedFrames.length) {
         frameMoveDocumentRef.current = document;
         setFrameSmartGuides([]);
@@ -919,6 +935,7 @@ function EditorStageWorld({
         <CommercialEditorHosts document={document} selectionTransforming={selectionTransforming} />
         <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
         <MarkPinHost document={document} hidden={selectionTransforming} />
+        <PuppetPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} hidden={selectionTransforming} />
         <AnimationComposeSessionHost document={document} hidden={selectionTransforming} />
         <AnimationPrecompEditOverlay document={document} hidden={selectionTransforming} />

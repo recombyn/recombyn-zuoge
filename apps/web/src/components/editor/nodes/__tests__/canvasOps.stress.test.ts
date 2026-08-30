@@ -7,7 +7,9 @@ import reducer, {
   addArtboardFrame,
   closeImageToolPanel,
   createTemplate,
+  ensureAnimationFrameMedia,
   openImageToolPanel,
+  openLottieTimelinePanel,
   patchDocumentNode,
   placeMediaAsset,
   removeArtboardFrames,
@@ -363,5 +365,40 @@ describe('canvas ops store stress', () => {
       state = reducer(state, closeImageToolPanel());
       expect(state.imageToolPanel).toBeFalsy();
     }
+  });
+
+  it('openImageToolPanel does not exit animation timeline edit mode', () => {
+    let state = seed();
+    state = reducer(state, spawnAnimationBoard({ x: 0, y: 0, width: 300, height: 300 }));
+    const frameId = String(state.selectedFrameIds[0] || '');
+    expect(frameId.length).toBeGreaterThan(2);
+    state = reducer(state, ensureAnimationFrameMedia({ frameId }));
+    const hostId = Object.keys(state.document!.deltaSetLike || {}).find((id) => {
+      const n = state.document!.deltaSetLike?.[id];
+      return (
+        n?.key === 'lottie' &&
+        (n.attrs?.animationFrameHost === true || n.attrs?.lottieFrameHost === true)
+      );
+    });
+    expect(hostId).toBeTruthy();
+    state = reducer(state, openLottieTimelinePanel({ nodeId: String(hostId) }));
+    expect(state.lottieTimelinePanel?.nodeId).toBe(hostId);
+
+    state = reducer(
+      state,
+      placeMediaAsset({
+        kind: 'image',
+        src: 'https://cdn.example.com/in-workbench.png',
+        x: 20,
+        y: 20,
+        width: 80,
+        height: 80,
+        name: 'wb-img',
+      })
+    );
+    const imageId = String(state.selectedNodeId);
+    state = reducer(state, openImageToolPanel({ nodeId: imageId, kind: 'crop' }));
+    expect(state.imageToolPanel?.kind).toBe('crop');
+    expect(state.lottieTimelinePanel?.nodeId).toBe(hostId);
   });
 });

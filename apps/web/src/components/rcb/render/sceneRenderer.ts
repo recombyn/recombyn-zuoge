@@ -36,6 +36,14 @@ import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hex
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import { findClippingFrameForNode } from '@/components/rcb/frames/frameContentClip';
 import {
+  nodeNeedsPuppetWarp,
+  readPuppetPins,
+  samplePuppetPinsAtFrame,
+} from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import { paintPuppetWarpedImage } from '@/components/rcb/scene/paint/puppetWarp';
+import { getAnimationWorkbenchPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
+import {
   resolveFill,
   resolveLinearCoords,
   parseFillType,
@@ -1654,6 +1662,27 @@ export function paintCanvasMediaInk(
   const r = clampCornerRadii(radiiFromAttrs(opts.node.attrs), w, h);
   traceRoundedRectLocal(ctx, w, h, r);
   ctx.clip();
+
+  const attrs = (opts.node.attrs || {}) as Record<string, unknown>;
+  if (nodeNeedsPuppetWarp(opts.node)) {
+    const pins = (() => {
+      const track = attrs.puppetTrack;
+      if (Array.isArray(track) && track.length) {
+        const frame = secToFrame(getAnimationWorkbenchPlayheadSec(), 30);
+        return samplePuppetPinsAtFrame(attrs, frame);
+      }
+      return readPuppetPins(attrs);
+    })();
+    paintPuppetWarpedImage(ctx, {
+      image: img,
+      width: w,
+      height: h,
+      pins,
+      attrs,
+    });
+    ctx.restore();
+    return;
+  }
 
   const crop = readMediaCropNorm(opts.node);
   if (crop) {

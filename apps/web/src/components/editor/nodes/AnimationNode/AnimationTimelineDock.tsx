@@ -81,6 +81,15 @@ import {
 } from '@/components/rcb/scene/document/nodeFactories';
 import { linkedLotNodeIdFromAsset } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import {
+  enrichTimelineScenesWithPuppet,
+  PUPPET_TIMELINE_PROP_KEY,
+} from '@/components/editor/nodes/ImageNode/puppet/puppetTimeline';
+import {
+  readPuppetPins,
+  readPuppetTrack,
+  upsertPuppetTrackKeyframe,
+} from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import {
   closeLottieTimelinePanel,
   ensureAnimationFrameMedia,
   enterLottiePrecompEdit,
@@ -286,6 +295,10 @@ function AnimationTimelineDock({
           String(n.attrs?.lockAspect || ''),
           String(n.attrs?.lottieInFrame ?? ''),
           String(n.attrs?.lottieOutFrame ?? ''),
+          String(n.attrs?.puppetEnabled || ''),
+          String(n.attrs?.puppetDensity || ''),
+          JSON.stringify(n.attrs?.puppetPins || null),
+          JSON.stringify(n.attrs?.puppetTrack || null),
         ].join(':');
       })
       .join('|');
@@ -312,10 +325,13 @@ function AnimationTimelineDock({
 
   const scenes = useMemo(
     () =>
-      buildLottieTimelineScenes(animationData, String(node?.attrs?.name || 'Lottie'), {
-        includeEmptyProps: true,
-      }),
-    [animationData, node?.attrs?.name]
+      enrichTimelineScenesWithPuppet(
+        buildLottieTimelineScenes(animationData, String(node?.attrs?.name || 'Lottie'), {
+          includeEmptyProps: true,
+        }),
+        document
+      ),
+    [animationData, node?.attrs?.name, document, frameChildrenKey]
   );
 
   useEffect(() => {
@@ -869,9 +885,32 @@ function AnimationTimelineDock({
   togglePlayRef.current = togglePlay;
 
   const deleteSelectedKf = useCallback((): boolean => {
-    if (!selectedKf || !animationData || !activeScene) return false;
+    if (!selectedKf || !activeScene) return false;
     const parsed = parsePropId(selectedKf.propId);
     if (!parsed) return false;
+    const frame = secToFrame(selectedKf.timeSec, fps);
+
+    if (parsed.propKey === PUPPET_TIMELINE_PROP_KEY) {
+      const layer = activeScene.layers.find((l) => l.ind === parsed.layerInd);
+      const sceneNodeId = layer?.sceneNodeId;
+      if (!sceneNodeId || !document) return false;
+      const sceneNode = document.deltaSetLike?.[sceneNodeId];
+      if (!sceneNode) return false;
+      const attrs = (sceneNode.attrs || {}) as Record<string, unknown>;
+      const nextTrack = readPuppetTrack(attrs).filter((k) => k.f !== frame);
+      dispatch(
+        patchDocumentNode({
+          nodeId: sceneNodeId,
+          patch: { attrs: { puppetTrack: nextTrack } },
+        })
+      );
+      setSelectedKf(null);
+      setKfPopoverOpen(false);
+      setKfAnchor(null);
+      return true;
+    }
+
+    if (!animationData) return false;
     commitAnimation(
       removeTransformKeyframe({
         animationData,
@@ -879,14 +918,14 @@ function AnimationTimelineDock({
         assetId: activeScene.assetId,
         layerInd: parsed.layerInd,
         propKey: parsed.propKey,
-        frame: secToFrame(selectedKf.timeSec, fps),
+        frame,
       })
     );
     setSelectedKf(null);
     setKfPopoverOpen(false);
     setKfAnchor(null);
     return true;
-  }, [selectedKf, animationData, activeScene, commitAnimation, fps]);
+  }, [selectedKf, animationData, activeScene, commitAnimation, fps, document, dispatch]);
 
   const deleteSelectedTrackOrKf = useCallback((): boolean => {
     if (selectedKf) return deleteSelectedKf();
@@ -901,6 +940,7 @@ function AnimationTimelineDock({
     if (!selectedKf || !animationData || !activeScene) return false;
     const parsed = parsePropId(selectedKf.propId);
     if (!parsed) return false;
+    if (parsed.propKey === PUPPET_TIMELINE_PROP_KEY) return false;
     const payload = readTransformKeyframe({
       animationData,
       sceneKind: activeScene.kind,
@@ -1104,12 +1144,40 @@ function AnimationTimelineDock({
     times: number[],
     atSec?: number
   ) => {
-    if (!animationData || !activeScene) return;
+    if (!activeScene) return;
     const t =
       typeof atSec === 'number' && Number.isFinite(atSec) ? Math.max(0, atSec) : playhead;
     const frame = secToFrame(t, fps);
     const has = times.some((time) => Math.abs(time - t) <= Math.max(KF_EPS_SEC, 0.5 / fps));
     const layer = activeScene.layers.find((l) => l.ind === layerInd);
+
+    if (propKey === PUPPET_TIMELINE_PROP_KEY) {
+      const sceneNodeId = layer?.sceneNodeId;
+      if (!sceneNodeId || !document) return;
+      const sceneNode = document.deltaSetLike?.[sceneNodeId];
+      if (!sceneNode || sceneNode.key !== 'image') return;
+      const attrs = (sceneNode.attrs || {}) as Record<string, unknown>;
+      const pins = readPuppetPins(attrs);
+      const track = readPuppetTrack(attrs);
+      const nextTrack = has
+        ? track.filter((k) => k.f !== frame)
+        : upsertPuppetTrackKeyframe(track, frame, pins);
+      dispatch(
+        patchDocumentNode({
+          nodeId: sceneNodeId,
+          patch: {
+            attrs: {
+              puppetEnabled: true,
+              puppetPins: pins,
+              puppetTrack: nextTrack,
+            },
+          },
+        })
+      );
+      return;
+    }
+
+    if (!animationData) return;
     const sceneNode = layer?.sceneNodeId
       ? document?.deltaSetLike?.[layer.sceneNodeId]
       : null;
@@ -1479,7 +1547,17 @@ function AnimationTimelineDock({
 
   const openKfPopoverAt = useCallback(
     (clientX: number, clientY: number, propId: string, timeSec: number) => {
+      const parsed = parsePropId(propId);
       setSelectedKf({ propId, timeSec });
+      // Puppet keys store pin snapshots — no numeric Bodymovin inspector.
+      if (parsed?.propKey === PUPPET_TIMELINE_PROP_KEY) {
+        setKfPopoverOpen(false);
+        setKfAnchor(null);
+        setTimelineCtxMenu(null);
+        dispatch(setLottiePlaying(false));
+        getLottieHost(nodeId)?.pause();
+        return;
+      }
       setKfAnchor({ x: clientX, y: clientY });
       setKfPopoverOpen(true);
       setTimelineCtxMenu(null);
@@ -1523,7 +1601,7 @@ function AnimationTimelineDock({
         const drag = kfDragRef.current;
         kfDragRef.current = null;
         setKfGhost(null);
-        if (!drag || !animationData || !activeScene) return;
+        if (!drag || !activeScene) return;
         const parsed = parsePropId(drag.propId);
         if (!parsed) return;
         const toSec = clientXToSec(ev.clientX);
@@ -1534,6 +1612,30 @@ function AnimationTimelineDock({
           openKfPopoverAtRef.current(downX, downY, drag.propId, drag.fromSec);
           return;
         }
+        if (parsed.propKey === PUPPET_TIMELINE_PROP_KEY) {
+          const layer = activeScene.layers.find((l) => l.ind === parsed.layerInd);
+          const sceneNodeId = layer?.sceneNodeId;
+          if (!sceneNodeId || !document) return;
+          const sceneNode = document.deltaSetLike?.[sceneNodeId];
+          if (!sceneNode) return;
+          const attrs = (sceneNode.attrs || {}) as Record<string, unknown>;
+          const fromFrame = secToFrame(drag.fromSec, fps);
+          const toFrame = secToFrame(toSec, fps);
+          const track = readPuppetTrack(attrs);
+          const hit = track.find((k) => k.f === fromFrame);
+          if (!hit) return;
+          const without = track.filter((k) => k.f !== fromFrame && k.f !== toFrame);
+          const nextTrack = upsertPuppetTrackKeyframe(without, toFrame, hit.pins);
+          dispatch(
+            patchDocumentNode({
+              nodeId: sceneNodeId,
+              patch: { attrs: { puppetTrack: nextTrack } },
+            })
+          );
+          setSelectedKf({ propId: drag.propId, timeSec: toSec });
+          return;
+        }
+        if (!animationData) return;
         const next = moveTransformKeyframe({
           animationData,
           sceneKind: activeScene.kind,
@@ -1556,6 +1658,8 @@ function AnimationTimelineDock({
       animationData,
       clientXToSec,
       commitAnimation,
+      dispatch,
+      document,
       fps,
       nodeId,
       selectTimelineLayer,

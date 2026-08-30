@@ -11,7 +11,7 @@ const PROP_DEFAULTS: Record<string, string> = {
   ts: 'Trim Start',
   te: 'Trim End',
   to: 'Trim Offset',
-  rd: 'Roundness',
+  puppet: 'Puppet',
 };
 
 type TranslateFn = (key: string, opts?: { defaultValue?: string }) => string;

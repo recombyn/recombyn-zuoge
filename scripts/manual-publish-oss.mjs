@@ -124,9 +124,6 @@ function copyTree(src, dest) {
 }
 
 function buildMessage(pubTip) {
-  if (process.env.OSS_COMMIT_MSG) {
-    return sanitizePublicCommitMessage(process.env.OSS_COMMIT_MSG);
-  }
   const head = runOut('git', ['rev-parse', 'HEAD']);
   let raw = '';
   try {
