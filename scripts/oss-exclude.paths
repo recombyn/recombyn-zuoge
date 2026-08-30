@@ -5,6 +5,7 @@
 apps/intelligence
 apps/web/src/commercial/mockup
 docs/commercial
+docs/pitch
 
 # Sync tooling + legacy root stub tree (never ship on public mirror)
 oss-stubs
@@ -14,6 +15,12 @@ scripts/oss-stubs
 .github/workflows/protocol-compat.yml
 scripts/setup-private-remote.mjs
 scripts/sync-public-strip.mjs
+scripts/manual-publish-oss.mjs
 
 apps/web/src/private
 apps/api/private-eval
+
+# Local-only private VPS helpers (never ship on public mirror)
+deploy/vps/deploy-ip-full.sh
+deploy/vps/setup-private-remote.sh
+deploy/vps/switch-to-private-and-deploy.sh
