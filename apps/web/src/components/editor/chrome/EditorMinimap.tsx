@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
+import { useSelector } from 'react-redux';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import { rcbViewportSceneBounds, type RcbCamera } from '@/components/rcb';
-import {
-  listSceneNodes
-} from '@/components/rcb/scene/document/sceneDocument';
+import { listSceneNodes } from '@/components/rcb/scene/document/sceneDocument';
 import {
   isAnimationFrameHostNode,
+  isArtboardVisibleInDocument,
   isGeneratorNode,
+  isNodeHiddenInDocument,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { resolveFillColor, resolveStroke } from '@/components/rcb/scene/document/sceneEffects';
 import { parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
@@ -33,6 +34,17 @@ function unionBox(a: Box | null, b: Box): Box {
   };
 }
 
+function intersectBoxes(a: Box, b: Box): Box | null {
+  const x0 = Math.max(a.x, b.x);
+  const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.width, b.x + b.width);
+  const y1 = Math.min(a.y + a.height, b.y + b.height);
+  const w = x1 - x0;
+  const h = y1 - y0;
+  if (w < 1 || h < 1) return null;
+  return { x: x0, y: y0, width: w, height: h };
+}
+
 function nodeSceneBox(doc: SceneDocument, node: SceneNodeInput): Box | null {
   if (!node) return null;
   const { left, top } = nodeLeftTop(doc, node);
@@ -52,8 +64,7 @@ function frameSceneBox(frame: ArtboardFrame): Box {
 }
 
 function isMinimapFrameVisible(frame: ArtboardFrame): boolean {
-  const hidden = (frame as { hidden?: unknown }).hidden;
-  return !(hidden === true || hidden === 'true' || hidden === 1 || hidden === '1');
+  return isArtboardVisibleInDocument(frame);
 }
 
 function nodeEffectiveOpacity(node: SceneNodeInput): number {
@@ -62,35 +73,58 @@ function nodeEffectiveOpacity(node: SceneNodeInput): number {
   return raw > 1 ? raw / 100 : raw;
 }
 
-function isAttrHidden(value: unknown): boolean {
-  return value === true || value === 'true' || value === 1 || value === '1';
-}
-
 /**
- * Minimap is a navigation overview — keep hosts / generators / empty out,
- * but do NOT apply workbench edit focus (board-outside content must stay visible).
+ * Match stage paint: workbench edit/preview focus, playhead trim,
+ * hosts / generators / zero-opacity stay out.
  */
-function isMinimapNodeVisible(doc: SceneDocument, node: SceneNodeInput): boolean {
+function isMinimapNodeVisible(
+  doc: SceneDocument,
+  node: SceneNodeInput,
+  playheadSec: number
+): boolean {
   if (!node) return false;
   if (isAnimationFrameHostNode(node, doc)) return false;
   if (isGeneratorNode(node)) return false;
   if (String(node.attrs?.processStatus || '') === 'running') return false;
-  if (isAttrHidden(node.attrs?.hidden)) return false;
-  if (node.attrs?.visible === false || node.attrs?.visible === 'false') return false;
+  if (isNodeHiddenInDocument(doc, node, playheadSec)) return false;
   if (nodeEffectiveOpacity(node) <= 0.01) return false;
   return true;
 }
 
-function sceneContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Box {
+/** Node AABB clipped to its artboard (canvas clips content to the plate). */
+function nodeMinimapBox(
+  doc: SceneDocument,
+  node: SceneNodeInput,
+  frameById: Map<string, ArtboardFrame>
+): Box | null {
+  const nb = nodeSceneBox(doc, node);
+  if (!nb) return null;
+  if (nb.width < 2 && nb.height < 2) return null;
+  const frameId = String(node.attrs?.frameId || '').trim();
+  if (!frameId) return nb;
+  const frame = frameById.get(frameId);
+  if (!frame || !isMinimapFrameVisible(frame)) return null;
+  return intersectBoxes(nb, frameSceneBox(frame));
+}
+
+function sceneContentBounds(
+  doc: SceneDocument,
+  frames: ArtboardFrame[],
+  playheadSec: number
+): Box {
+  const frameById = new Map<string, ArtboardFrame>();
+  for (const f of frames) {
+    if (f?.id) frameById.set(String(f.id), f);
+  }
   let box: Box | null = null;
   for (const f of frames) {
     if (!isMinimapFrameVisible(f)) continue;
     box = unionBox(box, frameSceneBox(f));
   }
   for (const { node } of listSceneNodes(doc)) {
-    if (!isMinimapNodeVisible(doc, node)) continue;
-    const nb = nodeSceneBox(doc, node);
-    if (!nb || (nb.width < 2 && nb.height < 2)) continue;
+    if (!isMinimapNodeVisible(doc, node, playheadSec)) continue;
+    const nb = nodeMinimapBox(doc, node, frameById);
+    if (!nb) continue;
     box = unionBox(box, nb);
   }
   if (!box) return { x: 0, y: 0, width: 1200, height: 800 };
@@ -132,7 +166,7 @@ type Props = {
 };
 
 /**
- * Bottom-left minimap: artboards + scene nodes + viewport outline; click/drag to pan.
+ * Bottom-left minimap: same visibility as the stage (edit vs preview isolation).
  */
 function EditorMinimap({
   document,
@@ -147,6 +181,11 @@ function EditorMinimap({
 }: Props): ReactNode {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerId: number } | null>(null);
+  /** Recompute when timeline edit focus toggles (module flag + Redux). */
+  const workbenchEditOpen = useSelector((state: any) =>
+    Boolean(state.editor.lottieTimelinePanel?.nodeId)
+  );
+  const playheadSec = useSelector((state: any) => Number(state.editor.lottiePlayheadSec) || 0);
 
   const stageSize = useMemo(() => {
     if (!stageEl) return { width: 1, height: 1 };
@@ -159,26 +198,34 @@ function EditorMinimap({
     [camera, stageSize]
   );
 
+  const frameById = useMemo(() => {
+    const map = new Map<string, ArtboardFrame>();
+    for (const f of frames) {
+      if (f?.id) map.set(String(f.id), f);
+    }
+    return map;
+  }, [frames]);
+
   const visibleFrames = useMemo(
     () => frames.filter((f) => isMinimapFrameVisible(f)),
-    [frames]
+    [frames, workbenchEditOpen]
   );
 
   const visibleNodeEntries = useMemo(() => {
     const out: Array<{ id: string; node: SceneNodeInput; box: Box }> = [];
     for (const { id, node } of listSceneNodes(document)) {
-      if (!isMinimapNodeVisible(document, node)) continue;
-      const box = nodeSceneBox(document, node);
-      if (!box || (box.width < 2 && box.height < 2)) continue;
+      if (!isMinimapNodeVisible(document, node, playheadSec)) continue;
+      const box = nodeMinimapBox(document, node, frameById);
+      if (!box) continue;
       out.push({ id, node, box });
     }
     return out;
-  }, [document]);
+  }, [document, frameById, playheadSec, workbenchEditOpen]);
 
   const world = useMemo(() => {
-    const content = sceneContentBounds(document, frames);
+    const content = sceneContentBounds(document, frames, playheadSec);
     return unionBox(content, viewport);
-  }, [document, frames, viewport]);
+  }, [document, frames, playheadSec, viewport, workbenchEditOpen]);
 
   const scale = useMemo(() => {
     const innerW = MAP_W - PAD * 2;

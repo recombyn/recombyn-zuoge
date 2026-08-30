@@ -43,8 +43,8 @@ import {
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import {
   getAnimationWorkbenchTimelineFocus,
+  isArtboardVisibleInDocument,
   isHiddenByAnimationWorkbenchFocus,
-  shouldShowArtboardInWorkbenchFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   listSceneNodes,
@@ -93,14 +93,14 @@ function listRootLayerRows(opts: {
       const parsed = parseStackKey(key);
       if (parsed?.kind === 'frame' && frameById.has(parsed.id)) {
         const frame = frameById.get(parsed.id);
-        if (!shouldShowArtboardInWorkbenchFocus(frame)) continue;
+        if (!isArtboardVisibleInDocument(frame)) continue;
         rows.push(parsed);
       }
     }
   } else {
     for (const f of [...frames].reverse()) {
       if (!f?.id) continue;
-      if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
+      if (!isArtboardVisibleInDocument(f)) continue;
       rows.push({ kind: 'frame', id: String(f.id) });
     }
   }

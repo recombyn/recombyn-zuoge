@@ -49,7 +49,10 @@ export type ImageDecomposeLayer = {
 };
 
 export type ImageProcessResult = {
-  image: string;
+  /** Raster tool output (data URL or https). Absent for vectorize. */
+  image?: string;
+  /** vtracer SVG markup — finish as ``key: 'svg'`` node. */
+  svg?: string;
   text?: string | null;
   kind: string;
   model?: string;
@@ -59,6 +62,7 @@ export type ImageProcessResult = {
   height?: number;
   warnings?: string[];
   engines?: string[];
+  engine?: string;
   /** Credits charged for this tool call (server-side). */
   credits?: number;
 };

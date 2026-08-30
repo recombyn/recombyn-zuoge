@@ -23,6 +23,7 @@ dependencies = [
   "pymysql>=1.1.0",
   "boto3>=1.35.0",
   "Pillow>=10.0.0",
+  "vtracer>=0.6.11,<1.0.0",
   "zstandard>=0.22.0",
   "svg.path>=6.3",
   "langgraph>=0.4.0",

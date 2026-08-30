@@ -3,9 +3,7 @@ import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { updateNodesInDocument } from '@/components/rcb/scene/document/sceneDocument';
 import {
-  canEditAnimationWorkbenchPlate,
-  getAnimationWorkbenchTimelineFocus,
-  shouldShowArtboardInWorkbenchFocus,
+  canBindToArtboard,
   WORKBENCH_SURROUND_ATTR,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
@@ -22,13 +20,14 @@ export function isAvMediaSceneNode(node: { key?: unknown } | null | undefined): 
   return key === 'video' || key === 'audio';
 }
 
-/** 动画工作台 rejects AV + generators; normal artboards accept everything. */
+/** 动画工作台 rejects AV + generators; nested free Lottie plates become precomp tabs. */
 export function canBindNodeToArtboardFrame(
   frame: ArtboardFrame | null | undefined,
   node: { key?: unknown; attrs?: Record<string, unknown> | null } | null | undefined
 ): boolean {
   if (!frame || !node || !isAnimationArtboardKind(frame.kind)) return true;
-  return !isAvMediaSceneNode(node) && !isGeneratorNode(node as any);
+  if (isAvMediaSceneNode(node) || isGeneratorNode(node as any)) return false;
+  return true;
 }
 
 export function sceneBBox(box: {
@@ -66,18 +65,10 @@ export function frameForNodeIntersectPlacement(
   rect: BBox,
   node?: { key?: unknown; attrs?: Record<string, unknown> | null } | null
 ): string | null {
-  const focus = getAnimationWorkbenchTimelineFocus();
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   for (let i = frames.length - 1; i >= 0; i -= 1) {
     const frame = frames[i];
-    if (!frame || frame.hidden) continue;
-    if (focus && !shouldShowArtboardInWorkbenchFocus(frame)) continue;
-    if (
-      isAnimationArtboardKind(frame.kind) &&
-      !canEditAnimationWorkbenchPlate(String(frame.id))
-    ) {
-      continue;
-    }
+    if (!canBindToArtboard(frame)) continue;
     if (!boxesIntersect(rect, sceneBBox(frame))) continue;
     if (!canBindNodeToArtboardFrame(frame, node)) continue;
     return String(frame.id);
@@ -98,13 +89,7 @@ export function shouldBindUnownedNodeToFrame(
   frame: ArtboardFrame
 ): boolean {
   if (String(node.attrs?.frameId || '').trim()) return false;
-  if (!shouldShowArtboardInWorkbenchFocus(frame)) return false;
-  if (
-    isAnimationArtboardKind(frame.kind) &&
-    !canEditAnimationWorkbenchPlate(String(frame.id))
-  ) {
-    return false;
-  }
+  if (!canBindToArtboard(frame)) return false;
   if (!canBindNodeToArtboardFrame(frame, node)) return false;
   return boxesIntersect(sceneBBox(node), sceneBBox(frame));
 }
@@ -154,8 +139,7 @@ export function acceptCreateFrameId(
   const id = String(frameId || '').trim();
   if (!id) return null;
   const frame = (doc.frames || []).find((item) => String(item?.id) === id);
-  if (!frame || frame.hidden) return null;
-  if (isAnimationArtboardKind(frame.kind) && !canEditAnimationWorkbenchPlate(id)) return null;
+  if (!canBindToArtboard(frame)) return null;
   return canBindNodeToArtboardFrame(frame, node) ? id : null;
 }
 

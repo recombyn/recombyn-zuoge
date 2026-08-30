@@ -1407,6 +1407,7 @@ const en = {
         'Text recognition complete ({{textCount}} editable, {{rasterCount}} artistic lettering kept as images)',
       nameCutout: 'Cutout',
       nameEraser: 'Eraser',
+      nameVector: 'Vector',
       cornerRadius: 'Corner radius',
       sideCount: 'Sides',
       pointCount: 'Points',

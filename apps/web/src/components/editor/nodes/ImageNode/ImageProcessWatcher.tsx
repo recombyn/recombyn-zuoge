@@ -269,6 +269,24 @@ function ImageProcessWatcher() {
 
         if (await finishDecomposeResult(dispatch, pendingId, kind, res, isCancelled)) return;
 
+        const svgMarkup = String(res?.svg || '').trim();
+        if (kind === 'vector' || svgMarkup) {
+          if (!svgMarkup) {
+            fail(tt('editor.imageToolbar.processNoResult'));
+            return;
+          }
+          dispatch(
+            finishImageProcess({
+              nodeId: pendingId,
+              svg: svgMarkup,
+              attrs: { name: tt('editor.imageToolbar.nameVector') },
+            })
+          );
+          message.success(tt('editor.imageToolbar.doneVector'));
+          await refreshWallet();
+          return;
+        }
+
         if (!res?.image) {
           fail(tt('editor.imageToolbar.processNoResult'));
           return;

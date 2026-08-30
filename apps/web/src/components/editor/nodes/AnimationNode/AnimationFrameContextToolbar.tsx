@@ -86,7 +86,7 @@ function LottieFrameContextToolbar({ frame, box }: Props) {
   const speed = Math.max(0.25, Number(mediaNode?.attrs?.lottieSpeed) || 1);
 
   const canvasLocked = Boolean(frame.locked);
-  const timelineOpen = Boolean(mediaId && timelinePanel?.nodeId === mediaId);
+  const timelineOpen = Boolean(timelinePanel?.nodeId);
 
   const patch = (next: Partial<ArtboardFrame>) => {
     dispatch(updateArtboardFrame({ id: frame.id, patch: next }));

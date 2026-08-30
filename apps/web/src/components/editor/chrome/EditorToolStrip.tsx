@@ -23,7 +23,7 @@ import {
 } from 'react-icons/lu';
 import { RiImageUploadLine, RiVideoUploadLine, RiVideoLine } from 'react-icons/ri';
 import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
-import { resolveActiveAnimationFrameId, resolveAnimationFrameId, findFrameAnimationMediaId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   warnIfAvBlockedByAnimationWorkbenchFocus,
   warnIfNewPlateBlockedByAnimationWorkbenchFocus,
@@ -40,13 +40,14 @@ import {
   startImageUploadPlaceholder,
   startVideoUploadPlaceholder,
   startAudioUploadPlaceholder,
-  importLottieIntoAnimationFrame,
   spawnImageGenerator,
   spawnVideoGenerator,
   spawnAnimationBoard,
+  spawnLottie,
   spawnAudioGenerator,
   finishImageProcess,
   failImageProcess,
+  patchDocumentNode,
 } from '@/store/modules/editor';
 import {
   ensureCanvasPlugins,
@@ -59,6 +60,7 @@ import {
   measureImageNaturalSize,
   prepareVideoUploadPreview,
   parseLottieAnimationData,
+  serializeLottieAnimationData,
   MEDIA_PLACE_DEFAULT,
 } from '@/components/rcb/scene/document/nodeFactories';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
@@ -998,67 +1000,43 @@ function EditorToolStrip({
       if (!animationData) throw new Error('invalid lottie');
       const state = store.getState() as any;
       const doc = state?.editor?.document;
-      const selectedFrameIds = (state?.editor?.selectedFrameIds || []) as string[];
-      // Timeline dock host is the most reliable target while editing (module focus can lag).
       const timelineHostId = String(state?.editor?.lottieTimelinePanel?.nodeId || '').trim();
-      const timelineFrameId = timelineHostId
-        ? resolveAnimationFrameId(doc, doc?.deltaSetLike?.[timelineHostId])
-        : null;
-      const targetFrameId =
-        timelineFrameId ||
-        resolveActiveAnimationFrameId(doc, selectedFrameIds);
+      const timelineHost = timelineHostId ? doc?.deltaSetLike?.[timelineHostId] : null;
+      const timelineOnWorkbench = Boolean(resolveAnimationFrameId(doc, timelineHost));
       const importName = name.replace(/\.(json|lot)$/i, '') || undefined;
-      if (targetFrameId) {
+      // Replace JSON only when editing an existing free preview plate (not workbench).
+      if (timelineHostId && timelineHost?.key === 'lottie' && !timelineOnWorkbench) {
+        const json = serializeLottieAnimationData(animationData);
+        if (!json) throw new Error('invalid lottie');
         dispatch(
-          importLottieIntoAnimationFrame({
-            frameId: targetFrameId,
-            animationData,
-            name: importName,
+          patchDocumentNode({
+            nodeId: timelineHostId,
+            patch: {
+              attrs: {
+                animationData: json,
+                ...(importName ? { name: importName } : {}),
+              },
+            },
           })
         );
-        const after = store.getState() as any;
-        const hostId =
-          findFrameAnimationMediaId(after?.editor?.document, targetFrameId) ||
-          timelineHostId;
-        const hostJson = hostId
-          ? String(after?.editor?.document?.deltaSetLike?.[hostId]?.attrs?.animationData || '')
-          : '';
-        if (!parseLottieAnimationData(hostJson)) {
-          message.error(
-            t('editor.tools.lottieGenInvalidJson', { defaultValue: 'Invalid Lottie JSON' })
-          );
-        }
         return;
       }
-      if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'animationBoard')) {
-        return;
-      }
-      // Animation track: import into a new 动画工作台 (not a free Lottie plate).
       const natural = {
         width: Math.max(1, Number(animationData.w) || 200),
         height: Math.max(1, Number(animationData.h) || 200),
       };
       const { width, height, x, y } = placeAtViewportCenter(natural);
+      // Always independent preview plate — open 「关键帧」 to promote into a workbench.
       dispatch(
-        spawnAnimationBoard({
+        spawnLottie({
           width,
           height,
           x,
           y,
-          name: importName || L.animationBoard,
+          name: importName || 'Lottie',
+          animationData,
         })
       );
-      const after = store.getState() as any;
-      const frameId = String(after?.editor?.selectedFrameIds?.[0] || '').trim();
-      if (frameId) {
-        dispatch(
-          importLottieIntoAnimationFrame({
-            frameId,
-            animationData,
-            name: importName,
-          })
-        );
-      }
     } catch {
       message.error(t('editor.tools.lottieGenInvalidJson', { defaultValue: 'Invalid Lottie JSON' }));
     }

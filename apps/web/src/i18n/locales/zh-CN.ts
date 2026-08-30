@@ -1398,6 +1398,7 @@ const zhCN = {
         '文字识别完成（{{textCount}} 处可编辑，{{rasterCount}} 处艺术字保留为图片）',
       nameCutout: '抠图',
       nameEraser: '擦除',
+      nameVector: '矢量',
       cornerRadius: '圆角',
       sideCount: '边数',
       pointCount: '角数',

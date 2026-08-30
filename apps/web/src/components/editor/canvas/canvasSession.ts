@@ -25,13 +25,14 @@ import {
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  canEditAnimationWorkbenchPlate,
+  canBindToArtboard,
   getAnimationWorkbenchTimelineFocus,
+  isArtboardVisibleInDocument,
   syncWorkbenchSurroundOnFrameBind,
   tagCreatedNodeForWorkbenchSurround,
-  shouldShowArtboardInWorkbenchFocus,
   WORKBENCH_SURROUND_ATTR,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { getLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
 import { clearImageProcessAttrs } from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   STROKE_GEOMETRY_HEIGHT,
@@ -78,7 +79,6 @@ import {
   frameForNodeIntersectPlacement,
   acceptCreateFrameId,
 } from '@/components/rcb/frames/frameNodeBinding';
-import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { findFrameAnimationMediaId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   autoKeyAnimatedGeometry,
@@ -179,8 +179,7 @@ export function collectSelectAllTargets(doc: SceneDocument | null | undefined): 
   }
   const frameIds: string[] = [];
   for (const f of Array.isArray(doc.frames) ? doc.frames : []) {
-    if (!f?.id || f.locked || f.hidden) continue;
-    if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
+    if (!f?.id || f.locked || !isArtboardVisibleInDocument(f)) continue;
     frameIds.push(String(f.id));
   }
   return { nodeIds, frameIds };
@@ -266,8 +265,7 @@ export function hitTestFrameInDoc(doc: SceneDocument | null | undefined, x: numb
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
   for (let i = frames.length - 1; i >= 0; i -= 1) {
     const frame = frames[i];
-    if (!frame || frame.locked || frame.hidden) continue;
-    if (!shouldShowArtboardInWorkbenchFocus(frame)) continue;
+    if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
     const fx = Number(frame.x) || 0;
     const fy = Number(frame.y) || 0;
     const fw = Math.max(1, Number(frame.width) || 1);
@@ -308,12 +306,8 @@ function keepFrameOwner(
 ): boolean {
   const owner = (doc.frames || []).find((frame) => String(frame.id) === ownerId);
   if (!owner || !rectIntersectsFrame(rect, owner)) return false;
-  if (!shouldShowArtboardInWorkbenchFocus(owner)) return false;
+  if (!canBindToArtboard(owner)) return false;
   if (!canBindNodeToArtboardFrame(owner, node)) return false;
-  // Preview workbench: drop stale ownership when timeline is closed.
-  if (isAnimationArtboardKind(owner.kind) && !canEditAnimationWorkbenchPlate(ownerId)) {
-    return false;
-  }
   return true;
 }
 
@@ -323,6 +317,8 @@ function applyNodeFrameBindings(
   patches: GeomPatch[],
   detachedSink?: Set<string>
 ): SceneDocument {
+  // LOT / precomp tab: canvas nodes are isolated; never rebind or drag-out.
+  if (getLottiePrecompEditFocus().active) return doc;
   const bindingPatches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
   const focus = getAnimationWorkbenchTimelineFocus();
   for (const patch of patches) {
@@ -365,7 +361,13 @@ function applyNodeFrameBindings(
     } else {
       delete attrs.frameId;
       delete attrs.frameOrder;
-      attrs = syncWorkbenchSurroundOnFrameBind(attrs, null);
+      // Nested LOT dragged to empty pasteboard → independent preview (always visible).
+      // Other ink may stay workbench-surround while the timeline is focused.
+      if (String(node.key || '') === 'lottie') {
+        delete attrs[WORKBENCH_SURROUND_ATTR];
+      } else {
+        attrs = syncWorkbenchSurroundOnFrameBind(attrs, null);
+      }
     }
     bindingPatches.push({ nodeId: patch.nodeId, patch: { attrs } });
   }

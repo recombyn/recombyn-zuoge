@@ -3,7 +3,20 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import type { SceneNodeAttrs } from '@/components/rcb/sceneNode';
-import { isHiddenByAnimationWorkbenchFocus, isInactiveAtAnimationPlayhead, isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  isHiddenByAnimationWorkbenchFocus,
+  isInactiveAtAnimationPlayhead,
+  isAnimationWorkbenchPreviewChild,
+  isArtboardVisibleInDocument,
+  canBindToArtboard,
+  getWorkbenchToolPolicy,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+
+export {
+  isArtboardVisibleInDocument,
+  canBindToArtboard,
+  getWorkbenchToolPolicy,
+};
 import { isHiddenByLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
 
 /**
@@ -145,16 +158,26 @@ export function isNodeHiddenInDocument(
   return isInactiveAtAnimationPlayhead(document, node, playheadSec);
 }
 
-/** Marquee + smart guides skip hidden (incl. parent frame) and locked nodes. */
+/**
+ * Hit / marquee / chrome pick gate: not hidden (incl. playhead) and not
+ * workbench preview-only child.
+ */
+export function isNodePickableInDocument(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeRef,
+  playheadSec?: number
+): boolean {
+  if (isNodeHiddenInDocument(document, node, playheadSec)) return false;
+  if (isAnimationWorkbenchPreviewChild(document, node)) return false;
+  return true;
+}
+
+/** Marquee + smart guides skip non-pickable and locked nodes. */
 export function isNodeMarqueeSkippable(
   document: SceneDocument | null | undefined,
   node: SceneNodeRef
 ): boolean {
-  return (
-    isNodeHiddenInDocument(document, node) ||
-    isNodeLocked(node) ||
-    isAnimationWorkbenchPreviewChild(document, node)
-  );
+  return !isNodePickableInDocument(document, node) || isNodeLocked(node);
 }
 
 /**

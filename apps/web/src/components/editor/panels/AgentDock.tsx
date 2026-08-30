@@ -72,8 +72,8 @@ import {
 } from '@/utils/uploadImage';
 import { message } from '@/components/base';
 import {
+  getWorkbenchToolPolicy,
   isLottieJsonFile,
-  mediaFileAcceptForWorkbenchTimeline,
   warnIfAvBlockedByAnimationWorkbenchFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
@@ -1883,7 +1883,7 @@ function AgentDock({
           })
         : t('agent.uploadImage'),
     fileAcceptOverride: animationTimelineOpen
-      ? mediaFileAcceptForWorkbenchTimeline(true)
+      ? getWorkbenchToolPolicy().fileAccept
       : isLottieInteraction
         ? 'image/*,video/*,audio/*,application/json,.json,.lot'
         : undefined,

@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
@@ -36,12 +37,54 @@ const HANDLE_W = 10;
 const STEM_HIT = 10;
 /** Playhead head + stem — one color across ruler and tracks. */
 const PLAYHEAD_COLOR = '#EA580C';
-/** Work-area bookend stem — one color across ruler and tracks (not two tones). */
-const WORK_AREA_STEM_COLOR = '#0F172A';
 const WORK_AREA_STEM_W = 2;
 /** Only two clip colors: image vs element (shape / text / null). */
 const CLIP_COLOR_IMAGE = '#4F8CFF';
 const CLIP_COLOR_ELEMENT = '#77C562';
+const SNAP_LINE_COLOR = '#38BDF8';
+
+type TimelinePaintTheme = {
+  tracksBg: string;
+  rulerBg: string;
+  rowEven: string;
+  rowOdd: string;
+  tickMajor: string;
+  tickMinor: string;
+  label: string;
+  ink: string;
+  surface: string;
+  muted: string;
+  line: string;
+};
+
+function cssVar(cs: CSSStyleDeclaration, name: string, fallback: string): string {
+  const v = cs.getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+/** Resolve timeline canvas colors from theme tokens on the host. */
+function readTimelinePaintTheme(el: Element | null): TimelinePaintTheme {
+  const cs = getComputedStyle(el || document.documentElement);
+  const surface = cssVar(cs, '--surface', '#ffffff');
+  const canvas = cssVar(cs, '--canvas', '#F2F2F2');
+  const rail = cssVar(cs, '--rail', canvas);
+  const ink = cssVar(cs, '--ink', '#141414');
+  const muted = cssVar(cs, '--muted', '#767676');
+  const line = cssVar(cs, '--line', '#d9d9d9');
+  return {
+    tracksBg: canvas,
+    rulerBg: rail,
+    rowEven: surface,
+    rowOdd: rail,
+    tickMajor: line,
+    tickMinor: line,
+    label: muted,
+    ink,
+    surface,
+    muted,
+    line,
+  };
+}
 
 function clipColor(kind: 'image' | 'element' | undefined): string {
   return kind === 'image' ? CLIP_COLOR_IMAGE : CLIP_COLOR_ELEMENT;
@@ -170,6 +213,17 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
   });
   const tipWidthRef = useRef(0);
   const scrubbingRef = useRef(false);
+  /** Bump when html[data-theme] changes so canvas paints re-resolve CSS vars. */
+  const [themeEpoch, setThemeEpoch] = useState(0);
+
+  useEffect(() => {
+    const obs = new MutationObserver(() => setThemeEpoch((n) => n + 1));
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'class'],
+    });
+    return () => obs.disconnect();
+  }, []);
 
   const workIn = workAreaPreview?.inSec ?? workInSec;
   const workOut = workAreaPreview?.outSec ?? workOutSec;
@@ -275,18 +329,22 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
       return ctx;
     };
 
+    const theme = readTimelinePaintTheme(host);
     const rctx = setup(ruler, RULER_H, 'ruler');
     if (rctx) {
       rctx.clearRect(0, 0, w, RULER_H);
-      rctx.fillStyle = '#EEF2F7';
+      rctx.fillStyle = theme.rulerBg;
       rctx.fillRect(0, 0, w, RULER_H);
       // Dim outside work area on ruler (keep TIME_PAD gutters undimmed)
-      rctx.fillStyle = 'rgba(15, 23, 42, 0.08)';
+      rctx.save();
+      rctx.globalAlpha = 0.1;
+      rctx.fillStyle = theme.ink;
       if (xIn > TIME_PAD_X) rctx.fillRect(TIME_PAD_X, 0, xIn - TIME_PAD_X, RULER_H);
       if (xOut < w - TIME_PAD_X) {
         rctx.fillRect(xOut, 0, w - TIME_PAD_X - xOut, RULER_H);
       }
-      rctx.strokeStyle = '#D1D5DB';
+      rctx.restore();
+      rctx.strokeStyle = theme.line;
       rctx.beginPath();
       rctx.moveTo(0, RULER_H - 0.5);
       rctx.lineTo(w, RULER_H - 0.5);
@@ -304,20 +362,22 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
       for (let t = 0; t <= duration + 1e-6; t += step) {
         const x = secToX(t, w);
         const major = Math.abs(t / step - Math.round(t / step)) < 1e-6;
-        rctx.strokeStyle = major ? '#CBD5E1' : '#E2E8F0';
+        rctx.strokeStyle = major ? theme.tickMajor : theme.tickMinor;
+        rctx.globalAlpha = major ? 1 : 0.55;
         rctx.beginPath();
         rctx.moveTo(x + 0.5, major ? tickTopMajor : tickTopMinor);
         rctx.lineTo(x + 0.5, RULER_H);
         rctx.stroke();
+        rctx.globalAlpha = 1;
         if (major) {
-          rctx.fillStyle = '#94A3B8';
+          rctx.fillStyle = theme.label;
           rctx.fillText(formatMark(t), x, labelY);
         }
       }
 
       // Work area bookends (Rive-style)
-      drawBookend(rctx, xIn, 'in');
-      drawBookend(rctx, xOut, 'out');
+      drawBookend(rctx, xIn, 'in', theme.ink, theme.surface);
+      drawBookend(rctx, xOut, 'out', theme.ink, theme.surface);
 
       const px = secToX(playhead, w);
       rctx.fillStyle = PLAYHEAD_COLOR;
@@ -335,7 +395,7 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
       rctx.fillText(`${playhead.toFixed(1)}s`, px, 9);
       for (const sec of snapLinesSec) {
         const sx = secToX(sec, w);
-        rctx.strokeStyle = '#38BDF8';
+        rctx.strokeStyle = SNAP_LINE_COLOR;
         rctx.lineWidth = 2;
         rctx.beginPath();
         rctx.moveTo(sx + 0.5, 0);
@@ -347,7 +407,7 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
     const tctx = setup(tracks, tracksH, 'tracks');
     if (!tctx) return;
     tctx.clearRect(0, 0, w, tracksH);
-    tctx.fillStyle = '#F3F4F6';
+    tctx.fillStyle = theme.tracksBg;
     tctx.fillRect(0, 0, w, tracksH);
 
     const viewH = Math.max(ROW_H, viewTracksH);
@@ -357,13 +417,17 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
     for (let i = first; i <= last; i++) {
       if (i < 0) continue;
       const y = i * ROW_H;
-      tctx.fillStyle = i % 2 === 0 ? '#FFFFFF' : '#F9FAFB';
+      tctx.fillStyle = i % 2 === 0 ? theme.rowEven : theme.rowOdd;
       tctx.fillRect(0, y, w, ROW_H);
-      tctx.strokeStyle = '#E5E7EB';
+      tctx.save();
+      tctx.strokeStyle = theme.ink;
+      tctx.globalAlpha = 0.08;
+      tctx.lineWidth = 1;
       tctx.beginPath();
       tctx.moveTo(0, y + ROW_H - 0.5);
       tctx.lineTo(w, y + ROW_H - 0.5);
       tctx.stroke();
+      tctx.restore();
 
       const row = rows[i];
       if (!row) continue;
@@ -379,9 +443,13 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
         roundRect(tctx, x0, y + pad, cw, ROW_H - pad * 2, 4);
         tctx.fillStyle = clipColor(row.layer.clipKind);
         tctx.fill();
+        tctx.save();
         tctx.lineWidth = selected ? 2 : 1;
-        tctx.strokeStyle = selected ? '#0F172A' : 'rgba(15,23,42,0.35)';
+        tctx.strokeStyle = theme.ink;
+        tctx.globalAlpha = selected ? 1 : 0.35;
         tctx.stroke();
+        tctx.restore();
+        tctx.lineWidth = 1;
         tctx.fillStyle = '#FFF';
         tctx.font = '600 11px system-ui, sans-serif';
         tctx.textAlign = 'left';
@@ -415,29 +483,39 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
           const selected =
             selectedKf?.propId === row.propId &&
             Math.abs((selectedKf?.timeSec || 0) - time) <= 1 / 60;
-          drawDiamond(tctx, x, y + ROW_H / 2, 5, selected ? '#0F172A' : '#4F8CFF');
+          drawDiamond(
+            tctx,
+            x,
+            y + ROW_H / 2,
+            5,
+            selected ? theme.ink : CLIP_COLOR_IMAGE,
+            theme.surface
+          );
         }
         if (kfGhost && kfGhost.propId === row.propId) {
           const gx = secToX(kfGhost.timeSec, w);
-          drawDiamond(tctx, gx, y + ROW_H / 2, 6, '#0F172A');
+          drawDiamond(tctx, gx, y + ROW_H / 2, 6, theme.ink, theme.surface);
         }
       }
     }
 
     // Dim outside work area over tracks (keep TIME_PAD gutters undimmed)
-    tctx.fillStyle = 'rgba(15, 23, 42, 0.12)';
+    tctx.save();
+    tctx.globalAlpha = 0.14;
+    tctx.fillStyle = theme.ink;
     if (xIn > TIME_PAD_X) tctx.fillRect(TIME_PAD_X, 0, xIn - TIME_PAD_X, tracksH);
     if (xOut < w - TIME_PAD_X) {
       tctx.fillRect(xOut, 0, w - TIME_PAD_X - xOut, tracksH);
     }
+    tctx.restore();
     // Work area edges — same stem color/width as ruler bookends
-    tctx.fillStyle = WORK_AREA_STEM_COLOR;
+    tctx.fillStyle = theme.ink;
     tctx.fillRect(xIn - WORK_AREA_STEM_W / 2, 0, WORK_AREA_STEM_W, tracksH);
     tctx.fillRect(xOut - WORK_AREA_STEM_W / 2, 0, WORK_AREA_STEM_W, tracksH);
 
     for (const sec of snapLinesSec) {
       const sx = secToX(sec, w);
-      tctx.strokeStyle = '#38BDF8';
+      tctx.strokeStyle = SNAP_LINE_COLOR;
       tctx.lineWidth = 2;
       tctx.setLineDash([4, 3]);
       tctx.beginPath();
@@ -466,6 +544,7 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
     snapLinesSec,
     timeZoom,
     scrollTop,
+    themeEpoch,
     syncWorkAreaTip,
     syncRulerScrollX,
   ]);
@@ -718,11 +797,11 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
   return (
     <div
       ref={hostRef}
-      className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[#F3F4F6]"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--canvas)]"
       onWheel={onWheel}
     >
       {/* Ruler sits outside the scroller; translateX mirrors track scrollLeft. */}
-      <div className="relative z-[2] h-7 shrink-0 overflow-hidden border-b border-[#D1D5DB] bg-[#EEF2F7]">
+      <div className="relative z-[2] h-7 shrink-0 overflow-hidden border-b border-[var(--line)] bg-[var(--rail)]">
         <canvas
           ref={rulerRef}
           className="block cursor-ew-resize will-change-transform"
@@ -773,11 +852,13 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
 function drawBookend(
   ctx: CanvasRenderingContext2D,
   x: number,
-  edge: 'in' | 'out'
+  edge: 'in' | 'out',
+  stemColor: string,
+  chipTextColor: string
 ) {
   const top = 4;
   const h = RULER_H - 6;
-  ctx.fillStyle = WORK_AREA_STEM_COLOR;
+  ctx.fillStyle = stemColor;
   ctx.fillRect(x - WORK_AREA_STEM_W / 2, top, WORK_AREA_STEM_W, h);
   // Cap with chevron chip
   const chipW = 12;
@@ -785,7 +866,7 @@ function drawBookend(
   const cx = edge === 'in' ? x : x - chipW;
   roundRect(ctx, cx, top, chipW, chipH, 2);
   ctx.fill();
-  ctx.fillStyle = '#FFF';
+  ctx.fillStyle = chipTextColor;
   ctx.font = '700 9px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -815,14 +896,15 @@ function drawDiamond(
   x: number,
   y: number,
   r: number,
-  fill: string
+  fill: string,
+  stroke: string
 ) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(Math.PI / 4);
   ctx.fillStyle = fill;
   ctx.fillRect(-r, -r, r * 2, r * 2);
-  ctx.strokeStyle = '#FFFFFF';
+  ctx.strokeStyle = stroke;
   ctx.lineWidth = 1;
   ctx.strokeRect(-r, -r, r * 2, r * 2);
   ctx.restore();

@@ -41,7 +41,10 @@ DETECT_KINDS = frozenset({"detectRegions"})
 CUTOUT_KINDS = frozenset({"removeBg"})
 ERASE_KINDS = frozenset({"eraser"})
 UPSCALE_KINDS = frozenset({"upscale"})
-NO_LLM_KINDS = CUTOUT_KINDS | ERASE_KINDS | DECOMPOSE_KINDS | DETECT_KINDS | UPSCALE_KINDS
+VECTOR_KINDS = frozenset({"vector"})
+NO_LLM_KINDS = (
+    CUTOUT_KINDS | ERASE_KINDS | DECOMPOSE_KINDS | DETECT_KINDS | UPSCALE_KINDS | VECTOR_KINDS
+)
 
 _ILP_REQUIRED_MSG = (
     "此功能需要接入 Recombyn Intelligence 闭源服务（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
@@ -141,12 +144,6 @@ def _prompt_for(
             f"texture, colors, lighting, layout, and background. Do not add extra "
             f"captions, watermarks, or unrelated objects. Only change that text content."
         )
-    if kind == "vector":
-        return (
-            "Convert this image into a clean flat vector-illustration style: "
-            "crisp outlines, solid fills, minimal gradients, no photographic noise. "
-            "Preserve the main subject and composition."
-        )
     if kind == "adjust":
         hint = str(m.get("hint") or "balanced exposure, natural contrast and color").strip()
         return (
@@ -195,9 +192,10 @@ async def process_image_tool(
     Run a toolbar image tool.
 
     - ``removeBg`` / ``editText`` / ``editElements`` / ``upscale`` → Recombyn Intelligence only
+    - ``vector`` → local vtracer (SVG markup)
     - other kinds → Seedream image-to-image
 
-    Returns ``{ image, layers?, text?, kind, model?, width?, height?, warnings? }``.
+    Returns ``{ image?, svg?, layers?, text?, kind, model?, width?, height?, warnings? }``.
     """
     k = (kind or "").strip()
     if k not in IMAGE_PROCESS_KINDS:
@@ -208,6 +206,11 @@ async def process_image_tool(
 
     if requires_ilp(k):
         _require_ilp()
+
+    if k in VECTOR_KINDS:
+        from app.services.vision.vtracer_vectorize import vectorize_with_vtracer
+
+        return await vectorize_with_vtracer(src, meta=meta)
 
     if k in CUTOUT_KINDS:
         from app.services.vision.remove_bg import remove_background

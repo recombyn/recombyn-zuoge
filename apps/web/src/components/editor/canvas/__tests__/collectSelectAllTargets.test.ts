@@ -68,6 +68,7 @@ describe('collectSelectAllTargets', () => {
     setAnimationWorkbenchTimelineFocus(null);
     const all = collectSelectAllTargets(doc);
     expect(all.frameIds).toEqual(['main', 'anim']);
-    expect(all.nodeIds.sort()).toEqual(['n_anim', 'n_main'].sort());
+    // Timeline closed: workbench children are preview-only (not pickable).
+    expect(all.nodeIds).toEqual(['n_main']);
   });
 });
