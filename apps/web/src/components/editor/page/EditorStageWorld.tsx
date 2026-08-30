@@ -225,32 +225,37 @@ function frameBox(frame: ArtboardFrame) {
 /** Nodes that visually sit inside moved frames — co-move + exclude from smart guides. */
 function nodeIdsOverlappingFrames(
   doc: SceneDocument,
-  movedFrames: Array<{ id: string; startX: number; startY: number; width: number; height: number }>
+  movedFrames: Array<{
+    id: string;
+    startX: number;
+    startY: number;
+    width: number;
+    height: number;
+    kind?: string | null;
+  }>
 ) {
   const movedFrameIds = new Set(movedFrames.map((frame) => frame.id));
-  const frameBoxes = movedFrames.map((frame) => ({
-    id: frame.id,
-    box: {
-      x: frame.startX,
-      y: frame.startY,
-      width: frame.width,
-      height: frame.height,
-    },
-  }));
   const out: string[] = [];
   for (const [nodeId, node] of Object.entries(doc.deltaSetLike || {})) {
     if (!node || nodeId === 'ROOT') continue;
     const box = nodeBox(node);
     const nodeRect = { left: box.x, top: box.y, width: box.width, height: box.height };
-    const matched = frameBoxes.some(({ box: fb }) =>
-      shouldCoMoveNodeWithFrames(node, nodeRect, movedFrameIds, {
-        left: fb.x,
-        top: fb.y,
-        width: fb.width,
-        height: fb.height,
-      })
-    );
-    if (matched) out.push(nodeId);
+    const hits = movedFrames.some((frame) => {
+      const plate = (doc.frames || []).find((f) => String(f?.id) === String(frame.id));
+      return shouldCoMoveNodeWithFrames(
+        node,
+        nodeRect,
+        movedFrameIds,
+        {
+          left: frame.startX,
+          top: frame.startY,
+          width: frame.width,
+          height: frame.height,
+        },
+        frame.kind ?? plate?.kind
+      );
+    });
+    if (hits) out.push(nodeId);
   }
   return out;
 }
@@ -699,7 +704,8 @@ function EditorStageWorld({
           startY: Number(item.y) || 0,
           width: Math.max(1, Number(item.width) || 1),
           height: Math.max(1, Number(item.height) || 1),
-      }));
+          kind: item.kind,
+        }));
       if (movedFrames.length) {
         frameMoveDocumentRef.current = document;
         setFrameSmartGuides([]);

@@ -84,6 +84,29 @@ describe('canvas generators (store)', () => {
     expect(frame?.name).toMatch(/动画工作台|Animation/);
   });
 
+  it('spawnAnimationBoard appends the frame at the top of stackOrder', () => {
+    let state = seed();
+    const nodeId = 'n-top-check';
+    state = {
+      ...state,
+      document: addNodeToDocument(state.document!, nodeId, {
+        id: nodeId,
+        key: 'shape',
+        x: 10,
+        y: 10,
+        width: 40,
+        height: 40,
+        attrs: { type: 'rect' },
+        children: [],
+      }),
+    };
+    state = reducer(state, spawnAnimationBoard({ x: 0, y: 0, width: 200, height: 200 }));
+    const frameId = String(state.selectedFrameIds[0] || '');
+    const order = (state.document!.stackOrder || []).map(String);
+    expect(order[order.length - 1]).toBe(`frame:${frameId}`);
+    expect(order.indexOf(`node:${nodeId}`)).toBeLessThan(order.length - 1);
+  });
+
   it('factory helpers produce distinct generator kinds', () => {
     const kinds = [
       createImageGeneratorNode({ x: 0, y: 0 }),
