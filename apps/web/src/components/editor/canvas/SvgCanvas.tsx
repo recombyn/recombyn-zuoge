@@ -144,6 +144,7 @@ import {
 import {
   findAnimationFrameAtDocPoint,
   resolveActiveAnimationFrameId,
+  resolveAnimationFrameId,
 } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   mediaFileAcceptForWorkbenchTimeline,
@@ -1702,8 +1703,15 @@ function SvgCanvas({
       anchor && doc
         ? findAnimationFrameAtDocPoint(doc, anchor.x, anchor.y)
         : null;
+    const timelineHostId = String(
+      (store.getState() as any)?.editor?.lottieTimelinePanel?.nodeId || ''
+    ).trim();
+    const timelineFrameId = timelineHostId
+      ? resolveAnimationFrameId(doc, doc?.deltaSetLike?.[timelineHostId])
+      : null;
     const targetFrameId =
       hitFrameId ||
+      timelineFrameId ||
       resolveActiveAnimationFrameId(doc, selectedFrameIdsRef.current);
     if (targetFrameId) {
       dispatch(
@@ -1755,7 +1763,7 @@ function SvgCanvas({
       if (!animationData) throw new Error('invalid lottie');
       await onLottiePaste({
         animationData,
-        name: file.name?.replace(/\.json$/i, '') || undefined,
+        name: file.name?.replace(/\.(json|lot)$/i, '') || undefined,
         anchor: at,
       });
     } catch {
@@ -1775,8 +1783,16 @@ function SvgCanvas({
       onAudioFile(file);
       return;
     }
-    if (mime === 'application/json' || mime === 'text/json' || /\.json$/i.test(name)) {
+    if (mime === 'application/json' || mime === 'text/json' || /\.(json|lot)$/i.test(name)) {
       void onLottieFile(file);
+      return;
+    }
+    if (/\.lottie$/i.test(name)) {
+      message.error(
+        t('editor.tools.lottieGenNeedJson', {
+          defaultValue: '请上传 Bodymovin JSON（.json / .lot），暂不支持 .lottie 压缩包',
+        })
+      );
       return;
     }
     onImageFile(file);

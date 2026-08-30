@@ -21,6 +21,7 @@ import {
 import {
   isAudioNode,
   isLottieNode,
+  isNodeMarqueeSkippable,
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
@@ -157,6 +158,32 @@ export function listNodeIdsFromDoc(doc: SceneDocument | null | undefined): reado
   if (Array.isArray(fromPage) && fromPage.length) return fromPage;
   const rootKids = doc?.deltaSetLike?.ROOT?.children;
   return Array.isArray(rootKids) ? rootKids : [];
+}
+
+/**
+ * Ctrl/Cmd+A targets: same visibility as marquee / hit-test.
+ * Under animation timeline focus, paint-hidden main artboards and their
+ * children are excluded so select-all does not inflate a ghost AABB.
+ */
+export function collectSelectAllTargets(doc: SceneDocument | null | undefined): {
+  nodeIds: string[];
+  frameIds: string[];
+} {
+  if (!doc) return { nodeIds: [], frameIds: [] };
+  const nodeIds: string[] = [];
+  for (const id of listNodeIdsFromDoc(doc)) {
+    if (!id || id === 'ROOT') continue;
+    const node = doc.deltaSetLike?.[id];
+    if (!node || isNodeMarqueeSkippable(doc, node)) continue;
+    nodeIds.push(String(id));
+  }
+  const frameIds: string[] = [];
+  for (const f of Array.isArray(doc.frames) ? doc.frames : []) {
+    if (!f?.id || f.locked || f.hidden) continue;
+    if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
+    frameIds.push(String(f.id));
+  }
+  return { nodeIds, frameIds };
 }
 
 export function getNodeBoxFromDoc(doc: SceneDocument | null | undefined, nodeId: string): SceneBox | null {

@@ -23,7 +23,7 @@ import {
 } from 'react-icons/lu';
 import { RiImageUploadLine, RiVideoUploadLine, RiVideoLine } from 'react-icons/ri';
 import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
-import { resolveActiveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import { resolveActiveAnimationFrameId, resolveAnimationFrameId, findFrameAnimationMediaId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   warnIfAvBlockedByAnimationWorkbenchFocus,
   warnIfNewPlateBlockedByAnimationWorkbenchFocus,
@@ -984,14 +984,30 @@ function EditorToolStrip({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    const name = file.name || '';
+    if (/\.lottie$/i.test(name)) {
+      message.warning(
+        t('editor.tools.lottieGenNeedJson', {
+          defaultValue: '请上传 Bodymovin JSON（.json / .lot），暂不支持 .lottie 压缩包',
+        })
+      );
+      return;
+    }
     try {
       const animationData = parseLottieAnimationData(await file.text());
       if (!animationData) throw new Error('invalid lottie');
       const state = store.getState() as any;
       const doc = state?.editor?.document;
       const selectedFrameIds = (state?.editor?.selectedFrameIds || []) as string[];
-      const targetFrameId = resolveActiveAnimationFrameId(doc, selectedFrameIds);
-      const importName = file.name?.replace(/\.json$/i, '') || undefined;
+      // Timeline dock host is the most reliable target while editing (module focus can lag).
+      const timelineHostId = String(state?.editor?.lottieTimelinePanel?.nodeId || '').trim();
+      const timelineFrameId = timelineHostId
+        ? resolveAnimationFrameId(doc, doc?.deltaSetLike?.[timelineHostId])
+        : null;
+      const targetFrameId =
+        timelineFrameId ||
+        resolveActiveAnimationFrameId(doc, selectedFrameIds);
+      const importName = name.replace(/\.(json|lot)$/i, '') || undefined;
       if (targetFrameId) {
         dispatch(
           importLottieIntoAnimationFrame({
@@ -1000,6 +1016,18 @@ function EditorToolStrip({
             name: importName,
           })
         );
+        const after = store.getState() as any;
+        const hostId =
+          findFrameAnimationMediaId(after?.editor?.document, targetFrameId) ||
+          timelineHostId;
+        const hostJson = hostId
+          ? String(after?.editor?.document?.deltaSetLike?.[hostId]?.attrs?.animationData || '')
+          : '';
+        if (!parseLottieAnimationData(hostJson)) {
+          message.error(
+            t('editor.tools.lottieGenInvalidJson', { defaultValue: 'Invalid Lottie JSON' })
+          );
+        }
         return;
       }
       if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'animationBoard')) {
@@ -1336,7 +1364,7 @@ function EditorToolStrip({
       <input
         ref={lottieInputRef}
         type="file"
-        accept="application/json,.json"
+        accept="application/json,.json,.lot,text/plain"
         className="hidden"
         onChange={onPickLottie}
       />

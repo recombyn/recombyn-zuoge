@@ -32,6 +32,7 @@ import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessi
 import { CommercialEditorHosts } from '@/commercial/editorHosts';
 import ImageQuickEditSessionHost from '@/components/editor/nodes/ImageNode/ImageQuickEditSessionHost';
 import MarkPinHost from '@/components/editor/nodes/ImageNode/mark/MarkPinHost';
+import PuppetPinHost from '@/components/editor/nodes/ImageNode/puppet/PuppetPinHost';
 import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelHost';
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
@@ -934,6 +935,7 @@ function EditorStageWorld({
         <CommercialEditorHosts document={document} selectionTransforming={selectionTransforming} />
         <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
         <MarkPinHost document={document} hidden={selectionTransforming} />
+        <PuppetPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} hidden={selectionTransforming} />
         <AnimationComposeSessionHost document={document} hidden={selectionTransforming} />
         <AnimationPrecompEditOverlay document={document} hidden={selectionTransforming} />

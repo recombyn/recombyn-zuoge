@@ -43,6 +43,7 @@ import { defaultBrushSize } from './maskBrushUtils';
 import { startEraserFromMask } from './eraserSession';
 import { startRemoveBgFromMasks } from './removeBgSession';
 import OpacityToolPanel from './OpacityToolPanel';
+import PuppetToolPanel from './PuppetToolPanel';
 import MultiAngleToolPanel from './MultiAngleToolPanel';
 import AdjustToolPanel, {
   parseAdjustValues,
@@ -51,6 +52,10 @@ import AdjustToolPanel, {
 import ReplaceTextToolPanel from './ReplaceTextToolPanel';
 import EffectsToolPanel, { EFFECTS_RESET } from './EffectsToolPanel';
 import BlendModeToolPanel from './BlendModeToolPanel';
+import {
+  PUPPET_DENSITY_DEFAULT,
+  readPuppetDensity,
+} from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 /** Local erase → right-side cutout node (source image untouched), same pattern as 抠图. */
@@ -167,6 +172,12 @@ function ImageToolPanelHost({
     kind: ImageToolPanelKind;
   });
   const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
+  const selectedNodeIds = useSelector(
+    (s: any) => (s.editor.selectedNodeIds as string[]) || []
+  );
+  const effectiveSelectedId =
+    selectedNodeId ||
+    (selectedNodeIds.length === 1 ? String(selectedNodeIds[0]) : null);
 
   const [brushSize, setBrushSize] = useState(96);
   const [hasStrokes, setHasStrokes] = useState(false);
@@ -181,18 +192,23 @@ function ImageToolPanelHost({
 
   useEffect(() => {
     if (!panel) return;
-    if (shouldClearImageToolPanelOnSelect(panel, selectedNodeId)) {
+    // Stay open when the panel's node is still in the selection (multi or single).
+    const stillSelected =
+      (effectiveSelectedId != null && effectiveSelectedId === panel.nodeId) ||
+      selectedNodeIds.includes(panel.nodeId);
+    if (!stillSelected && shouldClearImageToolPanelOnSelect(panel, effectiveSelectedId)) {
       dispatch(closeImageToolPanel());
       return;
     }
     const node = document?.deltaSetLike?.[panel.nodeId];
     if (
       isImageProcessRunning(node) &&
-      !isImageToolExternalSessionKind(panel.kind)
+      !isImageToolExternalSessionKind(panel.kind) &&
+      panel.kind !== 'puppet'
     ) {
       dispatch(closeImageToolPanel());
     }
-  }, [selectedNodeId, panel, document, dispatch]);
+  }, [effectiveSelectedId, selectedNodeIds, panel, document, dispatch]);
 
   useEffect(() => {
     if (!panel) return;
@@ -249,7 +265,12 @@ function ImageToolPanelHost({
   }, [panel?.kind, panel?.nodeId]);
 
   useEffect(() => {
-    if (panel?.kind !== 'effects' && panel?.kind !== 'blendMode' && panel?.kind !== 'opacity') {
+    if (
+      panel?.kind !== 'effects' &&
+      panel?.kind !== 'blendMode' &&
+      panel?.kind !== 'opacity' &&
+      panel?.kind !== 'puppet'
+    ) {
       return;
     }
     liveHistoryPushedRef.current = false;
@@ -354,7 +375,10 @@ function ImageToolPanelHost({
   const closeLiveAttrPanel = () => {
     if (
       liveHistoryPushedRef.current &&
-      (panel.kind === 'opacity' || panel.kind === 'effects' || panel.kind === 'blendMode')
+      (panel.kind === 'opacity' ||
+        panel.kind === 'effects' ||
+        panel.kind === 'blendMode' ||
+        panel.kind === 'puppet')
     ) {
       liveHistoryPushedRef.current = false;
     }
@@ -372,6 +396,28 @@ function ImageToolPanelHost({
             writeAttrPatch({ opacity: Math.min(1, Math.max(0, Math.round(v) / 100)) }, 'preview')
           }
           onReset={() => writeAttrPatch({ opacity: 1 }, 'preview')}
+          onClose={closeLiveAttrPanel}
+        />
+      );
+      break;
+    }
+    case 'puppet': {
+      const node = document?.deltaSetLike?.[panel.nodeId];
+      body = (
+        <PuppetToolPanel
+          density={readPuppetDensity(node?.attrs as Record<string, unknown>)}
+          onDensityChange={(v) =>
+            writeAttrPatch(
+              { puppetEnabled: true, puppetDensity: Math.round(v) },
+              'preview'
+            )
+          }
+          onReset={() =>
+            writeAttrPatch(
+              { puppetEnabled: true, puppetDensity: PUPPET_DENSITY_DEFAULT },
+              'preview'
+            )
+          }
           onClose={closeLiveAttrPanel}
         />
       );

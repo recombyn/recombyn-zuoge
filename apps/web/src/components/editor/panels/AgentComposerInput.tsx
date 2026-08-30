@@ -392,11 +392,19 @@ export function chipBaseKey(key: string): string {
 
 /** Infer media kind from an attachment chip (payload / data URL / extension). */
 export function composerAttachmentMediaKind(
-  c: Pick<ComposerContext, 'dataUrl' | 'thumbUrl' | 'payload'>
-): 'image' | 'video' | 'audio' {
+  c: Pick<ComposerContext, 'dataUrl' | 'thumbUrl' | 'payload' | 'label'>
+): 'image' | 'video' | 'audio' | 'lottie' {
   const data = String(c.dataUrl || '');
   const payload = String(c.payload || '');
-  const blob = `${data} ${c.thumbUrl || ''} ${payload}`;
+  const label = String(c.label || '');
+  const blob = `${data} ${c.thumbUrl || ''} ${payload} ${label}`;
+  if (
+    /\[Attached lottie\]/i.test(payload) ||
+    /\.(json|lot)(\?|#|$)/i.test(label) ||
+    /\.(json|lot)(\?|#|$)/i.test(blob)
+  ) {
+    return 'lottie';
+  }
   if (
     data.startsWith('data:audio/') ||
     /\[Attached audio\]/i.test(payload) ||

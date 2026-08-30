@@ -94,6 +94,7 @@ import {
   rcbSnapSceneSurfaceOrigin,
 } from '@/components/rcb/core/math';
 import { readDevicePixelRatio } from '@/components/rcb/core/dpr';
+import { nodeNeedsPuppetWarp } from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
 
 function svgTextAnchor(textAlign: string | undefined): 'start' | 'middle' | 'end' {
   if (textAlign === 'center') return 'middle';
@@ -1550,6 +1551,7 @@ export async function nodeToSvgElement(
       })
     );
     tagNode(g, nodeId, 'image', undefined, left, top, boxW, boxH);
+    if (nodeNeedsPuppetWarp(node)) setAttrs(g, { 'data-puppet-image': '1' });
     if (isGen || isImageProcessRunning(node)) setAttrs(g, { 'data-export-ignore': '1' });
     applyMeta(g, left, top, meta, boxW, boxH);
     applyNodeEffects(root, g, node);

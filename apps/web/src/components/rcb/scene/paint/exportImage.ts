@@ -9,6 +9,13 @@ import { resolveApiUrl } from '@/utils/apiBase';
 import { getToken } from '@/utils/token';
 import { withTimeout } from '@/utils/withTimeout';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import { nodeNeedsPuppetWarp } from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import { bakePuppetDataUrlForNode } from '@/components/editor/nodes/ImageNode/puppet/puppetBake';
+import {
+  getAnimationWorkbenchPlayheadSec,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 
 const EXPORT_HREF_FETCH_TIMEOUT_MS = 10_000;
 
@@ -518,8 +525,26 @@ export async function inlineSvgImages(
         failures.push(fetchSrc.slice(0, 96));
         return;
       }
-      el.setAttribute('href', data);
-      el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', data);
+      let finalData = data;
+      if (sceneNode && nodeNeedsPuppetWarp(sceneNode)) {
+        const frameId = sceneDocument
+          ? resolveAnimationFrameId(sceneDocument, sceneNode)
+          : null;
+        let fps = 30;
+        if (frameId && sceneDocument) {
+          const frame = (sceneDocument.frames || []).find((f) => String(f?.id) === frameId);
+          const n = Math.round(Number(frame?.fps) || 30);
+          if (n > 0) fps = n;
+        }
+        const frame = secToFrame(getAnimationWorkbenchPlayheadSec(), fps);
+        const baked = await bakePuppetDataUrlForNode(sceneNode, {
+          frame,
+          sourceDataUrl: data,
+        });
+        if (baked) finalData = baked;
+      }
+      el.setAttribute('href', finalData);
+      el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', finalData);
       el.removeAttribute('xlink:href');
     })
   );

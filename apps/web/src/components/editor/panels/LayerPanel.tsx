@@ -42,6 +42,11 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import {
+  getAnimationWorkbenchTimelineFocus,
+  isHiddenByAnimationWorkbenchFocus,
+  shouldShowArtboardInWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
   listSceneNodes,
   parseStackKey,
   stackNodeKey,
@@ -65,27 +70,45 @@ function getStackOrder(document: any): string[] {
   return Array.isArray(document?.stackOrder) ? document.stackOrder.map(String) : [];
 }
 
+/** Match canvas structural hide for layer chrome (edit-mode focus + hosts). */
+function isLayerRowNodeVisible(document: any, node: any): boolean {
+  if (!node) return false;
+  if (isAnimationFrameHostNode(node, document)) return false;
+  if (isHiddenByAnimationWorkbenchFocus(node)) return false;
+  return true;
+}
+
 function listRootLayerRows(opts: {
   document: any;
   frameById: Map<string, any>;
   frames: any[];
+  nodeById: Map<string, any>;
+  nodes: Array<{ id: string; node: any }>;
 }): LayerStackRow[] {
-  const { document, frameById, frames } = opts;
+  const { document, frameById, frames, nodeById, nodes } = opts;
   const order = getStackOrder(document);
   const rows: LayerStackRow[] = [];
   if (order.length) {
     for (const key of [...order].reverse()) {
       const parsed = parseStackKey(key);
       if (parsed?.kind === 'frame' && frameById.has(parsed.id)) {
+        const frame = frameById.get(parsed.id);
+        if (!shouldShowArtboardInWorkbenchFocus(frame)) continue;
         rows.push(parsed);
       }
     }
   } else {
     for (const f of [...frames].reverse()) {
-      if (f?.id) rows.push({ kind: 'frame', id: String(f.id) });
+      if (!f?.id) continue;
+      if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
+      rows.push({ kind: 'frame', id: String(f.id) });
     }
   }
-  rows.push({ kind: 'pasteboard' });
+  const pasteboardRows = listPasteboardLayerRows({ document, nodeById, nodes });
+  // Edit mode: omit empty pasteboard row (other plates already filtered above).
+  if (pasteboardRows.length || !getAnimationWorkbenchTimelineFocus()) {
+    rows.push({ kind: 'pasteboard' });
+  }
   return rows;
 }
 
@@ -100,14 +123,17 @@ function listPasteboardLayerRows(opts: {
   if (order.length) {
     for (const key of [...order].reverse()) {
       const parsed = parseStackKey(key);
-      if (parsed?.kind === 'node' && nodeById.has(parsed.id)) {
-        rows.push(parsed);
-      }
+      if (parsed?.kind !== 'node' || !nodeById.has(parsed.id)) continue;
+      const node = nodeById.get(parsed.id);
+      if (String(node?.attrs?.frameId || '').trim()) continue;
+      if (!isLayerRowNodeVisible(document, node)) continue;
+      rows.push(parsed);
     }
     return rows;
   }
   for (const { id, node } of [...nodes].reverse()) {
     if (String(node?.attrs?.frameId || '').trim()) continue;
+    if (!isLayerRowNodeVisible(document, node)) continue;
     rows.push({ kind: 'node', id });
   }
   return rows;
@@ -119,10 +145,9 @@ function listFrameChildLayerRows(
   nodeById: Map<string, any>
 ): LayerStackRow[] {
   if (!document || !frameId) return [];
-  const ids = nodeIdsBoundToFrames(document, [frameId]).filter((id) => {
-    // Invisible timeline host under 动画工作台 — not a user layer.
-    return !isAnimationFrameHostNode(nodeById.get(id), document);
-  });
+  const ids = nodeIdsBoundToFrames(document, [frameId]).filter((id) =>
+    isLayerRowNodeVisible(document, nodeById.get(id))
+  );
   const sorted = [...ids].sort((a, b) => {
     const ao = Number(nodeById.get(a)?.attrs?.frameOrder);
     const bo = Number(nodeById.get(b)?.attrs?.frameOrder);
@@ -217,6 +242,8 @@ function listRowsForScope(
     document: opts.document,
     frameById: opts.frameById,
     frames: opts.frames,
+    nodeById: opts.nodeById,
+    nodes: opts.nodes,
   });
 }
 
@@ -996,6 +1023,10 @@ function LayerPanel({
     (state: any) => (state.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
   const historyPast = useSelector((state: any) => state.editor.historyPast as any[]);
+  /** Recompute layer rows when timeline edit focus toggles (module flag + Redux). */
+  const workbenchEditOpen = useSelector((state: any) =>
+    Boolean(state.editor.lottieTimelinePanel?.nodeId)
+  );
   const nodes = listSceneNodes(document);
   const frames = Array.isArray(document?.frames) ? document.frames : [];
   const frameById = useMemo(() => {
@@ -1035,7 +1066,7 @@ function LayerPanel({
         nodeById,
         nodes,
       }),
-    [document, layerScope, scopedFrameId, frameById, nodeById, frames, nodes]
+    [document, layerScope, scopedFrameId, frameById, nodeById, frames, nodes, workbenchEditOpen]
   );
   const scopedFrame = scopedFrameId ? frameById.get(scopedFrameId) : undefined;
   const scopeTitle = isNestedLayerScope(layerScope)

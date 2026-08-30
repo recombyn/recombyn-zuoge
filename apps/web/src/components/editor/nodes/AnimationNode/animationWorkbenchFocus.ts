@@ -33,13 +33,27 @@ export function getAnimationWorkbenchPlayheadSec(): number {
   return timelinePlayheadSec;
 }
 
-/** Default canvas file picker: image + AV + JSON. */
+/** Default canvas file picker: image + AV + JSON (.lot = Bodymovin JSON alias). */
 export const CANVAS_MEDIA_FILE_ACCEPT =
-  'image/*,video/*,audio/*,.json,application/json';
+  'image/*,video/*,audio/*,.json,.lot,application/json';
 
 /** File input accept when timeline focus blocks AV (image + JSON only). */
 export const WORKBENCH_IMAGE_JSON_FILE_ACCEPT =
-  'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.json';
+  'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml,application/json,.png,.jpg,.jpeg,.webp,.gif,.svg,.json,.lot';
+
+/** Bodymovin JSON / `.lot` text — not binary `.lottie` (zip). */
+export function isLottieJsonFile(file: { name?: string; type?: string } | null | undefined): boolean {
+  if (!file) return false;
+  const mime = String(file.type || '').toLowerCase();
+  const name = String(file.name || '');
+  if (/\.lottie$/i.test(name)) return false;
+  return (
+    mime === 'application/json' ||
+    mime === 'text/json' ||
+    mime === 'text/plain' ||
+    /\.(json|lot)$/i.test(name)
+  );
+}
 
 /**
  * React-friendly accept string: pass timeline-open from Redux (`lottieTimelinePanel`).
