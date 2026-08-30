@@ -72,6 +72,7 @@ import {
   resolveAnimationLayerLink,
 } from '@/components/editor/nodes/AnimationNode/animationAutoKey';
 import { buildScenePosePatchesFromAnimation } from '@/components/editor/nodes/AnimationNode/animationScenePoseSync';
+import { animationHasPlayableContent } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import {
@@ -1992,7 +1993,7 @@ function AnimationTimelineDock({
             <AnimationTransportControls
               playing={playing}
               loop={loop}
-              ready={Boolean(animationData)}
+              ready={animationHasPlayableContent(animationData)}
               onPlayPause={togglePlay}
               onStepFrame={(dir) => seekTo(playhead + dir / fps, { pause: true })}
               onSeekEdge={(toEnd) =>

@@ -1,11 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import {
   animationHostHasUnlinkedInk,
+  animationHasPlayableContent,
   syncArtboardChildrenIntoAnimation,
 } from '../animationFrameSync';
 import { buildLottieTimelineScenes } from '../animationTimelineModel';
 import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+
+describe('animationHasPlayableContent', () => {
+  it('is false for missing or empty-layer animation', () => {
+    expect(animationHasPlayableContent(null)).toBe(false);
+    expect(
+      animationHasPlayableContent({
+        v: '5.7.0',
+        fr: 30,
+        ip: 0,
+        op: 30,
+        w: 100,
+        h: 100,
+        layers: [],
+      })
+    ).toBe(false);
+  });
+
+  it('is true when at least one layer exists', () => {
+    expect(
+      animationHasPlayableContent({
+        v: '5.7.0',
+        fr: 30,
+        ip: 0,
+        op: 30,
+        w: 100,
+        h: 100,
+        layers: [{ ind: 1, ty: 4, ip: 0, op: 30 }],
+      })
+    ).toBe(true);
+  });
+});
 
 function makeDoc(): SceneDocument {
   const frameId = 'frame_lottie';

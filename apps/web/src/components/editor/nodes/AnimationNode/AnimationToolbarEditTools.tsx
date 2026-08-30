@@ -18,6 +18,7 @@ import {
   frameToSec,
   snapSecToFrame,
 } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
+import { animationHasPlayableContent } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import {
   openLottieTimelinePanel,
@@ -95,6 +96,10 @@ function AnimationToolbarEditTools({
     const fr = frames.find((f: any) => String(f?.id) === animationFrameId);
     return fr && isAnimationArtboardKind(fr.kind) ? fr : null;
   }, [animationFrameId, document]);
+  const hasPlayableContent = useMemo(
+    () => animationHasPlayableContent(node?.attrs?.animationData),
+    [node?.attrs?.animationData]
+  );
   const animationIntent = Boolean(animationFrameId);
 
   const bounds = useMemo(() => {
@@ -117,14 +122,19 @@ function AnimationToolbarEditTools({
 
   useEffect(() => {
     const sync = () => {
-      setPlaybackReady(
-        Boolean(getLottieHost(nodeId)) || timelineOpen || Boolean(workbenchFrame)
-      );
+      // Empty 动画工作台 still has a plate + host — only enable when layers exist.
+      setPlaybackReady(hasPlayableContent && Boolean(getLottieHost(nodeId)));
     };
     sync();
     const id = window.setInterval(sync, 400);
     return () => window.clearInterval(id);
-  }, [nodeId, timelineOpen, workbenchFrame]);
+  }, [nodeId, hasPlayableContent]);
+
+  useEffect(() => {
+    if (hasPlayableContent || !lottiePlaying) return;
+    dispatch(setLottiePlaying(false));
+    getLottieHost(nodeId)?.pause();
+  }, [dispatch, hasPlayableContent, lottiePlaying, nodeId]);
 
   const speedItems: MenuItemType[] = [
     { key: '0.5', label: '0.5×' },
@@ -156,6 +166,7 @@ function AnimationToolbarEditTools({
   };
 
   const onTogglePlay = () => {
+    if (!hasPlayableContent) return;
     const { workInSec, workOutSec } = bounds;
     if (workbenchFrame || animationIntent) {
       if (lottiePlaying) {
@@ -226,7 +237,7 @@ function AnimationToolbarEditTools({
       >
         <span
           aria-hidden
-          className="block h-3 w-3 shrink-0 rotate-45 border-[1.5px] border-current bg-transparent"
+          className="block h-2.5 w-2.5 shrink-0 rotate-45 border-[1.5px] border-current bg-transparent"
         />
       </Tool>
       <ImageToolSep />

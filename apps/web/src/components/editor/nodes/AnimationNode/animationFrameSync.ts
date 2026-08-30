@@ -32,6 +32,14 @@ export function animationHostHasUnlinkedInk(
   });
 }
 
+/** Empty workbench / blank seed — nothing meaningful to play or scrub. */
+export function animationHasPlayableContent(animationData: unknown): boolean {
+  const anim = parseLottieAnimationData(animationData);
+  if (!anim) return false;
+  const layers = Array.isArray(anim.layers) ? anim.layers : [];
+  return layers.length > 0;
+}
+
 /** Prefer clipboard helper; fall back to scanning deltaSetLike (partial docs / tests). */
 function listNodesBoundToFrame(document: SceneDocument, frameId: string): string[] {
   const wanted = String(frameId || '').trim();

@@ -135,6 +135,7 @@ function AnimationTransportControls({
         onClick={onToggleLoop}
         active={loop}
         muted={!loop}
+        disabled={!ready}
       >
         {loop ? (
           <TbRepeat className="h-3.5 w-3.5" strokeWidth={1.75} />
