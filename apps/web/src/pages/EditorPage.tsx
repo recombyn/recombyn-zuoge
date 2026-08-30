@@ -114,7 +114,10 @@ import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
 import AnimationTimelineDock from '@/components/editor/nodes/AnimationNode/AnimationTimelineDock';
 import AnimationTimelineFocusHost from '@/components/editor/nodes/AnimationNode/AnimationTimelineFocusHost';
 import AnimationPrecompEditFocusHost from '@/components/editor/nodes/AnimationNode/AnimationPrecompEditFocusHost';
-import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  resolveActiveAnimationFrameId,
+  resolveAnimationFrameId,
+} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import { setAnimationWorkbenchTimelineFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
 const BOOT_MIN_MS = 520;
@@ -688,11 +691,14 @@ function EditorPage() {
   const lottieTimelineOpen = Boolean(lottieTimelineNodeId);
   const workbenchFocusFrameId = useMemo(() => {
     if (!lottieTimelineOpen || !document || !lottieTimelineNodeId) return null;
-    return resolveAnimationFrameId(
+    const fromHost = resolveAnimationFrameId(
       document,
       document.deltaSetLike?.[lottieTimelineNodeId]
     );
-  }, [document, lottieTimelineNodeId, lottieTimelineOpen]);
+    if (fromHost) return fromHost;
+    // Host without frameId (rare) — still hide other plates while timeline is open.
+    return resolveActiveAnimationFrameId(document, selectedFrameIds);
+  }, [document, lottieTimelineNodeId, lottieTimelineOpen, selectedFrameIds]);
   // Keep paint/hit focus in sync before children render.
   setAnimationWorkbenchTimelineFocus(workbenchFocusFrameId);
 

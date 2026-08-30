@@ -2591,7 +2591,7 @@ const editorSlice = createSlice({
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
-      state.lottieTimelinePanel = null;
+      // Keep 动画工作台 timeline edit open — tool panels nest inside edit mode.
       state.shapeStylePanel = null;
     },
     closeImageToolPanel(state) {
@@ -2621,7 +2621,6 @@ const editorSlice = createSlice({
       state.imageToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
-      state.lottieTimelinePanel = null;
       state.shapeStylePanel = null;
     },
     closeVideoToolPanel(state) {
@@ -2639,7 +2638,6 @@ const editorSlice = createSlice({
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.lottieComposePanel = null;
-      state.lottieTimelinePanel = null;
       state.shapeStylePanel = null;
     },
     closeAudioToolPanel(state) {

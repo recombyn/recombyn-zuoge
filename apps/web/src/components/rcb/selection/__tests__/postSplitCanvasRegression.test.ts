@@ -33,6 +33,7 @@ import { segmentIntersectsAabb } from '@/components/rcb/scene/document/sceneShap
 import { inflateBoxByVisualOutset } from '@/components/rcb/scene/document/sceneEffects';
 import { computeShapeBoolean, type ShapeBox } from '../shapeBoolean';
 import { smartSnapThreshold } from '../alignGuides';
+import { setAnimationWorkbenchTimelineFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   asHistoryEntry,
   cloneDocument,
@@ -561,6 +562,29 @@ describe('selectionLogic computeMovedUnion (grid + guide paint, no magnets)', ()
     expect(resolveClippedMeasureBox('inside', doc, (id) => boxes[id] ?? null)).toEqual(
       boxes.inside
     );
+  });
+
+  it('collectSmartGuideTargets skips artboards hidden by animation workbench focus', () => {
+    setAnimationWorkbenchTimelineFocus('anim');
+    try {
+      const doc = {
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 800,
+        frames: [
+          { id: 'anim', kind: 'animation', x: 0, y: 0, width: 200, height: 200 },
+          { id: 'other', kind: 'artboard', x: 300, y: 0, width: 200, height: 120 },
+        ],
+        deltaSetLike: {},
+      } as unknown as SceneDocument;
+      const targets = collectSmartGuideTargets(doc, () => [], () => null, new Set());
+      expect(targets.filter((t) => t.guideKind === 'frame')).toHaveLength(1);
+      expect(targets.some((t) => t.left === 300)).toBe(false);
+      expect(targets.some((t) => t.left === 0 && t.width === 200)).toBe(true);
+    } finally {
+      setAnimationWorkbenchTimelineFocus(null);
+    }
   });
 
   it('clippedGuideBoxForNode keeps overflow when clipContent is false', () => {
