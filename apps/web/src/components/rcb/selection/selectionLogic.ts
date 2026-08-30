@@ -50,7 +50,10 @@ import {
   supportsFill,
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
-import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  isAnimationWorkbenchPreviewChild,
+  shouldShowArtboardInWorkbenchFocus,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { nodeIdsInsideFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
@@ -1492,7 +1495,8 @@ export function collectSmartGuideTargets(
   }
   const frames = Array.isArray(document?.frames) ? document.frames : [];
   for (const f of frames) {
-    if (!f?.id || f.locked) continue;
+    // Timeline edit focus: other plates are paint-hidden — do not snap/space to them.
+    if (!f?.id || f.locked || f.hidden || !shouldShowArtboardInWorkbenchFocus(f)) continue;
     const fid = String(f.id);
     if (excludeIds.has(fid) || excludeIds.has(frameSelId(fid))) continue;
     const left = Number(f.x) || 0;
