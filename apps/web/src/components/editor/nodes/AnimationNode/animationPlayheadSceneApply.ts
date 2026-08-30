@@ -126,85 +126,118 @@ export function applyAnimationPlayheadScenePose(opts: {
   if (!nodeEls || !(nodeEls instanceof Map)) return '';
 
   const sigParts: string[] = [String(frameN), applyGeometry ? 'g' : 'i'];
-  for (const raw of anim.layers as Record<string, unknown>[]) {
-    const sceneNodeId = String(raw?.[LINK_KEY] || '').trim();
-    if (!sceneNodeId) continue;
-    const node = document.deltaSetLike?.[sceneNodeId];
-    if (!node) continue;
-    // Never let another plate's layer links rewrite this node's live DOM.
-    const nodeFrame = String(node.attrs?.frameId || '').trim();
-    if (frameId && nodeFrame && nodeFrame !== frameId) continue;
-    const ind = Number(raw.ind);
-    if (!Number.isFinite(ind)) continue;
 
-    const ip = Number(raw.ip);
-    const op = Number(raw.op);
-    const inRange =
-      (!Number.isFinite(ip) || frameN >= ip - 1e-6) &&
-      (!Number.isFinite(op) || frameN < op - 1e-6);
+  const applyLinkedLayers = (
+    layers: Record<string, unknown>[],
+    sceneKind: 'main' | 'precomp',
+    assetId: string | undefined,
+    localAnimW: number,
+    localAnimH: number
+  ) => {
+    for (const raw of layers) {
+      const sceneNodeId = String(raw?.[LINK_KEY] || '').trim();
+      if (!sceneNodeId) continue;
+      const node = document.deltaSetLike?.[sceneNodeId];
+      if (!node) continue;
+      // Never let another plate's layer links rewrite this node's live DOM.
+      const nodeFrame = String(node.attrs?.frameId || '').trim();
+      if (frameId && nodeFrame && nodeFrame !== frameId) continue;
+      const ind = Number(raw.ind);
+      if (!Number.isFinite(ind)) continue;
 
-    if (!applyGeometry) {
-      const box = restoreDocumentGeometry(nodeEls, sceneNodeId, node);
-      const el = nodeEls.get(sceneNodeId) as any;
-      applyLayerInkVisibility(el, inRange, documentOpacityPct(node));
-      sigParts.push(
-        `${sceneNodeId}:${box.left.toFixed(1)},${box.top.toFixed(1)},${box.width.toFixed(1)},${box.height.toFixed(1)},ink:${inRange ? 1 : 0}`
+      const ip = Number(raw.ip);
+      const op = Number(raw.op);
+      const inRange =
+        (!Number.isFinite(ip) || frameN >= ip - 1e-6) &&
+        (!Number.isFinite(op) || frameN < op - 1e-6);
+
+      if (!applyGeometry) {
+        const box = restoreDocumentGeometry(nodeEls, sceneNodeId, node);
+        const el = nodeEls.get(sceneNodeId) as any;
+        applyLayerInkVisibility(el, inRange, documentOpacityPct(node));
+        sigParts.push(
+          `${sceneNodeId}:${box.left.toFixed(1)},${box.top.toFixed(1)},${box.width.toFixed(1)},${box.height.toFixed(1)},ink:${inRange ? 1 : 0}`
+        );
+        continue;
+      }
+
+      const sampled = sampleLayerTransformAtFrame({
+        animationData: anim,
+        sceneKind,
+        assetId,
+        layerInd: ind,
+        frame: frameN,
+      });
+      if (!sampled) continue;
+
+      const baseW = Math.max(1, Number(raw.w) || Number(node.width) || 1);
+      const baseH = Math.max(1, Number(raw.h) || Number(node.height) || 1);
+      const sx = Math.max(0.01, sampled.scaleX / 100);
+      const sy = Math.max(0.01, sampled.scaleY / 100);
+      const w = Math.max(1, baseW * sx);
+      const h = Math.max(1, baseH * sy);
+
+      const center = lottieLocalToScenePoint(
+        sampled.cx,
+        sampled.cy,
+        plate,
+        localAnimW,
+        localAnimH
       );
-      continue;
+      const left = center.x - w / 2;
+      const top = center.y - h / 2;
+
+      previewSvgNodeGeometry(nodeEls, sceneNodeId, { left, top, width: w, height: h });
+      const el = nodeEls.get(sceneNodeId) as any;
+      if (el) {
+        el.__sceneAngle = sampled.rotation;
+        el.__sceneSkewX = sampled.skew;
+        el.__sceneSkewY = 0;
+        el.__sceneSkewAxis = sampled.skewAxis;
+      }
+      previewSvgNodeAngle(nodeEls, sceneNodeId, sampled.rotation);
+      previewSvgNodeTransform(nodeEls, sceneNodeId);
+
+      const shapeType = String(node.attrs?.shapeType || '');
+      if (shapeType && sampled.roundness >= 0) {
+        const radii = radiiFromAttrs({
+          ...(node.attrs || {}),
+          rx: sampled.roundness,
+          ry: sampled.roundness,
+          cornerRadius: sampled.roundness,
+        });
+        previewSvgNodeCornerRadii(nodeEls, sceneNodeId, {
+          width: w,
+          height: h,
+          shapeType,
+          radii,
+          attrs: node.attrs || {},
+        });
+      }
+
+      notifyShapeHostGeometry(sceneNodeId);
+      applyLayerInkVisibility(el, inRange, sampled.opacity);
+
+      sigParts.push(
+        `${sceneNodeId}:${left.toFixed(1)},${top.toFixed(1)},${w.toFixed(1)},${h.toFixed(1)},${sampled.rotation.toFixed(1)},${sampled.skew.toFixed(1)},${sampled.roundness.toFixed(1)},${inRange ? 1 : 0}`
+      );
     }
+  };
 
-    const sampled = sampleLayerTransformAtFrame({
-      animationData: anim,
-      sceneKind: 'main',
-      layerInd: ind,
-      frame: frameN,
-    });
-    if (!sampled) continue;
+  applyLinkedLayers(anim.layers as Record<string, unknown>[], 'main', undefined, animW, animH);
 
-    const baseW = Math.max(1, Number(raw.w) || Number(node.width) || 1);
-    const baseH = Math.max(1, Number(raw.h) || Number(node.height) || 1);
-    const sx = Math.max(0.01, sampled.scaleX / 100);
-    const sy = Math.max(0.01, sampled.scaleY / 100);
-    const w = Math.max(1, baseW * sx);
-    const h = Math.max(1, baseH * sy);
-
-    const center = lottieLocalToScenePoint(sampled.cx, sampled.cy, plate, animW, animH);
-    const left = center.x - w / 2;
-    const top = center.y - h / 2;
-
-    previewSvgNodeGeometry(nodeEls, sceneNodeId, { left, top, width: w, height: h });
-    const el = nodeEls.get(sceneNodeId) as any;
-    if (el) {
-      el.__sceneAngle = sampled.rotation;
-      el.__sceneSkewX = sampled.skew;
-      el.__sceneSkewY = 0;
-      el.__sceneSkewAxis = sampled.skewAxis;
-    }
-    previewSvgNodeAngle(nodeEls, sceneNodeId, sampled.rotation);
-    previewSvgNodeTransform(nodeEls, sceneNodeId);
-
-    const shapeType = String(node.attrs?.shapeType || '');
-    if (shapeType && sampled.roundness >= 0) {
-      const radii = radiiFromAttrs({
-        ...(node.attrs || {}),
-        rx: sampled.roundness,
-        ry: sampled.roundness,
-        cornerRadius: sampled.roundness,
-      });
-      previewSvgNodeCornerRadii(nodeEls, sceneNodeId, {
-        width: w,
-        height: h,
-        shapeType,
-        radii,
-        attrs: node.attrs || {},
-      });
-    }
-
-    notifyShapeHostGeometry(sceneNodeId);
-    applyLayerInkVisibility(el, inRange, sampled.opacity);
-
-    sigParts.push(
-      `${sceneNodeId}:${left.toFixed(1)},${top.toFixed(1)},${w.toFixed(1)},${h.toFixed(1)},${sampled.rotation.toFixed(1)},${sampled.skew.toFixed(1)},${sampled.roundness.toFixed(1)},${inRange ? 1 : 0}`
+  // LOT-tab session shapes are linked inside precomp assets.
+  const assets = Array.isArray(anim.assets) ? (anim.assets as Record<string, unknown>[]) : [];
+  for (const asset of assets) {
+    if (!asset || !Array.isArray(asset.layers)) continue;
+    const assetId = String(asset.id || '').trim();
+    if (!assetId) continue;
+    applyLinkedLayers(
+      asset.layers as Record<string, unknown>[],
+      'precomp',
+      assetId,
+      Math.max(1, Number(asset.w) || animW),
+      Math.max(1, Number(asset.h) || animH)
     );
   }
   return sigParts.join('|');

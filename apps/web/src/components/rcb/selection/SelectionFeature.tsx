@@ -2254,10 +2254,19 @@ function SelectionFeature({
       plainText: parseNodeText(singleNodeData.attrs || {}),
     });
   }, [selectedIsTextFrame, singleNodeData, document]);
+  const lottieTimelineOpen = useSelector((s: any) =>
+    Boolean(s.editor.lottieTimelinePanel?.nodeId)
+  );
   const mediaTitle = useMemo(() => {
     if (!singleNodeData || selectedIsTextFrame) return null;
     if (isAnimationFrameHostNode(singleNodeData, document)) return null;
-    // ?????????????????????????    if (resolveAnimationFrameId(document, singleNodeData)) return null;
+    // Workbench children — no media title chrome.
+    if (resolveAnimationFrameId(document, singleNodeData)) return null;
+    // Free LOT tagged as workbench surround while timeline is open — same as child.
+    const surround = String(
+      singleNodeData.attrs?.animationWorkbenchSurround || ''
+    ).trim();
+    if (lottieTimelineOpen && surround) return null;
     return mediaTitleChrome({
       key: singleNodeData.key,
       name: singleNodeData.attrs?.name,
@@ -2276,6 +2285,7 @@ function SelectionFeature({
     selectedIsAudioGen,
     selectedIsVideo,
     document,
+    lottieTimelineOpen,
   ]);
   const selectedIsMediaGen =
     selectedIsImageGen || selectedIsVideoGen || selectedIsLottieGen || selectedIsAudioGen;

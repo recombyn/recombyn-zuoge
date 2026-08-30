@@ -29,6 +29,8 @@ export type AnimationLayerLink = {
   animH: number;
   layerBaseW: number;
   layerBaseH: number;
+  sceneKind: 'main' | 'precomp';
+  assetId?: string;
 };
 
 function asObj(v: unknown): Record<string, unknown> | null {
@@ -67,6 +69,38 @@ export function resolveAnimationLayerLink(
     width: Math.max(1, num(frame?.width ?? host?.width, 1)),
     height: Math.max(1, num(frame?.height ?? host?.height, 1)),
   };
+
+  const sessionAsset = String(node.attrs?.precompEditSession || '').trim();
+  if (sessionAsset) {
+    const assets = Array.isArray(animationData.assets) ? animationData.assets : [];
+    const asset = assets.find(
+      (raw: unknown) => String(asObj(raw)?.id || '') === sessionAsset
+    ) as Record<string, unknown> | undefined;
+    if (!asset || !Array.isArray(asset.layers)) return null;
+    const layer = asset.layers.find((raw: unknown) => {
+      const row = asObj(raw);
+      if (!row) return false;
+      if (String(row.ln || '').trim() === nodeId) return true;
+      return num(row.ind) === layerInd;
+    }) as Record<string, unknown> | undefined;
+    if (!layer) return null;
+    const animW = Math.max(1, num(asset.w, plate.width));
+    const animH = Math.max(1, num(asset.h, plate.height));
+    return {
+      hostId,
+      layerInd: num(layer.ind, layerInd),
+      animationData,
+      frameId,
+      plate,
+      animW,
+      animH,
+      layerBaseW: Math.max(1, num(layer.w, num(node.width, 1))),
+      layerBaseH: Math.max(1, num(layer.h, num(node.height, 1))),
+      sceneKind: 'precomp',
+      assetId: sessionAsset,
+    };
+  }
+
   const animW = Math.max(1, num(animationData.w, plate.width));
   const animH = Math.max(1, num(animationData.h, plate.height));
 
@@ -87,6 +121,7 @@ export function resolveAnimationLayerLink(
     animH,
     layerBaseW,
     layerBaseH,
+    sceneKind: 'main',
   };
 }
 
@@ -107,12 +142,21 @@ function withLayerBaseSize(
   animationData: Record<string, unknown>,
   layerInd: number,
   baseW: number,
-  baseH: number
+  baseH: number,
+  sceneKind: 'main' | 'precomp' = 'main',
+  assetId?: string
 ): Record<string, unknown> {
   const root = structuredClone
     ? structuredClone(animationData)
     : (JSON.parse(JSON.stringify(animationData)) as Record<string, unknown>);
-  const layers = Array.isArray(root.layers) ? (root.layers as unknown[]) : null;
+  let layers: unknown[] | null = null;
+  if (sceneKind === 'precomp' && assetId) {
+    const assets = Array.isArray(root.assets) ? (root.assets as Record<string, unknown>[]) : [];
+    const asset = assets.find((a) => String(a?.id || '') === assetId);
+    layers = asset && Array.isArray(asset.layers) ? (asset.layers as unknown[]) : null;
+  } else {
+    layers = Array.isArray(root.layers) ? (root.layers as unknown[]) : null;
+  }
   if (!layers) return root;
   for (const raw of layers) {
     const layer = asObj(raw);
@@ -141,7 +185,8 @@ export function autoKeyAnimatedProp(opts: {
   if (
     !isTransformPropAnimated({
       animationData: link.animationData,
-      sceneKind: 'main',
+      sceneKind: link.sceneKind,
+      assetId: link.assetId,
       layerInd: link.layerInd,
       propKey: opts.propKey,
     })
@@ -164,11 +209,19 @@ export function autoKeyAnimatedProp(opts: {
   if (opts.propKey === 's') {
     const nodeW = Math.max(1, num(node?.width, link.layerBaseW));
     const nodeH = Math.max(1, num(node?.height, link.layerBaseH));
-    anim = withLayerBaseSize(anim, link.layerInd, link.layerBaseW || nodeW, link.layerBaseH || nodeH);
+    anim = withLayerBaseSize(
+      anim,
+      link.layerInd,
+      link.layerBaseW || nodeW,
+      link.layerBaseH || nodeH,
+      link.sceneKind,
+      link.assetId
+    );
   }
   const next = upsertTransformKeyframe({
     animationData: anim,
-    sceneKind: 'main',
+    sceneKind: link.sceneKind,
+    assetId: link.assetId,
     layerInd: link.layerInd,
     propKey: opts.propKey,
     frame: secToFrame(opts.playheadSec, fps),
@@ -217,7 +270,8 @@ export function autoKeyAnimatedGeometry(opts: {
     if (
       !isTransformPropAnimated({
         animationData: anim,
-        sceneKind: 'main',
+        sceneKind: link.sceneKind,
+        assetId: link.assetId,
         layerInd: link.layerInd,
         propKey,
       })
@@ -231,12 +285,15 @@ export function autoKeyAnimatedGeometry(opts: {
         anim,
         link.layerInd,
         link.layerBaseW,
-        link.layerBaseH
+        link.layerBaseH,
+        link.sceneKind,
+        link.assetId
       );
     }
     const next = upsertTransformKeyframe({
       animationData: anim,
-      sceneKind: 'main',
+      sceneKind: link.sceneKind,
+      assetId: link.assetId,
       layerInd: link.layerInd,
       propKey,
       frame,

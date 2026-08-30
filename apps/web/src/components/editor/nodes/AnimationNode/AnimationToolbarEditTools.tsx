@@ -226,24 +226,8 @@ function AnimationToolbarEditTools({
 
   const speedLabel = `${Number.isFinite(speed) && speed > 0 ? speed : 1}×`;
 
-  // Timeline dock owns transport / keyframes — keep the floating bar out of the way.
-  if (timelineOpen) return null;
-
-  return (
+  const transport = (
     <>
-      <Tool
-        label={t('editor.lottieToolbar.timeline')}
-        tip={t('editor.lottieToolbar.timelineTip')}
-        onClick={() => {
-          dispatch(openLottieTimelinePanel({ nodeId }));
-        }}
-      >
-        <span
-          aria-hidden
-          className="block h-2.5 w-2.5 shrink-0 rotate-45 border-[1.5px] border-current bg-transparent"
-        />
-      </Tool>
-      <ImageToolSep />
       <AnimationTransportControls
         playing={lottiePlaying}
         ready={playbackReady}
@@ -266,6 +250,29 @@ function AnimationToolbarEditTools({
           <span className="tabular-nums">{speedLabel}</span>
         </button>
       </Dropdown>
+    </>
+  );
+
+  // Timeline dock owns 「关键帧」; free LOT preview under focus still needs transport
+  // (otherwise only the export download chip remains under the plate).
+  if (timelineOpen) return transport;
+
+  return (
+    <>
+      <Tool
+        label={t('editor.lottieToolbar.timeline')}
+        tip={t('editor.lottieToolbar.timelineTip')}
+        onClick={() => {
+          dispatch(openLottieTimelinePanel({ nodeId }));
+        }}
+      >
+        <span
+          aria-hidden
+          className="block h-2.5 w-2.5 shrink-0 rotate-45 border-[1.5px] border-current bg-transparent"
+        />
+      </Tool>
+      <ImageToolSep />
+      {transport}
     </>
   );
 }

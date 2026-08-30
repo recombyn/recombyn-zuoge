@@ -1,6 +1,7 @@
 /**
- * Precomp isolation focus — while editing a lot precomp, only that node paints.
+ * Precomp isolation focus — LOT tab shows session shapes; hide lot plate + host ink.
  */
+import { isPrecompEditSessionNode } from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
 
 let precompEditLotNodeId: string | null = null;
 let precompEditActive = false;
@@ -24,16 +25,20 @@ export function getLottiePrecompEditFocus(): {
 
 /** True → skip paint / hit for this node under precomp edit isolation. */
 export function isHiddenByLottiePrecompEditFocus(
-  _nodeId: string,
-  _node: { attrs?: Record<string, unknown> | null; key?: string } | null | undefined
+  nodeId: string,
+  node: { attrs?: Record<string, unknown> | null; key?: string } | null | undefined
 ): boolean {
   if (!precompEditActive) return false;
-  // Overlay owns the board + layer picks — hide every scene node (incl. lot plate).
-  // Nested lot stays unmovable while on the LOT tab (cannot drag out).
-  return true;
+  // Real JSON shapes for this LOT tab stay visible + editable.
+  if (isPrecompEditSessionNode(node)) return false;
+  // Hide the nested lot plate (ink replaced by session shapes).
+  if (precompEditLotNodeId && nodeId === precompEditLotNodeId) return true;
+  // Hide frame host + other workbench children while editing insides.
+  if (String(node?.attrs?.frameId || '').trim()) return true;
+  return false;
 }
 
-/** Hide live Lottie ink while precomp edit is open (static overlay replaces it). */
+/** Hide live Lottie ink while precomp edit is open (session shapes replace it). */
 export function shouldHideLottieInkForPrecompEdit(_nodeId: string): boolean {
   return precompEditActive;
 }

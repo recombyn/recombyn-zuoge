@@ -36,6 +36,7 @@ import {
   type PrecompEditableLayer,
   type PrecompEditPlate,
 } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
+import type { LottiePrecompEditState } from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
 import {
   patchDocumentNode,
   setLottiePrecompSelectedLayer,
@@ -131,12 +132,7 @@ function AnimationPrecompEditOverlay({
   const dpr = useRcbDevicePixelRatio();
   const toScene = useRcbScreenToScene();
   const edit = useSelector(
-    (s: any) =>
-      s.editor.lottiePrecompEdit as null | {
-        hostNodeId: string;
-        assetId: string;
-        selectedLayerInd: number | null;
-      }
+    (s: any) => s.editor.lottiePrecompEdit as LottiePrecompEditState | null
   );
   const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
   const dragRef = useRef<DragMode | null>(null);
@@ -148,7 +144,8 @@ function AnimationPrecompEditOverlay({
   const assetId = edit?.assetId || '';
   const selectedInd = edit?.selectedLayerInd ?? null;
   const host = hostNodeId ? document.deltaSetLike?.[hostNodeId] : null;
-  const active = Boolean(edit && host && !hidden);
+  // Real scene shapes replace the static overlay when the LOT tab session materialized.
+  const active = Boolean(edit && host && !hidden && !edit.sessionNodeIds?.length);
 
   const target = useMemo(
     () => (active ? plateForTarget(document, hostNodeId, assetId) : null),

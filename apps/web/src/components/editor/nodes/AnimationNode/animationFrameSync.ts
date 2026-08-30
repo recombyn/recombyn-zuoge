@@ -401,6 +401,8 @@ function isSyncableChild(node: SceneNode | null | undefined, document: SceneDocu
   if (node.key === 'lottie') {
     return Boolean(parseLottieAnimationData(node.attrs?.animationData));
   }
+  // LOT-tab ephemeral shapes sync via precomp asset — never as root layers.
+  if (String(node.attrs?.precompEditSession || '').trim()) return false;
   if (node.key === 'image') return Boolean(String(node.attrs?.src || '').trim());
   // Match inspector: shape / rect / ellipse / path / text all appear as timeline layers.
   if (
