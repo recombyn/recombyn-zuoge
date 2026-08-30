@@ -99,7 +99,7 @@ import {
 } from '@/components/rcb/frames/frameNodeBinding';
 import { previewArtboardFrameGeometry, clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
-  shouldShowArtboardInWorkbenchFocus,
+  isArtboardVisibleInDocument,
   warnIfNewPlateBlockedByAnimationWorkbenchFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
@@ -403,8 +403,6 @@ type Props = {
   frames: ArtboardFrame[];
   selectedFrames: ArtboardFrame[];
   activeFrame: ArtboardFrame | null;
-  /** Timeline focus frame — remount visibility when it changes. */
-  workbenchFocusFrameId?: string | null;
   canvasFillValue: FillPanelValue;
   canvasBgOpen: boolean;
   canvasMeshSelectedIndex: number;
@@ -446,7 +444,6 @@ function EditorStageWorld({
   frames,
   selectedFrames,
   activeFrame,
-  workbenchFocusFrameId = null,
   canvasFillValue,
   canvasBgOpen,
   canvasMeshSelectedIndex,
@@ -482,10 +479,13 @@ function EditorStageWorld({
   const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
   const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
   const [selectionTransforming, setSelectionTransforming] = useState(false);
+  const workbenchTimelineNodeId = useSelector((state: RootState) =>
+    String(state.editor.lottieTimelinePanel?.nodeId || '')
+  );
   // Drop snap guides that may still point at plates hidden by timeline focus.
   useEffect(() => {
     setFrameSmartGuides([]);
-  }, [workbenchFocusFrameId]);
+  }, [workbenchTimelineNodeId]);
   const frameDragRef = useRef<{
     frames: Array<{
       id: string;
@@ -498,13 +498,8 @@ function EditorStageWorld({
   } | null>(null);
   const frameMoveDocumentRef = useRef<SceneDocument | null>(document);
   const showWorkbenchFrame = useCallback(
-    (frame: ArtboardFrame) => {
-      if (frame.hidden) return false;
-      // Prefer the React focus id (same render as setAnimationWorkbenchTimelineFocus).
-      if (workbenchFocusFrameId) return String(frame.id) === workbenchFocusFrameId;
-      return shouldShowArtboardInWorkbenchFocus(frame);
-    },
-    [workbenchFocusFrameId]
+    (frame: ArtboardFrame) => isArtboardVisibleInDocument(frame),
+    []
   );
 
   const onCommitFrame = useCallback(

@@ -107,9 +107,12 @@ async def execute_image_process(job: dict[str, Any]) -> dict[str, Any]:
         _set_progress(_PROGRESS_DONE, final=True)
     if not isinstance(result, dict):
         raise RuntimeError(f"image process returned unexpected type: {type(result)!r}")
-    image = str(result.get("image") or "").strip()
-    if not image:
-        raise RuntimeError("image process returned no image")
+    out_image = str(result.get("image") or "").strip()
+    out_svg = str(result.get("svg") or "").strip()
+    layers = result.get("layers")
+    has_layers = isinstance(layers, list) and len(layers) > 0
+    if not out_image and not out_svg and not has_layers:
+        raise RuntimeError("image process returned no image/svg")
     return {**result, "credits": credits}
 
 

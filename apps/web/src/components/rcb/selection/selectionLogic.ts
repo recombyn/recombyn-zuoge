@@ -41,6 +41,7 @@ import {
   isAudioGeneratorNode,
   isImageGeneratorNode,
   isAnimationFrameHostNode,
+  isArtboardVisibleInDocument,
   isLottieGeneratorNode,
   isVideoGeneratorNode,
   isNodeHiddenInDocument,
@@ -50,10 +51,7 @@ import {
   supportsFill,
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
-import {
-  isAnimationWorkbenchPreviewChild,
-  shouldShowArtboardInWorkbenchFocus,
-} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { nodeIdsInsideFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
@@ -1496,7 +1494,7 @@ export function collectSmartGuideTargets(
   const frames = Array.isArray(document?.frames) ? document.frames : [];
   for (const f of frames) {
     // Timeline edit focus: other plates are paint-hidden — do not snap/space to them.
-    if (!f?.id || f.locked || f.hidden || !shouldShowArtboardInWorkbenchFocus(f)) continue;
+    if (!f?.id || f.locked || !isArtboardVisibleInDocument(f)) continue;
     const fid = String(f.id);
     if (excludeIds.has(fid) || excludeIds.has(frameSelId(fid))) continue;
     const left = Number(f.x) || 0;

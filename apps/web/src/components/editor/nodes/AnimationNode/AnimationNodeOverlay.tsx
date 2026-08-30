@@ -117,6 +117,9 @@ function LottiePlate({
   const playingHostId = useSelector((s: any) =>
     String(s.editor.lottiePlayingHostId || '').trim()
   );
+  const timelineHostId = useSelector((s: any) =>
+    String(s.editor.lottieTimelinePanel?.nodeId || '').trim()
+  );
 
   useEffect(() => {
     const host = hostEl;
@@ -196,10 +199,11 @@ function LottiePlate({
     };
     lottieHosts.set(nodeId, api);
     const at = Math.min(restoreSec, durationSec());
-    const hostMatches =
-      !String(editorState?.lottiePlayingHostId || '').trim() ||
-      String(editorState?.lottiePlayingHostId) === String(nodeId);
-    if (Boolean(editorState?.lottiePlaying) && hostMatches && !timelineOwns) {
+    const playingHost = String(editorState?.lottiePlayingHostId || '').trim();
+    const hostMatches = playingHost
+      ? playingHost === String(nodeId)
+      : timelineOwns;
+    if (Boolean(editorState?.lottiePlaying) && hostMatches) {
       api.playFrom(at);
     } else {
       api.seek(at);
@@ -227,16 +231,19 @@ function LottiePlate({
   }, [speed]);
 
   // Keep host ink in lockstep with Redux play/pause (icon ↔ visual).
+  // Only the active play host (or timeline panel host) may run — never broadcast.
   useEffect(() => {
     const api = lottieHosts.get(nodeId);
     if (!api) return;
-    const mine = !playingHostId || playingHostId === String(nodeId);
+    const mine = playingHostId
+      ? playingHostId === String(nodeId)
+      : Boolean(timelineHostId) && timelineHostId === String(nodeId);
     if (reduxPlaying && mine) {
       if (api.isPaused()) api.play();
     } else if (!api.isPaused()) {
       api.pause();
     }
-  }, [reduxPlaying, playingHostId, nodeId, hostEl, animationJson]);
+  }, [reduxPlaying, playingHostId, timelineHostId, nodeId, hostEl, animationJson]);
 
   return createPortal(
     <div

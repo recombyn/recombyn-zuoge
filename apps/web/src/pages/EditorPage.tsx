@@ -114,11 +114,7 @@ import EditorStageWorld from '@/components/editor/page/EditorStageWorld';
 import AnimationTimelineDock from '@/components/editor/nodes/AnimationNode/AnimationTimelineDock';
 import AnimationTimelineFocusHost from '@/components/editor/nodes/AnimationNode/AnimationTimelineFocusHost';
 import AnimationPrecompEditFocusHost from '@/components/editor/nodes/AnimationNode/AnimationPrecompEditFocusHost';
-import {
-  resolveActiveAnimationFrameId,
-  resolveAnimationFrameId,
-} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
-import { setAnimationWorkbenchTimelineFocus, shouldShowArtboardInWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { isArtboardVisibleInDocument } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   isAnimationFrameHostNode,
   isNodeStructurallyHiddenInDocument,
@@ -258,9 +254,7 @@ function unionSceneBox(a: SceneBox | null, b: SceneBox): SceneBox {
 function editorContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): SceneBox {
   let box: SceneBox | null = null;
   for (const f of frames) {
-    if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
-    const hidden = (f as { hidden?: unknown }).hidden;
-    if (hidden === true || hidden === 'true' || hidden === 1 || hidden === '1') continue;
+    if (!isArtboardVisibleInDocument(f)) continue;
     box = unionSceneBox(box, {
       x: f.x,
       y: f.y,
@@ -285,7 +279,7 @@ function editorContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Scene
 /** True when the scene has real artboards/nodes — not the empty-doc fallback box. */
 function editorHasFitContent(doc: SceneDocument, frames: ArtboardFrame[]): boolean {
   for (const f of frames) {
-    if (!shouldShowArtboardInWorkbenchFocus(f)) continue;
+    if (!isArtboardVisibleInDocument(f)) continue;
     if ((Number(f.width) || 0) >= 2 && (Number(f.height) || 0) >= 2) return true;
   }
   for (const { node } of listSceneNodes(doc)) {
@@ -701,18 +695,6 @@ function EditorPage() {
     String(state.editor.lottieTimelinePanel?.nodeId || '')
   );
   const lottieTimelineOpen = Boolean(lottieTimelineNodeId);
-  const workbenchFocusFrameId = useMemo(() => {
-    if (!lottieTimelineOpen || !document || !lottieTimelineNodeId) return null;
-    const fromHost = resolveAnimationFrameId(
-      document,
-      document.deltaSetLike?.[lottieTimelineNodeId]
-    );
-    if (fromHost) return fromHost;
-    // Host without frameId (rare) — still hide other plates while timeline is open.
-    return resolveActiveAnimationFrameId(document, selectedFrameIds);
-  }, [document, lottieTimelineNodeId, lottieTimelineOpen, selectedFrameIds]);
-  // Keep paint/hit focus in sync before children render.
-  setAnimationWorkbenchTimelineFocus(workbenchFocusFrameId);
 
   const [toolsTimelineLiftPx, setToolsTimelineLiftPx] = useState(0);
   useEffect(() => {
@@ -1792,7 +1774,6 @@ function EditorPage() {
               frames={frames}
               selectedFrames={selectedFrames}
               activeFrame={activeFrame}
-              workbenchFocusFrameId={workbenchFocusFrameId}
               canvasFillValue={canvasFillValue}
               canvasBgOpen={canvasBgOpen}
               canvasMeshSelectedIndex={canvasMeshSelectedIndex}

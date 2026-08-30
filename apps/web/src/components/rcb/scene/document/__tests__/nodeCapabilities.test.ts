@@ -4,6 +4,7 @@ import {
   isNodeHiddenInDocument,
   isNodeMarqueeSkippable,
   isNodeOverlayHidden,
+  isNodePickableInDocument,
   shouldSkipNodeInSvgPaint,
 } from '../nodeCapabilities';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -133,5 +134,59 @@ describe('nodeCapabilities playhead hide', () => {
     } as unknown as SceneDocument;
     expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.img)).toBe(true);
     expect(isNodeOverlayHidden(doc, doc.deltaSetLike!.img)).toBe(false);
+  });
+});
+
+describe('isNodePickableInDocument', () => {
+  afterEach(() => {
+    setAnimationWorkbenchTimelineFocus(null);
+    setAnimationWorkbenchPlayheadSec(0);
+  });
+
+  it('preview child of closed workbench is not pickable', () => {
+    setAnimationWorkbenchTimelineFocus(null);
+    const doc = {
+      frames: [{ id: 'af1', kind: 'animation', x: 0, y: 0, width: 400, height: 300 }],
+      deltaSetLike: {
+        ROOT: { children: ['n1'] },
+        n1: {
+          id: 'n1',
+          key: 'shape',
+          x: 10,
+          y: 10,
+          width: 40,
+          height: 40,
+          attrs: { frameId: 'af1' },
+        },
+      },
+    } as unknown as SceneDocument;
+    expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.n1)).toBe(false);
+    expect(isNodePickableInDocument(doc, doc.deltaSetLike!.n1)).toBe(false);
+    expect(isNodeMarqueeSkippable(doc, doc.deltaSetLike!.n1)).toBe(true);
+    setAnimationWorkbenchTimelineFocus('af1');
+    expect(isNodePickableInDocument(doc, doc.deltaSetLike!.n1)).toBe(true);
+  });
+
+  it('playhead trim makes node not pickable via isNodeHiddenInDocument', () => {
+    setAnimationWorkbenchTimelineFocus('af1');
+    setAnimationWorkbenchPlayheadSec(0);
+    const doc = {
+      frames: [{ id: 'af1', kind: 'animation', x: 0, y: 0, width: 400, height: 300, fps: 30 }],
+      deltaSetLike: {
+        ROOT: { children: ['img'] },
+        img: {
+          id: 'img',
+          key: 'image',
+          x: 10,
+          y: 10,
+          width: 40,
+          height: 40,
+          attrs: { frameId: 'af1', lottieInFrame: 30, lottieOutFrame: 90 },
+        },
+      },
+    } as unknown as SceneDocument;
+    expect(isNodeHiddenInDocument(doc, doc.deltaSetLike!.img)).toBe(true);
+    expect(isNodePickableInDocument(doc, doc.deltaSetLike!.img)).toBe(false);
+    expect(isNodePickableInDocument(doc, doc.deltaSetLike!.img, 1.5)).toBe(true);
   });
 });

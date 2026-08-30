@@ -1252,6 +1252,7 @@ const zhTW = {
         '文字識別完成（{{textCount}} 處可編輯，{{rasterCount}} 處藝術字保留為圖片）',
       nameCutout: '去背',
       nameEraser: '擦除',
+      nameVector: '向量',
       multiAngle: '多角度',
       more: '更多',
       lockAspect: '鎖定比例',

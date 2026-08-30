@@ -16,14 +16,12 @@ import {
 } from '@/components/rcb/scene/document/sceneEffects';
 import {
   isAnimationFrameHostNode,
+  isArtboardVisibleInDocument,
   isNodeHiddenInDocument,
+  isNodePickableInDocument,
   supportsFill,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
-import {
-  isAnimationWorkbenchPreviewChild,
-  shouldShowArtboardInWorkbenchFocus,
-} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
@@ -196,8 +194,8 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       boxes.push({ id, box: null, hit: false });
       continue;
     }
-    // Timeline closed: workbench children are preview-only (select the plate instead).
-    if (isAnimationWorkbenchPreviewChild(doc, node)) {
+    // Hidden / preview-only / playhead trim — not pickable.
+    if (!isNodePickableInDocument(doc, node)) {
       boxes.push({ id, box: null, hit: false });
       continue;
     }
@@ -241,8 +239,7 @@ export function frameIdAtPoint(
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
   for (let i = frames.length - 1; i >= 0; i -= 1) {
     const frame = frames[i];
-    if (!frame || frame.locked || frame.hidden) continue;
-    if (!shouldShowArtboardInWorkbenchFocus(frame)) continue;
+    if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
     const fx = Number(frame.x) || 0;
     const fy = Number(frame.y) || 0;
     const fw = Math.max(1, Number(frame.width) || 1);
