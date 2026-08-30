@@ -24,7 +24,7 @@
 
 # zuoge
 
-An open-source AI design workspace. Infinite vector canvas, LangGraph Design Agent, and an MCP server so tools like Cursor can read and edit the same projects — self-host with Docker Compose.
+An open-source AI design workspace. Infinite vector canvas, LangGraph Design Agent, and an MCP server so tools like Codex can read and edit the same projects — self-host with Docker Compose.
 
 **Make it — design has never been this simple.**
 
@@ -169,22 +169,17 @@ MCP_CANVAS_ENABLED=true
 VITE_MCP_CANVAS_ENABLED=true
 ```
 
-Cursor — add to `.cursor/mcp.json`:
+Codex — add to `.codex/config.toml`:
 
-```json
-{
-  "mcpServers": {
-    "recombyn-canvas": {
-      "command": "node",
-      "args": ["scripts/mcp/recombyn_canvas_stdio.mjs"],
-      "env": {
-        "RECOMBYN_API_URL": "http://127.0.0.1:8000",
-        "RECOMBYN_TOKEN": "<token>",
-        "RECOMBYN_PROJECT_ID": "<project-id>"
-      }
-    }
-  }
-}
+```toml
+[mcp_servers.recombyn-canvas]
+command = "node"
+args = ["scripts/mcp/recombyn_canvas_stdio.mjs"]
+
+[mcp_servers.recombyn-canvas.env]
+RECOMBYN_API_URL = "http://127.0.0.1:8000"
+RECOMBYN_TOKEN = "<token>"
+RECOMBYN_PROJECT_ID = "<project-id>"
 ```
 
 **Live** — editor open; ops apply in the browser.  
