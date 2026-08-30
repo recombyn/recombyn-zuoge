@@ -122,6 +122,42 @@ describe('hitTestSceneAtPoint', () => {
     expect(hitTestSceneAtPoint({ document: doc, order: ['p'], x: 80, y: 60, zoom: 1, getNodeBox })).toBe('p');
   });
 
+  it('still picks world shapes over an overlapping animation workbench (incl. outside plate)', () => {
+    const doc = {
+      frames: [
+        {
+          id: 'anim',
+          kind: 'animation',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          clipContent: true,
+        },
+      ],
+      deltaSetLike: {
+        ROOT: { children: ['p'] },
+        p: {
+          id: 'p',
+          key: 'shape',
+          x: 40,
+          y: 40,
+          width: 100,
+          height: 40,
+          attrs: { shapeType: 'rect', 'fill-color': '#fff', 'fill-enabled': 'true' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const getNodeBox = () => ({ left: 40, top: 40, width: 100, height: 40 });
+    // Outside the workbench — still pickable (not bound into it).
+    expect(
+      hitTestSceneAtPoint({ document: doc, order: ['p'], x: 120, y: 60, zoom: 1, getNodeBox })
+    ).toBe('p');
+    expect(
+      hitTestSceneAtPoint({ document: doc, order: ['p'], x: 80, y: 60, zoom: 1, getNodeBox })
+    ).toBe('p');
+  });
+
   it('does not pick a bound node when clicking an adjacent artboard', () => {
     const doc = {
       frames: [

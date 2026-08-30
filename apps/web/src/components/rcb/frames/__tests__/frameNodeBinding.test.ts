@@ -5,6 +5,7 @@ import {
   frameForNodeIntersectPlacement,
   shouldBindUnownedNodeToFrame,
   shouldCoMoveNodeWithFrames,
+  acceptCreateFrameId,
 } from '../frameNodeBinding';
 import { setAnimationWorkbenchTimelineFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -59,6 +60,43 @@ describe('frameNodeBinding', () => {
     const rect = { left: 180, top: 80, width: 40, height: 40 };
     const frameB = { left: 210, top: 0, width: 200, height: 200 };
     expect(shouldCoMoveNodeWithFrames(free, rect, moved, frameB)).toBe(true);
+  });
+
+  it('does not co-move free ink with an animation workbench plate', () => {
+    const moved = new Set(['lot']);
+    const free = { attrs: {} };
+    const rect = { left: 20, top: 20, width: 40, height: 40 };
+    const plate = { left: 0, top: 0, width: 200, height: 200 };
+    expect(shouldCoMoveNodeWithFrames(free, rect, moved, plate, 'animation')).toBe(false);
+  });
+
+  it('still co-moves workbench-bound children with the plate', () => {
+    const moved = new Set(['lot']);
+    const child = { attrs: { frameId: 'lot' } };
+    const rect = { left: 20, top: 20, width: 40, height: 40 };
+    const plate = { left: 0, top: 0, width: 200, height: 200 };
+    expect(shouldCoMoveNodeWithFrames(child, rect, moved, plate, 'animation')).toBe(true);
+  });
+
+  it('acceptCreateFrameId rejects preview workbench until timeline opens', () => {
+    const doc = {
+      frames: [
+        {
+          id: 'lot',
+          kind: 'animation',
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 200,
+          backgroundColor: '#fff',
+        },
+      ],
+      deltaSetLike: {},
+    } as any as SceneDocument;
+    expect(acceptCreateFrameId(doc, 'lot', { key: 'shape' })).toBeNull();
+    setAnimationWorkbenchTimelineFocus('lot');
+    expect(acceptCreateFrameId(doc, 'lot', { key: 'shape' })).toBe('lot');
+    expect(acceptCreateFrameId(doc, 'lot', { key: 'video' })).toBeNull();
   });
 
   it('bindUnownedNodesToFrames assigns frameId so clip can apply', () => {
@@ -163,7 +201,9 @@ describe('frameNodeBinding', () => {
     ).toBeNull();
 
     setAnimationWorkbenchTimelineFocus('lot');
+    // Timeline open: move/overlap can join; create still uses acceptCreateFrameId.
     expect(shouldBindUnownedNodeToFrame(shape, lottie as any)).toBe(true);
+    expect(shouldBindUnownedNodeToFrame(video, lottie as any)).toBe(false);
     expect(
       frameForNodeIntersectPlacement(
         doc,
@@ -171,8 +211,10 @@ describe('frameNodeBinding', () => {
         shape
       )
     ).toBe('lot');
+    expect(acceptCreateFrameId(doc, 'lot', shape)).toBe('lot');
     const bound = bindUnownedNodesToFrames(doc, ['lot']);
     expect(bound.deltaSetLike.s1.attrs?.frameId).toBe('lot');
+    expect(bound.deltaSetLike.v1.attrs?.frameId).toBeUndefined();
   });
 
   it('under timeline focus never binds to a non-focus 主画板', () => {
@@ -202,7 +244,6 @@ describe('frameNodeBinding', () => {
       ],
       deltaSetLike: {},
     } as any as SceneDocument;
-    // Overlaps only the main artboard — must stay unbound (surround), not 主画板.
     expect(
       frameForNodeIntersectPlacement(doc, { left: 40, top: 40, width: 40, height: 40 }, {
         key: 'shape',
@@ -218,11 +259,6 @@ describe('frameNodeBinding', () => {
         key: 'shape',
       })
     ).toBe('anim');
-    expect(
-      canBindNodeToArtboardFrame(doc.frames![1], {
-        key: 'image',
-        attrs: { imageGenerator: true },
-      } as any)
-    ).toBe(false);
+    expect(acceptCreateFrameId(doc, 'anim', { key: 'shape' })).toBe('anim');
   });
 });
