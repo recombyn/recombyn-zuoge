@@ -16,6 +16,7 @@ import {
   urlRef,
   XLINK_NS,
 } from './svgDom';
+import { resolveLottieInkJson } from '@/components/editor/nodes/AnimationNode/mainSceneLotPreview';
 import {
   parseNodeText,
   parseNodeTextStyle,
@@ -44,6 +45,7 @@ import {
   isImageProcessRunning,
   isLottieNode,
   isAnimationFrameHostNode,
+  isWorkbenchNestedLottieNode,
   shouldSkipNodeInSvgPaint,
   isOutlinedPath,
   isTextFrameNode,
@@ -56,6 +58,7 @@ import {
   syncProcessPlateGeometry,
 } from '@/components/rcb/process/processPlateSvg';
 import {
+  parseLottieAnimationData,
   resolveGenPlateFill,
   resolveThemeSurfaceFill
 } from '../document/nodeFactories';
@@ -826,23 +829,55 @@ function appendHtmlMediaMount(
   const div = document.createElementNS(XHTML_NS, 'div');
   div.setAttribute(HTML_MEDIA_MOUNT_ATTR, opts.nodeId);
   div.setAttribute('data-rcb-html-media-kind', opts.kind);
-  div.style.cssText =
-    opts.kind === 'text'
-      ? 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;'
-      : opts.kind === 'video'
-        ? 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;color-scheme:only light;'
-        : 'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;';
+  let css =
+    'width:100%;height:100%;overflow:hidden;pointer-events:none;position:relative;';
+  if (opts.kind === 'video') css += 'color-scheme:only light;';
+  div.style.cssText = css;
   fo.appendChild(div);
 }
 
-/** Resolve the HTML media portal mount for a painted scene node. */
-export function findHtmlMediaMount(nodeId: string): HTMLElement | null {
+/** Native nested SVG mount for lottie-web (no foreignObject HTML preview). */
+function appendLottieSvgMount(
+  g: SVGGElement,
+  opts: {
+    nodeId: string;
+    width: number;
+    height: number;
+    animW: number;
+    animH: number;
+  }
+): void {
+  const w = Math.max(1, opts.width);
+  const h = Math.max(1, opts.height);
+  const vbW = Math.max(1, opts.animW);
+  const vbH = Math.max(1, opts.animH);
+  appendChild(
+    g,
+    svgEl('svg', {
+      x: 0,
+      y: 0,
+      width: w,
+      height: h,
+      viewBox: `0 0 ${vbW} ${vbH}`,
+      preserveAspectRatio: 'xMidYMid meet',
+      overflow: 'hidden',
+      [HTML_MEDIA_MOUNT_ATTR]: opts.nodeId,
+      'data-rcb-html-media-fo': 'lottie',
+      'data-rcb-lottie-svg-ink': '1',
+      'data-rcb-html-media-kind': 'lottie',
+      'pointer-events': 'none',
+    })
+  );
+}
+
+/** Resolve the media portal mount for a painted scene node (div FO or nested SVG). */
+export function findHtmlMediaMount(nodeId: string): Element | null {
   const id = String(nodeId || '');
   if (!id) return null;
   const sel = `[${HTML_MEDIA_MOUNT_ATTR}="${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
   try {
     const hit = document.querySelector(sel);
-    return hit instanceof HTMLElement ? hit : null;
+    return hit instanceof Element ? hit : null;
   } catch {
     return null;
   }
@@ -1565,7 +1600,11 @@ export async function nodeToSvgElement(
   }
 
   if (node.key === 'lottie' || isLottieNode(node)) {
-    const hasData = Boolean(String(node.attrs?.animationData || '').trim());
+    const animationJsonForPaint = resolveLottieInkJson(document, nodeId, node);
+    const parsedLottie = animationJsonForPaint
+      ? parseLottieAnimationData(animationJsonForPaint)
+      : null;
+    const hasData = Boolean(parsedLottie);
     const processing = String(node.attrs?.processStatus || '') === 'running';
     const { left, top } = nodeLeftTop(document, node);
     const boxW = Math.max(1, Number(node.width) || 100);
@@ -1577,14 +1616,13 @@ export async function nodeToSvgElement(
     const g = appendChild(parent, svgEl('g'));
     const svgOwnsPixels = videoSvgOwnsPixels(root);
     const frameHost = isAnimationFrameHostNode(node, document);
+    const workbenchNested = isWorkbenchNestedLottieNode(node, document);
     const rawLottieFill = String(node.attrs?.['fill-color'] || '').trim();
-    // Default surface plate — map empty/transparent to theme surface (not black).
-    // Invisible workbench host: no plate fill (playback ink only via HTML overlay).
-    const plateFill = frameHost
-      ? 'none'
-      : resolveThemeSurfaceFill(
-          !rawLottieFill || rawLottieFill === 'transparent' ? '' : rawLottieFill
-        );
+    let plateFill = 'none';
+    if (!frameHost && !workbenchNested) {
+      const themed = !rawLottieFill || rawLottieFill === 'transparent' ? '' : rawLottieFill;
+      plateFill = resolveThemeSurfaceFill(themed);
+    }
     const plateStrokeW = framePlateStrokeSceneWidth(getInfiniteSvgPaintZoom());
 
     // Same process plate as image/video — shimmer chrome overlays this node.
@@ -1620,12 +1658,10 @@ export async function nodeToSvgElement(
       return g;
     }
 
-    // Plate fill under HTML ink (foreignObject). Export keeps SVG-only pixels.
-    // Idle hairline matches artboard; selection chrome owns the blue box when selected.
+    // Plate fill under lottie SVG ink. Export keeps SVG-only pixels.
     const plate = appendChild(g, svgEl('path', { d: clipD }));
     setFill(plate, plateFill);
-    if (frameHost) {
-      // Host is timeline chrome only — never intercept picks meant for children.
+    if (frameHost || workbenchNested) {
       setAttrs(plate, { 'pointer-events': 'none' });
       setStroke(plate, 'none');
     } else {
@@ -1634,15 +1670,18 @@ export async function nodeToSvgElement(
         width: plateStrokeW,
       });
     }
-    setAttrs(plate, {
+    const plateAttrs: Record<string, string> = {
       'data-radius-body': '1',
       'data-baseline': '1',
       'shape-rendering': 'crispEdges',
-      ...(!svgOwnsPixels && !frameHost ? { 'data-rcb-lottie-html-hit': '1' } : {}),
-    });
+    };
+    if (!svgOwnsPixels && !frameHost && !workbenchNested) {
+      plateAttrs['data-rcb-lottie-html-hit'] = '1';
+    }
+    setAttrs(plate, plateAttrs);
     if (!svgOwnsPixels) {
-      // Always mount HTML for Lottie (incl. 动画工作台 host) so timeline seek/play
-      // has a live lottie-web instance. Frame-host ink is hidden in the overlay;
+      // Nested SVG mount for lottie-web — preview + edit share the same SVG ink
+      // (no foreignObject HTML plate). Frame-host ink is hidden in the overlay;
       // scene children show the scrubbed pose via playhead sync.
       const ink = appendChild(g, svgEl('g'));
       if (!frameHost) {
@@ -1654,7 +1693,13 @@ export async function nodeToSvgElement(
       } else {
         setAttrs(ink, { 'pointer-events': 'none' });
       }
-      appendHtmlMediaMount(ink, { nodeId, width: boxW, height: boxH, kind: 'lottie' });
+      appendLottieSvgMount(ink, {
+        nodeId,
+        width: boxW,
+        height: boxH,
+        animW: Math.max(1, Number(parsedLottie?.w) || boxW),
+        animH: Math.max(1, Number(parsedLottie?.h) || boxH),
+      });
     }
     rememberSceneCornerRadii(g, cornerR);
     tagNode(g, nodeId, 'lottie', undefined, left, top, boxW, boxH);
@@ -2519,20 +2564,23 @@ function previewResizeTextFrame(
   return true;
 }
 
+function syncElementBox(el: Element, width: number, height: number): void {
+  const w = Math.max(1, width);
+  const h = Math.max(1, height);
+  el.setAttribute('width', String(w));
+  el.setAttribute('height', String(h));
+}
+
 function syncHtmlMediaForeignObject(
   host: SVGElement | null | undefined,
   width: number,
   height: number
 ): void {
   if (!host) return;
-  const w = Math.max(1, width);
-  const h = Math.max(1, height);
-  const fo = host.querySelector(
-    'foreignObject[data-rcb-html-media-fo]'
-  ) as SVGForeignObjectElement | null;
-  if (!fo) return;
-  fo.setAttribute('width', String(w));
-  fo.setAttribute('height', String(h));
+  const fo = host.querySelector('foreignObject[data-rcb-html-media-fo]');
+  if (fo) syncElementBox(fo, width, height);
+  const lottieSvg = host.querySelector('svg[data-rcb-lottie-svg-ink="1"]');
+  if (lottieSvg) syncElementBox(lottieSvg, width, height);
 }
 
 /** Poster / underlay <image> + clipPath — keep in sync when FO resizes (no CSS scale). */

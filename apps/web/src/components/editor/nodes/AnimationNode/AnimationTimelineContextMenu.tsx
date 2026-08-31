@@ -159,7 +159,7 @@ function AnimationTimelineContextMenu({ menu, canPaste, onAction, onClose }: Pro
           data-lottie-timeline-ctx=""
           role="menu"
           className={cn(
-            'pointer-events-auto fixed z-[550] min-w-[13.5rem] overflow-hidden rounded-md border border-[var(--line)] bg-[var(--surface)] py-1 text-[var(--ink)] shadow-none'
+            'pointer-events-auto fixed z-[550] min-w-[13.5rem] overflow-hidden rounded-xl bg-[var(--surface)] py-1 text-[var(--ink)] shadow-lg ring-1 ring-[var(--line)]'
           )}
           style={{
             left: pos?.left ?? menu.clientX,

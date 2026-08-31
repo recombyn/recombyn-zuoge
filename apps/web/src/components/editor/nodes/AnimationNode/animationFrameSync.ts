@@ -236,6 +236,29 @@ function nodeCornerRadius(node: SceneNode): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+function setLayerPathBox(
+  layer: Record<string, unknown>,
+  box: LottieLocalBox,
+  ellipse: boolean,
+  cornerRadius: number
+): boolean {
+  const shapes = Array.isArray(layer.shapes)
+    ? (layer.shapes as Record<string, unknown>[]).map((s) =>
+        s && typeof s === 'object' ? { ...s } : s
+      )
+    : [];
+  const idx = shapes.findIndex((s) => s && (s.ty === 'rc' || s.ty === 'el'));
+  if (idx < 0) return false;
+  const path = { ...(shapes[idx] as Record<string, unknown>) };
+  path.s = { a: 0, k: [box.w, box.h] };
+  if (!ellipse && path.ty === 'rc') {
+    path.r = { a: 0, k: Math.max(0, cornerRadius) };
+  }
+  shapes[idx] = path;
+  layer.shapes = shapes;
+  return true;
+}
+
 function makeRectLayer(opts: {
   ind: number;
   name: string;
@@ -884,4 +907,175 @@ export function syncArtboardChildrenIntoAnimation(
   const animationJson = serializeLottieAnimationData(anim);
   if (!animationJson) return null;
   return { animationJson, childAttrPatches };
+}
+
+/**
+ * Write LOT-tab session shape edits back into the host precomp asset before
+ * tearing down ephemeral session nodes.
+ */
+export function syncPrecompSessionShapesIntoHost(opts: {
+  document: SceneDocument;
+  hostNodeId: string;
+  assetId: string;
+  sessionNodeIds: string[];
+  frameId: string;
+}): SceneDocument {
+  const hostId = String(opts.hostNodeId || '').trim();
+  const assetId = String(opts.assetId || '').trim();
+  const frameId = String(opts.frameId || '').trim();
+  const sessionIds = opts.sessionNodeIds.filter(Boolean);
+  if (!hostId || !assetId || !frameId || !sessionIds.length) return opts.document;
+
+  const host = opts.document.deltaSetLike?.[hostId];
+  if (!host || host.key !== 'lottie') return opts.document;
+
+  const frames = Array.isArray(opts.document.frames) ? opts.document.frames : [];
+  const frame = frames.find((f) => String(f?.id) === frameId);
+  if (!frame) return opts.document;
+
+  const plate = {
+    left: Number(frame.x) || 0,
+    top: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  };
+
+  const root = parseLottieAnimationData(host.attrs?.animationData);
+  if (!root || !Array.isArray(root.assets)) return opts.document;
+
+  const assets = (root.assets as Record<string, unknown>[]).map((a) =>
+    a && typeof a === 'object' ? { ...a } : a
+  ) as Record<string, unknown>[];
+  const assetIdx = assets.findIndex((a) => String(a?.id || '') === assetId);
+  if (assetIdx < 0) return opts.document;
+
+  const asset = { ...assets[assetIdx] };
+  const animW = Math.max(1, Number(asset.w) || plate.width);
+  const animH = Math.max(1, Number(asset.h) || plate.height);
+  const fps = Math.max(1, Number(root.fr) || Number(frame.fps) || 30);
+  const op = Math.max(1, Number(asset.op) || Number(root.op) || fps * 2);
+
+  const layers = Array.isArray(asset.layers)
+    ? (asset.layers as Record<string, unknown>[]).map((l) =>
+        l && typeof l === 'object' ? { ...l } : l
+      )
+    : [];
+
+  let touched = false;
+  for (const nodeId of sessionIds) {
+    const node = opts.document.deltaSetLike?.[nodeId];
+    if (!node) continue;
+    let layerIdx = layers.findIndex(
+      (l) => l && String(l[LINK_KEY] || '').trim() === nodeId
+    );
+    if (layerIdx < 0) {
+      const ind = Number(node.attrs?.lottieLayerInd);
+      if (Number.isFinite(ind) && ind > 0) {
+        layerIdx = layers.findIndex((l) => l && Number(l?.ind) === ind);
+      }
+    }
+    if (layerIdx < 0) continue;
+
+    const box = sceneBoxToLottieLocal(
+      {
+        x: Number(node.x) || 0,
+        y: Number(node.y) || 0,
+        w: Math.max(1, Number(node.width) || 1),
+        h: Math.max(1, Number(node.height) || 1),
+      },
+      plate,
+      animW,
+      animH
+    );
+    const name = String(node.attrs?.name || node.key || 'Layer').trim() || 'Layer';
+    const angle = nodeAngleDeg(node);
+    const opacity = nodeOpacityPercent(node);
+    const skew = nodeSkewDeg(node);
+    const skewAxis = nodeSkewAxisDeg(node);
+    const cornerRadius = nodeCornerRadius(node);
+    const rgb = parseCssColorToRgb01(node.attrs?.['fill-color'] || node.attrs?.fill);
+    const ellipse = shapeIsEllipse(node);
+    const prev = layers[layerIdx];
+    const ind = Number(prev?.ind) || Number(node.attrs?.lottieLayerInd) || 1;
+
+    let layer: Record<string, unknown>;
+    if (!layerHasKeyframes(prev?.ks)) {
+      layer = makeRectLayer({
+        ind,
+        name,
+        nodeId,
+        box,
+        rgb,
+        angle,
+        opacity,
+        op,
+        ellipse,
+        cornerRadius,
+        skew,
+        skewAxis,
+        ax: 0,
+        ay: 0,
+      });
+    } else {
+      layer = { ...prev, nm: name, [LINK_KEY]: nodeId };
+      applyStaticTransform(
+        layer,
+        box.x + box.w / 2,
+        box.y + box.h / 2,
+        0,
+        0,
+        angle,
+        opacity,
+        skew,
+        skewAxis
+      );
+      if (!setLayerPathBox(layer, box, ellipse, cornerRadius)) {
+        layer = makeRectLayer({
+          ind,
+          name,
+          nodeId,
+          box,
+          rgb,
+          angle,
+          opacity,
+          op,
+          ellipse,
+          cornerRadius,
+          skew,
+          skewAxis,
+          ax: 0,
+          ay: 0,
+        });
+      }
+    }
+
+    const trim = resolveSyncedLayerTrim(node, prev, op, fps);
+    layer.ip = trim.ip;
+    layer.op = trim.op;
+    layers[layerIdx] = layer;
+    touched = true;
+  }
+
+  if (!touched) return opts.document;
+
+  asset.layers = layers;
+  assets[assetIdx] = asset;
+  const json = serializeLottieAnimationData({ ...root, assets });
+  if (!json) return opts.document;
+
+  const hostNode = opts.document.deltaSetLike?.[hostId];
+  if (!hostNode) return opts.document;
+  return {
+    ...opts.document,
+    deltaSetLike: {
+      ...(opts.document.deltaSetLike || {}),
+      [hostId]: {
+        ...hostNode,
+        attrs: {
+          ...(hostNode.attrs || {}),
+          animationData: json,
+        },
+      },
+    },
+  };
 }

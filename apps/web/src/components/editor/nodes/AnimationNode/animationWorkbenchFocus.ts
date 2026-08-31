@@ -14,6 +14,16 @@ export const WORKBENCH_SURROUND_ATTR = 'animationWorkbenchSurround';
 
 let timelineFocusFrameId: string | null = null;
 let timelinePlayheadSec = 0;
+/** True while canvas geometry (node or frame) is mid-drag preview. */
+let geometryPreviewActive = false;
+
+export function setAnimationWorkbenchGeometryPreview(active: boolean) {
+  geometryPreviewActive = Boolean(active);
+}
+
+export function isAnimationWorkbenchGeometryPreview(): boolean {
+  return geometryPreviewActive;
+}
 
 export function setAnimationWorkbenchTimelineFocus(frameId: string | null) {
   const next = String(frameId || '').trim();
@@ -114,6 +124,26 @@ export function canEditAnimationWorkbenchPlate(
   frameId: string | null | undefined
 ): boolean {
   return isAnimationWorkbenchEditOpen(frameId);
+}
+
+/**
+ * Animation / lottie workbench plate with timeline closed — main-scene preview:
+ * plate stays selectable; resize must stay proportional (no free width/height).
+ */
+export function isAnimationWorkbenchFrameInPreview(
+  document:
+    | { frames?: Array<{ id?: unknown; kind?: unknown }> | null }
+    | null
+    | undefined,
+  frameId: string | null | undefined
+): boolean {
+  const fid = String(frameId || '').trim();
+  if (!fid || !document) return false;
+  const plate = (Array.isArray(document.frames) ? document.frames : []).find(
+    (f) => String(f?.id) === fid
+  );
+  if (!plate || !isAnimationPlateKind(plate.kind)) return false;
+  return !isAnimationWorkbenchEditOpen(fid);
 }
 
 /**

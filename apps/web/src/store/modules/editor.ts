@@ -59,9 +59,13 @@ import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipb
 import { createBlankLottieAnimation } from '@/components/editor/nodes/AnimationNode/animationComposeLayers';
 import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
 import { materializeRootShapeLayers } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
+import { linkedLotNodeIdFromAsset } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import {
   beginPrecompEditSession,
   endPrecompEditFromState,
+  persistPrecompSessionEdits,
+  resolvePrecompSessionNodeIds,
+  syncLotNodeFromHostPrecompAsset,
   type LottiePrecompEditState,
 } from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
 import {
@@ -72,6 +76,7 @@ import {
 import {
   finalizeNodeForAnimationWorkbenchFocus,
   getAnimationWorkbenchTimelineFocus,
+  isAnimationWorkbenchGeometryPreview,
   isAnimationWorkbenchPreviewChild,
   isAvBlockedByAnimationWorkbenchFocus,
   isNewPlateBlockedByAnimationWorkbenchFocus,
@@ -80,6 +85,8 @@ import {
   tagCreatedNodeForWorkbenchSurround,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
+import { setLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
+import { notifyShapeHostGeometry } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   asHistoryEntry,
   cloneDocument,
@@ -288,6 +295,10 @@ function isTransientFramePatch(patch: unknown): boolean {
   if (!patch || typeof patch !== 'object') return false;
   const keys = Object.keys(patch as Record<string, unknown>);
   return keys.length > 0 && keys.every((key) => TRANSIENT_FRAME_KEYS.has(key));
+}
+
+function shouldSkipPatchHostReload(skipHostReload: unknown, patch: unknown): boolean {
+  return Boolean(skipHostReload) || isTransientNodePatch(patch);
 }
 
 export function shouldClearImageToolPanelOnSelect(
@@ -596,12 +607,42 @@ function readSelectedLayerInd(raw: unknown, fallback: number | null = null): num
 function tearDownLottiePrecompEdit(state: typeof initialState): boolean {
   const prev = state.lottiePrecompEdit;
   if (!prev || !state.document) return false;
-  const next = endPrecompEditFromState(state.document, prev);
+  // Clear module focus BEFORE document write so the same React commit that
+  // remounts nested LOT ink does not keep visibility:hidden (layout-effect
+  // clear alone leaves overlays stuck blank until an unrelated re-render).
+  setLottiePrecompEditFocus({ active: false });
+  const next = endPrecompEditFromState(
+    state.document,
+    prev,
+    Number(state.lottiePlayheadSec) || 0
+  );
   if (!next) return false;
-  state.document = next;
+  const sessionIds = resolvePrecompSessionNodeIds(next, prev);
+  let doc = syncLotNodeFromHostPrecompAsset(
+    next,
+    prev.hostNodeId,
+    prev.assetId,
+    sessionIds
+  );
+  state.document = doc;
   state.documentPatchToken += 1;
   state.sceneReloadToken += 1;
+  const lotId = prev.lotNodeId ?? linkedLotNodeIdFromAsset(String(prev.assetId || ''));
+  if (lotId) notifyShapeHostGeometry(lotId);
   return true;
+}
+
+function persistActivePrecompSession(state: typeof initialState) {
+  const edit = state.lottiePrecompEdit;
+  if (!edit?.frameId || !state.document) return;
+  const next = persistPrecompSessionEdits(
+    state.document,
+    edit,
+    Number(state.lottiePlayheadSec) || 0
+  );
+  if (next === state.document) return;
+  state.document = next;
+  state.documentPatchToken += 1;
 }
 
 function clearLottiePrecompEdit(state: typeof initialState): boolean {
@@ -860,6 +901,7 @@ const editorSlice = createSlice({
       ) {
         state.pendingImageProcessId = null;
       }
+      persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
     },
     /** Clear SoftGlow / process attrs and force host remount (no stuck overlay). */
@@ -878,7 +920,8 @@ const editorSlice = createSlice({
       if (!state.document || !nodeId) return;
       const id = String(nodeId);
       if (!state.document.deltaSetLike?.[id]) return;
-      if (!skipHistory && !isTransientNodePatch(patch)) {
+      const transientOnly = isTransientNodePatch(patch);
+      if (!skipHistory && !transientOnly) {
         pushNodePatchHistory(state, [id]);
       }
       // Immer draft: single-key write — O(1) structural share, no custom Proxy.
@@ -888,9 +931,10 @@ const editorSlice = createSlice({
       // Geometry already previewed against a mounted SVG must stay mounted. The
       // document token still updates selection/chrome, but this id skips a host
       // teardown that would briefly repaint the old centre-anchored box.
-      state.lastPatchedNodeIds = skipHostReload ? [] : [id];
-      state.lastPatchTransformOnly =
-        !skipHostReload && isTransformOnlyAttrsPatch(patch);
+      const skipHost = shouldSkipPatchHostReload(skipHostReload, patch);
+      state.lastPatchedNodeIds = skipHost ? [] : [id];
+      state.lastPatchTransformOnly = !skipHost && isTransformOnlyAttrsPatch(patch);
+      persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
     },
     /** Apply many node patches in one Redux write (align / distribute / flip). */
@@ -917,6 +961,7 @@ const editorSlice = createSlice({
       state.documentPatchToken += 1;
       state.lastPatchedNodeIds = applied;
       state.lastPatchTransformOnly = false;
+      persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
     },
     setSelectedNodeId(state, action) {
@@ -2155,6 +2200,7 @@ const editorSlice = createSlice({
           ...(node.attrs || {}),
           frameId,
           frameOrder: orders.length ? Math.max(...orders) + 1 : 1,
+          'fill-color': 'transparent',
         };
         const genPrompt = String(
           action.payload?.genPrompt || action.payload?.prompt || ''
@@ -2958,8 +3004,20 @@ const editorSlice = createSlice({
       }
 
       if (sameSession && state.lottiePrecompEdit) {
-        if (layerInd != null) state.lottiePrecompEdit.selectedLayerInd = layerInd;
-        return;
+        const ids = resolvePrecompSessionNodeIds(state.document, state.lottiePrecompEdit);
+        if (ids.length) {
+          state.lottiePrecompEdit.sessionNodeIds = ids;
+          if (layerInd != null) state.lottiePrecompEdit.selectedLayerInd = layerInd;
+          state.selectedNodeId = null;
+          state.selectedNodeIds = [];
+          setLottiePrecompEditFocus({
+            active: true,
+            lotNodeId: state.lottiePrecompEdit.lotNodeId ?? null,
+            sessionMaterialized: true,
+          });
+          return;
+        }
+        clearLottiePrecompEdit(state);
       }
 
       pushHistory(state);
@@ -2967,6 +3025,7 @@ const editorSlice = createSlice({
         document: state.document,
         hostNodeId,
         assetId,
+        playheadSec: Number(state.lottiePlayheadSec) || 0,
       });
       if (!begun) {
         state.lottiePrecompEdit = { hostNodeId, assetId, selectedLayerInd: layerInd };
@@ -2988,15 +3047,20 @@ const editorSlice = createSlice({
         lotNodeId: begun.lotNodeId,
         sessionNodeIds: begun.sessionNodeIds,
       };
+      setLottiePrecompEditFocus({
+        active: true,
+        lotNodeId: begun.lotNodeId ?? null,
+        sessionMaterialized: begun.sessionNodeIds.length > 0,
+      });
       state.document.activeFrameId = begun.frameId;
-      state.selectedFrameIds = [begun.frameId];
-      const first = begun.sessionNodeIds[0] || null;
-      state.selectedNodeId = first;
-      state.selectedNodeIds = first ? [first] : [];
+      state.selectedFrameIds = [];
+      state.selectedNodeId = null;
+      state.selectedNodeIds = [];
     },
     exitLottiePrecompEdit(state) {
       const prev = state.lottiePrecompEdit;
       if (!prev) return;
+
       if (prev.frameId && prev.frameSnapshot) {
         pushHistory(state);
         if (tearDownLottiePrecompEdit(state)) {
@@ -3004,7 +3068,34 @@ const editorSlice = createSlice({
           state.document!.activeFrameId = prev.frameId;
           state.selectedFrameIds = [prev.frameId];
         }
+      } else {
+        setLottiePrecompEditFocus({ active: false });
+        const lotId =
+          prev.lotNodeId ?? linkedLotNodeIdFromAsset(String(prev.assetId || ''));
+        if (lotId && state.document?.deltaSetLike?.[lotId]) {
+          const lot = state.document.deltaSetLike[lotId];
+          const prevRev = Number(lot.attrs?.lottieInkRevision);
+          const nextRev = Number.isFinite(prevRev) ? Math.max(0, Math.floor(prevRev)) + 1 : 1;
+          state.document = {
+            ...state.document,
+            deltaSetLike: {
+              ...(state.document.deltaSetLike || {}),
+              [lotId]: {
+                ...lot,
+                attrs: {
+                  ...(lot.attrs || {}),
+                  hidden: false,
+                  lottieInkRevision: nextRev,
+                },
+              },
+            },
+          };
+          state.documentPatchToken += 1;
+          state.sceneReloadToken += 1;
+          state.dirty = true;
+        }
       }
+
       state.lottiePrecompEdit = null;
       state.selectedNodeId = null;
       state.selectedNodeIds = [];
@@ -3073,6 +3164,7 @@ const editorSlice = createSlice({
      */
     ensureAnimationFrameMedia(state, action) {
       if (!state.document) return;
+      if (isAnimationWorkbenchGeometryPreview()) return;
       const frameId = String(action.payload?.frameId || '').trim();
       if (!frameId) return;
       const skipHistory = Boolean(action.payload?.skipHistory);
@@ -3138,6 +3230,7 @@ const editorSlice = createSlice({
           }
         }
         if (!attrsNeedHost && !childrenNeed && !geomNeed && prevJson === synced.animationJson) {
+          persistActivePrecompSession(state);
           return;
         }
 
@@ -3166,6 +3259,7 @@ const editorSlice = createSlice({
         state.documentPatchToken += 1;
         state.lastPatchedNodeIds = [hostId, ...synced.childAttrPatches.map((p) => p.nodeId)];
         state.lastPatchTransformOnly = false;
+        persistActivePrecompSession(state);
         syncLibraryOnEdit(state);
       };
 

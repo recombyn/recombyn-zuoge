@@ -522,7 +522,7 @@ class Font(SQLModel, table=True):
     id: str = Field(primary_key=True, max_length=64)
     family: str = Field(max_length=255)
     display_name: str = Field(max_length=255)
-    faces_json: str = Field(default="[]")
+    faces_json: str = Field(default="[]", sa_column=Column(Text, nullable=False))
     sort_order: int = Field(default=0)
     created_at: float = Field(default=0.0)
     owner_user_id: Optional[str] = Field(default=None, max_length=64, index=True)

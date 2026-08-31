@@ -16,9 +16,14 @@ import {
   resolvePrecompAsset,
 } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
+import { syncPrecompSessionShapesIntoHost } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
+import { autoKeyAnimatedGeometry } from '@/components/editor/nodes/AnimationNode/animationAutoKey';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 
 export const PRECOMP_EDIT_SESSION_ATTR = 'precompEditSession';
+/** Bumped on LOT write-back so lottie-web remounts after precomp tab exit. */
+export const LOTTIE_INK_REVISION_ATTR = 'lottieInkRevision';
 
 export type FrameGeomSnapshot = {
   x: number;
@@ -80,6 +85,133 @@ function stripSessionLinks(
     const ln = String(layer.ln || '').trim();
     if (ln && sessionIds.includes(ln)) delete layer.ln;
     return layer;
+  });
+}
+
+function nextLottieInkRevision(
+  node: { attrs?: Record<string, unknown> | null } | null | undefined
+): number {
+  const prev = Number(node?.attrs?.[LOTTIE_INK_REVISION_ATTR]);
+  return Number.isFinite(prev) ? Math.max(0, Math.floor(prev)) + 1 : 1;
+}
+
+function unhideLotNode(
+  doc: SceneDocument,
+  lotId: string,
+  extraAttrs?: Record<string, unknown>
+): SceneDocument {
+  if (!doc.deltaSetLike?.[lotId]) return doc;
+  const lot = doc.deltaSetLike[lotId];
+  const attrs: Record<string, unknown> = {
+    hidden: false,
+    [LOTTIE_INK_REVISION_ATTR]: nextLottieInkRevision(lot),
+  };
+  if (extraAttrs) Object.assign(attrs, extraAttrs);
+  return patchNode(doc, lotId, { attrs });
+}
+
+function lotJsonFromHostExtract(
+  hostNode: { attrs?: Record<string, unknown> | null },
+  assetId: string,
+  sessionIds: string[]
+): string | null {
+  const childJson = extractPrecompAssetJson(hostNode.attrs?.animationData, assetId);
+  if (!childJson) return null;
+  const parsed = parseLottieAnimationData(childJson);
+  if (!parsed || !Array.isArray(parsed.layers)) return childJson;
+  return (
+    serializeLottieAnimationData({
+      ...parsed,
+      layers: stripSessionLinks(parsed.layers as unknown[], sessionIds),
+    }) || childJson
+  );
+}
+
+function syncHostPrecompAssets(
+  doc: SceneDocument,
+  hostId: string,
+  hostNode: { attrs?: Record<string, unknown> | null },
+  assetId: string,
+  sessionIds: string[]
+): SceneDocument {
+  const root = parseLottieAnimationData(
+    doc.deltaSetLike?.[hostId]?.attrs?.animationData ?? hostNode.attrs?.animationData
+  );
+  if (!root || !Array.isArray(root.assets)) return doc;
+
+  const assets = (root.assets as Record<string, unknown>[]).map((asset) => {
+    if (!asset || String(asset.id || '') !== assetId) return asset;
+    if (!Array.isArray(asset.layers)) return asset;
+    return {
+      ...asset,
+      layers: stripSessionLinks(asset.layers as unknown[], sessionIds),
+    };
+  });
+  const json = serializeLottieAnimationData({ ...root, assets });
+  if (!json) return doc;
+  return patchNode(doc, hostId, { attrs: { animationData: json } });
+}
+
+function lotJsonFallbackFromNode(
+  lotAnimRaw: unknown,
+  sessionIds: string[]
+): string | null {
+  const parsed = parseLottieAnimationData(lotAnimRaw);
+  if (!parsed || !Array.isArray(parsed.layers)) return null;
+  return (
+    serializeLottieAnimationData({
+      ...parsed,
+      layers: stripSessionLinks(parsed.layers as unknown[], sessionIds),
+    }) || null
+  );
+}
+
+function writeBackLotOnPrecompExit(
+  doc: SceneDocument,
+  hostId: string,
+  assetId: string,
+  lotId: string | null,
+  sessionIds: string[]
+): SceneDocument {
+  const hostNode = hostId ? doc.deltaSetLike?.[hostId] : null;
+  const hostAnim = hostNode?.attrs?.animationData;
+  if (hostNode && assetId) {
+    let lotJson =
+      lotId && hostAnim ? lotJsonFromHostExtract(hostNode, assetId, sessionIds) : null;
+    if (!lotJson && lotId) {
+      lotJson = lotJsonFallbackFromNode(doc.deltaSetLike?.[lotId]?.attrs?.animationData, sessionIds);
+    }
+    if (lotId) {
+      doc = lotJson ? unhideLotNode(doc, lotId, { animationData: lotJson }) : unhideLotNode(doc, lotId);
+    }
+    return syncHostPrecompAssets(doc, hostId, hostNode, assetId, sessionIds);
+  }
+  if (lotId) return unhideLotNode(doc, lotId);
+  return doc;
+}
+
+/** Keep nested lot JSON aligned with host precomp asset (single source of truth). */
+export function syncLotNodeFromHostPrecompAsset(
+  document: SceneDocument,
+  hostNodeId: string,
+  assetId: string,
+  sessionIds: string[] = []
+): SceneDocument {
+  const hostId = String(hostNodeId || '').trim();
+  const aid = String(assetId || '').trim();
+  const lotId = linkedLotNodeIdFromAsset(aid);
+  if (!hostId || !aid || !lotId || !document.deltaSetLike?.[lotId]) return document;
+  const host = document.deltaSetLike[hostId];
+  if (!host) return document;
+  const lotJson = lotJsonFromHostExtract(host, aid, sessionIds);
+  if (!lotJson) return document;
+  const prev = String(document.deltaSetLike[lotId].attrs?.animationData || '');
+  if (prev === lotJson) return document;
+  return patchNode(document, lotId, {
+    attrs: {
+      animationData: lotJson,
+      [LOTTIE_INK_REVISION_ATTR]: nextLottieInkRevision(document.deltaSetLike[lotId]),
+    },
   });
 }
 
@@ -178,12 +310,26 @@ function resolveSourceAnim(
   assetId: string,
   lotId: string | null
 ): Record<string, unknown> | null {
+  const extracted = extractPrecompAssetJson(hostAnimationData, assetId);
+  const fromHost = extracted ? parseLottieAnimationData(extracted) : null;
+  if (fromHost) return fromHost;
   if (lotId) {
     const fromLot = parseLottieAnimationData(document.deltaSetLike?.[lotId]?.attrs?.animationData);
     if (fromLot) return fromLot;
   }
-  const extracted = extractPrecompAssetJson(hostAnimationData, assetId);
-  return extracted ? parseLottieAnimationData(extracted) : null;
+  return null;
+}
+
+/** LOT tab always rematerializes from JSON — drop stale ln so enter never falls back to overlay. */
+function stripAllLayerLinks(anim: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(anim.layers)) return anim;
+  const layers = (anim.layers as Record<string, unknown>[]).map((raw) => {
+    if (!raw || typeof raw !== 'object') return raw;
+    const layer = { ...raw };
+    delete layer.ln;
+    return layer;
+  });
+  return { ...anim, layers };
 }
 
 /** Enter LOT tab: workbench = plate size; explode JSON → real linked shapes. */
@@ -191,6 +337,8 @@ export function beginPrecompEditSession(opts: {
   document: SceneDocument;
   hostNodeId: string;
   assetId: string;
+  /** Match main-scene preview pose when exploding (defaults to 0). */
+  playheadSec?: number;
 }): PrecompSessionBegin | null {
   const hostId = String(opts.hostNodeId || '').trim();
   const assetId = String(opts.assetId || '').trim();
@@ -239,22 +387,26 @@ export function beginPrecompEditSession(opts: {
   const lotId = plate.lotNodeId;
   const sourceAnim = resolveSourceAnim(doc, host.attrs?.animationData, assetId, lotId);
   if (!sourceAnim) return null;
+  const materializeAnim = stripAllLayerLinks(sourceAnim);
+
+  const fps = Math.max(1, num(materializeAnim.fr, 30));
+  const sampleFrame = secToFrame(Math.max(0, Number(opts.playheadSec) || 0), fps);
 
   const matured = materializeRootShapeLayers({
     document: doc,
     frameId,
-    animationData: sourceAnim,
+    animationData: materializeAnim,
     plate: {
       x: plate.left,
       y: plate.top,
       width: plate.width,
       height: plate.height,
     },
+    sampleFrame,
   });
 
   // Resize always; materialize when layers are simple rect/ellipse.
   if (!matured?.nodeIds.length) {
-    if (lotId) doc = patchNode(doc, lotId, { attrs: { hidden: true } });
     return {
       document: doc,
       frameId,
@@ -283,11 +435,9 @@ export function beginPrecompEditSession(opts: {
   if (hostJson) {
     doc = patchNode(doc, hostId, { attrs: { animationData: hostJson } });
   }
-  if (lotId) {
-    doc = patchNode(doc, lotId, {
-      attrs: { animationData: matured.animationJson, hidden: true },
-    });
-  }
+  // Keep nested lot in the SVG paint tree (no attrs.hidden). Removing the node
+  // from SVG drops the foreignObject mount; after LOT tab exit the 主场景 lottie
+  // overlay never reattaches. Ink hide during LOT edit is overlay-only.
 
   return {
     document: doc,
@@ -296,6 +446,63 @@ export function beginPrecompEditSession(opts: {
     lotNodeId: lotId,
     sessionNodeIds: matured.nodeIds,
   };
+}
+
+/** Flush LOT-tab scene edits (incl. keyed transforms) into host JSON. */
+function flushPrecompSessionEditsIntoHost(opts: {
+  document: SceneDocument;
+  hostNodeId: string;
+  assetId: string;
+  sessionNodeIds: string[];
+  frameId: string;
+  playheadSec: number;
+}): SceneDocument {
+  let doc = opts.document;
+  const hostId = String(opts.hostNodeId || '').trim();
+  for (const nodeId of opts.sessionNodeIds) {
+    const keyed = autoKeyAnimatedGeometry({
+      document: doc,
+      nodeId,
+      playheadSec: Math.max(0, Number(opts.playheadSec) || 0),
+      moved: true,
+      resized: true,
+    });
+    if (!keyed?.hostId || !keyed.animationJson) continue;
+    const host = doc.deltaSetLike?.[keyed.hostId];
+    if (!host) continue;
+    doc = patchNode(doc, keyed.hostId, {
+      attrs: { animationData: keyed.animationJson },
+    });
+  }
+  return syncPrecompSessionShapesIntoHost({
+    document: doc,
+    hostNodeId: hostId,
+    assetId: opts.assetId,
+    sessionNodeIds: opts.sessionNodeIds,
+    frameId: opts.frameId,
+  });
+}
+
+/** Write LOT-tab shape edits into host precomp + nested lot immediately (not only on tab exit). */
+export function persistPrecompSessionEdits(
+  document: SceneDocument,
+  edit: LottiePrecompEditState,
+  playheadSec = 0
+): SceneDocument {
+  const hostId = String(edit.hostNodeId || '').trim();
+  const assetId = String(edit.assetId || '').trim();
+  const frameId = String(edit.frameId || '').trim();
+  const sessionIds = resolvePrecompSessionNodeIds(document, edit);
+  if (!hostId || !assetId || !frameId || !sessionIds.length) return document;
+  let doc = flushPrecompSessionEditsIntoHost({
+    document,
+    hostNodeId: hostId,
+    assetId,
+    sessionNodeIds: sessionIds,
+    frameId,
+    playheadSec: Math.max(0, Number(playheadSec) || 0),
+  });
+  return syncLotNodeFromHostPrecompAsset(doc, hostId, assetId, sessionIds);
 }
 
 /** Leave LOT tab: write-back JSON, drop session shapes, restore workbench size. */
@@ -307,46 +514,24 @@ export function endPrecompEditSession(opts: {
   frameSnapshot: FrameGeomSnapshot;
   lotNodeId: string | null;
   sessionNodeIds: string[];
+  playheadSec?: number;
 }): SceneDocument {
-  let doc = opts.document;
+  let doc = flushPrecompSessionEditsIntoHost({
+    document: opts.document,
+    hostNodeId: opts.hostNodeId,
+    assetId: opts.assetId,
+    sessionNodeIds: opts.sessionNodeIds,
+    frameId: opts.frameId,
+    playheadSec: Math.max(0, Number(opts.playheadSec) || 0),
+  });
+
   const hostId = String(opts.hostNodeId || '').trim();
   const assetId = String(opts.assetId || '').trim();
   const frameId = String(opts.frameId || '').trim();
   const sessionIds = opts.sessionNodeIds.filter(Boolean);
   const lotId = opts.lotNodeId || linkedLotNodeIdFromAsset(assetId);
 
-  const hostNode = hostId ? doc.deltaSetLike?.[hostId] : null;
-  if (hostNode && assetId) {
-    const childJson = extractPrecompAssetJson(hostNode.attrs?.animationData, assetId);
-    if (childJson && lotId && doc.deltaSetLike?.[lotId]) {
-      const parsed = parseLottieAnimationData(childJson);
-      let lotJson = childJson;
-      if (parsed && Array.isArray(parsed.layers)) {
-        lotJson =
-          serializeLottieAnimationData({
-            ...parsed,
-            layers: stripSessionLinks(parsed.layers as unknown[], sessionIds),
-          }) || childJson;
-      }
-      doc = patchNode(doc, lotId, { attrs: { animationData: lotJson, hidden: false } });
-    }
-
-    const root = parseLottieAnimationData(
-      doc.deltaSetLike?.[hostId]?.attrs?.animationData ?? hostNode.attrs?.animationData
-    );
-    if (root && Array.isArray(root.assets)) {
-      const assets = (root.assets as Record<string, unknown>[]).map((asset) => {
-        if (!asset || String(asset.id || '') !== assetId) return asset;
-        if (!Array.isArray(asset.layers)) return asset;
-        return {
-          ...asset,
-          layers: stripSessionLinks(asset.layers as unknown[], sessionIds),
-        };
-      });
-      const json = serializeLottieAnimationData({ ...root, assets });
-      if (json) doc = patchNode(doc, hostId, { attrs: { animationData: json } });
-    }
-  }
+  doc = writeBackLotOnPrecompExit(doc, hostId, assetId, lotId, sessionIds);
 
   if (sessionIds.length) doc = removeNodesFromDocument(doc, sessionIds);
 
@@ -369,7 +554,8 @@ export function endPrecompEditSession(opts: {
 /** Apply end session when Redux edit state has a restorable snapshot. */
 export function endPrecompEditFromState(
   document: SceneDocument,
-  edit: LottiePrecompEditState
+  edit: LottiePrecompEditState,
+  playheadSec = 0
 ): SceneDocument | null {
   if (!edit.frameId || !edit.frameSnapshot) return null;
   return endPrecompEditSession({
@@ -380,5 +566,6 @@ export function endPrecompEditFromState(
     frameSnapshot: edit.frameSnapshot,
     lotNodeId: edit.lotNodeId ?? null,
     sessionNodeIds: resolvePrecompSessionNodeIds(document, edit),
+    playheadSec,
   });
 }
