@@ -21,13 +21,12 @@ function heightForKeepWidth(keepWidth: number, nw: number, nh: number): number {
  * Replace an image node's media (upload to COS). Keeps node width; height follows aspect.
  */
 export async function replaceImageNodeFromFile(opts: {
-  dispatch: DispatchLike;
   nodeId: string;
   keepWidth: number;
   file: File;
   isAlive?: () => boolean;
 }): Promise<void> {
-  const { dispatch, nodeId, file } = opts;
+  const { nodeId, file } = opts;
   const keepWidth = Math.max(1, Math.round(opts.keepWidth));
   const alive = opts.isAlive ?? (() => true);
   if (!file.type.startsWith('image/')) return;
@@ -38,8 +37,7 @@ export async function replaceImageNodeFromFile(opts: {
     const naturalPreview = await measureImageNaturalSize(preview);
     if (!alive()) return;
 
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           width: keepWidth,
@@ -54,12 +52,11 @@ export async function replaceImageNodeFromFile(opts: {
             imageVariants: '',
           },
         },
-      })
-    );
+      });
 
     const signal = beginNodeUpload(nodeId);
     try {
-      const uploaded = await uploadImageFile(file, { signal, dispatch, nodeId });
+      const uploaded = await uploadImageFile(file, { signal, nodeId });
       if (!alive()) return;
 
       const src = uploaded.url;
@@ -79,8 +76,7 @@ export async function replaceImageNodeFromFile(opts: {
           ? 'icon'
           : 'image';
 
-      dispatch(
-        finishImageProcess({
+      finishImageProcess({
           nodeId,
           ...(remoteReady ? { src } : {}),
           attrs: {
@@ -89,11 +85,9 @@ export async function replaceImageNodeFromFile(opts: {
             imageVariants: '',
             ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
           },
-        })
-      );
+        });
       revokeFilePreviewUrl(preview);
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             width: keepWidth,
@@ -101,15 +95,14 @@ export async function replaceImageNodeFromFile(opts: {
             attrs: { genPrompt: '', imageVariants: '' },
           },
           skipHistory: true,
-        })
-      );
+        });
     } finally {
       finishNodeUpload(nodeId);
     }
   } catch (err: unknown) {
     if (!alive()) return;
     revokeFilePreviewUrl(preview);
-    dispatch(finishImageProcess({ nodeId }));
+    finishImageProcess({ nodeId });
     message.error(getHttpErrorMessage(err, '替换图片失败'));
   }
 }

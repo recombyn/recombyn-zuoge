@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { activateEmailLink } from '@/service/auth';
@@ -12,9 +12,7 @@ import { buildLoginUrl } from '@/utils/authReturnTo';
  * Exchanges the one-time id for a session, then enters the app.
  */
 function ActivateEmailPage() {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const { t } = useTranslation();  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
@@ -30,8 +28,7 @@ function ActivateEmailPage() {
     async function activateLink() {
       try {
         const res = await activateEmailLink({ id: token });
-        dispatch(
-          setSession({
+        setSession({
             user: {
               email: res.user.email,
               name: res.user.name,
@@ -40,8 +37,7 @@ function ActivateEmailPage() {
               id: res.user.id,
             },
             token: res.token,
-          })
-        );
+          });
         navigate('/home', { replace: true });
       } catch (err) {
         const detail = getHttpErrorMessage(err, '');
@@ -49,7 +45,7 @@ function ActivateEmailPage() {
       }
     }
     activateLink();
-  }, [dispatch, id, navigate, t]);
+  }, [id, navigate, t]);
 
   if (error) {
     return (

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation, Trans } from 'react-i18next';
 import { Button, Checkbox, Input, message, Dialog, Icon } from '@/components/base';
@@ -378,9 +378,7 @@ type LoginDialogProps = {
 };
 
 function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const [email, setEmail] = useState('');
+  const { t } = useTranslation();  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [resendLeft, setResendLeft] = useState(0);
@@ -438,8 +436,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
     id?: string;
     role?: string;
   }, token: string) => {
-    dispatch(
-      setSession({
+    setSession({
         user: {
           email: user.email,
           name: user.name,
@@ -449,8 +446,7 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
           role: user.role,
         },
         token,
-      })
-    );
+      });
     message.success(t('auth.success'));
     onSuccess?.(returnTo);
     onClose();

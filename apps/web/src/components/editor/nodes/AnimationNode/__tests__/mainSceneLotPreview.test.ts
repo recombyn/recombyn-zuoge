@@ -10,7 +10,9 @@ import {
 } from '@/components/editor/nodes/AnimationNode/mainSceneLotPreview';
 import { extractPrecompAssetJson } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
-import editorReducer, {
+import {
+  editorReducers,
+  reduceEditor,
   createTemplate,
   enterLottiePrecompEdit,
   ensureAnimationFrameMedia,
@@ -36,16 +38,13 @@ afterEach(() => {
 });
 
 function seedEditor() {
-  let state = editorReducer(undefined, { type: '@@INIT' } as any);
-  state = editorReducer(
-    state,
-    createTemplate({
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, {
       name: 'main-scene-lot',
       document: createEmptyDocument({ emptyWorld: true }),
       emptyWorld: true,
       source: 'scratch',
-    })
-  );
+    });
   return state;
 }
 
@@ -79,13 +78,10 @@ describe('main scene LOT preview data', () => {
     expect(anim).toBeTruthy();
 
     let state = seedEditor();
-    state = editorReducer(
-      state,
-      placeUploadedLottie({
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
         animationData: anim,
         name: '搜索生成LOT-edited',
-      })
-    );
+      });
     const frameId = String(state.selectedFrameIds?.[0] || '');
     const hostId = String(state.lottieTimelinePanel!.nodeId);
     const lotId = findNestedLot(state, hostId, frameId)!;
@@ -102,15 +98,12 @@ describe('main scene LOT preview data', () => {
     expect(fromHostBefore).toBeTruthy();
     expect(resolveMainSceneNestedLotAnimationJson(state.document!, lotId)).toBe(fromHostBefore);
 
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId: `lot_${lotId}`, selectedLayerInd: 1 })
-    );
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId: `lot_${lotId}`, selectedLayerInd: 1 });
     expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
     // Structurally still in document; overlay hides lot ink during LOT tab.
     expect(state.document!.deltaSetLike![lotId].attrs?.hidden).toBeFalsy();
 
-    state = editorReducer(state, exitLottiePrecompEdit());
+    state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     expect(state.lottiePrecompEdit).toBeNull();
 
     const lotNode = state.document!.deltaSetLike[lotId];
@@ -138,40 +131,31 @@ describe('main scene LOT preview data', () => {
   it('LOT tab round-trip preserves session shape edits in host JSON', () => {
     const anim = lotFixture();
     let state = seedEditor();
-    state = editorReducer(
-      state,
-      placeUploadedLottie({
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
         animationData: anim,
         name: '搜索生成LOT-edited',
-      })
-    );
+      });
     const frameId = String(state.selectedFrameIds?.[0] || '');
     const hostId = String(state.lottieTimelinePanel!.nodeId);
     const lotId = findNestedLot(state, hostId, frameId)!;
     const assetId = `lot_${lotId}`;
 
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
-    );
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
     const sessionId = state.lottiePrecompEdit?.sessionNodeIds?.[0];
     expect(sessionId).toBeTruthy();
     const widthBefore = Number(state.document!.deltaSetLike[sessionId!].width);
     expect(widthBefore).toBeGreaterThan(0);
 
-    state = editorReducer(
-      state,
-      patchDocumentNodes({
+    state = reduceEditor(state, editorReducers.patchDocumentNodes, {
         patches: [
           {
             nodeId: sessionId!,
             patch: { width: 180, height: 180, x: 140, y: 140 },
           },
         ],
-      })
-    );
+      });
 
-    state = editorReducer(state, exitLottiePrecompEdit());
+    state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     expect(state.lottiePrecompEdit).toBeNull();
     expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
 
@@ -189,10 +173,7 @@ describe('main scene LOT preview data', () => {
     const hostSize = (hostShape?.s as { k?: number[] })?.k || [];
     expect(Number(hostSize[0])).toBeGreaterThan(0);
 
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
-    );
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
     const sessionAgain = state.lottiePrecompEdit?.sessionNodeIds?.[0];
     expect(sessionAgain).toBeTruthy();
     const widthAgain = Number(state.document!.deltaSetLike[sessionAgain!].width);
@@ -204,13 +185,10 @@ describe('main scene LOT preview data', () => {
     const anim = userLotFixture();
     expect(anim).toBeTruthy();
     let state = seedEditor();
-    state = editorReducer(
-      state,
-      placeUploadedLottie({
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
         animationData: anim,
         name: '重测生成LOT-edited',
-      })
-    );
+      });
     const frameId = String(state.selectedFrameIds?.[0] || '');
     const hostId = String(state.lottieTimelinePanel!.nodeId);
     const lotId = findNestedLot(state, hostId, frameId)!;
@@ -218,10 +196,7 @@ describe('main scene LOT preview data', () => {
     expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
 
     const assetId = `lot_${lotId}`;
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
-    );
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
     expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
     expect(isNodeStructurallyHiddenInDocument(state.document, state.document!.deltaSetLike[lotId])).toBe(
       false
@@ -230,26 +205,20 @@ describe('main scene LOT preview data', () => {
 
     const sessionId = state.lottiePrecompEdit!.sessionNodeIds![0];
     const widthBefore = Number(state.document!.deltaSetLike[sessionId].width);
-    state = editorReducer(
-      state,
-      patchDocumentNodes({
+    state = reduceEditor(state, editorReducers.patchDocumentNodes, {
         patches: [{ nodeId: sessionId, patch: { width: widthBefore + 40, height: widthBefore + 40 } }],
-      })
-    );
+      });
     // Dock effect re-glues host while LOT tab is open — must not wipe edits.
-    state = editorReducer(state, ensureAnimationFrameMedia({ frameId, skipHistory: true }));
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId, skipHistory: true });
 
-    state = editorReducer(state, exitLottiePrecompEdit());
+    state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     expect(state.lottiePrecompEdit).toBeNull();
     expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
     expect(isNodeStructurallyHiddenInDocument(state.document, state.document!.deltaSetLike[lotId])).toBe(
       false
     );
 
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
-    );
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
     const again = state.lottiePrecompEdit?.sessionNodeIds?.[0];
     expect(again).toBeTruthy();
     expect(Number(state.document!.deltaSetLike[again!].width)).toBeGreaterThan(widthBefore);
@@ -259,22 +228,16 @@ describe('main scene LOT preview data', () => {
     const anim = userLotFixture();
     expect(anim).toBeTruthy();
     let state = seedEditor();
-    state = editorReducer(
-      state,
-      placeUploadedLottie({
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
         animationData: anim,
         name: '重测生成LOT-edited',
-      })
-    );
+      });
     const hostId = String(state.lottieTimelinePanel!.nodeId);
     const frameId = String(state.selectedFrameIds?.[0] || '');
     const lotId = findNestedLot(state, hostId, frameId)!;
     const assetId = `lot_${lotId}`;
 
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
-    );
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
     expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
 
     let lastToken = state.documentPatchToken;
@@ -299,16 +262,12 @@ describe('main scene LOT preview data', () => {
       }
       lastSig = sig;
       if (!patches.length) break;
-      state = editorReducer(
-        state,
-        patchDocumentNodes({ patches, skipHistory: true })
-      );
+      state = reduceEditor(state, editorReducers.patchDocumentNodes, { patches, skipHistory: true });
       // Canvas remount during LOT tab — must not persist/autoKey.
-      state = editorReducer(
-        state,
-        // setDocumentFromCanvas is imported below — use ensure with skipHistory
-        ensureAnimationFrameMedia({ frameId, skipHistory: true })
-      );
+      state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+        frameId,
+        skipHistory: true,
+      });
       expect(state.documentPatchToken - lastToken).toBeLessThan(4);
       lastToken = state.documentPatchToken;
     }
@@ -319,25 +278,19 @@ describe('main scene LOT preview data', () => {
   it('user JSON: enter LOT tab then setDocumentFromCanvas does not bump forever', () => {
     const anim = userLotFixture();
     let state = seedEditor();
-    state = editorReducer(
-      state,
-      placeUploadedLottie({
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
         animationData: anim,
         name: '重测生成LOT-edited',
-      })
-    );
+      });
     const hostId = String(state.lottieTimelinePanel!.nodeId);
     const frameId = String(state.selectedFrameIds?.[0] || '');
     const lotId = findNestedLot(state, hostId, frameId)!;
     const assetId = `lot_${lotId}`;
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
-    );
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
     const token0 = state.documentPatchToken;
     const doc = state.document!;
     for (let i = 0; i < 8; i += 1) {
-      state = editorReducer(state, setDocumentFromCanvas(doc));
+      state = reduceEditor(state, editorReducers.setDocumentFromCanvas, doc);
     }
     // No persist while LOT tab open → token should not keep climbing from autoKey.
     expect(state.documentPatchToken - token0).toBeLessThanOrEqual(8);
@@ -355,7 +308,7 @@ describe('main scene LOT preview data', () => {
         playheadSec: 0,
       });
       if (!p.length) break;
-      s = editorReducer(s, patchDocumentNodes({ patches: p, skipHistory: true }));
+      s = reduceEditor(s, editorReducers.patchDocumentNodes, { patches: p, skipHistory: true });
     }
     expect(
       collectPrecompSessionDocumentPatches({
@@ -371,16 +324,13 @@ describe('main scene LOT preview data', () => {
     expect(anim).toBeTruthy();
 
     let state = seedEditor();
-    state = editorReducer(state, spawnLottieGeneratorPlate({ x: 0, y: 0, name: 'gen' }));
+    state = reduceEditor(state, editorReducers.spawnLottieGeneratorPlate, { x: 0, y: 0, name: 'gen' });
     const genId = String(state.selectedNodeId || '');
-    state = editorReducer(
-      state,
-      finishLottieGenerator({
+    state = reduceEditor(state, editorReducers.finishLottieGenerator, {
         nodeId: genId,
         animationData: anim,
         name: '搜索生成LOT',
-      })
-    );
+      });
     const frameId = String(state.selectedFrameIds?.[0] || '');
     expect(frameId).toBeTruthy();
     const hostId = Object.keys(state.document!.deltaSetLike || {}).find((id) => {
@@ -413,16 +363,13 @@ describe('main scene LOT preview data', () => {
   it('finishLottieGenerator: LOT tab enter/exit keeps 主场景 shape ink', () => {
     const anim = lotFixture();
     let state = seedEditor();
-    state = editorReducer(state, spawnLottieGeneratorPlate({ x: 0, y: 0, name: 'gen' }));
+    state = reduceEditor(state, editorReducers.spawnLottieGeneratorPlate, { x: 0, y: 0, name: 'gen' });
     const genId = String(state.selectedNodeId || '');
-    state = editorReducer(
-      state,
-      finishLottieGenerator({
+    state = reduceEditor(state, editorReducers.finishLottieGenerator, {
         nodeId: genId,
         animationData: anim,
         name: '搜索生成LOT',
-      })
-    );
+      });
     const frameId = String(state.selectedFrameIds?.[0] || '');
     const hostId = Object.keys(state.document!.deltaSetLike || {}).find((id) => {
       const n = state.document!.deltaSetLike[id];
@@ -452,11 +399,8 @@ describe('main scene LOT preview data', () => {
     }
 
     const assetId = String(precomp.id);
-    state = editorReducer(
-      state,
-      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
-    );
-    state = editorReducer(state, exitLottiePrecompEdit());
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
+    state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     for (const sid of shapeIds) {
       expect(state.document!.deltaSetLike[sid]).toBeTruthy();
       expect(state.document!.deltaSetLike[sid].attrs?.precompEditSession).toBeFalsy();

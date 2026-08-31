@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import {
   useCurrentProjectId,
   useDocumentPatchToken,
@@ -395,25 +395,21 @@ function persistUnsyncedDraft(
 /** Keep /editor/:id when cloud has no row yet — never mint a second nanoid. */
 function seedLocalProjectForUrl(
   targetId: string,
-  dispatch: ReturnType<typeof useDispatch>,
   name: string,
   document: unknown
 ) {
-  dispatch(
-    importDocument({
+  importDocument({
       id: targetId,
       name,
       document,
       source: 'user',
       dirty: true,
-    })
-  );
+    });
   writeUnsyncedProjectDraft(targetId, name, document);
 }
 
 async function hydrateShareTarget(
   targetId: string,
-  dispatch: ReturnType<typeof useDispatch>,
   navigate: ReturnType<typeof useNavigate>,
   t: (key: string, opts?: Record<string, unknown>) => string,
   isCancelled: () => boolean
@@ -429,15 +425,13 @@ async function hydrateShareTarget(
       navigate(`/s/${encodeURIComponent(targetId)}`, { replace: true });
       return;
     }
-    dispatch(
-      importDocument({
+    importDocument({
         id: s.id,
         name: s.name || t('home.untitled'),
         document: s.document,
         source: 'scratch',
-      })
-    );
-    dispatch(setWorkspaceMode('design'));
+      });
+    setWorkspaceMode('design');
   } catch {
     if (isCancelled()) return;
     message.error(t('editor.shareOpenFailed'));
@@ -447,7 +441,6 @@ async function hydrateShareTarget(
 
 async function hydrateCloudProject(
   targetId: string,
-  dispatch: ReturnType<typeof useDispatch>,
   t: (key: string, opts?: Record<string, unknown>) => string,
   isCancelled: () => boolean
 ) {
@@ -461,15 +454,13 @@ async function hydrateCloudProject(
   if (draft?.document && !draft.syncedAt) {
     if (isCancelled()) return;
     const name = draft.name || t('home.untitled');
-    dispatch(
-      importDocument({
+    importDocument({
         id: targetId,
         name,
         document: draft.document,
         source: 'user',
         dirty: true,
-      })
-    );
+      });
     persistUnsyncedDraft(targetId, draft, name);
     return;
   }
@@ -484,15 +475,13 @@ async function hydrateCloudProject(
     if (shouldPreferLocalDraft(draft, proj) && draft?.document) {
       const needsUpload = !draft.syncedAt;
       const name = draft.name || proj?.name || t('home.untitled');
-      dispatch(
-        importDocument({
+      importDocument({
           id: targetId,
           name,
           document: draft.document,
           source: 'user',
           dirty: needsUpload,
-        })
-      );
+        });
       if (needsUpload) persistUnsyncedDraft(targetId, draft, name);
       syncProjectRowFromServer(proj);
       return;
@@ -501,35 +490,29 @@ async function hydrateCloudProject(
     if (!proj?.document) {
       if (draft?.document) {
     const name = draft.name || t('home.untitled');
-        dispatch(
-          importDocument({
+        importDocument({
             id: targetId,
             name,
             document: draft.document,
             source: 'user',
             dirty: !draft.syncedAt,
-          })
-        );
+          });
         if (!draft.syncedAt) persistUnsyncedDraft(targetId, draft, name);
         return;
       }
       seedLocalProjectForUrl(
-        targetId,
-        dispatch,
-        t('home.untitled'),
+        targetId, t('home.untitled'),
         createEmptyDocument({ emptyWorld: true })
       );
       return;
     }
 
-    dispatch(
-      importDocument({
+    importDocument({
         id: proj.id,
         name: proj.name || t('home.untitled'),
         document: proj.document,
         source: 'user',
-      })
-    );
+      });
     syncProjectRowFromServer(proj);
     void putProjectDraft({
       projectId: proj.id,
@@ -544,22 +527,18 @@ async function hydrateCloudProject(
     if (isCancelled()) return;
     if (draft?.document) {
     const name = draft.name || t('home.untitled');
-      dispatch(
-        importDocument({
+      importDocument({
           id: targetId,
           name,
           document: draft.document,
           source: 'user',
           dirty: true,
-        })
-      );
+        });
       persistUnsyncedDraft(targetId, draft, name);
       return;
     }
     seedLocalProjectForUrl(
-      targetId,
-      dispatch,
-        t('home.untitled'),
+      targetId, t('home.untitled'),
       createEmptyDocument({ emptyWorld: true })
     );
   }
@@ -569,9 +548,7 @@ async function hydrateCloudProject(
 const MOBILE_AGENT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent'];
 
 function EditorPage() {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const { t } = useTranslation();  const navigate = useNavigate();
   const location = useLocation();
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   // Defer font catalog off home cold path (was eager in main.tsx).
@@ -774,8 +751,8 @@ function EditorPage() {
 
   /** Editor UI is design-only; hide Design/Dev toggle. */
   useEffect(() => {
-    dispatch(setWorkspaceMode('design'));
-  }, [dispatch]);
+    setWorkspaceMode('design');
+  }, []);
 
   const isDevMode = workspaceMode === 'dev';
   const panMode = activeTool === 'pan';
@@ -852,7 +829,7 @@ function EditorPage() {
     const targetId = decodeURIComponent((routeProjectId || '').trim());
 
     if (createNew) {
-      dispatch(createTemplate({ emptyWorld: true }));
+      createTemplate({ emptyWorld: true });
       const ed = (store.getState() as any).editor as {
         currentId?: string | null;
         document?: unknown;
@@ -891,24 +868,24 @@ function EditorPage() {
 
       const local = templates.find((x) => x.id === targetId);
       if (local?.document) {
-        dispatch(openTemplate(targetId));
+        openTemplate(targetId);
         return cleanup;
       }
 
       if (targetId.startsWith('share_')) {
-        void hydrateShareTarget(targetId, dispatch, navigate, t, () => cancelled);
+        void hydrateShareTarget(targetId, navigate, t, () => cancelled);
         return cleanup;
       }
 
-      void hydrateCloudProject(targetId, dispatch, t, () => cancelled);
+      void hydrateCloudProject(targetId, t, () => cancelled);
       return cleanup;
     }
 
-    if (!document) dispatch(createTemplate({ emptyWorld: true }));
+    if (!document) createTemplate({ emptyWorld: true });
     return cleanup;
     // Only re-run when route / nav intent changes — not on every doc edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch, routeProjectId, location.search, navigate, t]);
+  }, [routeProjectId, location.search, navigate, t]);
 
   /** Local session: selection + grid. Camera fits once after stage layout (below). */
   useEffect(() => {
@@ -919,8 +896,8 @@ function EditorPage() {
     gridUserTouchedRef.current = false;
     setZoomFitActive(true);
     // Keep previous camera until fit — snapping to DEFAULT here causes a visible jump.
-    dispatch(setGridMode(false));
-  }, [currentId, dispatch]);
+    setGridMode(false);
+  }, [currentId]);
 
   useEffect(() => {
     if (!currentId || !document) return;
@@ -936,7 +913,7 @@ function EditorPage() {
       if (cancelled) return;
       // Do not restore session.camera — enter page always fits content once after load.
       if (!gridUserTouchedRef.current) {
-        dispatch(setGridMode(Boolean(session?.isGridMode)));
+        setGridMode(Boolean(session?.isGridMode));
       }
       const delta = document?.deltaSetLike || {};
       const nodeIds = (session?.selectedNodeIds || []).filter(
@@ -951,7 +928,7 @@ function EditorPage() {
         frameValid.has(id)
       );
       if (nodeIds.length || frameIds.length) {
-        dispatch(setMixedSelection({ nodeIds, frameIds }));
+        setMixedSelection({ nodeIds, frameIds });
       }
       sessionReadyForIdRef.current = currentId;
     }
@@ -959,7 +936,7 @@ function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentId, document, dispatch]);
+  }, [currentId, document]);
 
   useEffect(() => {
     if (!currentId) return;
@@ -1027,10 +1004,10 @@ function EditorPage() {
   }, []);
 
   const openAgentForTour = useCallback(() => {
-    dispatch(setWorkspaceMode('design'));
+    setWorkspaceMode('design');
     // Ensure dock is visible; do not bump openSignal (avoids remount churn during tour).
     setAgentOpen(true);
-  }, [dispatch]);
+  }, []);
 
   const clearAgentDraftBoot = useCallback(() => {
     clearHomeAgentBoot();
@@ -1074,14 +1051,12 @@ function EditorPage() {
     const current = editor.templates?.find((t: any) => t.id === editor.currentId);
     const baseName = current?.name || t('home.untitled');
     const newName = `${baseName} ${t('editor.projectMenu.duplicateSuffix')}`;
-    dispatch(
-      createTemplate({
+    createTemplate({
         name: newName,
         document: structuredClone(doc),
         source: 'user',
         dirty: true,
-      })
-    );
+      });
     const newId = (store.getState() as any).editor?.currentId;
     const newDoc = (store.getState() as any).editor?.document;
     if (!newId || !newDoc) return;
@@ -1092,7 +1067,7 @@ function EditorPage() {
       navigate,
       locationSearch: location.search,
     });
-  }, [dispatch, location.search, navigate, t]);
+  }, [location.search, navigate, t]);
 
   const importJsonFromEditor = useCallback(
     async (file: File) => {
@@ -1105,14 +1080,12 @@ function EditorPage() {
           return;
         }
         const importedName = file.name.replace(/\.json$/i, '');
-        dispatch(
-          importDocument({
+        importDocument({
             name: importedName,
             document: validation.data,
             source: 'import',
             dirty: true,
-          })
-        );
+          });
         message.success(t('home.importSuccess'));
         const id = (store.getState() as any).editor?.currentId;
         const importedDoc = (store.getState() as any).editor?.document;
@@ -1128,12 +1101,12 @@ function EditorPage() {
         message.error(t('home.importJsonFailed'));
       }
     },
-    [dispatch, location.search, navigate, t]
+    [location.search, navigate, t]
   );
 
   const renameProjectFromChrome = useCallback(
     (name: string) => {
-      dispatch(renameTemplate(name));
+      renameTemplate(name);
       const id = String((store.getState() as any).editor?.currentId || '').trim();
       if (!id) return;
       const nextName = String(name || '').trim() || 'Untitled';
@@ -1144,8 +1117,7 @@ function EditorPage() {
           refreshProjectsListAfterMutation(id)
         );
       }, 400);
-    },
-    [dispatch]
+    }, []
   );
 
   useEffect(
@@ -1228,21 +1200,21 @@ function EditorPage() {
 
   const selectLayerFromPanel = useCallback(
     (nodeId: string) => {
-      dispatch(setSelectedNodeId(nodeId));
+      setSelectedNodeId(nodeId);
       locateNodeById(nodeId);
       if (isMobileViewport) setLayersOpen(false);
     },
-    [dispatch, isMobileViewport, locateNodeById]
+    [isMobileViewport, locateNodeById]
   );
 
   const selectFrameFromPanel = useCallback(
     (frameId: string) => {
-      dispatch(setActiveFrameId(frameId));
-      dispatch(setFrameChromeMode('full'));
+      setActiveFrameId(frameId);
+      setFrameChromeMode('full');
       locateFrameById(frameId);
       if (isMobileViewport) setLayersOpen(false);
     },
-    [dispatch, isMobileViewport, locateFrameById]
+    [isMobileViewport, locateFrameById]
   );
 
   useEffect(() => {
@@ -1477,7 +1449,7 @@ function EditorPage() {
     const ox = Number(document.x) || 0;
     const oy = Number(document.y) || 0;
     if (ox !== 0 || oy !== 0) {
-      dispatch(bakeDocumentOrigin());
+      bakeDocumentOrigin();
       return;
     }
 
@@ -1569,9 +1541,7 @@ function EditorPage() {
     stageSize.width,
     stageSize.height,
     onFitView,
-    finishBoot,
-    dispatch,
-  ]);
+    finishBoot, ]);
 
   /** SvgCanvas ready is no longer the fit trigger (see initial-fit effect above). */
   const onCanvasReady = useCallback(() => {

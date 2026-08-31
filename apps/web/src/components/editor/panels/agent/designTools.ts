@@ -7,7 +7,7 @@ import {
  * Canvas design tools — schemas + local execution (tool loop).
  */
 
-import type { Dispatch } from '@/store';
+
 import {
   addArtboardFrame,
   patchDocumentNode,
@@ -120,7 +120,6 @@ export type AgentToolResult = {
 };
 
 export type DesignToolContext = {
-  dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   /** Prefer placing new nodes inside this frame. When set (e.g. user @ artboard), frame ops are pinned to it. */
   targetFrameId?: string | null;
@@ -494,7 +493,6 @@ export async function applySceneMutation<T extends { opResults: SceneMutationOpR
   currentRevision?: number;
   document?: SceneMutationDocView | null;
   skipHistory?: boolean;
-  dispatch: Dispatch;
   execute: (ops: AgentToolOp[]) => Promise<T>;
 }): Promise<{
   ok: boolean;
@@ -533,7 +531,7 @@ export async function applySceneMutation<T extends { opResults: SceneMutationOpR
   }
   let historyPushed = false;
   if (!opts.skipHistory && opts.source !== 'collab') {
-    opts.dispatch(pushEditorHistory());
+    pushEditorHistory();
     historyPushed = true;
   }
   const result = await opts.execute(gate.ops);
@@ -1580,8 +1578,7 @@ async function execOutlineText(
       continue;
     }
     const patch = outlineNodePatch(node, outline);
-    ctx.dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         skipHistory: true,
         patch: {
@@ -1592,8 +1589,7 @@ async function execOutlineText(
           height: patch.height,
           attrs: patch.attrs,
         },
-      })
-    );
+      });
     outlined.push(nodeId);
   }
   if (!outlined.length) {
@@ -2074,7 +2070,7 @@ function execCreateShape(
       svgHead: svgRaw.slice(0, 160),
     });
     pushHistory();
-    ctx.dispatch(setDocument(addNodeToDocument(ctx.getDocument(), id, node)));
+    setDocument(addNodeToDocument(ctx.getDocument(), id, node));
     return {
       status: 'success',
       summary: `Created svg ${id}`,
@@ -2176,7 +2172,7 @@ function execCreateShape(
   applyCornerRadii(node, args);
   if (closed) node.attrs = { ...node.attrs, closed: 'true' };
   pushHistory();
-  ctx.dispatch(setDocument(addNodeToDocument(ctx.getDocument(), id, node)));
+  setDocument(addNodeToDocument(ctx.getDocument(), id, node));
   return {
     status: 'success',
     summary: `Created ${mapped} ${id}${path ? ' (path)' : ''}`,
@@ -2315,7 +2311,7 @@ function execCreateText(
   node.width = placed.width;
   node.height = placed.height;
   pushHistory();
-  ctx.dispatch(setDocument(addNodeToDocument(ctx.getDocument(), id, node)));
+  setDocument(addNodeToDocument(ctx.getDocument(), id, node));
   return {
     status: 'success',
     summary: `Created text ${id} (${Math.round(placed.width)}×${Math.round(placed.height)})`,
@@ -2591,7 +2587,7 @@ function execUpdateNode(
       artifacts: { nodeId },
     };
   }
-  ctx.dispatch(patchDocumentNode({ nodeId, patch }));
+  patchDocumentNode({ nodeId, patch });
   return {
     status: 'success',
     summary: `Updated ${nodeId}`,
@@ -2867,8 +2863,7 @@ function execCreateFrame(
   // Default white artboard — thematic colors belong in the color phase.
   const backgroundColor =
     args.backgroundColor != null ? String(args.backgroundColor) : '#FFFFFF';
-  ctx.dispatch(
-    addArtboardFrame({
+  addArtboardFrame({
       name: String(args.name || 'Frame'),
       x,
       y,
@@ -2877,15 +2872,14 @@ function execCreateFrame(
       backgroundColor,
       // Agent tools never auto-select; user must click the artboard.
       activate: false,
-    })
-  );
+    });
   const frames = listFrames(ctx.getDocument());
   const created =
     frames.find((f) => !beforeIds.has(f.id)) || frames[frames.length - 1] || null;
   if (!created?.id) {
     return {
       status: 'error',
-      summary: 'create_frame failed — frame missing from document after dispatch',
+      summary: 'create_frame failed — frame missing from document after write',
       next_actions: ['Retry create_frame', 'get_scene_summary'],
     };
   }
@@ -3024,7 +3018,7 @@ function execSetActiveTool(
       next_actions: [`Use tool one of: ${[...allowed].join('|')}`],
     };
   }
-  ctx.dispatch(setActiveTool(tool));
+  setActiveTool(tool);
   return {
     status: 'success',
     summary: `Active tool set to ${tool}`,
@@ -3042,7 +3036,7 @@ function execSetGrid(
     return { status: 'error', summary: 'set_grid requires enabled (boolean)' };
   }
   const enabled = truthy(args.enabled);
-  ctx.dispatch(setGridMode(enabled));
+  setGridMode(enabled);
   return {
     status: 'success',
     summary: enabled ? 'Grid snap on' : 'Grid snap off',
@@ -3106,7 +3100,7 @@ function execSetCanvasBackground(
       meta.backgroundImageSrc = String(args.fillImageSrc);
       meta.backgroundImageFit = String(args.fillImageFit || 'fill');
     }
-    ctx.dispatch(setCanvasMeta(meta));
+    setCanvasMeta(meta);
     return {
       status: 'success',
       summary: `Canvas background updated (${fillType}${color ? ` ${color}` : ''})`,
@@ -3267,7 +3261,7 @@ function execCreateSvg(
       svgLen: svgRaw.length,
     });
     pushHistory();
-    ctx.dispatch(setDocument(addNodeToDocument(ctx.getDocument(), id, node)));
+    setDocument(addNodeToDocument(ctx.getDocument(), id, node));
     return {
       status: 'success',
       summary: `Created svg ${id}`,
@@ -3320,7 +3314,7 @@ function execCreateLottie(
         next_actions: ['Fix animationData schema', 'Retry create_lottie'],
       };
     }
-    ctx.dispatch(setDocument(next));
+    setDocument(next);
     return {
       status: 'success',
       summary: `Updated lottie ${replaceId}`,
@@ -3355,17 +3349,15 @@ function execCreateLottie(
   const preferredId = focusId || activeAnimId || String(ctx.targetFrameId || '').trim();
   const target = preferredId ? frameById(doc, preferredId) : null;
   if (target && isAnimationArtboardKind(target.kind)) {
-    ctx.dispatch(
-      importLottieIntoAnimationFrame({
+    importLottieIntoAnimationFrame({
         frameId: target.id,
         animationData: parsed,
         name: boardName,
-      })
-    );
+      });
     const afterImport = ctx.getDocument();
     const hostId = findFrameAnimationMediaId(afterImport, target.id);
     if (hostId) {
-      ctx.dispatch(openLottieTimelinePanel({ nodeId: hostId }));
+      openLottieTimelinePanel({ nodeId: hostId });
     }
     return {
       status: 'success',
@@ -3378,15 +3370,13 @@ function execCreateLottie(
   const missXY = requireCreateXY('create_lottie', args);
   if (missXY) return missXY;
   const origin = resolveCreateXY(args, target, width, height);
-  ctx.dispatch(
-    spawnAnimationBoard({
+  spawnAnimationBoard({
       x: origin.x,
       y: origin.y,
       width,
       height,
       name: boardName,
-    })
-  );
+    });
   const after = ctx.getDocument();
   const frameId = String(after?.activeFrameId || '').trim();
   if (!frameId) {
@@ -3396,18 +3386,16 @@ function execCreateLottie(
       next_actions: ['Retry create_lottie'],
     };
   }
-  ctx.dispatch(
-    importLottieIntoAnimationFrame({
+  importLottieIntoAnimationFrame({
       frameId,
       animationData: parsed,
       name: boardName,
       skipHistory: true,
-    })
-  );
+    });
   const afterBoard = ctx.getDocument();
   const hostId = findFrameAnimationMediaId(afterBoard, frameId);
   if (hostId) {
-    ctx.dispatch(openLottieTimelinePanel({ nodeId: hostId }));
+    openLottieTimelinePanel({ nodeId: hostId });
   }
   return {
     status: 'success',
@@ -3482,7 +3470,7 @@ function execCreateImage(
     };
   }
   pushHistory();
-  ctx.dispatch(setDocument(addNodeToDocument(ctx.getDocument(), id, node)));
+  setDocument(addNodeToDocument(ctx.getDocument(), id, node));
   return {
     status: sourceKind === 'placeholder' && Boolean(genPrompt) ? 'warning' : 'success',
     summary: summarizeCreateImage({
@@ -3536,7 +3524,7 @@ function execAlignNodes(
       else patch.y = maxB - b.height;
       return { nodeId: b.id, patch };
     });
-    ctx.dispatch(patchDocumentNodes({ patches: alignPatches, skipHistory: true }));
+    patchDocumentNodes({ patches: alignPatches, skipHistory: true });
     return {
       status: 'success',
       summary: `Aligned ${boxes.length} nodes (${mode})`,
@@ -3593,7 +3581,7 @@ function execDistributeNodes(
       });
     }
     if (distributePatches.length) {
-      ctx.dispatch(patchDocumentNodes({ patches: distributePatches, skipHistory: true }));
+      patchDocumentNodes({ patches: distributePatches, skipHistory: true });
     }
     return {
       status: 'success',
@@ -3678,11 +3666,11 @@ function execBooleanOp(
       next = tagCreatedNodeForWorkbenchSurround(next, id);
     }
     pushHistory();
-    ctx.dispatch(setDocument(next));
+    setDocument(next);
     if (frameId) {
       const frame = (next.frames || []).find((f) => String(f?.id) === frameId);
       if (frame && isAnimationArtboardKind(frame.kind)) {
-        ctx.dispatch(ensureAnimationFrameMedia({ frameId }));
+        ensureAnimationFrameMedia({ frameId });
       }
     }
     return {
@@ -3715,7 +3703,7 @@ function execReorderNodes(
       return { status: 'error', summary: `Unknown reorder action: ${raw}` };
     }
     pushHistory();
-    ctx.dispatch(setDocumentFromCanvas(reorderNodesInDocument(doc, ids, action)));
+    setDocumentFromCanvas(reorderNodesInDocument(doc, ids, action));
     return {
       status: 'success',
       summary: `Reordered ${ids.length} node(s) (${action})`,
@@ -3733,7 +3721,7 @@ function execGroupNodes(
     const ids = parseNodeIds(args);
     if (ids.length < 2) return { status: 'error', summary: 'group_nodes needs at least 2 nodeIds' };
     pushHistory();
-    ctx.dispatch(setDocument(groupNodesInDocument(doc, ids)));
+    setDocument(groupNodesInDocument(doc, ids));
     return {
       status: 'success',
       summary: `Grouped ${ids.length} nodes`,
@@ -3751,7 +3739,7 @@ function execUngroupNodes(
     const ids = parseNodeIds(args);
     if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
     pushHistory();
-    ctx.dispatch(setDocument(ungroupNodesInDocument(doc, ids)));
+    setDocument(ungroupNodesInDocument(doc, ids));
     return {
       status: 'success',
       summary: `Ungrouped ${ids.length} node(s)`,
@@ -3789,7 +3777,7 @@ function execDuplicateNodes(
       created.push(newId);
     }
     if (!created.length) return { status: 'error', summary: 'No nodes duplicated' };
-    ctx.dispatch(setDocument(next));
+    setDocument(next);
     return {
       status: 'success',
       summary: `Duplicated ${created.length} node(s)`,
@@ -3837,7 +3825,7 @@ function execFlipNodes(
       flipPatches.push({ nodeId: id, patch: { attrs } });
     }
     if (flipPatches.length) {
-      ctx.dispatch(patchDocumentNodes({ patches: flipPatches, skipHistory: true }));
+      patchDocumentNodes({ patches: flipPatches, skipHistory: true });
     }
     return {
       status: 'success',
@@ -3944,7 +3932,7 @@ function execBindNodesToFrame(
     };
   }
   pushHistory();
-  ctx.dispatch(setDocumentFromCanvas(next));
+  setDocumentFromCanvas(next);
   return {
     status: 'success',
     summary:
@@ -3965,7 +3953,7 @@ function execUnbindNodes(
   if (!ids.length) return { status: 'error', summary: 'nodeIds required' };
   const { document: next, boundIds } = bindNodesInDocument(doc, ids, null);
   pushHistory();
-  ctx.dispatch(setDocumentFromCanvas(next));
+  setDocumentFromCanvas(next);
   return {
     status: 'success',
     summary: `Unbound ${boundIds.length} node(s) from artboards`,
@@ -4021,7 +4009,7 @@ function execDeleteNodes(
         summary: 'delete_nodes: no matching scene nodes (use delete_frame for artboards)',
       };
     }
-    ctx.dispatch(setDocument(next));
+    setDocument(next);
     return {
       status: 'success',
       summary: `Deleted ${removed.length} node(s)`,
@@ -4051,7 +4039,7 @@ function execDeleteFrame(
       return { status: 'error', summary: `frame not found: ${fid}` };
     }
     const childIds = nodeIdsBoundToFrames(docNow, [fid]);
-    ctx.dispatch(removeArtboardFrames([fid]));
+    removeArtboardFrames([fid]);
     return {
       status: 'success',
       summary: `Deleted frame ${fid}`,
@@ -4074,8 +4062,7 @@ function execDuplicateFrame(
   const dy = Number.isFinite(Number(args.dy)) ? Number(args.dy) : 48;
   const beforeIds = new Set(listFrames(doc).map((f) => String(f.id)));
   const copyName = args.name != null ? String(args.name) : `${String(source.name || 'Frame')} Copy`;
-  ctx.dispatch(
-    addArtboardFrame({
+  addArtboardFrame({
       name: copyName,
       x: Math.round((Number(source.x) || 0) + dx),
       y: Math.round((Number(source.y) || 0) + dy),
@@ -4086,8 +4073,7 @@ function execDuplicateFrame(
       locked: false,
       hidden: false,
       activate: false,
-    })
-  );
+    });
   const frames = listFrames(ctx.getDocument());
   const created = frames.find((frame) => !beforeIds.has(String(frame.id))) || null;
   if (!created?.id) {
@@ -4110,7 +4096,7 @@ function execDuplicateFrame(
       nextDoc = addNodeToDocument(nextDoc, newId, node);
       copiedNodeIds.push(newId);
     }
-    if (copiedNodeIds.length) ctx.dispatch(setDocumentFromCanvas(nextDoc));
+    if (copiedNodeIds.length) setDocumentFromCanvas(nextDoc);
   }
   return {
     status: 'success',
@@ -4149,7 +4135,7 @@ function execReorderFrames(
   const selectedKeys = new Set(target.map((id) => `frame:${id}`));
   next.stackOrder = [...reorderKeysWithAction(frameKeys, selectedKeys, action), ...nonFrameKeys];
   pushHistory();
-  ctx.dispatch(setDocumentFromCanvas(next));
+  setDocumentFromCanvas(next);
   return {
     status: 'success',
     summary: `Reordered ${target.length} frame(s) (${action})`,
@@ -4196,8 +4182,7 @@ function execFitFrameToContent(
     return { status: 'error', summary: `fit_frame_to_content failed for ${frameId}` };
   }
   const padding = Math.max(0, Number(args.padding) || 24);
-  ctx.dispatch(
-    updateArtboardFrame({
+  updateArtboardFrame({
       id: frameId,
       patch: {
         x: Math.round(minX - padding),
@@ -4205,8 +4190,7 @@ function execFitFrameToContent(
         width: Math.max(40, Math.round(maxX - minX + padding * 2)),
         height: Math.max(40, Math.round(maxY - minY + padding * 2)),
       },
-    })
-  );
+    });
   return {
     status: 'success',
     summary: `Fitted frame ${frameId} to ${nodeIds.length} node(s)`,
@@ -4229,7 +4213,7 @@ function execSetFrameFlag(
     .filter((id) => existing.has(id))
     .map((id) => ({ id, patch: { [flag]: on } }));
   if (!patches.length) return { status: 'error', summary: 'No matching frame ids' };
-  ctx.dispatch(updateArtboardFrames({ patches }));
+  updateArtboardFrames({ patches });
   let verb = 'Updated';
   if (flag === 'locked') verb = on ? 'Locked' : 'Unlocked';
   else if (flag === 'hidden') verb = on ? 'Hid' : 'Showed';
@@ -4311,7 +4295,7 @@ function execUpdateFrame(
     if (args.locked != null) patch.locked = truthy(args.locked);
     if (args.hidden != null) patch.hidden = truthy(args.hidden);
     if (args.clipContent != null) patch.clipContent = truthy(args.clipContent);
-    ctx.dispatch(updateArtboardFrame({ id, patch }));
+    updateArtboardFrame({ id, patch });
     return { status: 'success', summary: `Updated frame ${id}`, artifacts: { frameId: id } };
 
 }
@@ -4373,8 +4357,7 @@ function execImageProcess(
       };
     }
     const label = String(args.label || kind);
-    ctx.dispatch(
-      startImageProcess({
+    startImageProcess({
         sourceId: nodeId,
         kind,
         label,
@@ -4386,8 +4369,7 @@ function execImageProcess(
           args.meta && typeof args.meta === 'object'
             ? (args.meta as Record<string, unknown>)
             : undefined,
-      })
-    );
+      });
     return {
       status: 'success',
       summary: `Started image_process ${kind} on ${nodeId}`,
@@ -4466,7 +4448,7 @@ export async function executeDesignToolAsync(
       return { status: 'error', summary: 'No document open', next_actions: ['Open a project first'] };
     }
     const pushHistory = () => {
-      if (!ctx.skipHistory) ctx.dispatch(pushEditorHistory());
+      if (!ctx.skipHistory) pushEditorHistory();
     };
     try {
       return await execOutlineText(parseArgs(argsRaw), ctx, pushHistory);
@@ -4492,7 +4474,7 @@ export function executeDesignTool(
     return { status: 'error', summary: 'No document open', next_actions: ['Open a project first'] };
   }
   const pushHistory = () => {
-    if (!ctx.skipHistory) ctx.dispatch(pushEditorHistory());
+    if (!ctx.skipHistory) pushEditorHistory();
   };
 
   try {

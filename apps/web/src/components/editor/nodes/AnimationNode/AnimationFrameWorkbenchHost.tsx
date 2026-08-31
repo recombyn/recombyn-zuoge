@@ -4,7 +4,7 @@
  * EditorToolStrip. AI edits use the right-side Agent chat.
  */
 import { memo, useEffect, type ReactNode } from 'react';
-import { useDispatch } from '@/store';
+
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { ensureAnimationFrameMedia } from '@/store/modules/editor';
 import {
@@ -43,28 +43,23 @@ function AnimationFrameWorkbenchHost({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-
-  useEffect(() => {
+}): ReactNode {  useEffect(() => {
     if (hidden) return;
     const onEnsure = (e: Event) => {
       const detail = (e as CustomEvent<{ frameId?: string; skipHistory?: boolean }>).detail;
       const frameId = String(detail?.frameId || '').trim();
       if (!frameId) return;
-      dispatch(
-        ensureAnimationFrameMedia({
+      ensureAnimationFrameMedia({
           frameId,
           skipHistory: Boolean(detail?.skipHistory),
-        })
-      );
+        });
     };
     window.addEventListener(RCB_ENSURE_ANIMATION_FRAME, onEnsure);
     // Initial apply for current selection (same pattern as playhead sync).
     const initial = resolveWorkbenchFrameIdFromStore();
     if (initial) requestEnsureAnimationFrame(initial);
     return () => window.removeEventListener(RCB_ENSURE_ANIMATION_FRAME, onEnsure);
-  }, [dispatch, hidden]);
+  }, [hidden]);
 
   return null;
 }

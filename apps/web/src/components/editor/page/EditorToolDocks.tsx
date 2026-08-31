@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useDispatch } from '@/store';
+
 import PathEditToolbar, {
   type PathEditSubtool,
 } from '@/components/editor/chrome/PathEditToolbar';
@@ -39,9 +39,7 @@ function EditorToolDocks({
   viewportWidth,
   docWidth,
   placement = 'float',
-}: Props) {
-  const dispatch = useDispatch();
-  if (isDevMode) return null;
+}: Props) {  if (isDevMode) return null;
 
   const chrome = placement === 'inline' ? 'flat' : 'pill';
 
@@ -56,7 +54,7 @@ function EditorToolDocks({
           window.dispatchEvent(
             new CustomEvent('resume:path-edit-subtool', { detail: { subtool: s } })
           );
-          dispatch(setActiveTool('select'));
+          setActiveTool('select');
         }}
         onExit={() => {
           window.dispatchEvent(new Event('resume:exit-path-edit'));

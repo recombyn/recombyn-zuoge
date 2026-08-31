@@ -1,82 +1,67 @@
 /**
- * App store — Zustand runtime (no react-redux Provider).
- * Slice logic uses local createSlice + immer (`store/createSlice.ts`); dispatch stays action-based.
+ * App store — Zustand native writes (no action/reducer bus).
  *
  * Write style:
- * - React subscriptions to editor fields go through `editorSelectors.ts` (no inline `s.editor…`).
- * - Playhead/playing: `animationTransport` + events — not whole-store fan-out.
- * - Scene DOM sync: `sceneEvents` / playhead/puppet apply events (mount-once listeners).
+ * - Mutators: `setDocument(doc)` from `@/store/modules/editor` (bound here).
+ * - React subscriptions via `editorSelectors.ts` / `useSelector`.
+ * - Playhead/playing: `animationTransport` + events.
  */
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
-import type { AnyAction } from '@/store/createSlice';
-import authReducer from './modules/auth';
-import editorReducer from './modules/editor';
-
-const authInitial = authReducer(undefined, { type: '@@zustand/INIT' });
-const editorInitial = editorReducer(undefined, { type: '@@zustand/INIT' });
+import { produce } from 'immer';
+import { bindAuthStore } from '@/store/authBind';
+import { bindEditorStore } from '@/store/editorBind';
+import { authInitialState, type AuthState } from './modules/auth';
+import { editorInitialState, type EditorState } from './modules/editor';
 
 export type RootState = {
-  auth: ReturnType<typeof authReducer>;
-  editor: ReturnType<typeof editorReducer>;
+  auth: AuthState;
+  editor: EditorState;
 };
 
-export type AppDispatch = (action: AnyAction) => AnyAction;
+type AppStoreState = RootState;
 
-type AppStoreState = RootState & {
-  dispatch: AppDispatch;
-};
-
-function reduceApp(state: RootState, action: AnyAction): RootState {
-  const nextAuth = authReducer(state.auth, action);
-  const nextEditor = editorReducer(state.editor, action);
-  if (nextAuth === state.auth && nextEditor === state.editor) return state;
-  return { auth: nextAuth, editor: nextEditor };
-}
-
-export const useAppStore = create<AppStoreState>((set, get) => ({
-  auth: authInitial,
-  editor: editorInitial,
-  dispatch: (action: AnyAction) => {
-    set((prev) => {
-      const next = reduceApp(
-        { auth: prev.auth, editor: prev.editor },
-        action
-      );
-      if (next === prev || (next.auth === prev.auth && next.editor === prev.editor)) {
-        return prev;
-      }
-      return { ...prev, auth: next.auth, editor: next.editor };
-    });
-    return action;
-  },
+export const useAppStore = create<AppStoreState>(() => ({
+  auth: authInitialState,
+  editor: editorInitialState,
 }));
 
-/** Vanilla store API (non-React). Same surface as former Redux `store`. */
+bindEditorStore((fn) => {
+  useAppStore.setState((prev) => ({
+    ...prev,
+    editor: produce(prev.editor, fn),
+  }));
+});
+
+bindAuthStore((fn) => {
+  useAppStore.setState((prev) => ({
+    ...prev,
+    auth: produce(prev.auth, fn),
+  }));
+});
+
+/** Vanilla store API (non-React). */
 export const store = {
   getState: (): RootState => {
     const s = useAppStore.getState();
     return { auth: s.auth, editor: s.editor };
   },
-  dispatch: ((action: AnyAction) => useAppStore.getState().dispatch(action)) as AppDispatch,
+  setState: useAppStore.setState,
   subscribe: (listener: () => void) => useAppStore.subscribe(() => listener()),
 };
 
 export default store;
 
-export type { AnyAction, Dispatch, PayloadAction } from './createSlice';
+export type { EditorState } from './modules/editor';
+export type { AuthState } from './modules/auth';
+export type { PayloadAction } from './payload';
 
-/** Drop-in for `useDispatch` from react-redux. */
-export function useDispatch(): AppDispatch {
-  return useAppStore((s) => s.dispatch);
-}
-
-/** Drop-in for `useStore` from react-redux (getState/dispatch/subscribe). */
+/** Drop-in for `useStore` from react-redux (getState/subscribe). */
 export function useStore() {
   return store;
 }
 
-/** Drop-in for `useSelector` from react-redux. */
+/** Subscribe to a slice of `{ auth, editor }`. */
 export function useSelector<T>(
   selector: (state: RootState) => T,
   equalityFn?: (a: T, b: T) => boolean

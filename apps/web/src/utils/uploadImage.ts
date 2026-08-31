@@ -93,7 +93,6 @@ export async function uploadImageFile(
     signal?: AbortSignal;
     onProgress?: (pct: number) => void;
     jobId?: string;
-    dispatch?: (action: unknown) => unknown;
     nodeId?: string;
     /** Soft-compress before upload (default true). */
     compress?: boolean;
@@ -633,7 +632,6 @@ export async function uploadImageFromSrc(
   opts?: {
     signal?: AbortSignal;
     uploadKey?: string | null;
-    dispatch?: (action: unknown) => unknown;
     nodeId?: string;
     jobId?: string;
   }
@@ -647,7 +645,6 @@ export async function uploadImageFromSrc(
   return uploadImageFile(file, {
     signal: opts?.signal,
     jobId: opts?.jobId,
-    dispatch: opts?.dispatch,
     nodeId: opts?.nodeId,
     // Processed/server URLs (cutout, upscale, etc.) — never re-JPEG / strip alpha.
     compress: false,

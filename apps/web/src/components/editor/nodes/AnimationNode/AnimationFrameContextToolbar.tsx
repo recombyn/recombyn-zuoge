@@ -4,7 +4,7 @@
  * clipContent stays on by default — no overflow eye toggle.
  */
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
@@ -67,9 +67,7 @@ function Tool({
 }
 
 function LottieFrameContextToolbar({ frame, box }: Props) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
   const timelinePanel = useSelector(
     (s: any) => s.editor.lottieTimelinePanel as null | { nodeId: string }
   );
@@ -90,17 +88,17 @@ function LottieFrameContextToolbar({ frame, box }: Props) {
   const timelineOpen = Boolean(timelinePanel?.nodeId);
 
   const patch = (next: Partial<ArtboardFrame>) => {
-    dispatch(updateArtboardFrame({ id: frame.id, patch: next }));
+    updateArtboardFrame({ id: frame.id, patch: next });
   };
 
   const onTimeline = () => {
-    dispatch(ensureAnimationFrameMedia({ frameId: frame.id }));
+    ensureAnimationFrameMedia({ frameId: frame.id });
     const id =
       findFrameAnimationMediaId(store.getState()?.editor?.document, frame.id) ||
       mediaId;
     if (!id) return;
-    dispatch(closeAnimationFramePanel());
-    dispatch(openLottieTimelinePanel({ nodeId: id }));
+    closeAnimationFramePanel();
+    openLottieTimelinePanel({ nodeId: id });
   };
 
   const fill = frame.backgroundColor || '#FFFFFF';
@@ -203,7 +201,7 @@ function LottieFrameContextToolbar({ frame, box }: Props) {
             const next = Math.max(1, Math.round(n));
             if (next === fps) return;
             patch({ fps: next });
-            dispatch(ensureAnimationFrameMedia({ frameId: frame.id }));
+            ensureAnimationFrameMedia({ frameId: frame.id });
           }}
           onKeyDown={(e) => {
             if (e.key !== 'Enter') return;

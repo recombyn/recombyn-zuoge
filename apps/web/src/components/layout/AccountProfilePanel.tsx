@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { HiOutlinePencil } from 'react-icons/hi2';
@@ -15,9 +15,7 @@ const MAX_AVATAR_MB = 2;
 
 /** Profile + password for AccountSettingsDialog. */
 function AccountProfilePanel() {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const user = useSelector((s: any) => s.auth.user as AuthUser | null);
+  const { t } = useTranslation();  const user = useSelector((s: any) => s.auth.user as AuthUser | null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [name, setName] = useState('');
@@ -83,8 +81,7 @@ function AccountProfilePanel() {
           avatar,
         },
       })) as { user: AuthUser };
-      dispatch(
-        setUser({
+      setUser({
           ...user,
           id: res.user.id || user.id,
           name: res.user.name,
@@ -92,8 +89,7 @@ function AccountProfilePanel() {
           avatar: res.user.avatar ?? avatar,
           email: res.user.email || user.email,
           provider: res.user.provider || user.provider,
-        })
-      );
+        });
       message.success(t('me.profileSaved'));
     } catch {
       message.error(t('home.casesLoadFailed'));

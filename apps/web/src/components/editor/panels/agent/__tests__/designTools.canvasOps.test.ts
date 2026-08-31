@@ -1,115 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createShapeNode } from '@/components/rcb/scene/document/nodeFactories';
-import { addNodeToDocument, createEmptyDocument } from '@/components/rcb/scene/document/sceneDocument';
-import { executeDesignTool, type DesignToolContext } from '../designTools';
+import { addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import { executeDesignTool } from '../designTools';
+import { createDesignToolHarness } from './designToolHarness';
 
 function createHarness() {
-  let doc = createEmptyDocument({ width: 1440, height: 900 });
-  let frameSeq = 1;
-  const dispatch = vi.fn((action: { type?: string; payload?: any }) => {
-    const type = String(action?.type || '');
-    const payload = action?.payload;
-    if (type.endsWith('/addArtboardFrame') || type.includes('addArtboardFrame')) {
-      const id = `frame_${frameSeq++}`;
-      doc = {
-        ...doc,
-        frames: [
-          ...(doc.frames || []),
-          {
-            id,
-            name: String(payload?.name || 'Frame'),
-            x: Number(payload?.x) || 0,
-            y: Number(payload?.y) || 0,
-            width: Math.max(40, Number(payload?.width) || 390),
-            height: Math.max(40, Number(payload?.height) || 844),
-            backgroundColor: String(payload?.backgroundColor || 'transparent'),
-            clipContent: Boolean(payload?.clipContent),
-            locked: Boolean(payload?.locked),
-            hidden: Boolean(payload?.hidden),
-          },
-        ],
-        stackOrder: [...(doc.stackOrder || []), `frame:${id}`],
-      };
-      return;
-    }
-    if (type.endsWith('/setDocument') || type.includes('setDocument')) {
-      if (payload && typeof payload === 'object') doc = payload;
-      return;
-    }
-    if (type.endsWith('/setDocumentFromCanvas') || type.includes('setDocumentFromCanvas')) {
-      if (payload && typeof payload === 'object') doc = payload;
-      return;
-    }
-    if (type.endsWith('/updateArtboardFrames')) {
-      const patches = Array.isArray(payload?.patches) ? payload.patches : [];
-      const byId = new Map<string, Record<string, unknown>>(
-        patches.map((item: { id?: string; patch?: Record<string, unknown> }) => {
-          const nextPatch =
-            item?.patch && typeof item.patch === 'object' && !Array.isArray(item.patch)
-              ? item.patch
-              : {};
-          return [String(item?.id || ''), nextPatch];
-        })
-      );
-      doc = {
-        ...doc,
-        frames: (doc.frames || []).map((frame) => {
-          const patch = byId.get(String(frame?.id || ''));
-          if (!patch) return frame;
-          return { ...frame, ...patch };
-        }),
-      };
-      return;
-    }
-    if (type.endsWith('/updateArtboardFrame')) {
-      const id = String(payload?.id || '');
-      const patch =
-        payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
-      doc = {
-        ...doc,
-        frames: (doc.frames || []).map((frame) => {
-          if (String(frame?.id || '') !== id) return frame;
-          return { ...frame, ...patch };
-        }),
-      };
-      return;
-    }
-    if (type.endsWith('/patchDocumentNode') || type.includes('patchDocumentNode')) {
-      const nodeId = String(payload?.nodeId || '');
-      const patch = payload?.patch || {};
-      const prev = doc.deltaSetLike?.[nodeId];
-      if (!prev) return;
-      doc = {
-        ...doc,
-        deltaSetLike: {
-          ...(doc.deltaSetLike || {}),
-          [nodeId]: {
-            ...prev,
-            ...patch,
-            attrs: {
-              ...(prev.attrs || {}),
-              ...((patch as { attrs?: Record<string, unknown> }).attrs || {}),
-            },
-          },
-        },
-      };
-    }
-  });
-  const ctx = {
-    dispatch,
-    getDocument: () => doc,
-    skipHistory: true,
-    allowDestructive: true,
-    targetFrameId: null,
-  } as DesignToolContext;
-  return {
-    ctx,
-    dispatch,
-    getDoc: () => doc,
-    setDoc: (next: typeof doc) => {
-      doc = next;
-    },
-  };
+  return createDesignToolHarness();
 }
 
 describe('design tools canvas ops', () => {
@@ -274,7 +170,7 @@ describe('design tools canvas ops', () => {
     expect(h.getDoc().frames.find((f) => f.id === frameId)?.locked).toBe(true);
   });
 
-  it('set_active_tool dispatches pencil', () => {
+  it('set_active_tool sets pencil', () => {
     const h = createHarness();
     const res = executeDesignTool(
       'set_active_tool',
@@ -283,8 +179,7 @@ describe('design tools canvas ops', () => {
     );
     expect(res.status).toBe('success');
     expect(res.artifacts?.tool).toBe('pencil');
-    const types = h.dispatch.mock.calls.map((call) => String(call[0]?.type || ''));
-    expect(types.some((type) => type.includes('setActiveTool'))).toBe(true);
+    expect(h.getActiveTool()).toBe('pencil');
   });
 
   it('smooth_path adds Chaikin midpoints', () => {
@@ -342,11 +237,10 @@ describe('design tools canvas ops', () => {
     expect(String(h.getDoc().deltaSetLike?.[created.id]?.attrs?.hidden)).toBe('true');
   });
 
-  it('set_grid dispatches grid on', () => {
+  it('set_grid enables grid mode', () => {
     const h = createHarness();
     const res = executeDesignTool('set_grid', JSON.stringify({ enabled: true }), h.ctx);
     expect(res.status).toBe('success');
-    const types = h.dispatch.mock.calls.map((call) => String(call[0]?.type || ''));
-    expect(types.some((type) => type.includes('setGridMode'))).toBe(true);
+    expect(h.getGridMode()).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -94,9 +94,7 @@ function ImageVariantsOverlay({
   hidden?: boolean;
   readOnly?: boolean;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+  const { t } = useTranslation();  const camera = useRcbCamera();
   const [barHovered, setBarHovered] = useState(false);
   const expandedNodeId = useImageVariantsExpandedNodeId();
   const expanded = expandedNodeId === nodeId;
@@ -177,23 +175,19 @@ function ImageVariantsOverlay({
     attrs.src = url;
     const prompt = promptForImageSrc(node.attrs, url);
     applyVariantPromptPatch(attrs, url, prompt);
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: { attrs },
-      })
-    );
+      });
   };
 
   const detach = (url: string) => {
     if (!nodeId) return;
-    dispatch(
-      detachImageVariant({
+    detachImageVariant({
         nodeId,
         url,
         name: t('editor.tools.imageDetachedName'),
-      })
-    );
+      });
     setImageVariantsExpanded(null);
   };
 

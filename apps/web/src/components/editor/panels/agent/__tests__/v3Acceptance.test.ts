@@ -4,8 +4,11 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
-import type { AnyAction } from '@/store';
-import editorReducer, {
+
+import store from '@/store';
+import {
+  editorReducers,
+  reduceEditor,
   applyCollabDocument,
   beginAiSceneMutation,
   endAiSceneMutation,
@@ -38,13 +41,8 @@ import {
 const op = (id: string) => ({ name: 'create_text', op_id: id, args: { id } });
 
 function editorStore() {
-  let state = { editor: editorReducer(undefined, { type: '@@INIT' }) };
   return {
-    getState: () => state,
-    dispatch: (action: AnyAction) => {
-      state = { editor: editorReducer(state.editor, action) };
-      return action;
-    },
+    getState: () => ({ editor: store.getState().editor }),
   };
 }
 
@@ -117,7 +115,6 @@ describe('V3 acceptance 08 — user edit then AI revision conflict', () => {
       currentRevision: 9,
       document: sceneDoc(['title']),
       skipHistory: true,
-      dispatch: vi.fn(),
       execute,
     });
     expect(denied.ok).toBe(false);
@@ -132,15 +129,13 @@ describe('V3 acceptance 09 — Yjs collab + AI mutation', () => {
   it('AI overlay never enters SceneDocument or Y.Doc', () => {
     const store = editorStore();
     const scene = createEmptyDocument({ width: 1080, height: 1920 });
-    store.dispatch(setDocument(scene));
-    store.dispatch(
-      setAiOperationState({
+    setDocument(scene);
+    setAiOperationState({
         active: true,
         transactionId: 'tx_overlay',
         nodeId: 'hero',
         label: 'painting',
-      })
-    );
+      });
     const editor = store.getState().editor;
     expect(editor.aiOperationState?.active).toBe(true);
     expect(editor.document).not.toBeNull();
@@ -170,19 +165,17 @@ describe('V3 acceptance 09 — Yjs collab + AI mutation', () => {
         children: [],
       },
     };
-    store.dispatch(setDocument(scene));
+    setDocument(scene);
     const afterSeed = store.getState().editor.sceneRevision;
 
-    store.dispatch(beginAiSceneMutation());
-    store.dispatch(
-      patchDocumentNode({
+    beginAiSceneMutation();
+    patchDocumentNode({
         nodeId: 'hero',
         patch: { width: 160 },
         skipHistory: true,
-      })
-    );
+      });
     expect(store.getState().editor.sceneRevision).toBe(afterSeed);
-    store.dispatch(endAiSceneMutation());
+    endAiSceneMutation();
     const afterAi = store.getState().editor.sceneRevision;
     expect(afterAi).toBe(afterSeed + 1);
 
@@ -190,7 +183,7 @@ describe('V3 acceptance 09 — Yjs collab + AI mutation', () => {
     if (remote?.deltaSetLike?.hero) {
       remote.deltaSetLike.hero = { ...remote.deltaSetLike.hero, width: 200 };
     }
-    store.dispatch(applyCollabDocument(remote));
+    applyCollabDocument(remote);
     expect(store.getState().editor.sceneRevision).toBe(afterAi + 1);
     expect(store.getState().editor.document?.deltaSetLike?.hero?.width).toBe(200);
   });

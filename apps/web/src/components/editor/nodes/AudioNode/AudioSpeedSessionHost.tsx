@@ -4,7 +4,7 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  * Confirm clones a sibling to the right with `audioSpeed` — source stays untouched.
  */
 import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown, HiOutlineChevronUp, HiOutlineClock } from 'react-icons/hi2';
@@ -48,9 +48,7 @@ function AudioSpeedSessionHost({
   document: SceneDocument;
   hidden?: boolean;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const { zoom } = useRcbCamera();
+  const { t } = useTranslation();  const { zoom } = useRcbCamera();
   const panel = useSelector(
     (s: any) => s.editor.audioToolPanel as null | { nodeId: string; kind: string }
   );
@@ -67,7 +65,7 @@ function AudioSpeedSessionHost({
   const close = () => {
     // Drop live preview — source node keeps its committed speed.
     getAudioHost(nodeId)?.setSpeed(sourceSpeedRef.current);
-    dispatch(closeAudioToolPanel());
+    closeAudioToolPanel();
   };
 
   useEffect(() => {
@@ -130,10 +128,10 @@ function AudioSpeedSessionHost({
       });
       if (!spawned) throw new Error('clone failed');
       getAudioHost(nodeId)?.setSpeed(sourceSpeedRef.current);
-      dispatch(setDocument(spawned.document));
-      dispatch(setSelectedNodeIds([spawned.id]));
-      dispatch(setSelectedNodeId(spawned.id));
-      dispatch(closeAudioToolPanel());
+      setDocument(spawned.document);
+      setSelectedNodeIds([spawned.id]);
+      setSelectedNodeId(spawned.id);
+      closeAudioToolPanel();
     } catch (err) {
       console.warn('[audio speed confirm]', err);
       message.error(

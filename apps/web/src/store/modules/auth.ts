@@ -1,4 +1,4 @@
-import { createSlice } from '@/store/createSlice';
+import { bindAuthMutator } from '@/store/authBind';
 import { clearAllProjectDrafts } from '@/components/editor/projectDraftStore';
 import { clearHomeAgentBoot } from '@/utils/homeAgentBoot';
 import { getToken, setToken as persistToken } from '@/utils/token';
@@ -89,34 +89,37 @@ export function clearSessionCaches() {
 
 const initialState = loadAuth();
 
-const authSlice = createSlice({
-  name: 'auth',
-  initialState,
-  reducers: {
-    setUser(state, action) {
-      state.user = action.payload;
-      persist(state.user);
-    },
-    setSession(state, action) {
-      const { user, token } = action.payload as { user: AuthUser; token?: string | null };
-      // Never restore a user session without a live token (logout race safety).
-      if (token === null || (token === undefined && !getToken())) {
-        state.user = null;
-        persist(null);
-        if (token === null) persistToken(null);
-        return;
-      }
-      state.user = user;
-      persist(user);
-      if (token !== undefined) persistToken(token);
-    },
-    logout(state) {
+export type AuthState = typeof initialState;
+export { initialState as authInitialState };
+
+export const authReducers = {
+  setUser(state: AuthState, action: { payload: AuthUser | null }) {
+    state.user = action.payload;
+    persist(state.user);
+  },
+  setSession(
+    state: AuthState,
+    action: { payload: { user: AuthUser; token?: string | null } }
+  ) {
+    const { user, token } = action.payload;
+    // Never restore a user session without a live token (logout race safety).
+    if (token === null || (token === undefined && !getToken())) {
       state.user = null;
       persist(null);
-      persistToken(null);
-    },
+      if (token === null) persistToken(null);
+      return;
+    }
+    state.user = user;
+    persist(user);
+    if (token !== undefined) persistToken(token);
   },
-});
+  logout(state: AuthState, _action: { payload: void }) {
+    state.user = null;
+    persist(null);
+    persistToken(null);
+  },
+} as const;
 
-export const { setUser, setSession, logout } = authSlice.actions;
-export default authSlice.reducer;
+export const setUser = bindAuthMutator(authReducers.setUser);
+export const setSession = bindAuthMutator(authReducers.setSession);
+export const logout = bindAuthMutator(authReducers.logout);

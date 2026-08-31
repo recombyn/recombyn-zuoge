@@ -52,11 +52,16 @@ export function createEmptySoaAtlasStats(): SoaAtlasStats {
   return { hits: 0, misses: 0, evictions: 0, restamps: 0, releases: 0 };
 }
 
-function createAtlasCanvas(size: number): OffscreenCanvas | HTMLCanvasElement {
+function createAtlasSurface(size: number): {
+  canvas: OffscreenCanvas | HTMLCanvasElement;
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+} | null {
+  // Reuse the first 2d context — some envs null a second getContext on the same canvas.
   if (typeof OffscreenCanvas !== 'undefined') {
     try {
       const oc = new OffscreenCanvas(size, size);
-      if (oc.getContext('2d')) return oc;
+      const ctx = oc.getContext('2d') as OffscreenCanvasRenderingContext2D | null;
+      if (ctx) return { canvas: oc, ctx };
     } catch {
       /* fall through */
     }
@@ -64,7 +69,9 @@ function createAtlasCanvas(size: number): OffscreenCanvas | HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = size;
   c.height = size;
-  return c;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  return { canvas: c, ctx };
 }
 
 export function isSoaWebglAtlasEnabled(): boolean {
@@ -81,20 +88,13 @@ export function isSoaWebglAtlasEnabled(): boolean {
   }
 }
 
-function cellCount(size: number, cell: number) {
-  return Math.max(1, Math.floor(size / cell)) ** 2;
-}
-
 export function createSoaWebglAtlas(
   size = SOA_ATLAS_DEFAULT_SIZE,
   cell = SOA_ATLAS_CELL
 ): SoaWebglAtlas | null {
-  const canvas = createAtlasCanvas(size);
-  const ctx = canvas.getContext('2d') as
-    | OffscreenCanvasRenderingContext2D
-    | CanvasRenderingContext2D
-    | null;
-  if (!ctx) return null;
+  const surface = createAtlasSurface(size);
+  if (!surface) return null;
+  const { canvas, ctx } = surface;
   const cols = Math.max(1, Math.floor(size / cell));
   const n = cols * cols;
   const free: number[] = [];
@@ -566,5 +566,3 @@ export function resetSharedSoaWebglAtlas() {
   if (sharedAtlas) resetSoaWebglAtlas(sharedAtlas);
   else sharedAtlas = null;
 }
-
-export { cellCount };

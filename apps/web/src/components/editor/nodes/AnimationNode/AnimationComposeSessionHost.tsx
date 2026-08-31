@@ -11,7 +11,7 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   RcbOverlayPortal,
@@ -49,9 +49,7 @@ function AnimationComposeSessionHost({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}): ReactNode {  const { t } = useTranslation();
   const camera = useRcbCamera();
   const toScene = useRcbScreenToScene();
   const panel = useSelector(
@@ -99,13 +97,11 @@ function AnimationComposeSessionHost({
     if (node.attrs?.animationData && hadLayers !== null) return;
     const json = patchAnimationDataAttr(parsed);
     if (!json || json === node.attrs?.animationData) return;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: { attrs: { animationData: json } },
-      })
-    );
-  }, [active, dispatch, node, nodeId, plate]);
+      });
+  }, [active, node, nodeId, plate]);
 
   useEffect(() => {
     if (active) return;
@@ -128,14 +124,12 @@ function AnimationComposeSessionHost({
           : appendRectLayer(anim, local);
       const json = patchAnimationDataAttr(next);
       if (!json) return;
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: { attrs: { animationData: json } },
-        })
-      );
+        });
     },
-    [anim, dispatch, nodeId, plate, tool]
+    [anim, nodeId, plate, tool]
   );
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -195,8 +189,7 @@ function AnimationComposeSessionHost({
     try {
       const text = await file.text();
       // v1: stash raw SVG for later layer-split; keep compose session open.
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             attrs: {
@@ -204,8 +197,7 @@ function AnimationComposeSessionHost({
               lottieComposeDirty: 'true',
             },
           },
-        })
-      );
+        });
       message.success(
         t('editor.lottieCompose.svgImported', {
           defaultValue: '已导入 SVG，图层拆分即将支持',
@@ -231,12 +223,12 @@ function AnimationComposeSessionHost({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        dispatch(closeLottieComposePanel());
+        closeLottieComposePanel();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [active, dispatch]);
+  }, [active]);
 
   if (!active || !plate) return null;
 

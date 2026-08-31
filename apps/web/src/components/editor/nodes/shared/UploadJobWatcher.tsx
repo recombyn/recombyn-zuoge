@@ -1,5 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { message } from '@/components/base';
 import {
   formatProcessProgressLabel,
@@ -23,9 +23,7 @@ import {
 } from '@/store/modules/editor';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-function UploadJobWatcher() {
-  const dispatch = useDispatch();
-  const pendingId = useSelector(
+function UploadJobWatcher() {  const pendingId = useSelector(
     (s: { editor?: { pendingImageProcessId?: string | null } }) =>
       s.editor?.pendingImageProcessId ?? null
   );
@@ -48,7 +46,7 @@ function UploadJobWatcher() {
     const fail = (msg: string) => {
       if (cancelled) return;
       message.error(msg);
-      dispatch(failImageProcess({ nodeId: pendingId }));
+      failImageProcess({ nodeId: pendingId });
     };
 
     const run = async () => {
@@ -72,16 +70,14 @@ function UploadJobWatcher() {
           signal: ac.signal,
           onProgress: (pct) => {
             if (cancelled) return;
-            dispatch(
-              patchDocumentNode({
+            patchDocumentNode({
                 nodeId: pendingId,
                 skipHistory: true,
                 skipHostReload: true,
                 patch: {
                   attrs: { processLabel: formatProcessProgressLabel(labelBase, pct, '上传中') },
                 },
-              })
-            );
+              });
           },
         });
         if (cancelled) return;
@@ -92,13 +88,11 @@ function UploadJobWatcher() {
         if (cancelled) return;
 
         const finishNode = documentRef.current?.deltaSetLike?.[pendingId] || liveNode;
-        dispatch(
-          finishImageProcess({
+        finishImageProcess({
             nodeId: pendingId,
             ...(remoteReady ? { src: uploaded.url } : {}),
             attrs: buildUploadFinishAttrs(finishNode?.attrs, uploaded),
-          })
-        );
+          });
       } catch (err: unknown) {
         if (cancelled || isUploadAbortError(err)) return;
         fail(getHttpErrorMessage(err, '上传失败'));
@@ -110,7 +104,7 @@ function UploadJobWatcher() {
       cancelled = true;
       ac.abort();
     };
-  }, [pendingId, dispatch]);
+  }, [pendingId]);
 
   return null;
 }

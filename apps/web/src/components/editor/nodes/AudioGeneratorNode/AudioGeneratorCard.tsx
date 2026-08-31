@@ -14,7 +14,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { FloatingPortal } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt } from 'react-icons/hi2';
@@ -84,9 +84,7 @@ function AudioGeneratorCard({
   sceneBox,
   disabled,
 }: Props): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const inputRef = useRef<AgentComposerHandle | null>(null);
+  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [prompt, setPrompt] = useState('');
@@ -316,16 +314,14 @@ function AudioGeneratorCard({
   }) => {
     const duration =
       (await probeAudioDuration(opts.previewForDuration || opts.src)) || undefined;
-    dispatch(
-      finishAudioGenerator({
+    finishAudioGenerator({
         nodeId,
         src: opts.src,
         name: opts.name,
         genPrompt: opts.genPrompt,
         duration,
         uploadKey: opts.uploadKey,
-      })
-    );
+      });
   };
 
   const onGenerate = async () => {
@@ -339,8 +335,7 @@ function AudioGeneratorCard({
       const text =
         prompt.trim() ||
         t('editor.tools.audioGenerator', { defaultValue: 'Audio' });
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             attrs: {
@@ -350,8 +345,7 @@ function AudioGeneratorCard({
               genPrompt: text,
             },
           },
-        })
-      );
+        });
       try {
         if (!src) throw new Error('missing audio url');
         await promoteAudio({
@@ -368,7 +362,7 @@ function AudioGeneratorCard({
         if (!finished) {
           const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
             ?.document;
-          clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+          clearGeneratorProcessOverlay(doc, nodeId);
         }
         setSending(false);
       }
@@ -392,8 +386,7 @@ function AudioGeneratorCard({
     registerGeneratorSession(nodeId);
     setSending(true);
     let finished = false;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -405,17 +398,14 @@ function AudioGeneratorCard({
             audioGenModel: modelId,
           },
         },
-      })
-    );
+      });
     try {
       const jobId = await createAudioJob({ prompt: text, model: modelId }, { signal: ac.signal });
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           skipHistory: true,
           patch: { attrs: processJobAttrPatch([jobId]) },
-        })
-      );
+        });
       const res = await waitForAudioJob(jobId, { signal: ac.signal });
       const src = pickAudioUrl(res);
       if (!src) throw new Error(t('editor.tools.audioGenEmpty'));
@@ -431,7 +421,6 @@ function AudioGeneratorCard({
       }
     } finally {
       finishGeneratorGenerateSession({
-        dispatch,
         nodeId,
         finished,
         abortRef,

@@ -5,7 +5,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
-import { useDispatch } from '@/store';
+
 import { rcbResolveViewportEl, useRcbScreenToScene } from '@/components/rcb';
 import type { ContextMenuState } from '@/components/rcb/selection/chrome/CanvasContextMenu';
 import {
@@ -173,21 +173,19 @@ function findFrameIdAtScene(
 }
 
 function selectFrameOnly(
-  dispatch: ReturnType<typeof useDispatch>,
   frameId: string
 ) {
-  dispatch(setActiveFrameId(frameId));
-  dispatch(setFrameChromeMode('full'));
-  dispatch(setSelectedNodeIds([]));
-  dispatch(setSelectedNodeId(null));
+  setActiveFrameId(frameId);
+  setFrameChromeMode('full');
+  setSelectedNodeIds([]);
+  setSelectedNodeId(null);
 }
 
 function selectNodeOnly(
-  dispatch: ReturnType<typeof useDispatch>,
   nodeId: string
 ) {
   // Clears selectedFrameIds so soft frame highlight is not a mutation target.
-  dispatch(setMixedSelection({ nodeIds: [nodeId], frameIds: [] }));
+  setMixedSelection({ nodeIds: [nodeId], frameIds: [] });
 }
 
 type MenuHit = {
@@ -262,9 +260,7 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
     activeFrameIdRef,
     hitTest,
     setCtxMenu,
-  } = args;
-  const dispatch = useDispatch();
-  /** Same CameraTransform path as SelectionFeature (DPR-snapped pan). */
+  } = args;  /** Same CameraTransform path as SelectionFeature (DPR-snapped pan). */
   const toScene = useRcbScreenToScene();
 
   const openedAtRef = useRef(0);
@@ -306,13 +302,13 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
       });
 
       if (hit.nodeId && !selected.includes(hit.nodeId)) {
-        selectNodeOnly(dispatch, hit.nodeId);
+        selectNodeOnly(hit.nodeId);
       } else if (
         !hit.nodeId &&
         hit.frameId &&
         !selectedFrames.includes(hit.frameId)
       ) {
-        selectFrameOnly(dispatch, hit.frameId);
+        selectFrameOnly(hit.frameId);
       }
 
       setCtxMenu({
@@ -433,9 +429,7 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
       window.removeEventListener('contextmenu', onContextMenu, true);
     };
   }, [
-    activeFrameIdRef,
-    dispatch,
-    documentRef,
+    activeFrameIdRef, documentRef,
     paperEl,
     readOnly,
     selectedFrameIdsRef,

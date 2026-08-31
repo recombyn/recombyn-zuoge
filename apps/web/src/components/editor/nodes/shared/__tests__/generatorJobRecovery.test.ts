@@ -30,6 +30,27 @@ vi.mock('@/components/rcb/scene/document/nodeFactories', async (importOriginal) 
   };
 });
 
+vi.mock('@/store/modules/editor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/store/modules/editor')>();
+  return {
+    ...actual,
+    clearImageProcess: vi.fn(),
+    finishImageGenerator: vi.fn(),
+    finishVideoGenerator: vi.fn(),
+    finishAudioGenerator: vi.fn(),
+    finishLottieGenerator: vi.fn(),
+    finishImageProcess: vi.fn(),
+  };
+});
+
+import {
+  clearImageProcess,
+  finishAudioGenerator,
+  finishImageGenerator,
+  finishImageProcess,
+  finishLottieGenerator,
+  finishVideoGenerator,
+} from '@/store/modules/editor';
 import { waitForImageBatchJobs } from '@/service/generateImageBatch';
 import { waitForAudioJob, waitForLottieJob, waitForVideoJob } from '@/service/chat';
 import { isLottieGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
@@ -117,7 +138,8 @@ describe('generatorJobRecovery', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    unregisterGeneratorSession('gen-img');
+    unregisterGeneratorSession('quick-edit');
   });
 
   it('lists only generate/quickEdit running nodes', () => {
@@ -136,9 +158,7 @@ describe('generatorJobRecovery', () => {
 
   it('skips nodes with an active in-memory session', async () => {
     registerGeneratorSession('gen-img');
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       doc,
       'gen-img',
       doc.deltaSetLike['gen-img']
@@ -148,27 +168,18 @@ describe('generatorJobRecovery', () => {
   });
 
   it('fails when generator has no job ids', async () => {
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       doc,
       'stale-gen',
       doc.deltaSetLike['stale-gen']
     );
     expect(result).toBe('failed');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: expect.stringContaining('clearImageProcess'),
-        payload: expect.objectContaining({ nodeId: 'stale-gen' }),
-      })
-    );
+    expect(clearImageProcess).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'stale-gen' }));
     expect(waitForImageBatchJobs).not.toHaveBeenCalled();
   });
 
   it('fails when job ids are stale (skip long poll)', async () => {
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       doc,
       'stale-gen-jobs',
       doc.deltaSetLike['stale-gen-jobs']
@@ -193,24 +204,16 @@ describe('generatorJobRecovery', () => {
     };
     expect(parseLottieAnimationData(payload.animationData)).not.toBeNull();
     vi.mocked(waitForLottieJob).mockResolvedValue(payload);
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       doc,
       'lottie-gen',
       doc.deltaSetLike['lottie-gen']
     );
     expect(result).toBe('done');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: expect.stringContaining('finishLottieGenerator'),
-        payload: expect.objectContaining({ nodeId: 'lottie-gen' }),
-      })
-    );
+    expect(finishLottieGenerator).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'lottie-gen' }));
   });
 
   it('fails for lottie without job ids', async () => {
-    const dispatch = vi.fn();
     const node = {
       ...doc.deltaSetLike['lottie-gen'],
       attrs: {
@@ -218,7 +221,7 @@ describe('generatorJobRecovery', () => {
         processJobIds: undefined,
       },
     };
-    const result = await recoverGeneratorNode(dispatch, doc, 'lottie-gen', node);
+    const result = await recoverGeneratorNode(doc, 'lottie-gen', node);
     expect(result).toBe('failed');
     expect(waitForLottieJob).not.toHaveBeenCalled();
   });
@@ -228,63 +231,42 @@ describe('generatorJobRecovery', () => {
       'https://cdn/a.png',
       'https://cdn/b.png',
     ]);
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       doc,
       'gen-img',
       doc.deltaSetLike['gen-img']
     );
     expect(result).toBe('done');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: expect.stringContaining('finishImageGenerator'),
-        payload: expect.objectContaining({
+    expect(finishImageGenerator).toHaveBeenCalledWith(expect.objectContaining({
           nodeId: 'gen-img',
           src: 'https://cdn/a.png',
           variants: ['https://cdn/a.png', 'https://cdn/b.png'],
-        }),
-      })
-    );
+        }));
   });
 
   it('finishes quick edit when jobs resolve', async () => {
     vi.mocked(waitForImageBatchJobs).mockResolvedValueOnce(['https://cdn/new.png']);
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       doc,
       'quick-edit',
       doc.deltaSetLike['quick-edit']
     );
     expect(result).toBe('done');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: expect.stringContaining('finishImageProcess'),
-        payload: expect.objectContaining({
+    expect(finishImageProcess).toHaveBeenCalledWith(expect.objectContaining({
           nodeId: 'quick-edit',
           src: 'https://cdn/new.png',
-        }),
-      })
-    );
+        }));
   });
 
   it('clears process attrs when job polling fails', async () => {
     vi.mocked(waitForImageBatchJobs).mockRejectedValueOnce(new Error('failed'));
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       doc,
       'gen-img',
       doc.deltaSetLike['gen-img']
     );
     expect(result).toBe('failed');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: expect.stringContaining('clearImageProcess'),
-        payload: expect.objectContaining({ nodeId: 'gen-img' }),
-      })
-    );
+    expect(clearImageProcess).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'gen-img' }));
   });
 
   it('recovers video generator jobs', async () => {
@@ -308,19 +290,13 @@ describe('generatorJobRecovery', () => {
       videos: ['https://cdn/v.mp4'],
       model: 'm',
     });
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       videoDoc,
       'gen-vid',
       videoDoc.deltaSetLike['gen-vid']
     );
     expect(result).toBe('done');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: expect.stringContaining('finishVideoGenerator'),
-      })
-    );
+    expect(finishVideoGenerator).toHaveBeenCalled();
   });
 
   it('recovers audio generator jobs', async () => {
@@ -367,18 +343,12 @@ describe('generatorJobRecovery', () => {
       audios: ['https://cdn/a.mp3'],
       model: 'm',
     });
-    const dispatch = vi.fn();
     const result = await recoverGeneratorNode(
-      dispatch,
       audioDoc,
       'gen-aud',
       audioDoc.deltaSetLike['gen-aud']
     );
     expect(result).toBe('done');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: expect.stringContaining('finishAudioGenerator'),
-      })
-    );
+    expect(finishAudioGenerator).toHaveBeenCalled();
   });
 });

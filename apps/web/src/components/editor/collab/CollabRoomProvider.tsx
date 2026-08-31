@@ -15,7 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import {
   useActiveFrameId,
   useCurrentProjectId,
@@ -85,14 +85,10 @@ function waitIndexeddbSynced(persistence: IndexeddbPersistence): Promise<void> {
   });
 }
 
-function dispatchRemoteScene(
-  dispatch: (action: unknown) => void,
-  prev: unknown,
-  next: unknown
-) {
+function dispatchRemoteScene(prev: unknown, next: unknown) {
   const diff = diffScenesForCollab(prev, next);
   if (diff.mode === 'full') {
-    dispatch(applyCollabDocument(diff.scene ?? next));
+    applyCollabDocument(diff.scene ?? next);
     return;
   }
   const noop =
@@ -104,7 +100,7 @@ function dispatchRemoteScene(
     diff.pageChildren == null &&
     diff.stackOrder == null;
   if (noop) return;
-  dispatch(applyCollabScenePatch(diff));
+  applyCollabScenePatch(diff);
 }
 
 const PERSIST_DEBOUNCE_MS = 2000;
@@ -551,7 +547,6 @@ export function CollabRoomProvider({
   camera: RcbCamera;
   onCameraChange?: (next: RcbCamera) => void;
 }) {
-  const dispatch = useDispatch();
   const [searchParams] = useSearchParams();
   const enabled = shouldEnableCollab(searchParams);
   const cameraRef = useRef(camera);
@@ -689,7 +684,7 @@ export function CollabRoomProvider({
       try {
         const scene = sceneFromYDoc(ydoc);
         lastPushedHashRef.current = sceneHash(scene);
-        dispatch(applyCollabDocument(scene));
+        applyCollabDocument(scene);
         syncPushedRevisionFromStore();
         clearCollabUndoStack();
       } finally {
@@ -785,7 +780,7 @@ export function CollabRoomProvider({
       try {
         const prev = store.getState().editor.document;
         lastPushedHashRef.current = hash;
-        dispatchRemoteScene(dispatch, prev, scene);
+        dispatchRemoteScene(prev, scene);
       } finally {
         queueMicrotask(() => {
           applyingRemoteRef.current = false;
@@ -912,7 +907,7 @@ export function CollabRoomProvider({
       setFollowingUserId(null);
       setCollabViewOnly(false);
     };
-  }, [enabled, currentId, user?.id, user?.name, user?.email, dispatch]);
+  }, [enabled, currentId, user?.id, user?.name, user?.email]);
 
   const followingUserIdRef = useRef<string | null>(null);
   followingUserIdRef.current = followingUserId;

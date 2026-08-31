@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { LuPencil } from 'react-icons/lu';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
 import { Icon } from '@/components/base/icon';
@@ -24,9 +24,7 @@ const BTN_ACTIVE = 'bg-white/15 text-white';
  * Icon annotate strip: pen · select · text · color · stroke width.
  * No photo tools (remove-bg / upscale / eraser — .
  */
-function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {
-  const dispatch = useDispatch();
-  const activeTool = useSelector((s: any) => String(s.editor.activeTool || 'select'));
+function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {  const activeTool = useSelector((s: any) => String(s.editor.activeTool || 'select'));
   const color = useSelector((s: any) => String(s.editor.penStrokeColor || '#ef4444'));
   const width = useSelector((s: any) => {
     const n = Number(s.editor.penStrokeWidth);
@@ -47,7 +45,7 @@ function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {
           type="button"
           aria-label={'画笔'}
           className={cn(BTN, penActive && BTN_ACTIVE)}
-          onClick={() => dispatch(setActiveTool('pencil'))}
+          onClick={() => setActiveTool('pencil')}
         >
           <LuPencil className="h-4 w-4" strokeWidth={1.75} />
         </button>
@@ -58,7 +56,7 @@ function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {
           type="button"
           aria-label={'选择'}
           className={cn(BTN, selectActive && !penActive && !textActive && BTN_ACTIVE)}
-          onClick={() => dispatch(setActiveTool('select'))}
+          onClick={() => setActiveTool('select')}
         >
           <Icon name="editor-annotate-select" className="h-4 w-4" />
         </button>
@@ -69,7 +67,7 @@ function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {
           type="button"
           aria-label={'文字'}
           className={cn(BTN, textActive && BTN_ACTIVE)}
-          onClick={() => dispatch(setActiveTool('text'))}
+          onClick={() => setActiveTool('text')}
         >
           <Icon name="editor-annotate-text" className="h-4 w-4" />
         </button>
@@ -79,7 +77,7 @@ function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {
 
       <ColorPanelPopover
         value={color}
-        onChange={(hex) => dispatch(setPenStrokeColor(hex))}
+        onChange={(hex) => setPenStrokeColor(hex)}
         title={'标注颜色'}
         placement="top"
         offset={10}
@@ -108,7 +106,7 @@ function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {
             max={24}
             step={1}
             value={width}
-            onChange={(v) => dispatch(setPenStrokeWidth(v))}
+            onChange={(v) => setPenStrokeWidth(v)}
             thumbColor="#ffffff"
             activeColor="#ffffff"
             inactiveColor="rgba(255,255,255,0.28)"

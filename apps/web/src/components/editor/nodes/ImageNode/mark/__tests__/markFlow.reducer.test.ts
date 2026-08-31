@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import editorReducer, {
+import {
+  editorReducers,
+  reduceEditor,
   clearImageMarkPin,
   enqueueQuickEditMarkContexts,
   removeImageMarkPin,
@@ -31,23 +33,27 @@ const pin2: ImageMarkPin = {
 
 describe('imageMarkPins reducer', () => {
   it('stores multiple pins per image node', () => {
-    const state = editorReducer(undefined, setImageMarkPin(pin));
+    const state = reduceEditor(undefined, editorReducers.setImageMarkPin, pin);
     expect(state.imageMarkPins['img-1']).toEqual([pin]);
 
-    const withTwo = editorReducer(state, setImageMarkPin(pin2));
+    const withTwo = reduceEditor(state, editorReducers.setImageMarkPin, pin2);
     expect(withTwo.imageMarkPins['img-1']).toHaveLength(2);
     expect(withTwo.imageMarkPins['img-1']?.[1]?.id).toBe('pin-2');
   });
 
   it('removes one pin by id', () => {
-    const withTwo = editorReducer(editorReducer(undefined, setImageMarkPin(pin)), setImageMarkPin(pin2));
-    const next = editorReducer(withTwo, removeImageMarkPin({ nodeId: 'img-1', pinId: 'pin-1' }));
+    const withTwo = reduceEditor(
+      reduceEditor(undefined, editorReducers.setImageMarkPin, pin),
+      editorReducers.setImageMarkPin,
+      pin2
+    );
+    const next = reduceEditor(withTwo, editorReducers.removeImageMarkPin, { nodeId: 'img-1', pinId: 'pin-1' });
     expect(next.imageMarkPins['img-1']).toEqual([pin2]);
   });
 
   it('clears all pins for a node', () => {
-    const withPin = editorReducer(undefined, setImageMarkPin(pin));
-    const cleared = editorReducer(withPin, clearImageMarkPin('img-1'));
+    const withPin = reduceEditor(undefined, editorReducers.setImageMarkPin, pin);
+    const cleared = reduceEditor(withPin, editorReducers.clearImageMarkPin, 'img-1');
     expect(cleared.imageMarkPins['img-1']).toBeUndefined();
   });
 });
@@ -61,7 +67,7 @@ describe('pendingQuickEditMarkContexts reducer', () => {
       payload: 'region payload',
       appendText: ' hello',
     };
-    const state = editorReducer(undefined, enqueueQuickEditMarkContexts([chip]));
+    const state = reduceEditor(undefined, editorReducers.enqueueQuickEditMarkContexts, [chip]);
     expect(state.pendingQuickEditMarkContexts).toEqual([chip]);
     expect(state.pendingQuickEditMarkContexts[0]?.dataUrl).toBeUndefined();
     expect(state.pendingQuickEditMarkContexts[0]?.thumbUrl).toBeUndefined();

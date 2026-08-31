@@ -11,7 +11,7 @@ import {
   type Placement,
 } from '@floating-ui/react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import {
   useCurrentProjectId,
   useEditorDocumentOnCommit,
@@ -136,7 +136,7 @@ function syncAnimationFrameForExport(frameId: string): {
   document: SceneDocument | null;
   mediaId: string | null;
 } {
-  store.dispatch(ensureAnimationFrameMedia({ frameId }));
+  ensureAnimationFrameMedia({ frameId });
   const document = (store.getState()?.editor?.document as SceneDocument | null) ?? null;
   const mediaId = findFrameAnimationMediaId(document, frameId);
   return { document, mediaId };
@@ -395,9 +395,7 @@ function ExportSelectionPanel({
   animationFrameId?: string;
 }) {
   const { t } = useTranslation();
-  const tipId = useId();
-  const dispatch = useDispatch();
-  const document = useEditorDocumentOnCommit();
+  const tipId = useId();  const document = useEditorDocumentOnCommit();
   const ids = useMemo(() => {
     const raw = nodeIds || [];
     return raw.filter((id) => {
@@ -455,8 +453,8 @@ function ExportSelectionPanel({
   // Keep workbench host animationData fresh when the export panel opens.
   useEffect(() => {
     if (!animationIntent || !resolvedAnimFrameId) return;
-    dispatch(ensureAnimationFrameMedia({ frameId: resolvedAnimFrameId }));
-  }, [animationIntent, dispatch, resolvedAnimFrameId]);
+    ensureAnimationFrameMedia({ frameId: resolvedAnimFrameId });
+  }, [animationIntent, resolvedAnimFrameId]);
 
   // Drop to the largest safe preset when the current scale no longer fits.
   useEffect(() => {
@@ -989,9 +987,7 @@ function ExportSelectionPopover({
   intent = 'default',
   animationFrameId,
 }: ExportSelectionPopoverProps) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
   const [open, setOpen] = useState(false);
   const ids = useMemo(() => {
     const raw = nodeIds || [];
@@ -1044,10 +1040,10 @@ function ExportSelectionPopover({
     if (disabled || !canExport) return;
     // Sync workbench host before the panel mounts so Lottie/MP4 see fresh animationData.
     if (intent === 'animation' && resolvedAnimFrameId) {
-      dispatch(ensureAnimationFrameMedia({ frameId: resolvedAnimFrameId }));
+      ensureAnimationFrameMedia({ frameId: resolvedAnimFrameId });
     }
     setOpen((v) => !v);
-  }, [canExport, disabled, dispatch, intent, resolvedAnimFrameId]);
+  }, [canExport, disabled, intent, resolvedAnimFrameId]);
 
   // After sync on open, prefer the resolved media host id for the panel.
   const panelNodeIds = useMemo(() => {

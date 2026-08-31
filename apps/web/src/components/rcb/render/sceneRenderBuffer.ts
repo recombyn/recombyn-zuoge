@@ -73,6 +73,23 @@ function isTransparentCssColor(c: string): boolean {
   return !s || s === 'none' || s === 'transparent' || s === 'rgba(0,0,0,0)';
 }
 
+function pathAttrsHaveSolidFill(attrs: Record<string, unknown>): boolean {
+  if (attrs['fill-enabled'] === false || attrs['fill-enabled'] === 'false') return false;
+  if (attrs['fill-visible'] === false || attrs['fill-visible'] === 'false') return false;
+  const fill = attrs.fill ?? attrs['fill-color'] ?? attrs.fillColor;
+  return !isTransparentCssColor(String(fill || ''));
+}
+
+/** True when VITE_SOA_WEBGL_ATLAS is explicitly disabled (default-on with WebGL). */
+function isSoaWebglAtlasEnvOff(): boolean {
+  try {
+    const v = String(import.meta.env.VITE_SOA_WEBGL_ATLAS ?? '').toLowerCase();
+    return v === '0' || v === 'false' || v === 'no';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * True when {@link paintSoaBufferBasic} / WebGL can draw the node faithfully.
  * Outline stroke / gradient / poly / text / media / rotation / flip stay on SVG
@@ -123,6 +140,15 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
     const fillRule = String(attrs['fill-rule'] || '').toLowerCase();
     if (fillRule === 'evenodd') return false;
     if (attrs.outlined === true || attrs.outlined === 'true') return false;
+    // Closed fill needs atlas stamps; without atlas keep SVG (segment batch is stroke-only).
+    if (
+      isSoaWebglEnvEnabled() &&
+      isSoaWebglAtlasEnvOff() &&
+      pathDLooksClosed(d, attrs.closed) &&
+      pathAttrsHaveSolidFill(attrs)
+    ) {
+      return false;
+    }
     return true;
   }
   return false;
@@ -590,6 +616,130 @@ export function resolveSoaPaintBox(
   return { x, y, w, h, dx: x - baseX, dy: y - baseY };
 }
 
+/**
+ * Map a scene point into the slot's local box (origin top-left), undoing the
+ * same center-rotate TransformPreview paint uses.
+ */
+export function soaPointToLocalBox(
+  px: number,
+  py: number,
+  left: number,
+  top: number,
+  w: number,
+  h: number,
+  angleDeg: number
+): { lx: number; ly: number } {
+  const cx = left + w / 2;
+  const cy = top + h / 2;
+  let dx = px - cx;
+  let dy = py - cy;
+  if (Math.abs(angleDeg) > 0.5) {
+    const rad = (-angleDeg * Math.PI) / 180;
+    const c = Math.cos(rad);
+    const s = Math.sin(rad);
+    const rx = dx * c - dy * s;
+    const ry = dx * s + dy * c;
+    dx = rx;
+    dy = ry;
+  }
+  return { lx: dx + w / 2, ly: dy + h / 2 };
+}
+
+function soaLiveAngleDeg(nodeId: string | undefined): number {
+  if (!nodeId) return 0;
+  const a = getNodeTransformPreview(nodeId)?.angle;
+  if (!Number.isFinite(a) || Math.abs(Number(a)) <= 0.5) return 0;
+  return Number(a);
+}
+
+/** Local-space rounded rect hit (matches {@link fillSoaRoundedRect}). */
+export function hitSoaRoundedRectLocal(
+  lx: number,
+  ly: number,
+  w: number,
+  h: number,
+  tl: number,
+  tr: number,
+  br: number,
+  bl: number
+): boolean {
+  if (lx < 0 || ly < 0 || lx >= w || ly >= h) return false;
+  if (tl > 0 && lx < tl && ly < tl) {
+    const dx = lx - tl;
+    const dy = ly - tl;
+    return dx * dx + dy * dy <= tl * tl;
+  }
+  if (tr > 0 && lx > w - tr && ly < tr) {
+    const dx = lx - (w - tr);
+    const dy = ly - tr;
+    return dx * dx + dy * dy <= tr * tr;
+  }
+  if (br > 0 && lx > w - br && ly > h - br) {
+    const dx = lx - (w - br);
+    const dy = ly - (h - br);
+    return dx * dx + dy * dy <= br * br;
+  }
+  if (bl > 0 && lx < bl && ly > h - bl) {
+    const dx = lx - bl;
+    const dy = ly - (h - bl);
+    return dx * dx + dy * dy <= bl * bl;
+  }
+  return true;
+}
+
+/** Even-odd ray cast for a densified SoA polyline (closed fill). */
+export function hitSoaPolylineFill(
+  xy: Float32Array,
+  startPoint: number,
+  pointCount: number,
+  odx: number,
+  ody: number,
+  px: number,
+  py: number
+): boolean {
+  if (pointCount < 3) return false;
+  const base = startPoint * 2;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let p = 0; p < pointCount; p += 1) {
+    const fo = base + p * 2;
+    const x = xy[fo] + odx;
+    const y = xy[fo + 1] + ody;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    xs.push(x);
+    ys.push(y);
+  }
+  const n = xs.length;
+  if (n < 3) return false;
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i, i += 1) {
+    const xi = xs[i];
+    const yi = ys[i];
+    const xj = xs[j];
+    const yj = ys[j];
+    const cross = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi + 1e-12) + xi;
+    if (cross) inside = !inside;
+  }
+  return inside;
+}
+
+function distPointToSeg(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-8) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
 /** Point hit against a single SoA slot (scene units). */
 export function hitTestSoaSlot(
   buf: SceneRenderBuffer,
@@ -605,41 +755,22 @@ export function hitTestSoaSlot(
   if (id && getNodeTransformPreview(id)?.hidden) return false;
   const { x: left, y: top, w, h, dx: odx, dy: ody } = resolveSoaPaintBox(buf, index);
   const kind = buf.kinds[index];
-  if (kind === SOA_KIND_ELLIPSE) {
-    const cx = left + w / 2;
-    const cy = top + h / 2;
-    const rx = w / 2;
-    const ry = h / 2;
-    if (rx <= 0 || ry <= 0) return false;
-    const nx = (x - cx) / rx;
-    const ny = (y - cy) / ry;
-    return nx * nx + ny * ny <= 1;
-  }
+  const angle = soaLiveAngleDeg(id);
+
   if (kind === SOA_KIND_LINE) {
-    // Fat segment pick (≈ stroke half-width + pad).
     const pickR = Math.max(2, soaStrokeWidth(buf, index) * 0.5 + 1);
-    const x1 = left + w;
-    const y1 = top + h;
-    const dx = x1 - left;
-    const dy = y1 - top;
-    const len2 = dx * dx + dy * dy;
-    if (len2 < 1e-8) {
-      return Math.hypot(x - left, y - top) <= pickR;
-    }
-    let t = ((x - left) * dx + (y - top) * dy) / len2;
-    t = Math.max(0, Math.min(1, t));
-    const px = left + t * dx;
-    const py = top + t * dy;
-    return Math.hypot(x - px, y - py) <= pickR;
+    return distPointToSeg(x, y, left, top, left + w, top + h) <= pickR;
   }
+
   if (kind === SOA_KIND_PATH) {
     const start = buf.pathStart[index];
     const len = buf.pathLen[index];
     if (start < 0 || len < 2) {
-      return x >= left && x < left + w && y >= top && y < top + h;
+      const { lx, ly } = soaPointToLocalBox(x, y, left, top, w, h, angle);
+      return lx >= 0 && lx < w && ly >= 0 && ly < h;
     }
-    const base = start * 2;
     const thresh = Math.max(2, soaStrokeWidth(buf, index) * 0.5 + 1);
+    const base = start * 2;
     let last = -1;
     for (let p = 0; p < len; p += 1) {
       const fo = base + p * 2;
@@ -652,22 +783,36 @@ export function hitTestSoaSlot(
       if (last >= 0) {
         const ax = buf.pathXY[last] + odx;
         const ay = buf.pathXY[last + 1] + ody;
-        const dx = px - ax;
-        const dy = py - ay;
-        const len2 = dx * dx + dy * dy;
-        let t = len2 > 1e-8 ? ((x - ax) * dx + (y - ay) * dy) / len2 : 0;
-        t = Math.max(0, Math.min(1, t));
-        if (Math.hypot(x - (ax + t * dx), y - (ay + t * dy)) <= thresh) return true;
+        if (distPointToSeg(x, y, ax, ay, px, py) <= thresh) return true;
       }
       last = fo;
     }
-    if (buf.pathClosed[index] && len >= 2) {
-      // Closed fill: AABB is enough for idle pick of filled closed paths.
-      return x >= left && x < left + w && y >= top && y < top + h;
+    if (buf.pathClosed[index]) {
+      return hitSoaPolylineFill(buf.pathXY, start, len, odx, ody, x, y);
     }
     return false;
   }
-  return x >= left && x < left + w && y >= top && y < top + h;
+
+  const { lx, ly } = soaPointToLocalBox(x, y, left, top, w, h, angle);
+  if (kind === SOA_KIND_ELLIPSE) {
+    const rx = w / 2;
+    const ry = h / 2;
+    if (rx <= 0 || ry <= 0) return false;
+    const nx = (lx - rx) / rx;
+    const ny = (ly - ry) / ry;
+    return nx * nx + ny * ny <= 1;
+  }
+
+  // RECT (sharp or rounded)
+  const ro = index * RAD_STRIDE;
+  const tl = buf.radii[ro] || 0;
+  const tr = buf.radii[ro + 1] || 0;
+  const br = buf.radii[ro + 2] || 0;
+  const bl = buf.radii[ro + 3] || 0;
+  if (tl > 0.5 || tr > 0.5 || br > 0.5 || bl > 0.5) {
+    return hitSoaRoundedRectLocal(lx, ly, w, h, tl, tr, br, bl);
+  }
+  return lx >= 0 && lx < w && ly >= 0 && ly < h;
 }
 
 /**

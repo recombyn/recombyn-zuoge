@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import Tooltip from '@/components/base/tooltip';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
@@ -38,9 +38,7 @@ function BucketFillToolbar({
   /** `flat` when embedded in the timeline top rail (no pill border/shadow). */
   chrome?: 'pill' | 'flat';
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const bucketFill = useSelector((s: any) => s.editor.bucketFill);
+  const { t } = useTranslation();  const bucketFill = useSelector((s: any) => s.editor.bucketFill);
   const value = useMemo(() => bucketFillToPanelValue(bucketFill), [bucketFill]);
   const preview = fillPanelPreview(value);
 
@@ -49,7 +47,7 @@ function BucketFillToolbar({
       <FloatingToolbar variant={chrome} className="h-8 gap-1 px-2 py-0">
         <FillPanelPopover
           value={value}
-          onChange={(next) => dispatch(setBucketFill(next))}
+          onChange={(next) => setBucketFill(next)}
           title={t('editor.selectionToolbar.color')}
           placement="bottom"
           offset={10}

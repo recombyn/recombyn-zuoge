@@ -4,7 +4,7 @@
  * Camera fit/release is event-driven (`requestPrecompCameraFit` / Release).
  */
 import { memo, useEffect, useLayoutEffect, useRef } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
@@ -144,9 +144,7 @@ function AnimationPrecompEditFocusHost({
         sessionNodeIds?: string[];
         frameId?: string;
       }
-  );
-  const dispatch = useDispatch();
-  const active = Boolean(edit?.hostNodeId && edit?.assetId);
+  );  const active = Boolean(edit?.hostNodeId && edit?.assetId);
   const hostNodeId = edit?.hostNodeId || '';
   const assetId = edit?.assetId || '';
   const frameId = edit?.frameId || '';
@@ -183,11 +181,11 @@ function AnimationPrecompEditFocusHost({
         return;
       }
       e.preventDefault();
-      dispatch(exitLottiePrecompEdit());
+      exitLottiePrecompEdit();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [active, dispatch]);
+  }, [active]);
 
   useEffect(() => {
     let cancelled = false;

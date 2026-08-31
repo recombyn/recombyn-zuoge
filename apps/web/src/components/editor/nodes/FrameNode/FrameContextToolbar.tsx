@@ -1,5 +1,5 @@
 import { useState, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineArrowsRightLeft,
@@ -39,9 +39,7 @@ const field =
 
 /** Floating toolbar for the active artboard / frame (shown after draw / select). */
 function FrameContextToolbar({ frame, frames, box }: Props) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const [presetOpen, setPresetOpen] = useState(false);
+  const { t } = useTranslation();  const [presetOpen, setPresetOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
   const canvasLocked = Boolean(frame.locked);
   const multiFrame = Boolean(frames && frames.length > 1);
@@ -63,7 +61,7 @@ function FrameContextToolbar({ frame, frames, box }: Props) {
   const isLandscape = frame.width > frame.height;
 
   const patch = (next: Partial<ArtboardFrame>) => {
-    dispatch(updateArtboardFrame({ id: frame.id, patch: next }));
+    updateArtboardFrame({ id: frame.id, patch: next });
   };
 
   const setSize = (axis: 'w' | 'h', raw: string) => {

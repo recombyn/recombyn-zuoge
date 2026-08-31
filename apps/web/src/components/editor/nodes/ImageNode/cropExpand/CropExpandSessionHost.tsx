@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeId } from '@/store/editorSelectors';
 import {
   HiOutlineArrowsPointingOut,
@@ -202,9 +202,7 @@ function CropExpandSessionHost({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+}): ReactNode {  const camera = useRcbCamera();
   const panel = useSelector((s: any) => s.editor.imageToolPanel as null | {
     nodeId: string;
     kind: ImageToolPanelKind;
@@ -240,21 +238,21 @@ function CropExpandSessionHost({
   useEffect(() => {
     if (!mode || !nodeId) return;
     if (!selectedNodeId || selectedNodeId !== nodeId) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
     }
-  }, [selectedNodeId, mode, nodeId, dispatch]);
+  }, [selectedNodeId, mode, nodeId]);
 
   useEffect(() => {
     if (!mode || !nodeId) return;
     if (!isCroppableNode(node)) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
       return;
     }
     // Expand is image-only (outpaint).
     if (mode === 'expand' && node.key !== 'image') {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
     }
-  }, [document, mode, nodeId, node, dispatch]);
+  }, [document, mode, nodeId, node]);
 
   // Hooks must run unconditionally — never after the early return below.
   const frameWorld = useMemo(() => {
@@ -286,7 +284,7 @@ function CropExpandSessionHost({
 
   if (!mode || !nodeId || !box || !cropRect || !expandFrame || !frameWorld || hidden) return null;
 
-  const close = () => dispatch(closeImageToolPanel());
+  const close = () => closeImageToolPanel();
 
   const applyRatio = (id: string) => {
     setRatio(id);
@@ -337,16 +335,14 @@ function CropExpandSessionHost({
     if (!expandFrame || !nodeId || !box) return;
     const outW = Math.max(1, Math.round(expandFrame.w));
     const outH = Math.max(1, Math.round(expandFrame.h));
-    dispatch(
-      startImageProcess({
+    startImageProcess({
         sourceId: nodeId,
         kind: 'expand',
         label: '扩展中',
         targetWidth: outW,
         targetHeight: outH,
         meta: expandMetaFromFrame(box.width, box.height, expandFrame),
-      })
-    );
+      });
     close();
   };
 
@@ -356,9 +352,9 @@ function CropExpandSessionHost({
     const outH = Math.max(1, Math.round(cropRect.h));
     const cropAttrs = composeVideoCropFractions(node.attrs, box.width, box.height, cropRect);
     const { id, document: next } = spawnSiblingAtCrop(cropAttrs, outW, outH);
-    dispatch(setDocument(next));
-    dispatch(setSelectedNodeIds([id]));
-    dispatch(setSelectedNodeId(id));
+    setDocument(next);
+    setSelectedNodeIds([id]);
+    setSelectedNodeId(id);
     close();
   };
 
@@ -396,9 +392,9 @@ function CropExpandSessionHost({
         const outW = Math.max(1, Math.round(cropRect.w));
         const outH = Math.max(1, Math.round(cropRect.h));
         const { id, document: next } = spawnSiblingAtCrop({ src: nextSrc }, outW, outH);
-        dispatch(setDocument(next));
-        dispatch(setSelectedNodeIds([id]));
-        dispatch(setSelectedNodeId(id));
+        setDocument(next);
+        setSelectedNodeIds([id]);
+        setSelectedNodeId(id);
         close();
       } catch (err) {
         console.warn('[crop]', err);

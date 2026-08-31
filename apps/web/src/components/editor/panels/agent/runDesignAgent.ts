@@ -6,7 +6,7 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
  * so results land as editable canvas nodes — not a single image blob.
  */
 
-import type { Dispatch } from '@/store';
+
 import {
   fetchDesignRunEvents,
   fetchDesignRunStatus,
@@ -261,7 +261,6 @@ export function overlayFromToolOps(opts: { ops: Array<{ name?: string; args?: Re
 }
 
 export type ToolOpsExecutorContext = {
-  dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   frameId: string | null;
   signal?: AbortSignal;
@@ -343,7 +342,6 @@ function hasCompleteOperationReceipts(
 
 export async function applyAgentToolOps(opts: {
   ops: Array<{ name?: string; args?: Record<string, unknown>; op_id?: string }>;
-  dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   frameId: string | null;
   signal?: AbortSignal;
@@ -376,16 +374,15 @@ export async function applyAgentToolOps(opts: {
   historyPushed: boolean;
   revisionAction?: 'apply' | 'rebase' | 'reject';
 }> {
-  const { ops, dispatch, getDocument, frameId, signal, userImages, appliedOpIds } =
+  const { ops, getDocument, frameId, signal, userImages, appliedOpIds } =
     opts;
   const delayMs = resolveToolOpsInterOpDelayMs({
     opCount: ops.length,
     overrideMs: opts.delayMs,
   });
   const lockCanvas = opts.lockCanvas !== false;
-  if (lockCanvas) dispatch(beginCanvasApplyLock());
+  if (lockCanvas) beginCanvasApplyLock();
   const toolCtx = {
-    dispatch,
     getDocument,
     skipHistory: true as const,
     targetFrameId: frameId as string | null,
@@ -447,7 +444,6 @@ export async function applyAgentToolOps(opts: {
     currentRevision: opts.currentRevision,
     document: getDocument(),
     skipHistory: Boolean(opts.skipHistoryPush),
-    dispatch,
     execute: async (allowed) => {
       const opResults: ToolOpResult[] = [];
       const rawDeletes = ops.filter((o) =>
@@ -583,7 +579,7 @@ export async function applyAgentToolOps(opts: {
     revisionAction: mutation.revisionAction,
   };
   } finally {
-    if (lockCanvas) dispatch(endCanvasApplyLock());
+    if (lockCanvas) endCanvasApplyLock();
   }
 }
 
@@ -619,7 +615,6 @@ export function frameSizeFromDoc(
 }
 
 export function ensureFrameSize(opts: {
-  dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   frameId: string | null;
   width: number;
@@ -628,7 +623,6 @@ export function ensureFrameSize(opts: {
   name?: string;
 }): string | null {
   const toolCtxBase = {
-    dispatch: opts.dispatch,
     getDocument: opts.getDocument,
     skipHistory: opts.skipHistory !== false ? (true as const) : undefined,
   };
@@ -1181,7 +1175,6 @@ function shouldFullReplace(
 }
 
 type ApplyCoreOpts = {
-  dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   ops: ToolOp[];
   frameId: string | null;
@@ -1195,7 +1188,6 @@ type ApplyCoreOpts = {
 
 async function applyOpsIncremental(opts: ApplyCoreOpts): Promise<ApplyDesignSvgResult> {
   const {
-    dispatch,
     getDocument,
     ops,
     frameId,
@@ -1206,7 +1198,6 @@ async function applyOpsIncremental(opts: ApplyCoreOpts): Promise<ApplyDesignSvgR
   } = opts;
   const delayMs = Math.max(0, opts.delayMs ?? 0);
   const toolCtx = {
-    dispatch,
     getDocument,
     skipHistory: true as const,
     targetFrameId: frameId,
@@ -1224,7 +1215,7 @@ async function applyOpsIncremental(opts: ApplyCoreOpts): Promise<ApplyDesignSvgR
   };
   if (!ops.length) return empty;
 
-  dispatch(pushEditorHistory());
+  pushEditorHistory();
 
   const { assignment, leftoverPrev } = assignOpsToPrevNodes(ops, prevIds, getDocument);
   const fullReplace =
@@ -1232,7 +1223,7 @@ async function applyOpsIncremental(opts: ApplyCoreOpts): Promise<ApplyDesignSvgR
 
   if (fullReplace) {
     if (prevIds.length) {
-      dispatch(setDocument(removeNodesFromDocument(getDocument(), prevIds)));
+      setDocument(removeNodesFromDocument(getDocument(), prevIds));
     }
     const nodeIds: string[] = [];
     for (let i = 0; i < ops.length; i++) {
@@ -1262,7 +1253,7 @@ async function applyOpsIncremental(opts: ApplyCoreOpts): Promise<ApplyDesignSvgR
   }
 
   if (leftoverPrev.length) {
-    dispatch(setDocument(removeNodesFromDocument(getDocument(), leftoverPrev)));
+    setDocument(removeNodesFromDocument(getDocument(), leftoverPrev));
   }
 
   const nodeIds: string[] = [];
@@ -1336,7 +1327,6 @@ function collectPrevIds(opts: {
 
 /** Apply design SVG through canvas tools as editable nodes (progressive live-draw). */
 export async function applyDesignSvgToDocumentProgressive(opts: {
-  dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   svg: string;
   canvasSize?: string | null;
@@ -1370,7 +1360,6 @@ export async function applyDesignSvgToDocumentProgressive(opts: {
   const { width, height } = resolved;
 
   const frameId = ensureFrameSize({
-    dispatch: opts.dispatch,
     getDocument: opts.getDocument,
     frameId: opts.targetFrameId || null,
     width,
@@ -1394,7 +1383,6 @@ export async function applyDesignSvgToDocumentProgressive(opts: {
 
   const isFirstPaint = prevIds.length === 0;
   return applyOpsIncremental({
-    dispatch: opts.dispatch,
     getDocument: opts.getDocument,
     ops,
     frameId,
@@ -1611,7 +1599,7 @@ function sceneInventoryFingerprint(doc: SceneDocument | null | undefined): strin
   return `${ids.length}:${ids.join(',')}|${frames.join(',')}`;
 }
 
-/** Wait until Redux scene inventory stops changing (Yjs/dispatch lag). */
+/** Wait until scene inventory stops changing (Yjs / mutator lag). */
 async function waitSceneInventorySettled(
   getDocument: () => SceneDocument | null,
   opts?: { timeoutMs?: number; stableFrames?: number }
@@ -1683,7 +1671,6 @@ export async function captureCritiquePreview(
 /** Apply allowlisted canvas tool_ops (Design Agent SSE). */
 /** Show artboard scan/shimmer while the design agent is generating. */
 function markArtboardGenerating(
-  dispatch: Dispatch,
   frameId: string | null | undefined,
   label = 'Preparing…',
   extra?: {
@@ -1693,16 +1680,14 @@ function markArtboardGenerating(
   }
 ) {
   if (!frameId) return;
-  dispatch(
-    setAiOperationState({
+  setAiOperationState({
       active: true,
       frameId,
       label,
       transactionId: extra?.transactionId,
       nodeId: extra?.nodeId ?? null,
       action: extra?.action,
-    })
-  );
+    });
 }
 
 export type DesignIntelligencePatch = {
@@ -1881,7 +1866,6 @@ export type RunDesignAgentParams = {
   projectId?: string | null;
   memory?: DesignMemoryPayload | null;
   onMemoryPatch?: (patch: MemoryPatch, localHints: { lastAgentFrameId?: string | null }) => void;
-  dispatch: Dispatch;
   getDocument: () => SceneDocument | null;
   targetFrameId?: string | null;
   /**
@@ -2236,12 +2220,12 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   const setProcessPill = (frameId: string | null | undefined, label: string) => {
     if (!frameId) return;
     shimmerFrameId = frameId;
-    markArtboardGenerating(params.dispatch, frameId, label);
+    markArtboardGenerating(frameId, label);
   };
 
   const clearProcessPill = () => {
     shimmerFrameId = null;
-    params.dispatch(clearArtboardGenerating());
+    clearArtboardGenerating();
   };
 
   /** Keep cover on the live board once canvas work has started (incl. edit-in-place). */
@@ -2304,7 +2288,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     const resolved = parseResolvedSize(paintCanvasSize());
     if (!resolved) return null;
     const frameId = ensureFrameSize({
-      dispatch: params.dispatch,
       getDocument: params.getDocument,
       frameId: null,
       width: resolved.width,
@@ -2378,7 +2361,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       await prevPaint;
       if (params.signal?.aborted) return;
       // Drop import placeholder only — keep artboard process cover until settle.
-      params.dispatch(cancelImportPlaceholder());
+      cancelImportPlaceholder();
       const frameReady = ensureCreateFrameReady();
       if (!frameReady && !parseResolvedSize(paintCanvasSize())) {
         // Size still Auto — do not mark painted; allow retry after 设计思考 status.
@@ -2389,7 +2372,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       params.onEvent({ type: 'drawing', active: true, done: 0, total: 0 });
       try {
         const applied = await applyDesignSvgToDocumentProgressive({
-          dispatch: params.dispatch,
           getDocument: params.getDocument,
           svg: trimmed,
           canvasSize: paintCanvasSize(),
@@ -2523,7 +2505,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         }
       }
       const frameId = ensureFrameSize({
-        dispatch: params.dispatch,
         getDocument: params.getDocument,
         frameId: hostFrameId,
         width: resolved.width,
@@ -2582,7 +2563,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         frameId = live.frameId || params.targetFrameId || null;
         if (frameId && resolved) {
           frameId = ensureFrameSize({
-            dispatch: params.dispatch,
             getDocument: params.getDocument,
             frameId,
             width: resolved.width,
@@ -2595,7 +2575,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         // ("你好") shares the same status event and must not create canvas.
         if (live.frameId) {
           frameId = ensureFrameSize({
-            dispatch: params.dispatch,
             getDocument: params.getDocument,
             frameId: live.frameId,
             width: resolved.width,
@@ -2606,7 +2585,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       if (frameId) {
         live.frameId = frameId;
         // Placeholder only — process cover stays through the whole run.
-        params.dispatch(cancelImportPlaceholder());
+        cancelImportPlaceholder();
         if (blankArtboard) {
           painted = true;
         } else if (shouldShimmerFrame(frameId, editInPlace) || shimmerFrameId) {
@@ -2752,7 +2731,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   const undoQueuedTransaction = (shouldUndo: boolean) => {
     if (!shouldUndo) return;
     try {
-      params.dispatch(undo());
+      undo();
     } catch {
       /* ignore */
     }
@@ -2768,12 +2747,12 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
   };
   const ensureAiMutationLock = () => {
     if (aiMutationLocked) return;
-    params.dispatch(beginAiSceneMutation());
+    beginAiSceneMutation();
     aiMutationLocked = true;
   };
   const releaseAiMutationLock = () => {
     if (!aiMutationLocked) return;
-    params.dispatch(endAiSceneMutation());
+    endAiSceneMutation();
     aiMutationLocked = false;
   };
 
@@ -2789,7 +2768,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     ensureAiMutationLock();
     const prev = store.getState().editor.aiOperationState;
     if (prev?.active) {
-      params.dispatch(setAiOperationState({ ...prev, transactionId: tid }));
+      setAiOperationState({ ...prev, transactionId: tid });
     }
   };
 
@@ -2864,7 +2843,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
               liveCanvasSize = `${resolved.width}x${resolved.height}`;
             }
             const opened = ensureFrameSize({
-              dispatch: params.dispatch,
               getDocument: params.getDocument,
               frameId: null,
               width: resolved.width,
@@ -2899,7 +2877,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         try {
           const applied = await applyAgentToolOps({
             ops: paintOps,
-            dispatch: params.dispatch,
             getDocument: params.getDocument,
             frameId,
             signal: params.signal,
@@ -2976,7 +2953,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
           });
           if (overlay.frameId) {
             markArtboardGenerating(
-              params.dispatch,
               overlay.frameId,
               overlay.label,
               {
@@ -3197,7 +3173,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     if (ev.blank_artboard === true) {
       blankArtboard = true;
       painted = true;
-      params.dispatch(cancelImportPlaceholder());
+      cancelImportPlaceholder();
     }
     // Blank / edit tool-ops: no SVG paint. Create/sibling: paint onto new frame only.
     if (ev.svg && !(toolOpsApplied || Boolean(ev.tool_ops_applied) || blankArtboard)) {
@@ -3794,7 +3770,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       releaseAiMutationLock();
     }
     // Only clear cover when the full Design→Review(+retry) run has finished.
-    params.dispatch(cancelImportPlaceholder());
+    cancelImportPlaceholder();
     clearProcessPill();
 
     if (terminalErrorCode) {
@@ -3835,13 +3811,13 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
       ];
       const ids = fromFrame.length >= 2 ? fromFrame : fromLive;
       if (ids.length >= 2) {
-        params.dispatch(pushEditorHistory());
-        params.dispatch(setDocument(groupNodesInDocument(doc, ids)));
+        pushEditorHistory();
+        setDocument(groupNodesInDocument(doc, ids));
       }
     }
   } catch (err: unknown) {
     releaseAiMutationLock();
-    params.dispatch(cancelImportPlaceholder());
+    cancelImportPlaceholder();
     clearProcessPill();
     if (params.signal?.aborted) return;
     const message =

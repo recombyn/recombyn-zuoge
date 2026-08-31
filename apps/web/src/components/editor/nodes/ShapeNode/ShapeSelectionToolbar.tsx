@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useSyncExternalStore, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import {
   fillPanelPreview,
@@ -140,9 +140,7 @@ function ShapeSelectionToolbar({
   document: SceneDocument;
   /** When true, parent renders Export after blend (unified toolbar order). */
   hideExport?: boolean;
-}) {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}) {  const { t } = useTranslation();
   const [ratioOpen, setRatioOpen] = useState(false);
   // W is applied on every keystroke. Keep the original shaft start for the
   // entire edit session so intermediate values cannot move the fixed endpoint.
@@ -210,8 +208,7 @@ function ShapeSelectionToolbar({
 
   const patchAttrs = (attrs: Record<string, unknown>) => {
     const shapeType = node?.attrs?.shapeType;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -219,8 +216,7 @@ function ShapeSelectionToolbar({
             ...attrs,
           },
         },
-      })
-    );
+      });
   };
 
   const captureStrokeLengthAnchor = () => {
@@ -281,15 +277,13 @@ function ShapeSelectionToolbar({
       nodeEls &&
         previewSvgNodeGeometry(nodeEls, nodeId, nextBox)
     );
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch,
         // A live host already has the final geometry. Recreating it introduces a
         // stale intermediate frame where SVG and selection chrome disagree.
         skipHostReload: previewed,
-      })
-    );
+      });
     // Document is the commit fact — drop gesture overlay so SoA bake can resume.
     clearNodeTransformPreviews([nodeId]);
   };
@@ -439,7 +433,7 @@ function ShapeSelectionToolbar({
   };
 
   const openStyle = (kind: 'fill' | 'stroke' | 'radius') => {
-    dispatch(openShapeStylePanel({ kind, nodeIds: [nodeId] }));
+    openShapeStylePanel({ kind, nodeIds: [nodeId] });
   };
 
   return (

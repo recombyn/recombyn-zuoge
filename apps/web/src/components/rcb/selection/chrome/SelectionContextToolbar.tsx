@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineBold,
@@ -287,14 +287,13 @@ function isPanelKindOnNode(
 }
 
 function openImageMoreTool(
-  dispatch: ReturnType<typeof useDispatch>,
   nodeId: string,
   key: ImageMoreAction,
   document?: SceneDocument,
   t?: (key: string, opts?: { defaultValue?: string }) => string
 ) {
   if (key === 'cornerRadius') {
-    dispatch(openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] }));
+    openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] });
     return;
   }
   if (key === 'mockup') {
@@ -303,8 +302,7 @@ function openImageMoreTool(
       node?.attrs?.mockupEnabled === true || node?.attrs?.mockupEnabled === 'true';
     const src = String(node?.attrs?.src || '').trim();
     if (!active) {
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             attrs: {
@@ -313,13 +311,11 @@ function openImageMoreTool(
               ...(src && !node?.attrs?.mockupBaseSrc ? { mockupBaseSrc: src } : {}),
             },
           },
-        })
-      );
+        });
       return;
     }
     // Already in mockup mode — enter adjust / re-process, never toggle off.
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -327,8 +323,7 @@ function openImageMoreTool(
           },
         },
         skipHostReload: true,
-      })
-    );
+      });
     return;
   }
   if (key === 'vectorize') {
@@ -342,15 +337,13 @@ function openImageMoreTool(
       );
       return;
     }
-    dispatch(
-      startImageProcess({
+    startImageProcess({
         sourceId: nodeId,
         kind: 'vector',
         label: t
           ? t('editor.imageToolbar.vectorize', { defaultValue: '矢量化' })
           : '矢量化',
-      })
-    );
+      });
     return;
   }
   switch (key) {
@@ -361,7 +354,7 @@ function openImageMoreTool(
     case 'effects':
     case 'flipRotate':
     case 'opacity':
-      dispatch(openImageToolPanel({ nodeId, kind: key }));
+      openImageToolPanel({ nodeId, kind: key });
       return;
     default:
       return;
@@ -371,7 +364,6 @@ function openImageMoreTool(
 async function outlineSelectedNode(opts: {
   node: SceneNodeInput;
   nodeId: string;
-  dispatch: ReturnType<typeof useDispatch>;
   loadingLabel: string;
   failLabel: string;
   okLabel: string;
@@ -385,8 +377,7 @@ async function outlineSelectedNode(opts: {
       return;
     }
     const patch = outlineNodePatch(opts.node, outline);
-    opts.dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId: opts.nodeId,
         patch: {
           key: 'shape',
@@ -396,8 +387,7 @@ async function outlineSelectedNode(opts: {
           height: patch.height,
           attrs: patch.attrs,
         },
-      })
-    );
+      });
     if (opts.enterPathEdit) {
       const st = String(opts.node?.attrs?.shapeType || opts.node?.key || '');
       const fromStrokeOutline =
@@ -411,9 +401,7 @@ async function outlineSelectedNode(opts: {
 }
 
 function SelectionContextToolbar(props: Props): ReactNode {
-  const { document, nodeId, box, valueBox, edgePadScene = 0, angle: angleProp } = props;
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+  const { document, nodeId, box, valueBox, edgePadScene = 0, angle: angleProp } = props;  const { t } = useTranslation();
   const [decorationOpen, setDecorationOpen] = useState(false);
   const [alignOpen, setAlignOpen] = useState(false);
   const imageToolPanel = useSelector(
@@ -600,8 +588,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
         }
       );
     }
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: nextAttrs,
@@ -610,8 +597,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
         },
         // Live SVG already shows the new glyphs/box — skip remount flash (same as W/H).
         skipHostReload: previewed,
-      })
-    );
+      });
     clearNodeTransformPreviews([nodeId]);
   };
 
@@ -631,16 +617,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
     const plain = parseNodeText(node.attrs || {}) || ' ';
     if (isTextBoxMode) {
       const measured = measureTextFrameExitBox(node, style);
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             attrs: { textFrame: null, autoSize: 'false', lockAspect: null },
             width: measured.width,
             height: measured.height,
           },
-        })
-      );
+        });
       return;
     }
     const fs = Math.max(1, Number(style.fontSize) || 14);
@@ -661,8 +645,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
       String(node.attrs?.name || '').trim() ||
       plain.replace(/\s+/g, ' ').trim().slice(0, 48) ||
       'Text';
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -679,8 +662,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
           width: Math.round(side),
           height: Math.round(side),
         },
-      })
-    );
+      });
   };
 
   const commitTextBoxSize = (axis: 'w' | 'h', raw: string) => {
@@ -691,16 +673,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
     const curW = Math.max(1, Math.round(Number(node?.width) || 1));
     const curH = Math.max(1, Math.round(Number(node?.height) || 1));
     if (n === curW && n === curH) return;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: { textFrame: 'true', autoSize: 'false', lockAspect: 'true' },
           width: n,
           height: n,
         },
-      })
-    );
+      });
   };
 
   const textAlign = String(style?.textAlign || 'left');
@@ -723,16 +703,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
     size?: { targetWidth?: number; targetHeight?: number },
     meta?: Record<string, unknown>
   ) => {
-    dispatch(
-      startImageProcess({
+    startImageProcess({
         sourceId: nodeId,
         kind,
         label,
         targetWidth: size?.targetWidth,
         targetHeight: size?.targetHeight,
         meta,
-      })
-    );
+      });
   };
 
   const showLayerChrome = kind !== 'image';
@@ -743,7 +721,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
     <OpacityControl
       opacity={node?.attrs?.opacity}
       onOpacityChange={(opacity) =>
-        dispatch(patchDocumentNode({ nodeId, patch: { attrs: { opacity } } }))
+        patchDocumentNode({ nodeId, patch: { attrs: { opacity } } })
       }
     />
   ) : null;
@@ -794,7 +772,6 @@ function SelectionContextToolbar(props: Props): ReactNode {
       outlineSelectedNode({
         node,
         nodeId,
-        dispatch,
         loadingLabel: t('editor.imageToolbar.outlining'),
         failLabel: t('editor.imageToolbar.outlineFailed'),
         okLabel: t('editor.imageToolbar.outlineDone'),
@@ -803,7 +780,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
       return;
     }
     if (key === 'flipRotate' || key === 'blendMode' || key === 'effects') {
-      dispatch(openImageToolPanel({ nodeId, kind: key }));
+      openImageToolPanel({ nodeId, kind: key });
     }
   };
   const elementLayerChrome =
@@ -850,14 +827,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
             className={imageToolBtn}
             data-media-quick-edit-trigger
             aria-label={t('editor.imageToolbar.chat')}
-            onClick={() => dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))}
+            onClick={() => openImageToolPanel({ nodeId, kind: 'quickEdit' })}
           >
             <AppLogo size={16} />
             <span>{t('editor.imageToolbar.chat')}</span>
           </button>
           <ImageToolSep />
           <ImageToolbarEditTools
-            onUpscale={() => dispatch(openImageToolPanel({ nodeId, kind: 'upscale' }))}
+            onUpscale={() => openImageToolPanel({ nodeId, kind: 'upscale' })}
             onRemoveBg={
               ilpEnabled
                 ? () =>
@@ -869,29 +846,25 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     )
                 : undefined
             }
-            onEraser={() => dispatch(openImageToolPanel({ nodeId, kind: 'eraser' }))}
+            onEraser={() => openImageToolPanel({ nodeId, kind: 'eraser' })}
             onMark={
               canMarkNode(node, { ilpEnabled })
                 ? () =>
-                    dispatch(
-                      openImageToolPanel({
+                    openImageToolPanel({
                         nodeId,
                         kind: 'mark',
                         ...(quickEditOpen ? { markSink: 'quickEdit' as const } : {}),
                       })
-                    )
                 : undefined
             }
             onPuppet={
               animationFrameId
                 ? () => {
-                    dispatch(openImageToolPanel({ nodeId, kind: 'puppet' }));
-                    dispatch(
-                      patchDocumentNode({
+                    openImageToolPanel({ nodeId, kind: 'puppet' });
+                    patchDocumentNode({
                         nodeId,
                         patch: { attrs: { puppetEnabled: true } },
-                      })
-                    );
+                      });
                     expandPuppetTimelineLayer(node);
                   }
                 : undefined
@@ -903,7 +876,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
             }
             onReplaceText={
               String(node?.attrs?.letteringText || '').trim()
-                ? () => dispatch(openImageToolPanel({ nodeId, kind: 'replaceText' }))
+                ? () => openImageToolPanel({ nodeId, kind: 'replaceText' })
                 : undefined
             }
             onEditText={
@@ -923,14 +896,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 : undefined
             }
             onMultiAngle={() =>
-              dispatch(openImageToolPanel({ nodeId, kind: 'multiAngle' }))
+              openImageToolPanel({ nodeId, kind: 'multiAngle' })
             }
           />
           <ImageToolbarMoreDownload
             mockupEnabled={mockupEnabled}
             showCornerRadius={supportsCornerRadius(node)}
             vectorizeEnabled={AI_IMAGE_PROCESS_KINDS.has('vector')}
-            onAction={(key) => openImageMoreTool(dispatch, nodeId, key, document, t)}
+            onAction={(key) => openImageMoreTool(nodeId, key, document, t)}
           />
           <Sep />
           <Tooltip
@@ -954,14 +927,12 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 imageAspectLocked && 'bg-[var(--accent-soft)] text-[var(--ink)]'
               )}
               onClick={() =>
-                dispatch(
-                  patchDocumentNode({
+                patchDocumentNode({
                     nodeId,
                     patch: {
                       attrs: { lockAspect: imageAspectLocked ? 'false' : 'true' },
                     },
                   })
-                )
               }
             >
               {imageAspectLocked ? (
@@ -995,7 +966,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
         <VideoToolbarEditTools
           nodeId={nodeId}
           onQuickEdit={() =>
-            dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))
+            openImageToolPanel({ nodeId, kind: 'quickEdit' })
           }
           onTrim={() => {
             // Capture playhead before trim UI hides the hover host / remounts preview.
@@ -1005,11 +976,11 @@ function SelectionContextToolbar(props: Props): ReactNode {
               .map((x) => Number(x))
               .filter((x) => Number.isFinite(x) && x >= 0);
             const keepTime = vals.length ? Math.max(...vals) : 0;
-            dispatch(openVideoToolPanel({ nodeId, kind: 'trim', keepTime }));
+            openVideoToolPanel({ nodeId, kind: 'trim', keepTime });
           }}
-          onCrop={() => dispatch(openImageToolPanel({ nodeId, kind: 'crop' }))}
+          onCrop={() => openImageToolPanel({ nodeId, kind: 'crop' })}
           onFlipRotate={() =>
-            dispatch(openImageToolPanel({ nodeId, kind: 'flipRotate' }))
+            openImageToolPanel({ nodeId, kind: 'flipRotate' })
           }
           downloadSlot={
             <VideoDownloadButton
@@ -1316,14 +1287,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
           {kind === 'audio' ? (
             <AudioToolbarEditTools
               onQuickEdit={() =>
-                dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }))
+                openImageToolPanel({ nodeId, kind: 'quickEdit' })
               }
               onTrim={() => {
                 const host = getAudioHost(nodeId);
                 const keepTime = Math.max(0, Number(host?.getMediaTime()) || 0);
-                dispatch(openAudioToolPanel({ nodeId, kind: 'trim', keepTime }));
+                openAudioToolPanel({ nodeId, kind: 'trim', keepTime });
               }}
-              onSpeed={() => dispatch(openAudioToolPanel({ nodeId, kind: 'speed' }))}
+              onSpeed={() => openAudioToolPanel({ nodeId, kind: 'speed' })}
             />
           ) : null}
 
@@ -1373,8 +1344,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
             const attrs = buildMarkdownTextAttrs(md, textStyle);
             const plain = markdownToPlain(md);
             const measured = measurePlainTextSize(plain || ' ', textStyle);
-            dispatch(
-              patchDocumentNode({
+            patchDocumentNode({
                 nodeId,
                 patch: {
                   attrs,
@@ -1384,8 +1354,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
                     Math.ceil((textStyle.fontSize || 16) * (textStyle.lineHeight || 1.4))
                   ),
                 },
-              })
-            );
+              });
           }}
         />
       ) : null}

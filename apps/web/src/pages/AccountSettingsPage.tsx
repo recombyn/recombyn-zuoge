@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode, memo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
@@ -57,9 +57,7 @@ function accountShowsSubtitle(tab: AccountTab): boolean {
 
 /** Account hub — left nav + profile / usage / agent panels. */
 function AccountSettingsPage(): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const [tab, setTabState] = useQueryState('tab', accountTabParser);
+  const { t } = useTranslation();  const [tab, setTabState] = useQueryState('tab', accountTabParser);
   const [searchParams] = useSearchParams();
   const user = useSelector((s: any) => s.auth.user as AuthUser | null);
   const { credits, creditsIncluded } = useWalletSnapshot();
@@ -100,8 +98,7 @@ function AccountSettingsPage(): ReactNode {
         }
       | undefined;
     if (!res?.user || !getToken()) return;
-    dispatch(
-      setSession({
+    setSession({
         user: {
           id: res.user.id,
           email: res.user.email,
@@ -112,9 +109,8 @@ function AccountSettingsPage(): ReactNode {
           role: res.user.role,
         },
         token: getToken() || undefined,
-      })
-    );
-  }, [dispatch, meQuery.data]);
+      });
+  }, [meQuery.data]);
 
   const creditCap = Math.max(1, Number(creditsIncluded) || 150);
   const balance = Math.max(0, Number(credits) || 0);

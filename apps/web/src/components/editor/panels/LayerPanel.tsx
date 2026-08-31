@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import {
   useActiveFrameId,
   useEditorDocumentOnCommit,
@@ -753,9 +753,7 @@ function FrameLayerRow({
   onStartFrameRename?: (frameId: string) => void;
   onCommitFrameRename?: (frameId: string, name: string | null) => void;
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const titleEditRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useTranslation();  const titleEditRef = useRef<HTMLDivElement | null>(null);
   const editingTitleRef = useRef(false);
   const locked = Boolean(frame.locked);
   const hidden = Boolean(frame.hidden);
@@ -765,8 +763,8 @@ function FrameLayerRow({
   const selectFrame = () => {
     if (onSelectFrame) onSelectFrame(frameId);
     else {
-      dispatch(setActiveFrameId(frameId));
-      dispatch(setFrameChromeMode('full'));
+      setActiveFrameId(frameId);
+      setFrameChromeMode('full');
     }
   };
 
@@ -850,8 +848,8 @@ function FrameLayerRow({
         hideLabel={t('editor.contextMenu.hide')}
         onToggle={() => {
           const nextHidden = !hidden;
-          dispatch(updateArtboardFrame({ id: frameId, patch: { hidden: nextHidden } }));
-          if (nextHidden && selected) dispatch(setActiveFrameId(null));
+          updateArtboardFrame({ id: frameId, patch: { hidden: nextHidden } });
+          if (nextHidden && selected) setActiveFrameId(null);
         }}
       />
       <LayerRowLockButton
@@ -860,7 +858,7 @@ function FrameLayerRow({
         lockLabel={t('editor.contextMenu.lock')}
         unlockLabel={t('editor.contextMenu.unlock')}
         onToggle={() => {
-          dispatch(updateArtboardFrame({ id: frameId, patch: { locked: !locked } }));
+          updateArtboardFrame({ id: frameId, patch: { locked: !locked } });
         }}
       />
     </div>
@@ -878,15 +876,13 @@ function NodeLayerRow({
   selected: boolean;
   onSelectNode?: (nodeId: string) => void;
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const hidden = isNodeHidden(node);
+  const { t } = useTranslation();  const hidden = isNodeHidden(node);
   const locked = isNodeLocked(node);
   const generator = isGeneratorNode(node);
 
   const selectNode = () => {
     if (onSelectNode) onSelectNode(nodeId);
-    else dispatch(setSelectedNodeId(nodeId));
+    else setSelectedNodeId(nodeId);
   };
 
   return (
@@ -919,13 +915,11 @@ function NodeLayerRow({
         hideLabel={t('editor.contextMenu.hide')}
         onToggle={() => {
           const nextHidden = !hidden;
-          dispatch(
-            patchDocumentNode({
+          patchDocumentNode({
               nodeId,
               patch: hiddenAttrPatch(nextHidden),
-            })
-          );
-          if (nextHidden && selected) dispatch(setSelectedNodeId(null));
+            });
+          if (nextHidden && selected) setSelectedNodeId(null);
         }}
       />
       <LayerRowLockButton
@@ -935,12 +929,10 @@ function NodeLayerRow({
         lockLabel={t('editor.contextMenu.lock')}
         unlockLabel={t('editor.contextMenu.unlock')}
         onToggle={() => {
-          dispatch(
-            patchDocumentNode({
+          patchDocumentNode({
               nodeId,
               patch: lockedAttrPatch(!locked),
-            })
-          );
+            });
         }}
       />
     </div>
@@ -1017,9 +1009,7 @@ function LayerPanel({
   onSelectFrame?: (frameId: string) => void;
   mobile?: boolean;
 } = {}) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
   const selectedNodeId = useSelectedNodeId();
   const selectedNodeIds = useSelectedNodeIds();
   const activeFrameId = useActiveFrameId();
@@ -1119,8 +1109,8 @@ function LayerPanel({
     setLayerNav({ scope: 'frame', frameId });
     if (onSelectFrame) onSelectFrame(frameId);
     else {
-      dispatch(setActiveFrameId(frameId));
-      dispatch(setFrameChromeMode('full'));
+      setActiveFrameId(frameId);
+      setFrameChromeMode('full');
     }
   };
 
@@ -1139,7 +1129,7 @@ function LayerPanel({
     if (name === null) return;
     const trimmed = String(name || '').trim();
     if (!trimmed) return;
-    dispatch(updateArtboardFrame({ id: frameId, patch: { name: trimmed } }));
+    updateArtboardFrame({ id: frameId, patch: { name: trimmed } });
   };
 
   useEffect(() => {

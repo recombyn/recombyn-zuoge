@@ -1,7 +1,6 @@
 /**
  * Canvas write / hit / geometry session — imperative API used by SvgCanvas.
  */
-import type { Dispatch } from '@/store';
 import {
   addNodeToDocument,
   patchDeltaSetLike,
@@ -46,6 +45,7 @@ import { hitTestWithSpatialIndex } from '@/components/rcb/render/sceneRenderer';
 import {
   clearNodeTransformPreviews,
   effectivePaintBox,
+  getNodeTransformPreview,
   setNodeTransformAngles,
   setNodeTransformPreviews,
 } from '@/components/rcb/core/transformPreview';
@@ -327,7 +327,7 @@ function keepFrameOwner(
 }
 
 /** Maintain one explicit artboard binding through node moves and resizes. */
-function applyNodeFrameBindings(
+export function applyNodeFrameBindings(
   doc: SceneDocument,
   patches: GeomPatch[],
   detachedSink?: Set<string>
@@ -339,11 +339,14 @@ function applyNodeFrameBindings(
   for (const patch of patches) {
     const node = doc.deltaSetLike?.[patch.nodeId];
     if (!node) continue;
+    // Membership vs frame.x/y must use document AABB (node already geometry-patched).
+    // GeomPatch left/top are scene-local — comparing them to document frames inverts
+    // bind/unbind when document.x/y ≠ 0 (on-plate empties timeline; off-plate keeps layer).
     const rect = {
-      left: Number(patch.left) || 0,
-      top: Number(patch.top) || 0,
-      width: Math.max(1, Number(patch.width) || 1),
-      height: Math.max(1, Number(patch.height) || 1),
+      left: Number(node.x) || 0,
+      top: Number(node.y) || 0,
+      width: Math.max(1, Number(node.width) || Number(patch.width) || 1),
+      height: Math.max(1, Number(node.height) || Number(patch.height) || 1),
     };
     const currentId = String(node.attrs?.frameId || '').trim();
     const nextId =
@@ -561,13 +564,12 @@ function nodePatchFromGeometryDiff(
 
 export type CanvasSessionDeps = {
   getDocument: () => SceneDocument | null;
-  /** Prefer Redux head during transform — local ref can lag finishImageProcess. */
+  /** Prefer store head during transform — local ref can lag finishImageProcess. */
   getCommittedDocument?: () => SceneDocument | null;
   setDocumentLocal: (doc: SceneDocument) => void;
   getBoard: () => SvgBoardHandle | null;
   getZoom: () => number;
   isReadOnly: () => boolean;
-  dispatch: Dispatch<any>;
   spatial: SceneSpatialRuntime;
   setEditingTextId: (id: string | null) => void;
   measureViewport: () => DOMRect | null;
@@ -577,6 +579,38 @@ export type CanvasSessionDeps = {
   publishVideoLiveGeom: (next: Record<string, VideoGeomOverride> | null) => void;
   clearVideoLiveGeom: () => void;
 };
+
+/**
+ * Gesture SVG DOM preview only when a host is mounted.
+ * SoA-idle demoted nodes have no lattice — TransformPreview + SoA paint/hit own live pose.
+ * `publishPreview: false` — caller batches setNodeTransformPreviews once (with angle).
+ */
+function previewMountedHostGeometry(
+  board: SvgBoardHandle,
+  nodeId: string,
+  box: { left: number; top: number; width: number; height: number },
+  opts?: {
+    textResizeMode?: 'scale' | 'wrap' | 'frame';
+    plainText?: string;
+    textStyle?: ReturnType<typeof parseNodeTextStyle>;
+  }
+): boolean {
+  if (!board.nodeEls.get(nodeId)) {
+    const hostEl = getShapeHost(nodeId)?.el;
+    if (hostEl) board.nodeEls.set(nodeId, hostEl);
+  }
+  if (!board.nodeEls.get(nodeId)) return false;
+  return previewSvgNodeGeometry(board.nodeEls, nodeId, box, {
+    ...opts,
+    publishPreview: false,
+  });
+}
+
+function previewAngleDeg(nodeId: string, node: { attrs?: Record<string, unknown> } | null | undefined): number {
+  const live = getNodeTransformPreview(nodeId)?.angle;
+  if (Number.isFinite(live)) return Number(live);
+  return Number(node?.attrs?.angle) || 0;
+}
 
 export type ShapeCreateBox = {
   left: number;
@@ -660,7 +694,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     deps.spatial.queryIdsInRect(box, { ascending: true });
 
   const finishToSelect = () => {
-    deps.dispatch(setActiveTool('select'));
+    setActiveTool('select');
   };
 
   const onCreateShape = (kind: string, box: ShapeCreateBox) => {
@@ -688,10 +722,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       });
       const bound = insertCreatedNode(doc, id, node, box.frameId);
       deps.setDocumentLocal(bound);
-      deps.dispatch(pushEditorHistory());
-      deps.dispatch(setDocumentFromCanvas(bound));
-      deps.dispatch(setSelectedNodeIds([id]));
-      deps.dispatch(setSelectedNodeId(id));
+      pushEditorHistory();
+      setDocumentFromCanvas(bound);
+      setSelectedNodeIds([id]);
+      setSelectedNodeId(id);
       finishToSelect();
       return;
     }
@@ -710,10 +744,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     });
     const bound = insertCreatedNode(doc, id, node, box.frameId);
     deps.setDocumentLocal(bound);
-    deps.dispatch(pushEditorHistory());
-    deps.dispatch(setDocumentFromCanvas(bound));
-    deps.dispatch(setSelectedNodeIds([id]));
-    deps.dispatch(setSelectedNodeId(id));
+    pushEditorHistory();
+    setDocumentFromCanvas(bound);
+    setSelectedNodeIds([id]);
+    setSelectedNodeId(id);
     finishToSelect();
   };
 
@@ -763,9 +797,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       deps.hitTestFrame(origin.x, origin.y)
     );
     deps.setDocumentLocal(bound);
-    deps.dispatch(setDocument(bound));
-    deps.dispatch(setSelectedNodeIds([id]));
-    deps.dispatch(setSelectedNodeId(id));
+    // Match shape draw — setDocument remounts hosts and drops the caret.
+    pushEditorHistory();
+    setDocumentFromCanvas(bound);
+    setSelectedNodeIds([id]);
+    setSelectedNodeId(id);
     deps.setEditingTextId(id);
     finishToSelect();
   };
@@ -800,12 +836,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         node,
         deps.hitTestFrame(origin.x, origin.y)
       );
-      deps.dispatch(setDocument(bound));
-      deps.dispatch(setSelectedNodeId(id));
-      deps.dispatch(setPendingImageSrc(null));
+      setDocument(bound);
+      setSelectedNodeId(id);
+      setPendingImageSrc(null);
       finishToSelect();
     } catch {
-      deps.dispatch(setPendingImageSrc(null));
+      setPendingImageSrc(null);
       finishToSelect();
     }
   };
@@ -1002,12 +1038,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     }
     deps.setDocumentLocal(next);
     if (!options?.skipHistory) {
-      deps.dispatch(pushEditorHistory());
+      pushEditorHistory();
     }
     const useFullWrite =
       detachedNodeIds.size > 0 || geometryCommitNeedsFullDocumentWrite(doc, next);
     if (useFullWrite) {
-      deps.dispatch(setDocumentFromCanvas(next));
+      setDocumentFromCanvas(next);
     } else {
       const nodeWrites: Array<{ nodeId: string; patch: Record<string, unknown> }> = [];
       const ids = Object.keys(next.deltaSetLike || {});
@@ -1017,21 +1053,19 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         if (patch) nodeWrites.push({ nodeId: id, patch });
       }
       if (nodeWrites.length) {
-        deps.dispatch(patchDocumentNodes({ patches: nodeWrites, skipHistory: true }));
+        patchDocumentNodes({ patches: nodeWrites, skipHistory: true });
       }
       if (frames.length) {
-        deps.dispatch(
-          updateArtboardFrames({
+        updateArtboardFrames({
             patches: frames.map((f) => ({
               id: f.id,
               patch: { x: f.x, y: f.y, width: f.width, height: f.height },
             })),
             skipHistory: true,
-          })
-        );
+          });
       }
       if (!options?.skipHistory && (nodeWrites.length || frames.length)) {
-        deps.dispatch(touchDocumentRevision());
+        touchDocumentRevision();
       }
     }
     // Auto-key animated p/s when moving/resizing on a 动画工作台.
@@ -1055,13 +1089,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         resized,
       });
       if (!keyed) continue;
-      deps.dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: keyed.hostId,
           patch: { attrs: { animationData: keyed.animationJson } },
           skipHistory: Boolean(options?.skipHistory),
-        })
-      );
+        });
     }
     // Same React turn as Redux doc — HTML plates must not fall back to stale
     // coords between commit and onTransformingChange(false).
@@ -1160,14 +1192,9 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         top: box.top,
         width: Math.max(1, box.width),
         height: Math.max(1, box.height),
-        angle: Number(node?.attrs?.angle) || 0,
+        angle: previewAngleDeg(p.nodeId, node),
       });
-      // Per-shape hosts may register before shared nodeEls is wired — recover.
-      if (!board.nodeEls.get(p.nodeId)) {
-        const hostEl = getShapeHost(p.nodeId)?.el;
-        if (hostEl) board.nodeEls.set(p.nodeId, hostEl);
-      }
-      previewSvgNodeGeometry(board.nodeEls, p.nodeId, box, {
+      previewMountedHostGeometry(board, p.nodeId, box, {
         textResizeMode: options?.textResizeMode,
         plainText: isText ? parseNodeText(node.attrs || {}) : undefined,
         textStyle: isText ? parseNodeTextStyle(node.attrs || {}) : undefined,
@@ -1225,9 +1252,9 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           top: box.top,
           width: box.width,
           height: box.height,
-          angle: Number(after.attrs?.angle) || 0,
+          angle: previewAngleDeg(nodeId, after),
         });
-        previewSvgNodeGeometry(board.nodeEls, nodeId, box, {
+        previewMountedHostGeometry(board, nodeId, box, {
           plainText: after.key === 'text' ? parseNodeText(after.attrs || {}) : undefined,
           textStyle: after.key === 'text' ? parseNodeTextStyle(after.attrs || {}) : undefined,
         });
@@ -1247,7 +1274,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           width: frame.width,
           height: frame.height,
         };
-        previewSvgNodeGeometry(board.nodeEls, hostId, box);
+        previewMountedHostGeometry(board, hostId, box);
         if (host.key === 'lottie' || host.key === 'video' || host.key === 'image') {
           hasVideo = true;
           videoOverrides[hostId] = {
@@ -1347,13 +1374,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         }),
       });
     }
-    deps.dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: { attrs: { angle: nextAngle } },
         skipHistory: Boolean(options?.skipHistory),
-      })
-    );
+      });
     // When rotation is already keyframed, write the live angle into the curve
     // at the playhead (frame sync skips animated `r`, so attrs-only would no-op).
     const keyed = autoKeyAnimatedRotation({
@@ -1363,13 +1388,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       playheadSec: getAnimationPlayheadSec(),
     });
     if (keyed) {
-      deps.dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: keyed.hostId,
           patch: { attrs: { animationData: keyed.animationJson } },
           skipHistory: Boolean(options?.skipHistory),
-        })
-      );
+        });
     }
     clearNodeTransformPreviews([nodeId]);
   };
@@ -1392,19 +1415,26 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     });
     deps.spatial.patchNodes(deps.getDocument()!, [nodeId]);
     setNodeTransformAngles([{ nodeId, angle: nextAngle }]);
-    const synced = previewSvgNodeAngle(
-      board.nodeEls,
-      nodeId,
-      nextAngle,
-      deps.getDocument()
-    );
-    if (!synced) {
-      void replaceShapePaint(
-        deps.getDocument(),
+    if (!board.nodeEls.get(nodeId)) {
+      const hostEl = getShapeHost(nodeId)?.el;
+      if (hostEl) board.nodeEls.set(nodeId, hostEl);
+    }
+    if (board.nodeEls.get(nodeId)) {
+      const synced = previewSvgNodeAngle(
         board.nodeEls,
         nodeId,
-        board.root ? board : null
+        nextAngle,
+        deps.getDocument(),
+        { publishPreview: false }
       );
+      if (!synced) {
+        void replaceShapePaint(
+          deps.getDocument(),
+          board.nodeEls,
+          nodeId,
+          board.root ? board : null
+        );
+      }
     }
     // HTML video / lottie / audio / image SoftGlow plates read Redux doc —
     // push live angle so rotate tracks chrome.

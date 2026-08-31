@@ -16,18 +16,15 @@ export async function startRemoveBgFromMasks(opts: {
   maskRef: MattingHintOverlayHandle | null | undefined;
   sourceId: string;
   label: string;
-  dispatch: DispatchFn;
   onSpawned?: () => void;
 }): Promise<void> {
   const masks = (await opts.maskRef?.exportMasks()) ?? {};
   const meta = buildMattingProcessMeta(masks);
-  opts.dispatch(
-    startImageProcess({
+  startImageProcess({
       sourceId: opts.sourceId,
       kind: 'removeBg',
       label: opts.label,
       ...(meta ? { meta } : {}),
-    })
-  );
+    });
   opts.onSpawned?.();
 }

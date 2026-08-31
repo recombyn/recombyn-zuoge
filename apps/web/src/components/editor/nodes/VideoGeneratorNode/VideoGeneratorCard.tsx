@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocument } from '@/store/editorSelectors';
 import { FloatingPortal } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown } from 'react-icons/hi2';
@@ -129,9 +129,7 @@ function VideoGeneratorCard({
   sceneBox,
   disabled,
 }: Props): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const inputRef = useRef<AgentComposerHandle | null>(null);
+  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -200,7 +198,7 @@ function VideoGeneratorCard({
   useEffect(() => {
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
-    dispatch(consumePendingCanvasAttach());
+    consumePendingCanvasAttach();
     const doc = editorDocument || (store.getState() as any).editor?.document;
     async function flyPendingAttach() {
       await flyPickIntoComposer({
@@ -217,7 +215,7 @@ function VideoGeneratorCard({
       });
     }
     flyPendingAttach();
-  }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
+  }, [pendingCanvasAttach, pickTarget, editorDocument]);
 
   // Re-hydrate after overlay remount (e.g. geometry transform hides the portal).
   useEffect(() => {
@@ -447,11 +445,10 @@ function VideoGeneratorCard({
     abortRef.current = ac;
     // Register before clearing selection — toolbar unmount must not abort this run.
     registerGeneratorSession(nodeId);
-    dispatch(setSelectedNodeIds([]));
+    setSelectedNodeIds([]);
     setSending(true);
     let finished = false;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -462,8 +459,7 @@ function VideoGeneratorCard({
             genPrompt: text,
           },
         },
-      })
-    );
+      });
     try {
       const body: Parameters<typeof generateVideo>[0] = {
         prompt: text,
@@ -481,13 +477,11 @@ function VideoGeneratorCard({
       if (refImages.length) body.images = refImages;
 
       const jobId = await createVideoJob(body, { signal: ac.signal });
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           skipHistory: true,
           patch: { attrs: processJobAttrPatch([jobId]) },
-        })
-      );
+        });
       const res = await waitForVideoJob(jobId, { signal: ac.signal });
       const src = pickVideoUrl(res);
       if (!src) throw new Error(t('editor.tools.videoGenEmpty'));
@@ -500,15 +494,13 @@ function VideoGeneratorCard({
       }
       // Promote in place — keep the generator plate's document x/y/size so the
       // result appears exactly where the plate was (sceneBox is origin-relative).
-      dispatch(
-        finishVideoGenerator({
+      finishVideoGenerator({
           nodeId,
           src,
           ...(poster ? { poster } : {}),
           name: t('editor.tools.videoGenerator'),
           genPrompt: text,
-        })
-      );
+        });
       finished = true;
     } catch (err: unknown) {
       if (!ac.signal.aborted) {
@@ -516,7 +508,6 @@ function VideoGeneratorCard({
       }
     } finally {
       finishGeneratorGenerateSession({
-        dispatch,
         nodeId,
         finished,
         abortRef,
@@ -541,13 +532,11 @@ function VideoGeneratorCard({
     if (patch.duration != null) attrs.videoGenDuration = patch.duration;
     if (patch.model != null) attrs.videoGenModel = patch.model;
     if (!Object.keys(attrs).length) return;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: { attrs },
         skipHistory: opts?.skipHistory !== false,
-      })
-    );
+      });
   };
 
   const applyAspectToNode = (nextAspect: string) => {
@@ -557,8 +546,7 @@ function VideoGeneratorCard({
       return;
     }
     const next = plateSizeForVideoAspect(sceneBox, nextAspect);
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           x: next.x,
@@ -569,8 +557,7 @@ function VideoGeneratorCard({
             videoGenAspect: nextAspect,
           },
         },
-      })
-    );
+      });
   };
 
   // Auto-focus once when the composer first becomes visible — skip remount churn.
@@ -591,7 +578,7 @@ function VideoGeneratorCard({
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
       pickingFromCanvas,
-      clearPick: () => dispatch(clearCanvasAttachPick()),
+      clearPick: () => clearCanvasAttachPick(),
       attachSelection: async () => {
         const doc = editorDocument || (store.getState() as any).editor?.document;
         const insertChip = (ctx: ComposerContext) => {
@@ -612,7 +599,7 @@ function VideoGeneratorCard({
       },
       startPick: () => {
         noteCanvasFlyLand(pickTarget);
-        dispatch(startCanvasAttachPick({ target: pickTarget }));
+        startCanvasAttachPick({ target: pickTarget });
       },
     });
   };

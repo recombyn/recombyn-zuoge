@@ -6,7 +6,7 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -298,9 +298,7 @@ function SideFlyout({ children }: { children: ReactNode }) {
 function UserAccountPanel({ open, onOpenChange, children }: Props) {
   const { t, i18n } = useTranslation();
   const user = useSelector((state: any) => state.auth.user);
-  const { credits, planId } = useWalletSnapshot();
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const { credits, planId } = useWalletSnapshot();  const navigate = useNavigate();
   const billingEnabled = useBillingEnabled();
   const hideBillingUi = !billingEnabled;
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -355,8 +353,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
           };
         };
         if (cancelled || !getToken()) return;
-        dispatch(
-          setSession({
+        setSession({
             user: {
               id: meRes.user.id,
               email: meRes.user.email,
@@ -367,8 +364,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
               role: meRes.user.role,
             },
             token: getToken() || undefined,
-          })
-        );
+          });
       } catch {
         /* ignore */
       }
@@ -385,7 +381,7 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, user?.id, dispatch]);
+  }, [open, user?.id]);
 
   const close = () => onOpenChange(false);
 
@@ -408,8 +404,8 @@ function UserAccountPanel({ open, onOpenChange, children }: Props) {
     } catch {
       /* token may already be invalid */
     }
-    dispatch(logout());
-    dispatch(clearProjectsLibrary());
+    logout();
+    clearProjectsLibrary();
     clearSessionCaches();
     clearProjectsListCache();
     clearWalletCache();

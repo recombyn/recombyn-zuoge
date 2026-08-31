@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useDispatch } from '@/store';
+
 import { HiOutlineLockClosed, HiOutlineLockOpen } from 'react-icons/hi2';
 import { Icon } from '@/components/base/icon';
 import Tooltip from '@/components/base/tooltip';
@@ -73,11 +73,9 @@ function distributePatches(frames: ArtboardFrame[], axis: 'h' | 'v') {
   });
 }
 
-function FrameMultiSelectionToolbar({ frames, box }: Props): ReactNode {
-  const dispatch = useDispatch();
-  const allLocked = frames.every((frame) => Boolean(frame.locked));
+function FrameMultiSelectionToolbar({ frames, box }: Props): ReactNode {  const allLocked = frames.every((frame) => Boolean(frame.locked));
   const apply = (patches: Array<{ id: string; patch: Record<string, number | boolean> }>) => {
-    if (patches.length) dispatch(updateArtboardFrames({ patches }));
+    if (patches.length) updateArtboardFrames({ patches });
   };
   const alignItems: Array<{ mode: AlignMode; tip: string; icon: string }> = [
     { mode: 'left', tip: '左对齐', icon: 'editor-align-left' },

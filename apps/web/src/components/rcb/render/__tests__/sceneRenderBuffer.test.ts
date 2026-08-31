@@ -33,7 +33,7 @@ describe('sceneRenderBuffer', () => {
         y: Math.floor(i / 40) * 20,
         width: 16,
         height: 16,
-        attrs: { shapeType: 'rect', fill: '#112233' },
+        attrs: { shapeType: 'rect', fill: '#112233', 'stroke-enabled': false },
         children: [],
       });
     }
@@ -114,7 +114,7 @@ describe('sceneRenderBuffer', () => {
       y: 10,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', fill: '#ff0000' },
+      attrs: { shapeType: 'rect', fill: '#ff0000', 'stroke-enabled': false },
       children: [],
     });
     doc = addNodeToDocument(doc, 'b', {
@@ -124,7 +124,7 @@ describe('sceneRenderBuffer', () => {
       y: 10,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', fill: '#00ff00' },
+      attrs: { shapeType: 'rect', fill: '#00ff00', 'stroke-enabled': false },
       children: [],
     });
     const buf = createSceneRenderBuffer();
@@ -169,7 +169,7 @@ describe('sceneRenderBuffer', () => {
         y: Math.floor(i / 400) * 40,
         width: 20,
         height: 20,
-        attrs: { shapeType: 'rect', fill: '#112233' },
+        attrs: { shapeType: 'rect', fill: '#112233', 'stroke-enabled': false },
         children: [],
       };
     }
@@ -190,7 +190,7 @@ describe('sceneRenderBuffer', () => {
     const idx = buf.indexById.get(lastId)!;
     const ox = buf.positions[idx * 4];
     const oy = buf.positions[idx * 4 + 1];
-    expect(hitTestSoaBufferOrdered(buf, ox + 2, oy + 2, [lastId])).toBe(lastId);
+    expect(hitTestSoaBufferOrdered(buf, ox + 10, oy + 10, [lastId])).toBe(lastId);
 
     let vis = 0;
     forEachVisibleInRect(buf, { minX: 0, minY: 0, maxX: 200, maxY: 200 }, () => {

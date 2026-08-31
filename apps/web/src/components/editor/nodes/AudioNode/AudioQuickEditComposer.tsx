@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch } from '@/store';
+
 import { HiArrowUp, HiOutlinePlus } from 'react-icons/hi2';
 import { generateAudio, type LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';
@@ -61,9 +61,7 @@ function AudioQuickEditComposer({
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const inputRef = useRef<AgentComposerHandle>(null);
+  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -211,8 +209,7 @@ function AudioQuickEditComposer({
   }) => {
     const duration =
       (await probeAudioDuration(opts.nextSrc)) || undefined;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -226,9 +223,8 @@ function AudioQuickEditComposer({
             processLabel: null,
           },
         },
-      })
-    );
-    dispatch(closeImageToolPanel());
+      });
+    closeImageToolPanel();
   };
 
   const onGenerate = async () => {
@@ -242,9 +238,8 @@ function AudioQuickEditComposer({
         prompt.trim() ||
         String(readyAudioAtt.label || '').trim() ||
         t('editor.tools.audioGenerator', { defaultValue: 'Audio' });
-      dispatch(pushEditorHistory());
-      dispatch(
-        patchDocumentNode({
+      pushEditorHistory();
+      patchDocumentNode({
           nodeId,
           skipHistory: true,
           patch: {
@@ -255,8 +250,7 @@ function AudioQuickEditComposer({
               genPrompt: text,
             },
           },
-        })
-      );
+        });
       try {
         if (!nextSrc) throw new Error('missing audio url');
         await applyAudioToNode({
@@ -268,7 +262,7 @@ function AudioQuickEditComposer({
       } catch (err: any) {
         const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
           ?.document;
-        clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+        clearGeneratorProcessOverlay(doc, nodeId);
         message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
       } finally {
         setSending(false);
@@ -286,9 +280,8 @@ function AudioQuickEditComposer({
     const ac = new AbortController();
     abortRef.current = ac;
     setSending(true);
-    dispatch(pushEditorHistory());
-    dispatch(
-      patchDocumentNode({
+    pushEditorHistory();
+    patchDocumentNode({
         nodeId,
         skipHistory: true,
         patch: {
@@ -299,8 +292,7 @@ function AudioQuickEditComposer({
             genPrompt: text,
           },
         },
-      })
-    );
+      });
     try {
       const res = await generateAudio(
         { prompt: text, model: modelId },
@@ -319,7 +311,7 @@ function AudioQuickEditComposer({
       if (ac.signal.aborted) return;
       const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
         ?.document;
-      clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+      clearGeneratorProcessOverlay(doc, nodeId);
       message.error(getHttpErrorMessage(err, t('editor.tools.audioGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;

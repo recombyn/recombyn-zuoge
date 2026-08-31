@@ -13,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { RcbOverlayPortal, useRcbCamera, rcbSceneToScreen } from '@/components/rcb';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -123,9 +123,7 @@ function PuppetOverlay({
   angle: number;
   pins: PuppetPin[];
   density: number;
-}) {
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+}) {  const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const dragIdRef = useRef<string | null>(null);
   const pinsRef = useRef(pins);
@@ -150,8 +148,7 @@ function PuppetOverlay({
         pins: next,
         playheadSec: getAnimationPlayheadSec(),
       });
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             attrs: {
@@ -161,11 +158,10 @@ function PuppetOverlay({
             },
           },
           skipHistory,
-        })
-      );
+        });
       requestPuppetWarpApply();
     },
-    [dispatch, nodeId]
+    [nodeId]
   );
 
   const toUv = (clientX: number, clientY: number, el: HTMLElement) => {

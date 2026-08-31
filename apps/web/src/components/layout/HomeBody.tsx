@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { parseAsString, parseAsStringLiteral, useQueryState } from 'nuqs';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -747,9 +747,7 @@ function HomeTemplateList({
   onAgentSubmit,
   onOpenCase,
 }: Props) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const { t } = useTranslation();  const navigate = useNavigate();
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
   // Token is in localStorage only — Redux has no auth.token field.
   const authed = Boolean(userId && getToken());
@@ -824,12 +822,12 @@ function HomeTemplateList({
 
   useEffect(() => {
     if (!authed) {
-      dispatch(clearProjectsLibrary());
+      clearProjectsLibrary();
       clearProjectsListCache();
       return;
     }
     // List uses refetchOnMount:'always'; editor exit invalidates via prepareProjectsListNavigation.
-  }, [authed, dispatch, showHome, showMine]);
+  }, [authed, showHome, showMine]);
 
   const loadMoreProjects = useCallback(() => {
     if (!authed || !projectsHasMore || projectsLoadingMore || !projectsReady) return;

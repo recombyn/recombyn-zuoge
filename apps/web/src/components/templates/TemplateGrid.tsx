@@ -1,5 +1,5 @@
 import { useEffect, useState, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineListBullet,
@@ -85,9 +85,7 @@ function TemplateGrid({
   gridClassName?: string;
   orgOptions?: { id: string; name: string }[];
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const currentId = useSelector((s: any) => s.editor?.currentId as string | null);
+  const { t } = useTranslation();  const currentId = useSelector((s: any) => s.editor?.currentId as string | null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [renameTarget, setRenameTarget] = useState<any | null>(null);
@@ -140,7 +138,7 @@ function TemplateGrid({
       setDeleting,
       t,
       onSuccess: () => {
-        dispatch(deleteTemplates(ids));
+        deleteTemplates(ids);
         invalidateProjectsListCache();
         message.destructive(t('home.batchDeleted', { count }));
         exitSelectMode();
@@ -158,7 +156,7 @@ function TemplateGrid({
       setDeleting,
       t,
       onSuccess: () => {
-        dispatch(deleteTemplate(id));
+        deleteTemplate(id);
         invalidateProjectsListCache();
         setSelected((prev) => prev.filter((x) => x !== id));
         message.destructive(t('common.delete'));
@@ -173,7 +171,7 @@ function TemplateGrid({
     const next = name.trim() || t('home.untitled');
     const id = String(item.id || '');
     if (!id) return;
-    dispatch(renameTemplateById({ id, name: next }));
+    renameTemplateById({ id, name: next });
     // Open editor will flush via dirty; otherwise push name to cloud now.
     async function pushRename() {
       try {

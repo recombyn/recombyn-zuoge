@@ -1,5 +1,5 @@
 import { useRef, useState, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -164,9 +164,7 @@ function showImportWarningsIfAny(
 }
 
 function HomePage() {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const { t } = useTranslation();  const navigate = useNavigate();
   const goEditor = useGoEditor();
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -223,14 +221,12 @@ function HomePage() {
         return;
       }
       const importedName = file.name.replace(/\.json$/i, '');
-      dispatch(
-        importDocument({
+      importDocument({
           name: importedName,
           document: validation.data,
           source: 'import',
           dirty: true,
-        })
-      );
+        });
       message.success(t('home.importSuccess'));
       const id = (store.getState() as any).editor?.currentId;
       const importedDoc = (store.getState() as any).editor?.document;
@@ -281,7 +277,7 @@ function HomePage() {
         message.error(resolveImportEmptyMessage(t, sourceType, warnings), 8);
         return;
       }
-      dispatch(importDocument({ name, document, source: 'import' }));
+      importDocument({ name, document, source: 'import' });
       showImportWarningsIfAny(t, warnings);
       message.success(t('home.importSuccess'));
       goEditor({ projectId: currentProjectId() });

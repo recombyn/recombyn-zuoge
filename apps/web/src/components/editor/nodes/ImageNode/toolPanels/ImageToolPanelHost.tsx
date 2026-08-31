@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector, useStore } from '@/store';
+import { useSelector, useStore } from '@/store';
 import { useSelectedNodeId, useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
@@ -69,7 +69,6 @@ async function confirmEraserAsNewNode(opts: {
   uploadKey: string | null;
   sourceId: string;
   label: string;
-  dispatch: (action: unknown) => void;
   getPendingProcessId: () => string | null;
   /** Called after the loading clone is spawned (close eraser UI). */
   onSpawned?: () => void;
@@ -78,21 +77,18 @@ async function confirmEraserAsNewNode(opts: {
   if (!erased || erased === opts.src) {
     throw new Error('请先在图片上涂抹');
   }
-  opts.dispatch(
-    startImageProcess({
+  startImageProcess({
       sourceId: opts.sourceId,
       kind: 'eraser',
       label: opts.label,
-    })
-  );
+    });
   const processId = opts.getPendingProcessId();
   if (!processId) throw new Error('橡皮失败');
   opts.onSpawned?.();
   try {
     const uploaded = await uploadImageFromSrc(erased, 'eraser.png');
     const url = String(uploaded?.url || erased).trim() || erased;
-    opts.dispatch(
-      finishImageProcess({
+    finishImageProcess({
         nodeId: processId,
         src: url,
         attrs: {
@@ -100,10 +96,9 @@ async function confirmEraserAsNewNode(opts: {
           name: '擦除',
           ...(uploaded?.key ? { uploadKey: String(uploaded.key) } : {}),
         },
-      })
-    );
+      });
   } catch (err) {
-    opts.dispatch(failImageProcess({ nodeId: processId }));
+    failImageProcess({ nodeId: processId });
     throw err;
   }
 }
@@ -165,9 +160,7 @@ function ImageToolPanelHost({
   document: SceneDocument;
   /** Hide docked side panel while selection is transforming (drag/resize). */
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const store = useStore();
+}): ReactNode {  const store = useStore();
   const { t } = useTranslation();
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
@@ -200,7 +193,7 @@ function ImageToolPanelHost({
       (effectiveSelectedId != null && effectiveSelectedId === panel.nodeId) ||
       selectedNodeIds.includes(panel.nodeId);
     if (!stillSelected && shouldClearImageToolPanelOnSelect(panel, effectiveSelectedId)) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
       return;
     }
     const node = document?.deltaSetLike?.[panel.nodeId];
@@ -209,9 +202,9 @@ function ImageToolPanelHost({
       !isImageToolExternalSessionKind(panel.kind) &&
       panel.kind !== 'puppet'
     ) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
     }
-  }, [effectiveSelectedId, selectedNodeIds, panel, document, dispatch]);
+  }, [effectiveSelectedId, selectedNodeIds, panel, document]);
 
   useEffect(() => {
     if (!panel) return;
@@ -219,18 +212,18 @@ function ImageToolPanelHost({
     if (isImageToolExternalSessionKind(panel.kind)) return;
     const node = document?.deltaSetLike?.[panel.nodeId];
     if (!node) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
       return;
     }
     if (!isNodeLayerToolPanelKind(panel.kind) && node.key !== 'image') {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
       return;
     }
     // Puppet is workbench-only (needs timeline / playhead sampling).
     if (panel.kind === 'puppet' && !resolveAnimationFrameId(document, node)) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
     }
-  }, [document, panel, dispatch]);
+  }, [document, panel]);
 
   useEffect(() => {
     if (!panel?.nodeId) return;
@@ -295,21 +288,19 @@ function ImageToolPanelHost({
     return null;
   }
 
-  const close = () => dispatch(closeImageToolPanel());
+  const close = () => closeImageToolPanel();
 
   const runProcess = (kind: ImageToolPanelKind, label: string, size?: {
     targetWidth?: number;
     targetHeight?: number;
   }) => {
-    dispatch(
-      startImageProcess({
+    startImageProcess({
         sourceId: panel.nodeId,
         kind,
         label,
         targetWidth: size?.targetWidth,
         targetHeight: size?.targetHeight,
-      })
-    );
+      });
     close();
   };
 
@@ -323,10 +314,9 @@ function ImageToolPanelHost({
     if (mode === 'preview') {
       if (!adjustHistoryPushedRef.current) {
         adjustHistoryPushedRef.current = true;
-        dispatch(pushEditorHistory());
+        pushEditorHistory();
       }
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: panel.nodeId,
           skipHistory: true,
           patch: {
@@ -336,14 +326,12 @@ function ImageToolPanelHost({
               adjustValues,
             },
           },
-        })
-      );
+        });
       return;
     }
     const skipHistory = adjustHistoryPushedRef.current;
     adjustHistoryPushedRef.current = false;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId: panel.nodeId,
         skipHistory,
         patch: {
@@ -353,21 +341,19 @@ function ImageToolPanelHost({
             adjustValues,
           },
         },
-      })
-    );
+      });
   };
 
   const writeAttrPatch = (patch: Record<string, unknown>, mode: 'preview' | 'commit') => {
     const node = document?.deltaSetLike?.[panel.nodeId];
     if (mode === 'preview' && !liveHistoryPushedRef.current) {
       liveHistoryPushedRef.current = true;
-      dispatch(pushEditorHistory());
+      pushEditorHistory();
     }
     const skipHistory =
       mode === 'preview' || (mode === 'commit' && liveHistoryPushedRef.current);
     if (mode === 'commit') liveHistoryPushedRef.current = false;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId: panel.nodeId,
         skipHistory,
         patch: {
@@ -376,8 +362,7 @@ function ImageToolPanelHost({
             ...patch,
           },
         },
-      })
-    );
+      });
   };
 
   const closeLiveAttrPanel = () => {
@@ -470,7 +455,6 @@ function ImageToolPanelHost({
                   eraseMask,
                   sourceId,
                   label: t('editor.imageToolbar.processingEraser'),
-                  dispatch,
                   onSpawned: close,
                 });
                 return;
@@ -484,7 +468,6 @@ function ImageToolPanelHost({
                 uploadKey: String(node?.attrs?.uploadKey || node?.attrs?.key || '') || null,
                 sourceId,
                 label: t('editor.imageToolbar.processingEraser'),
-                dispatch,
                 getPendingProcessId: () =>
                   (store.getState() as any).editor?.pendingImageProcessId || null,
                 onSpawned: close,
@@ -534,7 +517,6 @@ function ImageToolPanelHost({
                 maskRef: mattingMaskRef.current,
                 sourceId,
                 label: t('editor.imageToolbar.processingRemoveBg'),
-                dispatch,
                 onSpawned: close,
               });
             } catch (err: unknown) {
@@ -554,8 +536,7 @@ function ImageToolPanelHost({
           imageSrc={String(node?.attrs?.src || '') || undefined}
           onCancel={close}
           onConfirm={(opts) => {
-            dispatch(
-              startImageProcess({
+            startImageProcess({
                 sourceId: panel.nodeId,
                 kind: 'multiAngle',
                 label: '多角度生成中',
@@ -565,8 +546,7 @@ function ImageToolPanelHost({
                   zoom: opts.zoom,
                   mode: opts.mode,
                 },
-              })
-            );
+              });
             close();
           }}
         />
@@ -586,8 +566,7 @@ function ImageToolPanelHost({
           onCancel={() => {
             const baseline = adjustBaselineRef.current;
             const n = document?.deltaSetLike?.[panel.nodeId];
-            dispatch(
-              patchDocumentNode({
+            patchDocumentNode({
                 nodeId: panel.nodeId,
                 skipHistory: true,
                 patch: {
@@ -597,8 +576,7 @@ function ImageToolPanelHost({
                     adjustValues: baseline?.adjustValues ?? null,
                   },
                 },
-              })
-            );
+              });
             close();
           }}
           onConfirm={(opts) => {
@@ -646,8 +624,7 @@ function ImageToolPanelHost({
           initialOriginal={initialOriginal}
           onCancel={close}
           onConfirm={(opts) => {
-            dispatch(
-              startImageProcess({
+            startImageProcess({
                 sourceId: panel.nodeId,
                 kind: 'replaceText',
                 label: t('editor.imageToolbar.processingReplaceText'),
@@ -655,8 +632,7 @@ function ImageToolPanelHost({
                   originalText: opts.originalText,
                   newText: opts.newText,
                 },
-              })
-            );
+              });
             close();
           }}
         />

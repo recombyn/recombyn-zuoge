@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import reducer, {
+import {
+  editorReducers,
+  reduceEditor,
   createTemplate,
   openLottieTimelinePanel,
   spawnLottie,
@@ -55,16 +57,13 @@ afterEach(() => {
 function seed() {
   setAnimationWorkbenchTimelineFocus(null);
   setAnimationWorkbenchPlayheadSec(0);
-  let state = reducer(undefined, { type: '@@INIT' } as any);
-  state = reducer(
-    state,
-    createTemplate({
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, {
       name: 'lottie-import-timeline',
       document: createEmptyDocument({ emptyWorld: true }),
       emptyWorld: true,
       source: 'scratch',
-    })
-  );
+    });
   return state;
 }
 
@@ -100,17 +99,14 @@ describe('Lottie import → timeline (integration)', () => {
     expect(animationData).toBeTruthy();
 
     let state = seed();
-    state = reducer(
-      state,
-      spawnLottie({
+    state = reduceEditor(state, editorReducers.spawnLottie, {
         animationData,
         width: Number(animationData!.w) || 200,
         height: Number(animationData!.h) || 200,
         x: 40,
         y: 40,
         name: 'pulse-upload',
-      })
-    );
+      });
     const plateId = String(state.selectedNodeId || '');
     expect(plateId).toBeTruthy();
     const plate = state.document!.deltaSetLike[plateId];
@@ -133,28 +129,22 @@ describe('Lottie import → timeline (integration)', () => {
     expect(animationData).toBeTruthy();
 
     let state = seed();
-    state = reducer(
-      state,
-      spawnAnimationBoard({
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, {
         x: 0,
         y: 0,
         width: 400,
         height: 400,
         name: '动画工作台',
-      })
-    );
+      });
     const frameId = String(state.selectedFrameIds?.[0] || '');
     expect(frameId).toBeTruthy();
     setAnimationWorkbenchTimelineFocus(frameId);
 
-    state = reducer(
-      state,
-      spawnLottie({
+    state = reduceEditor(state, editorReducers.spawnLottie, {
         animationData,
         name: 'free-preview',
         frameId,
-      })
-    );
+      });
     const plateId = String(state.selectedNodeId || '');
     expect(plateId).toBeTruthy();
     const plate = state.document!.deltaSetLike[plateId];
@@ -172,13 +162,10 @@ describe('Lottie import → timeline (integration)', () => {
     expect(animationData).toBeTruthy();
 
     let state = seed();
-    state = reducer(
-      state,
-      placeUploadedLottie({
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
         animationData,
         name: '重测生成LOT-edited',
-      })
-    );
+      });
     const frameId = String(state.selectedFrameIds?.[0] || '');
     expect(frameId).toBeTruthy();
     const hostId = Object.keys(state.document!.deltaSetLike || {}).find((id) => {
@@ -214,20 +201,17 @@ describe('Lottie import → timeline (integration)', () => {
     const animationData = parseLottieAnimationData(SAMPLE_LOTTIE_ANIMATION);
     expect(animationData).toBeTruthy();
     let state = seed();
-    state = reducer(
-      state,
-      spawnLottie({
+    state = reduceEditor(state, editorReducers.spawnLottie, {
         animationData,
         name: 'free-lot',
         x: 10,
         y: 10,
-      })
-    );
+      });
     const freeId = String(state.selectedNodeId || '');
     expect(freeId).toBeTruthy();
     expect(state.selectedFrameIds || []).toEqual([]);
 
-    state = reducer(state, openLottieTimelinePanel({ nodeId: freeId }));
+    state = reduceEditor(state, editorReducers.openLottieTimelinePanel, { nodeId: freeId });
     expect(state.document!.deltaSetLike[freeId]).toBeUndefined();
     const frameId = String(state.selectedFrameIds?.[0] || '');
     expect(frameId).toBeTruthy();
@@ -394,16 +378,13 @@ describe('Lottie import → timeline (integration)', () => {
 
   it('store patch after timeline edit keeps panel node resolvable', () => {
     let state = seed();
-    state = reducer(
-      state,
-      spawnLottie({
+    state = reduceEditor(state, editorReducers.spawnLottie, {
         animationData: SAMPLE_LOTTIE_ANIMATION,
         name: 'patch-me',
-      })
-    );
+      });
     const freeId = String(state.selectedNodeId || '');
     expect(freeId).toBeTruthy();
-    state = reducer(state, openLottieTimelinePanel({ nodeId: freeId }));
+    state = reduceEditor(state, editorReducers.openLottieTimelinePanel, { nodeId: freeId });
     // Free plate is promoted to workbench host on open.
     const nodeId = String(state.lottieTimelinePanel?.nodeId || '');
     expect(nodeId).toBeTruthy();
@@ -425,13 +406,10 @@ describe('Lottie import → timeline (integration)', () => {
       value: 45,
     })!;
     const json = serializeLottieAnimationData(mutated)!;
-    state = reducer(
-      state,
-      patchDocumentNode({
+    state = reduceEditor(state, editorReducers.patchDocumentNode, {
         nodeId,
         patch: { attrs: { animationData: json } },
-      })
-    );
+      });
 
     expect(state.lottieTimelinePanel?.nodeId).toBe(nodeId);
     const scenes = buildLottieTimelineScenes(

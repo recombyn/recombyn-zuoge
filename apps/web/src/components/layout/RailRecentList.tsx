@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineEllipsisHorizontal,
@@ -60,9 +60,7 @@ function RailRecentList({
   onCreate,
   onProjectDeleted,
 }: Props): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const currentId = useSelector((s: any) => s.editor?.currentId as string | null);
+  const { t } = useTranslation();  const currentId = useSelector((s: any) => s.editor?.currentId as string | null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<RailRecentProject | null>(null);
@@ -87,7 +85,7 @@ function RailRecentList({
       const next = name.trim() || t('home.untitled');
       const id = String(item.id || '');
       if (!id) return;
-      dispatch(renameTemplateById({ id, name: next, skipUpdatedAt: true }));
+      renameTemplateById({ id, name: next, skipUpdatedAt: true });
       async function pushRename() {
         try {
           if (currentId === id) {
@@ -101,7 +99,7 @@ function RailRecentList({
       }
       void pushRename();
     },
-    [currentId, dispatch, t]
+    [currentId, t]
   );
 
   const startEdit = useCallback(
@@ -136,14 +134,14 @@ function RailRecentList({
       setDeleting,
       t,
       onSuccess: () => {
-        dispatch(deleteTemplate(id));
+        deleteTemplate(id);
         invalidateProjectsListCache();
         onProjectDeleted?.();
         message.destructive(t('common.delete'));
         setDeleteTarget(null);
       },
     });
-  }, [deleteTarget, deleting, dispatch, onProjectDeleted, runDelete, t]);
+  }, [deleteTarget, deleting, onProjectDeleted, runDelete, t]);
 
   if (!expanded) return null;
 

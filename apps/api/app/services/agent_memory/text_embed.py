@@ -34,32 +34,34 @@ def encode_text_vec(text: str) -> Any | None:
         avail = clip_available()
         st = clip_status() if avail else {}
         if not avail:
-            msg = (
-                f"[exec] +{0:6.2f}s mode=embed phase=skip "
-                f"reason='clip_unavailable' query_chars={len(query)}"
+            logger.info(
+                "[exec] +0.00s mode=embed phase=skip reason='clip_unavailable' "
+                "query_chars=%s",
+                len(query),
             )
-            logger.info(msg)
-            print(msg, flush=True)
             return None
         already = bool(st.get("loaded"))
         vec = encode_text(query)
         ms = int((time.time() - t0) * 1000)
-        msg = (
-            f"[exec] +{time.time() - t0:6.2f}s mode=embed phase=encode_text "
-            f"ms={ms} cold_load={not already} device={st.get('device')!r} "
-            f"query_chars={len(query)} dim={getattr(vec, 'shape', None)}"
+        logger.info(
+            "[exec] +%.2fs mode=embed phase=encode_text ms=%s cold_load=%s "
+            "device=%r query_chars=%s dim=%s",
+            time.time() - t0,
+            ms,
+            not already,
+            st.get("device"),
+            len(query),
+            getattr(vec, "shape", None),
         )
-        logger.info(msg)
-        print(msg, flush=True)
         return vec
     except Exception:
         ms = int((time.time() - t0) * 1000)
-        msg = (
-            f"[exec] +{time.time() - t0:6.2f}s mode=embed phase=encode_fail "
-            f"ms={ms} query_chars={len(query)}"
+        logger.info(
+            "[exec] +%.2fs mode=embed phase=encode_fail ms=%s query_chars=%s",
+            time.time() - t0,
+            ms,
+            len(query),
         )
-        logger.info(msg)
-        print(msg, flush=True)
         logger.debug("encode_text_vec failed", exc_info=True)
         return None
 

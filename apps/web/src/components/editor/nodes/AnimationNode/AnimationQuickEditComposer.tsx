@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch } from '@/store';
+
 import {
   HiArrowUp,
   HiOutlineChevronDown,
@@ -70,9 +70,7 @@ function AnimationQuickEditComposer({
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const inputRef = useRef<AgentComposerHandle>(null);
+  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -147,9 +145,8 @@ function AnimationQuickEditComposer({
     const ac = new AbortController();
     abortRef.current = ac;
     setSending(true);
-    dispatch(pushEditorHistory());
-    dispatch(
-      patchDocumentNode({
+    pushEditorHistory();
+    patchDocumentNode({
         nodeId,
         skipHistory: true,
         patch: {
@@ -159,8 +156,7 @@ function AnimationQuickEditComposer({
             processLabel: t('editor.imageToolbar.processingQuickEdit'),
           },
         },
-      })
-    );
+      });
     try {
       const imageRefUrls = attachments
         .map((c) => String(c.dataUrl || c.thumbUrl || '').trim())
@@ -190,8 +186,7 @@ function AnimationQuickEditComposer({
       const outW = Math.max(32, Math.round(aw * fit));
       const outH = Math.max(32, Math.round(ah * fit));
 
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             width: outW,
@@ -204,15 +199,14 @@ function AnimationQuickEditComposer({
               processLabel: null,
             },
           },
-        })
-      );
-      dispatch(closeImageToolPanel());
-      dispatch(closeAnimationFramePanel());
+        });
+      closeImageToolPanel();
+      closeAnimationFramePanel();
     } catch (err: any) {
       if (ac.signal.aborted) return;
       const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
         ?.document;
-      clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+      clearGeneratorProcessOverlay(doc, nodeId);
       message.error(getHttpErrorMessage(err, t('editor.tools.lottieGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
@@ -224,8 +218,8 @@ function AnimationQuickEditComposer({
 
   const onCloseQuickEdit = () => {
     abortRef.current?.abort();
-    dispatch(closeAnimationFramePanel());
-    dispatch(closeImageToolPanel());
+    closeAnimationFramePanel();
+    closeImageToolPanel();
   };
 
   return (
