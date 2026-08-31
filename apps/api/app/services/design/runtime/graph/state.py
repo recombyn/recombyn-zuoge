@@ -25,7 +25,6 @@ from recombyn_protocol import (
     REVIEW_SCORE_RAW_MAX,
     REVIEW_SCORE_TOTAL_MAX,
     TOURNAMENT_DIMS,
-    AgentTurnSchema,
     AutonomousArtDirectorSchema,
     AutonomousHopSchema,
     CounterfactualHypothesisSchema,
@@ -1352,12 +1351,6 @@ _DEFAULT_PAINT_EDIT_TOOLS = (
 )
 
 
-def _agent_turn_parser():
-    from langchain_core.output_parsers import PydanticOutputParser
-
-    return PydanticOutputParser(pydantic_object=AgentTurnSchema)
-
-
 def _thought_chat_prompt():
     """Canonical LangChain ChatPromptTemplate for Design Agent thought turns."""
     from langchain_core.prompts import ChatPromptTemplate
@@ -1641,7 +1634,6 @@ class AgentRuntime:
     mem_medium: dict[str, Any] = field(default_factory=dict)
     system: str = ""
     size_auto_hint: str = ""
-    chat_fallback_tmpl: str = ""
     persona: str = ""
     defer_tools: bool = True
     max_rounds: int = _DEFAULT_MAX_ROUNDS

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import {
+  useCurrentProjectId,
+  useEditorDocumentOnCommit,
+} from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiChevronDown, HiOutlineInformationCircle } from 'react-icons/hi2';
 import type { DirectoryUser, ShareDto, SharePermission } from '@/models/shares';
@@ -164,8 +168,8 @@ function ShareDialog({ open, onClose }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const document = useSelector((s: any) => s.editor.document);
-  const currentId = useSelector((s: any) => s.editor.currentId as string | null);
+  const document = useEditorDocumentOnCommit();
+  const currentId = useCurrentProjectId();
   const templates = useSelector(
     (s: any) =>
       s.editor.templates as Array<{

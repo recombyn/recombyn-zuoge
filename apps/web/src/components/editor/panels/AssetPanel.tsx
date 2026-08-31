@@ -250,7 +250,7 @@ function AssetPanel({ onClose, maxHeightPx }: Props): ReactNode {
               if (!loading && !loadingMore && hasMore) assetsQuery.fetchNextPage();
             }}
             isEmpty={items.length === 0}
-            empty={<EmptyState hint={emptyHint} className="px-1.5 py-6 text-[12px]" />}
+            empty={<EmptyState hint={emptyHint} className="px-1.5 py-2 text-[12px]" />}
             gridClassName={ASSET_GRID_FLOW}
             skeleton={Array.from({ length: USER_ASSET_SKELETON_COUNT }, (_, i) => (
               <UserAssetCardSkeleton key={i} index={i} dense />

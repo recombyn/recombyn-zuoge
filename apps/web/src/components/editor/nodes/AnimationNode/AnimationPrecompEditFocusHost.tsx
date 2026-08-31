@@ -1,9 +1,10 @@
 /**
  * Precomp edit: center the lot plate once; restore camera on exit.
  * Isolation paint is owned by animationPrecompEditFocus module.
+ * Camera fit/release is event-driven (`requestPrecompCameraFit` / Release).
  */
 import { memo, useEffect, useLayoutEffect, useRef } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
@@ -22,13 +23,18 @@ import {
   type SessionCameraFitOpts,
 } from '@/utils/sessionCamera';
 import { exitLottiePrecompEdit } from '@/store/modules/editor';
+import {
+  RCB_PRECOMP_CAMERA_FIT,
+  RCB_PRECOMP_CAMERA_RELEASE,
+} from '@/components/editor/sceneEvents';
+import store from '@/store';
 
 const DOCK_FALLBACK_H = 240;
 const BOTTOM_BAND_GAP = 40;
 const TOP_BAND_INSET = 40;
 const MAX_ZOOM = 1.6;
 const PADDING = 72;
-/** Match 主场景 fit — center in the free band above the timeline (not upper-biased). */
+/** Match 主场—fit — center in the free band above the timeline (not upper-biased). */
 const BAND_ANCHOR_Y = 0.5;
 
 function readBottomBandInset(stageEl: HTMLElement | null): number {
@@ -71,8 +77,6 @@ function boundsForPrecompEdit(
   frameId?: string | null
 ): SessionCameraBounds | null {
   if (!document) return null;
-  // After enter, workbench frame is resized to the plate — prefer that AABB so
-  // the visible white board centers (not a stale host/lot offset).
   const fid = String(frameId || '').trim();
   if (fid) {
     const frame = (Array.isArray(document.frames) ? document.frames : []).find(
@@ -151,7 +155,13 @@ function AnimationPrecompEditFocusHost({
   const pushedRef = useRef(false);
   const fittedKeyRef = useRef('');
   const stageElRef = useRef(stageEl);
+  const bandLeftRef = useRef(bandLeftPx);
+  const bandRightRef = useRef(bandRightPx);
+  const documentRef = useRef(document);
   stageElRef.current = stageEl;
+  bandLeftRef.current = bandLeftPx;
+  bandRightRef.current = bandRightPx;
+  documentRef.current = document;
 
   useLayoutEffect(() => {
     setLottiePrecompEditFocus({
@@ -180,67 +190,82 @@ function AnimationPrecompEditFocusHost({
   }, [active, dispatch]);
 
   useEffect(() => {
-    if (!active) {
+    let cancelled = false;
+    let tries = 0;
+    let raf = 0;
+
+    const release = () => {
       if (pushedRef.current) {
         popSessionCamera();
         pushedRef.current = false;
       }
       fittedKeyRef.current = '';
-      return;
-    }
+    };
 
-    // Fit once per LOT session — do not chase frame drags while editing.
-    const key = `${hostNodeId}:${assetId}`;
-    if (fittedKeyRef.current === key && pushedRef.current) return;
-
-    let cancelled = false;
-    let tries = 0;
-    const apply = () => {
-      if (cancelled) return;
-      const bounds = boundsForPrecompEdit(document, hostNodeId, assetId, frameId);
-      if (!bounds) {
-        if (tries++ < 16) window.requestAnimationFrame(apply);
-        return;
-      }
-      // Wait until the resized plate is in document (enter shrinks workbench → plate).
-      if (frameId && tries < 8) {
-        const frame = (Array.isArray(document?.frames) ? document!.frames : []).find(
-          (f: { id?: string }) => String(f?.id) === frameId
-        );
-        const fw = Math.max(1, Number(frame?.width) || 0);
-        const fh = Math.max(1, Number(frame?.height) || 0);
-        if (!frame || fw < 1 || fh < 1) {
-          tries += 1;
-          window.requestAnimationFrame(apply);
+    const fit = () => {
+      cancelled = false;
+      tries = 0;
+      const apply = () => {
+        if (cancelled) return;
+        const editor = (store.getState() as { editor?: any }).editor;
+        const pre = editor?.lottiePrecompEdit as
+          | null
+          | { hostNodeId?: string; assetId?: string; frameId?: string };
+        const host = String(pre?.hostNodeId || '').trim();
+        const asset = String(pre?.assetId || '').trim();
+        if (!host || !asset) return;
+        const key = `${host}:${asset}`;
+        if (fittedKeyRef.current === key && pushedRef.current) return;
+        const doc =
+          (editor?.document as SceneDocument | null | undefined) || documentRef.current;
+        const bounds = boundsForPrecompEdit(doc, host, asset, pre?.frameId);
+        if (!bounds) {
+          if (tries++ < 16) raf = window.requestAnimationFrame(apply);
           return;
         }
-      }
-      if (fittedKeyRef.current === key && pushedRef.current) return;
-      const opts = fitOpts(stageElRef.current, bandLeftPx, bandRightPx);
-      if (!pushedRef.current) {
-        pushSessionCamera(bounds, opts);
-        pushedRef.current = true;
-      } else {
-        fitSessionCamera(bounds, opts);
-      }
-      fittedKeyRef.current = key;
+        const fid = String(pre?.frameId || '').trim();
+        if (fid && tries < 8) {
+          const frame = (Array.isArray(doc?.frames) ? doc!.frames : []).find(
+            (f: { id?: string }) => String(f?.id) === fid
+          );
+          const fw = Math.max(1, Number(frame?.width) || 0);
+          const fh = Math.max(1, Number(frame?.height) || 0);
+          if (!frame || fw < 1 || fh < 1) {
+            tries += 1;
+            raf = window.requestAnimationFrame(apply);
+            return;
+          }
+        }
+        if (fittedKeyRef.current === key && pushedRef.current) return;
+        const opts = fitOpts(stageElRef.current, bandLeftRef.current, bandRightRef.current);
+        if (!pushedRef.current) {
+          pushSessionCamera(bounds, opts);
+          pushedRef.current = true;
+        } else {
+          fitSessionCamera(bounds, opts);
+        }
+        fittedKeyRef.current = key;
+      };
+      raf = window.requestAnimationFrame(apply);
     };
-    window.requestAnimationFrame(apply);
+
+    const onFit = () => fit();
+    const onRelease = () => {
+      cancelled = true;
+      if (raf) window.cancelAnimationFrame(raf);
+      release();
+    };
+    window.addEventListener(RCB_PRECOMP_CAMERA_FIT, onFit);
+    window.addEventListener(RCB_PRECOMP_CAMERA_RELEASE, onRelease);
     return () => {
       cancelled = true;
-    };
-  }, [active, assetId, bandLeftPx, bandRightPx, document, frameId, hostNodeId]);
-
-  useEffect(
-    () => () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener(RCB_PRECOMP_CAMERA_FIT, onFit);
+      window.removeEventListener(RCB_PRECOMP_CAMERA_RELEASE, onRelease);
       setLottiePrecompEditFocus({ active: false });
-      if (pushedRef.current) {
-        popSessionCamera();
-        pushedRef.current = false;
-      }
-    },
-    []
-  );
+      release();
+    };
+  }, []);
 
   return null;
 }

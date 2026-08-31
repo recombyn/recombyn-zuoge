@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
 import { PiSelectionPlus } from 'react-icons/pi';

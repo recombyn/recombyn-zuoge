@@ -22,6 +22,7 @@ import {
   supportsFill,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
+import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
@@ -240,10 +241,11 @@ export function frameIdAtPoint(
   for (let i = frames.length - 1; i >= 0; i -= 1) {
     const frame = frames[i];
     if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
-    const fx = Number(frame.x) || 0;
-    const fy = Number(frame.y) || 0;
-    const fw = Math.max(1, Number(frame.width) || 1);
-    const fh = Math.max(1, Number(frame.height) || 1);
+    const live = getLiveArtboardFrameGeometry(String(frame.id || ''));
+    const fx = Number(live?.x ?? frame.x) || 0;
+    const fy = Number(live?.y ?? frame.y) || 0;
+    const fw = Math.max(1, Number(live?.width ?? frame.width) || 1);
+    const fh = Math.max(1, Number(live?.height ?? frame.height) || 1);
     if (x >= fx && x <= fx + fw && y >= fy && y <= fy + fh) {
       return String(frame.id);
     }

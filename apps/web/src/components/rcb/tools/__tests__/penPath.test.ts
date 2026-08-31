@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findClosestPathHit,
+  flipAnchorsAroundCenter,
   insertAnchorOnPath,
   penAnchorsToD,
   rotateAnchorsAroundCenter,
@@ -76,5 +77,37 @@ describe('rotateAnchorsAroundCenter', () => {
     expect(out[0].outY).toBeCloseTo(60, 6);
     expect(out[0].inX).toBeCloseTo(90, 6);
     expect(out[0].inY).toBeCloseTo(20, 6);
+  });
+});
+
+describe('flipAnchorsAroundCenter', () => {
+  it('is a no-op when neither axis flips', () => {
+    expect(flipAnchorsAroundCenter(rect, 50, 40, false, false)).toEqual(rect);
+  });
+
+  it('mirrors X so path-edit matches host flipX', () => {
+    // Box 100×80, TL (0,0) → flipX → (100,0)
+    const out = flipAnchorsAroundCenter([{ x: 0, y: 0 }], 50, 40, true, false);
+    expect(out[0].x).toBeCloseTo(100, 6);
+    expect(out[0].y).toBeCloseTo(0, 6);
+  });
+
+  it('mirrors Y so path-edit matches host flipY', () => {
+    const out = flipAnchorsAroundCenter([{ x: 0, y: 0 }], 50, 40, false, true);
+    expect(out[0].x).toBeCloseTo(0, 6);
+    expect(out[0].y).toBeCloseTo(80, 6);
+  });
+
+  it('mirrors Bezier handles with the anchor', () => {
+    const out = flipAnchorsAroundCenter(
+      [{ x: 20, y: 40, outX: 30, outY: 40, inX: 10, inY: 40 }],
+      50,
+      40,
+      true,
+      false
+    );
+    expect(out[0].x).toBeCloseTo(80, 6);
+    expect(out[0].outX).toBeCloseTo(70, 6);
+    expect(out[0].inX).toBeCloseTo(90, 6);
   });
 });

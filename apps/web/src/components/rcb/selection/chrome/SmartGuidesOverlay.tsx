@@ -1,8 +1,8 @@
 /**
  * Smart guides as scene-space SVG under the shared camera surface.
- * Must portal into `data-rcb-smart-guides-mount` — a sibling
- * A separate SVG snaps independently under fractional browser DPR and drifts
- * against the pixel grid (the same failure mode as shape draw preview).
+ * Must portal into `data-rcb-smart-guides-mount` on the chrome SVG (above
+ * idle Canvas ink). Same CameraTransform as the ink SVG — a free-floating
+ * HTML overlay would snap independently under fractional browser DPR.
  * Snap math stays in alignGuides; this file only paints.
  *
  * Paint contract: one continuous stroke per guide, then small dots at marks.

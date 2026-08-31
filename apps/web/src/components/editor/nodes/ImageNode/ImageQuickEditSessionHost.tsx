@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   isQuickEditMarkPanel,

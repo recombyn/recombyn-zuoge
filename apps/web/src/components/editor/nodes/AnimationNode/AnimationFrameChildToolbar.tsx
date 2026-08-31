@@ -1,6 +1,6 @@
 /**
  * Horizontal align strip + property inspector for Animation workbench children.
- * 「关键帧」 opens the vertical inspector panel and hides this strip.
+ * 「关键帧—opens the vertical inspector panel and hides this strip.
  */
 import {
   memo,
@@ -13,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { BiExit } from 'react-icons/bi';
 import {
@@ -789,7 +789,7 @@ function AnimationFrameChildToolbar({
     return frames.find((f: any) => String(f?.id) === frameId) || null;
   }, [document, frameId]);
   const hostId = frameId ? findFrameAnimationMediaId(document, frameId) : null;
-  /** Timeline dock open — hide diamond 「关键帧」 (dock owns keyframes). */
+  /** Timeline dock open — hide diamond 「关键帧—(dock owns keyframes). */
   const editModeOpen = Boolean(timelinePanelNodeId);
   const host = hostId ? document?.deltaSetLike?.[hostId] : null;
   const anim = useMemo(
@@ -860,7 +860,7 @@ function AnimationFrameChildToolbar({
   const [roundExpanded, setRoundExpanded] = useState(hasRoundness);
   const [appearExpanded, setAppearExpanded] = useState(isVector);
   const [imageOptsExpanded, setImageOptsExpanded] = useState(true);
-  /** Property inspector — opened from 「关键帧」; hides the align toolbar while open. */
+  /** Property inspector — opened from 「关键帧— hides the align toolbar while open. */
   const [kfPanelOpen, setKfPanelOpen] = useState(false);
   /** Local hex draft while typing; null = show attrs. */
   const [fillHexDraft, setFillHexDraft] = useState<string | null>(null);
@@ -1464,19 +1464,6 @@ function AnimationFrameChildToolbar({
             <div className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--ink)]">
               {isImage ? imageFileLabel : layerName}
             </div>
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-35"
-              aria-pressed={!hidden}
-              aria-label={t('editor.lottieToolbar.toggleVisibility')}
-              onClick={() => patchAttrs({ hidden: hidden ? 'false' : 'true' })}
-            >
-              {hidden ? (
-                <HiOutlineEyeSlash className="h-4 w-4" />
-              ) : (
-                <HiOutlineEye className="h-4 w-4" />
-              )}
-            </button>
           </div>
 
           <div className="w-full min-w-0">
@@ -1584,8 +1571,23 @@ function AnimationFrameChildToolbar({
 
         {/* Layer */}
         <div className="border-t border-[var(--line)]">
-          <div className="flex h-8 items-center justify-between px-3 text-[12px] font-medium text-[var(--ink)]">
+          <div className="flex h-8 items-center gap-1.5 px-3 text-[12px] font-medium text-[var(--ink)]">
+            <span className="min-w-0 flex-1 truncate">
             {t('editor.lottieToolbar.layerSection')}
+            </span>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-35"
+              aria-pressed={!hidden}
+              aria-label={t('editor.lottieToolbar.toggleVisibility')}
+              onClick={() => patchAttrs({ hidden: hidden ? 'false' : 'true' })}
+            >
+              {hidden ? (
+                <HiOutlineEyeSlash className="h-4 w-4" />
+              ) : (
+                <HiOutlineEye className="h-4 w-4" />
+              )}
+            </button>
           </div>
           <div className="flex w-full items-center gap-1.5 px-3 pb-3">
             <div className={cn('flex h-8 w-full min-w-0 items-center gap-1 rounded-sm bg-[var(--accent-soft)] px-2 text-[12px] text-[var(--ink)]', 'w-[6.5rem] shrink-0 flex-none')}>
@@ -1623,19 +1625,6 @@ function AnimationFrameChildToolbar({
               }))}
               onChange={(key) => patchAttrs({ blendMode: key })}
             />
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-[var(--muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--ink)] disabled:opacity-35"
-              aria-pressed={!hidden}
-              aria-label={t('editor.lottieToolbar.toggleVisibility')}
-              onClick={() => patchAttrs({ hidden: hidden ? 'false' : 'true' })}
-            >
-              {hidden ? (
-                <HiOutlineEyeSlash className="h-4 w-4" />
-              ) : (
-                <HiOutlineEye className="h-4 w-4" />
-              )}
-            </button>
           </div>
         </div>
 
@@ -1883,7 +1872,7 @@ function AnimationFrameChildToolbar({
           </>
         ) : null}
 
-        {/* Image Options — name only; 矢量化 lives on the image toolbar More menu. */}
+        {/* Image Options — name only; 矢量—lives on the image toolbar More menu. */}
         {isImage ? (
           <div className="border-t border-[var(--line)]">
             <SectionHeader

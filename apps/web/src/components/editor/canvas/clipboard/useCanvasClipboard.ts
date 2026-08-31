@@ -1,5 +1,5 @@
 import { useCallback, useEffect, type RefObject } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 import {
   createSvgNode,

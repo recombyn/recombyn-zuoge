@@ -56,7 +56,7 @@ type SelectionChromeProps = {
   edgeHandles?: 'all' | 'horizontal' | 'none' | 'se-only';
   /** When false, only handles / hit targets (no AABB stroke). */
   showBoxStroke?: boolean;
-  /** Past outer stroke edge ??rotate sits beyond this (scene units). */
+  /** Past outer stroke edge — rotate sits beyond this (scene units). */
   strokeOuterScene?: number;
   /** Override selection box / handle stroke color. */
   strokeColor?: string;
@@ -82,15 +82,15 @@ export const CHROME_HANDLE_VIS_PX = 8;
 export const CHROME_HANDLE_HIT_PX = 24;
 /** Painted radius knob diameter (screen px). */
 export const CHROME_RADIUS_VIS_PX = 10;
-/** Corner-radius hit diameter (screen px) ??larger than paint so R-dots are easy to grab. */
+/** Corner-radius hit diameter (screen px) — larger than paint so R-dots are easy to grab. */
 export const CHROME_RADIUS_HIT_PX = 22;
 /**
  * Air between resize control edge and radius control edge (screen px).
- * Keep generous ??at extreme zoom, hit circles must not swallow the R-dot
+ * Keep generous — at extreme zoom, hit circles must not swallow the R-dot
  * the way a tight 6px gap did in practice.
  */
 export const CHROME_RADIUS_PARK_GAP_PX = 12;
-/** Legacy rotate disc diameter (screen px) ??L-bracket is the primary rotate hit. */
+/** Legacy rotate disc diameter (screen px) — L-bracket is the primary rotate hit. */
 export const CHROME_ROTATE_HIT_PX = 24;
 /** Air between resize knob outer edge and rotate L inner edge (screen px). */
 export const CHROME_ROTATE_GAP_PX = 8;
@@ -100,7 +100,7 @@ export const CHROME_LINE_ENDPOINT_HALO_PX = 22;
 export const CHROME_LINE_ENDPOINT_HIT_PX = CHROME_HANDLE_HIT_PX;
 export const CHROME_LINE_SHAFT_HIT_PX = 28;
 /**
- * Rotate L-bracket arm length (screen px) ??outside the white corner knob.
+ * Rotate L-bracket arm length (screen px) — outside the white corner knob.
  * White corner knobs stay for resize; this L is the rotate trigger only.
  */
 export const CHROME_CORNER_L_ARM_PX = 28;
@@ -161,7 +161,7 @@ const SEL_BASELINE = '#3388ff';
 
 /**
  * Scene distance from a corner knob center to the rotate hotzone center.
- * Axis-aligned into the outer quadrant ??diagonal push made the rotate AABB
+ * Axis-aligned into the outer quadrant — diagonal push made the rotate AABB
  * overlap the resize hit and steal corner clicks after zoom.
  */
 export function rotateHotzoneOutward(
@@ -220,7 +220,7 @@ export function chromeOutsideHitPadScene(
 
 /**
  * Rotate L that wraps each control-box corner from the outside
- * (????????, arms run along the box edges ??not pointing into the
+ * (————, arms run along the box edges — not pointing into the
  * outer diagonal.
  */
 export function cornerLLocalBars(
@@ -237,28 +237,28 @@ export function cornerLLocalBars(
   const w = Math.max(1, boxW);
   const h = Math.max(1, boxH);
   if (handle === 'nw') {
-    // ?? top arm ??right, left arm ??down
+    // —  top arm — right, left arm — down
     return [
       { x: -c - t, y: -c - t, w: a + t, h: t },
       { x: -c - t, y: -c, w: t, h: a },
     ];
   }
   if (handle === 'ne') {
-    // ?? top arm ??left, right arm ??down
+    // —  top arm — left, right arm — down
     return [
       { x: w + c - a, y: -c - t, w: a + t, h: t },
       { x: w + c, y: -c, w: t, h: a },
     ];
   }
   if (handle === 'se') {
-    // ?? bottom arm ??left, right arm ??up
+    // —  bottom arm — left, right arm — up
     return [
       { x: w + c - a, y: h + c, w: a + t, h: t },
       { x: w + c, y: h + c - a, w: t, h: a },
     ];
   }
   if (handle === 'sw') {
-    // ?? bottom arm ??right, left arm ??up
+    // —  bottom arm — right, left arm — up
     return [
       { x: -c - t, y: h + c, w: a + t, h: t },
       { x: -c - t, y: h + c - a, w: t, h: a },
@@ -335,9 +335,9 @@ export function pointInCornerLLocal(
 }
 
 /**
- * Screen px from corner (resize / control-box icon center) ??radius seat when R??.
+ * Screen px from corner (resize / control-box icon center) — radius seat when R—.
  * Both hits are centered on their icons; axis park `(inset, inset)` clears
- * `halfResizeHit + halfRadiusHit + gap` along each axis ??same screen gap at
+ * `halfResizeHit + halfRadiusHit + gap` along each axis — same screen gap at
  * every zoom so high magnification cannot collapse R-dot onto the corner handle.
  */
 export function radiusHandleParkScreenPx(): number {
@@ -353,7 +353,7 @@ export function radiusHandleParkScreenPx(): number {
  * - rotate = corner ? `rotateOutwardScene(...)` (screen gap + stroke outer)
  *
  * Total inset = screen park (`parkPx / zoom`) + stroke inner clearance (scene).
- * Stroke width is scene-constant and grows on screen with zoom ??without the
+ * Stroke width is scene-constant and grows on screen with zoom — without the
  * stroke term, R-dots sit on the painted stroke at high magnification.
  * Clamped so seats cannot cross the box center.
  */
@@ -660,7 +660,7 @@ export function clearSelectionChromeCursor(el: HTMLElement | null | undefined): 
 
 /**
  * Hit range around a painted control center (scene units).
- * Screen radius = half the painted size ? hitScale ??pointer near the point, not a DOM pad.
+ * Screen radius = half the painted size ? hitScale — pointer near the point, not a DOM pad.
  */
 export function chromeHandleHitRadiusScene(
   zoom: number,
@@ -1114,7 +1114,7 @@ export const RCB_HIT_ANCHOR_ATTR = 'data-rcb-hit-anchor';
 export const RCB_HIT_OWNER_ATTR = 'data-rcb-hit-owner';
 export const RCB_HIT_PAD_ATTR = 'data-rcb-hit-pad';
 export const RCB_HIT_SIZE_ATTR = 'data-rcb-hit-size';
-/** Scene (board) X ??same space as world SVG / smart guides. */
+/** Scene (board) X — same space as world SVG / smart guides. */
 export const RCB_HIT_SCENE_X_ATTR = 'data-rcb-hit-scene-x';
 /** Scene (board) Y. */
 export const RCB_HIT_SCENE_Y_ATTR = 'data-rcb-hit-scene-y';
@@ -1540,7 +1540,7 @@ function hitZonePriority(pick: PaintedHitZonePick): number {
   return 4;
 }
 
-/** Overlay / pen-edit knobs ??scene AABB registry (no HTML pads). */
+/** Overlay / pen-edit knobs — scene AABB registry (no HTML pads). */
 export type ChromeKnobKind = 'radius' | 'shape' | 'pen-anchor' | 'pen-handle';
 export type ChromeKnobHit = {
   ownerId: string;
@@ -1555,7 +1555,7 @@ export type ChromeKnobHit = {
 /**
  * Knob registry must survive Vite HMR / duplicate module instances.
  * SelectionFeature and CornerRadiusHandlesOverlay otherwise write/read different
- * Maps ??painted R-dots with empty picks ??down falls through to move.
+ * Maps — painted R-dots with empty picks — down falls through to move.
  */
 type KnobHitStore = Map<string, ChromeKnobHit[]>;
 function chromeKnobHitStore(): KnobHitStore {
@@ -1672,7 +1672,7 @@ function hitZoneCircleClient(
   return { cx, cy, r: screenR };
 }
 
-/** Per-control HTML div ??client disc via getBoundingClientRect. */
+/** Per-control HTML div — client disc via getBoundingClientRect. */
 function hitZoneHtmlClient(el: Element): { cx: number; cy: number; r: number } | null {
   if (!(el instanceof HTMLElement)) return null;
   const rect = el.getBoundingClientRect();
@@ -1685,7 +1685,7 @@ function hitZoneHtmlClient(el: Element): { cx: number; cy: number; r: number } |
 }
 
 /**
- * Pick by painted hit zones ??each control's HTML div (GBR), else SVG.
+ * Pick by painted hit zones — each control's HTML div (GBR), else SVG.
  */
 export function pickPaintedHitZone(
   clientX: number,
@@ -1810,7 +1810,7 @@ function selectResizeKnobs(opts: {
   } else {
     picked = all;
   }
-  // Edges first, corners last ??corner hits must win when AABBs overlap on tiny boxes.
+  // Edges first, corners last — corner hits must win when AABBs overlap on tiny boxes.
   return [
     ...picked.filter(([dir]) => isEdgeHandle(dir)),
     ...picked.filter(([dir]) => isCornerHandle(dir)),

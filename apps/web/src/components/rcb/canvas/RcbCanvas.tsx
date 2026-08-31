@@ -31,12 +31,20 @@ import { RCB_DEFAULT_CAMERA, type RcbCamera } from '../core/types';
 import { cameraSvgTransform, createCameraTransform } from '../camera/transform';
 import {
   createCanvasSceneRenderer,
+  createSceneRenderer,
   getSceneCanvasIdlePaint,
   listSceneCanvasIdlePaintIds,
+  resolveIdleInkBackend,
+  resolveSoaCanvasDirtyRegion,
   subscribeSceneCanvasIdlePaint,
   type SceneRenderer,
 } from '../render/sceneRenderer';
-import { subscribeTransformPreview } from '../core/transformPreview';
+import {
+  getSharedSceneRenderBuffer,
+  isSoaCanvasShapesEnabled,
+  markSoaDirtyById,
+} from '../render/sceneRenderBuffer';
+import { subscribeTransformPreview, listNodeTransformPreviewIds } from '../core/transformPreview';
 import type { SceneDocument } from '../sceneNode';
 import { setInfiniteSvgPaintCamera } from '../scene/paint/sceneToSvg';
 import { notifyShapeHostGeometry, setSceneWorldRoot } from '../shapes/shapeHostRegistry';
@@ -148,9 +156,10 @@ export type RcbCanvasProps = {
  * Layers:
  *   1. Viewport — wheel / pan, overflow hidden
  *   2. Grid Canvas underlay — pixel/scene grid (under SVG plates)
- *   3. Shared SVG camera group — hosts, plates, previews, guides, chrome
+ *   3. Shared SVG camera group — hosts, plates, draw previews
  *   4. Idle Canvas overlay — Canvas2D demoted ink above plates (frame-clipped)
- *   5. Overlay — unscaled HTML UI
+ *   5. Chrome SVG — smart guides + selection chrome (above idle ink)
+ *   6. Overlay — unscaled HTML UI
  *
  * Pixel grid uses CameraTransform on the underlay (same pan/zoom as ink), not
  * an SVG path under world `scale`.
@@ -467,28 +476,39 @@ function RcbCanvas({
     });
   }, [camera, devicePixelRatio, viewportEl?.clientWidth, viewportEl?.clientHeight]);
 
-  // One scene SVG for shape layers (grid lives on the Canvas underlay).
-  const setSceneRootNode = useCallback((node: SVGSVGElement | null) => {
-    const cameraRoot = node
-      ? (node.querySelector(':scope > g[data-rcb-scene-camera]') as SVGGElement | null)
+  // Ink SVG (shapes) + chrome SVG (guides/selection) share CameraTransform.
+  // Guides must sit above idle Canvas ink (z-2) so SoA demoted shapes cannot cover them.
+  const sceneInkSvgRef = useRef<SVGSVGElement | null>(null);
+  const sceneChromeSvgRef = useRef<SVGSVGElement | null>(null);
+
+  const publishSceneWorldMounts = useCallback(() => {
+    const ink = sceneInkSvgRef.current;
+    const chrome = sceneChromeSvgRef.current;
+    const inkCamera = ink
+      ? (ink.querySelector(':scope > g[data-rcb-scene-camera]') as SVGGElement | null)
       : null;
-    const mount = cameraRoot
-      ? (cameraRoot.querySelector(':scope > g[data-rcb-shapes-mount]') as SVGGElement | null)
+    const chromeCamera = chrome
+      ? (chrome.querySelector(':scope > g[data-rcb-scene-camera]') as SVGGElement | null)
       : null;
-    const processMount = cameraRoot
-      ? (cameraRoot.querySelector(':scope > g[data-rcb-process-mount]') as SVGGElement | null)
+    const mount = inkCamera
+      ? (inkCamera.querySelector(':scope > g[data-rcb-shapes-mount]') as SVGGElement | null)
       : null;
-    const previewMount = cameraRoot
-      ? (cameraRoot.querySelector(':scope > g[data-rcb-draw-preview-mount]') as SVGGElement | null)
+    const processMount = inkCamera
+      ? (inkCamera.querySelector(':scope > g[data-rcb-process-mount]') as SVGGElement | null)
       : null;
-    const guidesMount = cameraRoot
-      ? (cameraRoot.querySelector(':scope > g[data-rcb-smart-guides-mount]') as SVGGElement | null)
+    const previewMount = inkCamera
+      ? (inkCamera.querySelector(':scope > g[data-rcb-draw-preview-mount]') as SVGGElement | null)
       : null;
-    const selectionChromeMount = cameraRoot
-      ? (cameraRoot.querySelector(':scope > g[data-rcb-selection-chrome-mount]') as SVGGElement | null)
+    const guidesMount = chromeCamera
+      ? (chromeCamera.querySelector(':scope > g[data-rcb-smart-guides-mount]') as SVGGElement | null)
+      : null;
+    const selectionChromeMount = chromeCamera
+      ? (chromeCamera.querySelector(
+          ':scope > g[data-rcb-selection-chrome-mount]'
+        ) as SVGGElement | null)
       : null;
     setSceneWorldRoot(
-      node,
+      ink,
       mount,
       previewMount,
       guidesMount,
@@ -496,6 +516,22 @@ function RcbCanvas({
       processMount
     );
   }, []);
+
+  const setSceneInkRootNode = useCallback(
+    (node: SVGSVGElement | null) => {
+      sceneInkSvgRef.current = node;
+      publishSceneWorldMounts();
+    },
+    [publishSceneWorldMounts]
+  );
+
+  const setSceneChromeRootNode = useCallback(
+    (node: SVGSVGElement | null) => {
+      sceneChromeSvgRef.current = node;
+      publishSceneWorldMounts();
+    },
+    [publishSceneWorldMounts]
+  );
   useEffect(() => {
     return () => setSceneWorldRoot(null, null, null, null, null, null);
   }, []);
@@ -527,7 +563,7 @@ function RcbCanvas({
       paintGrid: true,
       drawCanvasIdle: false,
     });
-    const inkRenderer = createCanvasSceneRenderer({
+    const inkRenderer = createSceneRenderer(resolveIdleInkBackend(), {
       ...sharedDeps,
       canvas: inkCanvas,
       paintGrid: false,
@@ -549,8 +585,20 @@ function RcbCanvas({
     });
   }, []);
 
+  const paintCameraKeyRef = useRef('');
+  const paintStageKeyRef = useRef('');
+  /** TransformPreview (incl. playhead angle) must full-repaint — dirty AABB may be empty. */
+  const transformPreviewFullPaintRef = useRef(false);
+
   useEffect(() => {
     return subscribeTransformPreview(() => {
+      if (isSoaCanvasShapesEnabled()) {
+        const buf = getSharedSceneRenderBuffer();
+        for (const id of listNodeTransformPreviewIds()) {
+          markSoaDirtyById(buf, id);
+        }
+      }
+      transformPreviewFullPaintRef.current = true;
       setCanvasIdlePaintEpoch((n) => n + 1);
     });
   }, []);
@@ -558,10 +606,27 @@ function RcbCanvas({
   useLayoutEffect(() => {
     if (stageW <= 0 || stageH <= 0) return;
     const idleDoc = getSceneCanvasIdlePaint()?.document ?? EMPTY_SCENE_DOC;
+    const cameraKey = `${camera.x},${camera.y},${camera.zoom}`;
+    const stageKey = `${stageW}x${stageH}@${devicePixelRatio}|g${g}|pg${showPixelGrid ? 1 : 0}`;
+    const cameraOrStageChanged =
+      paintCameraKeyRef.current !== cameraKey || paintStageKeyRef.current !== stageKey;
+    paintCameraKeyRef.current = cameraKey;
+    paintStageKeyRef.current = stageKey;
+
+    const fromTransformPreview = transformPreviewFullPaintRef.current;
+    transformPreviewFullPaintRef.current = false;
+    const dirty = resolveSoaCanvasDirtyRegion({
+      full:
+        cameraOrStageChanged ||
+        fromTransformPreview ||
+        !isSoaCanvasShapesEnabled(),
+      buf: isSoaCanvasShapesEnabled() ? getSharedSceneRenderBuffer() : null,
+    });
+
     const req = {
       document: idleDoc,
       camera,
-      dirty: { kind: 'full' as const },
+      dirty,
       stage: { width: stageW, height: stageH },
       dpr: devicePixelRatio,
     };
@@ -623,7 +688,7 @@ function RcbCanvas({
               {/* SVG paint uses the exact same direct CameraTransform as screen chrome. */}
               {stageW > 0 && stageH > 0 ? (
                 <svg
-                  ref={setSceneRootNode}
+                  ref={setSceneInkRootNode}
                   aria-hidden
                   data-rcb-scene-root="1"
                   data-rcb-screen-surface="1"
@@ -652,8 +717,6 @@ function RcbCanvas({
                     <g data-rcb-shapes-mount="1" />
                     <g data-rcb-process-mount="1" />
                     <g data-rcb-draw-preview-mount="1" />
-                    <g data-rcb-smart-guides-mount="1" />
-                    <g data-rcb-selection-chrome-mount="1" pointerEvents="none" />
                   </g>
                 </svg>
               ) : null}
@@ -664,6 +727,35 @@ function RcbCanvas({
                 data-rcb-canvas-idle-count={String(listSceneCanvasIdlePaintIds().length)}
                 className="pointer-events-none absolute inset-0 z-[2]"
               />
+              {/* Guides / selection chrome above SoA idle ink — same CameraTransform. */}
+              {stageW > 0 && stageH > 0 ? (
+                <svg
+                  ref={setSceneChromeRootNode}
+                  aria-hidden
+                  data-rcb-scene-chrome-root="1"
+                  data-rcb-screen-surface="1"
+                  data-rcb-infinite="1"
+                  className="pointer-events-none absolute inset-0 z-[3] overflow-visible"
+                  width={stageW}
+                  height={stageH}
+                  viewBox={`0 0 ${stageW} ${stageH}`}
+                  preserveAspectRatio="none"
+                  style={{
+                    width: stageW,
+                    height: stageH,
+                    display: 'block',
+                    overflow: 'visible',
+                    shapeRendering: 'geometricPrecision',
+                    pointerEvents: 'none',
+                    isolation: 'isolate',
+                  }}
+                >
+                  <g data-rcb-scene-camera="1" transform={sceneCameraTransform}>
+                    <g data-rcb-smart-guides-mount="1" />
+                    <g data-rcb-selection-chrome-mount="1" pointerEvents="none" />
+                  </g>
+                </svg>
+              ) : null}
               {children}
               <div
                 ref={setOverlayEl}

@@ -1,7 +1,7 @@
 /**
  * Canvas write / hit / geometry session — imperative API used by SvgCanvas.
  */
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from '@/store';
 import {
   addNodeToDocument,
   patchDeltaSetLike,
@@ -45,6 +45,7 @@ import {
 import { hitTestWithSpatialIndex } from '@/components/rcb/render/sceneRenderer';
 import {
   clearNodeTransformPreviews,
+  effectivePaintBox,
   setNodeTransformAngles,
   setNodeTransformPreviews,
 } from '@/components/rcb/core/transformPreview';
@@ -84,12 +85,13 @@ import {
   autoKeyAnimatedGeometry,
   autoKeyAnimatedRotation,
 } from '@/components/editor/nodes/AnimationNode/animationAutoKey';
+import { getAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 import type { createDragWriteCoalescer } from './dragWriteCoalescer';
 import type { ArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
-import store from '@/store';
 import {
   patchDocumentNode,
+  patchDocumentNodes,
   pushEditorHistory,
   setActiveTool,
   setDocument,
@@ -97,6 +99,8 @@ import {
   setPendingImageSrc,
   setSelectedNodeId,
   setSelectedNodeIds,
+  touchDocumentRevision,
+  updateArtboardFrames,
 } from '@/store/modules/editor';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 
@@ -189,11 +193,22 @@ export function getNodeBoxFromDoc(doc: SceneDocument | null | undefined, nodeId:
   const node = doc?.deltaSetLike?.[nodeId];
   if (!node) return null;
   const { left, top } = nodeLeftTop(doc, node);
+  const paint = effectivePaintBox(
+    nodeId,
+    {
+      left,
+      top,
+      width: Math.max(1, Number(node.width) || 1),
+      height: Math.max(1, Number(node.height) || 1),
+    },
+    Number(node.attrs?.angle) || 0
+  );
+  if (paint.hidden) return null;
   const geom: SceneBox = {
-    left,
-    top,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
+    left: paint.left,
+    top: paint.top,
+    width: paint.width,
+    height: paint.height,
   };
   // Control box = path + stroke visual outer (resize / rotate follow ink).
   return inflateSelectionBox(geom, node);
@@ -465,6 +480,83 @@ function promoteNodesToWorldTop(doc: SceneDocument, nodeIds: Iterable<string>): 
     ...doc,
     stackOrder: [...remaining, ...ids.map((id) => `node:${id}`)],
   };
+}
+
+function sameStringList(a: unknown, b: unknown): boolean {
+  const aa = Array.isArray(a) ? a.map(String) : [];
+  const bb = Array.isArray(b) ? b.map(String) : [];
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i += 1) if (aa[i] !== bb[i]) return false;
+  return true;
+}
+
+/** True when ROOT/stack/frame membership changed — needs a full document write. */
+function geometryCommitNeedsFullDocumentWrite(
+  before: SceneDocument,
+  after: SceneDocument
+): boolean {
+  if (!sameStringList(before.deltaSetLike?.ROOT?.children, after.deltaSetLike?.ROOT?.children)) {
+    return true;
+  }
+  if (!sameStringList(before.stackOrder, after.stackOrder)) return true;
+  const beforeIds = Object.keys(before.deltaSetLike || {});
+  const afterIds = Object.keys(after.deltaSetLike || {});
+  if (beforeIds.length !== afterIds.length) return true;
+  for (const id of afterIds) {
+    if (id === 'ROOT') continue;
+    const bn = before.deltaSetLike?.[id];
+    const an = after.deltaSetLike?.[id];
+    if (!bn || !an) return true;
+    if (String(bn.attrs?.frameId || '') !== String(an.attrs?.frameId || '')) return true;
+    if (String(bn.attrs?.frameOrder ?? '') !== String(an.attrs?.frameOrder ?? '')) return true;
+    if (
+      String(bn.attrs?.[WORKBENCH_SURROUND_ATTR] || '') !==
+      String(an.attrs?.[WORKBENCH_SURROUND_ATTR] || '')
+    ) {
+      return true;
+    }
+  }
+  const bf = Array.isArray(before.frames) ? before.frames : [];
+  const af = Array.isArray(after.frames) ? after.frames : [];
+  if (bf.length !== af.length) return true;
+  for (let i = 0; i < bf.length; i += 1) {
+    if (String(bf[i]?.id) !== String(af[i]?.id)) return true;
+  }
+  return false;
+}
+
+function nodePatchFromGeometryDiff(
+  before: SceneNode | undefined,
+  after: SceneNode | undefined
+): Record<string, unknown> | null {
+  if (!before || !after) return null;
+  const patch: Record<string, unknown> = {};
+  if ((Number(before.x) || 0) !== (Number(after.x) || 0)) patch.x = after.x;
+  if ((Number(before.y) || 0) !== (Number(after.y) || 0)) patch.y = after.y;
+  if ((Number(before.width) || 0) !== (Number(after.width) || 0)) patch.width = after.width;
+  if ((Number(before.height) || 0) !== (Number(after.height) || 0)) patch.height = after.height;
+  const ba = (before.attrs || {}) as Record<string, unknown>;
+  const aa = (after.attrs || {}) as Record<string, unknown>;
+  const attrKeys = new Set([...Object.keys(ba), ...Object.keys(aa)]);
+  let attrsChanged = false;
+  const nextAttrs: Record<string, unknown> = { ...ba };
+  for (const key of attrKeys) {
+    if (key === 'frameId' || key === 'frameOrder' || key === WORKBENCH_SURROUND_ATTR) continue;
+    if (!(key in aa)) {
+      if (key in ba) return null; // key removal — fall back to full write
+      continue;
+    }
+    if (ba[key] === aa[key]) continue;
+    try {
+      if (JSON.stringify(ba[key]) === JSON.stringify(aa[key])) continue;
+    } catch {
+      /* treat as changed */
+    }
+    nextAttrs[key] = aa[key];
+    attrsChanged = true;
+  }
+  if (attrsChanged) patch.attrs = nextAttrs;
+  return Object.keys(patch).length ? patch : null;
 }
 
 export type CanvasSessionDeps = {
@@ -912,9 +1004,38 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     if (!options?.skipHistory) {
       deps.dispatch(pushEditorHistory());
     }
-    deps.dispatch(setDocumentFromCanvas(next));
+    const useFullWrite =
+      detachedNodeIds.size > 0 || geometryCommitNeedsFullDocumentWrite(doc, next);
+    if (useFullWrite) {
+      deps.dispatch(setDocumentFromCanvas(next));
+    } else {
+      const nodeWrites: Array<{ nodeId: string; patch: Record<string, unknown> }> = [];
+      const ids = Object.keys(next.deltaSetLike || {});
+      for (const id of ids) {
+        if (id === 'ROOT') continue;
+        const patch = nodePatchFromGeometryDiff(doc.deltaSetLike?.[id], next.deltaSetLike?.[id]);
+        if (patch) nodeWrites.push({ nodeId: id, patch });
+      }
+      if (nodeWrites.length) {
+        deps.dispatch(patchDocumentNodes({ patches: nodeWrites, skipHistory: true }));
+      }
+      if (frames.length) {
+        deps.dispatch(
+          updateArtboardFrames({
+            patches: frames.map((f) => ({
+              id: f.id,
+              patch: { x: f.x, y: f.y, width: f.width, height: f.height },
+            })),
+            skipHistory: true,
+          })
+        );
+      }
+      if (!options?.skipHistory && (nodeWrites.length || frames.length)) {
+        deps.dispatch(touchDocumentRevision());
+      }
+    }
     // Auto-key animated p/s when moving/resizing on a 动画工作台.
-    const playheadSec = Number(store.getState()?.editor?.lottiePlayheadSec) || 0;
+    const playheadSec = getAnimationPlayheadSec();
     for (const id of touchedNodeIds) {
       const before = doc.deltaSetLike?.[id];
       const after = next.deltaSetLike?.[id];
@@ -988,19 +1109,18 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     if (normalized.length) {
       next = applyNodeFrameBindings(next, normalized, detachedNodeIds);
       next = promoteNodesToWorldTop(next, detachedNodeIds);
-      if (detachedNodeIds.size) {
-        // Persist detachment immediately so the next render cannot restore the
-        // old Redux snapshot and make the artboard drag the node again.
-        deps.dispatch(setDocumentFromCanvas(next));
-        detachedNodeIds.clear();
-      }
+      // Detach stays on documentRef until pointer-up commit — mid-drag Redux
+      // writes re-render the whole editor and push Yjs on every move.
     }
     const translated = translateFrameContent(next, frames, frameMoveOwners);
+    const framePatchById = frames.length
+      ? new Map(frames.map((frame) => [frame.id, frame]))
+      : null;
     let previewDocument = frames.length
       ? {
           ...translated,
           frames: (Array.isArray(translated.frames) ? translated.frames : []).map((frame) => {
-            const patch = frames.find((item) => item.id === frame.id);
+            const patch = framePatchById?.get(frame.id);
             return patch ? { ...frame, ...patch } : frame;
           }),
         }
@@ -1017,6 +1137,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       height: number;
       angle?: number;
     }> = [];
+    const previewBoxes = new Map<
+      string,
+      { left: number; top: number; width: number; height: number }
+    >();
     normalized.forEach((p) => {
       const node = previewDocument?.deltaSetLike?.[p.nodeId];
       const isText = node?.key === 'text';
@@ -1029,6 +1153,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
               height: Math.max(1, Number(node.height) || p.height),
             }
           : p;
+      previewBoxes.set(p.nodeId, box);
       previewPatches.push({
         nodeId: p.nodeId,
         left: box.left,
@@ -1079,20 +1204,6 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
             : Number(node.attrs?.angle) || 0,
         };
       }
-      const el = board.nodeEls.get(p.nodeId);
-      if (el && board.root) {
-        const previewNode = {
-          ...(previewDocument.deltaSetLike?.[p.nodeId] || node),
-          x: box.left,
-          y: box.top,
-          width: box.width,
-          height: box.height,
-        };
-        syncFrameContentClip(board.root, el, previewDocument, previewNode, {
-          zoom: deps.getZoom(),
-          revealOverflow: shapeHostRevealsOverflow(p.nodeId),
-        });
-      }
     });
     if (frames.length) {
       const movedIds = new Set(
@@ -1108,6 +1219,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           width: Math.max(1, Number(after.width) || 1),
           height: Math.max(1, Number(after.height) || 1),
         };
+        previewPatches.push({
+          nodeId,
+          left: box.left,
+          top: box.top,
+          width: box.width,
+          height: box.height,
+          angle: Number(after.attrs?.angle) || 0,
+        });
         previewSvgNodeGeometry(board.nodeEls, nodeId, box, {
           plainText: after.key === 'text' ? parseNodeText(after.attrs || {}) : undefined,
           textStyle: after.key === 'text' ? parseNodeTextStyle(after.attrs || {}) : undefined,
@@ -1155,19 +1274,37 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         previewDocument = { ...previewDocument, deltaSetLike: hostDelta };
         deps.setDocumentLocal(previewDocument);
       }
-      // Resize (not only translate): re-clip every mounted node against the
-      // preview frame box — same as EditorStageWorld frame-move live sync.
+    }
+    // TransformPreview before clip — findClippingFrameForNode prefers preview
+    // over node x/y; stale preview + live plate = one-frame spill/jitter.
+    setNodeTransformPreviews(previewPatches);
+    // Frame move/resize: one sweep over all hosts. Node-only drag: clip patched nodes.
+    if (board.root && frames.length) {
       for (const [nodeId, el] of board.nodeEls.entries()) {
         const node = previewDocument.deltaSetLike?.[nodeId];
-        if (!node || !board.root) continue;
+        if (!node) continue;
         syncFrameContentClip(board.root, el, previewDocument, node as Record<string, unknown>, {
           zoom: deps.getZoom(),
           revealOverflow: shapeHostRevealsOverflow(nodeId),
         });
       }
+    } else if (board.root && previewBoxes.size) {
+      for (const [nodeId, box] of previewBoxes) {
+        const node = previewDocument.deltaSetLike?.[nodeId];
+        const el = board.nodeEls.get(nodeId);
+        if (!node || !el) continue;
+        syncFrameContentClip(
+          board.root,
+          el,
+          previewDocument,
+          { ...node, x: box.left, y: box.top, width: box.width, height: box.height },
+          {
+            zoom: deps.getZoom(),
+            revealOverflow: shapeHostRevealsOverflow(nodeId),
+          }
+        );
+      }
     }
-    // Fact-layer preview for Canvas underlay / chrome (ADR 0027) — not SVG-DOM-only.
-    setNodeTransformPreviews(previewPatches);
     const spatialPatchIds = new Set<string>(
       normalized.map((p) => String(p.nodeId || '').trim()).filter(Boolean)
     );
@@ -1223,7 +1360,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       document: deps.getDocument() || doc,
       nodeId,
       angleDeg: nextAngle,
-      playheadSec: Number(store.getState()?.editor?.lottiePlayheadSec) || 0,
+      playheadSec: getAnimationPlayheadSec(),
     });
     if (keyed) {
       deps.dispatch(

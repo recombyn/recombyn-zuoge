@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 from app.services.design.ops.tool_ops_contract import normalize_need_tools
-from app.services.design.ops.validate import extract_json_object
 from app.services.design.prompts.prompt_build import _edit_context_block
 from app.services.design.prompts.rules_text import _as_text
 from app.services.design.runtime.models_route import (
@@ -15,7 +14,6 @@ from app.services.design.runtime.models_route import (
 )
 from app.services.design.runtime.graph.state import (
     AgentRunState,
-    _agent_turn_parser,
     _thought_chat_prompt,
 )
 
@@ -254,20 +252,6 @@ def _normalize_agent_turn_obj(obj: dict[str, Any] | None) -> dict[str, Any]:
         "done": bool(done),
         "raw_obj": obj
     }
-
-def _parse_agent_turn(content: str) -> dict[str, Any]:
-    """Parse free-form model text → normalized turn.
-
-    Deprecated for live graph (structured DecideTurn / PaintOps only).
-    Kept for unit-test / legacy fallback coverage.
-    """
-    obj: dict[str, Any] = {}
-    try:
-        parsed = _agent_turn_parser().parse(content or "")
-        obj = parsed.model_dump() if hasattr(parsed, "model_dump") else dict(parsed)
-    except Exception:
-        obj = extract_json_object(content) or {}
-    return _normalize_agent_turn_obj(obj)
 
 def _turn_from_structured(structured: Any) -> dict[str, Any]:
     """LangChain ``with_structured_output`` / response_format result → turn dict."""
@@ -530,7 +514,6 @@ __all__ = [
     '_ensure_propose_choice_ui',
     '_ask_propose_user_text',
     '_normalize_agent_turn_obj',
-    '_parse_agent_turn',
     '_turn_from_structured',
     '_append_pending_reinject',
     '_thought_prompt_variables',

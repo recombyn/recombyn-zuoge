@@ -7,7 +7,7 @@ import {
   useState,
   memo,
 } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineXMark } from 'react-icons/hi2';
 import { cn } from '@/utils/classnames';
@@ -193,7 +193,7 @@ function Arrow({ placement }: { placement: Placement }) {
 }
 
 /**
- * Roaming product tour: welcome modal → spotlight popovers on tools / Agent / help.
+ * Roaming product tour: welcome modal — spotlight popovers on tools / Agent / help.
  * Completion is stored per user in localStorage.
  */
 function EditorOnboardingTour({
@@ -239,7 +239,7 @@ function EditorOnboardingTour({
 
   // Open Agent only when entering a step that needs it — do not depend on
   // `onOpenAgent` identity (inline callbacks re-create every parent render and
-  // used to loop openAgentPanel → white screen).
+  // used to loop openAgentPanel — white screen).
   useEffect(() => {
     if (!active || !step.openAgent) return;
     onOpenAgentRef.current();

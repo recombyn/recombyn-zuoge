@@ -1,7 +1,8 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocument } from '@/store/editorSelectors';
 import { FloatingPortal } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
@@ -115,7 +116,7 @@ import store from '@/store';
 
 type Props = {
   nodeId: string;
-  /** Scene plate box 鈥?composer anchors under it; promote keeps document geometry. */
+  /** Scene plate box — composer anchors under it; promote keeps document geometry. */
   sceneBox: { x: number; y: number; width: number; height: number };
   disabled?: boolean;
 };
@@ -172,7 +173,7 @@ function ImageGeneratorCard({
       | Record<string, unknown>
       | undefined
   );
-  const editorDocument = useSelector((state: any) => state.editor?.document);
+  const editorDocument = useEditorDocument();
   const canvasAttachPick = useSelector(
     (state: any) => state.editor?.canvasAttachPick as null | { target: string }
   );

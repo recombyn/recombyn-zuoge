@@ -1056,18 +1056,3 @@ def resolve_ask_proposal_ops(
     if not isinstance(ops, list) or not ops:
         return None
     return [o for o in ops if isinstance(o, dict)][:48]
-
-
-def _lock_layers(canvas_id: str, target_layer_id: str, all_layer_ids: list[str]) -> None:
-    from sqlmodel import Session
-
-    from app.repositories import design_tasks
-    from app.core.db import engine
-
-    with Session(engine) as session:
-        design_tasks.insert_design_layer_locks(
-            session=session,
-            canvas_id=canvas_id,
-            target_layer_id=target_layer_id,
-            all_layer_ids=all_layer_ids,
-        )

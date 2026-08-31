@@ -1,6 +1,6 @@
 import { forwardRef, useRef, type ReactNode, type Ref, memo } from 'react';
 import { useEffect, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineArrowUturnLeft,
@@ -164,15 +164,6 @@ export function loadAgentDevDebug(): boolean {
     return localStorage.getItem(AGENT_DEV_DEBUG_KEY) === '1';
   } catch {
     return false;
-  }
-}
-
-export function saveAgentDevDebug(on: boolean): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(AGENT_DEV_DEBUG_KEY, on ? '1' : '0');
-  } catch {
-    /* ignore quota / private mode */
   }
 }
 

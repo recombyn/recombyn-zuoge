@@ -86,6 +86,11 @@ export function clearLiveArtboardFrameGeometry(ids?: readonly string[]): void {
   for (const id of ids) liveArtboardGeomById.delete(String(id || '').trim());
 }
 
+/** True while any artboard plate is at gesture-time geometry. */
+export function hasLiveArtboardFrameGeometry(): boolean {
+  return liveArtboardGeomById.size > 0;
+}
+
 function resolvePaintFrameGeometry(frame: ArtboardFrameGeometry): ArtboardFrameGeometry {
   const live = getLiveArtboardFrameGeometry(frame.id);
   if (!live) return frame;
@@ -310,8 +315,33 @@ function HtmlArtboardFrame({
     if (layer !== 'body') return;
     const sceneLayer = layerRef.current;
     if (!sceneLayer) return;
-    // Prefer gesture-time live geom so a Redux-stale `frame` cannot wipe the
-    // plate back while selection chrome already shows the resized box.
+    // During frame drag, previewArtboardFrameGeometry owns translate/size.
+    // A full paintFramePlate rebuild here races children TransformPreview and
+    // makes bound content look like it is sliding inside the plate.
+    const live = getLiveArtboardFrameGeometry(frame.id);
+    if (live) {
+      const host = getShapeHost(frame.id)?.el as SVGElement | null | undefined;
+      if (!host) return;
+      const plate = host.querySelector<SVGRectElement>('rect[data-baseline="1"]');
+      if (!plate) return;
+      if (selected) {
+        setStroke(plate, 'none');
+        plate.removeAttribute('shape-rendering');
+      } else if (highlighted) {
+        setStroke(plate, {
+          color: FRAME_HIGHLIGHT_STROKE,
+          width: framePlateStrokeSceneWidth(z),
+        });
+        setAttrs(plate, { 'shape-rendering': 'crispEdges' });
+      } else {
+        setStroke(plate, {
+          color: FRAME_PLATE_STROKE,
+          width: framePlateStrokeSceneWidth(z),
+        });
+        setAttrs(plate, { 'shape-rendering': 'crispEdges' });
+      }
+      return;
+    }
     const paintFrame = { ...frame, ...resolvePaintFrameGeometry(frame) };
     const el = paintFramePlate(sceneLayer, paintFrame, selected, highlighted, generating, z);
     updateShapeHostElement(frame.id, el);

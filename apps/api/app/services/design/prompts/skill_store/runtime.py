@@ -905,20 +905,28 @@ def filter_ops_by_skill_output_schema(
     skill_keys: list[str],
     scene: str = "",
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Enforce union of output_schema.allowed_ops when declared by loaded skills."""
+    """Enforce union of ``output_schema.allowed_ops`` across loaded skills.
+
+    - Skills that omit ``allowed_ops`` do **not** tighten the round.
+    - If any loaded skill omits ``allowed_ops``, skip this gate so a narrow
+      craft skill (e.g. ``image_gen``) cannot strip UI tools from a co-loaded
+      surface skill (e.g. ``mobile_app_ui``).
+    - When every loaded skill declares ``allowed_ops``, enforce their union.
+    """
     if not _normalize_loaded_skill_keys(skill_keys, scene=scene):
         return list(ops or []), []
     allowed_ops: set[str] = set()
-    any_schema = False
+    loaded = 0
+    declared = 0
     for r in _iter_skills_for_keys(skill_keys, scene=scene):
+        loaded += 1
         schema = r.get("outputSchema") if isinstance(r.get("outputSchema"), dict) else None
-        if not schema:
-            continue
-        ops_list = schema.get("allowed_ops")
+        ops_list = schema.get("allowed_ops") if schema else None
         if isinstance(ops_list, list) and ops_list:
-            any_schema = True
+            declared += 1
             allowed_ops.update(str(x).strip() for x in ops_list if str(x).strip())
-    if not any_schema:
+    # No declarations → open. Partial declarations → open (undeclared = don't tighten).
+    if declared == 0 or declared < loaded:
         return list(ops or []), []
     allowed_ops |= _ALWAYS_ALLOW_OPS
     kept: list[dict[str, Any]] = []

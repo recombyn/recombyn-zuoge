@@ -549,13 +549,3 @@ def init_schema() -> None:
 
         run_migrations()
         _SCHEMA_READY = True
-        try:
-            from app.services.design.readpath.seed import seed_design_catalog_if_empty
-
-            seed_design_catalog_if_empty()
-        except Exception:
-            import logging
-
-            logging.getLogger(__name__).exception(
-                "design catalog seed on init_schema failed"
-            )

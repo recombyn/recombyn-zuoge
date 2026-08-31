@@ -298,6 +298,8 @@ async def _node_settle(state: GraphState) -> Command:
             meters=meters,
             task_id=st.task_id,
         )
+    # Contract: settle_hold_fn (via _design_settle_hold_fn) always returns int.
+    spend = int(spend)
     has_proposal = bool(st.proposed_ops)
     flags = rt.flags if isinstance(rt.flags, dict) else {}
     scene_unconfirmed = bool(flags.get("scene_unconfirmed"))

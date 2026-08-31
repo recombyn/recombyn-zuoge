@@ -14,7 +14,7 @@ export const WORKBENCH_SURROUND_ATTR = 'animationWorkbenchSurround';
 
 let timelineFocusFrameId: string | null = null;
 let timelinePlayheadSec = 0;
-/** True while canvas geometry (node or frame) is mid-drag preview. */
+/** True while 动画工作台 plate is mid-drag (blocks ensure/sync / collab). */
 let geometryPreviewActive = false;
 
 export function setAnimationWorkbenchGeometryPreview(active: boolean) {

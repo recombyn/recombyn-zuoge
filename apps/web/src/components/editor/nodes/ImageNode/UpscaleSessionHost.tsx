@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useSelectedNodeId } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
@@ -82,7 +83,7 @@ function UpscaleSessionHost({
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
   );
-  const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
+  const selectedNodeId = useSelectedNodeId();
 
   const active = panel?.kind === 'upscale';
   const nodeId = active ? panel!.nodeId : null;

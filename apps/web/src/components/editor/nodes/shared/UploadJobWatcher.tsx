@@ -1,5 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { message } from '@/components/base';
 import {
   formatProcessProgressLabel,

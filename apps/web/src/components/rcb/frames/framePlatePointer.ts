@@ -5,6 +5,7 @@ import {
   isNodeHiddenInDocument,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 export type FrameSceneBox = {
@@ -32,11 +33,12 @@ export function getFrameBox(
 ): FrameSceneBox | null {
   const frame = (doc?.frames || []).find((f) => String(f?.id) === String(frameId));
   if (!frame) return null;
+  const live = getLiveArtboardFrameGeometry(String(frameId));
   return {
-    left: Number(frame.x) || 0,
-    top: Number(frame.y) || 0,
-    width: Math.max(1, Number(frame.width) || 1),
-    height: Math.max(1, Number(frame.height) || 1),
+    left: Number(live?.x ?? frame.x) || 0,
+    top: Number(live?.y ?? frame.y) || 0,
+    width: Math.max(1, Number(live?.width ?? frame.width) || 1),
+    height: Math.max(1, Number(live?.height ?? frame.height) || 1),
   };
 }
 

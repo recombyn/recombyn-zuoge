@@ -5,7 +5,7 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  */
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { HiArrowUp, HiOutlineChevronDown, HiOutlinePlus } from 'react-icons/hi2';
 import { generateVideo, type LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';

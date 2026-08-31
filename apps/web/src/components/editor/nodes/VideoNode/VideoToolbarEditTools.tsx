@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineCamera,
@@ -256,7 +257,7 @@ async function captureExtractDataUrl(opts: {
 function ExtractFrameMenu({ nodeId }: { nodeId: string }) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const document = useSelector((s: any) => s.editor.document);
+  const document = useEditorDocumentOnCommit();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);

@@ -1,5 +1,5 @@
 import { useEffect, memo } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { apiQuery, queryClient } from '@/service/client';
 import { clearProjectsListCache } from '@/service/projects';
 import { clearWalletCache, WALLET_ME_QUERY_OPTS } from '@/service/wallet';

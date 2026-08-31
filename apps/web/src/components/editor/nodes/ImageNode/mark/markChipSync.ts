@@ -1,4 +1,4 @@
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from '@/store';
 import { removeImageMarkPin, setImageMarkPin } from '@/store/modules/editor';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { parseMarkPinFromChip } from './markChipUtils';

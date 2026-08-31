@@ -12,7 +12,6 @@ from sqlmodel import Session, col, func, select
 from app.models import (
     AgentEpisode,
     AgentKgTriple,
-    AgentLongMemory,
     AgentSessionSnapshot,
     AppMigration,
     Asset,
@@ -25,7 +24,6 @@ from app.models import (
     DesignDict,
     DesignExecuteFlow,
     DesignGlobalRule,
-    DesignLayerLock,
     DesignOptimizePatch,
     DesignPromptPack,
     DesignSkill,
@@ -34,7 +32,6 @@ from app.models import (
     DesignStageReview,
     DesignSystemPrompt,
     DesignTask,
-    DesignTokenPack,
     DesignUserSkillPref,
     DocumentShare,
     EmailActivateToken,
@@ -176,32 +173,6 @@ def create_auth_session(
     return row
 
 
-def count_projects_for_user(*, session: Session, user_id: str) -> int:
-    return int(
-        session.exec(
-            select(func.count()).select_from(Project).where(Project.user_id == user_id)
-        ).one()
-        or 0
-    )
-
-
-def list_projects_for_user(
-    *,
-    session: Session,
-    user_id: str,
-    offset: int = 0,
-    limit: int = 24,
-) -> list[Project]:
-    statement = (
-        select(Project)
-        .where(Project.user_id == user_id)
-        .order_by(col(Project.updated_at).desc())
-        .offset(max(0, offset))
-        .limit(max(1, limit))
-    )
-    return list(session.exec(statement).all())
-
-
 def _org_ids_for_user(*, session: Session, user_id: str) -> list[str]:
     from app.models import OrgMember
 
@@ -325,29 +296,6 @@ def create_project(*, session: Session, project: Project) -> Project:
     session.commit()
     session.refresh(project)
     return project
-
-
-def update_project_if_revision(
-    *,
-    session: Session,
-    user_id: str,
-    project_id: str,
-    expected_revision: int,
-    values: dict[str, Any],
-) -> bool:
-    """Optimistic lock UPDATE … WHERE revision = expected. Returns False on conflict."""
-    stmt = (
-        sa_update(Project)
-        .where(
-            Project.id == project_id,
-            Project.user_id == user_id,
-            Project.revision == expected_revision,
-        )
-        .values(**values)
-    )
-    result = session.execute(stmt)
-    session.commit()
-    return int(getattr(result, "rowcount", 0) or 0) > 0
 
 
 def update_project_covers(
@@ -1305,16 +1253,6 @@ def list_enabled_design_global_rules(
     return [(str(k or ""), str(v or "")) for k, v in rows]
 
 
-def list_enabled_refine_skills(*, session: Session) -> list[DesignSkill]:
-    return list(
-        session.exec(
-            select(DesignSkill)
-            .where(DesignSkill.category == "refine")
-            .where(DesignSkill.enabled == 1)
-            .order_by(col(DesignSkill.sort_weight).desc(), col(DesignSkill.id).desc())
-        ).all()
-    )
-
 
 def list_admin_likes(
     *,
@@ -1604,139 +1542,6 @@ def get_design_dict_by_type_code(
     ).first()
 
 
-def insert_design_layer_locks(
-    *,
-    session: Session,
-    canvas_id: str,
-    target_layer_id: str,
-    all_layer_ids: list[str],
-    now: float | None = None,
-) -> None:
-    import json as _json
-
-    ts = float(now if now is not None else time.time())
-    for lid in all_layer_ids:
-        locked = 0 if lid == target_layer_id else 1
-        allowed = _json.dumps(["layer_partial"]) if lid == target_layer_id else _json.dumps([])
-        forbidden = (
-            _json.dumps([])
-            if lid == target_layer_id
-            else _json.dumps(["position", "size", "structure", "color"])
-        )
-        session.add(
-            DesignLayerLock(
-                canvas_id=canvas_id,
-                layer_id=lid,
-                locked=locked,
-                allowed_skills=allowed,
-                forbidden_attrs=forbidden,
-                created_at=ts,
-                updated_at=ts,
-            )
-        )
-    session.commit()
-
-
-def count_design_token_packs(*, session: Session) -> int:
-    return int(session.exec(select(func.count()).select_from(DesignTokenPack)).one() or 0)
-
-
-def insert_design_token_pack_seed(
-    *,
-    session: Session,
-    name: str,
-    scenes: str,
-    tokens_json: str,
-    is_default: int,
-    sort_order: int,
-    note: str,
-    created_at: float,
-) -> DesignTokenPack:
-    row = DesignTokenPack(
-        name=name,
-        scenes=scenes,
-        tokens_json=tokens_json,
-        is_default=is_default,
-        sort_order=sort_order,
-        enabled=1,
-        note=note,
-        created_at=created_at,
-        updated_at=created_at,
-    )
-    session.add(row)
-    return row
-
-
-def list_design_token_packs(
-    *, session: Session, enabled: bool | None = True
-) -> list[DesignTokenPack]:
-    where: list[Any] = []
-    if enabled is not None:
-        where.append(DesignTokenPack.enabled == (1 if enabled else 0))
-    stmt = select(DesignTokenPack).order_by(
-        col(DesignTokenPack.sort_order).asc(), col(DesignTokenPack.id).asc()
-    )
-    if where:
-        stmt = stmt.where(*where)
-    return list(session.exec(stmt).all())
-
-
-def get_design_token_pack(*, session: Session, item_id: int) -> DesignTokenPack | None:
-    return session.get(DesignTokenPack, int(item_id))
-
-
-def upsert_design_token_pack(
-    *,
-    session: Session,
-    item_id: int | None,
-    name: str,
-    scenes: str,
-    tokens_json: str,
-    is_default: int,
-    sort_order: int,
-    enabled: int,
-    note: str,
-) -> DesignTokenPack:
-    now = time.time()
-    row = get_design_token_pack(session=session, item_id=item_id) if item_id else None
-    if row:
-        row.name = name
-        row.scenes = scenes
-        row.tokens_json = tokens_json
-        row.is_default = is_default
-        row.sort_order = sort_order
-        row.enabled = enabled
-        row.note = note
-        row.updated_at = now
-    else:
-        row = DesignTokenPack(
-            name=name,
-            scenes=scenes,
-            tokens_json=tokens_json,
-            is_default=is_default,
-            sort_order=sort_order,
-            enabled=enabled,
-            note=note,
-            created_at=now,
-            updated_at=now,
-        )
-    session.add(row)
-    session.commit()
-    session.refresh(row)
-    return row
-
-
-def soft_delete_design_token_pack(*, session: Session, item_id: int) -> bool:
-    row = get_design_token_pack(session=session, item_id=item_id)
-    if not row:
-        return False
-    row.enabled = 0
-    row.updated_at = time.time()
-    session.add(row)
-    session.commit()
-    return True
-
-
 def list_design_system_prompt_keys(*, session: Session) -> set[str]:
     rows = session.exec(select(DesignSystemPrompt.prompt_key)).all()
     return {str(k or "") for k in rows}
@@ -1909,87 +1714,6 @@ def list_enabled_design_prompt_pack_bodies(
     ).all()
     return [(str(k or "").strip(), str(b or "")) for k, b in rows]
 
-
-def list_design_prompt_packs(
-    *,
-    session: Session,
-    kind: str | None = None,
-    pack_type: str | None = None,
-    enabled: bool | None = True,
-) -> list[DesignPromptPack]:
-    where: list[Any] = []
-    if kind:
-        where.append(DesignPromptPack.kind == kind)
-    if pack_type:
-        where.append(DesignPromptPack.pack_type == pack_type)
-    if enabled is not None:
-        where.append(DesignPromptPack.enabled == (1 if enabled else 0))
-    stmt = select(DesignPromptPack).order_by(
-        col(DesignPromptPack.sort_order).asc(), col(DesignPromptPack.id).asc()
-    )
-    if where:
-        stmt = stmt.where(*where)
-    return list(session.exec(stmt).all())
-
-
-def get_design_prompt_pack(*, session: Session, item_id: int) -> DesignPromptPack | None:
-    return session.get(DesignPromptPack, int(item_id))
-
-
-def upsert_design_prompt_pack(
-    *,
-    session: Session,
-    item_id: int | None,
-    kind: str,
-    pack_type: str,
-    title: str,
-    body: str,
-    when_to_use: str,
-    scenes: str,
-    used_by: str,
-    sort_order: int,
-    enabled: int,
-) -> DesignPromptPack:
-    now = time.time()
-    row = get_design_prompt_pack(session=session, item_id=item_id) if item_id else None
-    if row:
-        row.kind = kind
-        row.pack_type = pack_type
-        row.title = title
-        row.body = body
-        row.when_to_use = when_to_use
-        row.scenes = scenes
-        row.used_by = used_by
-        row.sort_order = sort_order
-        row.enabled = enabled
-        row.updated_at = now
-    else:
-        row = DesignPromptPack(
-            kind=kind,
-            pack_type=pack_type,
-            title=title,
-            body=body,
-            when_to_use=when_to_use,
-            scenes=scenes,
-            used_by=used_by,
-            sort_order=sort_order,
-            enabled=enabled,
-            created_at=now,
-            updated_at=now,
-        )
-    session.add(row)
-    session.commit()
-    session.refresh(row)
-    return row
-
-
-def delete_design_prompt_pack(*, session: Session, item_id: int) -> bool:
-    row = get_design_prompt_pack(session=session, item_id=item_id)
-    if not row:
-        return False
-    session.delete(row)
-    session.commit()
-    return True
 
 
 def list_design_skill_keys_enabled(*, session: Session) -> list[tuple[str, str]]:
@@ -2347,21 +2071,6 @@ def list_all_design_system_prompts(*, session: Session) -> list[DesignSystemProm
     return list(session.exec(select(DesignSystemPrompt)).all())
 
 
-def get_design_task_for_update(
-    *, session: Session, task_id: str
-) -> DesignTask | None:
-    """Load task row with ``FOR UPDATE`` when the dialect supports it."""
-    tid = (task_id or "").strip()
-    if not tid:
-        return None
-    stmt = select(DesignTask).where(DesignTask.id == tid)
-    try:
-        stmt = stmt.with_for_update()
-        return session.exec(stmt).first()
-    except Exception:
-        return session.get(DesignTask, tid)
-
-
 def ensure_app_migrations_table(*, session: Session) -> None:
     """No-op: ``app_migrations`` is created by Alembic via ``init_schema()``."""
     del session
@@ -2514,10 +2223,6 @@ def list_decision_log_page(
     return rows, total
 
 
-def list_all_user_balances(*, session: Session) -> list[UserBalance]:
-    return list(session.exec(select(UserBalance)).all())
-
-
 def scale_positive_user_balances(
     *, session: Session, factor: int, updated_at: float
 ) -> None:
@@ -2536,10 +2241,6 @@ def count_fonts(*, session: Session) -> int:
 
 def count_fonts_by_owner(*, session: Session, owner_user_id: str) -> int:
     return len(list_user_font_rows(session=session, owner_user_id=owner_user_id))
-
-
-def list_fonts_by_owner(*, session: Session, owner_user_id: str) -> list[Font]:
-    return list_user_font_rows(session=session, owner_user_id=owner_user_id)
 
 
 def list_user_font_rows(*, session: Session, owner_user_id: str) -> list[Font]:
@@ -3257,63 +2958,6 @@ def list_agent_episodes_recent(
     )
 
 
-def get_agent_long_memory(
-    *, session: Session, memory_id: str
-) -> AgentLongMemory | None:
-    return session.get(AgentLongMemory, memory_id)
-
-
-def insert_agent_long_memory(
-    *, session: Session, row: AgentLongMemory
-) -> AgentLongMemory:
-    session.add(row)
-    session.commit()
-    session.refresh(row)
-    return row
-
-
-def update_agent_long_memory_embed(
-    *,
-    session: Session,
-    memory_id: str,
-    emb: bytes | None = None,
-    emb_dim: int = 0,
-    emb_model: str = "",
-    embed_status: str,
-    score: float | None = None,
-    updated_at: float,
-) -> bool:
-    row = session.get(AgentLongMemory, memory_id)
-    if not row:
-        return False
-    row.emb = emb
-    row.emb_dim = int(emb_dim)
-    row.emb_model = emb_model
-    row.embed_status = embed_status
-    if score is not None:
-        row.score = float(score)
-    row.updated_at = updated_at
-    session.add(row)
-    session.commit()
-    return True
-
-
-def list_agent_long_memory_recent(
-    *, session: Session, user_id: str, limit: int
-) -> list[AgentLongMemory]:
-    return list(
-        session.exec(
-            select(AgentLongMemory)
-            .where(AgentLongMemory.user_id == user_id)
-            .where(AgentLongMemory.status == "active")
-            .order_by(
-                col(AgentLongMemory.pinned).desc(),
-                col(AgentLongMemory.updated_at).desc(),
-            )
-            .limit(max(1, limit))
-        ).all()
-    )
-
 
 def find_agent_kg_triple_active(
     *,
@@ -3471,14 +3115,6 @@ def list_admin_design_skills(
     )
 
 
-def delete_admin_design_skill(*, session: Session, skill_id: int) -> DesignSkill | None:
-    row = get_design_skill(session=session, item_id=int(skill_id))
-    if not row:
-        return None
-    session.delete(row)
-    session.commit()
-    return row
-
 
 def insert_admin_design_skill(
     *, session: Session, row: DesignSkill
@@ -3550,66 +3186,6 @@ def upsert_design_global_rule(
             description=description,
             enabled=enabled,
             updated_at=updated_at,
-        )
-        session.add(row)
-    session.commit()
-    session.refresh(row)
-    return row
-
-
-def list_all_design_execute_flows(*, session: Session) -> list[DesignExecuteFlow]:
-    return list(
-        session.exec(
-            select(DesignExecuteFlow).order_by(col(DesignExecuteFlow.scene).asc())
-        ).all()
-    )
-
-
-def filter_existing_design_skill_ids(
-    *, session: Session, skill_ids: list[int]
-) -> list[int]:
-    if not skill_ids:
-        return []
-    found = set(
-        session.exec(
-            select(DesignSkill.id).where(col(DesignSkill.id).in_(skill_ids))
-        ).all()
-    )
-    return [i for i in skill_ids if i in found]
-
-
-def upsert_design_execute_flow(
-    *,
-    session: Session,
-    scene: str,
-    skill_ids_json: str,
-    force_validate_flags: str,
-    step_token_caps: str,
-    fail_strategy: str,
-    enabled: int,
-    now: float,
-) -> DesignExecuteFlow:
-    row = session.exec(
-        select(DesignExecuteFlow).where(DesignExecuteFlow.scene == scene).limit(1)
-    ).first()
-    if row:
-        row.skill_ids = skill_ids_json
-        row.force_validate_flags = force_validate_flags
-        row.step_token_caps = step_token_caps
-        row.fail_strategy = fail_strategy
-        row.enabled = enabled
-        row.updated_at = now
-        session.add(row)
-    else:
-        row = DesignExecuteFlow(
-            scene=scene,
-            skill_ids=skill_ids_json,
-            force_validate_flags=force_validate_flags,
-            step_token_caps=step_token_caps,
-            fail_strategy=fail_strategy,
-            enabled=enabled,
-            created_at=now,
-            updated_at=now,
         )
         session.add(row)
     session.commit()
@@ -4330,14 +3906,6 @@ def clear_chat_message_thinking(*, session: Session, message_id: str) -> None:
     session.add(msg)
 
 
-
-def delete_design_global_rules_by_keys(
-    *, session: Session, keys: list[str]
-) -> None:
-    for key in keys:
-        row = get_design_global_rule(session=session, rule_key=key)
-        if row is not None:
-            session.delete(row)
 
 
 def list_byok_providers_for_user(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {

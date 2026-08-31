@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation, Trans } from 'react-i18next';
 import { Button, Checkbox, Input, message, Dialog, Icon } from '@/components/base';

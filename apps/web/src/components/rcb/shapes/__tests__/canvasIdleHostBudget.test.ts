@@ -232,6 +232,62 @@ describe('pickFullAndCanvasIds', () => {
     expect(canvasIds).toHaveLength(0);
   });
 
+  it('preferSoa only demotes BASIC_GEOM; stroke/grad/poly/text/media stay SVG under budget', () => {
+    const doc = makeDoc({
+      basic: rect('basic'),
+      stroke: {
+        id: 'stroke',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#abc',
+          'stroke-enabled': true,
+          'border-width': 2,
+          'border-color': '#000',
+        },
+      },
+      grad: {
+        id: 'grad',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        attrs: {
+          shapeType: 'rect',
+          'fill-type': 'linear',
+          'fill-gradient': '{}',
+          'stroke-enabled': false,
+        },
+      },
+      poly: {
+        id: 'poly',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        attrs: { shapeType: 'polygon', sides: 5, 'fill-color': '#abc', 'stroke-enabled': false },
+      },
+      t0: textNode('t0'),
+      i0: imageNode('i0'),
+    });
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['basic', 'stroke', 'grad', 'poly', 't0', 'i0'],
+      keepSet: new Set(),
+      zoom: 1,
+      moving: false,
+      preferSoaCanvas: true,
+    });
+    expect(canvasIds).toEqual(['basic']);
+    expect(fullIds.sort()).toEqual(['grad', 'i0', 'poly', 'stroke', 't0']);
+  });
+
   it('prefer SVG budget for non-idle over canvas-idle media when over budget', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 100; i += 1) nodes[`n${i}`] = rect(`n${i}`);
@@ -254,8 +310,8 @@ describe('pickFullAndCanvasIds', () => {
       zoom: 1,
       moving: false,
     });
-    // Polygon is not canvas-idle → keeps SVG; image/rects demote to Canvas ink.
-    expect(fullIds).toContain('poly');
+    // Polygon is canvas-idle (Path2D ink); image/rects also demote.
+    expect(canvasIds).toContain('poly');
     expect(canvasIds).toContain('i0');
     expect(canvasIds).toContain('n0');
   });
@@ -320,7 +376,7 @@ describe('canvasIdleIsStrokeOnly', () => {
 });
 
 describe('canIdlePaintOnCanvas', () => {
-  it('allows solid/gradient/image fills, media, drop shadow; rejects blur, non-center stroke, heavy path, poly', () => {
+  it('allows solid/gradient/image fills, media, drop shadow, poly/star; rejects blur, non-center stroke, heavy path', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -439,19 +495,19 @@ describe('canIdlePaintOnCanvas', () => {
         key: 'shape',
         attrs: { shapeType: 'polygon', sides: 6, 'stroke-enabled': false },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
         attrs: { shapeType: 'star', sides: 5, 'stroke-enabled': false },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
         attrs: { shapeType: 'triangle', 'stroke-enabled': false },
       } as any)
-    ).toBe(false);
+    ).toBe(true);
     expect(canIdlePaintOnCanvas({ key: 'image', attrs: {} } as any)).toBe(true);
     expect(
       canIdlePaintOnCanvas({

@@ -1,11 +1,12 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
- * Audio 截取 session — compact bar matching product mock:
- * [X] 截取  [00:00 - 00:01]  [生成]
- * Confirm clones a sibling with trimStart/trimEnd (same src) — video trim pattern.
+ * Audio ?  session ? compact bar matching product mock:
+ * [X] ?   [00:00 - 00:01]  [?]
+ * Confirm clones a sibling with trimStart/trimEnd (same src) ? video trim pattern.
  */
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineScissors } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
@@ -27,7 +28,6 @@ import {
   setDocument,
   setSelectedNodeId,
   setSelectedNodeIds,
-  EMPTY_ID_LIST,
 } from '@/store/modules/editor';
 import { message } from '@/components/base';
 import { getAudioHost } from './AudioNodeOverlay';
@@ -85,9 +85,7 @@ function AudioTrimSessionHost({
         keepTime?: number;
       }
   );
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const selectedNodeIds = useSelectedNodeIds();
   const open = panel?.kind === 'trim';
   const nodeId = open ? panel!.nodeId : '';
   const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;
@@ -154,14 +152,14 @@ function AudioTrimSessionHost({
     const end = parseClock(endText);
     if (start == null || end == null) {
       message.warning(
-        t('editor.audioToolbar.trimInvalid', { defaultValue: '时间格式无效' })
+        t('editor.audioToolbar.trimInvalid', { defaultValue: 'Invalid time format' })
       );
       return;
     }
     const next = clampRange(start, end, duration || end + 0.1);
     if (next.end - next.start < 0.05) {
       message.warning(
-        t('editor.audioToolbar.trimTooShort', { defaultValue: '截取区间太短' })
+        t('editor.audioToolbar.trimTooShort', { defaultValue: 'Trim range is too short' })
       );
       return;
     }
@@ -178,7 +176,7 @@ function AudioTrimSessionHost({
       const spawned = cloneAudioNodeSibling(document, node, {
         attrsPatch: { trimStart: next.start, trimEnd: next.end },
         defaultName: t('editor.audioToolbar.trimResultName', {
-          defaultValue: '截取音频',
+          defaultValue: 'Trimmed audio',
         }),
       });
       if (!spawned) throw new Error('clone failed');
@@ -188,7 +186,7 @@ function AudioTrimSessionHost({
       close();
     } catch (err) {
       console.warn('[audio trim confirm]', err);
-      message.error(t('editor.audioToolbar.trimFail', { defaultValue: '截取失败，请重试' }));
+      message.error(t('editor.audioToolbar.trimFail', { defaultValue: 'Trim failed, please retry' }));
     } finally {
       setBusy(false);
     }
@@ -211,7 +209,7 @@ function AudioTrimSessionHost({
         <FloatingToolbar className="relative gap-2 py-1.5 px-2.5">
           <span className="inline-flex h-8 shrink-0 items-center gap-1.5 px-1 text-[12px] font-medium text-[var(--ink)]">
             <HiOutlineScissors className="h-4 w-4 shrink-0" aria-hidden />
-            <span>{t('editor.audioToolbar.trim', { defaultValue: '截取' })}</span>
+            <span>{t('editor.audioToolbar.trim', { defaultValue: 'Trim' })}</span>
           </span>
           <div className="inline-flex h-8 items-center gap-1 rounded-full bg-[var(--rail)] px-2.5 text-[12px] tabular-nums text-[var(--ink)]">
             <input
@@ -248,12 +246,12 @@ function AudioTrimSessionHost({
             {busy ? (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
             ) : (
-              t('editor.audioToolbar.generate', { defaultValue: '生成' })
+              t('editor.audioToolbar.generate', { defaultValue: 'Generate' })
             )}
           </button>
           <button
             type="button"
-            aria-label={t('editor.audioToolbar.cancel', { defaultValue: '关闭' })}
+            aria-label={t('editor.audioToolbar.cancel', { defaultValue: 'Cancel' })}
             disabled={busy}
             className={imageToolBtn}
             onClick={close}

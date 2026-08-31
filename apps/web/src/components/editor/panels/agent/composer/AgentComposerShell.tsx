@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode, type Ref, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   FloatingPortal,
@@ -182,7 +182,7 @@ type Props = {
   interactionMode?: ComposerInteractionMode;
   onInteractionModeChange?: (mode: ComposerInteractionMode) => void;
   allowedInteractionModes?: ComposerInteractionMode[];
-  /** Image-mode settings / model / credit send (Image Generator鈥搒tyle chrome). */
+  /** Image-mode settings / model / credit send (Image Generator-style chrome). */
   imageModeControls?: ImageModeComposerControls | null;
   /** Video-mode settings / model / credit send (Video Generator-style chrome). */
   videoModeControls?: VideoModeComposerControls | null;

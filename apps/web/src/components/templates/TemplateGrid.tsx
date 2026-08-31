@@ -1,5 +1,5 @@
 import { useEffect, useState, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineListBullet,
@@ -52,7 +52,7 @@ function ImportSkeletonCard({ name }: { name: string }) {
 const DEFAULT_PROJECTS_GRID = FLOW_COLUMNS_CLASS;
 
 /**
- * Projects grid (侧栏「项目」). Data = GET /projects only.
+ * Projects grid (侧栏「项目—. Data = GET /projects only.
  */
 function TemplateGrid({
   templates,

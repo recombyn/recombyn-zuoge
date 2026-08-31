@@ -20,7 +20,7 @@ import logging
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 _log = logging.getLogger(__name__)
 
@@ -74,19 +74,6 @@ PAINT_LANES = ("create", "edit")
 PROPOSAL_ACTIONS = ("apply", "dismiss", "revise")
 # Host session meta-commands (clear chat / stop generation) — not canvas work.
 SESSION_ACTIONS = ("clear_context", "stop")
-
-_ANIMATION_HEURISTIC_HINTS = (
-    "动效",
-    "动画",
-    "lottie",
-    "loading",
-    "加载动效",
-    "heartbeat",
-    "motion",
-    "spinner",
-    "loop animation",
-)
-
 
 class ClarificationOption(BaseModel):
     """A visible target choice with its verified scene-node identity."""
@@ -165,28 +152,41 @@ class IntentClassifyDecision(BaseModel):
             "animation=Lottie/UI motion/loading loops on 动画工作台"
         ),
     )
-    paint_lane: Literal["create", "edit", ""] = Field(
-        default="",
+    paint_lane: Literal["create", "edit"] | None = Field(
+        default=None,
         description=(
             "When intent is canvas_op, design, or animation: create=add new nodes; "
-            "edit=change existing. Empty when intent=chat."
+            "edit=change existing. Null / omit when intent=chat."
         ),
     )
-    proposal_action: Literal["apply", "dismiss", "revise", ""] = Field(
-        default="",
+    proposal_action: Literal["apply", "dismiss", "revise"] | None = Field(
+        default=None,
         description=(
             "Only when PENDING_PROPOSAL is present: apply=confirm held ops; "
             "dismiss=cancel proposal; revise=change requirements and continue; "
-            "empty=no pending / ignore pending"
+            "null / omit when no pending proposal"
         ),
     )
-    session_action: Literal["clear_context", "stop", ""] = Field(
-        default="",
+    session_action: Literal["clear_context", "stop"] | None = Field(
+        default=None,
         description=(
             "Host meta-command: clear_context=new chat / wipe dialogue memory; "
-            "stop=abort in-flight generation; empty=normal turn"
+            "stop=abort in-flight generation; "
+            "null / omit for a normal turn (do not invent other strings)"
         ),
     )
+
+    @field_validator("session_action", "proposal_action", "paint_lane", mode="before")
+    @classmethod
+    def _coerce_absent_optionals(cls, value: Any) -> Any:
+        """Map blank / synonym tokens → null so the JSON schema never teaches a fake enum."""
+        if value is None:
+            return None
+        s = str(value).strip().lower()
+        if s in {"", "empty", "none", "null", "nil", "n/a", "-"}:
+            return None
+        return value
+
     reply: str = Field(
         default="",
         description=(
@@ -438,10 +438,9 @@ def normalize_model_ref(selected: str | None) -> str:
         prefix, _, rest = s.partition(":")
         return f"{prefix.lower()}:{rest.strip()}"
     s = low
+    # Legacy family aliases only — concrete catalog ids (deepseek-chat, …) stay as-is.
     if s in ("doubao-seed", "doubao-pro"):
         return "doubao"
-    if s in ("deepseek-chat", "deepseek-reasoner"):
-        return "deepseek"
     return s
 
 
@@ -450,6 +449,9 @@ def _is_concrete(ref: str) -> bool:
     if low.startswith("custom:") or low.startswith("byok:"):
         return bool(low.split(":", 1)[-1].strip())
     return ref not in ("doubao", "deepseek", "auto", "glm", "kimi") and bool(ref)
+
+
+_FAMILY_OR_EMPTY = frozenset({"", "doubao", "deepseek", "glm", "kimi", "auto"})
 
 
 _VISION_MODEL_MARKERS = (
@@ -503,18 +505,13 @@ def _vision_ok(model_ref: str | None) -> bool:
 
 
 def resolve_vision_model(rules: dict[str, str] | None) -> str:
-    candidates: list[str] = []
+    """Configured vision model only — no fallback_chain / lane cascading."""
     raw = str((rules or {}).get("precheck.vision_model") or "").strip()
-    if raw:
-        candidates.append(raw)
-    lanes = parse_model_lanes(rules)
-    if lanes.get("vision"):
-        candidates.append(lanes["vision"])
-    candidates.extend(parse_fallback_chain(rules))
-    candidates.extend(lanes.values())
-    for mid in candidates:
-        if _vision_ok(mid):
-            return mid
+    if raw and _vision_ok(raw):
+        return raw
+    mid = str(parse_model_lanes(rules).get("vision") or "").strip()
+    if mid and _vision_ok(mid):
+        return mid
     return ""
 
 
@@ -527,7 +524,7 @@ def resolve_review_model(
     """Pick Review model.
 
     Order: user lock → settings.design_review_model → Admin agent.review.model
-    → follow this-turn design_model (Auto) → vision default.
+    → follow this-turn design_model (Auto). No silent vision/default inventing.
     """
     locked = normalize_model_ref(user_selected_model)
     if _is_concrete(locked):
@@ -550,8 +547,9 @@ def resolve_review_model(
     if _is_concrete(follow):
         return follow, "review_follow_design"
 
-    vision = resolve_vision_model(rules)
-    return vision, "review_vision_default"
+    raise ModelRouteError(
+        "no review model: lock a concrete model or set agent.review.model"
+    )
 
 
 def ensure_vision_model(
@@ -720,45 +718,19 @@ def sanitize_model_ref_for_openrouter_region(
     )
 
 
-def heuristic_route_lane(
-    prompt: str,
-    *,
-    has_images: bool = False,
-    canvas_node_count: int = 0,
-    scene: str | None = None,
-) -> ModelRouteDecision:
-    """Deterministic fallback when the LLM router is unavailable.
-
-    Structural only (images). No prompt length tiers / keyword lists —
-    content judgment belongs to the LLM router pack.
-    """
-    del prompt, canvas_node_count, scene
-    if has_images:
-        return ModelRouteDecision(
-            lane="vision",
-            needs_image_gen=False,
-            rationale="heuristic: has_images",
-        )
-    return ModelRouteDecision(
-        lane="standard",
-        needs_image_gen=False,
-        rationale="heuristic: default_standard",
-    )
-
-
 def model_for_lane(
     lane: str,
     rules: dict[str, str] | None,
 ) -> str:
+    """Exact lane → model from Admin map. No else/standard cascading."""
     lanes = parse_model_lanes(rules)
     key = normalize_lane(lane)
     if key == "vision":
         return (
             str((rules or {}).get("precheck.vision_model") or "").strip()
-            or lanes.get("vision")
-            or resolve_vision_model(rules)
+            or str(lanes.get("vision") or "").strip()
         )
-    return lanes.get(key) or lanes.get("else") or lanes.get("standard") or ""
+    return str(lanes.get(key) or "").strip()
 
 
 def family_from_precheck(
@@ -771,39 +743,61 @@ def family_from_precheck(
     canvas_node_count: int = 0,
     route_lane: str | None = None,
 ) -> tuple[str | None, str]:
-    """Return (model_ref, lane). Uses ``route_lane`` when provided (from LLM router)."""
-    del skill_category
-    if route_lane:
-        lane = clamp_lane(route_lane, enabled_lanes(rules))
-    else:
-        lane = clamp_lane(
-            heuristic_route_lane(
-                prompt,
-                has_images=has_images,
-                canvas_node_count=canvas_node_count,
-                scene=scene,
-            ).lane,
-            enabled_lanes(rules),
+    """Return (model_ref, lane). Requires ``route_lane`` from the LLM router — no heuristic."""
+    del prompt, skill_category, scene, has_images, canvas_node_count
+    if not str(route_lane or "").strip():
+        raise ModelRouteError(
+            "route_lane required — run model route before resolving Auto models"
         )
-    return model_for_lane(lane, rules), lane
+    lane = clamp_lane(route_lane, enabled_lanes(rules))
+    mid = model_for_lane(lane, rules)
+    return (mid or None), lane
 
 
-def router_model_id(rules: dict[str, str] | None) -> str:
-    """Cheap model for the LangChain structured router call."""
-    raw = str((rules or {}).get("precheck.router_model") or "").strip()
-    if raw:
-        return raw
-    lanes = parse_model_lanes(rules)
-    return lanes.get("fast") or lanes.get("else") or ""
+def resolve_router_stage_model(rules: dict[str, str] | None) -> str:
+    """Model that runs the Auto lane-classifier.
+
+    Bound to the ``fast`` slot of ``precheck.model_threshold`` (route table),
+    not a separate seed and not a cascade through standard/else. Missing → error.
+    """
+    mid = str(parse_model_lanes(rules).get("fast") or "").strip()
+    if not mid:
+        raise ModelRouteError(
+            "Auto model route needs precheck.model_threshold fast->… "
+            "(lane classifier stage); unset → will not run"
+        )
+    return mid
 
 
-def _user_request_core(prompt: str) -> str:
-    """Strip FE ``User request:`` wrapper so the core ask is visible to heuristics."""
-    p = (prompt or "").strip()
-    m = re.search(r"(?is)\buser\s*request\s*:\s*(.*)\Z", p)
-    if m:
-        return (m.group(1) or "").strip()
-    return p
+def resolve_route_call_model(
+    *,
+    user_selected_model: str | None,
+    rules: dict[str, str] | None,
+    route_lane: str | None = None,
+    for_router_stage: bool = False,
+) -> str:
+    """Resolve which catalog model to call.
+
+    - User locked a concrete model → that model
+    - ``route_lane`` already known → that lane's id in ``precheck.model_threshold``
+    - ``for_router_stage`` (Auto, lane not yet known) → only the ``fast`` slot
+    """
+    selected = normalize_model_ref(user_selected_model)
+    if _is_concrete(selected):
+        return selected
+    if str(route_lane or "").strip():
+        key = normalize_lane(route_lane)
+        mid = model_for_lane(key, rules)
+        if not mid:
+            raise ModelRouteError(
+                f"no model for lane {key!r} in precheck.model_threshold"
+            )
+        return mid
+    if for_router_stage:
+        return resolve_router_stage_model(rules)
+    raise ModelRouteError(
+        "no model: lock a concrete model, or pass route_lane / run Auto router stage"
+    )
 
 
 def scene_target_catalog(scene_nodes: list[dict[str, Any]] | None) -> str:
@@ -865,75 +859,6 @@ def normalize_clarification(
     return len(options) >= 2, question, options
 
 
-def heuristic_user_intent(
-    prompt: str,
-    *,
-    has_images: bool = False,
-    canvas_node_count: int = 0,
-) -> IntentClassifyDecision:
-    """Fallback when the intent LLM is unavailable.
-
-    Structural only (images / target chip / empty prompt). Never maps
-    greetings or content keywords → chat vs design — that belongs to
-    ``agent.prompt.intent_classify``. Non-empty text fail-opens to
-    design/create so craft still gets a plate path when the classifier is down.
-    """
-    del canvas_node_count
-    full = str(prompt or "")
-    has_target = "[Target element" in full or "Target element —" in full
-    from app.services.design.runtime.host.prompts import (
-        detect_locale_from_text,
-        normalize_locale,
-    )
-
-    def _heuristic_locale() -> str:
-        return normalize_locale(
-            detect_locale_from_text(prompt) or "zh-CN",
-            default="zh-CN",
-        )
-
-    if has_images:
-        return IntentClassifyDecision(
-            intent="design",
-            paint_lane="edit" if has_target else "create",
-            reply="",
-            rationale="heuristic_images",
-            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
-        )
-    if has_target:
-        return IntentClassifyDecision(
-            intent="canvas_op",
-            paint_lane="edit",
-            reply="",
-            rationale="heuristic_target",
-            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
-        )
-    if not _user_request_core(full).strip():
-        return IntentClassifyDecision(
-            intent="chat",
-            paint_lane="",
-            reply="",
-            rationale="heuristic_empty",
-            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
-        )
-    core_l = _user_request_core(full).lower()
-    if any(h.lower() in core_l for h in _ANIMATION_HEURISTIC_HINTS):
-        return IntentClassifyDecision(
-            intent="animation",
-            paint_lane="create",
-            reply="",
-            rationale="heuristic_animation",
-            output_locale=_heuristic_locale(),  # type: ignore[arg-type]
-        )
-    return IntentClassifyDecision(
-        intent="design",
-        paint_lane="create",
-        reply="",
-        rationale="heuristic_default_design",
-        output_locale=_heuristic_locale(),  # type: ignore[arg-type]
-    )
-
-
 async def classify_user_intent(
     *,
     prompt: str,
@@ -945,12 +870,17 @@ async def classify_user_intent(
     interaction_mode: str | None = None,
     pending_proposal: dict[str, Any] | None = None,
     recent_dialogue: str | None = None,
+    model: str | None = None,
+    user_selected_model: str | None = None,
+    route_lane: str | None = None,
 ) -> IntentClassifyDecision:
     """Structured intent gate via LLM. Raises ``IntentClassifyError`` on any failure.
 
     Injects the live canvas tools catalog so the model judges canvas_op vs design
     against real capabilities. When ``pending_proposal`` is set, also judges
     proposal_action (apply / dismiss / revise).
+
+    Model: required ``model`` from caller (user lock or resolved lane). No seed/fallback.
     """
     has_pending = _pending_proposal_ready(pending_proposal)
     mode = str(interaction_mode or "").strip().lower()
@@ -990,10 +920,15 @@ async def classify_user_intent(
     system = render_prompt_body(intent_key, rules=rules)
     if not system:
         raise IntentClassifyError(f"intent_classify: prompt pack missing for {intent_key}")
+    intent_model = str(model or "").strip()
+    if not intent_model:
+        raise IntentClassifyError(
+            "intent_classify: model required (user lock or resolved route lane)"
+        )
     out = await ainvoke_structured(
         schema=resolve_contract_schema("intent"),
         messages=[{"role": "user", "content": user_blob}],
-        model=router_model_id(rules),
+        model=intent_model,
         system=system,
         source="intent_classify",
     )
@@ -1072,9 +1007,9 @@ async def classify_user_intent(
         )
     return IntentClassifyDecision(
         intent=intent,  # type: ignore[arg-type]
-        paint_lane=lane if intent != "chat" else "",  # type: ignore[arg-type]
-        proposal_action=action,  # type: ignore[arg-type]
-        session_action=session_action,  # type: ignore[arg-type]
+        paint_lane=lane if intent != "chat" else None,  # type: ignore[arg-type]
+        proposal_action=action or None,  # type: ignore[arg-type]
+        session_action=session_action or None,  # type: ignore[arg-type]
         reply=reply_s[:500],
         needs_clarification=needs_clarification,
         clarification=clarification,
@@ -1093,21 +1028,17 @@ async def classify_model_route(
     canvas_node_count: int = 0,
     scene: str | None = None,
     interaction_mode: str | None = None,
+    user_selected_model: str | None = None,
 ) -> ModelRouteDecision:
-    """LangChain structured router. Raises ``ModelRouteError`` on any failure."""
-    mode = str(interaction_mode or "").strip().lower()
-    if mode == "ask" and not has_images:
-        return ModelRouteDecision(
-            lane="fast",
-            needs_image_gen=False,
-            rationale="ask mode → fast",
-        )
+    """LLM lane classifier → fast|standard|reasoning|vision.
 
+    Call model: user lock if concrete, else threshold ``fast`` slot (Auto router stage).
+    """
+    del interaction_mode
     user_blob = (
         f"scene={scene or 'unknown'}\n"
         f"has_images={bool(has_images)}\n"
         f"canvas_node_count={int(canvas_node_count)}\n"
-        f"interaction_mode={mode or 'agent'}\n"
         f"user_prompt:\n{(prompt or '').strip()[:4000]}"
     )
     from app.services.design.prompts.prompt_pack_store import render_prompt_body
@@ -1119,10 +1050,15 @@ async def classify_model_route(
     router_system = render_prompt_body(router_key, rules=rules).strip()
     if not router_system:
         raise ModelRouteError(f"model_route: prompt pack missing for {router_key}")
+    route_model = resolve_route_call_model(
+        user_selected_model=user_selected_model,
+        rules=rules,
+        for_router_stage=True,
+    )
     out = await ainvoke_structured(
         schema=ModelRouteDecision,
         messages=[{"role": "user", "content": user_blob}],
-        model=router_model_id(rules),
+        model=route_model,
         system=router_system,
         source="model_route",
     )
@@ -1146,12 +1082,16 @@ async def classify_model_route(
 
 
 async def apply_classified_model_route(rt: Any) -> None:
-    """Run LLM model router and persist lane on runtime for downstream resolution."""
+    """Auto: LLM picks a lane, then downstream stages use that lane's threshold model.
+
+    Locked concrete model: still classify for telemetry; resolve prefers the lock.
+    """
     from app.services.design.runtime.graph.state import AgentRuntime
 
     if not isinstance(rt, AgentRuntime):
         raise TypeError("apply_classified_model_route expects AgentRuntime")
     st = rt.run
+    selected = rt.user_selected_model or "auto"
     decision = await classify_model_route(
         prompt=rt.prompt,
         rules=rt.rules,
@@ -1159,6 +1099,7 @@ async def apply_classified_model_route(rt: Any) -> None:
         canvas_node_count=len(rt.scene_nodes or []),
         scene=rt.scene_key,
         interaction_mode=str(rt.flags.get("mode") or rt.mode or ""),
+        user_selected_model=selected,
     )
     lane = decision.lane
     rt.flags["route_lane"] = lane
@@ -1170,7 +1111,7 @@ async def apply_classified_model_route(rt: Any) -> None:
         task_tier=st.task_tier or None,
         has_images=bool(rt.images) or None,
         vision=None,
-        user_selected_model=(rt.user_selected_model or "auto"),
+        user_selected_model=selected,
         run_mode=rt.mode,
         summary=(
             f"task_tier={tier_label}"
@@ -1198,12 +1139,32 @@ def resolve_model_for_skill(
     canvas_node_count: int = 0,
     route_lane: str | None = None,
 ) -> tuple[str, str]:
-    """Returns (model_ref, reason). Auto follows lane map; lock skips classifier."""
-    del is_premium
+    """Returns (model_ref, reason). Auto follows lane map; lock skips classifier.
+
+    No hardcoded family defaults. Unresolved → ``ModelRouteError``.
+    """
+    del is_premium, skill
     selected = normalize_model_ref(user_selected_model)
-    skill_default = str(skill.get("default_model") or "doubao").strip().lower() or "doubao"
+
+    def _vision_or_raise(model_ref: str, reason: str) -> tuple[str, str]:
+        if not has_images or _vision_ok(model_ref):
+            return model_ref, reason
+        vision = (
+            str((rules or {}).get("precheck.vision_model") or "").strip()
+            or str(parse_model_lanes(rules).get("vision") or "").strip()
+        )
+        if not vision or not _vision_ok(vision):
+            raise ModelRouteError(
+                "images attached but no vision-capable model configured "
+                "(precheck.vision_model / vision lane)"
+            )
+        return vision, f"{reason}+precheck_vision"
 
     def from_precheck(reason_prefix: str) -> tuple[str, str]:
+        if not str(route_lane or "").strip():
+            raise ModelRouteError(
+                f"{reason_prefix}: route_lane required (run model route first)"
+            )
         pre, lane = family_from_precheck(
             prompt,
             rules,
@@ -1212,46 +1173,43 @@ def resolve_model_for_skill(
             canvas_node_count=canvas_node_count,
             route_lane=route_lane,
         )
-        primary = pre or skill_default
-        if primary in ("doubao", "deepseek", "glm", "kimi"):
-            lanes = parse_model_lanes(rules)
-            primary = (
-                lanes.get("else")
-                or lanes.get("standard")
-                or lanes.get("reasoning")
-                or (parse_fallback_chain(rules) or [primary])[0]
+        primary = str(pre or "").strip()
+        if primary in _FAMILY_OR_EMPTY:
+            raise ModelRouteError(
+                f"lane {lane!r} has no concrete catalog model in "
+                "precheck.model_threshold"
             )
         chosen = pick_fallback_model(primary, rules, attempt=attempt)
         reason = f"{reason_prefix}_{lane}"
         if attempt > 0 and chosen != primary:
-            reason = f"{reason_prefix}_fallback_{lane}_attempt_{attempt}"
-        if has_images and not _vision_ok(chosen):
-            vision = resolve_vision_model(rules)
-            return vision, f"{reason}+precheck_vision"
+            reason = f"{reason_prefix}_retry_{lane}_attempt_{attempt}"
         if lane == "vision" and not _vision_ok(chosen):
-            return resolve_vision_model(rules), f"{reason}+lane_vision"
-        return chosen, reason
+            vision = (
+                str((rules or {}).get("precheck.vision_model") or "").strip()
+                or str(parse_model_lanes(rules).get("vision") or "").strip()
+            )
+            if not vision or not _vision_ok(vision):
+                raise ModelRouteError(
+                    f"vision lane model {chosen!r} is not vision-capable and "
+                    "precheck.vision_model unset"
+                )
+            return vision, f"{reason}+lane_vision"
+        return _vision_or_raise(chosen, reason)
 
-    def lock_or_vision(model_ref: str, reason: str) -> tuple[str, str]:
-        if has_images and not _vision_ok(model_ref):
-            return resolve_vision_model(rules), f"{reason}+precheck_vision"
-        return model_ref, reason
-
-    # Legacy partial is an alias of single_model (orchestrator remaps before graph).
     if run_mode in ("single_model", "partial"):
         if _is_concrete(selected):
-            return lock_or_vision(selected, "user_single_model")
+            return _vision_or_raise(selected, "user_single_model")
         if selected in ("doubao", "deepseek", "glm", "kimi", "auto") or not selected:
             return from_precheck("single_precheck")
-        return lock_or_vision(skill_default, "single_model_fallback_default")
+        raise ModelRouteError(f"invalid model ref {selected!r}")
+
+    if _is_concrete(selected):
+        return _vision_or_raise(selected, "user_locked")
 
     if selected in ("auto", "doubao", "deepseek", "glm", "kimi") or not selected:
         return from_precheck("precheck_lane")
 
-    if _is_concrete(selected):
-        return lock_or_vision(selected, "user_locked")
-
-    return from_precheck("precheck_lane")
+    raise ModelRouteError(f"unresolved model ref {selected!r}")
 
 
 def to_endpoint_model_id(model_ref: str) -> str:

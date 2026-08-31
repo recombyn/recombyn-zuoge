@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from recombyn_agent_sdk.session_events import (
-    MODEL_TRACE_EVENT_TYPES,
     SessionEventKind,
     model_event,
 )
@@ -62,19 +61,3 @@ def get_trace(task_id: str, *, after_seq: int = 0, limit: int = 256) -> dict[str
     from app.services.design.admin.task_store import get_task_trace
 
     return get_task_trace(task_id, after_seq=after_seq, limit=limit)
-
-
-def derive_model_trace(task_id: str, *, after_seq: int = 0, limit: int = 256) -> list[dict[str, Any]]:
-    """Flat model-lane timeline for eval/debug."""
-    items = get_trace(task_id, after_seq=after_seq, limit=limit).get("items") or []
-    out: list[dict[str, Any]] = []
-    for row in items:
-        if not isinstance(row, dict):
-            continue
-        event = row.get("event")
-        if not isinstance(event, dict):
-            continue
-        if str(event.get("type") or "") not in MODEL_TRACE_EVENT_TYPES:
-            continue
-        out.append({"seq": row.get("seq"), "at": row.get("at"), **event})
-    return out

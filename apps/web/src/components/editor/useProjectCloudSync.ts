@@ -1,9 +1,10 @@
 /**
- * Debounced project sync: IndexedDB draft → incremental PATCH (or PUT) for document.
+ * Debounced project sync: IndexedDB draft — incremental PATCH (or PUT) for document.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useCurrentProjectId, useEditorDocument } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
   upsertProjectApi,
@@ -45,7 +46,7 @@ import { normalizeProjectIds } from '@/utils/normalizeProjectId';
 import { probeProjectOpenElsewhere } from '@/utils/openProjectSessions';
 
 const DEBOUNCE_MS = 800;
-/** Coalesce rapid Ctrl/⌘+S into one flush. */
+/** Coalesce rapid Ctrl/⌘S into one flush. */
 const MANUAL_SAVE_DEBOUNCE_MS = 300;
 /** Delete / structural edits should hit the cloud ASAP (refresh must not restore old nodes). */
 const FLUSH_NOW_EVENT = 'resume:flush-project';
@@ -346,7 +347,7 @@ export async function pushProjectToCloud(payload: {
   };
   if (payload.thumb) applyThumbUpload(data, payload.thumb);
   if (base != null) data.baseRevision = base;
-  // First cloud write — attach preferred team org when set in Account → Organization.
+  // First cloud write — attach preferred team org when set in Account — Organization.
   if (base == null) {
     try {
       const orgId = localStorage.getItem('recombyn.preferredOrgId')?.trim();
@@ -561,8 +562,8 @@ export function useProjectCloudSync() {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const dirty = useSelector((s: any) => Boolean(s.editor.dirty));
-  const document = useSelector((s: any) => s.editor.document);
-  const currentId = useSelector((s: any) => s.editor.currentId as string | null);
+  const document = useEditorDocument();
+  const currentId = useCurrentProjectId();
   const template = useSelector((s: any) =>
     s.editor.templates.find((t: any) => t.id === s.editor.currentId)
   );
@@ -744,7 +745,7 @@ export function useProjectCloudSync() {
     return () => window.removeEventListener(FLUSH_NOW_EVENT, onFlushNow);
   }, []);
 
-  // Ctrl/⌘+S — manual save (debounced so key-repeat / rapid presses don't spam).
+  // Ctrl/⌘S — manual save (debounced so key-repeat / rapid presses don't spam).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;

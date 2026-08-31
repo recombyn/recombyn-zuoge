@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useActiveFrameId, useSelectedFrameIds } from '@/store/editorSelectors';
 import {
   addNodeToDocument,
   removeNodesFromDocument,
@@ -70,9 +71,6 @@ import {
   createFilePreviewUrl,
   revokeNodePreviewSrc,
 } from '@/utils/uploadImage';
-import {
-  setAnimationWorkbenchGeometryPreview,
-} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import { probeAudioDuration } from '@/components/editor/nodes/shared/mediaProbe';
 import store, { type RootState } from '@/store';
@@ -112,7 +110,6 @@ import {
   clearCanvasAttachPick,
   setCanvasAttachPickBlocked,
   setPendingCanvasAttach,
-  EMPTY_ID_LIST,
   isImageToolSidePanelKind,
   isImageToolCropSessionKind,
 } from '@/store/modules/editor';
@@ -141,10 +138,6 @@ import {
 import { ctxMenuTargetHasProcessing, resolveCtxMenuTargets } from './ctxMenuGuards';
 import { buildCanvasContextMenuProps } from './buildCanvasContextMenuProps';
 import { closedPenFillAttrs } from './penFillAttrs';
-import {
-  noteCanvasFlyOrigin,
-  resolveAttachPayloadFlyOrigin,
-} from '@/components/editor/panels/agent/composer/flyToChat';
 import {
   resolveAnimationFrameId,
 } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
@@ -228,6 +221,11 @@ type SvgCanvasProps = {
     y: number,
     opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' }
   ) => void;
+  /**
+   * Hide selection control box while an artboard/workbench is title-dragged
+   * (SelectionFeature transforming is not set for that path — same UX as shapes).
+   */
+  suppressChromeWhileFrameMoving?: boolean;
   /** Open the editor AI agent dock (selection contextual bar). */
   onOpenAgent?: (opts?: { prompt?: string }) => void;
   /** Right-click 銆屾坊鍔犲埌 Chat銆嶁€?one node id, `frame:id`, or multiple selected ids as one group. */
@@ -263,6 +261,7 @@ function SvgCanvas({
   onFrameMoveStart,
   onFrameMoveEnd,
   onFrameMove,
+  suppressChromeWhileFrameMoving = false,
   onOpenAgent,
   onAddToChat,
   embedded = false,
@@ -354,12 +353,8 @@ function SvgCanvas({
   );
   const audioToolOpen =
     audioToolPanelKind === 'trim' || audioToolPanelKind === 'speed';
-  const activeFrameId = useSelector(
-    (s: RootState) => (s.editor.document?.activeFrameId as string | null) ?? null
-  );
-  const selectedFrameIds = useSelector(
-    (s: RootState) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const activeFrameId = useActiveFrameId();
+  const selectedFrameIds = useSelectedFrameIds();
   const animationTimelineOpen = useSelector(
     (s: RootState) => Boolean(s.editor.lottieTimelinePanel?.nodeId)
   );
@@ -429,7 +424,9 @@ function SvgCanvas({
 
   const onGeometryTransformingChange = useCallback((next: boolean) => {
     geometryTransformingRef.current = next;
-    setAnimationWorkbenchGeometryPreview(next);
+    // Do NOT flip `setAnimationWorkbenchGeometryPreview` here — that gate is
+    // only for 动画工作台 *plate* drags (EditorStageWorld). Any shape transform
+    // used to stick the gate and block ensureAnimationFrameMedia / collab sync.
     setGeometryTransforming(next);
     onTransformingChange?.(next);
     if (!next) {
@@ -691,30 +688,8 @@ function SvgCanvas({
   hitTestRef.current = hitTest;
 
   /** Apply one canvas pick into composer, then exit pick mode (one pick per activation). */
-  const noteFlyOriginForPayload = useCallback(
-    (payload: string | string[], fromPointer: boolean) => {
-      if (fromPointer) {
-        const p = lastPointerClientRef.current;
-        if (p.x || p.y) {
-          noteCanvasFlyOrigin(p.x, p.y);
-          return;
-        }
-      }
-      const doc = documentRef.current;
-      if (!doc) return;
-      const origin = resolveAttachPayloadFlyOrigin({
-        document: doc,
-        payload,
-        camera,
-      });
-      if (origin) noteCanvasFlyOrigin(origin.x, origin.y);
-    },
-    [camera]
-  );
-
   const completeCanvasAttachPick = useCallback(
     (pickTarget: string, payload: string | string[]) => {
-      noteFlyOriginForPayload(payload, true);
       if (pickTarget === 'agent') {
         onAddToChatRef.current?.(payload);
       } else {
@@ -724,18 +699,14 @@ function SvgCanvas({
       }
       dispatch(clearCanvasAttachPick());
     },
-    [dispatch, noteFlyOriginForPayload]
+    [dispatch]
   );
 
-  const emitAddToChat = useCallback(
-    (payload: string | string[]) => {
-      noteFlyOriginForPayload(payload, false);
-      onAddToChatRef.current?.(payload);
-    },
-    [noteFlyOriginForPayload]
-  );
+  const emitAddToChat = useCallback((payload: string | string[]) => {
+    onAddToChatRef.current?.(payload);
+  }, []);
 
-  // Track pointer for pick-mode fly origin (click → composer).
+  // Track pointer for paste anchor / place-at.
   useEffect(() => {
     if (!stageEl) return undefined;
     const onPointer = (e: PointerEvent) => {
@@ -1249,6 +1220,7 @@ function SvgCanvas({
       box: { left: number; top: number; width: number; height: number };
       closed: boolean;
       clearAngle?: boolean;
+      clearFlip?: boolean;
     }) => {
       const doc = documentRef.current;
       if (!doc || readOnly) return;
@@ -1275,8 +1247,9 @@ function SvgCanvas({
                     'fill-visible': 'true',
                   }
                 : {}),
-              // Baked world path — leaving angle would double-rotate the silhouette.
+              // Baked world path — leaving angle/flip would double-transform the silhouette.
               ...(payload.clearAngle ? { angle: 0 } : {}),
+              ...(payload.clearFlip ? { flipX: 'false', flipY: 'false' } : {}),
             },
           },
         })
@@ -2091,6 +2064,7 @@ function SvgCanvas({
               imageToolSidePanelOpen ||
               videoToolOpen ||
               audioToolOpen ||
+              suppressChromeWhileFrameMoving ||
               // Keep chrome while editing radius so the outline can follow rounded corners.
               (shapeStylePanelOpen && shapeStylePanel?.kind !== 'radius')
             }

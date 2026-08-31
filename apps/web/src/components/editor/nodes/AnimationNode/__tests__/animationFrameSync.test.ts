@@ -218,6 +218,50 @@ describe('syncArtboardChildrenIntoAnimation', () => {
     expect(layers.some((l) => String(l.ln || '') === 'shape_rect')).toBe(true);
     expect(layers.some((l) => String(l.ln || '') === 'img_can')).toBe(true);
   });
+
+  it('drops linked layers whose scene node was deleted (canvas Delete sync)', () => {
+    const doc = makeDoc();
+    const host = doc.deltaSetLike!.host_lottie as any;
+    host.attrs.animationData = JSON.stringify({
+      v: '5.7.4',
+      fr: 30,
+      ip: 0,
+      op: 150,
+      w: 400,
+      h: 400,
+      layers: [
+        {
+          ind: 1,
+          ty: 4,
+          nm: 'gone',
+          ln: 'shape_rect',
+          ip: 0,
+          op: 60,
+          st: 0,
+          ks: {},
+        },
+        {
+          ind: 2,
+          ty: 4,
+          nm: 'keep',
+          ln: 'img_can',
+          ip: 0,
+          op: 60,
+          st: 0,
+          ks: {},
+        },
+      ],
+      assets: [],
+    });
+    // Simulate canvas Delete of the shape — node gone, animation JSON still has ln.
+    delete doc.deltaSetLike!.shape_rect;
+
+    const synced = syncArtboardChildrenIntoAnimation(doc, 'frame_lottie', 'host_lottie');
+    expect(synced).toBeTruthy();
+    const layers = (parseLottieAnimationData(synced!.animationJson)!.layers as any[]) || [];
+    expect(layers.some((l) => String(l.ln || '') === 'shape_rect')).toBe(false);
+    expect(layers.some((l) => String(l.ln || '') === 'img_can')).toBe(true);
+  });
 });
 
 describe('animationHostHasUnlinkedInk', () => {

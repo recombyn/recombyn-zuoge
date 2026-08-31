@@ -5,6 +5,7 @@ import {
   getNodeTransformPreview,
   hasNodeTransformPreviews,
   setNodeTransformAngles,
+  setNodeTransformHidden,
   setNodeTransformPreviews,
   subscribeTransformPreview,
 } from '../transformPreview';
@@ -21,6 +22,7 @@ describe('transformPreview store', () => {
       width: 30,
       height: 40,
       angle: 15,
+      hidden: undefined,
     });
     expect(hasNodeTransformPreviews()).toBe(true);
     clearNodeTransformPreviews(['a']);
@@ -37,6 +39,7 @@ describe('transformPreview store', () => {
       width: 100,
       height: 50,
       angle: 0,
+      hidden: false,
     });
     setNodeTransformPreviews([{ nodeId: 'x', left: 5, top: 6, width: 7, height: 8 }]);
     expect(effectivePaintBox('x', doc, 12)).toEqual({
@@ -45,6 +48,7 @@ describe('transformPreview store', () => {
       width: 7,
       height: 8,
       angle: 12,
+      hidden: false,
     });
     setNodeTransformAngles([{ nodeId: 'x', angle: 45 }]);
     expect(effectivePaintBox('x', doc, 12).angle).toBe(45);
@@ -55,7 +59,14 @@ describe('transformPreview store', () => {
     clearNodeTransformPreviews();
     setNodeTransformAngles([{ nodeId: 'y', angle: 90 }]);
     const paint = effectivePaintBox('y', { left: 1, top: 2, width: 3, height: 4 }, 0);
-    expect(paint).toEqual({ left: 1, top: 2, width: 3, height: 4, angle: 90 });
+    expect(paint).toEqual({
+      left: 1,
+      top: 2,
+      width: 3,
+      height: 4,
+      angle: 90,
+      hidden: false,
+    });
     clearNodeTransformPreviews();
   });
 
@@ -71,16 +82,13 @@ describe('transformPreview store', () => {
     expect(n).toBe(2);
   });
 
-  it('does not notify for an identical preview frame', () => {
+  it('setNodeTransformHidden gates effectivePaintBox.hidden', () => {
     clearNodeTransformPreviews();
-    let n = 0;
-    const unsub = subscribeTransformPreview(() => {
-      n += 1;
-    });
-    const patch = { nodeId: 'z', left: 4, top: 5, width: 6, height: 7, angle: 8 };
-    setNodeTransformPreviews([patch]);
-    setNodeTransformPreviews([patch]);
-    unsub();
-    expect(n).toBe(1);
+    setNodeTransformPreviews([{ nodeId: 'h', left: 1, top: 2, width: 3, height: 4 }]);
+    setNodeTransformHidden([{ nodeId: 'h', hidden: true }]);
+    expect(effectivePaintBox('h', { left: 0, top: 0, width: 1, height: 1 }, 0).hidden).toBe(true);
+    setNodeTransformHidden([{ nodeId: 'h', hidden: false }]);
+    expect(effectivePaintBox('h', { left: 0, top: 0, width: 1, height: 1 }, 0).hidden).toBe(false);
+    clearNodeTransformPreviews();
   });
 });

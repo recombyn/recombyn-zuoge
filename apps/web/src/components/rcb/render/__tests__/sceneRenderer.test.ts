@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearSceneCanvasIdlePaint,
   createCanvasSceneRenderer,
@@ -27,6 +27,8 @@ import {
   paintStrokeCanvasIdle,
   paintTextProxyLines,
   resolveCanvasFillStyle,
+  resolveSoaCanvasDirtyRegion,
+  sceneBoxToScreenRect,
   sceneGridLineWidth,
   setSceneCanvasIdlePaint,
   strokeCanvasIdleCenterline,
@@ -35,6 +37,14 @@ import {
 import { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import { PIXEL_GRID_MIN_ZOOM } from '@/components/rcb/selection/alignGuides';
+import {
+  createSceneRenderBuffer,
+  getSharedSceneRenderBuffer,
+  resetSharedSceneRenderBuffer,
+  setSoaCanvasShapesEnabledForTests,
+  syncSceneRenderBufferFromDocument,
+} from '../sceneRenderBuffer';
+import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 
 function emptyDoc(): SceneDocument {
   return {
@@ -91,8 +101,8 @@ function mockCtx(ops: string[]) {
     save: () => ops.push('save'),
     restore: () => ops.push('restore'),
     translate: () => ops.push('translate'),
-    scale: () => ops.push('scale'),
-    rotate: () => ops.push('rotate'),
+    scale: (...args: number[]) => ops.push(`scale:${args.join(',')}`),
+    rotate: (...args: number[]) => ops.push(`rotate:${args.join(',')}`),
     beginPath: () => ops.push('beginPath'),
     moveTo: () => ops.push('moveTo'),
     lineTo: () => ops.push('lineTo'),
@@ -160,6 +170,49 @@ describe('DirtyRegion helpers', () => {
     expect(dirtyTouchesNode(full, 'z')).toBe(true);
     expect(dirtyTouchesNode(nodes, 'a')).toBe(true);
     expect(dirtyTouchesNode(nodes, 'z')).toBe(false);
+  });
+
+  it('sceneBoxToScreenRect maps scene AABB through camera', () => {
+    const scr = sceneBoxToScreenRect(
+      { x: 10, y: 20, width: 40, height: 30 },
+      { x: 100, y: 50, zoom: 2 },
+      1,
+      0
+    );
+    expect(scr.x).toBe(10 * 2 + 100);
+    expect(scr.y).toBe(20 * 2 + 50);
+    expect(scr.width).toBe(80);
+    expect(scr.height).toBe(60);
+  });
+
+  it('resolveSoaCanvasDirtyRegion uses dirty AABB when not full', () => {
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(
+      buf,
+      (() => {
+        let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+        doc = addNodeToDocument(doc, 'a', {
+          id: 'a',
+          key: 'shape',
+          x: 10,
+          y: 20,
+          width: 30,
+          height: 40,
+          attrs: { shapeType: 'rect', fill: '#fff' },
+          children: [],
+        });
+        return doc;
+      })()
+    );
+    expect(resolveSoaCanvasDirtyRegion({ full: true, buf })).toEqual({ kind: 'full' });
+    const region = resolveSoaCanvasDirtyRegion({ full: false, buf });
+    expect(region.kind).toBe('aabb');
+    if (region.kind === 'aabb') {
+      expect(region.box.x).toBeLessThanOrEqual(10);
+      expect(region.box.y).toBeLessThanOrEqual(20);
+      expect(region.box.width).toBeGreaterThanOrEqual(30);
+      expect(region.box.height).toBeGreaterThanOrEqual(40);
+    }
   });
 });
 
@@ -304,6 +357,39 @@ describe('scene grid (Canvas underlay)', () => {
     expect(opsHi).toContain('stroke');
     renderer.dispose();
   });
+
+  it('createCanvasSceneRenderer clears only dirty AABB in screen space', () => {
+    setSoaCanvasShapesEnabledForTests(true);
+    const canvas = document.createElement('canvas');
+    const ops: string[] = [];
+    vi.spyOn(canvas, 'getContext').mockReturnValue(mockCtx(ops) as unknown as CanvasRenderingContext2D);
+    const spatial = new SceneSpatialRuntime(64);
+    const renderer = createCanvasSceneRenderer({
+      canvas,
+      getDocument: () => emptyDoc(),
+      getSpatial: () => spatial,
+      getZoom: () => 1,
+      listNodeIds: () => [],
+      getNodeBox: () => null,
+      paintGrid: false,
+      drawCanvasIdle: true,
+    });
+    renderer.render({
+      document: emptyDoc(),
+      camera: { x: 0, y: 0, zoom: 1 },
+      dirty: { kind: 'aabb', box: { x: 10, y: 20, width: 40, height: 30 } },
+      stage: { width: 200, height: 150 },
+      dpr: 1,
+    });
+    // padScene=4 → clearRect expands by 4 on each side in screen px at zoom 1
+    expect(ops.some((o) => o.startsWith('clearRect:') && !o.endsWith('0,0,200,150'))).toBe(
+      true
+    );
+    expect(ops).toContain('clip');
+    expect(ops).not.toContain('clearRect:0,0,200,150');
+    renderer.dispose();
+    setSoaCanvasShapesEnabledForTests(null);
+  });
 });
 
 describe('Canvas idle path / text / shape paint', () => {
@@ -360,6 +446,31 @@ describe('Canvas idle path / text / shape paint', () => {
     });
     expect(ops).toContain('stroke');
     expect(ops).not.toContain('fillRect');
+  });
+
+  it('paintCanvasIdleNode applies flip + rotate like SVG host transform', () => {
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
+      left: 0,
+      top: 0,
+      width: 40,
+      height: 80,
+      zoom: 1,
+      node: {
+        key: 'shape',
+        attrs: {
+          shapeType: 'rect',
+          fill: '#fff',
+          'fill-color': '#fff',
+          'stroke-enabled': false,
+          flipX: 'true',
+          angle: 90,
+        },
+      } as SceneNodeInput,
+    });
+    expect(ops.some((o) => o.startsWith('rotate:'))).toBe(true);
+    expect(ops).toContain('scale:-1,1');
   });
 
   it('paintCanvasMediaInk draws cached image with crop', () => {
@@ -489,6 +600,42 @@ describe('Canvas idle path / text / shape paint', () => {
       opacity: 1,
     });
     expect(ops).toContain('fillText');
+  });
+
+  it('paintCanvasPathInk respects evenodd fill-rule for boolean holes', () => {
+    const ops: string[] = [];
+    const ctx = {
+      save: () => ops.push('save'),
+      restore: () => ops.push('restore'),
+      fill: (pathOrRule?: unknown, maybeRule?: unknown) => {
+        ops.push(`fill:${String(maybeRule ?? pathOrRule ?? '')}`);
+      },
+      stroke: () => ops.push('stroke'),
+      beginPath: () => {},
+      globalAlpha: 1,
+      lineCap: '',
+      lineJoin: '',
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+    } as unknown as CanvasRenderingContext2D;
+    if (typeof Path2D === 'undefined') return;
+    paintCanvasPathInk(ctx, {
+      node: {
+        key: 'shape',
+        attrs: {
+          shapeType: 'path',
+          path: 'M0 0 H10 V10 H0 Z M2 2 H8 V8 H2 Z',
+          closed: 'true',
+          'fill-rule': 'evenodd',
+          'fill-color': '#fff',
+          'stroke-enabled': false,
+        },
+      } as SceneNodeInput,
+      width: 10,
+      height: 10,
+    });
+    expect(ops.some((o) => o.includes('evenodd'))).toBe(true);
   });
 
   it('paintCanvasPathInk falls back to centerline without Path2D', () => {
@@ -962,6 +1109,11 @@ describe('createCanvasSceneRenderer', () => {
 });
 
 describe('hitTestWithSpatialIndex', () => {
+  afterEach(() => {
+    setSoaCanvasShapesEnabledForTests(null);
+    resetSharedSceneRenderBuffer();
+  });
+
   it('returns null for empty document', () => {
     expect(
       hitTestWithSpatialIndex(
@@ -1024,5 +1176,41 @@ describe('hitTestWithSpatialIndex', () => {
         { x: 30, y: 30 }
       )
     ).toBe('front');
+  });
+
+  it('picks canvas-idle shapes from SoA buffer when flag is on', () => {
+    setSoaCanvasShapesEnabledForTests(true);
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'soa-rect', {
+      id: 'soa-rect',
+      key: 'shape',
+      x: 40,
+      y: 40,
+      width: 60,
+      height: 60,
+      attrs: { shapeType: 'rect', fill: '#336699' },
+      children: [],
+    });
+    const buf = getSharedSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: ['soa-rect'],
+      reloadToken: 1,
+      aabbPad: 0,
+    });
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['soa-rect'],
+          getNodeBox: () => ({ left: 40, top: 40, width: 60, height: 60 }),
+        },
+        { x: 50, y: 50 }
+      )
+    ).toBe('soa-rect');
   });
 });

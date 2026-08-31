@@ -5,6 +5,7 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  */
 
 import { nodeLeftTop } from '../scene/paint/sceneToSvg';
+import { effectivePaintBox } from './transformPreview';
 
 export type RcbSpatialItem = {
   id: string;
@@ -43,6 +44,43 @@ export class RcbSpatialIndex {
   clear() {
     this.cells.clear();
     this.byId.clear();
+  }
+
+  /**
+   * Build / refresh AABBs from a SceneRenderBuffer (SoA paint sidecar).
+   * Document spatial remains the authoring source; this feeds cull/hit when
+   * idle shapes live only in the buffer.
+   */
+  static fromRenderBuffer(
+    buf: {
+      count: number;
+      positions: Float32Array;
+      flags: Uint32Array;
+      ids: Array<string | undefined>;
+    },
+    opts?: { cellSize?: number; visibleFlag?: number }
+  ): RcbSpatialIndex {
+    const index = new RcbSpatialIndex(opts?.cellSize);
+    const visibleFlag = opts?.visibleFlag ?? 1; // SOA_FLAG_VISIBLE
+    const stride = 4;
+    for (let i = 0; i < buf.count; i += 1) {
+      if (!(buf.flags[i] & visibleFlag)) continue;
+      const id = buf.ids[i];
+      if (!id) continue;
+      const o = i * stride;
+      const x = buf.positions[o];
+      const y = buf.positions[o + 1];
+      const w = buf.positions[o + 2];
+      const h = buf.positions[o + 3];
+      index.upsert({
+        id,
+        minX: Math.min(x, x + w),
+        minY: Math.min(y, y + h),
+        maxX: Math.max(x, x + w),
+        maxY: Math.max(y, y + h),
+      });
+    }
+    return index;
   }
 
   upsert(item: RcbSpatialItem) {
@@ -158,16 +196,28 @@ export function nodeSceneAabb(
 ): { minX: number; minY: number; maxX: number; maxY: number } | null {
   const node = document?.deltaSetLike?.[nodeId];
   if (!node) return null;
-  const { left: x0, top: y0 } = nodeLeftTop(document, node);
-  const w = Math.max(1, Number(node.width) || 1);
-  const h = Math.max(1, Number(node.height) || 1);
-  const angle = Number(node.attrs?.angle) || 0;
+  const { left: docLeft, top: docTop } = nodeLeftTop(document, node);
+  const paint = effectivePaintBox(
+    nodeId,
+    {
+      left: docLeft,
+      top: docTop,
+      width: Math.max(1, Number(node.width) || 1),
+      height: Math.max(1, Number(node.height) || 1),
+    },
+    Number(node.attrs?.angle) || 0
+  );
+  if (paint.hidden) return null;
+  const x0 = paint.left;
+  const y0 = paint.top;
+  const w = paint.width;
+  const h = paint.height;
+  const angle = paint.angle;
   let minX = x0;
   let minY = y0;
   let maxX = x0 + w;
   let maxY = y0 + h;
-  if (Math.abs(angle) > 0.5) {
-    const rad = (Math.abs(angle) * Math.PI) / 180;
+  if (Math.abs(angle) > 0.5) {    const rad = (Math.abs(angle) * Math.PI) / 180;
     const cos = Math.abs(Math.cos(rad));
     const sin = Math.abs(Math.sin(rad));
     const bw = w * cos + h * sin;
@@ -356,6 +406,43 @@ export class SceneSpatialRuntime {
       this.rank,
       { ascending: false }
     );
+  }
+
+  /**
+   * Refresh AABBs from a SceneRenderBuffer (SoA paint sidecar).
+   * Only upserts slots present in the buffer — does not drop text/media hosts
+   * that are indexed from the document but absent from SoA.
+   */
+  upsertFromRenderBuffer(
+    buf: {
+      count: number;
+      positions: Float32Array;
+      flags: Uint32Array;
+      ids: Array<string | undefined>;
+    },
+    opts?: { pad?: number; visibleFlag?: number }
+  ): number {
+    const pad = opts?.pad ?? 0;
+    const visibleFlag = opts?.visibleFlag ?? 1;
+    const stride = 4;
+    let n = 0;
+    for (let i = 0; i < buf.count; i += 1) {
+      if (!(buf.flags[i] & visibleFlag)) continue;
+      const id = buf.ids[i];
+      if (!id) continue;
+      const o = i * stride;
+      const x = buf.positions[o];
+      const y = buf.positions[o + 1];
+      const w = buf.positions[o + 2];
+      const h = buf.positions[o + 3];
+      const minX = Math.min(x, x + w) - pad;
+      const minY = Math.min(y, y + h) - pad;
+      const maxX = Math.max(x, x + w) + pad;
+      const maxY = Math.max(y, y + h) + pad;
+      this.index.upsert({ id, minX, minY, maxX, maxY });
+      n += 1;
+    }
+    return n;
   }
 }
 

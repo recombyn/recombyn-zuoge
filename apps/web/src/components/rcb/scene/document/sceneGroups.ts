@@ -1,4 +1,4 @@
-import { nanoid } from '@reduxjs/toolkit';
+import { nanoid } from 'nanoid';
 import { listSceneNodes, normalizeDocument } from './sceneDocument';
 import { isNodeLocked } from './nodeCapabilities';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';

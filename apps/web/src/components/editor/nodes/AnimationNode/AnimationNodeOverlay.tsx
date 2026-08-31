@@ -1,10 +1,11 @@
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 /**
- * Lottie ink mounts into the node’s nested SVG layer (lottie-web SVG renderer).
+ * Lottie ink mounts into the node's nested SVG layer (lottie-web SVG renderer).
  * Preview and edit share the same SVG stack; preview is pointer-events:none.
  */
 import { useEffect, useMemo, useRef, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
+import { useSceneReloadToken } from '@/store/editorSelectors';
 import lottie, { type AnimationItem } from 'lottie-web';
 import {
   isAnimationFrameHostNode,
@@ -46,7 +47,7 @@ export function getLottieHost(nodeId: string): LottieHostApi | null {
   return lottieHosts.get(nodeId) || null;
 }
 
-/** Drive nested LOT plates on 主场景 while the workbench timeline plays. */
+/** Drive nested LOT plates on — —while the workbench timeline plays. */
 export function syncFrameNestedLotLottieHosts(opts: {
   document: SceneDocument;
   frameHostId: string;
@@ -289,9 +290,7 @@ function AnimationNodeOverlay({
   hidden?: boolean;
   geometryOverrides?: Record<string, LottieGeomOverride> | null;
 }): ReactNode {
-  const sceneReloadToken = useSelector(
-    (s: any) => Number(s.editor.sceneReloadToken) || 0
-  );
+  const sceneReloadToken = useSceneReloadToken();
 
   const ids = useMemo(() => {
     const children: string[] = document?.deltaSetLike?.ROOT?.children || [];

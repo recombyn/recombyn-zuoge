@@ -80,29 +80,6 @@ def _flag_on(rules: dict[str, str] | None, key: str, default: str = "0") -> bool
         raw = default.strip().lower()
     return raw in ("1", "true", "on", "yes")
 
-def _chat_fallback_text(rt: Any) -> str:
-    """Render agent.prompt.chat_fallback with persona + prompt slots filled."""
-    rules = getattr(rt, "rules", None)
-    rules_d = rules if isinstance(rules, dict) else None
-    persona = str(getattr(rt, "persona", "") or "").strip()
-    if not persona:
-        persona = _prompt_text(
-            rules_d, "agent.prompt.default_assistant_name"
-        ).strip()
-    prompt = str(getattr(rt, "prompt", "") or "")[:80]
-    out = _prompt_text(
-        rules_d,
-        "agent.prompt.chat_fallback",
-        persona=persona,
-        prompt=prompt,
-    ).strip()
-    if out:
-        return out
-    tmpl = str(getattr(rt, "chat_fallback_tmpl", "") or "").strip()
-    if not tmpl:
-        return ""
-    return render_prompt_template(tmpl, persona=persona, prompt=prompt)
-
 async def _stream_llm_text(
     *,
     model_family: str,
@@ -326,16 +303,6 @@ def _int_rule(rules: dict[str, str], key: str, default: int) -> int:
 
 
 # Stable tip codes → FE i18n (`agent.uxTip*`). English text for logs when i18n is absent.
-_UX_TIP_FALLBACK: dict[str, str] = {
-    "decide_failed": "Decision failed. Please try again.",
-    "paint_failed": "Could not produce valid canvas ops. Please describe a more specific edit.",
-    "observe_ops_failed": "Some ops failed to apply ({count}): {notes}. Retry on a specific element.",
-    "apply_confirm_failed": "Confirmed plan could not be applied safely ({error}). Rephrase or retry.",
-    "observe_critique_failed": "Canvas structure check failed: {issues}",
-    "review_must_fix": "Review did not pass: {issues}",
-    "apply_ops_applied": "Applied {count} canvas change(s).",
-    "ask_dismissed": "Cancelled.",
-}
 
 
 def _emit_ux_tip(
@@ -372,7 +339,6 @@ __all__ = [
     '_model_display_label',
     '_resolve_agent_persona',
     '_flag_on',
-    '_chat_fallback_text',
     '_stream_llm_text',
     '_ui_thought_text',
     '_thinking_field',

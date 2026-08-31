@@ -20,7 +20,7 @@ Treat the editor runtime as four facts (**this is the product architecture — d
 
 1. **`SceneDocument`** — unique document source of truth (Redux / collab patches write here).
 2. **`CameraTransform`** — single pan/zoom matrix; only `worldToScreen` / `screenToWorld` / `screenDeltaToWorldDelta` on hot paths. No DOM “correction” of coordinates during gestures.
-3. **Layered render** — current committed ink remains in per-node SVG hosts; Canvas2D is used for the grid and eligible Canvas-idle overflow ink. Media `foreignObject`, selection, guides, and drawing previews share the SVG camera group; only true screen UI stays in the HTML overlay. WebGL is a future backend, not part of the current runtime.
+3. **Layered render** — committed ink: SVG hosts for rich/media; Canvas2D or opt-in WebGL2 for SoA idle ink; grid on Canvas underlay. Selection, guides, and drawing previews share the camera surface; screen UI stays in the HTML overlay.
 4. **Independent hit** — root pointer capture → chrome hit → spatial index coarse → precise geometry. `sceneToSvg` stays an **export** path, not the live paint core.
 
 SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`.
@@ -30,9 +30,9 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 | Phase | Status | Goal |
 |-------|--------|------|
 | 1 | Done (core) | CameraTransform API; ink and selection chrome share the same SVG root and camera `<g>`; geometry-first chrome hit; shared spatial; union AABB chrome. |
-| 2 | In progress | `SceneRenderer` (`svg` adapter + `canvas2d` underlay); idle Canvas ink (`canIdlePaintOnCanvas`) |
-| 3 | In progress | Migrate hot nodes off SVG hosts (grid/guides/chrome → shapes/images → paths → idle text); media stays DOM when active |
-| 4 | Next | Canvas2D → WebGL (atlas, dirty regions, batching) behind the same renderer interface |
+| 2 | Done (core) | `SceneRenderer` (`svg` + `canvas2d` underlay); idle Canvas ink (`canIdlePaintOnCanvas` + rounded/poly Path2D). |
+| 3 | Done (core) | **SoA** `SceneRenderBuffer` + `VITE_SOA_CANVAS_SHAPES=1`; radii in buffer → `roundRect`; promote/demote; AI lock → one flush; spatial from SoA; dirty AABB; bake ≥8k; tier bench 2k/10k/100k. Outline stroke / gradient / poly / text / media stay SVG hosts (rich Canvas only on host-budget overflow) — not SoA BASIC_GEOM. |
+| 4 | Core usable (opt-in) | WebGL2 instancing + path densify; LRU atlas (defaults on with WebGL); dirty path/round restamp + orphan prune; SoA `strokeWidths`; rounded-rect atlas stamps; GL fail → Canvas2D; WebGL keeps rich idle on SVG hosts. Flags: `VITE_SOA_WEBGL=1` (+ SoA shapes). Not default-on for all installs. |
 
 ### Acceptance targets
 

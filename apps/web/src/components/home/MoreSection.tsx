@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, memo } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineListBullet } from 'react-icons/hi2';

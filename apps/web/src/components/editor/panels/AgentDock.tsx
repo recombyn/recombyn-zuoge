@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useDispatch, useSelector, useStore } from 'react-redux';
+import { useDispatch, useSelector, useStore } from '@/store';
+import {
+  useActiveFrameId,
+  useCurrentProjectId,
+  useEditorDocumentOnCommit,
+  useSelectedFrameIds,
+  useSelectedNodeIds,
+} from '@/store/editorSelectors';
 import { useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  FloatingPortal,
   autoUpdate,
   flip,
   offset,
@@ -49,7 +55,6 @@ import {
   clearCanvasAttachPick,
   consumePendingCanvasAttach,
   consumePendingAgentContexts,
-  EMPTY_ID_LIST,
   setAgentBusy,
   setHoveredMarkPin,
   placeMediaAsset,
@@ -61,7 +66,6 @@ import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/composer/MentionAttachPanel';
 import type { UserAsset } from '@/models/assets';
-import { getToken } from '@/utils/token';
 import {
   deleteUploadedFile,
   imageSrcToFile,
@@ -100,20 +104,9 @@ import {
 import {
   noteCanvasFlyLand,
   playFlyChipToChat,
-  resolveAttachFlyLabel,
-  resolveNextFlyOrigin,
 } from '@/components/editor/panels/agent/composer/flyToChat';
 import { useChatSessions } from '@/components/editor/panels/agent/useChatSessions';
-import {
-  runDesignAgent,
-  resolveDesignTargetFrame,
-  nodeIdsInsideFrame,
-  frameIdContainingNode,
-  buildSceneNodesForCanvas,
-  buildSceneFramesSnapshot,
-  buildSpatialSummary,
-  type AgentStepEvent,
-} from '@/components/editor/panels/agent/runDesignAgent';
+import { runDesignAgent } from '@/components/editor/panels/agent/runDesignAgent';
 import {
   canAttachNodeToChat
 } from '@/components/rcb/scene/document/mediaLifecycle';
@@ -136,13 +129,6 @@ import AgentDockResizeHandle from '@/components/editor/panels/agent/dock/AgentDo
 import {
   type AskChoicePick,
   type ChatUiMessage,
-  applyActivityEventToSteps,
-  applyAnalysisDeltaToSteps,
-  applyThinkingBodyToSteps,
-  buildChatProcessSteps,
-  formatActivityLabel,
-  localizeExploreItem,
-  normalizeActivityStatus,
 } from '@/components/editor/panels/agent/messages/ChatTurnList';
 import type { VirtualListHandle } from '@/components/base/VirtualList';
 import AgentComposerShell, {
@@ -182,9 +168,7 @@ import {
 import {
   DEFAULT_IMAGE_ASPECT_RATIO,
   DEFAULT_IMAGE_COUNT,
-  DEFAULT_IMAGE_QUALITY,
   DEFAULT_IMAGE_RESOLUTION,
-  modelImageLimits,
 } from '@/components/editor/panels/agent/shared/ImageAspectRatioPicker';
 import ModelPickerPanel, {
   AUTO_MODEL,
@@ -192,7 +176,6 @@ import ModelPickerPanel, {
   modelDescription,
 } from '@/components/editor/panels/agent/models/ModelPickerPanel';
 import { cn } from '@/utils/classnames';
-import { estimateImageCredits, estimateVideoCredits } from '@/utils/imageCredits';
 import { refreshWalletAfterSpend, useWalletSnapshot } from '@/service/wallet';
 import { FREE_IMAGE_MODEL_ID, planAllowsModelId, planAllowsModelPick } from '@/utils/wallet';
 import {
@@ -236,7 +219,6 @@ import {
 import {
   assistantDurationMs,
   createDesignAgentEventRouter,
-  humanizeDesignError,
 } from '@/components/editor/panels/agent/designAgentEventRouter';
 
 type SetModelFn = (id: string) => void;
@@ -405,7 +387,7 @@ type ChatSession = {
 
 const MAX_CHAT_SESSIONS = 40;
 
-/** Model id sent to /design/run (plan gate → auto; custom BYOK kept). */
+/** Model id sent to /design/run (plan gate — auto; custom BYOK kept). */
 function resolveAgentSendModel(canPickModel: boolean, model: string): string {
   if (!canPickModel) return 'auto';
   return model || 'auto';
@@ -420,7 +402,7 @@ function resolveAgentRouteOverrides(
   if (!model || model === 'auto') {
     return routeOverridesForApi();
   }
-  // 锁模 / BYOK：本用户本轮 fast/standard/reasoning/vision 都用同一模型
+  // —  / BYOK——— fast/standard/reasoning/vision — ——
   return {
     fast: model,
     standard: model,
@@ -526,7 +508,7 @@ type AgentDockProps = {
   floating?: boolean;
   allowedInteractionModes?: ComposerInteractionMode[];
   draftPrompt?: string | null;
-  /** When true with draftPrompt, auto-send after models are ready (home → editor). */
+  /** When true with draftPrompt, auto-send after models are ready (home — editor). */
   autoSubmitDraft?: boolean;
   /**
    * Hold home-agent auto-send (boot overlay / first-run tour still open).
@@ -535,16 +517,16 @@ type AgentDockProps = {
   holdAutoSubmit?: boolean;
   onDraftConsumed?: () => void;
   draftAttachments?: ComposerContext[];
-  /** Home → editor: inline skill / context pills (e.g. plaza 「做同款」). */
+  /** Home — editor: inline skill / context pills (e.g. plaza — ——. */
   draftContexts?: ComposerContext[];
-  /** Home → editor: preferred model + Seedream settings. */
+  /** Home — editor: preferred model + Seedream settings. */
   draftModelId?: string | null;
-  /** Home → editor: Agent / Ask mode. */
+  /** Home — editor: Agent / Ask mode. */
   draftInteractionMode?: ComposerInteractionMode | null;
   draftImageAspectRatio?: string | null;
-  /** Home → editor: product category scene (website / mobile / image / poster). */
+  /** Home — editor: product category scene (website / mobile / image / poster). */
   draftScene?: DesignScene | null;
-  /** Right-click 銆屾坊鍔犲埌 Chat銆嶁€?node id, `frame:id`, or multiple ids as one 缁凬 chip. */
+  /** Right-click — —— Chat——node id, `frame:id`, or multiple ids as one —  chip. */
   attachToChat?: string | string[] | null;
   onAttachConsumed?: () => void;
   /** Onboarding spotlight target id (`data-tour`). */
@@ -577,10 +559,10 @@ function normalizeModelList(
 }
 
 /**
- * Canvas → composer:
- * - single image / video → attachment strip (not inline input chip)
- * - multi: videos/images attach as media; remaining shapes → one PNG (not one giant raster of video)
- * - single shape / frame → context chip with thumb
+ * Canvas — composer:
+ * - single image / video — attachment strip (not inline input chip)
+ * - multi: videos/images attach as media; remaining shapes — one PNG (not one giant raster of video)
+ * - single shape / frame — context chip with thumb
  */
 const AGENT_DOCK_WIDTH_KEY = 'agent-dock-width';
 const AGENT_DOCK_MIN_W = 340;
@@ -761,10 +743,8 @@ function AgentDock({
   const { t, i18n } = useTranslation();
   const dispatch = useDispatch();
   const store = useStore<RootState>();
-  const document = useSelector((s: RootState) => s.editor.document);
-  const activeFrameId = useSelector(
-    (s: RootState) => (s.editor.document?.activeFrameId as string | null) ?? null
-  );
+  const document = useEditorDocumentOnCommit();
+  const activeFrameId = useActiveFrameId();
   const { planId } = useWalletSnapshot();
   const canPickModel = planAllowsModelPick(planId);
 
@@ -785,20 +765,20 @@ function AgentDock({
   const [imageAspectRatio, setImageAspectRatio] = useState<string>('auto');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  /** @ / cube → model panel */
+  /** @ / cube — model panel */
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
   const [mentionPanelOpen, setMentionPanelOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [skillPanelOpen, setSkillPanelOpen] = useState(false);
   const [skillQuery, setSkillQuery] = useState('');
   const [skillCatalog, setSkillCatalog] = useState<DesignSkillCard[]>([]);
-  /** Context chips in the composer (right-click 添加到 Chat + file attachments). */
+  /** Context chips in the composer (right-click — —Chat + file attachments). */
   const [contextChips, setContextChips] = useState<ComposerContext[]>([]);
   const contextChipsRef = useRef<ComposerContext[]>([]);
   contextChipsRef.current = contextChips;
   const pinnedContextKeysRef = useRef<Set<string>>(new Set());
   const contextDismissedKeyRef = useRef<string | null>(null);
-  /** Dedup canvas鈫抍omposer applies (React StrictMode runs effects twice). */
+  /** Dedup canvas—omposer applies (React StrictMode runs effects twice). */
   const attachToChatLockRef = useRef<string | null>(null);
   const pendingCanvasAttachLockRef = useRef<string | null>(null);
   const onlyImageInteraction =
@@ -836,34 +816,24 @@ function AgentDock({
   /** Edit a past user message in-place. */
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
-  // First paint must use stored width — a later setState(360→stored) reflows the stage.
+  // First paint must use stored width — a later setState(360?stored) reflows the stage.
   const [dockWidth, setDockWidth] = useState(readStoredAgentDockWidth);
   const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
-  const currentId = useSelector((s: RootState) => s.editor.currentId as string | null);
-  const animationTimelineOpen = useSelector(
-    (s: RootState) => Boolean(s.editor.lottieTimelinePanel?.nodeId)
-  );
+  const currentId = useCurrentProjectId();
   const lottieTimelineNodeId = useSelector((s: RootState) =>
     String(s.editor.lottieTimelinePanel?.nodeId || '')
   );
-  const editorDocument = useSelector((s: RootState) => s.editor.document);
+  const animationTimelineOpen = Boolean(lottieTimelineNodeId);
   const animationWorkbenchFrameId = useMemo(() => {
-    if (!lottieTimelineNodeId || !editorDocument) return null;
-    return resolveAnimationFrameId(
-      editorDocument,
-      editorDocument.deltaSetLike?.[lottieTimelineNodeId]
-    );
-  }, [editorDocument, lottieTimelineNodeId]);
+    if (!lottieTimelineNodeId || !document) return null;
+    return resolveAnimationFrameId(document, document.deltaSetLike?.[lottieTimelineNodeId]);
+  }, [document, lottieTimelineNodeId]);
   const canvasAttachPick = useSelector(
     (s: RootState) => s.editor.canvasAttachPick as null | { target: string }
   );
   const pickingFromCanvas = canvasAttachPick?.target === 'agent';
-  const selectedNodeIds = useSelector(
-    (s: RootState) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const selectedFrameIds = useSelector(
-    (s: RootState) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const selectedNodeIds = useSelectedNodeIds();
+  const selectedFrameIds = useSelectedFrameIds();
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   const location = useLocation();
   // Prefer Redux; fall back to /editor/:projectId so we don't hit projectId=__none__ while hydrating.
@@ -897,7 +867,7 @@ function AgentDock({
   );
   /** Avoid re-entrant auto-resume for the same session+task. */
   const autoResumeKeyRef = useRef<string | null>(null);
-  /** Home → editor auto-send; flushed when modelsStatus leaves idle/loading. */
+  /** Home — editor auto-send; flushed when modelsStatus leaves idle/loading. */
   const pendingAutoSubmitRef = useRef<string | null>(null);
   /** Pre-command document snapshots keyed by user message id. In-memory only. */
   const checkpointsRef = useRef<Map<string, any>>(new Map());
@@ -967,7 +937,7 @@ function AgentDock({
         const err = modelsQuery.error;
         message.error(
           (err instanceof Error && err.message) ||
-            '无法加载模型列表。请先启动后端：npm run dev:api（端口 8000）'
+            '无法加载模型列表，请确认已启动 npm run dev:api（端口 8000）'
         );
       }
       return;
@@ -995,7 +965,7 @@ function AgentDock({
     if (!res.available && !modelsUnavailableWarnRef.current) {
       modelsUnavailableWarnRef.current = true;
       message.warning(
-        '未配置 API Key。请在 apps/api/.env 中设置 DEEPSEEK_API_KEY 或 LLM_API_KEY。'
+        '未配置 API Key：请在 apps/api/.env 中设置 DEEPSEEK_API_KEY 或 LLM_API_KEY'
       );
     }
   }, [
@@ -1071,7 +1041,7 @@ function AgentDock({
   const onDockResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const drag = resizeDragRef.current;
     if (!drag) return;
-    // Left edge: drag left → wider
+    // Left edge: drag left — wider
     setDockWidth(clampAgentDockWidth(drag.startW + (drag.startX - e.clientX)));
   };
 
@@ -1145,7 +1115,7 @@ function AgentDock({
     const inlineDraft = draftContexts || [];
     const attachmentDraft = draftAttachments || [];
     // Attachments live in React state (square strip). Inline skills use insertContextAtCaret
-    // only — same as 「添加到 Chat」— so we do not double-add via setContextChips.
+    // only — same as — — Chat—?so we do not double-add via setContextChips.
     if (attachmentDraft.length) {
       setContextChips((prev) => {
         const keys = new Set(prev.map((c) => c.key));
@@ -1242,7 +1212,7 @@ function AgentDock({
     }
     applyBootInteractionMode(boot.interactionMode, setInteractionMode, setComposerMode);
     // Design agent is always Smart (auto) — never import home category stock WxH
-    // (e.g. website 1440×900) as CLIENT_SIZE_LOCK; LLM must pick create_frame size.
+    // (e.g. website 1440?900) as CLIENT_SIZE_LOCK; LLM must pick create_frame size.
     const bootMode = String(boot.interactionMode || '').trim().toLowerCase();
     if (bootMode === 'image' || bootMode === 'video') {
       if (boot.imageAspectRatio) setImageAspectRatio(boot.imageAspectRatio);
@@ -1263,7 +1233,7 @@ function AgentDock({
     clearHomeAgentBoot();
   }, [open, draftPrompt, location.search]);
 
-  /** Mark tool selections → insert @ chips into the composer. */
+  /** Mark tool selections — insert @ chips into the composer. */
   const pendingAgentContexts = useSelector(
     (s: RootState) => (s.editor.pendingAgentContexts || []) as PendingMarkContextChip[]
   );
@@ -1353,8 +1323,8 @@ function AgentDock({
           if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
         }
         resetChatSession();
-        setInput('');
-        setEditDraft('');
+    setInput('');
+    setEditDraft('');
         setEditingUserId(null);
         setContextChips([]);
         pinnedContextKeysRef.current.clear();
@@ -1407,8 +1377,8 @@ function AgentDock({
     if (id === sessionId) {
       abortRef.current?.abort();
       setSending(false);
-      setInput('');
-      setEditDraft('');
+    setInput('');
+    setEditDraft('');
       setEditingUserId(null);
       setPendingReview(null);
       setHistoryOpen(false);
@@ -1421,14 +1391,14 @@ function AgentDock({
       const s = Math.max(1, totalSeconds);
       const lang = i18n.language || 'en';
       if (s < 60) {
-        if (lang.startsWith('zh')) return `${s} 秒`;
-        if (lang.startsWith('ja')) return `${s}秒`;
+        if (lang.startsWith('zh')) return `${s} ?`;
+        if (lang.startsWith('ja')) return `${s}?`;
         return `${s}s`;
       }
       const m = Math.floor(s / 60);
       const r = s % 60;
-      if (lang.startsWith('zh')) return r ? `${m} 分 ${r} 秒` : `${m} 分`;
-      if (lang.startsWith('ja')) return r ? `${m} 分 ${r} 秒` : `${m} 分`;
+      if (lang.startsWith('zh')) return r ? `${m} ??${r} ?` : `${m} ?`;
+      if (lang.startsWith('ja')) return r ? `${m} ??${r} ?` : `${m} ?`;
       return r ? `${m}m ${r}s` : `${m}m`;
     },
     [i18n.language]
@@ -1457,7 +1427,7 @@ function AgentDock({
       }
       if (assistant.durationMs != null) {
         const s = Math.max(1, Math.round(assistant.durationMs / 1000));
-        return t('agent.workedFor', { duration: formatAgentDuration(s) });
+          return t('agent.workedFor', { duration: formatAgentDuration(s) });
       }
       if (assistant.intent?.trim() || (assistant.steps && assistant.steps.length > 0)) {
         return t('agent.workLog');
@@ -1573,14 +1543,15 @@ function AgentDock({
     const accepted: File[] = [];
     for (const file of files) {
       if (remaining <= 0) {
-        message.warning(t('agent.attachMaxReached', { count: limit }));
+      message.warning(t('agent.attachMaxReached', { count: limit }));
         break;
       }
       const name = file.name || '';
       if (/\.lottie$/i.test(name)) {
         message.warning(
           t('editor.tools.lottieGenNeedJson', {
-            defaultValue: '请上传 Bodymovin JSON（.json / .lot），暂不支持 .lottie 压缩包',
+            defaultValue:
+              'Please upload Bodymovin JSON (.json / .lot). DotLottie (.lottie) is not supported yet.',
           })
         );
         continue;
@@ -1732,20 +1703,15 @@ function AgentDock({
       interactionMode !== 'audio' &&
       interactionMode !== 'lottie');
 
-  /** Arc fly into Agent composer only (`data-fly-land="agent"`), then apply attach. */
+  /** Land chips into Agent composer (`data-fly-land="agent"`), then apply attach. */
   async function flyPayloadIntoComposer(
     payload: string | string[],
     imagesOnly: boolean
   ) {
     if (!document) return;
     noteCanvasFlyLand('agent');
-    const from = resolveNextFlyOrigin({ document, payload });
-    const label = resolveAttachFlyLabel(document, payload);
     try {
       await playFlyChipToChat({
-        from,
-        label,
-        landId: 'agent',
         onLand: async () => {
           await applyCanvasAttachPayload({
             document,
@@ -1775,7 +1741,7 @@ function AgentDock({
     }
   }
 
-  /** Right-click / pick 「添加到 Chat」— shapes → chips; images/videos → attachment strip. */
+  /** Right-click / pick — — Chat—?shapes — chips; images/videos — attachment strip. */
   useEffect(() => {
     if (attachToChat == null) {
       attachToChatLockRef.current = null;
@@ -1879,7 +1845,7 @@ function AgentDock({
       ? t('agent.attachMaxReached', { count: attachmentLimit })
       : animationTimelineOpen
         ? t('agent.uploadImageOrJson', {
-            defaultValue: '上传图片或 JSON（.json / .lot）',
+            defaultValue: 'Upload image or JSON (.json / .lot)',
           })
         : t('agent.uploadImage'),
     fileAcceptOverride: animationTimelineOpen
@@ -1950,7 +1916,7 @@ function AgentDock({
     durationMs: assistantDurationMs(m, patch),
   });
 
-  /** Fill a shape node with an image (rect / ellipse / …). Returns false if not fillable. */
+  /** Fill a shape node with an image (rect / ellipse / — . Returns false if not fillable. */
   const fillNodeWithImage = useCallback(
     (nodeId: string, src: string, skipHistory = false): boolean => {
       const url = String(src || '').trim();
@@ -2389,7 +2355,7 @@ function AgentDock({
     pauseRequestedRef.current = false;
     liveDesignTaskRef.current = null;
 
-    // Video model → gallery in chat; takes precedence over image gen.
+    // Video model — gallery in chat; takes precedence over image gen.
     if (runVideoGen) {
       dispatch(setAgentBusy(true));
       const aspect = videoGenAspect;
@@ -2582,14 +2548,14 @@ function AgentDock({
           );
           return;
         }
-        // Animation track: land on 动画工作台 (also keep chat card for preview/drag).
+        // Animation track: land on — ——(also keep chat card for preview/drag).
         dispatch(
           placeMediaAsset({
             kind: 'lottie',
             animationData,
             width: res.w ?? width,
             height: res.h ?? height,
-            name: text.slice(0, 48) || '动画工作台',
+            name: text.slice(0, 48) || '动画',
             prompt: text,
           })
         );
@@ -2708,7 +2674,7 @@ function AgentDock({
       };
       try {
         // Parallel per-slot gens (Seedream `n` is unreliable). Each ready card unlocks
-        // immediately — no more 「第 2 张一直扫光」while waiting on a serial queue.
+        // immediately — no more —  2 — ——while waiting on a serial queue.
         const slotUrls = Array.from({ length: count }, () => '');
         const slotErrors: unknown[] = [];
         const publishSlots = () => {
@@ -2923,7 +2889,7 @@ function AgentDock({
         dispatch,
         getDocument: () => store.getState().editor.document,
         targetFrameId,
-        // Explicit @ frame / @ node→frame only — not last-agent inference.
+        // Explicit @ frame / @ node?frame only — not last-agent inference.
         pinnedFrameId: chipFrameId || null,
         signal: ac.signal,
         onEvent: (ev) => {
@@ -3098,7 +3064,7 @@ function AgentDock({
       message.warning(t('agent.attachWaitUpload'));
       return;
     }
-    // Prefer live DOM marked→plain (chips may still be mid-text); strip any leftover U+FFFC.
+    // Prefer live DOM marked?plain (chips may still be mid-text); strip any leftover U+FFFC.
     const fromDom = String(inputRef.current?.getMarkedText?.() || '')
       .replace(/\uFFFC/g, '')
       .trim();

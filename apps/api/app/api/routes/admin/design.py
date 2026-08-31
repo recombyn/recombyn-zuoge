@@ -7,8 +7,40 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from app.api.deps import AdminUser
-from app.api.routes.admin.common import *  # noqa: F403
-from app.api.routes.admin.common import _RUNTIME_SETTING_KEYS
+from app.api.routes.admin.common import (
+    CanvasToolIn,
+    DesignDictIn,
+    DesignDictTypeIn,
+    DesignSkillIn,
+    RuntimeSettingIn,
+    SystemPromptIn,
+    _RUNTIME_SETTING_KEYS,
+)
+from app.services.design.admin.admin_store import (
+    apply_optimize_patch,
+    clear_decision_logs,
+    dismiss_optimize_patch,
+    generate_usage_optimize_patches,
+    get_decision_log,
+    list_canvas_tools_admin,
+    list_decision_logs,
+    list_optimize_patches,
+    skill_metrics_summary,
+    upsert_canvas_tool,
+    upsert_global_rule,
+)
+from app.services.design.admin.dict_store import (
+    delete_dict_type,
+    hard_delete_dict,
+    list_dict_types,
+    list_dicts,
+    soft_delete_dict,
+    upsert_dict,
+    upsert_dict_type,
+)
+from app.services.design.admin.stage_review_store import list_stage_reviews
+from app.services.design.prompts.content_pack import resync_design_content
+from app.services.design.readpath.catalog import get_global_rules
 from app.services.i18n.errors import http_error, value_error_http
 from app.services.i18n.locale import LocaleDep
 

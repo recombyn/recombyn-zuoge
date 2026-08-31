@@ -2,9 +2,9 @@
  * Design Engine V3 acceptance 06–09 (Phase 1 gate).
  * 01–05 / 07 host / 10 live in apps/api/tests/design_engine/test_v3_acceptance.py
  */
-import { configureStore } from '@reduxjs/toolkit';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
+import type { AnyAction } from '@/store';
 import editorReducer, {
   applyCollabDocument,
   beginAiSceneMutation,
@@ -38,7 +38,14 @@ import {
 const op = (id: string) => ({ name: 'create_text', op_id: id, args: { id } });
 
 function editorStore() {
-  return configureStore({ reducer: { editor: editorReducer } });
+  let state = { editor: editorReducer(undefined, { type: '@@INIT' }) };
+  return {
+    getState: () => state,
+    dispatch: (action: AnyAction) => {
+      state = { editor: editorReducer(state.editor, action) };
+      return action;
+    },
+  };
 }
 
 function sceneDoc(nodeIds: string[], frameIds = ['f1']) {

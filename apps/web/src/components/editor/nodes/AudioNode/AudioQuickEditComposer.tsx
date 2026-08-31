@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { HiArrowUp, HiOutlinePlus } from 'react-icons/hi2';
 import { generateAudio, type LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';

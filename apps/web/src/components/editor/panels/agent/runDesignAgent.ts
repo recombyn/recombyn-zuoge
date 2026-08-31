@@ -6,7 +6,7 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
  * so results land as editable canvas nodes — not a single image blob.
  */
 
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from '@/store';
 import {
   fetchDesignRunEvents,
   fetchDesignRunStatus,
@@ -1362,7 +1362,7 @@ export async function applyDesignSvgToDocumentProgressive(opts: {
   };
   if (!opts.getDocument()) return empty;
 
-  // Never spawn a stock 1440脳900 from Auto / partial-auto.
+  // Never spawn a stock 1440×900 from Auto / partial-auto.
   const resolved =
     parseResolvedSize(opts.canvasSize) ||
     frameSizeFromDoc(opts.getDocument, opts.targetFrameId);
@@ -2484,10 +2484,6 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
     if (ev.task_id) {
       liveTaskId = String(ev.task_id);
       params.onEvent({ type: 'task', taskId: liveTaskId });
-    }
-    if (ev.status === 'routing') {
-      // Legacy status — ignore (no longer emitted).
-      return;
     }
 
     // Design: size resolved + needs a plate → open artboard + shimmer before content.

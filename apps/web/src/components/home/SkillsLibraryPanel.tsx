@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { HiOutlinePlus, HiOutlineQuestionMarkCircle } from 'react-icons/hi2';
 import { Button, Dialog, message, SoftGlowSurface, Switch, Tooltip } from '@/components/base';

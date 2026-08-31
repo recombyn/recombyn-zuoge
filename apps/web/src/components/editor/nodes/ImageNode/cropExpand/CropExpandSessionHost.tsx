@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useSelectedNodeId } from '@/store/editorSelectors';
 import {
   HiOutlineArrowsPointingOut,
   HiOutlineChevronDown,
@@ -208,7 +209,7 @@ function CropExpandSessionHost({
     nodeId: string;
     kind: ImageToolPanelKind;
   });
-  const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
+  const selectedNodeId = useSelectedNodeId();
 
   const mode = panel?.kind === 'crop' || panel?.kind === 'expand' ? panel.kind : null;
   const nodeId = mode ? panel!.nodeId : null;

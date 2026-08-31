@@ -2,7 +2,7 @@
  * Explode Bodymovin root shape layers into editable scene nodes on a 动画工作台.
  * Stamps `ln` so sync / playhead keep keyframes linked to those nodes.
  */
-import { nanoid } from '@reduxjs/toolkit';
+import { nanoid } from 'nanoid';
 import {
   parseLottieAnimationData,
   serializeLottieAnimationData,

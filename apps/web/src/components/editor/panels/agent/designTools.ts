@@ -7,7 +7,7 @@ import {
  * Canvas design tools — schemas + local execution (tool loop).
  */
 
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from '@/store';
 import {
   addArtboardFrame,
   patchDocumentNode,
@@ -86,7 +86,7 @@ import {
   applyBooleanResultRadii,
   type BoolMode,
 } from '@/components/rcb/selection/shapeBoolean';
-import { nanoid } from '@reduxjs/toolkit';
+import { nanoid } from 'nanoid';
 import { getAllowedCanvasToolKeys, filterAllowedToolOps, dedupeToolOpsById, type AgentToolOp } from '@/components/editor/panels/agent/toolOpsContract';
 import {
   buildOutlinePathAsync,

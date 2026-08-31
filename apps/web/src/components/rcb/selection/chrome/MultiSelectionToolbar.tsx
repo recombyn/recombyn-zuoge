@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineLink, HiOutlineLinkSlash } from 'react-icons/hi2';
 import { Icon, message, DropdownPanel, DropdownPanelItem } from '@/components/base';
@@ -198,7 +198,7 @@ function readBoxes(document: SceneDocument, nodeIds: string[]): NodeBox[] {
     .filter(Boolean) as NodeBox[];
 }
 
-/** `assets/svg/editor/*.svg` → `<Icon name="editor-…" />` */
+/** `assets/svg/editor/*.svg` — `<Icon name="editor-— />` */
 const ALIGN_ITEMS: Array<{ mode: AlignMode; tipKey: string; icon: string }> = [
   { mode: 'left', tipKey: 'editor.selectionToolbar.alignLeft', icon: 'editor-align-left' },
   { mode: 'centerX', tipKey: 'editor.selectionToolbar.alignCenterX', icon: 'editor-align-center-x' },
@@ -376,7 +376,7 @@ function MultiSelectionToolbar({
   const [booleanOpen, setBooleanOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
 
-  /** Explicit nodes ∪ content inside co-selected artboards. */
+  /** Explicit nodes — content inside co-selected artboards. */
   const opNodeIds = useMemo(
     () => resolveSelectionNodeIds(document, nodeIds, frameIds),
     [document, nodeIds, frameIds]
@@ -530,7 +530,7 @@ function MultiSelectionToolbar({
     const attrs = node.attrs as Record<string, unknown>;
     attrs['fill-rule'] = result.fillRule;
     attrs.closed = 'true';
-    // Same as 轮廓化 — densified boolean path: no corner-radius chrome.
+    // Same as 轮廓——densified boolean path: no corner-radius chrome.
     attrs.outlined = 'true';
     // Bind only when the result sits inside the plate — never force timeline focus.
     if (frameId) {
@@ -550,7 +550,7 @@ function MultiSelectionToolbar({
 
     let next = addNodeToDocument(document, id, node);
     next = removeNodesFromDocument(next, ids);
-    // Outside the plate while timeline is open → pasteboard surround, not a track layer.
+    // Outside the plate while timeline is open — pasteboard surround, not a track layer.
     if (!frameId) {
       next = tagCreatedNodeForWorkbenchSurround(next, id);
     }

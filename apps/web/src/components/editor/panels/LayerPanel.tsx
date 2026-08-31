@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import {
+  useActiveFrameId,
+  useEditorDocumentOnCommit,
+  useSelectedFrameIds,
+  useSelectedNodeId,
+  useSelectedNodeIds,
+} from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { FiPenTool } from 'react-icons/fi';
 import {
@@ -59,7 +66,6 @@ import {
   setFrameChromeMode,
   setSelectedNodeId,
   updateArtboardFrame,
-  EMPTY_ID_LIST,
 } from '@/store/modules/editor';
 
 type LayerStackRow =
@@ -612,11 +618,11 @@ function layerLabel(
   const toolLabel = t(`editor.tools.${kind}`, { defaultValue: '' });
   if (toolLabel) return toolLabel;
   const map: Record<string, string> = {
-    text: '文字',
-    image: '图片',
-    pen: '钢笔',
-    pencil: '画笔',
-    path: '路径',
+    text: '??',
+    image: '??',
+    pen: '??',
+    pencil: '??',
+    path: '??',
     svg: 'SVG',
   };
   return map[kind] || kind;
@@ -1013,15 +1019,11 @@ function LayerPanel({
 } = {}) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const document = useSelector((state: any) => state.editor.document);
-  const selectedNodeId = useSelector((state: any) => state.editor.selectedNodeId);
-  const selectedNodeIds = useSelector(
-    (state: any) => (state.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const activeFrameId = useSelector((state: any) => state.editor.document?.activeFrameId);
-  const selectedFrameIds = useSelector(
-    (state: any) => (state.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const document = useEditorDocumentOnCommit();
+  const selectedNodeId = useSelectedNodeId();
+  const selectedNodeIds = useSelectedNodeIds();
+  const activeFrameId = useActiveFrameId();
+  const selectedFrameIds = useSelectedFrameIds();
   const historyPast = useSelector((state: any) => state.editor.historyPast as any[]);
   /** Recompute layer rows when timeline edit focus toggles (module flag + Redux). */
   const workbenchEditOpen = useSelector((state: any) =>
@@ -1169,7 +1171,7 @@ function LayerPanel({
   const onDockResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const drag = resizeDragRef.current;
     if (!drag) return;
-    // Right edge: drag right → wider
+    // Right edge: drag right — wider
     setDockWidth(clampLayerDockWidth(drag.startW + (e.clientX - drag.startX)));
   };
 

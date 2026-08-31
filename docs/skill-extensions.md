@@ -74,7 +74,12 @@ Everything else is optional; missing files are fine.
 }
 ```
 
-Values merge into the skill row (meta fields win if both set). Used for validation hints / future runners — Phase A still relies on `preferred_tools` for live op gating.
+Values merge into the skill row (meta fields win if both set). Live paint gating:
+
+- `preferred_tools` — primary allowlist; multiple skills **union**.
+- `output_schema.allowed_ops` — extra gate only when **every** loaded skill
+  declares it (then union). A skill that omits `allowed_ops` does not tighten
+  the round, so `mobile_app_ui` + `image_gen` keeps UI shape/text tools.
 
 ## `handler.py` (optional ops runner)
 

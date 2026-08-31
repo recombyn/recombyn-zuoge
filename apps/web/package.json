@@ -13,7 +13,6 @@
     "@orpc/openapi-client": "^1.15.0",
     "@orpc/tanstack-query": "^1.15.0",
     "@recombyn/contracts": "^0.0.0",
-    "@reduxjs/toolkit": "^2.12.0",
     "@repo/eslint-config": "*",
     "@repo/tsconfig": "*",
     "@tanstack/react-query": "^5.101.4",
@@ -45,7 +44,6 @@
     "react-i18next": "^17.0.9",
     "react-icons": "^5.7.0",
     "react-markdown": "^10.1.0",
-    "react-redux": "^9.3.0",
     "react-router-dom": "^7.18.1",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
@@ -55,7 +53,8 @@
     "y-protocols": "^1.0.7",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.31",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zustand": "^5.0.15"
   },
   "scripts": {
     "postinstall": "node ./scripts/copy-ffmpeg-core.mjs",
@@ -73,7 +72,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:stress": "vitest run src/components/rcb/scene/__tests__/canvasStress.bench.test.ts src/components/rcb/scene/__tests__/canvasFunctionalStress.test.ts"
+    "test:stress": "vitest run src/components/rcb/scene/__tests__/canvasStress.bench.test.ts src/components/rcb/scene/__tests__/canvasFunctionalStress.test.ts src/components/rcb/render/__tests__/soaRenderTiers.bench.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

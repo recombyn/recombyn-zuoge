@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { parseAsString, parseAsStringLiteral, useQueryState } from 'nuqs';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -332,7 +332,7 @@ function RailItem({
   );
 }
 
-/** 「更多」— click opens secondary flyout (资产 / 喜欢), like fig.2. */
+/** 「更多」—click opens secondary flyout (资产 / 喜欢), like fig.2. */
 function RailMoreFlyout({
   expanded,
   activeMore,
@@ -412,7 +412,7 @@ function RailMoreFlyout({
   );
 }
 
-/** Collapsed: logo → hover reveals expand icon (fig.2). Expanded: brand + collapse (fig.1). */
+/** Collapsed: logo — hover reveals expand icon (fig.2). Expanded: brand + collapse (fig.1). */
 function RailBrandHeader({
   expanded,
   onExpand,
@@ -611,7 +611,7 @@ function RailSidebarFooter({ expanded }: { expanded: boolean }) {
   );
 }
 
-/** Side rail / top bar → force-refetch project list (same file; avoid prop drilling). */
+/** Side rail / top bar — force-refetch project list (same file; avoid prop drilling). */
 let openProjectsListHandler: (() => void) | null = null;
 let remountSkillsHandler: (() => void) | null = null;
 

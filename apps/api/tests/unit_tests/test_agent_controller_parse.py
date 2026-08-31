@@ -6,28 +6,17 @@ from typing import Any
 
 from app.services.design.runtime.graph.state import (
     AgentRunState,
-    AgentTurnSchema,
     PaintOpsSchema,
     PaintToolOp,
 )
-from app.services.design.runtime.graph.llm_io import _chat_fallback_text
+from recombyn_protocol import AgentTurnSchema
 from app.services.design.runtime.graph.turns import (
     _ask_propose_user_text,
     _ensure_propose_choice_ui,
     _lc_design_needs_canvas_ops,
     _normalize_choice_ui,
-    _parse_agent_turn,
     _turn_from_structured,
 )
-
-
-def test_parse_chat_turn():
-    t = _parse_agent_turn(
-        '{"thought":"hi","intent":"chat","reply":"你好","tool_ops":[],"done":true}'
-    )
-    assert t["intent"] == "chat"
-    assert t["reply"] == "你好"
-    assert t["done"] is True
 
 
 def test_paint_tool_op_requires_name_and_args():
@@ -55,33 +44,6 @@ def test_paint_tool_op_requires_name_and_args():
     assert len(painted.tool_ops) == 1
     assert painted.tool_ops[0].name == "create_text"
     assert painted.tool_ops[0].args["text"] == "Hi"
-
-
-def test_parse_fenced_json():
-    t = _parse_agent_turn(
-        'Sure.\n```json\n{"intent":"ask","reply":"尺寸？","tool_ops":[],"done":true}\n```'
-    )
-    assert t["intent"] == "ask"
-    assert "尺寸" in t["reply"]
-
-
-def test_parse_choice_ui_actions():
-    t = _parse_agent_turn(
-        """
-        {"intent":"create","reply":"将添加浅灰矩形",
-         "tool_ops":[{"name":"create_shape","args":{"shapeType":"rect"}}],
-         "choice_ui":{"mode":"buttons","options":[
-           {"label":"就这样添加","action":"apply"},
-           {"label":"我想改颜色","action":"reply"},
-           {"label":"取消","action":"dismiss"}
-         ]},"done":true}
-        """
-    )
-    ui = t["choice_ui"]
-    assert ui["mode"] == "buttons"
-    assert ui["options"][0]["action"] == "apply"
-    assert ui["options"][1]["action"] == "reply"
-    assert ui["options"][0]["label"] == "就这样添加"
 
 
 def test_propose_adds_apply_slot_without_inventing_copy():
@@ -237,17 +199,6 @@ def test_turn_from_structured_keeps_design_brief():
     assert brief.get("purpose") == "poster"
 
 
-def test_chat_fallback_fills_persona():
-    class _RT:
-        chat_fallback_tmpl = "你好，{persona}。可以说说你想改画布的什么。"
-        persona = "zuoge 设计助手"
-        prompt = "你好"
-
-    text = _chat_fallback_text(_RT())
-    assert "{persona}" not in text
-    assert "zuoge 设计助手" in text
-
-
 def test_classify_clears_blind_chat_reply_when_images(monkeypatch):
     """Text-only intent LLM must not author final replies when images are attached."""
     import asyncio
@@ -272,52 +223,29 @@ def test_classify_clears_blind_chat_reply_when_images(monkeypatch):
         "app.services.design.prompts.prompt_pack_store.render_prompt_body",
         lambda *_a, **_k: "system",
     )
-    monkeypatch.setattr(mr, "router_model_id", lambda _r: "test-model")
 
     decision = asyncio.run(
         mr.classify_user_intent(
             prompt="告诉我答案",
             has_images=True,
             rules={},
+            model="test-model",
         )
     )
     assert decision.intent == "chat"
     assert decision.reply == ""
 
 
-def test_heuristic_user_intent_gate():
+def test_intent_normalize_and_session_actions():
 
     from app.services.design.runtime.models_route import (
-        heuristic_user_intent,
+        intent_after_proposal_apply,
         normalize_intent_decision,
+        normalize_session_action,
         normalize_user_intent,
         paint_ops_intent,
     )
 
-    # Fallback is structural only — greetings are NOT keyword-routed to chat;
-    # normal path uses intent LLM. LLM-down fail-opens non-empty text → design.
-    assert heuristic_user_intent("hi", has_images=False).intent == "design"
-    assert heuristic_user_intent("你好", has_images=False).intent == "design"
-    assert (
-        heuristic_user_intent("User request:\nhi", has_images=False).intent == "design"
-    )
-    assert heuristic_user_intent("", has_images=False).intent == "chat"
-    assert heuristic_user_intent("User request:\n", has_images=False).intent == "chat"
-    img = heuristic_user_intent(
-        "[Attached image 1]\nname: canvas.png\n\nUser request:\nhi",
-        has_images=True,
-    )
-    assert img.intent == "design"
-    assert img.paint_lane == "create"
-    op = heuristic_user_intent("short canvas task text", has_images=False)
-    assert op.intent == "design"
-    assert op.paint_lane == "create"
-    target = heuristic_user_intent(
-        "[Target element — full node]\n{\"id\":\"x\"}\n\nUser request:\nx",
-        has_images=False,
-    )
-    assert target.intent == "canvas_op"
-    assert target.paint_lane == "edit"
     assert normalize_user_intent("canvas_op") == "canvas_op"
     assert normalize_user_intent("design") == "design"
     assert normalize_user_intent("edit") == "chat"
@@ -336,15 +264,6 @@ def test_heuristic_user_intent_gate():
     assert paint_ops_intent("canvas_op", "edit") == "edit"
     assert paint_ops_intent("animation", "create") == "create"
 
-    anim = heuristic_user_intent("做个 loading 动效", has_images=False)
-    assert anim.intent == "animation"
-    assert anim.paint_lane == "create"
-    assert anim.rationale == "heuristic_animation"
-    lottie = heuristic_user_intent("生成一个 Lottie 加载动画", has_images=False)
-    assert lottie.intent == "animation"
-
-    from app.services.design.runtime.models_route import intent_after_proposal_apply
-
     assert (
         intent_after_proposal_apply(
             "chat",
@@ -361,15 +280,10 @@ def test_heuristic_user_intent_gate():
     )
     assert intent_after_proposal_apply("animation", {"ops": []}) == "animation"
 
-    from app.services.design.runtime.models_route import normalize_session_action
-
     assert normalize_session_action("clear_context") == "clear_context"
     assert normalize_session_action("new_chat") == ""
     assert normalize_session_action("stop") == "stop"
     assert normalize_session_action("canvas") == ""
-    bare = heuristic_user_intent("清空上下文", has_images=False)
-    assert bare.session_action == ""
-    assert bare.intent == "design"
 
 
 def test_agent_model_id_prefers_api_model():
@@ -384,7 +298,8 @@ def test_agent_model_id_prefers_api_model():
         _agent_model_id("doubao-seed-2-1-turbo", "doubao-seed-2-1-turbo-260628")
         == "doubao-seed-2-1-turbo-260628"
     )
-    assert _agent_model_id("deepseek-reasoner", "deepseek-reasoner") == "deepseek-chat"
+    # No silent reasoner→chat remap — caller must pick a chat model for structured stages.
+    assert _agent_model_id("deepseek-reasoner", "deepseek-reasoner") == "deepseek-reasoner"
 
 
 def test_paint_tool_keys_structural_not_shape_specific():

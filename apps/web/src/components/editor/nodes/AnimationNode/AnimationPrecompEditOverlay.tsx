@@ -13,7 +13,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
 import {
   RcbOverlayPortal,
   rcbSceneToScreen,
@@ -134,7 +135,7 @@ function AnimationPrecompEditOverlay({
   const edit = useSelector(
     (s: any) => s.editor.lottiePrecompEdit as LottiePrecompEditState | null
   );
-  const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
+  const playhead = useAnimationPlayheadSec();
   const dragRef = useRef<DragMode | null>(null);
   const [draft, setDraft] = useState<PrecompEditableLayer[] | null>(null);
   const draftRef = useRef<PrecompEditableLayer[] | null>(null);
@@ -348,7 +349,7 @@ function AnimationPrecompEditOverlay({
         style={boardStyle}
         data-lottie-precomp-edit-board
         onPointerDown={(e) => {
-          // Click empty board → clear selection.
+          // Click empty board — clear selection.
           if (e.target === e.currentTarget) {
             dispatch(setLottiePrecompSelectedLayer(null));
           }

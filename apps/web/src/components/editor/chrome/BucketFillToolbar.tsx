@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import Tooltip from '@/components/base/tooltip';
 import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';

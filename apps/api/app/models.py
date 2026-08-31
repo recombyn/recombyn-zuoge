@@ -393,35 +393,6 @@ class DesignTaskCanvasCommand(SQLModel, table=True):
     acknowledged_at: Optional[float] = Field(default=None)
 
 
-class DesignLayerLock(SQLModel, table=True):
-    __tablename__ = "design_layer_lock"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    canvas_id: str = Field(index=True, max_length=64)
-    layer_id: str = Field(max_length=128)
-    locked: int = Field(default=1)
-    allowed_skills: Optional[str] = Field(default=None)
-    forbidden_attrs: Optional[str] = Field(default=None)
-    created_at: float = Field(default=0.0)
-    updated_at: float = Field(default=0.0)
-
-
-
-class DesignTokenPack(SQLModel, table=True):
-    __tablename__ = "design_token_pack"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(max_length=128)
-    scenes: str = Field(default="all", max_length=128)
-    tokens_json: str = Field(default="")
-    is_default: int = Field(default=0)
-    sort_order: int = Field(default=0)
-    enabled: int = Field(default=1)
-    note: Optional[str] = Field(default=None)
-    created_at: float = Field(default=0.0)
-    updated_at: float = Field(default=0.0)
-
-
 class DesignSystemPrompt(SQLModel, table=True):
     __tablename__ = "design_system_prompt"
 
@@ -657,23 +628,6 @@ class AgentSessionSnapshot(SQLModel, table=True):
     updated_at: float = Field(default=0.0)
     created_at: float = Field(default=0.0)
 
-
-class AgentLongMemory(SQLModel, table=True):
-    __tablename__ = "agent_long_memory"
-
-    id: str = Field(primary_key=True, max_length=64)
-    user_id: str = Field(index=True, max_length=64)
-    kind: str = Field(max_length=32)
-    text: str = Field(default="")
-    status: str = Field(default="active", max_length=16)
-    pinned: int = Field(default=0)
-    score: float = Field(default=1.0)
-    emb: Optional[bytes] = Field(default=None, sa_column=Column(LargeBinary))
-    emb_dim: int = Field(default=0)
-    emb_model: str = Field(default="", max_length=64)
-    embed_status: str = Field(default="pending", max_length=16)
-    created_at: float = Field(default=0.0)
-    updated_at: float = Field(default=0.0)
 
 
 class AgentKgTriple(SQLModel, table=True):
