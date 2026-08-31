@@ -173,6 +173,23 @@ def seed_fonts() -> int:
     return inserted
 
 
+def seed_fonts_if_empty() -> int:
+    """Insert platform fonts when the catalog table is empty (dev DB / missed startup seed)."""
+    init_schema()
+    with Session(engine) as session:
+        n = crud.count_fonts(session=session)
+    if n > 0:
+        return 0
+    try:
+        inserted = seed_fonts()
+    except Exception:
+        logger.exception("fonts catalog on-demand seed failed")
+        return 0
+    if inserted:
+        logger.info("fonts catalog seeded on demand: %s families", inserted)
+    return inserted
+
+
 def heal_official_avatars() -> int:
     """Backfill avatar URL on official plaza rows that were seeded without one."""
     init_schema()

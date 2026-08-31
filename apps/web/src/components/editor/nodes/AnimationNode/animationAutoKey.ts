@@ -3,9 +3,12 @@
  * Frame sync preserves animated Lottie props, so attrs-only edits would
  * otherwise leave the curve flat while the canvas looks transformed.
  */
+import { sceneBoxToLottieLocal } from '@/components/editor/nodes/AnimationNode/animationComposeLayers';
+import { patchPrecompLayerGeometry } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import {
   isTransformPropAnimated,
   liveSceneValueForTransformProp,
+  setTransformKeyframeValue,
   upsertTransformKeyframe,
   type LiveTransformValueContext,
 } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
@@ -309,6 +312,75 @@ export function autoKeyAnimatedGeometry(opts: {
   if (opts.resized) tryKey('s');
   // Anchor can shift with resize for image pivots — refresh when animated.
   if (opts.moved || opts.resized) tryKey('a');
+
+  const sessionAsset = String(node?.attrs?.precompEditSession || '').trim();
+  if (sessionAsset && link.sceneKind === 'precomp' && link.assetId && (opts.moved || opts.resized)) {
+    const pAnimated = isTransformPropAnimated({
+      animationData: anim,
+      sceneKind: link.sceneKind,
+      assetId: link.assetId,
+      layerInd: link.layerInd,
+      propKey: 'p',
+    });
+    const sAnimated = isTransformPropAnimated({
+      animationData: anim,
+      sceneKind: link.sceneKind,
+      assetId: link.assetId,
+      layerInd: link.layerInd,
+      propKey: 's',
+    });
+    if (!pAnimated && !sAnimated) {
+      const box = {
+        x: num(node?.x),
+        y: num(node?.y),
+        w: Math.max(1, num(node?.width, 1)),
+        h: Math.max(1, num(node?.height, 1)),
+      };
+      const local = sceneBoxToLottieLocal(box, link.plate, link.animW, link.animH);
+      const json = patchPrecompLayerGeometry({
+        hostAnimationData: anim,
+        assetId: link.assetId,
+        layerInd: link.layerInd,
+        cx: local.x + local.w / 2,
+        cy: local.y + local.h / 2,
+        w: local.w,
+        h: local.h,
+      });
+      if (json) return { hostId: link.hostId, animationJson: json };
+    }
+    const tryStatic = (propKey: string, active: boolean) => {
+      if (!active) return;
+      if (
+        isTransformPropAnimated({
+          animationData: anim,
+          sceneKind: link.sceneKind,
+          assetId: link.assetId,
+          layerInd: link.layerInd,
+          propKey,
+        })
+      ) {
+        return;
+      }
+      const value = liveSceneValueForTransformProp(node, propKey, ctx);
+      if (value === undefined) return;
+      const next = setTransformKeyframeValue({
+        animationData: anim,
+        sceneKind: link.sceneKind,
+        assetId: link.assetId,
+        layerInd: link.layerInd,
+        propKey,
+        frame,
+        value,
+      });
+      if (next) {
+        anim = next;
+        wrote = true;
+      }
+    };
+    tryStatic('p', opts.moved);
+    tryStatic('s', opts.resized);
+    tryStatic('a', opts.moved || opts.resized);
+  }
 
   if (!wrote) return null;
   const json = serializeLottieAnimationData(anim);

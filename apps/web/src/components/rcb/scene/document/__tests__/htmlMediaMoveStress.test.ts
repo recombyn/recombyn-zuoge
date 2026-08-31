@@ -107,7 +107,11 @@ describe('html media move stress (video / lottie / audio)', () => {
       const el = await nodeToSvgElement(root, layer, doc, s.node, s.id);
       expect(el).toBeTruthy();
       nodeEls.set(s.id, el!);
-      expect(el!.querySelector(`foreignObject[data-rcb-html-media-fo="${s.kind}"]`)).toBeTruthy();
+      if (s.kind === 'lottie') {
+        expect(el!.querySelector('svg[data-rcb-lottie-svg-ink="1"]')).toBeTruthy();
+      } else {
+        expect(el!.querySelector(`foreignObject[data-rcb-html-media-fo="${s.kind}"]`)).toBeTruthy();
+      }
       expect(findHtmlMediaMount(s.id)).toBeTruthy();
     }
 

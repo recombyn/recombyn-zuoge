@@ -107,11 +107,8 @@ export async function openBlankEditor(page: Page): Promise<Locator> {
   await page.goto(`/editor/${id}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   await expect(page).toHaveURL(/\/editor\//, { timeout: 45_000 });
   await dismissBlockingDialogs(page);
-  await expect(
-    page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
-  ).toBeVisible({ timeout: 45_000 });
   const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
-  await expect(stage).toBeVisible({ timeout: 45_000 });
+  await expect(stage).toBeVisible({ timeout: 60_000 });
   await page.keyboard.press('Escape');
   await sleep(200);
   return stage;

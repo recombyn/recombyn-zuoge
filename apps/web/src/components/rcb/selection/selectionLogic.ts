@@ -51,7 +51,10 @@ import {
   supportsFill,
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
-import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  isAnimationWorkbenchFrameInPreview,
+  isAnimationWorkbenchPreviewChild,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { nodeIdsInsideFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
@@ -223,6 +226,10 @@ export function resolveLockAspect(
 ) {
   if (!handle) return shiftKey;
   if (origins.length === 1) {
+    const frameId = parseFrameSelId(origins[0].nodeId);
+    if (frameId && isAnimationWorkbenchFrameInPreview(document, frameId)) {
+      return true;
+    }
     const node = document?.deltaSetLike?.[origins[0].nodeId];
     const key = node?.key;
     const textFrame =
@@ -1952,6 +1959,7 @@ export function buildShapeOutlines(opts: {
     const frames = Array.isArray(opts.document?.frames) ? opts.document.frames : [];
     const frame = frames.find((f: any) => f && String(f.id) === String(fid));
     if (frame) {
+      const previewPlate = isAnimationWorkbenchFrameInPreview(opts.document, fid);
       const live = liveShapeGeomBox(String(fid));
       const left = live?.left ?? (Number(frame.x) || 0);
       const top = live?.top ?? (Number(frame.y) || 0);
@@ -1967,9 +1975,9 @@ export function buildShapeOutlines(opts: {
         withHandles: !opts.readOnly,
         showPath: false,
         unionChrome: true,
-        cornerHandlesOnly: false,
+        cornerHandlesOnly: previewPlate,
         showRotate: false,
-        edgeHandles: 'all',
+        edgeHandles: previewPlate ? 'none' : 'all',
       });
     }
   }

@@ -345,28 +345,26 @@ function LabeledValueField({
   return (
     <div className={cn('min-w-0', className)}>
       <div className="mb-1 text-[10px] font-medium text-[var(--muted)]">{caption}</div>
-      <div className="flex w-full min-w-0 items-center gap-0.5">
-        <div className="flex h-7 min-w-0 flex-1 items-center gap-0.5 rounded-sm bg-[var(--accent-soft)] px-1.5 text-[11px] text-[var(--ink)]">
-          {icon ? (
-            <span className="inline-flex shrink-0 cursor-ew-resize select-none touch-none items-center justify-center text-[var(--muted)]" title="Drag to adjust" {...scrub}>
-              {icon}
-            </span>
-          ) : null}
-          <input
-            type="number"
-            className="w-0 min-w-0 flex-1 border-0 bg-transparent text-[11px] tabular-nums text-[var(--ink)] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            value={Number.isFinite(value) ? Math.round(value * 100) / 100 : 0}
-            onPointerDown={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (!Number.isFinite(n)) return;
-              onCommit(n);
-            }}
-          />
-          {suffix ? (
-            <span className="w-2.5 shrink-0 text-[10px] text-[var(--muted)]">{suffix}</span>
-          ) : null}
-        </div>
+      <div className="flex h-8 w-full min-w-0 items-center gap-0.5 rounded-sm bg-[var(--accent-soft)] px-1.5 text-[11px] text-[var(--ink)]">
+        {icon ? (
+          <span className="inline-flex shrink-0 cursor-ew-resize select-none touch-none items-center justify-center text-[var(--muted)]" title="Drag to adjust" {...scrub}>
+            {icon}
+          </span>
+        ) : null}
+        <input
+          type="number"
+          className="w-0 min-w-0 flex-1 border-0 bg-transparent text-[11px] tabular-nums text-[var(--ink)] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          value={Number.isFinite(value) ? Math.round(value * 100) / 100 : 0}
+          onPointerDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (!Number.isFinite(n)) return;
+            onCommit(n);
+          }}
+        />
+        {suffix ? (
+          <span className="w-2.5 shrink-0 text-[10px] text-[var(--muted)]">{suffix}</span>
+        ) : null}
         {kf ? (
           <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center">{kf}</span>
         ) : null}

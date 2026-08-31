@@ -55,6 +55,45 @@ export function frameToSec(frame: number, fr: number): number {
   return Math.max(0, (Number(frame) || 0) / fps);
 }
 
+function mergeUniqueSortedTimes(a: number[], b: number[]): number[] {
+  if (!a.length) return [...b];
+  if (!b.length) return [...a];
+  return [...new Set([...a, ...b])].sort((x, y) => x - y);
+}
+
+function findAssetById(root: AnimLike | null | undefined, refId: string): AnimLike | null {
+  const id = String(refId || '').trim();
+  if (!id || !root || !Array.isArray(root.assets)) return null;
+  for (const raw of root.assets) {
+    const asset = asObj(raw);
+    if (asset && String(asset.id || '') === id) return asset;
+  }
+  return null;
+}
+
+/** Merge keyframe times from all layers inside a nested precomp asset. */
+function collectNestedPrecompKeyframeTimes(
+  root: AnimLike | null | undefined,
+  refId: string,
+  fr: number
+): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const asset = findAssetById(root, refId);
+  if (!asset || !Array.isArray(asset.layers)) return out;
+  for (const raw of asset.layers as unknown[]) {
+    const layer = asObj(raw);
+    if (!layer) continue;
+    const ks = asObj(layer.ks);
+    if (!ks) continue;
+    for (const { key } of [...TRANSFORM_PROPS, ...OPTIONAL_PROPS]) {
+      const times = propKeyframeTimes(ks[key], fr);
+      if (!times.length) continue;
+      out.set(key, mergeUniqueSortedTimes(out.get(key) || [], times));
+    }
+  }
+  return out;
+}
+
 /** Collect keyframe times from a Bodymovin animated property. */
 function propKeyframeTimes(prop: unknown, fr: number): number[] {
   const o = asObj(prop);
@@ -95,7 +134,7 @@ function parseLayer(
   raw: unknown,
   fr: number,
   sceneIp: number,
-  opts?: { includeEmptyProps?: boolean }
+  opts?: { includeEmptyProps?: boolean; animationRoot?: AnimLike | null }
 ): LottieTimelineLayer | null {
   const layer = asObj(raw);
   if (!layer) return null;
@@ -121,6 +160,26 @@ function parseLayer(
       props.push({ id: `${ind}:${key}`, label, key, times });
     }
   }
+
+  // Nested LOT / precomp (ty 0): surface internal asset keyframes on the main-scene row.
+  if (num(layer.ty, 4) === 0 && opts?.animationRoot) {
+    const refId = String(layer.refId || '').trim();
+    if (refId) {
+      const nested = collectNestedPrecompKeyframeTimes(opts.animationRoot, refId, fr);
+      for (const prop of props) {
+        const extra = nested.get(prop.key);
+        if (extra?.length) {
+          prop.times = mergeUniqueSortedTimes(prop.times, extra);
+        }
+      }
+      for (const { key, label } of OPTIONAL_PROPS) {
+        const extra = nested.get(key);
+        if (!extra?.length || props.some((p) => p.key === key)) continue;
+        props.push({ id: `${ind}:${key}`, label, key, times: extra });
+      }
+    }
+  }
+
   return {
     id: `layer-${ind}-${name}`,
     ind,
@@ -137,7 +196,7 @@ function parseCompLayers(
   layersRaw: unknown,
   fr: number,
   ip: number,
-  opts?: { includeEmptyProps?: boolean }
+  opts?: { includeEmptyProps?: boolean; animationRoot?: AnimLike | null }
 ): LottieTimelineLayer[] {
   if (!Array.isArray(layersRaw)) return [];
   const out: LottieTimelineLayer[] = [];
@@ -155,7 +214,7 @@ function sceneFromComp(
   kind: 'main' | 'precomp',
   comp: AnimLike,
   assetId?: string,
-  opts?: { includeEmptyProps?: boolean }
+  opts?: { includeEmptyProps?: boolean; animationRoot?: AnimLike | null }
 ): LottieTimelineScene {
   const fr = Math.max(1, num(comp.fr, 30));
   const ip = num(comp.ip, 0);
@@ -184,8 +243,9 @@ export function buildLottieTimelineScenes(
   const root = asObj(animationData);
   if (!root || !Array.isArray(root.layers)) return [];
 
+  const rootOpts = { ...opts, animationRoot: root };
   const scenes: LottieTimelineScene[] = [
-    sceneFromComp('main', 'Main Scene', 'main', root, undefined, opts),
+    sceneFromComp('main', 'Main Scene', 'main', root, undefined, rootOpts),
   ];
 
   const assets = Array.isArray(root.assets) ? root.assets : [];
@@ -207,7 +267,7 @@ export function buildLottieTimelineScenes(
           op: num(asset.op, num(root.op, 60)),
         },
         assetId,
-        opts
+        rootOpts
       )
     );
   }

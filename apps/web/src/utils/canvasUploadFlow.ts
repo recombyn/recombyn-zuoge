@@ -100,6 +100,7 @@ export async function uploadCanvasPlaceholderFile(opts: {
           patchDocumentNode({
             nodeId: id,
             skipHistory: true,
+            skipHostReload: true,
             patch: {
               attrs: { processLabel: formatProcessProgressLabel('上传中', pct, '上传中') },
             },

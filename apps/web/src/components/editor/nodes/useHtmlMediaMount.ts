@@ -12,7 +12,7 @@ import {
 } from '@/components/rcb/shapes/shapeHostRegistry';
 import { findHtmlMediaMount } from '@/components/rcb/scene/paint/sceneToSvg';
 
-export function useHtmlMediaMount(nodeId: string): HTMLElement | null {
+export function useHtmlMediaMount(nodeId: string): Element | null {
   const id = String(nodeId || '');
   const subscribe = useCallback(
     (onStoreChange: () => void) => subscribeShapeHost(id, onStoreChange),

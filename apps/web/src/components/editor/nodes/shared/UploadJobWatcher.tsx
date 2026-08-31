@@ -76,6 +76,7 @@ function UploadJobWatcher() {
               patchDocumentNode({
                 nodeId: pendingId,
                 skipHistory: true,
+                skipHostReload: true,
                 patch: {
                   attrs: { processLabel: formatProcessProgressLabel(labelBase, pct, '上传中') },
                 },
