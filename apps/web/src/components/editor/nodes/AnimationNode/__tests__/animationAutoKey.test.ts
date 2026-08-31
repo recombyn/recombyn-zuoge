@@ -263,6 +263,71 @@ describe('autoKeyAnimatedProp / geometry', () => {
     expect(end?.cy).toBeCloseTo(100, 5);
   });
 
+  it('writes static precomp session geometry back into the asset', () => {
+    const assetId = 'lot_nested';
+    const anim = {
+      fr: 30,
+      w: 200,
+      h: 200,
+      layers: [],
+      assets: [
+        {
+          id: assetId,
+          w: 200,
+          h: 200,
+          layers: [
+            {
+              ind: 3,
+              ty: 4,
+              nm: 'shape',
+              ln: 'shape1',
+              w: 40,
+              h: 40,
+              shapes: [{ ty: 'rc', s: { a: 0, k: [40, 40] } }],
+              ks: {
+                p: { a: 0, k: [70, 70, 0] },
+                a: { a: 0, k: [0, 0, 0] },
+                s: { a: 0, k: [100, 100, 100] },
+                r: { a: 0, k: 0 },
+                o: { a: 0, k: 100 },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const document = makeDoc({
+      anim,
+      nodeId: 'shape1',
+      x: 120,
+      y: 100,
+      width: 40,
+      height: 40,
+      nodeAttrs: {
+        lottieLayerInd: 3,
+        precompEditSession: assetId,
+      },
+    });
+    const keyed = autoKeyAnimatedGeometry({
+      document,
+      nodeId: 'shape1',
+      playheadSec: 0,
+      moved: true,
+      resized: false,
+    });
+    expect(keyed).toBeTruthy();
+    const next = JSON.parse(keyed!.animationJson) as Record<string, unknown>;
+    const end = sampleLayerTransformAtFrame({
+      animationData: next,
+      sceneKind: 'precomp',
+      assetId,
+      layerInd: 3,
+      frame: 0,
+    });
+    expect(end?.cx).toBeCloseTo(140, 5);
+    expect(end?.cy).toBeCloseTo(120, 5);
+  });
+
   it('captures scale percent relative to layer base', () => {
     const node = {
       key: 'shape',

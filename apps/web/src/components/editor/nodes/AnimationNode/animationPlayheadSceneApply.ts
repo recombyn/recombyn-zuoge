@@ -17,11 +17,25 @@ import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFa
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { lottieLocalToScenePoint } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
-import { sampleLayerTransformAtFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
+import {
+  isTransformPropAnimated,
+  sampleLayerTransformAtFrame,
+} from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 const LINK_KEY = 'ln';
+
+function plateFitScale(
+  plate: { width: number; height: number },
+  animW: number,
+  animH: number
+): number {
+  return Math.min(
+    plate.width / Math.max(1, animW),
+    plate.height / Math.max(1, animH)
+  );
+}
 
 function applyLayerInkVisibility(
   el: SVGElement | HTMLElement | null | undefined,
@@ -85,6 +99,251 @@ function restoreDocumentGeometry(
   previewSvgNodeTransform(nodeEls, sceneNodeId);
   notifyShapeHostGeometry(sceneNodeId);
   return { left, top, width, height };
+}
+
+function layerTransformAnimated(
+  anim: Record<string, unknown>,
+  sceneKind: 'main' | 'precomp',
+  assetId: string | undefined,
+  layerInd: number,
+  propKey: string
+): boolean {
+  return isTransformPropAnimated({
+    animationData: anim,
+    sceneKind,
+    assetId,
+    layerInd,
+    propKey,
+  });
+}
+
+export type PrecompSessionShapePose = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  rotation: number;
+  opacity: number;
+  skew: number;
+  skewAxis: number;
+  roundness: number;
+};
+
+/** Resolve LOT-tab session shape pose at the playhead (DOM + document). */
+export function resolvePrecompSessionShapePose(opts: {
+  anim: Record<string, unknown>;
+  sceneKind: 'main' | 'precomp';
+  assetId?: string;
+  layerInd: number;
+  frameN: number;
+  plate: { left: number; top: number; width: number; height: number };
+  localAnimW: number;
+  localAnimH: number;
+  raw: Record<string, unknown>;
+  node: {
+    x?: unknown;
+    y?: unknown;
+    width?: unknown;
+    height?: unknown;
+    attrs?: Record<string, unknown> | null;
+  };
+}): PrecompSessionShapePose | null {
+  const { anim, sceneKind, assetId, layerInd, frameN, plate, localAnimW, localAnimH, raw, node } =
+    opts;
+  const sampled = sampleLayerTransformAtFrame({
+    animationData: anim,
+    sceneKind,
+    assetId,
+    layerInd,
+    frame: frameN,
+  });
+  const fit = plateFitScale(plate, localAnimW, localAnimH);
+  const baseW = Math.max(1, Number(raw.w) || Number(node.width) || 1);
+  const baseH = Math.max(1, Number(raw.h) || Number(node.height) || 1);
+
+  let left = Number(node.x) || 0;
+  let top = Number(node.y) || 0;
+  let width = Math.max(1, Number(node.width) || 1);
+  let height = Math.max(1, Number(node.height) || 1);
+  let rotation = Number(node.attrs?.angle) || 0;
+  let skew = Number(node.attrs?.skewX) || 0;
+  let skewAxis = Number(node.attrs?.skewAxis) || 0;
+  let opacity = documentOpacityPct(node);
+  let roundness = -1;
+
+  if (!sampled) {
+    return { left, top, width, height, rotation, opacity, skew, skewAxis, roundness };
+  }
+
+  opacity = sampled.opacity;
+  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 's')) {
+    const sx = Math.max(0.01, sampled.scaleX / 100);
+    const sy = Math.max(0.01, sampled.scaleY / 100);
+    width = Math.max(1, baseW * sx * fit);
+    height = Math.max(1, baseH * sy * fit);
+  }
+  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 'p')) {
+    const center = lottieLocalToScenePoint(
+      sampled.cx,
+      sampled.cy,
+      plate,
+      localAnimW,
+      localAnimH
+    );
+    left = center.x - width / 2;
+    top = center.y - height / 2;
+  }
+  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 'r')) {
+    rotation = sampled.rotation;
+  }
+  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 'sk')) {
+    skew = sampled.skew;
+  }
+  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 'sa')) {
+    skewAxis = sampled.skewAxis;
+  }
+  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 'rd')) {
+    roundness = sampled.roundness;
+  }
+
+  return { left, top, width, height, rotation, opacity, skew, skewAxis, roundness };
+}
+
+function poseDiffers(
+  node: { x?: unknown; y?: unknown; width?: unknown; height?: unknown; attrs?: Record<string, unknown> | null },
+  pose: PrecompSessionShapePose
+): boolean {
+  const eps = 0.05;
+  if (Math.abs((Number(node.x) || 0) - pose.left) > eps) return true;
+  if (Math.abs((Number(node.y) || 0) - pose.top) > eps) return true;
+  if (Math.abs((Number(node.width) || 0) - pose.width) > eps) return true;
+  if (Math.abs((Number(node.height) || 0) - pose.height) > eps) return true;
+  if (Math.abs((Number(node.attrs?.angle) || 0) - pose.rotation) > eps) return true;
+  if (Math.abs(documentOpacityPct(node) - pose.opacity) > eps) return true;
+  if (Math.abs((Number(node.attrs?.skewX) || 0) - pose.skew) > eps) return true;
+  if (Math.abs((Number(node.attrs?.skewAxis) || 0) - pose.skewAxis) > eps) return true;
+  return false;
+}
+
+/** Bake playhead pose into document so host repaints cannot reset siblings. */
+export function collectPrecompSessionDocumentPatches(opts: {
+  document: SceneDocument;
+  hostNodeId: string;
+  playheadSec: number;
+}): Array<{
+  nodeId: string;
+  patch: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    attrs: Record<string, unknown>;
+  };
+}> {
+  const host = opts.document?.deltaSetLike?.[opts.hostNodeId];
+  if (!host) return [];
+  const anim = parseLottieAnimationData(host.attrs?.animationData);
+  if (!anim || !Array.isArray(anim.layers)) return [];
+
+  const frameId = resolveAnimationFrameId(opts.document, host);
+  const frames = Array.isArray(opts.document.frames) ? opts.document.frames : [];
+  const frame = frameId ? frames.find((f) => String(f?.id) === frameId) : null;
+  const plate = {
+    left: Number(frame?.x ?? host.x) || 0,
+    top: Number(frame?.y ?? host.y) || 0,
+    width: Math.max(1, Number(frame?.width ?? host.width) || 1),
+    height: Math.max(1, Number(frame?.height ?? host.height) || 1),
+  };
+  const animW = Math.max(1, Number(anim.w) || plate.width);
+  const animH = Math.max(1, Number(anim.h) || plate.height);
+  const fps = Math.max(1, Number(anim.fr) || Number(frame?.fps) || 30);
+  const frameN = secToFrame(Math.max(0, Number(opts.playheadSec) || 0), fps);
+  const out: Array<{
+    nodeId: string;
+    patch: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      attrs: Record<string, unknown>;
+    };
+  }> = [];
+
+  const collectFromLayers = (
+    layers: Record<string, unknown>[],
+    sceneKind: 'main' | 'precomp',
+    assetId: string | undefined,
+    localAnimW: number,
+    localAnimH: number
+  ) => {
+    for (const raw of layers) {
+      const sceneNodeId = String(raw?.[LINK_KEY] || '').trim();
+      if (!sceneNodeId) continue;
+      const node = opts.document.deltaSetLike?.[sceneNodeId];
+      if (!node) continue;
+      if (!String(node.attrs?.precompEditSession || '').trim()) continue;
+      const nodeFrame = String(node.attrs?.frameId || '').trim();
+      if (frameId && nodeFrame && nodeFrame !== frameId) continue;
+      const ind = Number(raw.ind);
+      if (!Number.isFinite(ind)) continue;
+
+      const pose = resolvePrecompSessionShapePose({
+        anim,
+        sceneKind,
+        assetId,
+        layerInd: ind,
+        frameN,
+        plate,
+        localAnimW,
+        localAnimH,
+        raw,
+        node,
+      });
+      if (!pose || !poseDiffers(node, pose)) continue;
+
+      const opacityAttr =
+        Number(node.attrs?.opacity) <= 1
+          ? Math.max(0, Math.min(1, pose.opacity / 100))
+          : pose.opacity;
+      const attrs: Record<string, unknown> = {
+        angle: Math.round(pose.rotation * 100) / 100,
+        opacity: opacityAttr,
+        skewX: Math.round(pose.skew * 100) / 100,
+        skewAxis: Math.round(pose.skewAxis * 100) / 100,
+      };
+      if (pose.roundness >= 0) {
+        attrs.rx = pose.roundness;
+        attrs.ry = pose.roundness;
+        attrs.cornerRadius = pose.roundness;
+      }
+      out.push({
+        nodeId: sceneNodeId,
+        patch: {
+          x: Math.round(pose.left * 100) / 100,
+          y: Math.round(pose.top * 100) / 100,
+          width: Math.round(pose.width * 100) / 100,
+          height: Math.round(pose.height * 100) / 100,
+          attrs,
+        },
+      });
+    }
+  };
+
+  collectFromLayers(anim.layers as Record<string, unknown>[], 'main', undefined, animW, animH);
+  const assets = Array.isArray(anim.assets) ? (anim.assets as Record<string, unknown>[]) : [];
+  for (const asset of assets) {
+    if (!asset || !Array.isArray(asset.layers)) continue;
+    const assetId = String(asset.id || '').trim();
+    if (!assetId) continue;
+    collectFromLayers(
+      asset.layers as Record<string, unknown>[],
+      'precomp',
+      assetId,
+      Math.max(1, Number(asset.w) || animW),
+      Math.max(1, Number(asset.h) || animH)
+    );
+  }
+  return out;
 }
 
 /** Scrub / resting: map host animation layers → live scene DOM. */
@@ -161,6 +420,62 @@ export function applyAnimationPlayheadScenePose(opts: {
         continue;
       }
 
+      // LOT-tab session shapes: keep static pose from document; sample only
+      // channels that are actually keyed so scrub/play matches the timeline.
+      const precompSessionAsset = String(node.attrs?.precompEditSession || '').trim();
+      if (precompSessionAsset) {
+        const pose = resolvePrecompSessionShapePose({
+          anim,
+          sceneKind,
+          assetId,
+          layerInd: ind,
+          frameN,
+          plate,
+          localAnimW,
+          localAnimH,
+          raw,
+          node,
+        });
+        if (!pose) continue;
+
+        const { left, top, width: w, height: h, rotation, opacity, skew, skewAxis, roundness } =
+          pose;
+        previewSvgNodeGeometry(nodeEls, sceneNodeId, { left, top, width: w, height: h });
+        const el = nodeEls.get(sceneNodeId) as any;
+        if (el) {
+          el.__sceneAngle = rotation;
+          el.__sceneSkewX = skew;
+          el.__sceneSkewY = 0;
+          el.__sceneSkewAxis = skewAxis;
+        }
+        previewSvgNodeAngle(nodeEls, sceneNodeId, rotation);
+        previewSvgNodeTransform(nodeEls, sceneNodeId);
+
+        const shapeType = String(node.attrs?.shapeType || '');
+        if (shapeType && roundness >= 0) {
+          const radii = radiiFromAttrs({
+            ...(node.attrs || {}),
+            rx: roundness,
+            ry: roundness,
+            cornerRadius: roundness,
+          });
+          previewSvgNodeCornerRadii(nodeEls, sceneNodeId, {
+            width: w,
+            height: h,
+            shapeType,
+            radii,
+            attrs: node.attrs || {},
+          });
+        }
+
+        notifyShapeHostGeometry(sceneNodeId);
+        applyLayerInkVisibility(el, inRange, opacity);
+        sigParts.push(
+          `${sceneNodeId}:${left.toFixed(1)},${top.toFixed(1)},${w.toFixed(1)},${h.toFixed(1)},session:${inRange ? 1 : 0}`
+        );
+        continue;
+      }
+
       const sampled = sampleLayerTransformAtFrame({
         animationData: anim,
         sceneKind,
@@ -170,12 +485,13 @@ export function applyAnimationPlayheadScenePose(opts: {
       });
       if (!sampled) continue;
 
+      const fit = plateFitScale(plate, localAnimW, localAnimH);
       const baseW = Math.max(1, Number(raw.w) || Number(node.width) || 1);
       const baseH = Math.max(1, Number(raw.h) || Number(node.height) || 1);
       const sx = Math.max(0.01, sampled.scaleX / 100);
       const sy = Math.max(0.01, sampled.scaleY / 100);
-      const w = Math.max(1, baseW * sx);
-      const h = Math.max(1, baseH * sy);
+      const w = Math.max(1, baseW * sx * fit);
+      const h = Math.max(1, baseH * sy * fit);
 
       const center = lottieLocalToScenePoint(
         sampled.cx,

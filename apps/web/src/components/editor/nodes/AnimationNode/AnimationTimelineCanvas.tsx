@@ -31,7 +31,7 @@ export type LottieTimelineFlatRow =
 const ROW_H = 28;
 const RULER_H = 28;
 /** Left/right gutter so playhead head + time chip aren't clipped at t=0 / end (Rive-style). */
-const TIME_PAD_X = 20;
+const TIME_PAD_X = 28;
 const HANDLE_W = 10;
 /** Hit slop for playhead / work-area stems (full vertical line is draggable). */
 const STEM_HIT = 10;
@@ -228,6 +228,8 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
   const workIn = workAreaPreview?.inSec ?? workInSec;
   const workOut = workAreaPreview?.outSec ?? workOutSec;
 
+  const timesCoincide = (a: number, b: number) => Math.abs(a - b) <= 1 / Math.max(1, fps);
+
   const trackW = () => Math.max(1, widthRef.current) * Math.max(1, timeZoom);
   const innerW = (w: number) => Math.max(1, w - TIME_PAD_X * 2);
   const secToX = (sec: number, w: number) =>
@@ -375,7 +377,7 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
         }
       }
 
-      // Work area bookends (Rive-style)
+      // Work area bookends first; playhead paints on top when they share t≈0.
       drawBookend(rctx, xIn, 'in', theme.ink, theme.surface);
       drawBookend(rctx, xOut, 'out', theme.ink, theme.surface);
 
@@ -461,12 +463,14 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
         tctx.fillText(row.layer.name, x0 + (selected ? 14 : 8), y + ROW_H / 2);
         tctx.restore();
         if (selected) {
+          const inAtWorkStart = timesCoincide(inSec, workIn);
+          const leftHandleX = inAtWorkStart ? x0 + 3 : x0;
           tctx.fillStyle = 'rgba(0,0,0,0.22)';
-          tctx.fillRect(x0, y + pad, HANDLE_W, ROW_H - pad * 2);
+          tctx.fillRect(leftHandleX, y + pad, HANDLE_W, ROW_H - pad * 2);
           tctx.fillRect(x0 + cw - HANDLE_W, y + pad, HANDLE_W, ROW_H - pad * 2);
           tctx.fillStyle = '#FFF';
           const midY = y + ROW_H / 2;
-          for (const hx of [x0 + 3, x0 + 6, x0 + cw - 6, x0 + cw - 3]) {
+          for (const hx of [leftHandleX + 3, leftHandleX + 6, x0 + cw - 6, x0 + cw - 3]) {
             tctx.fillRect(hx, midY - 6, 1.2, 12);
           }
         }
@@ -508,7 +512,7 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
       tctx.fillRect(xOut, 0, w - TIME_PAD_X - xOut, tracksH);
     }
     tctx.restore();
-    // Work area edges — same stem color/width as ruler bookends
+    // Work-area stems span tracks; playhead line paints after (higher visual priority).
     tctx.fillStyle = theme.ink;
     tctx.fillRect(xIn - WORK_AREA_STEM_W / 2, 0, WORK_AREA_STEM_W, tracksH);
     tctx.fillRect(xOut - WORK_AREA_STEM_W / 2, 0, WORK_AREA_STEM_W, tracksH);
@@ -574,22 +578,63 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
   /** Nearest vertical stem under pointer: work-area bookends or playhead. */
   const hitVerticalStem = (
     clientX: number,
+    clientY: number,
     target: HTMLCanvasElement
   ): 'in' | 'out' | 'playhead' | null => {
     const rect = target.getBoundingClientRect();
     const x = clientX - rect.left;
     const w = trackW();
+    const px = secToX(playhead, w);
+    const xInPx = secToX(workIn, w);
     const candidates: Array<{ kind: 'in' | 'out' | 'playhead'; d: number }> = [
-      { kind: 'in', d: Math.abs(x - secToX(workIn, w)) },
+      { kind: 'playhead', d: Math.abs(x - px) },
+      { kind: 'in', d: Math.abs(x - xInPx) },
       { kind: 'out', d: Math.abs(x - secToX(workOut, w)) },
-      { kind: 'playhead', d: Math.abs(x - secToX(playhead, w)) },
     ];
     let best: (typeof candidates)[number] | null = null;
     for (const c of candidates) {
       if (c.d > STEM_HIT) continue;
       if (!best || c.d < best.d) best = c;
     }
-    return best?.kind ?? null;
+    if (!best) return null;
+    // When playhead + work-in coincide, playhead wins (same pixel column at t=0).
+    if (
+      timesCoincide(playhead, workIn) &&
+      Math.abs(x - px) <= STEM_HIT &&
+      Math.abs(x - xInPx) <= STEM_HIT
+    ) {
+      return 'playhead';
+    }
+    return best.kind;
+  };
+
+  const hitClipHandle = (
+    clientX: number,
+    clientY: number
+  ): { kind: 'clip'; row: Extract<LottieTimelineFlatRow, { kind: 'layer' }>; mode: 'in' | 'out' } | null => {
+    const canvas = tracksRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const w = trackW();
+    const rowIndex = Math.floor(y / ROW_H);
+    if (rowIndex < 0 || rowIndex >= rows.length) return null;
+    const row = rows[rowIndex];
+    if (!row || row.kind !== 'layer') return null;
+    const preview = trimPreview?.layerId === row.layer.id ? trimPreview : null;
+    const inSec = preview?.inSec ?? row.layer.inSec;
+    const outSec = preview?.outSec ?? row.layer.outSec;
+    const x0 = secToX(inSec, w);
+    const x1 = secToX(outSec, w);
+    const cw = Math.max(8, x1 - x0);
+    if (x < x0 || x > x0 + cw) return null;
+    const local = x - x0;
+    const inAtWorkStart = timesCoincide(inSec, workIn);
+    const inHandleW = inAtWorkStart ? HANDLE_W + 4 : HANDLE_W;
+    if (local <= inHandleW) return { kind: 'clip', row, mode: 'in' };
+    if (local >= cw - HANDLE_W) return { kind: 'clip', row, mode: 'out' };
+    return null;
   };
 
   const hitTracks = (clientX: number, clientY: number) => {
@@ -617,7 +662,9 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
       }
       const local = x - x0;
       let mode: 'move' | 'in' | 'out' = 'move';
-      if (local <= HANDLE_W) mode = 'in';
+      const inAtWorkStart = timesCoincide(inSec, workIn);
+      const inHandleW = inAtWorkStart ? HANDLE_W + 4 : HANDLE_W;
+      if (local <= inHandleW) mode = 'in';
       else if (local >= cw - HANDLE_W) mode = 'out';
       return { kind: 'clip' as const, row, mode };
     }
@@ -636,7 +683,7 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
   };
 
   const onRulerPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
-    const stem = hitVerticalStem(e.clientX, e.currentTarget);
+    const stem = hitVerticalStem(e.clientX, e.clientY, e.currentTarget);
     if (stem === 'in' || stem === 'out') {
       onBeginWorkAreaDrag(stem, e.clientX);
       return;
@@ -662,7 +709,13 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
 
   const onTracksPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
-    const stem = hitVerticalStem(e.clientX, e.currentTarget);
+    const clipHandle = hitClipHandle(e.clientX, e.clientY);
+    if (clipHandle) {
+      onSelectLayer(clipHandle.row.layer);
+      onBeginClipDrag({ clientX: e.clientX }, clipHandle.row.layer, clipHandle.mode);
+      return;
+    }
+    const stem = hitVerticalStem(e.clientX, e.clientY, e.currentTarget);
     if (stem === 'in' || stem === 'out') {
       onBeginWorkAreaDrag(stem, e.clientX);
       return;
@@ -762,8 +815,13 @@ function AnimationTimelineCanvas(props: AnimationTimelineCanvasProps) {
       el.style.cursor = 'ew-resize';
       return;
     }
-    const stem = hitVerticalStem(e.clientX, el);
+    const stem = hitVerticalStem(e.clientX, e.clientY, el);
     if (stem) {
+      el.style.cursor = 'ew-resize';
+      return;
+    }
+    const clipHandle = hitClipHandle(e.clientX, e.clientY);
+    if (clipHandle) {
       el.style.cursor = 'ew-resize';
       return;
     }

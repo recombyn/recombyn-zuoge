@@ -77,6 +77,63 @@ describe('animationTimelineModel', () => {
     expect(scenes[1].layers[0].props[0].label).toBe('Scale');
   });
 
+  it('surfaces nested LOT keyframes on the main-scene precomp layer row', () => {
+    const anim = {
+      fr: 30,
+      ip: 0,
+      op: 60,
+      w: 285,
+      h: 285,
+      layers: [
+        {
+          ind: 1,
+          ty: 0,
+          nm: '插画场景 LOT-edited',
+          refId: 'lot_plate1',
+          ip: 0,
+          op: 60,
+          ks: {
+            p: { a: 0, k: [142.5, 142.5, 0] },
+            o: { a: 0, k: 100 },
+          },
+        },
+      ],
+      assets: [
+        {
+          id: 'lot_plate1',
+          nm: '插画场景 LOT-edited',
+          w: 285,
+          h: 285,
+          layers: [
+            {
+              ind: 2,
+              ty: 4,
+              nm: 'shape',
+              ip: 0,
+              op: 60,
+              ks: {
+                p: {
+                  a: 1,
+                  k: [
+                    { t: 0, s: [120, 120, 0] },
+                    { t: 30, s: [120, 60, 0] },
+                  ],
+                },
+                o: { a: 0, k: 100 },
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const scenes = buildLottieTimelineScenes(anim, 'Plate', { includeEmptyProps: true });
+    const lotLayer = scenes[0].layers[0];
+    expect(lotLayer.name).toBe('插画场景 LOT-edited');
+    const position = lotLayer.props.find((p) => p.key === 'p');
+    expect(position?.times).toEqual([0, 1]);
+  });
+
   it('can include empty transform tracks when expanding', () => {
     const anim = {
       fr: 30,
