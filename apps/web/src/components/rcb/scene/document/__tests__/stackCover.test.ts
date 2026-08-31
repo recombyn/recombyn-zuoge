@@ -92,15 +92,45 @@ describe('unified HTML media stack (foreignObject)', () => {
       'lot1'
     );
     expect(el).toBeTruthy();
-    const fo = el!.querySelector('foreignObject[data-rcb-html-media-fo="lottie"]');
+    const fo = el!.querySelector('svg[data-rcb-lottie-svg-ink="1"]');
     expect(fo).toBeTruthy();
+    expect(el!.querySelector('foreignObject[data-rcb-html-media-fo="lottie"]')).toBeNull();
     const mount = el!.querySelector(`[${HTML_MEDIA_MOUNT_ATTR}="lot1"]`);
     expect(mount).toBeTruthy();
     expect(findHtmlMediaMount('lot1')).toBe(mount);
     root.remove();
   });
 
-  it('export surface does not mount HTML foreignObject for lottie', async () => {
+  it('workbench nested lottie has no opaque SVG plate fill', async () => {
+    const { root, layer } = svgRoot();
+    const anim = JSON.stringify({ v: '5.7.0', fr: 30, ip: 0, op: 30, w: 100, h: 100, layers: [] });
+    const doc = {
+      x: 0,
+      y: 0,
+      deltaSetLike: {},
+      frames: [{ id: 'af1', kind: 'animation', x: 0, y: 0, width: 200, height: 200 }],
+    };
+    const el = await nodeToSvgElement(
+      root,
+      layer,
+      doc,
+      {
+        key: 'lottie',
+        x: 10,
+        y: 20,
+        width: 80,
+        height: 60,
+        attrs: { animationData: anim, frameId: 'af1', 'fill-color': '#FFFFFF' },
+      },
+      'lot-nested'
+    );
+    expect(el).toBeTruthy();
+    const plate = el!.querySelector('[data-radius-body="1"]');
+    expect(plate?.getAttribute('fill')).toBe('none');
+    root.remove();
+  });
+
+  it('export surface does not mount lottie SVG ink mount', async () => {
     const { root, layer } = svgRoot({ 'data-rcb-export-surface': '1' });
     const anim = JSON.stringify({ v: '5.7.0', fr: 30, ip: 0, op: 30, w: 100, h: 100, layers: [] });
     const el = await nodeToSvgElement(
@@ -118,6 +148,7 @@ describe('unified HTML media stack (foreignObject)', () => {
       'lot2'
     );
     expect(el!.querySelector('foreignObject[data-rcb-html-media-fo]')).toBeNull();
+    expect(el!.querySelector('svg[data-rcb-lottie-svg-ink="1"]')).toBeNull();
     root.remove();
   });
 

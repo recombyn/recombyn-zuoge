@@ -28,6 +28,7 @@ import {
   collectSmartGuideTargets,
   resolveMeasureBox,
   resolveClippedMeasureBox,
+  resolveLockAspect,
 } from '../selectionLogic';
 import { segmentIntersectsAabb } from '@/components/rcb/scene/document/sceneShapes';
 import { inflateBoxByVisualOutset } from '@/components/rcb/scene/document/sceneEffects';
@@ -962,6 +963,64 @@ describe('selectionLogic computeResizedUnion', () => {
     expect(next.height).toBeGreaterThan(50);
     expect(typeof lockAspect).toBe('boolean');
     expect(Array.isArray(guides)).toBe(true);
+  });
+
+  it('locks aspect for animation workbench frame preview on east handle', () => {
+    setAnimationWorkbenchTimelineFocus(null);
+    const box = { left: 10, top: 20, width: 100, height: 50 };
+    const drag = makeDragSeed(
+      'resize',
+      { clientX: 110, clientY: 45 },
+      { x: 110, y: 45 },
+      {
+        handle: 'e',
+        origins: [{ nodeId: frameSelId('anim1'), box }],
+        union: box,
+        angle0: 0,
+        aspectRatio: 2,
+      }
+    );
+    const { next, lockAspect } = computeResizedUnion({
+      document: {
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 400,
+        frames: [{ id: 'anim1', kind: 'animation', x: 10, y: 20, width: 100, height: 50 }],
+        deltaSetLike: { ROOT: { id: 'ROOT', key: 'root' } },
+      } as unknown as SceneDocument,
+      drag,
+      dx: 20,
+      dy: 0,
+      shiftKey: false,
+      disableSnap: true,
+      gridSize: 1,
+      targets: [],
+      threshold: 8,
+    });
+    expect(lockAspect).toBe(true);
+    expect(next.width).toBe(120);
+    expect(next.height).toBe(60);
+  });
+});
+
+describe('resolveLockAspect', () => {
+  it('forces proportional resize for animation frame in preview', () => {
+    setAnimationWorkbenchTimelineFocus(null);
+    const doc = {
+      frames: [{ id: 'anim1', kind: 'lottie', x: 0, y: 0, width: 50, height: 50 }],
+    } as SceneDocument;
+    expect(resolveLockAspect(doc, [{ nodeId: frameSelId('anim1') }], 'e', false)).toBe(true);
+    expect(resolveLockAspect(doc, [{ nodeId: frameSelId('anim1') }], 'e', true)).toBe(true);
+  });
+
+  it('allows free frame resize while timeline is open', () => {
+    setAnimationWorkbenchTimelineFocus('anim1');
+    const doc = {
+      frames: [{ id: 'anim1', kind: 'animation', x: 0, y: 0, width: 50, height: 50 }],
+    } as SceneDocument;
+    expect(resolveLockAspect(doc, [{ nodeId: frameSelId('anim1') }], 'e', false)).toBe(false);
+    setAnimationWorkbenchTimelineFocus(null);
   });
 });
 

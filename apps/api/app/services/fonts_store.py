@@ -74,6 +74,11 @@ def list_fonts(
     offset = (page_n - 1) * page_size_n
     with Session(engine) as session:
         total = crud.count_fonts(session=session)
+        if total == 0:
+            from app.services.seed import seed_fonts_if_empty
+
+            seed_fonts_if_empty()
+            total = crud.count_fonts(session=session)
         rows = crud.list_fonts_page(
             session=session,
             offset=offset,

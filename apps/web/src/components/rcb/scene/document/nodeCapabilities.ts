@@ -298,6 +298,16 @@ export function isAnimationFrameHostNode(
   );
 }
 
+/** Nested LOT plate inside a 动画工作台 — preview uses lottie ink, not editor fill. */
+export function isWorkbenchNestedLottieNode(
+  node: SceneNodeRef,
+  document?: SceneDocument | null
+): boolean {
+  if (!isLottieNode(node)) return false;
+  if (isAnimationFrameHostNode(node, document)) return false;
+  return Boolean(String(node!.attrs?.frameId || '').trim());
+}
+
 /** True for icon-library assets that still use an SVG source. */
 export function isIconImageNode(node: SceneNodeRef): boolean {
   if (!node || node.key !== 'image') return false;

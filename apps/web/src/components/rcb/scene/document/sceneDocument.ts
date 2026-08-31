@@ -1,6 +1,7 @@
 import { current, isDraft, produce, type WritableDraft } from 'immer';
 import { nanoid } from '@reduxjs/toolkit';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import type {
   SceneDeltaSet,
   SceneDocument,
@@ -391,8 +392,16 @@ export function normalizeDocument(doc: unknown): SceneDocument {
   next.frames = next.frames.map((f) => {
     if (!f || typeof f !== 'object') return f;
     const bg = String(f.backgroundColor || '').trim();
-    const withBg: ArtboardFrame =
+    let withBg: ArtboardFrame =
       !bg || bg === 'none' ? { ...f, backgroundColor: '#FFFFFF' } : { ...f };
+    // Legacy import briefly wrote transparent workbench plates when JSON had no bg.
+    if (
+      isAnimationArtboardKind(withBg.kind) &&
+      bg === 'transparent' &&
+      (withBg.backgroundOpacity == null || Number(withBg.backgroundOpacity) === 0)
+    ) {
+      withBg = { ...withBg, backgroundColor: '#FFFFFF', backgroundOpacity: 100 };
+    }
     // Artboards clip their content by default; users can explicitly show overflow.
     if (withBg.clipContent === undefined) withBg.clipContent = true;
     return withBg;

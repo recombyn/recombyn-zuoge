@@ -1,39 +1,29 @@
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 /**
- * Lottie ink portals into the node’s SVG foreignObject mount so paint order
- * follows shared `stackOrder` / `data-z` (same as images & generators).
+ * Lottie ink mounts into the node’s nested SVG layer (lottie-web SVG renderer).
+ * Preview and edit share the same SVG stack; preview is pointer-events:none.
  */
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  memo,
-} from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useRef, type ReactNode, memo } from 'react';
 import { useSelector } from 'react-redux';
 import lottie, { type AnimationItem } from 'lottie-web';
-import { useRcbCamera } from '@/components/rcb';
 import {
   isAnimationFrameHostNode,
   isLottieNode,
-  isNodeOverlayHidden,
+  isNodeHidden,
+  isWorkbenchNestedLottieNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
-import {
-  parseLottieAnimationData,
-  resolveThemeSurfaceFill
-} from '@/components/rcb/scene/document/nodeFactories';
+import { isHiddenByAnimationWorkbenchFocus } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import { animationHostHasUnlinkedInk } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
+import { isPrecompEditSessionNode } from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
 import {
-  buildScenePlateStyle,
-  type MediaGeomOverride,
-} from '@/components/editor/nodes/shared/mediaPlateGeometry';
+  lottieNodeHasInkJson,
+  resolveLottieInkJson,
+} from '@/components/editor/nodes/AnimationNode/mainSceneLotPreview';
+import type { MediaGeomOverride } from '@/components/editor/nodes/shared/mediaPlateGeometry';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
 import store from '@/store';
-import { shouldHideLottieInkForPrecompEdit } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 
 export type LottieGeomOverride = MediaGeomOverride;
 
@@ -44,9 +34,7 @@ export type LottieHostApi = {
   setLoop: (loop: boolean) => void;
   setSpeed: (speed: number) => void;
   getSpeed: () => number;
-  /** Seek to time in seconds (clamped to animation length). */
   seek: (timeSec: number) => void;
-  /** Seek then play in one step (avoids goToAndStop leaving a paused race). */
   playFrom: (timeSec: number) => void;
   getCurrentTime: () => number;
   getDurationSec: () => number;
@@ -56,6 +44,35 @@ const lottieHosts = new Map<string, LottieHostApi>();
 
 export function getLottieHost(nodeId: string): LottieHostApi | null {
   return lottieHosts.get(nodeId) || null;
+}
+
+/** Drive nested LOT plates on 主场景 while the workbench timeline plays. */
+export function syncFrameNestedLotLottieHosts(opts: {
+  document: SceneDocument;
+  frameHostId: string;
+  timeSec: number;
+  playing: boolean;
+}) {
+  const host = opts.document?.deltaSetLike?.[opts.frameHostId];
+  if (!host) return;
+  const frameId = resolveAnimationFrameId(opts.document, host);
+  if (!frameId) return;
+  for (const [id, node] of Object.entries(opts.document.deltaSetLike || {})) {
+    if (!node || id === 'ROOT') continue;
+    if (node.key !== 'lottie') continue;
+    if (isAnimationFrameHostNode(node, opts.document)) continue;
+    if (String(node.attrs?.frameId || '').trim() !== frameId) continue;
+    if (node.attrs?.hidden === true || node.attrs?.hidden === 'true') continue;
+    const api = getLottieHost(id);
+    if (!api) continue;
+    if (opts.playing) {
+      if (api.isPaused()) api.playFrom(opts.timeSec);
+      else api.seek(opts.timeSec);
+    } else {
+      api.seek(opts.timeSec);
+      api.pause();
+    }
+  }
 }
 
 function readLoop(attrs: any): boolean {
@@ -70,49 +87,82 @@ function readSpeed(attrs: any): number {
   return 1;
 }
 
-function LottieZoomSync({ onZoom }: { onZoom: (zoom: number) => void }) {
-  const zoom = useRcbCamera().zoom;
-  useEffect(() => {
-    onZoom(Math.max(0.05, zoom || 1));
-  }, [zoom, onZoom]);
-  return null;
+function lottieFrameMetrics(anim: AnimationItem) {
+  const fr = Math.max(1, Number(anim.frameRate) || 30);
+  const total = Math.max(1, Number(anim.totalFrames) || 1);
+  return { fr, total, durationSec: total / fr };
 }
 
-function resolveLottiePlateFill(raw: string, frameHost?: boolean): string {
-  // 动画工作台内部播放宿主：无底板，只承载时间轴/播放。
-  if (frameHost) return 'transparent';
-  const s = String(raw || '').trim();
-  // Default transparent → theme surface plate (not black).
-  if (!s || s === 'transparent') return resolveThemeSurfaceFill('');
-  return resolveThemeSurfaceFill(s);
+function lottieFrameAt(anim: AnimationItem, timeSec: number): number {
+  const { fr, total } = lottieFrameMetrics(anim);
+  return Math.max(0, Math.min(total - 1e-3, timeSec * fr));
+}
+
+function cloneAnimationData(data: Record<string, unknown>) {
+  if (structuredClone) return structuredClone(data);
+  return JSON.parse(JSON.stringify(data));
+}
+
+type EditorLottieState = {
+  lottieTimelinePanel?: { nodeId?: string } | null;
+  lottiePlayheadSec?: number;
+  lottiePlaying?: boolean;
+  lottiePlayingHostId?: string | null;
+};
+
+function readEditorLottieState(): EditorLottieState {
+  return (store.getState()?.editor as EditorLottieState | undefined) ?? {};
+}
+
+function buildLottieHostApi(nodeId: string, anim: AnimationItem): LottieHostApi {
+  const metrics = () => lottieFrameMetrics(anim);
+  return {
+    play: () => anim.play(),
+    pause: () => anim.pause(),
+    isPaused: () => Boolean(anim.isPaused),
+    setLoop: (next) => {
+      anim.loop = next;
+    },
+    setSpeed: (next) => anim.setSpeed(next),
+    getSpeed: () => Number(anim.playSpeed) || 1,
+    seek: (timeSec) => {
+      anim.goToAndStop(lottieFrameAt(anim, timeSec), true);
+    },
+    playFrom: (timeSec) => {
+      anim.goToAndPlay(lottieFrameAt(anim, timeSec), true);
+    },
+    getCurrentTime: () => {
+      const { fr } = metrics();
+      return Math.max(0, Number(anim.currentFrame) || 0) / fr;
+    },
+    getDurationSec: () => metrics().durationSec,
+  };
+}
+
+function isPlayingHost(nodeId: string, hostId: string): boolean {
+  return Boolean(hostId) && hostId === nodeId;
+}
+
+function isTimelineHost(nodeId: string, timelineHostId: string): boolean {
+  return Boolean(timelineHostId) && timelineHostId === nodeId;
 }
 
 function LottiePlate({
   nodeId,
-  scenePlate,
   animationJson,
   loop,
   speed,
-  plateFill,
-  frameHost,
   hidden,
   mount,
 }: {
   nodeId: string;
-  scenePlate: CSSProperties & { left: number; top: number; width: number; height: number };
   animationJson: string;
   loop: boolean;
   speed: number;
-  plateFill: string;
-  frameHost?: boolean;
   hidden?: boolean;
-  mount: HTMLElement;
+  mount: SVGSVGElement;
 }) {
-  const [hostEl, setHostEl] = useState<HTMLDivElement | null>(null);
   const animRef = useRef<AnimationItem | null>(null);
-  const camera = useRcbCamera();
-  const z = Math.max(0.05, camera.zoom || 1);
-  const fill = resolveLottiePlateFill(plateFill, frameHost);
   const reduxPlaying = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
   const playingHostId = useSelector((s: any) =>
     String(s.editor.lottiePlayingHostId || '').trim()
@@ -122,36 +172,21 @@ function LottiePlate({
   );
 
   useEffect(() => {
-    const host = hostEl;
-    if (!host) return undefined;
+    mount.style.visibility = hidden ? 'hidden' : 'visible';
+  }, [hidden, mount]);
+
+  useEffect(() => {
     const data = parseLottieAnimationData(animationJson);
     if (!data) return undefined;
-    host.innerHTML = '';
+    mount.innerHTML = '';
     let anim: AnimationItem;
-    const editorState = store.getState()?.editor as
-      | {
-          lottieTimelinePanel?: { nodeId?: string } | null;
-          lottiePlayheadSec?: number;
-          lottiePlaying?: boolean;
-          lottiePlayingHostId?: string | null;
-        }
-      | undefined;
-    const timelineOwns =
-      String(editorState?.lottieTimelinePanel?.nodeId || '') === String(nodeId);
-    const restoreSec = Math.max(0, Number(editorState?.lottiePlayheadSec) || 0);
     try {
       anim = lottie.loadAnimation({
-        container: host,
-        // SVG renderer: canvas missed some LLM path/group fills (blank heart).
-        // FO + CSS zoom scale still works for path ink; dock/lightbox also use SVG.
+        container: mount,
         renderer: 'svg',
         loop,
-        // Never autoplay — Redux transport owns play/pause. Leftover autoplay
-        // kept the ink moving while the toolbar still showed the play icon.
         autoplay: false,
-        animationData: structuredClone
-          ? structuredClone(data)
-          : JSON.parse(JSON.stringify(data)),
+        animationData: cloneAnimationData(data),
         rendererSettings: {
           preserveAspectRatio: 'xMidYMid meet',
           progressiveLoad: false,
@@ -164,59 +199,29 @@ function LottiePlate({
     }
     anim.setSpeed(speed);
     animRef.current = anim;
-    const durationSec = () => {
-      const fr = Math.max(1, Number(anim.frameRate) || 30);
-      const total = Math.max(1, Number(anim.totalFrames) || 1);
-      return total / fr;
-    };
-    const api: LottieHostApi = {
-      play: () => anim.play(),
-      pause: () => anim.pause(),
-      isPaused: () => Boolean(anim.isPaused),
-      setLoop: (next) => {
-        anim.loop = next;
-      },
-      setSpeed: (next) => anim.setSpeed(next),
-      getSpeed: () => Number(anim.playSpeed) || 1,
-      seek: (timeSec) => {
-        const fr = Math.max(1, Number(anim.frameRate) || 30);
-        const total = Math.max(1, Number(anim.totalFrames) || 1);
-        const frame = Math.max(0, Math.min(total - 1e-3, timeSec * fr));
-        // goToAndStop leaves isPaused=true; callers that want playback must play() after.
-        anim.goToAndStop(frame, true);
-      },
-      playFrom: (timeSec) => {
-        const fr = Math.max(1, Number(anim.frameRate) || 30);
-        const total = Math.max(1, Number(anim.totalFrames) || 1);
-        const frame = Math.max(0, Math.min(total - 1e-3, timeSec * fr));
-        anim.goToAndPlay(frame, true);
-      },
-      getCurrentTime: () => {
-        const fr = Math.max(1, Number(anim.frameRate) || 30);
-        return Math.max(0, Number(anim.currentFrame) || 0) / fr;
-      },
-      getDurationSec: durationSec,
-    };
+    const api = buildLottieHostApi(nodeId, anim);
     lottieHosts.set(nodeId, api);
-    const at = Math.min(restoreSec, durationSec());
-    const playingHost = String(editorState?.lottiePlayingHostId || '').trim();
-    const hostMatches = playingHost
-      ? playingHost === String(nodeId)
-      : timelineOwns;
-    if (Boolean(editorState?.lottiePlaying) && hostMatches) {
-      api.playFrom(at);
-    } else {
-      api.seek(at);
-    }
+
+    const editorState = readEditorLottieState();
+    const timelineOwns =
+      String(editorState.lottieTimelinePanel?.nodeId || '') === nodeId;
+    const restoreSec = Math.max(0, Number(editorState.lottiePlayheadSec) || 0);
+    const at = Math.min(restoreSec, api.getDurationSec());
+    const playingHost = String(editorState.lottiePlayingHostId || '').trim();
+    let hostMatches = timelineOwns;
+    if (playingHost) hostMatches = isPlayingHost(nodeId, playingHost);
+    if (editorState.lottiePlaying && hostMatches) api.playFrom(at);
+    else api.seek(at);
+
     return () => {
       anim.destroy();
       animRef.current = null;
       if (lottieHosts.get(nodeId) === api) lottieHosts.delete(nodeId);
-      host.innerHTML = '';
+      mount.innerHTML = '';
     };
     // loop/speed applied below — avoid remounting on toolbar toggles.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-  }, [hostEl, animationJson, nodeId]);
+  }, [mount, animationJson, nodeId]);
 
   useEffect(() => {
     const anim = animRef.current;
@@ -230,48 +235,49 @@ function LottiePlate({
     anim.setSpeed(speed);
   }, [speed]);
 
-  // Keep host ink in lockstep with Redux play/pause (icon ↔ visual).
-  // Only the active play host (or timeline panel host) may run — never broadcast.
   useEffect(() => {
     const api = lottieHosts.get(nodeId);
     if (!api) return;
-    const mine = playingHostId
-      ? playingHostId === String(nodeId)
-      : Boolean(timelineHostId) && timelineHostId === String(nodeId);
+    let mine = isTimelineHost(nodeId, timelineHostId);
+    if (playingHostId) mine = isPlayingHost(nodeId, playingHostId);
     if (reduxPlaying && mine) {
       if (api.isPaused()) api.play();
-    } else if (!api.isPaused()) {
-      api.pause();
+      return;
     }
-  }, [reduxPlaying, playingHostId, timelineHostId, nodeId, hostEl, animationJson]);
+    if (!api.isPaused()) api.pause();
+  }, [reduxPlaying, playingHostId, timelineHostId, nodeId, mount, animationJson]);
 
-  return createPortal(
-    <div
-      data-lottie-node={nodeId}
-      className="pointer-events-none absolute inset-0 overflow-hidden"
-      style={{
-        borderRadius: scenePlate.borderRadius,
-        background: fill,
-        boxShadow:
-          frameHost || fill === 'transparent' ? undefined : 'inset 0 0 0 1px var(--line)',
-        visibility: hidden ? 'hidden' : undefined,
-      }}
-      aria-hidden
-    >
-      <div
-        className="pointer-events-none absolute left-0 top-0 overflow-hidden"
-        style={{
-          width: scenePlate.width * z,
-          height: scenePlate.height * z,
-          transform: `scale(${1 / z})`,
-          transformOrigin: '0 0',
-        }}
-      >
-        <div ref={setHostEl} className="h-full w-full" />
-      </div>
-    </div>,
-    mount
-  );
+  useEffect(() => {
+    if (hidden) return;
+    const api = lottieHosts.get(nodeId);
+    if (!api) return;
+    const restoreSec = Math.max(0, Number(readEditorLottieState().lottiePlayheadSec) || 0);
+    api.seek(restoreSec);
+  }, [hidden, nodeId, mount, animationJson]);
+
+  return null;
+}
+
+function shouldHideLottieInk(opts: {
+  node: SceneNode;
+  nodeId: string;
+  frameHost: boolean;
+  hidden?: boolean;
+  precompAssetId: string;
+  precompLotId: string;
+  precompSessionMaterialized: boolean;
+}): boolean {
+  const { node, nodeId, frameHost, hidden, precompAssetId, precompLotId, precompSessionMaterialized } =
+    opts;
+  if (frameHost && !animationHostHasUnlinkedInk(node.attrs?.animationData)) return true;
+  if (hidden || isNodeHidden(node) || isHiddenByAnimationWorkbenchFocus(node)) return true;
+  if (precompAssetId && frameHost) return true;
+  if (!precompAssetId) return false;
+  if (isPrecompEditSessionNode(node)) return false;
+  if (precompLotId && nodeId === precompLotId) return precompSessionMaterialized;
+  if (frameHost) return true;
+  if (String(node.attrs?.frameId || '').trim()) return true;
+  return false;
 }
 
 function AnimationNodeOverlay({
@@ -283,18 +289,15 @@ function AnimationNodeOverlay({
   hidden?: boolean;
   geometryOverrides?: Record<string, LottieGeomOverride> | null;
 }): ReactNode {
-  const [zoom, setZoom] = useState(1);
-  const onZoom = useCallback((z: number) => {
-    setZoom((prev) => (Math.abs(prev - z) < 1e-6 ? prev : z));
-  }, []);
-  void zoom;
+  const sceneReloadToken = useSelector(
+    (s: any) => Number(s.editor.sceneReloadToken) || 0
+  );
 
   const ids = useMemo(() => {
     const children: string[] = document?.deltaSetLike?.ROOT?.children || [];
     return children.filter((id) => {
       const node = document?.deltaSetLike?.[id];
-      if (!isLottieNode(node)) return false;
-      return Boolean(parseLottieAnimationData(node?.attrs?.animationData));
+      return isLottieNode(node) && lottieNodeHasInkJson(document, id, node);
     });
   }, [document]);
 
@@ -302,14 +305,14 @@ function AnimationNodeOverlay({
 
   return (
     <>
-      <LottieZoomSync onZoom={onZoom} />
       {ids.map((nodeId) => (
         <LottiePlateHost
-          key={nodeId}
+          key={`${nodeId}:${sceneReloadToken}`}
           nodeId={nodeId}
           document={document}
           hidden={hidden}
           geometryOverrides={geometryOverrides}
+          reloadKey={String(sceneReloadToken)}
         />
       ))}
     </>
@@ -320,37 +323,55 @@ function LottiePlateHost({
   nodeId,
   document,
   hidden,
-  geometryOverrides,
+  reloadKey = '',
 }: {
   nodeId: string;
   document: SceneDocument;
   hidden?: boolean;
   geometryOverrides?: Record<string, LottieGeomOverride> | null;
+  reloadKey?: string;
 }) {
   const mount = useHtmlMediaMount(nodeId);
+  const precompEdit = useSelector(
+    (s: any) =>
+      s.editor.lottiePrecompEdit as null | {
+        assetId?: string;
+        lotNodeId?: string | null;
+        sessionNodeIds?: string[];
+      }
+  );
   const node = document?.deltaSetLike?.[nodeId];
-  if (!node || !mount) return null;
-  const animationJson = String(node.attrs?.animationData || '').trim();
-  if (!parseLottieAnimationData(animationJson)) return null;
-  const scenePlate = buildScenePlateStyle(document, node, geometryOverrides?.[nodeId]);
+  if (!node || !(mount instanceof SVGSVGElement)) return null;
+
   const frameHost = isAnimationFrameHostNode(node, document);
-  // Host ink is usually hidden (scene children are the editable ink). Show it
-  // when imported / unlinked layers have nothing on the artboard to draw.
-  const hideHostInk =
-    frameHost && !animationHostHasUnlinkedInk(node.attrs?.animationData);
-  const hideInk =
-    hideHostInk ||
-    isNodeOverlayHidden(document, node, hidden) ||
-    shouldHideLottieInkForPrecompEdit(nodeId);
+  const workbenchNested = isWorkbenchNestedLottieNode(node, document);
+  const precompAssetId = String(precompEdit?.assetId || '').trim();
+  const hostFallback = workbenchNested && !precompAssetId;
+  const animationJson = resolveLottieInkJson(document, nodeId, node, { hostFallback });
+  if (!animationJson || !parseLottieAnimationData(animationJson)) return null;
+
+  let precompLotId = String(precompEdit?.lotNodeId || '').trim();
+  if (!precompLotId && precompAssetId.startsWith('lot_')) {
+    precompLotId = precompAssetId.slice(4);
+  }
+  const hideInk = shouldHideLottieInk({
+    node,
+    nodeId,
+    frameHost,
+    hidden,
+    precompAssetId,
+    precompLotId,
+    precompSessionMaterialized: Boolean(precompEdit?.sessionNodeIds?.length),
+  });
+  const inkRevision = String(node.attrs?.lottieInkRevision ?? '');
+
   return (
     <LottiePlate
+      key={`${nodeId}:${reloadKey}:${inkRevision}:${animationJson.length}`}
       nodeId={nodeId}
-      scenePlate={scenePlate}
       animationJson={animationJson}
       loop={readLoop(node.attrs)}
       speed={readSpeed(node.attrs)}
-      plateFill={String(node.attrs?.['fill-color'] || '').trim()}
-      frameHost={frameHost}
       hidden={hideInk}
       mount={mount}
     />

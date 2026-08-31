@@ -6,6 +6,7 @@ import {
   finalizeNodeForAnimationWorkbenchFocus,
   getWorkbenchToolPolicy,
   isAnimationWorkbenchPreviewChild,
+  isAnimationWorkbenchFrameInPreview,
   isArtboardVisibleInDocument,
   isAvBlockedByAnimationWorkbenchFocus,
   isHiddenByAnimationWorkbenchFocus,
@@ -219,6 +220,34 @@ describe('isAnimationWorkbenchPreviewChild', () => {
       },
     });
     expect(isAnimationWorkbenchPreviewChild(doc, doc.deltaSetLike.host)).toBe(false);
+  });
+});
+
+describe('isAnimationWorkbenchFrameInPreview', () => {
+  it('true for animation plate when timeline closed; false when editing', () => {
+    const doc = docWithPlateAndNode({
+      frameId: 'af1',
+      node: {
+        id: 'img1',
+        key: 'image',
+        x: 120,
+        y: 120,
+        width: 80,
+        height: 80,
+        attrs: { frameId: 'af1' },
+      },
+    });
+    expect(isAnimationWorkbenchFrameInPreview(doc, 'af1')).toBe(true);
+    setAnimationWorkbenchTimelineFocus('af1');
+    expect(isAnimationWorkbenchFrameInPreview(doc, 'af1')).toBe(false);
+  });
+
+  it('false for non-animation frames', () => {
+    const doc = {
+      frames: [{ id: 'f1', kind: 'artboard', x: 0, y: 0, width: 100, height: 100 }],
+      deltaSetLike: { ROOT: { id: 'ROOT', key: 'root' } },
+    };
+    expect(isAnimationWorkbenchFrameInPreview(doc, 'f1')).toBe(false);
   });
 });
 

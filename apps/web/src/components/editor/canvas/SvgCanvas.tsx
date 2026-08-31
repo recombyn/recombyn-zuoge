@@ -70,6 +70,9 @@ import {
   createFilePreviewUrl,
   revokeNodePreviewSrc,
 } from '@/utils/uploadImage';
+import {
+  setAnimationWorkbenchGeometryPreview,
+} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { uploadCanvasPlaceholderFile } from '@/utils/canvasUploadFlow';
 import { probeAudioDuration } from '@/components/editor/nodes/shared/mediaProbe';
 import store, { type RootState } from '@/store';
@@ -177,6 +180,7 @@ import AudioNodeOverlay, {
 import VideoNodeOverlay, {
   type VideoGeomOverride,
 } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
+import AnimationPlayheadSceneSync from '@/components/editor/nodes/AnimationNode/AnimationPlayheadSceneSync';
 import AnimationNodeOverlay, {
   type LottieGeomOverride,
 } from '@/components/editor/nodes/AnimationNode/AnimationNodeOverlay';
@@ -425,6 +429,7 @@ function SvgCanvas({
 
   const onGeometryTransformingChange = useCallback((next: boolean) => {
     geometryTransformingRef.current = next;
+    setAnimationWorkbenchGeometryPreview(next);
     setGeometryTransforming(next);
     onTransformingChange?.(next);
     if (!next) {
@@ -1991,6 +1996,9 @@ function SvgCanvas({
             : 'rcb-canvas-paper relative shadow-[0_8px_40px_rgba(15,23,42,0.12)] ring-1 ring-black/5'
         }
       >
+        {infinite ? (
+          <AnimationPlayheadSceneSync document={document} />
+        ) : null}
         {infinite ? (
           <RcbShapesLayer
             document={document}

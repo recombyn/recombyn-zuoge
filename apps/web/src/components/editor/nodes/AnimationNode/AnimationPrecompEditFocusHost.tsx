@@ -14,6 +14,7 @@ import {
   setLottiePrecompEditFocus,
 } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
 import {
+  fitSessionCamera,
   popSessionCamera,
   pushSessionCamera,
   type SessionCameraBandInsets,
@@ -27,7 +28,8 @@ const BOTTOM_BAND_GAP = 40;
 const TOP_BAND_INSET = 40;
 const MAX_ZOOM = 1.6;
 const PADDING = 72;
-const BAND_ANCHOR_Y = 0.38;
+/** Match 主场景 fit — center in the free band above the timeline (not upper-biased). */
+const BAND_ANCHOR_Y = 0.5;
 
 function readBottomBandInset(stageEl: HTMLElement | null): number {
   if (!stageEl) return DOCK_FALLBACK_H + BOTTOM_BAND_GAP;
@@ -65,9 +67,26 @@ function fitOpts(
 function boundsForPrecompEdit(
   document: SceneDocument | null | undefined,
   hostNodeId: string,
-  assetId: string
+  assetId: string,
+  frameId?: string | null
 ): SessionCameraBounds | null {
   if (!document) return null;
+  // After enter, workbench frame is resized to the plate — prefer that AABB so
+  // the visible white board centers (not a stale host/lot offset).
+  const fid = String(frameId || '').trim();
+  if (fid) {
+    const frame = (Array.isArray(document.frames) ? document.frames : []).find(
+      (f: { id?: string }) => String(f?.id) === fid
+    );
+    if (frame) {
+      return {
+        x: Number(frame.x) || 0,
+        y: Number(frame.y) || 0,
+        width: Math.max(1, Number(frame.width) || 1),
+        height: Math.max(1, Number(frame.height) || 1),
+      };
+    }
+  }
   const lotId = linkedLotNodeIdFromAsset(assetId);
   if (lotId) {
     const node = document.deltaSetLike?.[lotId];
@@ -117,13 +136,18 @@ function AnimationPrecompEditFocusHost({
         hostNodeId: string;
         assetId: string;
         selectedLayerInd: number | null;
+        lotNodeId?: string | null;
+        sessionNodeIds?: string[];
+        frameId?: string;
       }
   );
   const dispatch = useDispatch();
   const active = Boolean(edit?.hostNodeId && edit?.assetId);
   const hostNodeId = edit?.hostNodeId || '';
   const assetId = edit?.assetId || '';
-  const lotNodeId = linkedLotNodeIdFromAsset(assetId);
+  const frameId = edit?.frameId || '';
+  const lotNodeId = edit?.lotNodeId ?? linkedLotNodeIdFromAsset(assetId);
+  const sessionMaterialized = Boolean(edit?.sessionNodeIds?.length);
   const pushedRef = useRef(false);
   const fittedKeyRef = useRef('');
   const stageElRef = useRef(stageEl);
@@ -133,11 +157,12 @@ function AnimationPrecompEditFocusHost({
     setLottiePrecompEditFocus({
       active,
       lotNodeId: active ? lotNodeId : null,
+      sessionMaterialized: active ? sessionMaterialized : false,
     });
     return () => {
       if (active) setLottiePrecompEditFocus({ active: false });
     };
-  }, [active, lotNodeId]);
+  }, [active, lotNodeId, sessionMaterialized]);
 
   useEffect(() => {
     if (!active) return;
@@ -164,6 +189,7 @@ function AnimationPrecompEditFocusHost({
       return;
     }
 
+    // Fit once per LOT session — do not chase frame drags while editing.
     const key = `${hostNodeId}:${assetId}`;
     if (fittedKeyRef.current === key && pushedRef.current) return;
 
@@ -171,15 +197,31 @@ function AnimationPrecompEditFocusHost({
     let tries = 0;
     const apply = () => {
       if (cancelled) return;
-      const bounds = boundsForPrecompEdit(document, hostNodeId, assetId);
+      const bounds = boundsForPrecompEdit(document, hostNodeId, assetId, frameId);
       if (!bounds) {
         if (tries++ < 16) window.requestAnimationFrame(apply);
         return;
       }
-      if (pushedRef.current && fittedKeyRef.current === key) return;
+      // Wait until the resized plate is in document (enter shrinks workbench → plate).
+      if (frameId && tries < 8) {
+        const frame = (Array.isArray(document?.frames) ? document!.frames : []).find(
+          (f: { id?: string }) => String(f?.id) === frameId
+        );
+        const fw = Math.max(1, Number(frame?.width) || 0);
+        const fh = Math.max(1, Number(frame?.height) || 0);
+        if (!frame || fw < 1 || fh < 1) {
+          tries += 1;
+          window.requestAnimationFrame(apply);
+          return;
+        }
+      }
+      if (fittedKeyRef.current === key && pushedRef.current) return;
+      const opts = fitOpts(stageElRef.current, bandLeftPx, bandRightPx);
       if (!pushedRef.current) {
-        pushSessionCamera(bounds, fitOpts(stageElRef.current, bandLeftPx, bandRightPx));
+        pushSessionCamera(bounds, opts);
         pushedRef.current = true;
+      } else {
+        fitSessionCamera(bounds, opts);
       }
       fittedKeyRef.current = key;
     };
@@ -187,7 +229,7 @@ function AnimationPrecompEditFocusHost({
     return () => {
       cancelled = true;
     };
-  }, [active, assetId, bandLeftPx, bandRightPx, document, hostNodeId]);
+  }, [active, assetId, bandLeftPx, bandRightPx, document, frameId, hostNodeId]);
 
   useEffect(
     () => () => {

@@ -13,6 +13,7 @@ import {
 } from '@/components/rcb/scene/document/sceneDocument';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import { lottieLocalToScenePoint } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
+import { sampleLayerTransformAtFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 
 const LINK_KEY = 'ln';
@@ -117,6 +118,8 @@ export function materializeRootShapeLayers(opts: {
   frameId: string;
   animationData: unknown;
   plate: { x: number; y: number; width: number; height: number };
+  /** Sample animated pose at this frame (defaults to layer ip). */
+  sampleFrame?: number;
 }): MaterializeLottieResult | null {
   const root = parseLottieAnimationData(opts.animationData);
   if (!root || !Array.isArray(root.layers)) return null;
@@ -149,7 +152,9 @@ export function materializeRootShapeLayers(opts: {
 
   for (const layer of layers) {
     if (!layer || typeof layer !== 'object') continue;
-    if (String(layer[LINK_KEY] || '').trim()) continue; // already linked
+    const linkedId = String(layer[LINK_KEY] || '').trim();
+    // Skip only live document links; stale ln from a prior session must not block rematerialize.
+    if (linkedId && opts.document.deltaSetLike?.[linkedId]) continue;
     if (num(layer.ty, -1) !== 4) continue;
     const shapes = Array.isArray(layer.shapes) ? (layer.shapes as unknown[]) : [];
     const size = readRectSize(shapes);
@@ -157,22 +162,35 @@ export function materializeRootShapeLayers(opts: {
 
     const ks = asObj(layer.ks);
     const p = readStaticVec(ks?.p) || [size.w / 2, size.h / 2, 0];
-    const center = lottieLocalToScenePoint(p[0], p[1], plate, animW, animH);
-    const scale = Math.min(plate.width / animW, plate.height / animH);
-    const w = Math.max(1, size.w * scale);
-    const h = Math.max(1, size.h * scale);
+    const ip = Math.max(0, Math.round(num(layer.ip, 0)));
+    const ind = Math.max(1, Math.round(num(layer.ind, nodeIds.length + 1)));
+    const sampleAt = Number.isFinite(Number(opts.sampleFrame))
+      ? Math.max(0, Math.round(Number(opts.sampleFrame)))
+      : ip;
+    const sampled = sampleLayerTransformAtFrame({
+      animationData: root,
+      sceneKind: 'main',
+      layerInd: ind,
+      frame: sampleAt,
+    });
+    const fit = Math.min(plate.width / animW, plate.height / animH);
+    const sx = Math.max(0.01, (sampled?.scaleX ?? 100) / 100);
+    const sy = Math.max(0.01, (sampled?.scaleY ?? 100) / 100);
+    const cx = sampled?.cx ?? p[0];
+    const cy = sampled?.cy ?? p[1];
+    const center = lottieLocalToScenePoint(cx, cy, plate, animW, animH);
+    const w = Math.max(1, size.w * fit * sx);
+    const h = Math.max(1, size.h * fit * sy);
     const x = center.x - w / 2;
     const y = center.y - h / 2;
     const fill = readFill(shapes);
-    const opacityPct = readStaticNum(ks?.o, 100);
-    const angle = readStaticNum(ks?.r, 0);
+    const opacityPct = sampled?.opacity ?? readStaticNum(ks?.o, 100);
+    const angle = sampled?.rotation ?? readStaticNum(ks?.r, 0);
     const name = String(layer.nm || 'Layer').trim() || 'Layer';
-    const ip = Math.max(0, Math.round(num(layer.ip, 0)));
     const op = Math.max(ip + 1, Math.round(num(layer.op, ip + 1)));
-    const ind = Math.max(1, Math.round(num(layer.ind, nodeIds.length + 1)));
 
     const id = nanoid(10);
-    const r = Math.max(0, size.r * scale);
+    const r = Math.max(0, size.r * fit * Math.min(sx, sy));
     const node: SceneNode = {
       id,
       key: 'shape',

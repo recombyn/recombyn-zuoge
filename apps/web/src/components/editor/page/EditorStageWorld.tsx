@@ -37,8 +37,6 @@ import ImageToolPanelHost from '@/components/editor/nodes/ImageNode/toolPanels/I
 import ShapeStylePanelHost from '@/components/editor/nodes/ShapeNode/ShapeStylePanelHost';
 import VideoTrimSessionHost from '@/components/editor/nodes/VideoNode/VideoTrimSessionHost';
 import AnimationComposeSessionHost from '@/components/editor/nodes/AnimationNode/AnimationComposeSessionHost';
-import AnimationPrecompEditOverlay from '@/components/editor/nodes/AnimationNode/AnimationPrecompEditOverlay';
-import AnimationPlayheadSceneSync from '@/components/editor/nodes/AnimationNode/AnimationPlayheadSceneSync';
 import AnimationPlayheadTransport from '@/components/editor/nodes/AnimationNode/AnimationPlayheadTransport';
 import AnimationFrameContextToolbar from '@/components/editor/nodes/AnimationNode/AnimationFrameContextToolbar';
 import AnimationFrameWorkbenchHost from '@/components/editor/nodes/AnimationNode/AnimationFrameWorkbenchHost';
@@ -100,6 +98,7 @@ import {
 import { previewArtboardFrameGeometry, clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   isArtboardVisibleInDocument,
+  setAnimationWorkbenchGeometryPreview,
   warnIfNewPlateBlockedByAnimationWorkbenchFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 
@@ -713,6 +712,7 @@ function EditorStageWorld({
         }));
       if (movedFrames.length) {
         frameMoveDocumentRef.current = document;
+        setAnimationWorkbenchGeometryPreview(true);
         setFrameSmartGuides([]);
         const boundNodeIds = nodeIdsBoundToFrames(document, frameIds);
         const interiorNodeIds = nodeIdsOverlappingFrames(document, movedFrames);
@@ -759,6 +759,7 @@ function EditorStageWorld({
     }
     frameDragRef.current = null;
     frameMoveDocumentRef.current = document;
+    setAnimationWorkbenchGeometryPreview(false);
     setFrameSmartGuides([]);
     setMovingFrameId(null);
   }, [dispatch, document]);
@@ -933,8 +934,6 @@ function EditorStageWorld({
         <PuppetPinHost document={document} hidden={selectionTransforming} />
         <VideoTrimSessionHost document={document} hidden={selectionTransforming} />
         <AnimationComposeSessionHost document={document} hidden={selectionTransforming} />
-        <AnimationPrecompEditOverlay document={document} hidden={selectionTransforming} />
-        <AnimationPlayheadSceneSync document={document} />
         <AnimationPlayheadTransport document={document} />
         <AnimationFrameWorkbenchHost document={document} hidden={selectionTransforming} />
         <AudioTrimSessionHost document={document} hidden={selectionTransforming} />

@@ -28,7 +28,7 @@ import {
 import Tooltip from '@/components/base/tooltip';
 import { getAgentDockWidth } from '@/components/editor/panels/AgentDock';
 import { getLayerDockWidth } from '@/components/editor/panels/LayerPanel';
-import { getLottieHost } from '@/components/editor/nodes/AnimationNode/AnimationNodeOverlay';
+import { getLottieHost, syncFrameNestedLotLottieHosts } from '@/components/editor/nodes/AnimationNode/AnimationNodeOverlay';
 import AnimationTransportControls from '@/components/editor/nodes/AnimationNode/AnimationTransportControls';
 import AnimationTimelineCanvas, {
   LOTTIE_TIMELINE_ROW_H,
@@ -41,6 +41,10 @@ import AnimationTimelineContextMenu, {
   type AnimationTimelineContextMenuState,
   type LottieTimelineCtxTarget,
 } from '@/components/editor/nodes/AnimationNode/AnimationTimelineContextMenu';
+import {
+  extractPrecompAssetJson,
+  linkedLotNodeIdFromAsset,
+} from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import {
   buildLottieTimelineScenes,
   frameToSec,
@@ -104,6 +108,7 @@ import {
   setSelectedNodeIds,
   updateArtboardFrame,
 } from '@/store/modules/editor';
+import store from '@/store';
 import { cn } from '@/utils/classnames';
 
 const DOCK_HEIGHT_KEY = 'lottie-timeline-dock-height';
@@ -251,6 +256,8 @@ function AnimationTimelineDock({
     pointerId: number;
     startY: number;
   }>(null);
+  /** LOT tab click sets Redux before sceneId — skip one-frame main-scene flush. */
+  const enteringPrecompSceneRef = useRef<string | null>(null);
 
   useEffect(() => {
     setDockHeight(getAnimationTimelineDockHeight());
@@ -314,7 +321,10 @@ function AnimationTimelineDock({
     const frameId = resolveAnimationFrameId(document, node);
     if (!frameId) return;
     dispatch(ensureAnimationFrameMedia({ frameId }));
-  }, [open, frameChildrenKey, dispatch, document, node]);
+    // Intentionally keyed on frameChildrenKey only — not `document`. Upload
+    // progress / transient attrs bump document every tick and would re-glue the
+    // host to a stale plate while the user is still dragging.
+  }, [open, frameChildrenKey, dispatch, node]);
 
   const loop = !(
     node?.attrs?.lottieLoop === false ||
@@ -344,6 +354,21 @@ function AnimationTimelineDock({
     if (!scenes.some((s) => s.id === sceneId)) setSceneId(scenes[0].id);
   }, [scenes, sceneId]);
 
+  // 主场景 + 残留 precomp 状态 → 强制 flush，避免 nested LOT 被 hideForPrecompEdit 卡住。
+  useEffect(() => {
+    const onMain =
+      sceneId === 'main' || scenes.find((s) => s.id === sceneId)?.kind === 'main';
+    if (!onMain) {
+      if (enteringPrecompSceneRef.current && sceneId === enteringPrecompSceneRef.current) {
+        enteringPrecompSceneRef.current = null;
+      }
+      return;
+    }
+    if (!precompEdit?.assetId) return;
+    if (enteringPrecompSceneRef.current) return;
+    dispatch(exitLottiePrecompEdit());
+  }, [dispatch, precompEdit?.assetId, sceneId, scenes]);
+
   // Upload/nest sets lottiePrecompEdit ? keep the tab bar on that precomp.
   useEffect(() => {
     const assetId = String(precompEdit?.assetId || '').trim();
@@ -354,6 +379,59 @@ function AnimationTimelineDock({
 
   const activeScene: LottieTimelineScene | null =
     scenes.find((s) => s.id === sceneId) || scenes[0] || null;
+
+  const syncNestedLotsOnMainScene = useCallback(
+    (timeSec: number, shouldPlay: boolean, sceneKind: 'main' | 'precomp' = 'main') => {
+      if (!document || !nodeId || precompEdit?.assetId) return;
+      if (sceneKind !== 'main') return;
+      syncFrameNestedLotLottieHosts({
+        document,
+        frameHostId: nodeId,
+        timeSec,
+        playing: shouldPlay,
+      });
+    },
+    [document, nodeId, precompEdit?.assetId]
+  );
+
+  const prevPrecompAssetRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevPrecompAssetRef.current;
+    const next = String(precompEdit?.assetId || '').trim() || null;
+    prevPrecompAssetRef.current = next;
+    if (!prev || next || !document || !nodeId) return;
+    const onMain =
+      sceneId === 'main' || scenes.find((s) => s.id === sceneId)?.kind === 'main';
+    if (!onMain) return;
+
+    let cancelled = false;
+    let tries = 0;
+    const syncLots = () => {
+      if (cancelled) return;
+      syncFrameNestedLotLottieHosts({
+        document,
+        frameHostId: nodeId,
+        timeSec: playhead,
+        playing: false,
+      });
+      const frameId = resolveAnimationFrameId(document, document.deltaSetLike?.[nodeId]!);
+      let needsRetry = false;
+      if (frameId) {
+        for (const [id, node] of Object.entries(document.deltaSetLike || {})) {
+          if (!node || id === 'ROOT' || node.key !== 'lottie') continue;
+          if (isAnimationFrameHostNode(node, document)) continue;
+          if (String(node.attrs?.frameId || '').trim() !== frameId) continue;
+          if (node.attrs?.hidden === true || node.attrs?.hidden === 'true') continue;
+          if (!getLottieHost(id)) needsRetry = true;
+        }
+      }
+      if (needsRetry && tries++ < 24) window.requestAnimationFrame(syncLots);
+    };
+    window.requestAnimationFrame(syncLots);
+    return () => {
+      cancelled = true;
+    };
+  }, [document, nodeId, playhead, precompEdit?.assetId, sceneId, scenes]);
 
   useEffect(() => {
     const onExpand = (e: Event) => {
@@ -474,8 +552,21 @@ function AnimationTimelineDock({
           patch: { attrs: { animationData: json } },
         })
       );
+      // LOT tab edits host JSON — mirror into the nested lot node so 主场景 preview stays in sync.
+      if (activeScene?.kind === 'precomp' && activeScene.assetId) {
+        const lotId = linkedLotNodeIdFromAsset(activeScene.assetId);
+        const childJson = extractPrecompAssetJson(json, activeScene.assetId);
+        if (lotId && childJson) {
+          dispatch(
+            patchDocumentNode({
+              nodeId: lotId,
+              patch: { attrs: { animationData: childJson } },
+            })
+          );
+        }
+      }
     },
-    [dispatch, nodeId]
+    [activeScene?.assetId, activeScene?.kind, dispatch, nodeId]
   );
 
   const selectTimelineLayer = useCallback(
@@ -713,8 +804,9 @@ function AnimationTimelineDock({
       dispatch(setLottiePlayhead(next));
       if (!nodeId) return;
       getLottieHost(nodeId)?.seek(next);
+      syncNestedLotsOnMainScene(next, false);
     },
-    [dispatch, duration, fps, nodeId]
+    [dispatch, duration, fps, nodeId, syncNestedLotsOnMainScene]
   );
 
   // Enter timeline at t=0 ??do not adopt leftover host/autoplay time.
@@ -732,6 +824,7 @@ function AnimationTimelineDock({
       dispatch(setLottiePlaying({ playing: false, hostNodeId: nodeId }));
       host?.pause();
     }
+    syncNestedLotsOnMainScene(0, wantPlay);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open/node only; playing sampled at enter
   }, [open, nodeId]);
 
@@ -810,6 +903,7 @@ function AnimationTimelineDock({
           snapSecToFrame(Math.max(liveIn, Math.min(duration, t)), fps, duration)
         )
       );
+      syncNestedLotsOnMainScene(t, true);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -825,6 +919,7 @@ function AnimationTimelineDock({
     workAreaPreview?.outSec,
     workInSec,
     workOutSec,
+    syncNestedLotsOnMainScene,
   ]);
 
   const clientXToSec = useCallback(
@@ -881,6 +976,7 @@ function AnimationTimelineDock({
     if (playing) {
       const host = getLottieHost(nodeId);
       host?.pause();
+      syncNestedLotsOnMainScene(host?.getCurrentTime() ?? playhead, false);
       dispatch(setLottiePlaying({ playing: false, hostNodeId: nodeId }));
       if (host) {
         dispatch(setLottiePlayhead(snapSecToFrame(host.getCurrentTime(), fps, duration)));
@@ -896,6 +992,7 @@ function AnimationTimelineDock({
     playheadRef.current = snapped;
     // Best-effort host; wall-clock RAF keeps the playhead moving either way.
     getLottieHost(nodeId)?.playFrom(snapped);
+    syncNestedLotsOnMainScene(snapped, true);
     dispatch(setLottiePlaying({ playing: true, hostNodeId: nodeId }));
   };
   const togglePlayRef = useRef(togglePlay);
@@ -2048,13 +2145,16 @@ function AnimationTimelineDock({
                     : 'border-transparent text-[var(--muted)] hover:text-[var(--ink)]'
                 )}
                 onClick={() => {
-                  setSceneId(scene.id);
                   dispatch(setLottiePlaying({ playing: false, hostNodeId: nodeId }));
                   setSelectedKf(null);
                   setKfPopoverOpen(false);
                   setKfAnchor(null);
                   getLottieHost(nodeId)?.pause();
                   if (scene.kind === 'precomp' && scene.assetId) {
+                    enteringPrecompSceneRef.current = scene.id;
+                    setSceneId(scene.id);
+                    setSelectedLayerId(null);
+                    dispatch(setSelectedNodeIds([]));
                     // LOT tab = materialize insides + resize workbench to the plate.
                     const firstInd = scene.layers[0]?.ind;
                     dispatch(
@@ -2065,10 +2165,22 @@ function AnimationTimelineDock({
                       })
                     );
                   } else {
-                    // 主场景: exit tab edit — children / insides are preview-only.
+                    enteringPrecompSceneRef.current = null;
+                    // 主场景: flush LOT session + restore workbench before switching tabs.
                     dispatch(exitLottiePrecompEdit());
+                    setSceneId(scene.id);
                     dispatch(setLottiePrecompSelectedLayer(null));
                     dispatch(setSelectedNodeIds([]));
+                    const docAfter = (store.getState() as { editor?: { document?: typeof document } })
+                      .editor?.document;
+                    if (docAfter && nodeId) {
+                      syncFrameNestedLotLottieHosts({
+                        document: docAfter,
+                        frameHostId: nodeId,
+                        timeSec: playhead,
+                        playing: false,
+                      });
+                    }
                   }
                 }}
               >
