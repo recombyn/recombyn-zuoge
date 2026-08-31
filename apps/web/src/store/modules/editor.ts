@@ -1,4 +1,5 @@
-import { createSlice, nanoid, type PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, type PayloadAction } from '@/store/createSlice';
+import { nanoid } from 'nanoid';
 import {
   createEmptyDocument,
   normalizeDocument,
@@ -80,12 +81,29 @@ import {
   isAnimationWorkbenchPreviewChild,
   isAvBlockedByAnimationWorkbenchFocus,
   isNewPlateBlockedByAnimationWorkbenchFocus,
+  setAnimationWorkbenchGeometryPreview,
   setAnimationWorkbenchPlayheadSec,
   setAnimationWorkbenchTimelineFocus,
   tagCreatedNodeForWorkbenchSurround,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { setLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
+import { collectPrecompSessionDocumentPatches } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
+import { requestPlayheadSceneApply } from '@/components/editor/nodes/AnimationNode/animationPlayheadApplyEvent';
+import { requestPuppetWarpApply } from '@/components/editor/nodes/ImageNode/puppet/puppetWarpApplyEvent';
+import {
+  writeAnimationPlayheadSec,
+  writeAnimationPlaying,
+} from '@/components/editor/nodes/AnimationNode/animationTransport';
+import {
+  queueEnsureAnimationFrame,
+  requestPrecompCameraFit,
+  requestPrecompCameraRelease,
+  requestSoaAiFlush,
+  requestSyncNestedLotHosts,
+  requestTimelineCameraFit,
+  requestTimelineCameraRelease,
+} from '@/components/editor/sceneEvents';
 import { notifyShapeHostGeometry } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   asHistoryEntry,
@@ -436,6 +454,11 @@ const initialState = {
   canvasApplyLock: 0,
   sceneReloadToken: 0,
   documentPatchToken: 0,
+  /**
+   * Monotonic doc mutation counter (incl. setDocumentFromCanvas).
+   * Collab / persist subscribe to this instead of whole `document` identity.
+   */
+  documentRevision: 0,
   /** Node ids last touched by `patchDocumentNode` — SvgCanvas refreshes these even with no selection. */
   lastPatchedNodeIds: [] as string[],
   /** Latest patch only changed angle / flip — SvgCanvas updates transform, not path `d`. */
@@ -645,9 +668,52 @@ function persistActivePrecompSession(state: typeof initialState) {
   state.documentPatchToken += 1;
 }
 
+/**
+ * LOT-tab: bake playhead-sampled poses into session shapes in-reducer.
+ * Called from enter / setLottiePlayhead — never from a document watcher.
+ */
+function bakePrecompSessionDocumentPoses(state: typeof initialState) {
+  const edit = state.lottiePrecompEdit;
+  if (!edit?.sessionNodeIds?.length || !state.document || state.lottiePlaying) return;
+  const hostId = String(edit.hostNodeId || '').trim();
+  if (!hostId) return;
+  const patches = collectPrecompSessionDocumentPatches({
+    document: state.document,
+    hostNodeId: hostId,
+    playheadSec: Number(state.lottiePlayheadSec) || 0,
+  });
+  if (!patches.length) return;
+  const applied: string[] = [];
+  for (const item of patches) {
+    const id = String(item.nodeId || '');
+    if (!id || !state.document.deltaSetLike?.[id]) continue;
+    state.document.deltaSetLike[id] = mergeNodePatch(
+      state.document.deltaSetLike[id],
+      item.patch
+    );
+    applied.push(id);
+  }
+  if (!applied.length) return;
+  state.documentPatchToken += 1;
+  state.lastPatchedNodeIds = applied;
+  state.lastPatchTransformOnly = false;
+}
+
 function clearLottiePrecompEdit(state: typeof initialState): boolean {
+  const prev = state.lottiePrecompEdit;
+  const hostNodeId = String(prev?.hostNodeId || '').trim();
   const changed = tearDownLottiePrecompEdit(state);
   state.lottiePrecompEdit = null;
+  if (prev) {
+    requestPrecompCameraRelease();
+    if (hostNodeId) {
+      requestSyncNestedLotHosts({
+        frameHostId: hostNodeId,
+        timeSec: Number(state.lottiePlayheadSec) || 0,
+        afterPaint: true,
+      });
+    }
+  }
   return changed;
 }
 
@@ -660,9 +726,19 @@ function clearPendingProcessIfNodeGone(state: typeof initialState) {
   }
 }
 
+function bumpDocumentRevision(state: typeof initialState) {
+  state.documentRevision = (Number(state.documentRevision) || 0) + 1;
+}
+
 function bumpSceneRevisionIfUnlocked(state: typeof initialState) {
   if ((state.aiMutationLock || 0) > 0) return;
   state.sceneRevision = (state.sceneRevision || 0) + 1;
+}
+
+/** Remount SVG hosts — skipped while AI transaction is open (flush on unlock). */
+function bumpSceneReloadIfUnlocked(state: typeof initialState) {
+  if ((state.aiMutationLock || 0) > 0) return;
+  state.sceneReloadToken = (Number(state.sceneReloadToken) || 0) + 1;
 }
 
 /** Remote Yjs is a user-visible scene change — AI must rebase, not silent-overwrite. */
@@ -715,6 +791,7 @@ function pushHistoryBeforeTransientNodeCommit(
 function pushNodePatchHistory(state: typeof initialState, nodeIds: string[]) {
   snapshotNodePatchHistory(state, nodeIds);
   bumpSceneRevisionIfUnlocked(state);
+  bumpDocumentRevision(state);
 }
 
 const editorSlice = createSlice({
@@ -796,7 +873,7 @@ const editorSlice = createSlice({
         preserveStageCanvasMeta(state.document, action.payload)
       );
       state.dirty = true;
-      state.sceneReloadToken += 1;
+      bumpSceneReloadIfUnlocked(state);
       // Deleted upload placeholder — drop pending id (caller aborts the HTTP request).
       if (
         state.pendingImageProcessId &&
@@ -805,6 +882,10 @@ const editorSlice = createSlice({
         state.pendingImageProcessId = null;
       }
       syncLibraryOnEdit(state);
+      // Pencil / paste / agent may add workbench children without patchDocumentNode —
+      // bake them into the timeline host after this reducer exits (same as patches).
+      const focusAfterSet = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+      if (focusAfterSet) queueEnsureAnimationFrame(focusAfterSet, { skipHistory: true });
     },
     /**
      * Delete nodes / artboards. In-flight process placeholders (upload / AI) are
@@ -826,6 +907,23 @@ const editorSlice = createSlice({
         .filter(Boolean);
       const nodeIds = [...new Set([...requestedNodeIds, ...frameNodeIds])];
       if (!nodeIds.length && !frameIds.length) return;
+
+      // Canvas Delete / ctx-menu remove must re-sync 动画工作台 layers so orphan
+      // timeline tracks (ln → deleted node) drop with the shape.
+      const ensureFrameIds = new Set<string>();
+      const focusFid = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+      if (focusFid) ensureFrameIds.add(focusFid);
+      for (const id of nodeIds) {
+        const n = state.document.deltaSetLike?.[id];
+        const fid = resolveAnimationFrameId(state.document, n);
+        if (fid) ensureFrameIds.add(fid);
+      }
+      for (const fid of frameIds) {
+        const frame = (Array.isArray(state.document.frames) ? state.document.frames : []).find(
+          (f) => String(f?.id) === fid
+        );
+        if (frame && isAnimationArtboardKind(frame.kind)) ensureFrameIds.add(fid);
+      }
 
       const ephemeralIds = nodeIds.filter((id: string) =>
         isEphemeralUploadNode(state.document?.deltaSetLike?.[id])
@@ -889,20 +987,40 @@ const editorSlice = createSlice({
       state.documentPatchToken += 1;
       state.lastPatchedNodeIds = nodeIds;
       syncLibraryOnEdit(state);
+
+      if (!state.lottiePrecompEdit?.frameId) {
+        for (const fid of ensureFrameIds) {
+          if (frameIdSet.has(fid)) continue;
+          queueEnsureAnimationFrame(fid, { skipHistory: true });
+        }
+      }
     },
     setDocumentFromCanvas(state, action) {
       state.document = normalizeDocument(
         preserveStageCanvasMeta(state.document, action.payload)
       );
       state.dirty = true;
+      bumpDocumentRevision(state);
       if (
         state.pendingImageProcessId &&
         !state.document?.deltaSetLike?.[state.pendingImageProcessId]
       ) {
         state.pendingImageProcessId = null;
       }
-      persistActivePrecompSession(state);
+      // While LOT tab is open, canvas remounts must not autoKey/persist — that
+      // rewrites host JSON every paint and deadlocks with playhead pose bake.
+      if (!state.lottiePrecompEdit?.frameId) {
+        persistActivePrecompSession(state);
+      }
       syncLibraryOnEdit(state);
+      // Shape draw / text place use this path — not patchDocumentNode — so newly
+      // bound 动画工作台 children never reached the layer timeline without this sync.
+      // Defer via event (same as patchDocumentNode) — do not nest ensure in this
+      // immer produce (host geometry writes are not draft-safe when nested).
+      const focusAfterCanvas = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+      if (focusAfterCanvas && !state.lottiePrecompEdit?.frameId) {
+        queueEnsureAnimationFrame(focusAfterCanvas, { skipHistory: true });
+      }
     },
     /** Clear SoftGlow / process attrs and force host remount (no stuck overlay). */
     clearImageProcess(state, action) {
@@ -928,14 +1046,21 @@ const editorSlice = createSlice({
       state.document.deltaSetLike[id] = mergeNodePatch(state.document.deltaSetLike[id], patch);
       state.dirty = true;
       state.documentPatchToken += 1;
+      if (!skipHistory && !transientOnly) bumpDocumentRevision(state);
       // Geometry already previewed against a mounted SVG must stay mounted. The
       // document token still updates selection/chrome, but this id skips a host
       // teardown that would briefly repaint the old centre-anchored box.
       const skipHost = shouldSkipPatchHostReload(skipHostReload, patch);
       state.lastPatchedNodeIds = skipHost ? [] : [id];
       state.lastPatchTransformOnly = !skipHost && isTransformOnlyAttrsPatch(patch);
-      persistActivePrecompSession(state);
+      // Playhead bake uses skipHistory — must not persist/autoKey or LOT tab freezes
+      // (pose patch → JSON rewrite → pose differs → infinite layout loop).
+      if (!skipHistory && !transientOnly) persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
+      if (!skipHistory && !transientOnly && state.document) {
+        const fid = resolveAnimationFrameId(state.document, state.document.deltaSetLike?.[id]);
+        if (fid) queueEnsureAnimationFrame(fid);
+      }
     },
     /** Apply many node patches in one Redux write (align / distribute / flip). */
     patchDocumentNodes(state, action) {
@@ -949,20 +1074,34 @@ const editorSlice = createSlice({
       }
       if (!skipHistory && ids.length) pushNodePatchHistory(state, ids);
       const applied: string[] = [];
+      let anyNonTransient = false;
       for (const item of patches) {
         const id = item?.nodeId ? String(item.nodeId) : '';
         const patch = item?.patch;
         if (!id || !patch || !state.document.deltaSetLike?.[id]) continue;
+        if (!isTransientNodePatch(patch)) anyNonTransient = true;
         state.document.deltaSetLike[id] = mergeNodePatch(state.document.deltaSetLike[id], patch);
         applied.push(id);
       }
       if (!applied.length) return;
       state.dirty = true;
       state.documentPatchToken += 1;
+      if (!skipHistory && anyNonTransient) bumpDocumentRevision(state);
       state.lastPatchedNodeIds = applied;
       state.lastPatchTransformOnly = false;
-      persistActivePrecompSession(state);
+      if (!skipHistory) persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
+      if (!skipHistory && state.document) {
+        const frames = new Set<string>();
+        for (const nid of applied) {
+          const fid = resolveAnimationFrameId(
+            state.document,
+            state.document.deltaSetLike?.[nid]
+          );
+          if (fid) frames.add(fid);
+        }
+        for (const fid of frames) queueEnsureAnimationFrame(fid);
+      }
     },
     setSelectedNodeId(state, action) {
       const id = action.payload ? String(action.payload) : null;
@@ -983,6 +1122,7 @@ const editorSlice = createSlice({
             state.selectedFrameIds = [fid];
             state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
             pauseLottieIfPlaying(state);
+            queueEnsureAnimationFrame(fid);
             return;
           }
         }
@@ -1149,6 +1289,14 @@ const editorSlice = createSlice({
       state.selectedFrameIds = filtered;
       if (filtered.length) state.frameChromeMode = 'full';
       state.dirty = true;
+      for (const fid of filtered) {
+        const frame = (Array.isArray(next.frames) ? next.frames : []).find(
+          (f) => String(f?.id) === fid
+        );
+        if (frame && isAnimationArtboardKind(frame.kind)) {
+          queueEnsureAnimationFrame(fid);
+        }
+      }
     },
     /** Set node + artboard selection together (marquee / unified control box). */
     setMixedSelection(
@@ -1177,6 +1325,7 @@ const editorSlice = createSlice({
             state.selectedFrameIds = [fid];
             state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
             pauseLottieIfPlaying(state);
+            queueEnsureAnimationFrame(fid);
             return;
           }
         }
@@ -1303,6 +1452,7 @@ const editorSlice = createSlice({
       next.frames = frames;
       state.document = next;
       state.dirty = true;
+      if (!skipHistory) bumpDocumentRevision(state);
       syncLibraryOnEdit(state);
     },
     updateArtboardFrame(state, action) {
@@ -1317,6 +1467,7 @@ const editorSlice = createSlice({
       next.frames = frames;
       state.document = next;
       state.dirty = true;
+      if (!skipHistory && !isTransientFramePatch(patch)) bumpDocumentRevision(state);
       // Frame plates repaint in place. Only geometry of a clipping frame needs a
       // scene reload so dependent clip paths are rebuilt.
       // skipHistory previews (live drag) also skip SVG remount — commit bumps token.
@@ -1388,6 +1539,7 @@ const editorSlice = createSlice({
       next.frames = frames;
       state.document = next;
       state.dirty = true;
+      if (!skipHistory && hasUndoablePatch) bumpDocumentRevision(state);
       if (needsReload) state.sceneReloadToken += 1;
       syncLibraryOnEdit(state);
     },
@@ -1395,6 +1547,10 @@ const editorSlice = createSlice({
     pushEditorHistory(state) {
       if (!state.document) return;
       pushHistory(state);
+    },
+    /** Bump collab/layer revision after skipHistory patches that still commit user geometry. */
+    touchDocumentRevision(state) {
+      bumpDocumentRevision(state);
     },
     /** AI DesignTransaction: freeze user revision while tool_ops apply. */
     beginAiSceneMutation(state) {
@@ -1404,6 +1560,10 @@ const editorSlice = createSlice({
       state.aiMutationLock = Math.max(0, (state.aiMutationLock || 0) - 1);
       if (state.aiMutationLock === 0) {
         state.sceneRevision = (state.sceneRevision || 0) + 1;
+        // One remount + SoA flush after the whole transaction (not per tool_op).
+        state.sceneReloadToken = (Number(state.sceneReloadToken) || 0) + 1;
+        bumpDocumentRevision(state);
+        requestSoaAiFlush();
       }
     },
     beginCanvasApplyLock(state) {
@@ -2221,6 +2381,7 @@ const editorSlice = createSlice({
         clearLottiePrecompEdit(state);
         state.lottiePlayingHostId = hostId;
         state.lottiePlayheadSec = 0;
+        writeAnimationPlayheadSec(0);
         setAnimationWorkbenchPlayheadSec(0);
         state.dirty = true;
         state.sceneReloadToken += 1;
@@ -2831,6 +2992,12 @@ const editorSlice = createSlice({
         state.imageMarkPins = pruneMarkPinsBySink(state.imageMarkPins, 'imageGen');
         state.pendingImageGenMarkContexts = [];
       }
+      // Puppet exit remounts selection chrome / SVG — re-bake Canvas 2D warp onto href.
+      if (panel?.kind === 'puppet') {
+        state.documentPatchToken += 1;
+        state.sceneReloadToken += 1;
+        requestPuppetWarpApply({ afterPaint: true });
+      }
     },
     openVideoToolPanel(state, action) {
       const { nodeId, kind, keepTime } = action.payload || {};
@@ -2942,6 +3109,7 @@ const editorSlice = createSlice({
       state.lottiePlayingHostId = nodeId;
       // Always enter at t=0 — stale playhead / host time must not stick.
       state.lottiePlayheadSec = 0;
+      writeAnimationPlayheadSec(0);
       setAnimationWorkbenchPlayheadSec(0);
       // Optional: start playing after open (legacy callers may still pass play).
       state.lottiePlaying = Boolean(action.payload?.play);
@@ -2954,6 +3122,7 @@ const editorSlice = createSlice({
         state.selectedFrameIds = [frameId];
         // Sync module focus immediately (do not wait for React paint).
         setAnimationWorkbenchTimelineFocus(frameId);
+        queueEnsureAnimationFrame(frameId);
       }
       if (state.lottiePrecompEdit?.hostNodeId !== nodeId) {
         clearLottiePrecompEdit(state);
@@ -2964,6 +3133,7 @@ const editorSlice = createSlice({
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.shapeStylePanel = null;
+      requestTimelineCameraFit({ afterPaint: true });
     },
     closeLottieTimelinePanel(state) {
       if (clearLottiePrecompEdit(state)) state.dirty = true;
@@ -2972,8 +3142,10 @@ const editorSlice = createSlice({
       state.lottiePlayingHostId = null;
       // Exit at first frame so the canvas isn't left mid-scrub.
       state.lottiePlayheadSec = 0;
+      writeAnimationPlayheadSec(0);
       setAnimationWorkbenchTimelineFocus(null);
       setAnimationWorkbenchPlayheadSec(0);
+      requestTimelineCameraRelease();
       // Preview mode: inner elements are not selectable — clear child picks.
       if (state.document && state.selectedNodeIds?.length) {
         const kept = state.selectedNodeIds.filter(
@@ -3015,6 +3187,8 @@ const editorSlice = createSlice({
             lotNodeId: state.lottiePrecompEdit.lotNodeId ?? null,
             sessionMaterialized: true,
           });
+          bakePrecompSessionDocumentPoses(state);
+          requestPlayheadSceneApply({ afterPaint: true });
           return;
         }
         clearLottiePrecompEdit(state);
@@ -3056,6 +3230,9 @@ const editorSlice = createSlice({
       state.selectedFrameIds = [];
       state.selectedNodeId = null;
       state.selectedNodeIds = [];
+      bakePrecompSessionDocumentPoses(state);
+      requestPlayheadSceneApply({ afterPaint: true });
+      requestPrecompCameraFit({ afterPaint: true });
     },
     exitLottiePrecompEdit(state) {
       const prev = state.lottiePrecompEdit;
@@ -3096,9 +3273,20 @@ const editorSlice = createSlice({
         }
       }
 
+      const hostNodeId = String(prev.hostNodeId || '').trim();
       state.lottiePrecompEdit = null;
       state.selectedNodeId = null;
       state.selectedNodeIds = [];
+      requestPlayheadSceneApply({ afterPaint: true });
+      requestPrecompCameraRelease();
+      if (hostNodeId) {
+        requestSyncNestedLotHosts({
+          frameHostId: hostNodeId,
+          timeSec: Number(state.lottiePlayheadSec) || 0,
+          afterPaint: true,
+        });
+      }
+      if (prev.frameId) queueEnsureAnimationFrame(prev.frameId);
     },
     setLottiePrecompSelectedLayer(state, action) {
       if (!state.lottiePrecompEdit) return;
@@ -3109,8 +3297,18 @@ const editorSlice = createSlice({
     setLottiePlayhead(state, action) {
       const n = Number(action.payload);
       if (!Number.isFinite(n)) return;
-      state.lottiePlayheadSec = Math.max(0, n);
-      setAnimationWorkbenchPlayheadSec(state.lottiePlayheadSec);
+      const sec = Math.max(0, n);
+      // Recover stuck mid-drag gate so ensure/sync + playhead pose stay live.
+      if (isAnimationWorkbenchGeometryPreview()) {
+        setAnimationWorkbenchGeometryPreview(false);
+      }
+      // Transport first — Dock/Selection opt into useAnimationPlayheadSec (not whole editor).
+      writeAnimationPlayheadSec(sec);
+      state.lottiePlayheadSec = sec;
+      setAnimationWorkbenchPlayheadSec(sec);
+      bakePrecompSessionDocumentPoses(state);
+      requestPlayheadSceneApply();
+      requestPuppetWarpApply();
     },
     setLottiePlaying(state, action) {
       const payload = action.payload;
@@ -3130,6 +3328,9 @@ const editorSlice = createSlice({
         state.lottiePlaying = playing;
         // Pausing must not clear the playhead host (SceneSync would seek 0).
       }
+      writeAnimationPlaying(playing, {
+        hostNodeId: state.lottiePlayingHostId,
+      });
       // Drop selection chrome when playback starts (handles / toolbars hide).
       if (playing && !wasPlaying) {
         state.selectedNodeId = null;
@@ -3230,7 +3431,7 @@ const editorSlice = createSlice({
           }
         }
         if (!attrsNeedHost && !childrenNeed && !geomNeed && prevJson === synced.animationJson) {
-          persistActivePrecompSession(state);
+          if (!skipHistory) persistActivePrecompSession(state);
           return;
         }
 
@@ -3259,7 +3460,7 @@ const editorSlice = createSlice({
         state.documentPatchToken += 1;
         state.lastPatchedNodeIds = [hostId, ...synced.childAttrPatches.map((p) => p.nodeId)];
         state.lastPatchTransformOnly = false;
-        persistActivePrecompSession(state);
+        if (!skipHistory) persistActivePrecompSession(state);
         syncLibraryOnEdit(state);
       };
 
@@ -3537,6 +3738,7 @@ const editorSlice = createSlice({
       state.shapeStylePanel = null;
       state.pendingImageSrc = null;
       state.lottiePlayheadSec = 0;
+      writeAnimationPlayheadSec(0);
       setAnimationWorkbenchPlayheadSec(0);
       syncLibraryOnEdit(state);
     },
@@ -3745,6 +3947,7 @@ export const {
   updateArtboardFrame,
   updateArtboardFrames,
   pushEditorHistory,
+  touchDocumentRevision,
   beginAiSceneMutation,
   endAiSceneMutation,
   beginCanvasApplyLock,

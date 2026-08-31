@@ -349,7 +349,7 @@ function clearHandle(anchor: PenAnchor, side: HandleSide): PenAnchor {
   return next;
 }
 
-/** Drop both in/out handles ??sharp corner. */
+/** Drop both in/out handles — sharp corner. */
 function clearAllHandles(anchor: PenAnchor): PenAnchor {
   return { x: anchor.x, y: anchor.y };
 }
@@ -379,7 +379,7 @@ function setHandle(
     if (side === 'out') {
       return withMirroredHandles({ x: anchor.x, y: anchor.y, outX: hx, outY: hy });
     }
-    // Dragging in with mirror ??set out as mirror of in.
+    // Dragging in with mirror — set out as mirror of in.
     const mirrored = withMirroredHandles({
       x: anchor.x,
       y: anchor.y,
@@ -413,7 +413,7 @@ function setHandle(
 /**
  * Bezier pen tool: click anchors, drag for handles, re-drag / delete in|out handles,
  * click curved anchor to clear handles (corner), close near first,
- * Enter / Esc / toolbar??????finish as open path.
+ * Enter / Esc / toolbar———finish as open path.
  */
 function PenDrawFeature({
   enabled,
@@ -460,7 +460,7 @@ function PenDrawFeature({
   const anchorsRef = useRef<PenAnchor[]>([]);
   const selectedHandleRef = useRef<HandleHit | null>(null);
   const prevCursorRef = useRef<string>('');
-  /** Last click on an existing anchor ??second click within window ??corner. */
+  /** Last click on an existing anchor — second click within window — corner. */
   const lastAnchorTapRef = useRef<{ index: number; t: number } | null>(null);
   /** Last idle pointer scene pos — Shift keyup/down refreshes 45° rubber-band. */
   const lastScenePointerRef = useRef<{ x: number; y: number; rawX: number; rawY: number } | null>(
@@ -505,7 +505,7 @@ function PenDrawFeature({
 
   /**
    * Commit open/closed path.
-   * `leaveTool`: Esc / ??/ switch-to-select ??exit to select after commit.
+   * `leaveTool`: Esc / — / switch-to-select — exit to select after commit.
    * Closing the path by clicking the first point keeps the pen tool for the next stroke.
    */
   const finish = (closed: boolean, opts?: { leaveTool?: boolean }) => {
@@ -690,7 +690,7 @@ function PenDrawFeature({
 
     const onExitEvent = () => exitOpen();
 
-    // Always listen while pen is active ??do not require hitEl (Esc / ??must work).
+    // Always listen while pen is active — do not require hitEl (Esc / — must work).
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('keyup', onKey, true);
     window.addEventListener('resume:exit-pen', onExitEvent);
@@ -716,7 +716,7 @@ function PenDrawFeature({
       const list = anchorsRef.current;
       const { anchor: anchorR, handle: handleR } = radii();
 
-      // Prefer the anchor disc over nearby handle diamonds (click center ??corner).
+      // Prefer the anchor disc over nearby handle diamonds (click center — corner).
       const anchorIdx = hitAnchor(list, raw, anchorR);
       const handleHit = anchorIdx >= 0 ? null : hitHandle(list, raw, handleR);
 
@@ -800,7 +800,7 @@ function PenDrawFeature({
         return;
       }
 
-      // Click / double-click existing anchor: clear handles ??sharp corner.
+      // Click / double-click existing anchor: clear handles — sharp corner.
       if (action.kind === 'anchor') {
         const anchorIdx = action.index;
         const a = list[anchorIdx];

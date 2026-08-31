@@ -22,7 +22,7 @@ export class UploadTooLargeError extends Error {
   }
 }
 
-/** In-flight canvas placeholder uploads 鈥?delete node 鈫?abort. */
+/** In-flight canvas placeholder uploads — delete node → abort. */
 const nodeUploadAborts = new Map<string, AbortController>();
 
 /** Start (or replace) an abortable upload tied to a canvas node id. */
@@ -444,7 +444,7 @@ export function readFileAsDataUrl(file: File): Promise<string> {
 /**
  * Wait until a remote/local URL is fully loaded + decoded before swapping off a
  * local data:/blob: preview (avoids blank flash right after upload succeeds).
- * Returns false if load failed or aborted 鈥?caller should keep the local preview.
+ * Returns false if load failed or aborted — caller should keep the local preview.
  */
 export function waitForImageReady(
   src: string,
@@ -452,7 +452,7 @@ export function waitForImageReady(
 ): Promise<boolean> {
   const url = String(src || '').trim();
   if (!url) return Promise.resolve(false);
-  // Already local 鈥?nothing to wait for.
+  // Already local — nothing to wait for.
   if (url.startsWith('data:') || url.startsWith('blob:')) return Promise.resolve(true);
 
   return new Promise((resolve) => {
@@ -478,7 +478,7 @@ export function waitForImageReady(
           try {
             await img.decode!();
           } catch {
-            /* decode optional 鈥?still treat as loaded */
+            /* decode optional — still treat as loaded */
           }
           finish(true);
         }
@@ -504,7 +504,7 @@ export function isOurStoredImageUrl(src: string): boolean {
   }
 }
 
-/** Display whatever URL the API/item already gave 鈥?no rewrite. */
+/** Display whatever URL the API/item already gave — no rewrite. */
 export function toDisplayMediaUrl(src: string, _uploadKey?: string | null): string {
   return String(src || '').trim();
 }

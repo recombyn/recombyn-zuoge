@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import {
+  useDocumentPatchToken,
+  useEditorDocument,
+  useLastPatchedNodeIds,
+  useSceneReloadToken,
+  useSelectedFrameIds,
+  useSelectedNodeId,
+  useSelectedNodeIds,
+} from '@/store/editorSelectors';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -40,7 +49,6 @@ import {
   applyCollabDocument,
   createTemplate,
   importDocument,
-  EMPTY_ID_LIST,
   type ArtboardFrame,
 } from '@/store/modules/editor';
 import { store } from '@/store';
@@ -135,19 +143,13 @@ function SharePage() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const viewerId = useSelector((s: any) => s.auth?.user?.id as string | undefined);
-  const document = useSelector((s: any) => s.editor.document);
-  const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId);
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const selectedFrameIds = useSelector(
-    (s: any) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const documentPatchToken = useSelector((s: any) => s.editor.documentPatchToken);
-  const lastPatchedNodeIds = useSelector(
-    (s: any) => (s.editor.lastPatchedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const sceneReloadToken = useSelector((s: any) => s.editor.sceneReloadToken);
+  const document = useEditorDocument();
+  const selectedNodeId = useSelectedNodeId();
+  const selectedNodeIds = useSelectedNodeIds();
+  const selectedFrameIds = useSelectedFrameIds();
+  const documentPatchToken = useDocumentPatchToken();
+  const lastPatchedNodeIds = useLastPatchedNodeIds();
+  const sceneReloadToken = useSceneReloadToken();
   const [record, setRecord] = useState<ShareDto | null>(null);
   const [missing, setMissing] = useState(false);
   const [forbidden, setForbidden] = useState(false);
@@ -338,7 +340,7 @@ function SharePage() {
     setZoomFitActive(true);
   }, [document]);
 
-  // Fit once when content is on the stage 鈥?do not re-fit when panels resize.
+  // Fit once when content is on the stage — do not re-fit when panels resize.
   useEffect(() => {
     if (!document || !record?.viewerCanView || canEdit) return;
     const el = stageRef.current || stageEl;
@@ -494,7 +496,7 @@ function SharePage() {
   ]);
 
   const frames: ArtboardFrame[] = Array.isArray(document?.frames) ? document.frames : [];
-  // Disable RcbCanvas one-shot autofit 鈥?we fit to finished scene content below.
+  // Disable RcbCanvas one-shot autofit — we fit to finished scene content below.
   const worldBounds = { x: 0, y: 0, width: 0, height: 0 };
   const contentBounds = previewContentBounds(document, frames);
   const worldSurface = {

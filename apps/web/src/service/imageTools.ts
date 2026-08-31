@@ -19,8 +19,7 @@ export type ImageProcessKindApi =
   | 'editText'
   | 'editElements'
   | 'replaceText'
-  | 'vector'
-  | 'adjust';
+  | 'vector';
 
 export type ImageProcessBody = {
   kind: ImageProcessKindApi | string;
@@ -105,7 +104,6 @@ export const AI_IMAGE_PROCESS_KINDS = new Set<string>([
   'editElements',
   'replaceText',
   'vector',
-  'adjust',
 ]);
 
 let intelligenceVisionEnabled = false;

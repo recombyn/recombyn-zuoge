@@ -33,6 +33,7 @@ import {
 } from './SelectionChrome';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
+import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
 
 function liveNodeEl(nodeId: string): Element | null {
   // Prefer the live shape host — shared map can lag one frame after draw/remount
@@ -66,14 +67,19 @@ function hostSkewDeg(nodeId: string): { skewX: number; skewAxis: number } {
   };
 }
 
-/** Live rotation from the mounted shape host (playhead preview writes `__sceneAngle`). */
+/** Live rotation: host `__sceneAngle` → TransformPreview → fallback. */
 function hostAngleDeg(nodeId: string, fallback = 0): number {
   const el = liveNodeEl(nodeId) as { __sceneAngle?: number } | null;
   const n = Number(el?.__sceneAngle);
-  return Number.isFinite(n) ? n : fallback;
+  if (Number.isFinite(n)) return n;
+  const previewAngle = getNodeTransformPreview(nodeId)?.angle;
+  if (previewAngle !== undefined && Number.isFinite(previewAngle)) return Number(previewAngle);
+  return fallback;
 }
 
-/** Live geometry from the mounted shape host (same numbers paint uses). */
+/**
+ * Live geometry: mounted SVG host, else TransformPreview (SoA-demoted / playhead).
+ */
 function liveShapeGeomBox(nodeId: string): SceneBox | null {
   const el = liveNodeEl(nodeId) as (SVGElement & {
     __sceneLeft?: number;
@@ -81,13 +87,32 @@ function liveShapeGeomBox(nodeId: string): SceneBox | null {
     sceneWidth?: number;
     sceneHeight?: number;
   }) | null;
-  if (!el) return null;
-  const origin = liveHostPaintOrigin(el);
-  const width = Number(el.sceneWidth);
-  const height = Number(el.sceneHeight);
-  if (!origin || ![width, height].every(Number.isFinite)) return null;
-  if (!(width > 0) || !(height > 0)) return null;
-  return { left: origin.left, top: origin.top, width, height };
+  if (el) {
+    const origin = liveHostPaintOrigin(el);
+    const width = Number(el.sceneWidth);
+    const height = Number(el.sceneHeight);
+    if (origin && [width, height].every(Number.isFinite) && width > 0 && height > 0) {
+      return { left: origin.left, top: origin.top, width, height };
+    }
+  }
+  const preview = getNodeTransformPreview(nodeId);
+  if (
+    preview &&
+    Number.isFinite(preview.left) &&
+    Number.isFinite(preview.top) &&
+    Number.isFinite(preview.width) &&
+    Number.isFinite(preview.height) &&
+    preview.width > 0 &&
+    preview.height > 0
+  ) {
+    return {
+      left: preview.left,
+      top: preview.top,
+      width: preview.width,
+      height: preview.height,
+    };
+  }
+  return null;
 }
 
 /** Shape / image / video / lottie / path on SVG host (not text / frame). */

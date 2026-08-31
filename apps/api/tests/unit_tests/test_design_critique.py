@@ -39,7 +39,6 @@ def _rt(**kwargs) -> AgentRuntime:
         decision=DesignRunDecision(),
         system="",
         size_auto_hint="",
-        chat_fallback_tmpl="",
         persona="",
         defer_tools=False,
         max_rounds=4,

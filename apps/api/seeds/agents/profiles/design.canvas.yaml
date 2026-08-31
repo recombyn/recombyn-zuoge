@@ -97,7 +97,6 @@ capabilities:
 
 # Policy — literals override Admin KV; $kv:key copies that KV value onto the target.
 routing:
-  router_model: $kv:precheck.router_model
   lanes: $kv:precheck.model_threshold
   stage_pins:
     review: $kv:agent.review.model

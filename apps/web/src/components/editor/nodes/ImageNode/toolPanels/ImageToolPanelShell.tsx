@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { BiExit } from 'react-icons/bi';
 import { HiOutlineBolt } from 'react-icons/hi2';
@@ -17,7 +17,7 @@ const panelBtn =
 
 /**
  * Image-tool 积分 costs — sync with apps/api `image_tools.py` `_KIND_CREDIT_COST`.
- * No LLM (removeBg / editText / editElements / vector / CSS adjust) → 0.
+ * No LLM (removeBg / editText / editElements / vector; CSS adjust is FE-only) → 0.
  * BYOK also skip platform credits on the server.
  */
 export const IMAGE_TOOL_CREDIT_COST = {
@@ -30,7 +30,6 @@ export const IMAGE_TOOL_CREDIT_COST = {
   editElements: 0,
   replaceText: 30,
   vector: 0,
-  adjust: 0,
 } as const;
 
 /** Shared chrome for image tool panels docked beside the source image. */

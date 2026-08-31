@@ -97,7 +97,13 @@ import {
   rcbSnapSceneSurfaceOrigin,
 } from '@/components/rcb/core/math';
 import { readDevicePixelRatio } from '@/components/rcb/core/dpr';
-import { nodeNeedsPuppetWarp } from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import { setNodeTransformPreviews, setNodeTransformAngles } from '@/components/rcb/core/transformPreview';
+import { nodeNeedsPuppetWarp, effectivePuppetPins } from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import { bakePuppetWarpDataUrl } from '@/components/rcb/scene/paint/puppetWarp';
+import { getFillImageReady } from '@/components/rcb/render/sceneRenderer';
+import { getAnimationWorkbenchPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
+import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 
 function svgTextAnchor(textAlign: string | undefined): 'start' | 'middle' | 'end' {
   if (textAlign === 'center') return 'middle';
@@ -1564,7 +1570,32 @@ export async function nodeToSvgElement(
         preserveAspectRatio: 'none',
       })
     );
-    setSvgImageHref(img, String(src));
+    let paintHref = String(src);
+    if (nodeNeedsPuppetWarp(node)) {
+      const ready = getFillImageReady(String(src));
+      if (ready) {
+        const attrs = (node.attrs || {}) as Record<string, unknown>;
+        const frameId = resolveAnimationFrameId(document, node);
+        const frameRow = frameId
+          ? (Array.isArray(document.frames) ? document.frames : []).find(
+              (f) => String(f?.id) === frameId
+            )
+          : null;
+        const fps = Math.max(1, Math.round(Number(frameRow?.fps) || 30));
+        const pins = effectivePuppetPins(
+          attrs,
+          secToFrame(getAnimationWorkbenchPlayheadSec(), fps)
+        );
+        const baked = bakePuppetWarpDataUrl(ready, {
+          width: boxW,
+          height: boxH,
+          pins,
+          attrs,
+        });
+        if (baked) paintHref = baked;
+      }
+    }
+    setSvgImageHref(img, paintHref);
     const defs = ensureDefs(root);
     const clipId = nextClipId('img-clip');
     const clip = svgEl('clipPath', { id: clipId });
@@ -2728,10 +2759,16 @@ export function previewSvgNodeAngle(
   nodeEls: Map<string, SVGElement>,
   nodeId: string,
   angleDeg: number,
-  _sceneDocument?: SceneDocument | null
+  _sceneDocument?: SceneDocument | null,
+  options?: { publishPreview?: boolean }
 ): boolean {
+  // Fact layer (SoA / Canvas) must see playhead rotation — SVG host alone is not enough
+  // when idle shapes are demoted to SoA basic paint.
+  if (options?.publishPreview !== false) {
+    setNodeTransformAngles([{ nodeId, angle: angleDeg }]);
+  }
   const el = nodeEls.get(nodeId);
-  if (!el) return false;
+  if (!el) return true;
   asHost(el).__sceneAngle = angleDeg;
   return previewSvgNodeTransform(nodeEls, nodeId);
 }
@@ -2991,10 +3028,25 @@ export function previewSvgNodeGeometry(
     textResizeMode?: 'scale' | 'wrap' | 'frame';
     plainText?: string;
     textStyle?: ReturnType<typeof parseNodeTextStyle>;
+    /** false = SVG/DOM only (restore after scrub — avoid preview publish flash). */
+    publishPreview?: boolean;
   }
 ): boolean {
+  // Fact-layer first (ADR 0027): Canvas/SoA reads TransformPreview even when
+  // there is no SVG host (idle demoted shapes).
+  if (options?.publishPreview !== false) {
+    setNodeTransformPreviews([
+      {
+        nodeId,
+        left: box.left,
+        top: box.top,
+        width: Math.max(1, box.width),
+        height: Math.max(1, box.height),
+      },
+    ]);
+  }
   const el = nodeEls.get(nodeId);
-  if (!el) return false;
+  if (!el) return true;
   const anyEl = asHost(el);
   const nodeKey = String(anyEl.sceneNodeKey || el.getAttribute('data-scene-node-key') || '');
 

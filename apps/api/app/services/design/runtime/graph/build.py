@@ -193,15 +193,26 @@ def _unbind_design_hold_fns(task_id: str) -> None:
 
 
 def _design_settle_hold_fn(rt: AgentRuntime) -> Any:
+    """Return a settle callable that always yields a non-null int (DB NOT NULL contract)."""
     tid = str(rt.run.task_id or "").strip()
     with _RUN.hold_lock:
         pair = _RUN.hold_fns.get(tid)
+    raw: Any = None
     if pair and callable(pair[0]):
-        return pair[0]
-    fn = getattr(rt, "settle_hold_fn", None)
-    if callable(fn):
-        return fn
-    raise RuntimeError("design settle_hold_fn not bound")
+        raw = pair[0]
+    else:
+        raw = getattr(rt, "settle_hold_fn", None)
+    if not callable(raw):
+        raise RuntimeError("design settle_hold_fn not bound")
+
+    def _as_int_credits(*args: Any, **kwargs: Any) -> int:
+        out = raw(*args, **kwargs)
+        try:
+            return int(out if out is not None else 0)
+        except (TypeError, ValueError):
+            return 0
+
+    return _as_int_credits
 
 
 def _design_refund_hold_fn(rt: AgentRuntime) -> Any:
@@ -980,7 +991,6 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     )
     persona = _resolve_agent_persona(rules, user_selected_model)
     size_auto_hint = _prompt_text(rules, "agent.prompt.size_auto")
-    chat_fallback_tmpl = _prompt_text(rules, "agent.prompt.chat_fallback")
     subagents_catalog = format_subagents_catalog(get_active_agent_profile())
     # Decide-stage packs + catalogs (full tool/skill bodies arrive via need_*).
     decide_catalogs = [
@@ -1031,7 +1041,6 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
         decision=decision,
         system=system,
         size_auto_hint=size_auto_hint,
-        chat_fallback_tmpl=chat_fallback_tmpl,
         persona=persona,
         defer_tools=defer_tools,
         max_rounds=max_rounds,

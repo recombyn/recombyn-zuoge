@@ -1,4 +1,4 @@
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from '@/store';
 import { clearImageProcess } from '@/store/modules/editor';
 
 /** Drop SoftGlow on a node (always bumps scene remount so overlay cannot stick). */

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
+import { useAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import { rcbViewportSceneBounds, type RcbCamera } from '@/components/rcb';
 import { listSceneNodes } from '@/components/rcb/scene/document/sceneDocument';
@@ -185,7 +186,7 @@ function EditorMinimap({
   const workbenchEditOpen = useSelector((state: any) =>
     Boolean(state.editor.lottieTimelinePanel?.nodeId)
   );
-  const playheadSec = useSelector((state: any) => Number(state.editor.lottiePlayheadSec) || 0);
+  const playheadSec = useAnimationPlayheadSec();
 
   const stageSize = useMemo(() => {
     if (!stageEl) return { width: 1, height: 1 };

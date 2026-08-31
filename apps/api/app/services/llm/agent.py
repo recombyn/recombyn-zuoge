@@ -44,218 +44,6 @@ _CHECKPOINT_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
 # Server-executed tool names. Canvas ops stay client-side.
 _SERVER_TOOL_NAMES = frozenset({"generate_image"})
 
-# Runtime meta tools — not canvas paint ops.
-_HOST_META_TOOL_NAMES = frozenset(
-    {
-        "finish",
-        "ask_user",
-        "request_tool_schemas",
-        "recall_long_term_memory",
-        "remember_long_term_memory",
-    }
-)
-
-
-def tool_calls_to_canvas_ops(tool_calls: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    """Map tool_calls → FE ``tool_ops`` ``{name, args}`` (canvas only)."""
-    import json as _json
-
-    out: list[dict[str, Any]] = []
-    for tc in tool_calls or []:
-        if not isinstance(tc, dict):
-            continue
-        fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
-        name = str((fn or {}).get("name") or tc.get("name") or "").strip()
-        if not name or name in _HOST_META_TOOL_NAMES or name in _SERVER_TOOL_NAMES:
-            continue
-        raw_args = (fn or {}).get("arguments") if fn else tc.get("arguments")
-        if raw_args is None:
-            raw_args = tc.get("args")
-        if isinstance(raw_args, dict):
-            args = raw_args
-        else:
-            try:
-                args = _json.loads(raw_args or "{}")
-            except Exception:
-                args = {}
-        if not isinstance(args, dict):
-            args = {}
-        out.append({"name": name, "args": args})
-    return out
-
-
-def assemble_turn_from_lc_tools(
-    *,
-    content: str,
-    tool_calls: list[dict[str, Any]] | None,
-) -> dict[str, Any]:
-    """
-    Build the runtime turn dict from LangChain narrate + tool_calls (no JSON blob).
-
-    - Natural-language ``content`` → reply / short thought
-    - Canvas tool_calls → tool_ops_raw
-    - Meta tools → need_* / choice_ui / done
-    """
-    import json as _json
-
-    from app.services.design.ops.tool_ops_contract import normalize_need_tools
-
-    text = (content or "").strip()
-    ops = tool_calls_to_canvas_ops(tool_calls)
-    need_tools: list[str] = []
-    ask_labels: list[str] = []
-    done = False
-    finish_summary = ""
-    asked = False
-
-    for tc in tool_calls or []:
-        if not isinstance(tc, dict):
-            continue
-        fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
-        name = str((fn or {}).get("name") or tc.get("name") or "").strip()
-        raw_args = (fn or {}).get("arguments") if fn else tc.get("arguments")
-        if raw_args is None:
-            raw_args = tc.get("args")
-        if isinstance(raw_args, dict):
-            args = raw_args
-        else:
-            try:
-                args = _json.loads(raw_args or "{}")
-            except Exception:
-                args = {}
-        if not isinstance(args, dict):
-            args = {}
-
-        if name == "finish":
-            done = True
-            finish_summary = str(args.get("summary") or "").strip()
-        elif name == "ask_user":
-            asked = True
-            q = str(args.get("question") or "").strip()
-            if q:
-                text = q
-            raw_c = args.get("options")
-            if isinstance(raw_c, list):
-                for c in raw_c:
-                    s = str(c or "").strip()
-                    if s and s not in ask_labels:
-                        ask_labels.append(s[:24])
-                    if len(ask_labels) >= 6:
-                        break
-        elif name == "request_tool_schemas":
-            need_tools.extend(
-                normalize_need_tools(args.get("op_keys") or args)
-            )
-
-    need_tools = normalize_need_tools(need_tools)
-    reply = finish_summary or text
-    thought = (text.split("\n")[0] if text else "")[:40] or (
-        "编辑画布" if ops else ("确认需求" if asked else "处理中")
-    )
-
-    if ops:
-        intent = (
-            "create"
-            if any(str(o.get("name") or "") in ("create_frame", "create_image") for o in ops)
-            else "edit"
-        )
-    elif need_tools:
-        intent = "edit"
-    elif asked:
-        intent = "ask"
-    elif done:
-        intent = "done"
-    else:
-        intent = "chat"
-
-    if intent in ("chat", "ask", "done") and not ops:
-        done = True
-    if need_tools:
-        done = False
-
-    choice_ui = None
-    if asked and ask_labels:
-        choice_ui = {
-            "mode": "single",
-            "options": [{"label": label, "action": "reply"} for label in ask_labels],
-        }
-
-    return {
-        "intent": intent,
-        "reply": reply,
-        "thought": thought,
-        "tool_ops_raw": ops or None,
-        "need_tools": need_tools,
-        "choice_ui": choice_ui,
-        "done": done,
-        "raw_obj": {"via": "langchain_tools", "tool_calls": tool_calls or []},
-    }
-
-
-def design_thought_langchain_tools() -> list[Any]:
-    """Canvas + runtime meta tools for narrate-then-act turns.
-
-    Runtime ``ask_user`` returns ``await_user`` (choice chips), not delegated_to_client.
-    """
-    import json as _json
-
-    from langchain_core.tools import StructuredTool
-    from pydantic import BaseModel, ConfigDict, Field
-
-    class AskUserRuntimeArgs(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        question: str = Field(description="Clarifying question before painting")
-        options: list[str] | None = Field(
-            default=None,
-            description="Optional short choice chips",
-        )
-
-    class RequestToolSchemasArgs(BaseModel):
-        model_config = ConfigDict(extra="forbid")
-        op_keys: list[str] = Field(
-            description="Canvas op_keys to load full schemas for",
-        )
-
-    def ask_user(question: str, options: list[str] | None = None) -> str:
-        """Ask the user one clarifying question before painting. Optional short choice chips."""
-        return _json.dumps(
-            {"status": "await_user", "question": question, "options": options or []},
-            ensure_ascii=False,
-        )
-
-    def request_tool_schemas(op_keys: list[str]) -> str:
-        """Request full schemas for canvas op_keys from the short catalog.
-
-        Runtime injects details next turn; do not emit canvas ops yet.
-        """
-        return _json.dumps(
-            {"status": "runtime_will_inject", "op_keys": op_keys},
-            ensure_ascii=False,
-        )
-
-    tools = [
-        t
-        for t in design_langchain_tools()
-        if getattr(t, "name", None) not in _SERVER_TOOL_NAMES
-        and getattr(t, "name", None) != "ask_user"
-    ]
-    tools.extend(
-        [
-            StructuredTool.from_function(func=ask_user, args_schema=AskUserRuntimeArgs),
-            StructuredTool.from_function(
-                func=request_tool_schemas,
-                args_schema=RequestToolSchemasArgs,
-            ),
-        ]
-    )
-    try:
-        from app.services.agent_memory.long_term import long_term_store_tools
-
-        tools.extend(long_term_store_tools())
-    except Exception:
-        _log.debug("long_term_store_tools unavailable", exc_info=True)
-    return tools
-
 
 def _normalize_messages(raw: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -325,15 +113,12 @@ def _with_system_identity(system: str, *, model: str | None = None) -> str:
 
 
 def _agent_model_id(requested: str | None, endpoint_model: str) -> str:
-    """Use resolved ``api_model`` (Ark dated ids). Reasoner aliases lack tool_calls."""
+    """Use resolved ``api_model`` (Ark dated ids). No silent default model id."""
     req = (requested or "").strip()
     api = (endpoint_model or "").strip()
     # Catalog ids (deepseek-v4-flash, doubao-seed-2-1-turbo) 404 on Ark; endpoint_model
     # is the real inference id from resolve_provider / get_llm_endpoint.
-    probe = f"{api} {req}".lower()
-    if "reasoner" in probe:
-        return "deepseek-chat"
-    return api or req or "deepseek-chat"
+    return api or req
 
 
 def _tool_calls_from_message(msg: Any) -> list[dict[str, Any]]:
@@ -1023,6 +808,23 @@ def build_official_agent(
     return create_agent(llm, tool_list, **kwargs)
 
 
+def _structured_output_methods(model_id: str) -> tuple[str, ...]:
+    """Pick structured-output methods the provider actually accepts.
+
+    Root issue: trying ``json_schema`` on DeepSeek reasoner / Doubao / Seed
+    burns a failed round-trip (400 / unsupported response_format) after
+    function_calling already worked or failed for validation reasons.
+    """
+    mid = (model_id or "").strip().lower()
+    if not mid:
+        return ("function_calling",)
+    if "reasoner" in mid or mid.endswith("-r1"):
+        return ("function_calling",)
+    if "doubao" in mid or "seed-" in mid or mid.startswith("seed"):
+        return ("function_calling",)
+    return ("function_calling", "json_schema")
+
+
 async def ainvoke_structured(
     *,
     schema: type[Any],
@@ -1062,7 +864,6 @@ async def ainvoke_structured(
 
     # with_structured_output first — create_agent burns multiple round-trips
     # for a simple schema fill (intent_classify hit 6×~4s).
-    # function_calling before json_schema: Doubao often 400s on json_schema.
     llm = build_chat_model(
         endpoint=endpoint,
         model_id_override=model_id,
@@ -1074,7 +875,7 @@ async def ainvoke_structured(
         catalog_model_id=model or model_id,
     )
     errors: list[str] = []
-    for method in ("function_calling", "json_schema"):
+    for method in _structured_output_methods(model_id):
         try:
             structured_llm = llm.with_structured_output(schema, method=method)
             got = await structured_llm.ainvoke(lc_messages, config=cfg)

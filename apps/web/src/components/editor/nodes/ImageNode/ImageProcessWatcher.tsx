@@ -1,5 +1,6 @@
 import { useEffect, useRef, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocument } from '@/store/editorSelectors';
 import i18n from '@/i18n';
 import { message } from '@/components/base';
 import {
@@ -171,7 +172,7 @@ function ImageProcessWatcher() {
   const dispatch = useDispatch();
   useImageToolCapabilities();
   const pendingId = useSelector((s: any) => s.editor.pendingImageProcessId as string | null);
-  const document = useSelector((s: any) => s.editor.document);
+  const document = useEditorDocument();
   const documentRef = useRef(document);
   documentRef.current = document;
 

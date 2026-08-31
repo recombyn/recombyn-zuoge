@@ -68,7 +68,7 @@ export function isPlatformModelId(id: string | null | undefined): boolean {
   return Boolean(id && String(id).startsWith(PLATFORM_MODEL_ID_PREFIX));
 }
 
-/** ``pm:openrouter:xxx`` 鈫?``openrouter``. */
+/** ``pm:openrouter:xxx`` →``openrouter``. */
 export function platformProviderFromModelId(id: string): string | null {
   if (!isPlatformModelId(id)) return null;
   const rest = String(id).slice(PLATFORM_MODEL_ID_PREFIX.length);
@@ -101,7 +101,7 @@ export type CustomLlmProvider = {
   apiModel: string;
   /** text | vision | image | video | platform. */
   modelKind: CustomModelKind;
-  /** Built-in brand icon key (openai / claude / doubao / 鈥?. */
+  /** Built-in brand icon key (openai / claude / doubao / — . */
   iconKey?: string;
   /** Custom uploaded icon (data URL or https). Takes precedence over iconKey in the picker. */
   iconUrl?: string;
@@ -161,7 +161,7 @@ async function getOrCreateDeviceKey(): Promise<CryptoKey> {
   return key;
 }
 
-/** AES-256-GCM encrypt 鈥?ciphertext never logged. */
+/** AES-256-GCM encrypt — ciphertext never logged. */
 export async function encryptApiKeyLocal(plaintext: string): Promise<string> {
   const text = String(plaintext || '');
   if (!text) return '';
@@ -198,7 +198,7 @@ function apiKeyHint(plaintext: string): string {
   const s = String(plaintext || '').trim();
   if (!s) return '';
   if (s.length <= 4) return '****';
-  return `鈥?{s.slice(-4)}`;
+  return `—{s.slice(-4)}`;
 }
 
 function mapDto(
@@ -272,7 +272,7 @@ function writeLocalEncrypted(list: CustomLlmProvider[]) {
   }
 }
 
-/** Sync load for picker 鈥?keys may be empty until hydrate. */
+/** Sync load for picker — keys may be empty until hydrate. */
 export function loadCustomLlmProviders(): CustomLlmProvider[] {
   return readLocalRaw().map((p) => ({
     ...p,
@@ -291,7 +291,7 @@ export function createCustomLlmProviderId() {
 /**
  * Persist a provider: server AES vault when logged in; else local AES-GCM.
  * Plaintext apiKey is never written to localStorage.
- * Platform-linked models (``pm:<provider>:鈥`) may omit apiKey and inherit
+ * Platform-linked models (``pm:<provider>:…`) may omit apiKey and inherit
  * the parent platform credential's cipher.
  */
 export async function persistCustomLlmProvider(
@@ -378,7 +378,7 @@ export async function removeCustomLlmProvider(id: string): Promise<void> {
   writeLocalEncrypted(loadCustomLlmProviders().filter((p) => p.id !== id));
 }
 
-/** Single-flight 鈥?Account Agent mounts RoutePrefs + panel both used to call this. */
+/** Single-flight — Account Agent mounts RoutePrefs + panel both used to call this. */
 let _hydrateProvidersInflight: Promise<CustomLlmProvider[]> | null = null;
 
 /** Pull server vault and hydrate local encrypted providers. */
@@ -498,7 +498,7 @@ function llmKindFor(kind: CustomModelKind): NonNullable<LlmModel['kind']> {
   return 'text';
 }
 
-/** Map saved providers 鈫?entries for the model picker / route prefs. */
+/** Map saved providers →entries for the model picker / route prefs. */
 export function customProvidersAsModels(
   providers: CustomLlmProvider[] = loadCustomLlmProviders()
 ): LlmModel[] {

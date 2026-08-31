@@ -23,6 +23,10 @@ Restart API and web after changing env vars.
 
 Complex ops (`boolean_op`, `align_nodes`, `image_process`, …) need **Live** mode. Basic create/update/delete work headless.
 
+### FE bridge cadence
+
+`McpCanvasBridge` uses **one** `pollMs` interval (default 1500ms). Each tick: heartbeat → fetch/apply pending batches → reload if project revision bumped. There is no separate heartbeat timer.
+
 ## API
 
 | Endpoint | Purpose |

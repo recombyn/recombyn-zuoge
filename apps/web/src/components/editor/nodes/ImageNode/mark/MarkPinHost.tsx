@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
+import { useSelectedNodeIds } from '@/store/editorSelectors';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import type { ImageMarkPin, ImageToolPanelState } from '@/store/modules/editor';
 import MarkPinOverlay from './MarkPinOverlay';
@@ -19,9 +20,7 @@ function MarkPinHost({
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
-  const selectedIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds || []) as string[]
-  );
+  const selectedIds = useSelectedNodeIds();
 
   const visible = useMemo(
     () => listVisibleMarkPins(document, pins, panel, selectedIds, hidden),

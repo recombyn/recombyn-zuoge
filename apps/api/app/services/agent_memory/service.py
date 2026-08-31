@@ -3,7 +3,7 @@
 Tier map (ADR 0006):
   session  → short-term dialogue + medium task_state (+ LangGraph checkpointer)
   project  → project_id on medium / episodes (scoped fields; not a separate store)
-  global   → long-term Store / AgentLongMemory + episodes/KG by user_id
+  global   → long-term Store + episodes/KG by user_id
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 MEMORY_TIERS: dict[str, str] = {
     "session": "short_term + medium_term(session) + langgraph_checkpointer",
     "project": "project_id on medium_term / episodes",
-    "global": "long_term store + AgentLongMemory + episodes/kg by user_id",
+    "global": "long_term store + episodes/kg by user_id",
 }
 
 

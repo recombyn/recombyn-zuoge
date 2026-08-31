@@ -11,9 +11,13 @@ import {
   type Placement,
 } from '@floating-ui/react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import {
-  EMPTY_ID_LIST,
+  useCurrentProjectId,
+  useEditorDocumentOnCommit,
+  useSelectedNodeIds,
+} from '@/store/editorSelectors';
+import {
   ensureAnimationFrameMedia,
 } from '@/store/modules/editor';
 import store from '@/store';
@@ -107,7 +111,7 @@ function lottieNodesForExport(document: SceneDocument | null | undefined, ids: s
     );
 }
 
-/** Resolve 动画工作台 frame id from explicit prop or selected Lottie host. */
+/** Resolve 动画工作—frame id from explicit prop or selected Lottie host. */
 function resolveExportAnimationFrameId(
   document: SceneDocument | null | undefined,
   animationFrameId: string | undefined,
@@ -186,7 +190,7 @@ function videoExportCopy(
     };
   }
   return {
-    loading: t('editor.videoToolbar.exporting', { defaultValue: '正在导出视频…' }),
+      loading: t('editor.videoToolbar.exportingAudio', { defaultValue: '正在导出音频…' }),
     success: t('editor.exportedVideo', { defaultValue: '已导出视频' }),
     fail: t('editor.videoToolbar.downloadFail', { defaultValue: '下载失败' }),
   };
@@ -375,7 +379,7 @@ function ExportSelectionPanel({
    * When set, crop must not force the design-artboard image-only UI.
    */
   intent = 'default',
-  /** Parent 动画工作台 frame — sync host animationData before Lottie/MP4 export. */
+  /** Parent 动画工作—frame — sync host animationData before Lottie/MP4 export. */
   animationFrameId,
 }: {
   nodeIds?: string[];
@@ -393,7 +397,7 @@ function ExportSelectionPanel({
   const { t } = useTranslation();
   const tipId = useId();
   const dispatch = useDispatch();
-  const document = useSelector((s: any) => s.editor.document);
+  const document = useEditorDocumentOnCommit();
   const ids = useMemo(() => {
     const raw = nodeIds || [];
     return raw.filter((id) => {
@@ -474,7 +478,7 @@ function ExportSelectionPanel({
     { value: 'suffix', label: t('editor.exportSuffix') },
   ];
 
-  /** Sync host → read store → resolve Lottie nodes for animation workbench export. */
+  /** Sync host — read store — resolve Lottie nodes for animation workbench export. */
   const prepareAnimationLottieNodes = useCallback((): {
     nodes: SceneNodeInput[];
     document: SceneDocument | null;
@@ -639,7 +643,7 @@ function ExportSelectionPanel({
         if (result === 'cancelled') return;
       }
       hideLoading();
-      message.success(t('editor.exportedLottieGif', { defaultValue: '已导出 GIF' }));
+      message.success(t('editor.exportedLottie', { defaultValue: '已导出 Lottie JSON' }));
       try {
         onClose?.();
       } catch {
@@ -700,7 +704,7 @@ function ExportSelectionPanel({
     let cancelled = 0;
     let failed = 0;
     try {
-      // Still PNG/SVG from 动画工作台: sync host geometry, then crop scene ink.
+      // Still PNG/SVG from 动画工作— sync host geometry, then crop scene ink.
       let exportDoc = document as SceneDocument | null;
       if (animationIntent && resolvedAnimFrameId) {
         const synced = syncAnimationFrameForExport(resolvedAnimFrameId);
@@ -755,11 +759,10 @@ function ExportSelectionPanel({
       return;
     }
     if (cancelled > 0 && failed === 0) return;
-    message.error(t('editor.exportFailed'));
+      message.error(t('editor.exportFailed'));
   };
 
   // Animation Lottie/MP4: do not silently disable when animationData is stale —
-  // Export click syncs the host; warn if still empty.
   const exportDisabled =
     busy ||
     !canExport ||
@@ -969,7 +972,7 @@ export type ExportSelectionPopoverProps = {
   children?: ReactNode;
   /** Animation workbench: Lottie-first export UI. */
   intent?: 'default' | 'animation';
-  /** Parent 动画工作台 frame — sync host before opening / exporting. */
+  /** Parent 动画工作—frame — sync host before opening / exporting. */
   animationFrameId?: string;
 };
 
@@ -988,7 +991,7 @@ function ExportSelectionPopover({
 }: ExportSelectionPopoverProps) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const document = useSelector((s: any) => s.editor.document);
+  const document = useEditorDocumentOnCommit();
   const [open, setOpen] = useState(false);
   const ids = useMemo(() => {
     const raw = nodeIds || [];
@@ -1071,8 +1074,8 @@ function ExportSelectionPopover({
           disabled={disabled || !canExport}
           aria-label={
             intent === 'animation'
-              ? t('editor.exportAnimation', { defaultValue: '导出动画' })
-              : t('editor.exportImage')
+            ? t('editor.exportAnimation', { defaultValue: '导出动画' })
+            : t('editor.exportImage')
           }
           aria-expanded={open}
           className={cn(triggerClassName || SEL_ICON_BTN, className)}
@@ -1119,13 +1122,11 @@ function EditorTopExportButton({
   iconOnly?: boolean;
 }) {
   const { t } = useTranslation();
-  const document = useSelector((s: any) => s.editor.document);
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const document = useEditorDocumentOnCommit();
+  const selectedNodeIds = useSelectedNodeIds();
+  const currentId = useCurrentProjectId();
   const projectName = useSelector((s: any) => {
-    const id = s.editor.currentId;
-    const row = (s.editor.templates || []).find((item: any) => item.id === id);
+    const row = (s.editor.templates || []).find((item: any) => item.id === currentId);
     return String(row?.name || '').trim() || t('editor.selectionExportName');
   });
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1202,7 +1203,7 @@ function EditorTopExportButton({
           return;
         }
       } else if (!exportableSelectedIds.length) {
-        message.warning(t('editor.noSelectionExport'));
+      message.warning(t('editor.noSelectionExport'));
         setMenuOpen(false);
         return;
       }
@@ -1227,7 +1228,7 @@ function EditorTopExportButton({
         else if (result !== 'cancelled') message.error(t('editor.exportFailed'));
       } catch (err) {
         console.warn('[export-json]', err);
-        message.error(t('editor.exportFailed'));
+      message.error(t('editor.exportFailed'));
       }
     }
     void run();

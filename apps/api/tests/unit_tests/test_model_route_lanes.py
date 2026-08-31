@@ -5,7 +5,6 @@ from __future__ import annotations
 from app.services.design.runtime.models_route import (
     apply_user_route_overrides,
     clamp_lane,
-    heuristic_route_lane,
     model_for_lane,
     normalize_lane,
     parse_model_lanes,
@@ -32,29 +31,6 @@ def test_parse_threshold_map():
     assert lanes["fast"] == "a"
     assert lanes["standard"] == "b"
     assert lanes["reasoning"] == "c"
-
-
-def test_heuristic_default_is_standard():
-    d = heuristic_route_lane("改标题颜色", canvas_node_count=12)
-    assert d.lane == "standard"
-
-
-def test_heuristic_no_length_tiers():
-    # Length must not pick reasoning vs fast — LLM router owns that.
-    d = heuristic_route_lane(
-        "x" * 60,
-        canvas_node_count=0,
-    )
-    assert d.lane == "standard"
-
-
-def test_heuristic_images_vision():
-    d = heuristic_route_lane(
-        "按附件风格重做版式",
-        has_images=True,
-        canvas_node_count=5,
-    )
-    assert d.lane == "vision"
 
 
 def test_pin_lock_writes_new_lane_keys():
@@ -96,6 +72,19 @@ def test_resolve_review_follows_design_model_when_no_lock():
     )
     assert mid == "or-gpt-5-6-luna"
     assert reason == "review_follow_design"
+
+
+def test_resolve_review_raises_when_unconfigured():
+    from app.services.design.runtime.models_route import (
+        ModelRouteError,
+        resolve_review_model,
+    )
+
+    try:
+        resolve_review_model({}, user_selected_model="auto")
+        assert False, "expected ModelRouteError"
+    except ModelRouteError:
+        pass
 
 
 def test_user_overrides_canonical_lanes():

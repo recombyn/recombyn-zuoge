@@ -1,5 +1,5 @@
 import { useState, memo } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineArrowsRightLeft,
@@ -53,7 +53,7 @@ function FrameContextToolbar({ frame, frames, box }: Props) {
   const deviceTitle = isRatio
     ? t('editor.frameToolbar.custom')
     : presetMeta?.label || t('editor.frameToolbar.custom');
-  // Default / free size → original; matched ratio preset → e.g. 4:3
+  // Default / free size — original; matched ratio preset — e.g. 4:3
   const ratioTitle = isRatio
     ? presetMeta?.key === 'original'
       ? t('editor.frameToolbar.original')
@@ -223,7 +223,7 @@ function FrameContextToolbar({ frame, frames, box }: Props) {
         onPick={(preset) => {
           if (canvasLocked) return;
           if (preset.key === 'original') {
-            // 「自由」：保持当前尺寸，取消比例锁定
+            // 「自由」：保持当前尺寸，取消比例锁—
             patch({ lockAspect: false });
             return;
           }

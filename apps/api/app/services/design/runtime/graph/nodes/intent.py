@@ -27,6 +27,7 @@ from app.services.design.runtime.models_route import (
     normalize_session_action,
     normalize_user_intent,
     paint_ops_intent,
+    resolve_model_for_skill,
 )
 
 
@@ -92,11 +93,23 @@ async def _vision_chat_reply(rt: AgentRuntime) -> str:
     if not images:
         return ""
     from app.services.design.runtime.models_route import (
-        resolve_vision_model,
-        router_model_id,
+        resolve_model_for_skill,
     )
 
-    model = resolve_vision_model(rt.rules) or router_model_id(rt.rules)
+    try:
+        model, _reason = resolve_model_for_skill(
+            skill={"skill_key": "intent_vision_chat"},
+            user_selected_model=rt.user_selected_model,
+            run_mode=str(rt.flags.get("mode") or rt.mode or "agent"),
+            prompt=rt.prompt,
+            rules=rt.rules if isinstance(rt.rules, dict) else {},
+            scene=rt.scene_key,
+            has_images=True,
+            canvas_node_count=len(rt.scene_nodes or []),
+            route_lane=str(rt.flags.get("route_lane") or "").strip() or None,
+        )
+    except Exception:
+        return ""
     if not model:
         return ""
     system = (
@@ -144,6 +157,26 @@ async def _node_intent_classify(state: GraphState) -> Command:
         if text:
             dial_lines.append(f"{role}: {text[:280]}")
     t_intent = time.perf_counter()
+    route_lane = str(rt.flags.get("route_lane") or st.task_tier or "").strip() or None
+    try:
+        intent_model, intent_model_reason = resolve_model_for_skill(
+            skill={"skill_key": "intent_classify"},
+            user_selected_model=rt.user_selected_model,
+            run_mode=str(rt.flags.get("mode") or rt.mode or "agent"),
+            prompt=rt.prompt,
+            rules=rt.rules if isinstance(rt.rules, dict) else {},
+            scene=rt.scene_key,
+            has_images=bool(rt.images),
+            canvas_node_count=len(rt.scene_nodes or []),
+            route_lane=route_lane,
+        )
+    except Exception as err:
+        raise IntentClassifyError(f"intent_classify: model resolve failed: {err}") from err
+    if not str(intent_model or "").strip():
+        raise IntentClassifyError(
+            "intent_classify: no model — lock a concrete model or configure "
+            "precheck.model_threshold"
+        )
     decision = await classify_user_intent(
         prompt=rt.prompt,
         rules=rt.rules,
@@ -154,6 +187,9 @@ async def _node_intent_classify(state: GraphState) -> Command:
         interaction_mode=str(rt.flags.get("mode") or rt.mode or ""),
         pending_proposal=pending,
         recent_dialogue="\n".join(dial_lines),
+        model=intent_model,
+        user_selected_model=rt.user_selected_model,
+        route_lane=route_lane,
     )
     intent_ms = max(0, int((time.perf_counter() - t_intent) * 1000))
     intent, paint_lane = normalize_intent_decision(
@@ -229,6 +265,8 @@ async def _node_intent_classify(state: GraphState) -> Command:
         paint_lane=paint_lane or None,
         proposal_action=action or None,
         session_action=session_action or None,
+        model=intent_model,
+        model_reason=intent_model_reason,
         needs_clarification=needs_clarification or None,
         reply=(
             reply[:500]

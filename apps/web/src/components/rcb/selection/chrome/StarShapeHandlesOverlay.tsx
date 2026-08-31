@@ -4,7 +4,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * World-SVG knobs — same paint contract as SelectionChrome / CornerRadius.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
@@ -254,7 +254,7 @@ function StarShapeHandlesOverlay({
   const sites = starHandleSites(w, h, sides, innerRatio);
   // Seat tracks R along the tip→center bisector (same contract as rect R-dots).
   // A fixed park inset left the knob glued to the sharp tip while the rounded
-  // silhouette pulled inward — looked like “controls stuck at the old place”.
+  // silhouette pulled inward — looked like “controls stuck at the old place—
   const parkScene = radiusParkSceneForBox(
     w,
     h,

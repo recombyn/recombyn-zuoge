@@ -438,16 +438,6 @@ export function resolveImagePixelSize(
   return clampPixelSize(sized.w, sized.h, limits);
 }
 
-/** Chip label uses colon: `2560:1440`. */
-export function formatImageSizeLabel(
-  aspectRatio: string,
-  resolution: string,
-  limits?: ImageLimits | null
-) {
-  const { w, h } = resolveImagePixelSize(aspectRatio, resolution, limits);
-  return `${w}:${h}`;
-}
-
 /**
  * Visual glyph for a ratio key (`smart` / `3:2` / `1248x832`).
  * Equal-area fit so 21:9 / 1:1 / 9:16 read at similar visual weight.

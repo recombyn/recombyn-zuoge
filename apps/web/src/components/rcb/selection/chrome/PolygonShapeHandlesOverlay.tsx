@@ -6,7 +6,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * Freehand `path` has no AABB R-dots (radius baked into d).
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';

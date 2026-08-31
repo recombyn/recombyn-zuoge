@@ -95,8 +95,33 @@ import {
   rcbViewportMetrics,
 } from '@/components/rcb/core/math';
 import { frameSelId, parseFrameSelId } from './frameSelectionIds';
+import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 
 export const CORNER_HANDLES = new Set<ResizeHandle>(['nw', 'ne', 'sw', 'se']);
+
+/** Frame chrome box: host paint → live artboard map → document (gesture-safe). */
+export function resolveFrameChromeBox(
+  frameId: string,
+  frame: { x?: number; y?: number; width?: number; height?: number }
+): SceneBox {
+  const liveHost = liveShapeGeomBox(String(frameId));
+  if (liveHost) return liveHost;
+  const livePlate = getLiveArtboardFrameGeometry(String(frameId));
+  if (livePlate) {
+    return {
+      left: Number(livePlate.x) || 0,
+      top: Number(livePlate.y) || 0,
+      width: Math.max(1, Number(livePlate.width) || 1),
+      height: Math.max(1, Number(livePlate.height) || 1),
+    };
+  }
+  return {
+    left: Number(frame.x) || 0,
+    top: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  };
+}
 
 export function textResizeModeForHandle(
   handle: ResizeHandle,
@@ -213,7 +238,7 @@ export function readNodeAspectLocked(node: SceneNodeInput): boolean {
   return nodeAspectLockDefault(node?.key);
 }
 
-/** Persist lock OR Shift ??Shift adds constraint, does not toggle it off. */
+/** Persist lock OR Shift — Shift adds constraint, does not toggle it off. */
 export function combineAspectLock(locked: boolean, shiftKey: boolean) {
   return locked || shiftKey;
 }
@@ -427,7 +452,7 @@ export function isHostInjectedSelection(
   return false;
 }
 
-/** Near-full-bleed artboard plate ??must not block marquee (looks empty but hits as a shape). */
+/** Near-full-bleed artboard plate — must not block marquee (looks empty but hits as a shape). */
 export function frameForFullBleedPlate(doc: SceneDocument, nodeId: string): string | null {
   const node = doc?.deltaSetLike?.[nodeId];
   if (!node) return null;
@@ -937,7 +962,8 @@ export function fallbackVisibleNodeHit(
   document: SceneDocument,
   point: { x: number; y: number },
   nodeIds: readonly string[],
-  getNodeBox: (id: string) => SceneBox | null
+  getNodeBox: (id: string) => SceneBox | null,
+  playheadSec?: number
 ): string | null {
   const frames = Array.isArray(document?.frames) ? document.frames : [];
   const nodeIntersectsFrame = (node: any, frame: any) => {
@@ -963,7 +989,7 @@ export function fallbackVisibleNodeHit(
   for (const rawId of orderedNodeIds) {
     const id = String(rawId || '');
     const node = document?.deltaSetLike?.[id];
-    if (!id || !node || isNodeHiddenInDocument(document, node) || frameForFullBleedPlate(document, id)) continue;
+    if (!id || !node || isNodeHiddenInDocument(document, node, playheadSec) || frameForFullBleedPlate(document, id)) continue;
     const ownerId = String(node.attrs?.frameId || '').trim();
     if (ownerId && frameIdAtPoint(document, point.x, point.y) !== ownerId) continue;
     const box = getNodeBox(id);
@@ -1836,7 +1862,11 @@ export function buildShapeOutlines(opts: {
     opts.hoverNodeId &&
     !opts.selectedNodeIds.includes(opts.hoverNodeId)
   ) {
-    pushId(opts.hoverNodeId);
+    const hoverNode = opts.document?.deltaSetLike?.[opts.hoverNodeId];
+    // 动画工作台 preview children are display-only — no hover path silhouette.
+    if (!isAnimationWorkbenchPreviewChild(opts.document, hoverNode)) {
+      pushId(opts.hoverNodeId);
+    }
   }
 
   // Inspect select: path silhouette only (spacing drawn via SmartGuidesOverlay).
@@ -1854,6 +1884,7 @@ export function buildShapeOutlines(opts: {
   if (!opts.inspectDev && !opts.transforming) {
     for (const sid of opts.selectedNodeIds) {
       const sn = opts.document?.deltaSetLike?.[sid];
+      if (isAnimationWorkbenchPreviewChild(opts.document, sn)) continue;
       if (!nodeUsesPathChrome(sn)) continue;
       pushId(sid);
       // Single: host handles. Multi path: host-mirrored union chrome (below).
@@ -1945,26 +1976,17 @@ export function buildShapeOutlines(opts: {
     });
   }
 
-  // Single artboard frame: AABB chrome from live plate host (same lattice as ink).
-  // Redux frame.x alone drifts vs `__sceneLeft` / sticky transform at high zoom.
+  // Single artboard / 动画工作台: same as shapes — hide host chrome while transforming.
   const singleFrameOnly =
     opts.selectedFrameIds.length === 1 &&
     (!opts.selectedNodeIds || opts.selectedNodeIds.length === 0);
-  if (
-    !opts.inspectDev &&
-    (!opts.transforming || singleFrameOnly) &&
-    singleFrameOnly
-  ) {
+  if (!opts.inspectDev && !opts.transforming && singleFrameOnly) {
     const fid = opts.selectedFrameIds[0];
     const frames = Array.isArray(opts.document?.frames) ? opts.document.frames : [];
     const frame = frames.find((f: any) => f && String(f.id) === String(fid));
     if (frame) {
       const previewPlate = isAnimationWorkbenchFrameInPreview(opts.document, fid);
-      const live = liveShapeGeomBox(String(fid));
-      const left = live?.left ?? (Number(frame.x) || 0);
-      const top = live?.top ?? (Number(frame.y) || 0);
-      const width = live?.width ?? Math.max(1, Number(frame.width) || 1);
-      const height = live?.height ?? Math.max(1, Number(frame.height) || 1);
+      const { left, top, width, height } = resolveFrameChromeBox(String(fid), frame);
       out.push({
         id: frameSelId(fid),
         mirrorHostId: String(fid),
@@ -1983,28 +2005,17 @@ export function buildShapeOutlines(opts: {
   }
 
   // Multi artboard: AABB union chrome (same host-mirrored path as single frame).
+  // Hide while transforming — same as multi-shape move chrome.
   const multiFrameOnly =
     opts.selectedFrameIds.length > 1 &&
     (!opts.selectedNodeIds || opts.selectedNodeIds.length === 0);
-  if (
-    !opts.inspectDev &&
-    (!opts.transforming || multiFrameOnly) &&
-    multiFrameOnly
-  ) {
+  if (!opts.inspectDev && !opts.transforming && multiFrameOnly) {
     const frames = Array.isArray(opts.document?.frames) ? opts.document.frames : [];
     const memberBoxes: SceneBox[] = [];
     for (const fid of opts.selectedFrameIds) {
       const frame = frames.find((f: any) => f && String(f.id) === String(fid));
       if (!frame) continue;
-      const live = liveShapeGeomBox(String(fid));
-      memberBoxes.push(
-        live ?? {
-          left: Number(frame.x) || 0,
-          top: Number(frame.y) || 0,
-          width: Math.max(1, Number(frame.width) || 1),
-          height: Math.max(1, Number(frame.height) || 1),
-        }
-      );
+      memberBoxes.push(resolveFrameChromeBox(String(fid), frame));
     }
     const union = unionOfBoxes(memberBoxes);
     if (union) {

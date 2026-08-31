@@ -18,6 +18,15 @@ from tests.design_harness import (
 )
 
 
+def _stub_intent_model(monkeypatch, intent_mod) -> None:
+    """Intent node resolves model before classify; tests lock a concrete id."""
+    monkeypatch.setattr(
+        intent_mod,
+        "resolve_model_for_skill",
+        lambda **_k: ("deepseek-chat", "test"),
+    )
+
+
 def _rt(**kwargs) -> AgentRuntime:
     run = AgentRunState(trace_id="tr", task_id="t", goal="g", painted=True, intent="create")
     rt = AgentRuntime(
@@ -48,7 +57,6 @@ def _rt(**kwargs) -> AgentRuntime:
         decision=DesignRunDecision(),
         system="",
         size_auto_hint="",
-        chat_fallback_tmpl="",
         persona="",
         defer_tools=False,
         max_rounds=4,
@@ -305,6 +313,7 @@ def test_intent_classify_apply_pending_routes_to_apply_confirm(monkeypatch):
         )
 
     monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    _stub_intent_model(monkeypatch, intent_mod)
     monkeypatch.setattr(intent_mod, "_clear_ask_proposal_meta", lambda tid: None)
     monkeypatch.setattr(intent_mod, "_emit", lambda *_a, **_k: None)
     monkeypatch.setattr(intent_mod, "_emit_design_loading_artboard", lambda *_a, **_k: None)
@@ -339,6 +348,7 @@ def test_intent_classify_dismiss_pending_settles(monkeypatch):
         )
 
     monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    _stub_intent_model(monkeypatch, intent_mod)
     cleared: list[str] = []
     monkeypatch.setattr(
         intent_mod, "_clear_ask_proposal_meta", lambda tid: cleared.append(tid)
@@ -381,6 +391,7 @@ def test_intent_classify_ambiguous_edit_asks_before_paint(monkeypatch):
 
     events: list[dict] = []
     monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    _stub_intent_model(monkeypatch, intent_mod)
     monkeypatch.setattr(intent_mod, "_emit", lambda event: events.append(event))
     monkeypatch.setattr(intent_mod, "_emit_design_loading_artboard", lambda *_a, **_k: None)
 
@@ -418,6 +429,7 @@ def test_intent_classify_create_ignores_clarification(monkeypatch):
         )
 
     monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    _stub_intent_model(monkeypatch, intent_mod)
     monkeypatch.setattr(intent_mod, "_emit", lambda *_a, **_k: None)
     monkeypatch.setattr(intent_mod, "_emit_design_loading_artboard", lambda *_a, **_k: None)
 
@@ -479,6 +491,7 @@ def test_intent_chat_with_images_runs_vision_reply(monkeypatch):
         return "答案是 4"
 
     monkeypatch.setattr(intent_mod, "classify_user_intent", _classify)
+    _stub_intent_model(monkeypatch, intent_mod)
     monkeypatch.setattr(intent_mod, "_vision_chat_reply", _vision)
     monkeypatch.setattr(intent_mod, "_emit", lambda *_a, **_k: None)
     monkeypatch.setattr(intent_mod, "_emit_design_loading_artboard", lambda *_a, **_k: None)

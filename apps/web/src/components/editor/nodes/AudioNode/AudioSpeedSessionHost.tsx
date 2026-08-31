@@ -4,7 +4,8 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  * Confirm clones a sibling to the right with `audioSpeed` — source stays untouched.
  */
 import { useEffect, useRef, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown, HiOutlineChevronUp, HiOutlineClock } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
@@ -27,7 +28,6 @@ import {
   setDocument,
   setSelectedNodeId,
   setSelectedNodeIds,
-  EMPTY_ID_LIST,
 } from '@/store/modules/editor';
 import { getAudioHost } from './AudioNodeOverlay';
 
@@ -54,9 +54,7 @@ function AudioSpeedSessionHost({
   const panel = useSelector(
     (s: any) => s.editor.audioToolPanel as null | { nodeId: string; kind: string }
   );
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const selectedNodeIds = useSelectedNodeIds();
   const open = panel?.kind === 'speed';
   const nodeId = open ? panel!.nodeId : '';
   const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;

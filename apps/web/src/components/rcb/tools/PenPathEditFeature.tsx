@@ -26,6 +26,7 @@ import {
   penAnchorsToD,
   penSubpathsFromD,
   penSubpathsToD,
+  flipAnchorsAroundCenter,
   rotateAnchorsAroundCenter,
   withMirroredHandles,
   type PenAnchor,
@@ -105,6 +106,8 @@ type Props = {
     closed: boolean;
     /** Path was edited in baked world orientation — clear attrs.angle on write. */
     clearAngle?: boolean;
+    /** Path baked flipX/flipY into points — clear flip attrs on write. */
+    clearFlip?: boolean;
   }) => void;
   onExit: () => void;
 };
@@ -482,6 +485,14 @@ function setHandle(
   };
 }
 
+function attrFlagTrue(v: unknown): boolean {
+  return v === true || v === 'true';
+}
+
+function attrFlagFalse(v: unknown): boolean {
+  return v === false || v === 'false';
+}
+
 function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   const node = document?.deltaSetLike?.[nodeId];
   if (!node) return null;
@@ -493,13 +504,14 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   const { left, top } = nodeLeftTop(document, node);
   const boxW = Math.max(1, Number(node.width) || 1);
   const boxH = Math.max(1, Number(node.height) || 1);
-  // Path-edit chrome is axis-aligned — bake attrs.angle into scene points so a
-  // rotated boolean / outlined path does not “lie flat” when the host is hidden.
+  // Path-edit chrome is axis-aligned — bake attrs.angle / flip into scene points so a
+  // rotated or mirrored path does not “snap back” when the host is hidden.
   const angleDeg = Number(node.attrs?.angle) || 0;
+  const flipX = attrFlagTrue(node.attrs?.flipX);
+  const flipY = attrFlagTrue(node.attrs?.flipY);
   const parsed = penSubpathsFromD(d);
   if (!parsed.length) return null;
-  const strokeOn =
-    node.attrs?.['stroke-enabled'] !== false && node.attrs?.['stroke-enabled'] !== 'false';
+  const strokeOn = !attrFlagFalse(node.attrs?.['stroke-enabled']);
   const shapeType = String(node.attrs?.shapeType || node.key || '');
   const rawBw = Number(node.attrs?.['border-width'] ?? 0);
   const strokeFallback =
@@ -511,14 +523,11 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   const strokeColor = String(node.attrs?.['border-color'] || '#333333');
   const fillColor = String(node.attrs?.['fill-color'] || '');
   const fillEnabled =
-    node.attrs?.['fill-enabled'] !== false &&
-    node.attrs?.['fill-enabled'] !== 'false' &&
-    fillColor &&
+    !attrFlagFalse(node.attrs?.['fill-enabled']) &&
+    Boolean(fillColor) &&
     fillColor !== 'transparent';
-  const fillRule =
-    String(node.attrs?.['fill-rule'] || 'nonzero') === 'evenodd'
-      ? 'evenodd'
-      : 'nonzero';
+  const fillRule: 'evenodd' | 'nonzero' =
+    String(node.attrs?.['fill-rule'] || 'nonzero') === 'evenodd' ? 'evenodd' : 'nonzero';
   const anyClosed = parsed.some((s) => s.closed);
   const joinRaw = String(node.attrs?.strokeLinejoin ?? '').toLowerCase();
   const capRaw = String(node.attrs?.strokeLinecap ?? '').toLowerCase();
@@ -528,10 +537,14 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
   let strokeLinecap: 'butt' | 'round' | 'square' = 'butt';
   if (capRaw === 'round' || capRaw === 'square' || capRaw === 'butt') strokeLinecap = capRaw;
   else if (shapeType === 'pencil') strokeLinecap = 'round';
+  const cx = boxW / 2;
+  const cy = boxH / 2;
   return {
     subpaths: parsed.map((s) => {
       const local = mergeStackedAnchors(s.anchors, mergeEpsForAnchors(s.anchors));
-      const baked = rotateAnchorsAroundCenter(local, boxW / 2, boxH / 2, angleDeg);
+      // Match host SVG: scale(flip) then rotate about pivot (right-to-left stack).
+      const flipped = flipAnchorsAroundCenter(local, cx, cy, flipX, flipY);
+      const baked = rotateAnchorsAroundCenter(flipped, cx, cy, angleDeg);
       return {
         anchors: offsetAnchors(baked, left, top),
         closed: s.closed,
@@ -540,8 +553,8 @@ function loadSceneAnchors(document: SceneDocument, nodeId: string) {
     strokeWidth,
     strokeColor,
     strokeEnabled: strokeOn && strokeWidth > 0,
-    /** True when scene anchors include baked rotation — commit must clear attrs.angle. */
     bakedAngle: Math.abs(angleDeg) >= 0.01,
+    bakedFlip: flipX || flipY,
     strokeLinecap,
     strokeLinejoin,
     fill: anyClosed && fillEnabled ? fillColor : 'none',
@@ -602,6 +615,7 @@ function PenPathEditFeature({
   const subpathsRef = useRef<PenSubpath[]>([]);
   const strokeWidthRef = useRef(0);
   const bakedAngleRef = useRef(false);
+  const bakedFlipRef = useRef(false);
   const draftAnchorsRef = useRef<PenAnchor[]>([]);
   const pathHoverRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<DragKind | null>(null);
@@ -655,6 +669,7 @@ function PenPathEditFeature({
         box,
         closed: list.every((s) => s.closed),
         clearAngle: bakedAngleRef.current,
+        clearFlip: bakedFlipRef.current,
       });
     }
     dirtyRef.current = false;
@@ -709,6 +724,8 @@ function PenPathEditFeature({
   const pathNodeWidth = Number(pathNode?.width);
   const pathNodeHeight = Number(pathNode?.height);
   const pathNodeAngle = Number(pathNode?.attrs?.angle) || 0;
+  const pathNodeFlipX = attrFlagTrue(pathNode?.attrs?.flipX) ? 1 : 0;
+  const pathNodeFlipY = attrFlagTrue(pathNode?.attrs?.flipY) ? 1 : 0;
 
   useEffect(() => {
     if (!enabled || !nodeId) {
@@ -717,6 +734,7 @@ function PenPathEditFeature({
       setDraftAnchors([]);
       setDraftCursor(null);
       bakedAngleRef.current = false;
+      bakedFlipRef.current = false;
       return;
     }
     const loaded = loadSceneAnchors(document, nodeId);
@@ -731,8 +749,9 @@ function PenPathEditFeature({
     setStrokeLinecap(loaded.strokeLinecap);
     setStrokeLinejoin(loaded.strokeLinejoin);
     setFillColor(loaded.fill || 'none');
-    setFillRule(loaded.fillRule === 'evenodd' ? 'evenodd' : 'nonzero');
+    setFillRule(loaded.fillRule);
     bakedAngleRef.current = loaded.bakedAngle;
+    bakedFlipRef.current = loaded.bakedFlip;
     dirtyRef.current = false;
     dragRef.current = null;
     setSelectedHandle(null);
@@ -741,9 +760,18 @@ function PenPathEditFeature({
     setPathHover(null);
     setDraftAnchors([]);
     setDraftCursor(null);
-    // Reload when path geometry / angle changes (e.g. path-edit pen boolean union).
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- document read via pathGeomKey/size/angle
-  }, [enabled, nodeId, pathGeomKey, pathNodeWidth, pathNodeHeight, pathNodeAngle]);
+    // Reload when path geometry / angle / flip changes (e.g. path-edit pen boolean union).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- document read via pathGeomKey/size/angle/flip
+  }, [
+    enabled,
+    nodeId,
+    pathGeomKey,
+    pathNodeWidth,
+    pathNodeHeight,
+    pathNodeAngle,
+    pathNodeFlipX,
+    pathNodeFlipY,
+  ]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -1055,7 +1083,7 @@ function PenPathEditFeature({
 
       if (drag.kind === 'convert') {
         const dist = Math.hypot(p.x - drag.ax, p.y - drag.ay);
-        // Small threshold so a plain Alt-click can still mean 鈥渕ake corner鈥?
+        // Small threshold so a plain Alt-click can still mean “make corner”
         if (dist < 3 / Math.max(0.05, rcbCameraCssZoom(camera))) return;
         drag.pulled = true;
         dirtyRef.current = true;
@@ -1390,7 +1418,7 @@ function PenPathEditInkSvg({
       {pathD ? (
         <path
           d={pathD}
-          fill={fillColor !== 'none' ? fillColor : 'none'}
+          fill={fillColor}
           fillRule={fillRule}
           stroke={editStrokeOn && pathSw > 0 ? editStrokeColor : 'none'}
           strokeWidth={pathSw}

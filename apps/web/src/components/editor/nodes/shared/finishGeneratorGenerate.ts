@@ -1,5 +1,5 @@
 import type { MutableRefObject } from 'react';
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from '@/store';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   clearGeneratorProcessOverlay,

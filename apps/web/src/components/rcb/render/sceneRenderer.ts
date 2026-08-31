@@ -13,7 +13,7 @@ import {
 import { rcbCameraCssZoom, rcbCameraScreenOffset, rcbViewportSceneBounds } from '@/components/rcb/core/math';
 import { createCameraTransform, worldToScreen } from '@/components/rcb/camera/transform';
 import { getShapeBaseline } from '@/components/rcb/core/geometry';
-import { effectivePaintBox } from '@/components/rcb/core/transformPreview';
+import { effectivePaintBox, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
 import { paintProcessPlateCanvas } from '@/components/rcb/process/processPlateSvg';
@@ -35,6 +35,7 @@ import {
 import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hexWithOpacity, boolEffectAttr, TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
 import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import { findClippingFrameForNode } from '@/components/rcb/frames/frameContentClip';
+import { hasLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   nodeNeedsPuppetWarp,
   readPuppetPins,
@@ -74,6 +75,31 @@ import {
 } from '@/components/rcb/scene/document/sceneText';
 import { shouldShowPixelGrid } from '@/components/rcb/selection/alignGuides';
 import { parseSimplePathPoints } from '@/components/rcb/tools/pencilBrushes';
+import {
+  getSharedSceneRenderBuffer,
+  hitTestSoaBufferOrdered,
+  isSoaCanvasShapesEnabled,
+  isSoaBasicGeomSufficient,
+  paintSoaBufferBasic,
+  SOA_FLAG_BASIC_GEOM,
+  SOA_FLAG_CANVAS_IDLE,
+  SOA_KIND_ELLIPSE,
+  SOA_KIND_LINE,
+  SOA_KIND_PATH,
+  SOA_KIND_RECT,
+} from '@/components/rcb/render/sceneRenderBuffer';
+
+export { isSoaBasicGeomSufficient } from '@/components/rcb/render/sceneRenderBuffer';
+import {
+  blitSoaBakeForView,
+  ensureSoaBake,
+  getSharedSoaBake,
+  patchSoaBakeDirty,
+  setSharedSoaBake,
+  shouldUseSoaBake,
+  unionSoaDirtyAabb,
+} from '@/components/rcb/render/soaBakeLayer';
+import { createWebglSceneRenderer, isSoaWebglEnabled } from '@/components/rcb/render/webglSceneRenderer';
 
 /** Cap centerline samples when stroking a dense pencil/path as Canvas idle ink. */
 export const CANVAS_IDLE_STROKE_MAX_PTS = 64;
@@ -94,7 +120,7 @@ export type SceneRenderRequest = {
   dpr?: number;
 };
 
-export type SceneRendererBackend = 'svg' | 'canvas2d';
+export type SceneRendererBackend = 'svg' | 'canvas2d' | 'webgl';
 
 export type SceneRenderer = {
   readonly backend: SceneRendererBackend;
@@ -148,8 +174,17 @@ export function hitTestWithSpatialIndex(
       })
     : order;
   const allowSvgDomHit = deps.allowSvgDomHit === true;
+  // SoA idle shapes have no SVG host — pick from buffer AABB/geometry first.
+  let soaHit: SceneNodeId | null = null;
+  if (doc && isSoaCanvasShapesEnabled() && hitOrder.length) {
+    const buf = getSharedSceneRenderBuffer();
+    if (buf.count > 0) {
+      soaHit = hitTestSoaBufferOrdered(buf, point.x, point.y, hitOrder);
+    }
+  }
   const hit =
-    doc
+    soaHit ??
+    (doc
       ? hitTestSceneAtPoint({
           document: doc,
           order: hitOrder,
@@ -161,7 +196,7 @@ export function hitTestWithSpatialIndex(
           nodeEls: allowSvgDomHit ? (deps.getNodeEls?.() ?? null) : null,
           allowSvgDomHit,
         })
-      : null;
+      : null);
   if (typeof window !== 'undefined' && import.meta.env.DEV) {
     const boxes = order.slice(0, 12).map((id) => {
       const box = deps.getNodeBox(id);
@@ -176,6 +211,7 @@ export function hitTestWithSpatialIndex(
       orderLen: order.length,
       orderHead: order.slice(0, 8),
       boxes,
+      soaHit,
       hit,
     };
   }
@@ -190,6 +226,51 @@ export function dirtyTouchesNode(dirty: DirtyRegion, nodeId: string): boolean {
   if (dirty.kind === 'full') return true;
   if (dirty.kind === 'nodes') return dirty.ids.includes(nodeId);
   return true;
+}
+
+/** Scene AABB → screen CSS px under the same camera used by Canvas2D paint. */
+export function sceneBoxToScreenRect(
+  box: { x: number; y: number; width: number; height: number },
+  camera: RcbCamera,
+  dpr = 1,
+  padScene = 2
+): { x: number; y: number; width: number; height: number } {
+  const z = rcbCameraCssZoom(camera);
+  const pan = rcbCameraScreenOffset(camera, dpr);
+  const pad = padScene * z;
+  const x = box.x * z + pan.x - pad;
+  const y = box.y * z + pan.y - pad;
+  return {
+    x,
+    y,
+    width: Math.max(1, box.width * z) + pad * 2,
+    height: Math.max(1, box.height * z) + pad * 2,
+  };
+}
+
+/**
+ * Prefer SoA dirty AABB for idle/promote repaints; fall back to full when the
+ * camera/stage changed or no dirty slots are pending.
+ */
+export function resolveSoaCanvasDirtyRegion(opts: {
+  full: boolean;
+  buf?: Parameters<typeof unionSoaDirtyAabb>[0] | null;
+}): DirtyRegion {
+  if (opts.full) return { kind: 'full' };
+  const buf = opts.buf;
+  if (!buf || buf.count <= 0) return { kind: 'full' };
+  const aabb = unionSoaDirtyAabb(buf);
+  if (!aabb) return { kind: 'full' };
+  const pad = 4;
+  return {
+    kind: 'aabb',
+    box: {
+      x: aabb.left - pad,
+      y: aabb.top - pad,
+      width: aabb.width + pad * 2,
+      height: aabb.height + pad * 2,
+    },
+  };
 }
 
 /** Live SVG hosts remain the paint path; this adapter owns the hit contract. */
@@ -281,16 +362,31 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       canvas.style.height = `${sh}px`;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, sw, sh);
 
       const z = rcbCameraCssZoom(req.camera);
       const pan = rcbCameraScreenOffset(req.camera, dpr);
+      const aabbDirty = req.dirty.kind === 'aabb' ? req.dirty.box : null;
+      const usePartialClear = Boolean(aabbDirty) && !isFullDirty(req.dirty);
+
+      if (usePartialClear && aabbDirty) {
+        const scr = sceneBoxToScreenRect(aabbDirty, req.camera, dpr, 4);
+        ctx.clearRect(scr.x, scr.y, scr.width, scr.height);
+      } else {
+        ctx.clearRect(0, 0, sw, sh);
+      }
+
       ctx.save();
       ctx.translate(pan.x, pan.y);
       ctx.scale(z, z);
 
       const view = rcbViewportSceneBounds(req.camera, { width: sw, height: sh }, dpr);
       const gridSize = resolveGridSize();
+
+      if (usePartialClear && aabbDirty) {
+        ctx.beginPath();
+        ctx.rect(aabbDirty.x, aabbDirty.y, aabbDirty.width, aabbDirty.height);
+        ctx.clip();
+      }
 
       if (paintGrid && shouldShowGrid(z)) {
         drawSceneGrid(ctx, view, gridSize, z);
@@ -299,8 +395,65 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       if (drawIdle || drawBasic || drawProxies) {
         const doc = req.document;
         const ids = deps.listNodeIds();
+        const soaOn = isSoaCanvasShapesEnabled();
+        const soaBuf = soaOn ? getSharedSceneRenderBuffer() : null;
+        if (soaBuf && (drawIdle || drawBasic)) {
+          const dirtyOnly =
+            !isFullDirty(req.dirty) &&
+            (req.dirty.kind === 'aabb' || req.dirty.kind === 'nodes');
+          if (
+            shouldUseSoaBake(soaBuf) &&
+            !hasNodeTransformPreviews() &&
+            !hasLiveArtboardFrameGeometry()
+          ) {
+            let bake = getSharedSoaBake();
+            const dirtyAabb = unionSoaDirtyAabb(soaBuf);
+            if (bake?.valid && dirtyAabb && dirtyOnly) {
+              patchSoaBakeDirty(soaBuf, bake);
+            } else {
+              bake = ensureSoaBake(soaBuf, bake);
+              setSharedSoaBake(bake);
+            }
+            if (bake?.valid) {
+              blitSoaBakeForView(ctx, soaBuf, bake, view);
+            } else {
+              paintSoaBufferBasic(ctx, soaBuf, view, {
+                dirtyOnly: false,
+                document: doc,
+              });
+            }
+          } else if (dirtyOnly && req.dirty.kind === 'aabb') {
+            // Cleared AABB must repaint every idle slot in the hole, not only DIRTY.
+            paintSoaBufferBasic(
+              ctx,
+              soaBuf,
+              {
+                left: req.dirty.box.x,
+                top: req.dirty.box.y,
+                width: req.dirty.box.width,
+                height: req.dirty.box.height,
+              },
+              { dirtyOnly: false, document: doc }
+            );
+          } else {
+            paintSoaBufferBasic(ctx, soaBuf, view, {
+              dirtyOnly: dirtyOnly && req.dirty.kind === 'nodes',
+              document: doc,
+            });
+          }
+        }
         for (const id of ids) {
           if (!dirtyTouchesNode(req.dirty, id)) continue;
+          if (soaBuf) {
+            const si = soaBuf.indexById.get(id);
+            if (si != null) {
+              const flags = soaBuf.flags[si];
+              // Only skip when SoA basic pass already drew this slot.
+              if ((flags & SOA_FLAG_CANVAS_IDLE) && (flags & SOA_FLAG_BASIC_GEOM)) {
+                continue;
+              }
+            }
+          }
           const box = deps.getNodeBox(id);
           if (!box) continue;
           const node = doc.deltaSetLike?.[id] as SceneNodeInput | undefined;
@@ -318,6 +471,16 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
             )
           ) {
             continue;
+          }
+          if (aabbDirty) {
+            if (
+              paint.left + paint.width < aabbDirty.x ||
+              paint.top + paint.height < aabbDirty.y ||
+              paint.left > aabbDirty.x + aabbDirty.width ||
+              paint.top > aabbDirty.y + aabbDirty.height
+            ) {
+              continue;
+            }
           }
           if (drawIdle) {
             paintCanvasIdleNode(ctx, {
@@ -535,11 +698,14 @@ function isTransparentCssColor(c: string): boolean {
  * Idle nodes that can leave SVG hosts for Canvas2D underlay/overlay paint (ADR 0027 S3).
  *
  * Allowed: solid / linear / radial / angular / image / diffuse fills,
- * center-aligned stroke, drop shadow, rect/ellipse/line/light path,
+ * center-aligned stroke, drop shadow, rect/ellipse/line/light path/polygon/star,
  * and image / video media (poster or decoded src).
  *
  * Still SVG: lottie/audio/group/text, non-center strokeAlign, inner/backdrop/blur,
- * heavy paths, donut·arc ellipses, blend modes other than normal, polygons/stars.
+ * heavy paths, donut·arc ellipses, blend modes other than normal.
+ *
+ * Note: rounded rects / polys are idle-capable via {@link paintCanvasShapeInk}, but
+ * SoA `paintSoaBufferBasic` must not claim them — see {@link isSoaBasicGeomSufficient}.
  */
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
@@ -594,6 +760,7 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
     return true;
   }
   if (t === 'line' || t === 'arrow') return true;
+  if (t === 'triangle' || t === 'polygon' || t === 'star') return true;
 
   if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path') {
     const d = String(attrs.path || '').trim();
@@ -1300,14 +1467,19 @@ export function paintCanvasPathInk(
   if (typeof Path2D !== 'undefined' && d.trim()) {
     try {
       const path = new Path2D(d);
+      const fillRuleAttr = String(node.attrs?.['fill-rule'] || '').toLowerCase();
+      const fillRule: CanvasFillRule | undefined =
+        fillRuleAttr === 'evenodd' ? 'evenodd' : fillRuleAttr === 'nonzero' ? 'nonzero' : undefined;
       if (isPencil) {
         ctx.fillStyle = paintColor;
-        ctx.fill(path);
+        if (fillRule) ctx.fill(path, fillRule);
+        else ctx.fill(path);
       } else if (!strokeOnly) {
         const fill = resolveFillColor(node, '#FFFFFF');
         if (!isTransparentCssColor(fill)) {
           ctx.fillStyle = fill;
-          ctx.fill(path);
+          if (fillRule) ctx.fill(path, fillRule);
+          else ctx.fill(path);
         }
         if (lineW > 0 && !isTransparentCssColor(stroke)) {
           ctx.strokeStyle = stroke;
@@ -1723,6 +1895,7 @@ export function clipCanvasIdleToOwningFrame(
   if (!frame) return false;
   const ox = Number(document?.x) || 0;
   const oy = Number(document?.y) || 0;
+  // findClippingFrameForNode already merges live artboard geometry when present.
   const fx = Number(frame.x) - ox;
   const fy = Number(frame.y) - oy;
   const fw = Math.max(1, Number(frame.width) || 1);
@@ -1834,11 +2007,15 @@ export function paintCanvasIdleNode(
 
   ctx.save();
   clipCanvasIdleToOwningFrame(ctx, opts.document, node, opts.zoom);
-  if (Math.abs(angle) > 0.5) {
+  const flipX = node.attrs?.flipX === true || node.attrs?.flipX === 'true';
+  const flipY = node.attrs?.flipY === true || node.attrs?.flipY === 'true';
+  // Match sceneToSvg reapplySceneTransform: pivot → rotate → flip → unpivot.
+  if (Math.abs(angle) > 0.5 || flipX || flipY) {
     const cx = left + w / 2;
     const cy = top + h / 2;
     ctx.translate(cx, cy);
-    ctx.rotate((angle * Math.PI) / 180);
+    if (Math.abs(angle) > 0.5) ctx.rotate((angle * Math.PI) / 180);
+    if (flipX || flipY) ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1);
     ctx.translate(-w / 2, -h / 2);
   } else {
     ctx.translate(left, top);
@@ -1912,11 +2089,21 @@ export function scenePointToStageLocal(
   return worldToScreen(createCameraTransform(camera, dpr), point.x, point.y);
 }
 
-/** Default factory — live media / editors stay on svg; idle ink prefers canvas2d. */
+/** Default factory — live media / editors stay on svg; idle ink prefers canvas2d / webgl. */
 export function createSceneRenderer(
   backend: SceneRendererBackend,
   deps: CanvasSceneRendererDeps | SceneRendererHitDeps
 ): SceneRenderer {
+  if (backend === 'webgl') {
+    const canvasDeps = deps as CanvasSceneRendererDeps;
+    if (!canvasDeps.canvas) {
+      throw new Error('createSceneRenderer(webgl) requires deps.canvas');
+    }
+    if (!isSoaWebglEnabled() || !isSoaCanvasShapesEnabled()) {
+      return createCanvasSceneRenderer(canvasDeps);
+    }
+    return createWebglSceneRenderer(canvasDeps) ?? createCanvasSceneRenderer(canvasDeps);
+  }
   if (backend === 'canvas2d') {
     const canvasDeps = deps as CanvasSceneRendererDeps;
     if (!canvasDeps.canvas) {
@@ -1926,3 +2113,13 @@ export function createSceneRenderer(
   }
   return createSvgSceneRenderer(deps);
 }
+
+/** Pick ink backend from flags (WebGL → Canvas2D). */
+export function resolveIdleInkBackend(): SceneRendererBackend {
+  if (isSoaWebglEnabled() && isSoaCanvasShapesEnabled()) return 'webgl';
+  return 'canvas2d';
+}
+
+// Re-export bake invalidate for AI flush listeners.
+export { invalidateSoaBake, resetSharedSoaBake } from '@/components/rcb/render/soaBakeLayer';
+export { markAllSoaDirty } from '@/components/rcb/render/sceneRenderBuffer';

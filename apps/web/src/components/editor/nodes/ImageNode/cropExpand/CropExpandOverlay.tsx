@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useEditorDocument } from '@/store/editorSelectors';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -16,7 +16,7 @@ export type HandlePos = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 /** Crop rect in image-local coords (origin = image top-left). */
 export type CropRect = { x: number; y: number; w: number; h: number };
 
-/** Expand frame: outer size + origin relative to image top-left (ox/oy ≤ 0). */
+/** Expand frame: outer size + origin relative to image top-left (ox/oy — 0). */
 export type ExpandFrame = { w: number; h: number; ox: number; oy: number };
 
 const MIN_CROP = 20;
@@ -322,7 +322,7 @@ function CropExpandOverlay({
 }: Props): ReactNode {
   const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
-  const document = useSelector((state: any) => state.editor.document);
+  const document = useEditorDocument();
   const gridSize = getDocumentGridSize(document);
   const [dragging, setDragging] = useState(false);
   const [centerSnap, setCenterSnap] = useState({ x: false, y: false });

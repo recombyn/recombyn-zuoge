@@ -196,7 +196,6 @@ async def _node_paint_ops(state: GraphState) -> Command:
         st,
         skill={
             "category": "agent",
-            "default_model": "doubao",
             "name": "react",
             "skill_key": "react"
         },

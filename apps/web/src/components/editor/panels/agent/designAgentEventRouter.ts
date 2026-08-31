@@ -1,4 +1,4 @@
-import type { Store } from '@reduxjs/toolkit';
+import type { RootState } from '@/store';
 import { message } from '@/components/base';
 import type { DesignScene } from '@/service/design';
 import {
@@ -281,7 +281,7 @@ export function createDesignAgentEventRouter(opts: {
   lastAgentFrameIdRef: { current: string | null };
   lastAgentSvgByFrameRef: { current: Map<string, string> };
   checkpointsRef: { current: Map<string, any> };
-  store: Store;
+  store: { getState: () => RootState };
   finishAssistantPatch: (m: ChatUiMessage, patch?: Partial<ChatUiMessage>) => ChatUiMessage;
   mutable: DesignSendMutable;
   /** Host meta: clear chat / stop generation. */

@@ -1,9 +1,10 @@
 /**
- * Shared 动画工作台 playback strip — 关键帧 / transport / speed.
+ * Shared — ——playback strip — — —/ transport / speed.
  * Export lives at the end of AnimationFrameContextToolbar (not mid-strip).
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { Dropdown } from '@/components/base';
 import type { MenuItemType } from '@/components/base/dropdown';
@@ -12,6 +13,10 @@ import { imageToolBtn, ImageToolSep } from '@/components/editor/nodes/ImageNode/
 import { getLottieHost } from '@/components/editor/nodes/AnimationNode/AnimationNodeOverlay';
 import AnimationTransportControls from '@/components/editor/nodes/AnimationNode/AnimationTransportControls';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import {
+  useAnimationPlayheadSec,
+  useAnimationPlaying,
+} from '@/components/editor/nodes/AnimationNode/animationTransport';
 import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import {
   buildLottieTimelineScenes,
@@ -77,13 +82,13 @@ function AnimationToolbarEditTools({
 }) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const document = useSelector((s: any) => s.editor.document);
-  const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
+  const document = useEditorDocumentOnCommit();
+  const playhead = useAnimationPlayheadSec();
   const [playbackReady, setPlaybackReady] = useState(false);
   const timelinePanelNodeId = useSelector(
     (s: any) => String(s.editor.lottieTimelinePanel?.nodeId || '').trim()
   );
-  const lottiePlaying = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
+  const lottiePlaying = useAnimationPlaying();
 
   const node = document?.deltaSetLike?.[nodeId];
   const animationFrameId = useMemo(
@@ -102,7 +107,7 @@ function AnimationToolbarEditTools({
   );
   const animationIntent = Boolean(animationFrameId);
 
-  // Dock owns 关键帧 + transport whenever edit mode is open (any plate selected).
+  // Dock owns — —+ transport whenever edit mode is open (any plate selected).
   const timelineOpen = Boolean(timelinePanelNodeId);
 
   const bounds = useMemo(() => {
@@ -125,7 +130,7 @@ function AnimationToolbarEditTools({
 
   useEffect(() => {
     const sync = () => {
-      // Empty 动画工作台 still has a plate + host — only enable when layers exist.
+      // Empty — ——still has a plate + host — only enable when layers exist.
       setPlaybackReady(hasPlayableContent && Boolean(getLottieHost(nodeId)));
     };
     sync();
@@ -177,7 +182,7 @@ function AnimationToolbarEditTools({
         dispatch(setLottiePlaying({ playing: false, hostNodeId: nodeId }));
         return;
       }
-      // At / past out → restart from in; otherwise continue from Redux playhead.
+      // At / past out — restart from in; otherwise continue from Redux playhead.
       const start =
         playhead >= workOutSec - 1e-3 || playhead < workInSec - 1e-3
           ? workInSec
@@ -224,7 +229,7 @@ function AnimationToolbarEditTools({
     getLottieHost(nodeId)?.setSpeed(next);
   };
 
-  const speedLabel = `${Number.isFinite(speed) && speed > 0 ? speed : 1}×`;
+  const speedLabel = `${Number.isFinite(speed) && speed > 0 ? speed : 1}`;
 
   const transport = (
     <>
@@ -253,7 +258,7 @@ function AnimationToolbarEditTools({
     </>
   );
 
-  // Timeline dock owns 「关键帧」; free LOT preview under focus still needs transport
+  // Timeline dock owns — —— free LOT preview under focus still needs transport
   // (otherwise only the export download chip remains under the plate).
   if (timelineOpen) return transport;
 

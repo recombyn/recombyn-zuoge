@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import {
   measureImageNaturalSize,
   parseLottieAnimationData,

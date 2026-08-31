@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
   closeShapeStylePanel,
@@ -260,7 +261,7 @@ function ShapeStylePanelHost({
         nodeIds: string[];
       }
   );
-  const selectedNodeIds = useSelector((s: any) => s.editor.selectedNodeIds as string[]);
+  const selectedNodeIds = useSelectedNodeIds();
   const [meshSelectedIndex, setMeshSelectedIndex] = useState(0);
   const [meshShowGuides, setMeshShowGuides] = useState(true);
   const [gradientStopIndex, setGradientStopIndex] = useState(0);
@@ -526,7 +527,7 @@ function ShapeStylePanelHost({
     pathClosedExplicit ??
     (typeof firstAttrs?.path === 'string' && /z\s*$/i.test(String(firstAttrs.path).trim()));
   /**
-   * Open strokes (line / arrow / open pen / pencil): show linecap (端点).
+   * Open strokes (line / arrow / open pen / pencil): show linecap (—).
    * Side toggles (All / T / L / B / R) only for rect-like nodes — never for pen/path.
    */
   const isOpenStroke =

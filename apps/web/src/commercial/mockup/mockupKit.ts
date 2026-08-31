@@ -1,5 +1,5 @@
 /**
- * Mockup template kit — UV/mask/base (+ optional shadow/highlight/regions) for FE WebGL.
+ * Mockup template kit — UV/mask/base (+ optional shadow/highlight/regions) for FE Canvas 2D preview.
  */
 
 import { getApiBaseUrl } from '@/utils/apiBase';

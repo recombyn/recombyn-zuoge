@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useSyncExternalStore, memo } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   fillPanelPreview,
@@ -65,6 +65,7 @@ import {
   nodeLeftTop,
   previewSvgNodeGeometry,
 } from '@/components/rcb/scene/paint/sceneToSvg';
+import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import { sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
@@ -76,14 +77,14 @@ function readAspectLocked(attrs: Record<string, unknown> | undefined): boolean {
   return false;
 }
 
-/** Compact toolbar R: linked → any corner; unlinked → max so mixed corners stay visible. */
+/** Compact toolbar R: linked — any corner; unlinked — max so mixed corners stay visible. */
 function toolbarCornerRadius(attrs: Record<string, unknown> | undefined): number {
   return cornerRadiusToolbarDisplay(attrs);
 }
 
 type SceneBox = { left: number; top: number; width: number; height: number };
 
-/** Stored before first ratio preset so 「自由」 can restore. */
+/** Stored before first ratio preset so 「自由—can restore. */
 const ASPECT_ORIG_W = 'aspect-original-width';
 const ASPECT_ORIG_H = 'aspect-original-height';
 type StrokeLengthAnchor = { x: number; y: number; angle: number };
@@ -289,6 +290,8 @@ function ShapeSelectionToolbar({
         skipHostReload: previewed,
       })
     );
+    // Document is the commit fact — drop gesture overlay so SoA bake can resume.
+    clearNodeTransformPreviews([nodeId]);
   };
 
   const patchSize = (
@@ -409,7 +412,7 @@ function ShapeSelectionToolbar({
 
   const applyAspectPreset = (preset: (typeof ELEMENT_ASPECT_PRESETS)[number]) => {
     if (preset.id === 'original') {
-      // 「自由」：保持当前尺寸，取消比例锁定
+      // 「自由」：保持当前尺寸，取消比例锁—
       patchAttrs({ lockAspect: 'false' });
       return;
     }

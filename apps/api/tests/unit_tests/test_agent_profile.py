@@ -17,8 +17,9 @@ from app.services.design.runtime.host.prompts import (
 from app.services.design.runtime.models_route import (
     parse_fallback_chain,
     parse_model_lanes,
+    ModelRouteError,
     resolve_review_model,
-    router_model_id,
+    resolve_route_call_model,
 )
 
 
@@ -114,7 +115,6 @@ def test_mode_overlay_keys():
 def test_apply_profile_rules_kv_passthrough():
     base = {
         "precheck.model_threshold": "fast->a;standard->b;reasoning->c",
-        "precheck.router_model": "router-x",
         "agent.review.model": "review-y",
         "precheck.fallback_chain": "c,b,a",
         "precheck.vision_model": "vision-z",
@@ -125,13 +125,32 @@ def test_apply_profile_rules_kv_passthrough():
     }
     out = apply_profile_rules(base)
     assert out["precheck.model_threshold"] == base["precheck.model_threshold"]
-    assert out["precheck.router_model"] == "router-x"
     assert out["agent.review.model"] == "review-y"
     # Declared flags in profile force values (design.canvas defer_tools: true).
     assert out["agent.react.defer_tools"] == "1"
     assert out["design.critique.enabled"] == "1"
     assert parse_model_lanes(out)["fast"] == "a"
-    assert router_model_id(out) == "router-x"
+    assert (
+        resolve_route_call_model(
+            user_selected_model="auto", rules=out, for_router_stage=True
+        )
+        == "a"
+    )
+    try:
+        resolve_route_call_model(user_selected_model="auto", rules=out)
+        assert False, "auto without lane/stage must not invent a model"
+    except ModelRouteError:
+        pass
+    assert (
+        resolve_route_call_model(user_selected_model="deepseek-v4-flash", rules=out)
+        == "deepseek-v4-flash"
+    )
+    assert (
+        resolve_route_call_model(
+            user_selected_model="auto", rules=out, route_lane="standard"
+        )
+        == "b"
+    )
     assert resolve_review_model(out)[0] == "review-y"
     assert parse_fallback_chain(out) == ["c", "b", "a"]
 
@@ -157,7 +176,6 @@ def test_apply_profile_rules_literal_lanes_override():
                 "standard": "model-std",
                 "reasoning": "model-reason",
             },
-            "router_model": "model-router",
             "stage_pins": {"review": "model-review"},
             "fallback": ["model-reason", "model-std"],
         },
@@ -169,7 +187,6 @@ def test_apply_profile_rules_literal_lanes_override():
     lanes = parse_model_lanes(out)
     assert lanes["fast"] == "model-fast"
     assert lanes["standard"] == "model-std"
-    assert out["precheck.router_model"] == "model-router"
     assert out["agent.review.model"] == "model-review"
     assert out["agent.react.defer_tools"] == "0"
     assert out["design.critique.enabled"] == "0"

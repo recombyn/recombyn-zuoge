@@ -1,11 +1,11 @@
 import { useEffect, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { logout, clearSessionCaches } from '@/store/modules/auth';
 import { buildLoginUrl, readReturnToParam } from '@/utils/authReturnTo';
 import { getToken } from '@/utils/token';
 
-/** Protects editor (and any other auth-only routes). Guests → login?from=… */
+/** Protects editor (and any other auth-only routes). Guests — login?from=—*/
 function RequireAuth() {
   const user = useSelector((state: any) => state.auth.user);
   const location = useLocation();

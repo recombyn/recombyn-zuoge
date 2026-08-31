@@ -1,5 +1,7 @@
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import { ensureDefs, setAttrs, svgEl, urlRef } from '@/components/rcb/scene/paint/svgDom';
+import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
 
 function num(v: unknown, fallback = 0): number {
   const n = Number(v);
@@ -14,6 +16,7 @@ function nextClipId(prefix: string) {
 
 /**
  * clipContent frame for a node: largest bbox intersection, then smaller area, then topmost.
+ * Prefer gesture-time plate + TransformPreview node boxes when present (frame move).
  */
 export function findClippingFrameForNode(
   document: { frames?: ArtboardFrame[]; x?: number; y?: number } | null | undefined,
@@ -23,10 +26,12 @@ export function findClippingFrameForNode(
   const frames = Array.isArray(document.frames) ? document.frames : [];
   if (!frames.length) return null;
 
-  const nx = num(node.x);
-  const ny = num(node.y);
-  const nw = Math.max(1, num(node.width, 1));
-  const nh = Math.max(1, num(node.height, 1));
+  const nodeId = String(node.id || '').trim();
+  const preview = nodeId ? getNodeTransformPreview(nodeId) : null;
+  const nx = preview ? preview.left : num(node.x);
+  const ny = preview ? preview.top : num(node.y);
+  const nw = Math.max(1, preview ? preview.width : num(node.width, 1));
+  const nh = Math.max(1, preview ? preview.height : num(node.height, 1));
 
   const explicitOwner = String(
     (node.attrs as Record<string, unknown> | undefined)?.frameId || ''
@@ -34,13 +39,22 @@ export function findClippingFrameForNode(
   if (!explicitOwner) return null;
   const ownedFrame = frames.find((frame) => String(frame.id) === explicitOwner);
   if (!ownedFrame || !ownedFrame.clipContent || ownedFrame.hidden) return null;
-  const fx = num(ownedFrame.x);
-  const fy = num(ownedFrame.y);
-  const fw = Math.max(1, num(ownedFrame.width, 1));
-  const fh = Math.max(1, num(ownedFrame.height, 1));
+  const live = getLiveArtboardFrameGeometry(String(ownedFrame.id || ''));
+  const fx = num(live?.x ?? ownedFrame.x);
+  const fy = num(live?.y ?? ownedFrame.y);
+  const fw = Math.max(1, num(live?.width ?? ownedFrame.width, 1));
+  const fh = Math.max(1, num(live?.height ?? ownedFrame.height, 1));
   const overlapWidth = Math.min(nx + nw, fx + fw) - Math.max(nx, fx);
   const overlapHeight = Math.min(ny + nh, fy + fh) - Math.max(ny, fy);
-  return overlapWidth > 0 && overlapHeight > 0 ? ownedFrame : null;
+  if (!(overlapWidth > 0 && overlapHeight > 0)) return null;
+  if (!live) return ownedFrame;
+  return {
+    ...ownedFrame,
+    x: fx,
+    y: fy,
+    width: fw,
+    height: fh,
+  };
 }
 
 /** Scene-space origin (matches nodeLeftTop / shape paint). */

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
+import {
+  useEditorDocumentOnCommit,
+  useSelectedNodeIds,
+} from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { LuPanelRight } from 'react-icons/lu';
 import { HiOutlineChevronDown, HiOutlineClipboardDocument } from 'react-icons/hi2';
@@ -8,7 +12,6 @@ import Dropdown from '@/components/base/dropdown';
 import type { MenuItemType } from '@/components/base/dropdown/MenuItem';
 import Tooltip from '@/components/base/tooltip';
 import { ExportSelectionPanel } from '@/components/editor/panels/ExportSelectionPanel';
-import { EMPTY_ID_LIST } from '@/store/modules/editor';
 import { cn } from '@/utils/classnames';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import {
@@ -421,10 +424,8 @@ function DevPropertiesPanel({
   allowExport?: boolean;
 }) {
   const { t } = useTranslation();
-  const document = useSelector((s: any) => s.editor.document);
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const document = useEditorDocumentOnCommit();
+  const selectedNodeIds = useSelectedNodeIds();
   const hoverNodeId = useSelector((s: any) => s.editor.devHoverNodeId as string | null);
   const nodeId =
     hoverNodeId || (selectedNodeIds.length === 1 ? selectedNodeIds[0] : null);

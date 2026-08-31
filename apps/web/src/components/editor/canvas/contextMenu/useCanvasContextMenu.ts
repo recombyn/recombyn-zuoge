@@ -5,7 +5,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { rcbResolveViewportEl, useRcbScreenToScene } from '@/components/rcb';
 import type { ContextMenuState } from '@/components/rcb/selection/chrome/CanvasContextMenu';
 import {
@@ -246,9 +246,9 @@ export function resolveContextMenuHit(opts: {
  * Canvas context menu — driven only by our pointer gestures (not browser
  * `contextmenu`, whose coords are often 0/1 on touch). Native menu is suppressed.
  *
- * - mouse right button → open on pointerdown/mousedown
- * - touch / coarse → long-press at down position
- * - pointercancel after a long hold → open (browser stole the gesture)
+ * - mouse right button — open on pointerdown/mousedown
+ * - touch / coarse — long-press at down position
+ * - pointercancel after a long hold — open (browser stole the gesture)
  */
 export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
   const {

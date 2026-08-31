@@ -1,10 +1,10 @@
 /**
- * Timeline focus: center the 动画工作台 once in the free band above the
+ * Timeline focus: center the 动画工作—once in the free band above the
  * floating tools + timeline (and between side docks). Restore camera on close.
- * Do not re-fit while the user moves/resizes the board.
+ * Fit/release is event-driven (`requestTimelineCameraFit` / Release).
  */
 import { memo, useEffect, useLayoutEffect, useRef } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
@@ -18,6 +18,11 @@ import {
 import {
   setAnimationWorkbenchTimelineFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import {
+  RCB_TIMELINE_CAMERA_FIT,
+  RCB_TIMELINE_CAMERA_RELEASE,
+} from '@/components/editor/sceneEvents';
+import store from '@/store';
 
 /** Fallback when the dock has not painted yet (~default dock height). */
 const TIMELINE_DOCK_FALLBACK_H = 240;
@@ -60,10 +65,6 @@ function boundsForWorkbench(
   };
 }
 
-/**
- * Distance from stage bottom to the top of timeline/tools chrome.
- * Prefer live DOM so we don't center into the area covered by the dock.
- */
 function readBottomBandInset(stageEl: HTMLElement | null): number {
   if (!stageEl) return TIMELINE_DOCK_FALLBACK_H + BOTTOM_BAND_GAP;
   const stageRect = stageEl.getBoundingClientRect();
@@ -86,7 +87,6 @@ function toolsAreLiftedAboveDock(): boolean {
     '[data-lottie-timeline-dock]'
   ) as HTMLElement | null;
   if (!tools || !dock) return false;
-  // Tools must sit clearly above the dock (not still at bottom:16 under it).
   return tools.getBoundingClientRect().bottom <= dock.getBoundingClientRect().top + 2;
 }
 
@@ -117,9 +117,7 @@ function AnimationTimelineFocusHost({
 }: {
   document: SceneDocument | null;
   stageEl?: HTMLElement | null;
-  /** Left layers/assets dock width (stage overlay). */
   bandLeftPx?: number;
-  /** Right agent/inspect dock width (stage overlay). */
   bandRightPx?: number;
 }) {
   const timelineNodeId = useSelector((s: any) =>
@@ -127,10 +125,15 @@ function AnimationTimelineFocusHost({
   );
   const open = Boolean(timelineNodeId);
   const pushedRef = useRef(false);
-  /** Only re-center when the timeline target node changes — not on board drag. */
   const fittedForNodeRef = useRef('');
   const stageElRef = useRef(stageEl);
+  const bandLeftRef = useRef(bandLeftPx);
+  const bandRightRef = useRef(bandRightPx);
+  const documentRef = useRef(document);
   stageElRef.current = stageEl;
+  bandLeftRef.current = bandLeftPx;
+  bandRightRef.current = bandRightPx;
+  documentRef.current = document;
 
   const focusFrameId =
     open && document
@@ -145,68 +148,72 @@ function AnimationTimelineFocusHost({
   }, [focusFrameId]);
 
   useEffect(() => {
-    if (!open) {
+    let cancelled = false;
+    let tries = 0;
+    let raf = 0;
+
+    const release = () => {
       if (pushedRef.current) {
         popSessionCamera();
         pushedRef.current = false;
       }
       fittedForNodeRef.current = '';
-      return;
-    }
+    };
 
-    if (fittedForNodeRef.current === timelineNodeId && pushedRef.current) {
-      return;
-    }
-
-    let cancelled = false;
-    let tries = 0;
-
-    const apply = () => {
-      if (cancelled) return;
-      const bounds = boundsForWorkbench(document, timelineNodeId);
-      if (!bounds) {
-        if (tries++ < 16) window.requestAnimationFrame(apply);
-        return;
-      }
-
-      // Wait until dock exists and bottom tools have lifted above it.
-      if (tries < 24) {
-        const dock = window.document.querySelector('[data-lottie-timeline-dock]');
-        if (!dock || !toolsAreLiftedAboveDock()) {
-          tries += 1;
-          window.requestAnimationFrame(apply);
+    const fit = () => {
+      cancelled = false;
+      tries = 0;
+      const apply = () => {
+        if (cancelled) return;
+        const editor = (store.getState() as { editor?: any }).editor;
+        const nodeId = String(editor?.lottieTimelinePanel?.nodeId || '').trim();
+        if (!nodeId) return;
+        if (fittedForNodeRef.current === nodeId && pushedRef.current) return;
+        const doc =
+          (editor?.document as SceneDocument | null | undefined) || documentRef.current;
+        const bounds = boundsForWorkbench(doc, nodeId);
+        if (!bounds) {
+          if (tries++ < 16) raf = window.requestAnimationFrame(apply);
           return;
         }
-      }
-
-      if (pushedRef.current && fittedForNodeRef.current === timelineNodeId) return;
-
-      if (!pushedRef.current) {
-        pushSessionCamera(
-          bounds,
-          fitOptsForWorkbench(stageElRef.current, bandLeftPx, bandRightPx)
-        );
-        pushedRef.current = true;
-      }
-      fittedForNodeRef.current = timelineNodeId;
+        if (tries < 24) {
+          const dock = window.document.querySelector('[data-lottie-timeline-dock]');
+          if (!dock || !toolsAreLiftedAboveDock()) {
+            tries += 1;
+            raf = window.requestAnimationFrame(apply);
+            return;
+          }
+        }
+        if (pushedRef.current && fittedForNodeRef.current === nodeId) return;
+        if (!pushedRef.current) {
+          pushSessionCamera(
+            bounds,
+            fitOptsForWorkbench(stageElRef.current, bandLeftRef.current, bandRightRef.current)
+          );
+          pushedRef.current = true;
+        }
+        fittedForNodeRef.current = nodeId;
+      };
+      raf = window.requestAnimationFrame(apply);
     };
 
-    window.requestAnimationFrame(apply);
+    const onFit = () => fit();
+    const onRelease = () => {
+      cancelled = true;
+      if (raf) window.cancelAnimationFrame(raf);
+      release();
+    };
+    window.addEventListener(RCB_TIMELINE_CAMERA_FIT, onFit);
+    window.addEventListener(RCB_TIMELINE_CAMERA_RELEASE, onRelease);
     return () => {
       cancelled = true;
-    };
-  }, [bandLeftPx, bandRightPx, document, open, timelineNodeId]);
-
-  useEffect(
-    () => () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener(RCB_TIMELINE_CAMERA_FIT, onFit);
+      window.removeEventListener(RCB_TIMELINE_CAMERA_RELEASE, onRelease);
       setAnimationWorkbenchTimelineFocus(null);
-      if (pushedRef.current) {
-        popSessionCamera();
-        pushedRef.current = false;
-      }
-    },
-    []
-  );
+      release();
+    };
+  }, []);
 
   return null;
 }

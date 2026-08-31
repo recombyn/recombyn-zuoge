@@ -8,7 +8,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useActiveFrameId } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
 import {
@@ -90,6 +91,10 @@ import { canvasFillToDocumentMeta } from './EditorBottomHud';
 import type { RootState } from '@/store';
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
+import {
+  clearNodeTransformPreviews,
+  setNodeTransformPreviews,
+} from '@/components/rcb/core/transformPreview';
 import { syncFrameContentClip } from '@/components/rcb/frames/frameContentClip';
 import {
   bindUnownedNodesToFrames,
@@ -327,7 +332,7 @@ function canvasDiffuseMeshGradient(
 }
 
 /** Per-frame label handlers — undefined in inspect/dev so chrome stays inert.
- *  During composer「从画布选择」, skip drag-move so a title click only attaches. */
+ *  During composer「从画布选择— skip drag-move so a title click only attaches. */
 function frameLabelInteractionProps(
   frameId: string,
   isDevMode: boolean,
@@ -465,9 +470,7 @@ function EditorStageWorld({
   const frameChromeMode = useSelector(
     (state: RootState) => state.editor.frameChromeMode as 'soft' | 'full'
   );
-  const activeFrameId = useSelector(
-    (state: RootState) => state.editor.document?.activeFrameId as string | null
-  );
+  const activeFrameId = useActiveFrameId();
   const canvasAttachPick = useSelector(
     (state: RootState) =>
       state.editor.canvasAttachPick as null | { target: string; accept?: 'image' | 'media' }
@@ -475,7 +478,8 @@ function EditorStageWorld({
   const attachPickActive = Boolean(canvasAttachPick?.target);
   const onAddToChatRef = useRef(onAddToChat);
   onAddToChatRef.current = onAddToChat;
-  const [movingFrameId, setMovingFrameId] = useState<string | null>(null);
+  const [movingFrameIds, setMovingFrameIds] = useState<string[]>([]);
+  const movingFrameIdSet = useMemo(() => new Set(movingFrameIds), [movingFrameIds]);
   const [frameSmartGuides, setFrameSmartGuides] = useState<SmartGuideLine[]>([]);
   const [selectionTransforming, setSelectionTransforming] = useState(false);
   const workbenchTimelineNodeId = useSelector((state: RootState) =>
@@ -628,6 +632,27 @@ function EditorStageWorld({
         const nodeEls = sharedNodeEls instanceof Map
           ? sharedNodeEls
           : new Map<string, SVGElement>();
+        // Live plate MUST update before clip sync — findClippingFrameForNode prefers
+        // liveArtboardGeom over document frames; stale live + moved nodes = spill.
+        for (const moved of movedFrames) {
+          previewArtboardFrameGeometry({
+            id: moved.id,
+            x: moved.startX + dx,
+            y: moved.startY + dy,
+            width: moved.width,
+            height: moved.height,
+          });
+        }
+        // Fact-layer preview (ADR 0027) — Canvas/SoA ink reads this, not SVG-only.
+        setNodeTransformPreviews(
+          origins.map((origin) => ({
+            nodeId: origin.nodeId,
+            left: origin.x + dx,
+            top: origin.y + dy,
+            width: origin.width,
+            height: origin.height,
+          }))
+        );
         for (const origin of origins) {
           const node = document.deltaSetLike?.[origin.nodeId];
           const el = nodeEls.get(origin.nodeId);
@@ -660,15 +685,8 @@ function EditorStageWorld({
             revealOverflow: shapeHostRevealsOverflow(nodeId),
           });
         }
-        for (const moved of movedFrames) {
-          previewArtboardFrameGeometry({
-            id: moved.id,
-            x: moved.startX + dx,
-            y: moved.startY + dy,
-            width: moved.width,
-            height: moved.height,
-          });
-        }
+      } else if (dragState?.childOrigins?.length) {
+        clearNodeTransformPreviews(dragState.childOrigins.map((o) => o.nodeId));
       }
       const nextDelta = { ...(document.deltaSetLike || {}) };
       for (const item of childPatches) {
@@ -692,9 +710,10 @@ function EditorStageWorld({
           childPatches.map((item) => item.nodeId)
         );
       }
-      dispatch(setDocumentFromCanvas(nextDocument));
+      // Preview only — do not setDocumentFromCanvas on every pointermove (that
+      // re-renders EditorPage/panels and, with collab, JSON.stringifys the scene).
     },
-    [camera.zoom, dispatch, document, frames, gridSize]
+    [camera.zoom, document, frames, gridSize]
   );
 
   const onFrameMoveStart = useCallback(
@@ -712,7 +731,10 @@ function EditorStageWorld({
         }));
       if (movedFrames.length) {
         frameMoveDocumentRef.current = document;
-        setAnimationWorkbenchGeometryPreview(true);
+        // Only gate animation ensure/sync during 动画工作台 plate drags.
+        if (movedFrames.some((f) => isAnimationArtboardKind(f.kind))) {
+          setAnimationWorkbenchGeometryPreview(true);
+        }
         setFrameSmartGuides([]);
         const boundNodeIds = nodeIdsBoundToFrames(document, frameIds);
         const interiorNodeIds = nodeIdsOverlappingFrames(document, movedFrames);
@@ -741,7 +763,11 @@ function EditorStageWorld({
           childOrigins,
         };
       }
-      setMovingFrameId(frameId);
+      // Frame move = plate gesture only. Drop node selection so inner control
+      // boxes do not ride along and look like content sliding inside the plate.
+      dispatch(setSelectedNodeIds([]));
+      setMovingFrameIds(frameIds);
+      setSelectionTransforming(true);
       dispatch(pushEditorHistory());
     },
     [dispatch, document, frames, selectedFrameIds]
@@ -749,19 +775,22 @@ function EditorStageWorld({
 
   const onFrameMoveEnd = useCallback(() => {
     const frameIds = frameDragRef.current?.frames.map((item) => item.id) || [];
+    const childIds = frameDragRef.current?.childOrigins.map((item) => item.nodeId) || [];
     if (frameIds.length) {
       const liveDocument = frameMoveDocumentRef.current || document;
       const next = bindUnownedNodesToFrames(liveDocument, frameIds);
-      if (next !== liveDocument) {
-        dispatch(setDocumentFromCanvas(next));
-      }
+      // Always commit — move preview lived only in the ref during the gesture.
+      dispatch(setDocumentFromCanvas(next));
       clearLiveArtboardFrameGeometry(frameIds);
     }
+    if (childIds.length) clearNodeTransformPreviews(childIds);
+    else clearNodeTransformPreviews();
     frameDragRef.current = null;
     frameMoveDocumentRef.current = document;
     setAnimationWorkbenchGeometryPreview(false);
     setFrameSmartGuides([]);
-    setMovingFrameId(null);
+    setMovingFrameIds([]);
+    setSelectionTransforming(false);
   }, [dispatch, document]);
 
   const onSelectFrame = useCallback(
@@ -825,7 +854,7 @@ function EditorStageWorld({
     selectedFrames.length >= 1 &&
     selectedNodeIds.length === 0 &&
     Boolean(selectedFrameBox) &&
-    !selectedFrames.some((frame) => frame.id === movingFrameId) &&
+    !selectedFrames.some((frame) => movingFrameIdSet.has(frame.id)) &&
     !selectionTransforming;
   const showMultiFrameToolbar = showFrameToolbar && selectedFrames.length > 1;
   const aiNodeBox = aiOperationState?.active
@@ -860,13 +889,18 @@ function EditorStageWorld({
               zIndex={stackZIndex(document, 'frame', frame.id)}
               selected={
                 !isDevMode &&
+                !movingFrameIdSet.has(frame.id) &&
                 frameChromeMode === 'full' &&
                 selectedFrameIds.includes(frame.id)
               }
               highlighted={
                 !isDevMode &&
-                frameChromeMode === 'soft' &&
-                (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))
+                // While dragging: keep a visible plate edge (no handles). Hiding
+                // both selected + highlighted left only a faint hairline so the
+                // plate looked like it vanished on the light canvas.
+                (movingFrameIdSet.has(frame.id) ||
+                  (frameChromeMode === 'soft' &&
+                    (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))))
               }
               layer="body"
               aiGenerating={frameShowsAiOverlay(frame, aiOperationState)}
@@ -889,6 +923,7 @@ function EditorStageWorld({
           onFrameMoveStart={onFrameMoveStart}
           onFrameMoveEnd={onFrameMoveEnd}
           onFrameMove={onMoveFrame}
+          suppressChromeWhileFrameMoving={movingFrameIds.length > 0}
           embedded
           stageEl={stageEl}
           onOpenAgent={onOpenAgent}
@@ -962,17 +997,19 @@ function EditorStageWorld({
               frame={frame}
               selected={
                 !isDevMode &&
+                !movingFrameIdSet.has(frame.id) &&
                 frameChromeMode === 'full' &&
                 selectedFrameIds.includes(frame.id)
               }
               highlighted={
                 !isDevMode &&
-                frameChromeMode === 'soft' &&
-                (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))
+                (movingFrameIdSet.has(frame.id) ||
+                  (frameChromeMode === 'soft' &&
+                    (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))))
               }
               hideTitle={
                 isDevMode ||
-                movingFrameId === frame.id ||
+                movingFrameIdSet.has(frame.id) ||
                 (selectionTransforming &&
                   frameChromeMode === 'full' &&
                   selectedFrameIds.includes(frame.id)) ||

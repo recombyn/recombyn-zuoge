@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import PathEditToolbar, {
   type PathEditSubtool,
 } from '@/components/editor/chrome/PathEditToolbar';

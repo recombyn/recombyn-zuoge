@@ -7,7 +7,8 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useSelectedNodeId } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
 import {
@@ -53,6 +54,10 @@ import {
   dataTransferHasChatImage,
   dataTransferHasMediaAsset,
 } from '@/utils/chatImageDrag';
+import {
+  RCB_MOCKUP_BAKE_COMPOSITE,
+  requestMockupBakeComposite,
+} from '@/components/editor/sceneEvents';
 
 const DEFAULT_TEMPLATE_ID = 'auto-bake';
 const DEFAULT_TEMPLATE_WIDTH = 720;
@@ -184,7 +189,7 @@ function MockupPlate({
   const { t } = useTranslation();
   const camera = useRcbCamera();
   const { data: imageToolCaps } = useImageToolCapabilities();
-  const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
+  const selectedNodeId = useSelectedNodeId();
   const node = document?.deltaSetLike?.[nodeId];
   const box = useMemo(() => (node ? nodeBox(document, node) : null), [document, node]);
 
@@ -227,6 +232,8 @@ function MockupPlate({
 
   const placementRef = useRef(placement);
   const designSrcRef = useRef(designSrc);
+  const designSelectedRef = useRef(designSelected);
+  const livePreviewUrlRef = useRef(livePreviewUrl);
   const kitRef = useRef<MockupTemplateKit | null>(null);
   const activeRegionIdRef = useRef(activeRegionId);
   const applySeqRef = useRef(0);
@@ -240,8 +247,11 @@ function MockupPlate({
   const pendingLiveRef = useRef<MockupPlacement | null>(null);
   const fittedForKitRef = useRef('');
   const pendingDesignRef = useRef<{ url: string; removeId?: string } | null>(null);
+  const bakeTimerRef = useRef(0);
   placementRef.current = placement;
   designSrcRef.current = designSrc;
+  designSelectedRef.current = designSelected;
+  livePreviewUrlRef.current = livePreviewUrl;
   kitRef.current = kit;
   activeRegionIdRef.current = activeRegionId;
 
@@ -277,11 +287,14 @@ function MockupPlate({
       if (!previewRef.current.hasDesignBound()) return;
       previewRef.current.draw();
       setLivePreviewUrl(previewRef.current.toDataURL());
+      if (!designSelectedRef.current && nodeId) {
+        requestMockupBakeComposite(nodeId, { delayMs: 600 });
+      }
     } catch (err) {
       console.warn('[mockup] rebind design after kit', err);
       setLivePreviewUrl(null);
     }
-  }, []);
+  }, [nodeId]);
 
   const clearPreviewSurface = useCallback(() => {
     setKit(null);
@@ -463,7 +476,7 @@ function MockupPlate({
     [dispatch, nodeId, template.id]
   );
 
-  /** FE-only: compose sheet + WebGL UV remap (no /mockup/render). */
+  /** FE-only: compose sheet + Canvas 2D UV remap (no /mockup/render). */
   const refreshLivePreview = useCallback(
     async (nextPlacement: MockupPlacement, nextDesign: string) => {
       const preview = previewRef.current;
@@ -486,13 +499,17 @@ function MockupPlate({
         }
         preview.draw();
         setLivePreviewUrl(preview.toDataURL());
+        // Idle (not adjusting) → bake composite into node.src via event.
+        if (!designSelectedRef.current) {
+          requestMockupBakeComposite(nodeId, { delayMs: 600 });
+        }
       } catch (err) {
         console.warn('[mockup] fe preview', err);
         setLivePreviewUrl(null);
         message.error(mockupErrorMessage(err, t('editor.imageToolbar.mockupPreviewFailed')));
       }
     },
-    [kit, t]
+    [kit, nodeId, t]
   );
 
   const printForFit = useMemo(() => {
@@ -736,43 +753,55 @@ function MockupPlate({
     };
   }, [assignDesignSrc, box, dispatch, document, node, nodeId, selectedNodeId, t, template.height, template.width]);
 
-  // Auto-bake FE composite into node.src when idle (not adjusting).
+  // Bake FE composite into node.src when `requestMockupBakeComposite` fires.
   useEffect(() => {
-    if (!nodeId || !designSrc || !livePreviewUrl || designSelected) return;
-    // Kit-only canvases look like empty print zones — never bake those into src.
-    if (!previewRef.current?.hasDesignBound()) return;
-    const seq = ++applySeqRef.current;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          if (!previewRef.current?.hasDesignBound()) return;
-          const uploaded = await uploadImageFromSrc(
-            livePreviewUrl,
-            'mockup.png'
-          );
-          if (applySeqRef.current !== seq) return;
-          dispatch(
-            patchDocumentNode({
-              nodeId,
-              patch: {
-                attrs: {
-                  src: uploaded.url || livePreviewUrl,
-                  mockupTemplateId: template.id,
-                  mockupDesignSrc: designSrc,
-                  mockupPlacement: JSON.stringify(placementRef.current),
-                  mockupEnabled: 'true',
+    const onBake = (e: Event) => {
+      const detail = (e as CustomEvent<{ nodeId?: string; delayMs?: number }>).detail;
+      if (String(detail?.nodeId || '') !== nodeId) return;
+      if (!designSrcRef.current || !livePreviewUrlRef.current || designSelectedRef.current) {
+        return;
+      }
+      if (!previewRef.current?.hasDesignBound()) return;
+      if (bakeTimerRef.current) window.clearTimeout(bakeTimerRef.current);
+      const delay = Number(detail?.delayMs);
+      const wait = Number.isFinite(delay) ? Math.max(0, delay) : 600;
+      const seq = ++applySeqRef.current;
+      bakeTimerRef.current = window.setTimeout(() => {
+        void (async () => {
+          try {
+            if (!previewRef.current?.hasDesignBound()) return;
+            if (designSelectedRef.current) return;
+            const url = livePreviewUrlRef.current;
+            const design = designSrcRef.current;
+            if (!url || !design) return;
+            const uploaded = await uploadImageFromSrc(url, 'mockup.png');
+            if (applySeqRef.current !== seq) return;
+            dispatch(
+              patchDocumentNode({
+                nodeId,
+                patch: {
+                  attrs: {
+                    src: uploaded.url || url,
+                    mockupTemplateId: template.id,
+                    mockupDesignSrc: design,
+                    mockupPlacement: JSON.stringify(placementRef.current),
+                    mockupEnabled: 'true',
+                  },
                 },
-              },
-              skipHostReload: true,
-            })
-          );
-        } catch (err) {
-          console.warn('[mockup] auto apply', err);
-        }
-      })();
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [nodeId, designSrc, livePreviewUrl, designSelected, template.id, dispatch]);
+              })
+            );
+          } catch (err) {
+            console.warn('[mockup] auto apply', err);
+          }
+        })();
+      }, wait);
+    };
+    window.addEventListener(RCB_MOCKUP_BAKE_COMPOSITE, onBake);
+    return () => {
+      window.removeEventListener(RCB_MOCKUP_BAKE_COMPOSITE, onBake);
+      if (bakeTimerRef.current) window.clearTimeout(bakeTimerRef.current);
+    };
+  }, [dispatch, nodeId, template.id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -785,6 +814,7 @@ function MockupPlate({
         if (designSelected) {
           e.preventDefault();
           setDesignSelected(false);
+          requestMockupBakeComposite(nodeId, { delayMs: 600 });
         }
         return;
       }
@@ -897,7 +927,7 @@ function MockupPlate({
     };
   }, [screenRect, resolveDropSrc, onFiles, assignDesignSrc]);
 
-  // Mount WebGL warp canvas into the overlay (never show flat HTML design as the result).
+  // Mount Canvas 2D warp canvas into the overlay (never show flat HTML design as the result).
   useEffect(() => {
     const host = warpHostRef.current;
     const preview = previewRef.current;
@@ -977,7 +1007,7 @@ function MockupPlate({
             height: stageH,
           }}
         >
-          {/* WebGL UV remap canvas — curved paste; never a flat HTML <img> design. */}
+          {/* Canvas 2D UV remap canvas — curved paste; never a flat HTML <img> design. */}
           <div
             ref={warpHostRef}
             data-mockup-warp-canvas={nodeId}

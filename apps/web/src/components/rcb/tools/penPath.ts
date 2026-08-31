@@ -241,6 +241,39 @@ export function rotateAnchorsAroundCenter(
   });
 }
 
+/**
+ * Mirror anchors about box center — matches scene host `scale(-1,1)` / `scale(1,-1)`
+ * about the paint pivot (before rotate in the SVG transform stack).
+ */
+export function flipAnchorsAroundCenter(
+  anchors: PenAnchor[],
+  cx: number,
+  cy: number,
+  flipX: boolean,
+  flipY: boolean
+): PenAnchor[] {
+  if (!anchors.length || (!flipX && !flipY)) return anchors;
+  const mirror = (x: number, y: number) => ({
+    x: flipX ? cx + (cx - x) : x,
+    y: flipY ? cy + (cy - y) : y,
+  });
+  return anchors.map((a) => {
+    const p = mirror(a.x, a.y);
+    const next: PenAnchor = { x: p.x, y: p.y };
+    if (a.outX != null && a.outY != null) {
+      const o = mirror(a.outX, a.outY);
+      next.outX = o.x;
+      next.outY = o.y;
+    }
+    if (a.inX != null && a.inY != null) {
+      const inn = mirror(a.inX, a.inY);
+      next.inX = inn.x;
+      next.inY = inn.y;
+    }
+    return next;
+  });
+}
+
 function tokenizePathD(d: string): string[] {
   return String(d || '').match(/[a-zA-Z]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) || [];
 }

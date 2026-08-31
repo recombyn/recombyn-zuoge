@@ -3,7 +3,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * Circle / ellipse knobs: 内半径, 开始位置 (display), 弧度 / 周弧度.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeEllipseParams } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';

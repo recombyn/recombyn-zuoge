@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineAdjustmentsHorizontal } from 'react-icons/hi2';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
