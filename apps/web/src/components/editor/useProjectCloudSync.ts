@@ -3,7 +3,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useCurrentProjectId, useEditorDocument } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
@@ -225,15 +225,13 @@ function applyThumbUpload(
 }
 
 function clearDirtyIfSameDoc(
-  dispatch: ReturnType<typeof useDispatch>,
   pushedDoc: unknown
 ): void {
   const after = store.getState().editor as { document: unknown };
-  if (after.document === pushedDoc) dispatch(clearEditorDirty());
+  if (after.document === pushedDoc) clearEditorDirty();
 }
 
 async function applyCloudAck(opts: {
-  dispatch: ReturnType<typeof useDispatch>;
   projectId: string;
   contentHash: string;
   pushedDoc: unknown;
@@ -276,7 +274,7 @@ async function applyCloudAck(opts: {
     opts.contentHash,
     opts.ack?.revision ?? null
   );
-  clearDirtyIfSameDoc(opts.dispatch, opts.pushedDoc);
+  clearDirtyIfSameDoc(opts.pushedDoc);
 }
 
 export function asCloudRevision(value: unknown): number | null {
@@ -559,7 +557,6 @@ function notifyManualSaveResult(result: FlushProjectResult, t: (key: string) => 
 
 /** Editor: debounce local draft + cloud upsert while editing. */
 export function useProjectCloudSync() {
-  const dispatch = useDispatch();
   const { t } = useTranslation();
   const dirty = useSelector((s: any) => Boolean(s.editor.dirty));
   const document = useEditorDocument();
@@ -610,7 +607,7 @@ export function useProjectCloudSync() {
     let pauseAutoRetry = false;
 
     try {
-      dispatch(persistCurrent({ keepDirty: true }));
+      persistCurrent({ keepDirty: true });
       const pushedDoc = (store.getState().editor as { document: unknown }).document;
       const name = String(tpl.name || 'Untitled');
       const draft = await putProjectDraft({
@@ -631,15 +628,15 @@ export function useProjectCloudSync() {
       }
 
       if (!force && isDraftAlreadyAcked(draft, contentHash, name)) {
-        clearDirtyIfSameDoc(dispatch, pushedDoc);
+        clearDirtyIfSameDoc(pushedDoc);
         return 'unchanged';
       }
       if (!getToken()) {
-        clearDirtyIfSameDoc(dispatch, pushedDoc);
+        clearDirtyIfSameDoc(pushedDoc);
         return 'local';
       }
       if (isCollabCloudPersistOwned() && !force) {
-        clearDirtyIfSameDoc(dispatch, pushedDoc);
+        clearDirtyIfSameDoc(pushedDoc);
         return 'skipped';
       }
 
@@ -666,7 +663,6 @@ export function useProjectCloudSync() {
         cloudFailCountRef.current = 0;
         cloudFailHashRef.current = null;
         await applyCloudAck({
-          dispatch,
           projectId: id,
           contentHash,
           pushedDoc,
@@ -719,7 +715,7 @@ export function useProjectCloudSync() {
         }
       }
     }
-  }, [dispatch, scheduleFlush]);
+  }, [scheduleFlush]);
 
   flushRunner = flush;
 
@@ -792,7 +788,6 @@ export function useProjectCloudSync() {
 
 /** Placeholder until a real conflict dialog lands — keeps EditorPage mount valid. */
 export async function applyProjectRevisionConflictChoice(_opts: {
-  dispatch: (action: unknown) => unknown;
   projectId: string;
   name: string;
   localDocument?: unknown;

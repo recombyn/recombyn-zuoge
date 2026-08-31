@@ -5,7 +5,7 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  * Confirm clones a sibling with trimStart/trimEnd (same src) ? video trim pattern.
  */
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineScissors } from 'react-icons/hi2';
@@ -74,9 +74,7 @@ function AudioTrimSessionHost({
   document: SceneDocument;
   hidden?: boolean;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const { zoom } = useRcbCamera();
+  const { t } = useTranslation();  const { zoom } = useRcbCamera();
   const panel = useSelector(
     (s: any) =>
       s.editor.audioToolPanel as null | {
@@ -95,7 +93,7 @@ function AudioTrimSessionHost({
   const [endText, setEndText] = useState('00:01');
   const [busy, setBusy] = useState(false);
 
-  const close = () => dispatch(closeAudioToolPanel());
+  const close = () => closeAudioToolPanel();
 
   useEffect(() => {
     if (!open) return;
@@ -180,9 +178,9 @@ function AudioTrimSessionHost({
         }),
       });
       if (!spawned) throw new Error('clone failed');
-      dispatch(setDocument(spawned.document));
-      dispatch(setSelectedNodeIds([spawned.id]));
-      dispatch(setSelectedNodeId(spawned.id));
+      setDocument(spawned.document);
+      setSelectedNodeIds([spawned.id]);
+      setSelectedNodeId(spawned.id);
       close();
     } catch (err) {
       console.warn('[audio trim confirm]', err);

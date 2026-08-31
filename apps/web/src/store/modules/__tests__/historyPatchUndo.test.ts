@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import reducer, {
+import {
+  editorReducers,
+  reduceEditor,
   createTemplate,
   patchDocumentNode,
   undo,
@@ -32,11 +34,8 @@ function seedWithPathNode() {
     fill: '#ff0000',
   });
   doc = addNodeToDocument(doc, id, node);
-  let state = reducer(undefined, { type: '@@INIT' } as any);
-  state = reducer(
-    state,
-    createTemplate({ name: 't', document: doc, emptyWorld: true, source: 'scratch' })
-  );
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, { name: 't', document: doc, emptyWorld: true, source: 'scratch' });
   return { state, id, heavyPath };
 }
 
@@ -50,11 +49,8 @@ function seedWithImageNode() {
     src: 'https://cdn.example/source.png',
   });
   doc = addNodeToDocument(doc, id, node);
-  let state = reducer(undefined, { type: '@@INIT' } as any);
-  state = reducer(
-    state,
-    createTemplate({ name: 'image', document: doc, emptyWorld: true, source: 'scratch' })
-  );
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, { name: 'image', document: doc, emptyWorld: true, source: 'scratch' });
   return { state, id };
 }
 
@@ -64,13 +60,10 @@ describe('patch undo history', () => {
     const pathRef = s0.document.deltaSetLike[id].attrs.path;
     expect(pathRef).toBe(heavyPath);
 
-    const s1 = reducer(
-      s0,
-      patchDocumentNode({
+    const s1 = reduceEditor(s0, editorReducers.patchDocumentNode, {
         nodeId: id,
         patch: { attrs: { 'fill-color': '#00ff00' } },
-      })
-    );
+      });
     expect(s1.document.deltaSetLike[id].attrs['fill-color']).toBe('#00ff00');
     expect(s1.historyPast).toHaveLength(1);
     const past0 = s1.historyPast[0];
@@ -78,28 +71,25 @@ describe('patch undo history', () => {
     if (past0.kind !== 'nodes') throw new Error('expected nodes history');
     expect(past0.before[id].attrs.path).toBe(pathRef);
 
-    const s2 = reducer(s1, undo());
+    const s2 = reduceEditor(s1, editorReducers.undo);
     expect(s2.document.deltaSetLike[id].attrs['fill-color']).toBe('#ff0000');
     expect(s2.lastPatchedNodeIds).toEqual([id]);
     // Node-patch undo must not force a full scene remount.
     expect(s2.sceneReloadToken).toBe(s1.sceneReloadToken);
 
-    const s3 = reducer(s2, redo());
+    const s3 = reduceEditor(s2, editorReducers.redo);
     expect(s3.document.deltaSetLike[id].attrs['fill-color']).toBe('#00ff00');
   });
 
   it('does not add an upload placeholder to undo history', () => {
     const { state: s0 } = seedWithPathNode();
-    const s1 = reducer(
-      s0,
-      startImageUploadPlaceholder({
+    const s1 = reduceEditor(s0, editorReducers.startImageUploadPlaceholder, {
         src: 'blob:upload-preview',
         width: 120,
         height: 80,
         x: 30,
         y: 40,
-      })
-    );
+      });
 
     expect(s1.historyPast).toHaveLength(0);
     expect(s1.pendingImageProcessId).toBeTruthy();
@@ -107,18 +97,18 @@ describe('patch undo history', () => {
 
   it('does not resurrect a cancelled import placeholder through undo', () => {
     const { state: s0 } = seedWithPathNode();
-    const started = reducer(
-      s0,
-      {
-        type: 'editor/startImportPlaceholder',
-        payload: { label: '导入中', width: 120, height: 80, x: 30, y: 40 },
-      } as any
-    );
+    const started = reduceEditor(s0, editorReducers.startImportPlaceholder, {
+      label: '导入中',
+      width: 120,
+      height: 80,
+      x: 30,
+      y: 40,
+    });
     const placeholderId = started.pendingImportPlaceholderId;
     expect(placeholderId).toBeTruthy();
 
-    const cancelled = reducer(started, cancelImportPlaceholder());
-    const undone = reducer(cancelled, undo());
+    const cancelled = reduceEditor(started, editorReducers.cancelImportPlaceholder);
+    const undone = reduceEditor(cancelled, editorReducers.undo);
 
     expect(undone.document.deltaSetLike[placeholderId]).toBeUndefined();
     expect(undone.historyPast).toHaveLength(0);
@@ -126,18 +116,15 @@ describe('patch undo history', () => {
 
   it('allows deleting an in-flight upload placeholder', () => {
     const { state: s0 } = seedWithPathNode();
-    const started = reducer(
-      s0,
-      startImageUploadPlaceholder({
+    const started = reduceEditor(s0, editorReducers.startImageUploadPlaceholder, {
         src: 'blob:upload-preview',
         width: 120,
         height: 80,
         x: 30,
         y: 40,
-      })
-    );
+      });
     const placeholderId = started.pendingImageProcessId as string;
-    const deleted = reducer(started, removeDocumentNodes({ nodeIds: [placeholderId] }));
+    const deleted = reduceEditor(started, editorReducers.removeDocumentNodes, { nodeIds: [placeholderId] });
 
     expect(deleted.document.deltaSetLike[placeholderId]).toBeUndefined();
     expect(deleted.pendingImageProcessId).toBeNull();
@@ -145,56 +132,42 @@ describe('patch undo history', () => {
 
   it('records one undo step for a completed upload, excluding the placeholder', () => {
     const { state: s0 } = seedWithPathNode();
-    const started = reducer(
-      s0,
-      startImageUploadPlaceholder({
+    const started = reduceEditor(s0, editorReducers.startImageUploadPlaceholder, {
         src: 'blob:upload-preview',
         width: 120,
         height: 80,
         x: 30,
         y: 40,
-      })
-    );
+      });
     const nodeId = started.pendingImageProcessId as string;
-    const finished = reducer(
-      started,
-      finishImageProcess({
+    const finished = reduceEditor(started, editorReducers.finishImageProcess, {
         nodeId,
         src: 'https://cdn.example/image.png',
-      })
-    );
+      });
 
     expect(finished.historyPast).toHaveLength(1);
     expect(finished.document.deltaSetLike[nodeId].attrs.src).toBe(
       'https://cdn.example/image.png'
     );
 
-    const undone = reducer(finished, undo());
+    const undone = reduceEditor(finished, editorReducers.undo);
     expect(undone.document.deltaSetLike[nodeId]).toBeUndefined();
   });
 
   it('does not record process placeholder creation, but completion is undoable once', () => {
     const { state: s0, id: sourceId } = seedWithImageNode();
-    const started = reducer(
-      s0,
-      startImageProcess({ sourceId, kind: 'upscale', label: '处理中' })
-    );
+    const started = reduceEditor(s0, editorReducers.startImageProcess, { sourceId, kind: 'upscale', label: '处理中' });
     const processId = started.pendingImageProcessId as string;
     expect(started.historyPast).toHaveLength(0);
 
-    const finished = reducer(
-      started,
-      finishImageProcess({ nodeId: processId, src: 'https://cdn.example/upscaled.png' })
-    );
+    const finished = reduceEditor(started, editorReducers.finishImageProcess, { nodeId: processId, src: 'https://cdn.example/upscaled.png' });
     expect(finished.historyPast).toHaveLength(1);
-    expect(reducer(finished, undo()).document.deltaSetLike[processId]).toBeUndefined();
+    expect(reduceEditor(finished, editorReducers.undo).document.deltaSetLike[processId]).toBeUndefined();
   });
 
   it('does not record pure loading-state patches', () => {
     const { state: s0, id } = seedWithImageNode();
-    const started = reducer(
-      s0,
-      patchDocumentNode({
+    const started = reduceEditor(s0, editorReducers.patchDocumentNode, {
         nodeId: id,
         patch: {
           attrs: {
@@ -203,8 +176,7 @@ describe('patch undo history', () => {
             processLabel: '处理中',
           },
         },
-      })
-    );
+      });
 
     expect(started.historyPast).toHaveLength(0);
     expect(started.document.deltaSetLike[id].attrs.processStatus).toBe('running');

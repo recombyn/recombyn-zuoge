@@ -1,4 +1,5 @@
-import { createSlice, type PayloadAction } from '@/store/createSlice';
+import type { PayloadAction } from '@/store/payload';
+import { applyEditorReducer, bindEditorMutator } from '@/store/editorBind';
 import { nanoid } from 'nanoid';
 import {
   createEmptyDocument,
@@ -25,8 +26,7 @@ import {
   promoteVideoGeneratorToVideo,
   promoteAudioGeneratorToAudio,
   applyImageDecomposeLayers,
-  detachImageVariantToNode,
-} from '@/components/rcb/scene/document/mediaLifecycle';
+  detachImageVariantToNode} from '@/components/rcb/scene/document/mediaLifecycle';
 import {
   createImageGeneratorNode,
   createVideoGeneratorNode,
@@ -38,8 +38,7 @@ import {
   createVideoNode,
   MEDIA_PLACE_DEFAULT,
   parseLottieAnimationData,
-  serializeLottieAnimationData,
-} from '@/components/rcb/scene/document/nodeFactories';
+  serializeLottieAnimationData} from '@/components/rcb/scene/document/nodeFactories';
 import {
   isEphemeralUploadNode
 } from '@/components/rcb/scene/document/nodeCapabilities';
@@ -48,8 +47,7 @@ import {
   saveTemplates,
   isSessionTemplate,
   type EditorLibraryItem,
-  type TemplateSource,
-} from '@/utils/templatesStorage';
+  type TemplateSource} from '@/utils/templatesStorage';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { bindUnownedNodesToFrames } from '@/components/rcb/frames/frameNodeBinding';
@@ -67,13 +65,11 @@ import {
   persistPrecompSessionEdits,
   resolvePrecompSessionNodeIds,
   syncLotNodeFromHostPrecompAsset,
-  type LottiePrecompEditState,
-} from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
+  type LottiePrecompEditState} from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
 import {
   findAnimationFrameAtDocPoint,
   findFrameAnimationMediaId,
-  resolveAnimationFrameId,
-} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+  resolveAnimationFrameId} from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   finalizeNodeForAnimationWorkbenchFocus,
   getAnimationWorkbenchTimelineFocus,
@@ -84,17 +80,16 @@ import {
   setAnimationWorkbenchGeometryPreview,
   setAnimationWorkbenchPlayheadSec,
   setAnimationWorkbenchTimelineFocus,
-  tagCreatedNodeForWorkbenchSurround,
-} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+  tagCreatedNodeForWorkbenchSurround} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { setLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
 import { collectPrecompSessionDocumentPatches } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
 import { requestPlayheadSceneApply } from '@/components/editor/nodes/AnimationNode/animationPlayheadApplyEvent';
 import { requestPuppetWarpApply } from '@/components/editor/nodes/ImageNode/puppet/puppetWarpApplyEvent';
 import {
+  getAnimationPlaying,
   writeAnimationPlayheadSec,
-  writeAnimationPlaying,
-} from '@/components/editor/nodes/AnimationNode/animationTransport';
+  writeAnimationPlaying} from '@/components/editor/nodes/AnimationNode/animationTransport';
 import {
   queueEnsureAnimationFrame,
   requestPrecompCameraFit,
@@ -102,8 +97,7 @@ import {
   requestSoaAiFlush,
   requestSyncNestedLotHosts,
   requestTimelineCameraFit,
-  requestTimelineCameraRelease,
-} from '@/components/editor/sceneEvents';
+  requestTimelineCameraRelease} from '@/components/editor/sceneEvents';
 import { notifyShapeHostGeometry } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   asHistoryEntry,
@@ -113,8 +107,7 @@ import {
   pushNodePatchHistory as snapshotNodePatchHistory,
   restoreNodesIntoDocument,
   scrubNodeIdsFromHistory,
-  type HistoryEntry,
-} from './editorHistory';
+  type HistoryEntry} from './editorHistory';
 
 export type { ArtboardFrame } from '@/components/rcb/frames/types';
 export type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -250,20 +243,17 @@ const IMAGE_TOOL_SIDE_PANEL_KIND: Record<string, true> = {
   effects: true,
   blendMode: true,
   /** Density; pins + mesh live on PuppetPinHost while panel is open. */
-  puppet: true,
-};
+  puppet: true};
 
 /** Blend / effects dock beside any selected node (not image-only tools). */
 const NODE_LAYER_TOOL_PANEL_KIND: Record<string, true> = {
   effects: true,
-  blendMode: true,
-};
+  blendMode: true};
 
 const IMAGE_TOOL_CROP_SESSION_KIND: Record<string, true> = {
   crop: true,
   expand: true,
-  upscale: true,
-};
+  upscale: true};
 
 const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   crop: true,
@@ -272,8 +262,7 @@ const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   flipRotate: true,
   quickEdit: true,
   lottieEdit: true,
-  mark: true,
-};
+  mark: true};
 
 const TRANSIENT_NODE_ATTR_KEYS = new Set([
   'processStatus',
@@ -384,8 +373,7 @@ function createFrame(partial?: Partial<ArtboardFrame>): ArtboardFrame {
     clipContent: partial?.clipContent ?? true,
     ...(kind ? { kind } : {}),
     ...(durationSec != null ? { durationSec } : {}),
-    ...(fps != null ? { fps } : {}),
-  };
+    ...(fps != null ? { fps } : {})};
 }
 
 /**
@@ -531,8 +519,7 @@ const initialState = {
     fillImageScale: undefined as number | undefined,
     fillImageOffsetX: undefined as number | undefined,
     fillImageOffsetY: undefined as number | undefined,
-    fillImageAdjust: undefined as Record<string, number> | undefined,
-  },
+    fillImageAdjust: undefined as Record<string, number> | undefined},
   /** Pencil brush wheel selection (default = first: 矢量墨线). */
   pencilBrushId: 'vector-ink' as string,
   /** When true, pencil uses stylus/touch pressure for width. */
@@ -566,8 +553,7 @@ const initialState = {
   imageMarkPins: {} as Record<string, ImageMarkPin[]>,
   /** Composer chip hover — highlights the matching canvas mark pin. */
   hoveredMarkPin: null as { nodeId: string; pinId: string } | null,
-  agentOpenNonce: 0,
-};
+  agentOpenNonce: 0};
 
 /** Stage fill lives on Redux; SvgCanvas view docs force transparent paper for hosts. */
 const STAGE_CANVAS_META_KEYS = [
@@ -617,8 +603,10 @@ function clearSelection(state: typeof initialState) {
 
 /** Selecting scene elements while playing → pause (keep host so pose stays). */
 function pauseLottieIfPlaying(state: typeof initialState) {
-  if (!state.lottiePlaying) return;
+  // Dock/toolbar read transport via useAnimationPlaying — Redux alone does not stop RAF.
+  if (!state.lottiePlaying && !getAnimationPlaying()) return;
   state.lottiePlaying = false;
+  writeAnimationPlaying(false, { hostNodeId: state.lottiePlayingHostId });
 }
 
 function readSelectedLayerInd(raw: unknown, fallback: number | null = null): number | null {
@@ -680,8 +668,7 @@ function bakePrecompSessionDocumentPoses(state: typeof initialState) {
   const patches = collectPrecompSessionDocumentPatches({
     document: state.document,
     hostNodeId: hostId,
-    playheadSec: Number(state.lottiePlayheadSec) || 0,
-  });
+    playheadSec: Number(state.lottiePlayheadSec) || 0});
   if (!patches.length) return;
   const applied: string[] = [];
   for (const item of patches) {
@@ -710,8 +697,7 @@ function clearLottiePrecompEdit(state: typeof initialState): boolean {
       requestSyncNestedLotHosts({
         frameHostId: hostNodeId,
         timeSec: Number(state.lottiePlayheadSec) || 0,
-        afterPaint: true,
-      });
+        afterPaint: true});
     }
   }
   return changed;
@@ -794,10 +780,7 @@ function pushNodePatchHistory(state: typeof initialState, nodeIds: string[]) {
   bumpDocumentRevision(state);
 }
 
-const editorSlice = createSlice({
-  name: 'editor',
-  initialState,
-  reducers: {
+export const editorReducers = {
     createTemplate(state, action) {
       const id = nanoid();
       const now = Date.now();
@@ -806,8 +789,7 @@ const editorSlice = createSlice({
           createEmptyDocument({
             width: action.payload?.width,
             height: action.payload?.height,
-            emptyWorld: action.payload?.emptyWorld,
-          })
+            emptyWorld: action.payload?.emptyWorld})
       );
       const source: TemplateSource =
         action.payload?.source === 'user' ||
@@ -822,8 +804,7 @@ const editorSlice = createSlice({
         updatedAt: now,
         openedAt: now,
         source,
-        document: doc,
-      };
+        document: doc};
       state.templates.unshift(item);
       state.currentId = id;
       state.document = doc;
@@ -1193,7 +1174,7 @@ const editorSlice = createSlice({
       state.selectedNodeIds = ids;
       state.selectedNodeId = ids[0] || null;
       // Do not clear selectedFrameIds here — marquee may select frames + nodes together.
-      // Callers that want nodes-only should also dispatch setSelectedFrameIds([]).
+      // Callers that want nodes-only should also call setSelectedFrameIds([]).
       if (ids.length) pauseLottieIfPlaying(state);
       if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, ids[0] || null)) {
         state.imageToolPanel = null;
@@ -1687,8 +1668,7 @@ const editorSlice = createSlice({
           height: 0,
           attrs: {},
           ...(delta.ROOT || {}),
-          children,
-        };
+          children};
         const pages = Array.isArray(doc.pages) ? [...doc.pages] : [{ id: pageId, children }];
         if (pages[0]) pages[0] = { ...pages[0], id: pageId, children };
         else pages.push({ id: pageId, children });
@@ -1797,8 +1777,7 @@ const editorSlice = createSlice({
         updatedAt: now,
         openedAt: now,
         source,
-        document: doc,
-      };
+        document: doc};
       if (originCaseId) item.originCaseId = originCaseId;
       state.templates.unshift(item);
       state.currentId = id;
@@ -1818,8 +1797,7 @@ const editorSlice = createSlice({
         width: action.payload?.width,
         height: action.payload?.height,
         x: action.payload?.x,
-        y: action.payload?.y,
-      });
+        y: action.payload?.y});
       if (!id) return;
       state.document = next;
       state.dirty = true;
@@ -1868,8 +1846,7 @@ const editorSlice = createSlice({
       } else {
         state.document = mergeImportedIntoDocument(state.document, coerceSceneDocumentInput(incoming), {
           offsetX,
-          offsetY,
-        });
+          offsetY});
       }
       state.dirty = true;
       clearSelection(state);
@@ -1905,8 +1882,7 @@ const editorSlice = createSlice({
         frameId: frameId ?? null,
         nodeId: nodeId ?? null,
         ...(actionName ? { action: actionName } : {}),
-        ...(label ? { label } : {}),
-      };
+        ...(label ? { label } : {})};
     },
     /** Clear AI overlay; also strip leftover pre-PR9 frame generating chrome. */
     clearArtboardGenerating(state) {
@@ -1937,8 +1913,7 @@ const editorSlice = createSlice({
       } else {
         state.document = mergeImportedIntoDocument(state.document, coerced, {
           offsetX: Number(action.payload?.offsetX) || 40,
-          offsetY: Number(action.payload?.offsetY) || 40,
-        });
+          offsetY: Number(action.payload?.offsetY) || 40});
       }
       state.dirty = true;
       clearSelection(state);
@@ -2016,8 +1991,7 @@ const editorSlice = createSlice({
         if (currentSnap) {
           state.historyFuture.unshift({
             kind: 'snap',
-            doc: currentSnap,
-          });
+            doc: currentSnap});
         }
         state.document = entry.doc;
         state.sceneReloadToken += 1;
@@ -2109,8 +2083,7 @@ const editorSlice = createSlice({
           y: action.payload?.y,
           width: action.payload?.width,
           height: action.payload?.height,
-          name: action.payload?.name,
-        })
+          name: action.payload?.name})
       );
     },
     /** Spawn canvas Video Generator plate at given document coords. */
@@ -2125,8 +2098,7 @@ const editorSlice = createSlice({
           y: action.payload?.y,
           width: action.payload?.width,
           height: action.payload?.height,
-          name: action.payload?.name,
-        })
+          name: action.payload?.name})
       );
     },
     /** Spawn 动画工作台 as a real artboard (same clip / children as 画板). */
@@ -2147,8 +2119,7 @@ const editorSlice = createSlice({
         height,
         name: action.payload?.name || '动画工作台',
         kind: 'animation',
-        clipContent: true,
-      });
+        clipContent: true});
       frames.push(frame);
       next.frames = frames;
       const key = `frame:${frame.id}`;
@@ -2176,6 +2147,9 @@ const editorSlice = createSlice({
       state.audioToolPanel = null;
       state.shapeStylePanel = null;
       state.pendingImageSrc = null;
+      // Host media must exist immediately so the plate toolbar shows transport
+      // (关键帧 + play strip), not the empty-board stub that appears until move.
+      editorReducers.ensureAnimationFrameMedia(state, { payload: { frameId: frame.id, skipHistory: true }});
       syncLibraryOnEdit(state);
     },
     /** Spawn AI Lottie generator plate (composer) — secondary to 动画工作台. */
@@ -2189,8 +2163,7 @@ const editorSlice = createSlice({
           y: action.payload?.y,
           width: action.payload?.width,
           height: action.payload?.height,
-          name: action.payload?.name,
-        })
+          name: action.payload?.name})
       );
     },
     /** Spawn canvas Audio Generator plate at given document coords. */
@@ -2205,8 +2178,7 @@ const editorSlice = createSlice({
           y: action.payload?.y,
           width: action.payload?.width,
           height: action.payload?.height,
-          name: action.payload?.name,
-        })
+          name: action.payload?.name})
       );
     },
     /** Spawn finished Lottie as free preview — never auto-nests into 动画工作台. */
@@ -2248,8 +2220,7 @@ const editorSlice = createSlice({
           width,
           height,
           name,
-          animationData: parsed,
-        });
+          animationData: parsed});
         // Free preview only — never frameId / host. User drags into the workbench.
         if (node.attrs) {
           delete node.attrs.animationFrameHost;
@@ -2310,26 +2281,19 @@ const editorSlice = createSlice({
       const x = Number(action.payload?.x);
       const y = Number(action.payload?.y);
       if (!action.payload?.skipHistory) pushHistory(state);
-      editorSlice.caseReducers.spawnAnimationBoard(state, {
-        type: 'editor/spawnAnimationBoard',
-        payload: {
+      editorReducers.spawnAnimationBoard(state, { payload: {
           x: Number.isFinite(x) ? x : undefined,
           y: Number.isFinite(y) ? y : undefined,
           width,
           height,
           name: boardName,
-          skipHistory: true,
-        },
-      });
+          skipHistory: true}});
       const frameId = String(state.selectedFrameIds?.[0] || '').trim();
       if (!frameId || !state.document) return;
       const frame = (state.document.frames || []).find((f) => String(f?.id) === frameId);
       if (!frame) return;
 
-      editorSlice.caseReducers.ensureAnimationFrameMedia(state, {
-        type: 'editor/ensureAnimationFrameMedia',
-        payload: { frameId, skipHistory: true },
-      });
+      editorReducers.ensureAnimationFrameMedia(state, { payload: { frameId, skipHistory: true }});
       const hostId = findFrameAnimationMediaId(state.document, frameId);
       if (!hostId) return;
 
@@ -2346,8 +2310,7 @@ const editorSlice = createSlice({
           width: nestW,
           height: nestH,
           name: lotName,
-          animationData: parsed,
-        });
+          animationData: parsed});
         if (node.attrs) {
           delete node.attrs.animationFrameHost;
           delete node.attrs.lottieFrameHost;
@@ -2360,8 +2323,7 @@ const editorSlice = createSlice({
           ...(node.attrs || {}),
           frameId,
           frameOrder: orders.length ? Math.max(...orders) + 1 : 1,
-          'fill-color': 'transparent',
-        };
+          'fill-color': 'transparent'};
         const genPrompt = String(
           action.payload?.genPrompt || action.payload?.prompt || ''
         ).trim();
@@ -2370,10 +2332,7 @@ const editorSlice = createSlice({
         }
         state.document = addNodeToDocument(state.document, id, node);
 
-        editorSlice.caseReducers.ensureAnimationFrameMedia(state, {
-          type: 'editor/ensureAnimationFrameMedia',
-          payload: { frameId, skipHistory: true },
-        });
+        editorReducers.ensureAnimationFrameMedia(state, { payload: { frameId, skipHistory: true }});
 
         state.lottieTimelinePanel = { nodeId: hostId };
         setAnimationWorkbenchTimelineFocus(frameId);
@@ -2410,8 +2369,7 @@ const editorSlice = createSlice({
         name: action.payload?.name,
         src,
         duration: action.payload?.duration,
-        uploadKey: action.payload?.uploadKey,
-      });
+        uploadKey: action.payload?.uploadKey});
       state.document = addNodeToDocument(state.document, id, node);
       state.dirty = true;
       state.sceneReloadToken += 1;
@@ -2471,9 +2429,7 @@ const editorSlice = createSlice({
           );
           const name = String(action.payload?.name || '').trim() || 'Lottie';
           // Upload / drop always lands as an independent preview plate.
-          editorSlice.caseReducers.spawnLottie(state, {
-            type: 'editor/spawnLottie',
-            payload: {
+          editorReducers.spawnLottie(state, { payload: {
               x: Number.isFinite(dropX) ? dropX : undefined,
               y: Number.isFinite(dropY) ? dropY : undefined,
               width,
@@ -2481,9 +2437,7 @@ const editorSlice = createSlice({
               name,
               animationData,
               prompt: action.payload?.prompt,
-              genPrompt: action.payload?.genPrompt,
-            },
-          });
+              genPrompt: action.payload?.genPrompt}});
         }
         return;
       }
@@ -2506,8 +2460,7 @@ const editorSlice = createSlice({
           width: w,
           height: h,
           src,
-          name: name || 'Image',
-        }));
+          name: name || 'Image'}));
         if (uploadKey) node.attrs.uploadKey = uploadKey;
         if (prompt) node.attrs.genPrompt = prompt;
       } else if (kind === 'video') {
@@ -2520,8 +2473,7 @@ const editorSlice = createSlice({
           height: h,
           src,
           name: name || 'Video',
-          duration: action.payload?.duration,
-        }));
+          duration: action.payload?.duration}));
         if (uploadKey) node.attrs.uploadKey = uploadKey;
         if (prompt) node.attrs.genPrompt = prompt;
       } else {
@@ -2535,8 +2487,7 @@ const editorSlice = createSlice({
           src,
           name: name || 'Audio',
           duration: action.payload?.duration,
-          uploadKey,
-        }));
+          uploadKey}));
         if (prompt) node.attrs.genPrompt = prompt;
       }
       state.document = addNodeToDocument(state.document, id, node);
@@ -2558,8 +2509,7 @@ const editorSlice = createSlice({
       if (!state.document || !nodeId || !url) return;
       pushHistory(state);
       const { document: next, id } = detachImageVariantToNode(state.document, nodeId, url, {
-        name,
-      });
+        name});
       if (!id) {
         state.historyPast.pop();
         return;
@@ -2592,8 +2542,7 @@ const editorSlice = createSlice({
         y: action.payload?.y,
         name: action.payload?.name,
         variants,
-        genPrompt: action.payload?.genPrompt,
-      });
+        genPrompt: action.payload?.genPrompt});
       if (next === state.document) {
         state.historyPast.pop();
         return;
@@ -2625,8 +2574,7 @@ const editorSlice = createSlice({
         x: action.payload?.x,
         y: action.payload?.y,
         name: action.payload?.name,
-        genPrompt: action.payload?.genPrompt,
-      });
+        genPrompt: action.payload?.genPrompt});
       if (next === state.document) {
         state.historyPast.pop();
         return;
@@ -2669,28 +2617,20 @@ const editorSlice = createSlice({
       state.document = removeNodesFromDocument(state.document, [nodeId]);
       if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
 
-      editorSlice.caseReducers.spawnAnimationBoard(state, {
-        type: 'editor/spawnAnimationBoard',
-        payload: {
+      editorReducers.spawnAnimationBoard(state, { payload: {
           x,
           y,
           width,
           height,
           name,
-          skipHistory: true,
-        },
-      });
+          skipHistory: true}});
       const frameId = String(state.selectedFrameIds?.[0] || '').trim();
       if (!frameId) return;
-      editorSlice.caseReducers.importLottieIntoAnimationFrame(state, {
-        type: 'editor/importLottieIntoAnimationFrame',
-        payload: {
+      editorReducers.importLottieIntoAnimationFrame(state, { payload: {
           frameId,
           animationData,
           name,
-          skipHistory: true,
-        },
-      });
+          skipHistory: true}});
       if (genPrompt) {
         const hostId = Object.keys(state.document?.deltaSetLike || {}).find((id) => {
           const n = state.document?.deltaSetLike?.[id];
@@ -2721,8 +2661,7 @@ const editorSlice = createSlice({
         name: action.payload?.name,
         genPrompt: action.payload?.genPrompt,
         duration: action.payload?.duration,
-        uploadKey: action.payload?.uploadKey,
-      });
+        uploadKey: action.payload?.uploadKey});
       if (next === state.document) {
         state.historyPast.pop();
         return;
@@ -2747,8 +2686,7 @@ const editorSlice = createSlice({
         label: action.payload?.label || '上传中',
         x: action.payload?.x,
         y: action.payload?.y,
-        name: action.payload?.name,
-      });
+        name: action.payload?.name});
       if (!id) return;
       const next = finalizeNodeForAnimationWorkbenchFocus(spawned, id);
       state.document = next;
@@ -2762,10 +2700,7 @@ const editorSlice = createSlice({
       const focus = getAnimationWorkbenchTimelineFocus();
       const boundFid = String(next.deltaSetLike?.[id]?.attrs?.frameId || '').trim();
       if (focus && boundFid === focus) {
-        editorSlice.caseReducers.ensureAnimationFrameMedia(state, {
-          type: 'editor/ensureAnimationFrameMedia',
-          payload: { frameId: focus },
-        });
+        editorReducers.ensureAnimationFrameMedia(state, { payload: { frameId: focus }});
       }
     },
     /** Spawn video node with local preview while remote upload runs. */
@@ -2783,8 +2718,7 @@ const editorSlice = createSlice({
         x: action.payload?.x,
         y: action.payload?.y,
         name: action.payload?.name,
-        duration: action.payload?.duration,
-      });
+        duration: action.payload?.duration});
       if (!id) return;
       state.document = next;
       state.dirty = true;
@@ -2809,8 +2743,7 @@ const editorSlice = createSlice({
         x: action.payload?.x,
         y: action.payload?.y,
         name: action.payload?.name,
-        duration: action.payload?.duration,
-      });
+        duration: action.payload?.duration});
       if (!id) return;
       state.document = next;
       state.dirty = true;
@@ -2831,8 +2764,7 @@ const editorSlice = createSlice({
         label: label || '处理中',
         targetWidth,
         targetHeight,
-        meta,
-      });
+        meta});
       if (!id) return;
       state.document = next;
       state.dirty = true;
@@ -2867,8 +2799,7 @@ const editorSlice = createSlice({
       if (Array.isArray(layers) && layers.length > 0) {
         const { document: next, ids } = applyImageDecomposeLayers(state.document, nodeId, layers, {
           sourceWidth,
-          sourceHeight,
-        });
+          sourceHeight});
         state.document = next;
         state.dirty = true;
         state.sceneReloadToken += 1;
@@ -2925,9 +2856,7 @@ const editorSlice = createSlice({
               : {}),
             ...(extra.imageVariantPrompts != null
               ? { imageVariantPrompts: extra.imageVariantPrompts }
-              : {}),
-          },
-        });
+              : {})}});
       }
       state.document = next;
       state.dirty = true;
@@ -2970,8 +2899,7 @@ const editorSlice = createSlice({
         nodeId,
         kind,
         ...(markSink === 'quickEdit' && { markSink: 'quickEdit' as const }),
-        ...(markSink === 'imageGen' && { markSink: 'imageGen' as const }),
-      };
+        ...(markSink === 'imageGen' && { markSink: 'imageGen' as const })};
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
@@ -3006,8 +2934,7 @@ const editorSlice = createSlice({
       state.videoToolPanel = {
         nodeId,
         kind,
-        ...(Number.isFinite(t) && t >= 0 ? { keepTime: t } : null),
-      };
+        ...(Number.isFinite(t) && t >= 0 ? { keepTime: t } : null)};
       state.imageToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
@@ -3023,8 +2950,7 @@ const editorSlice = createSlice({
       state.audioToolPanel = {
         nodeId,
         kind,
-        ...(kind === 'trim' && Number.isFinite(t) && t >= 0 ? { keepTime: t } : null),
-      };
+        ...(kind === 'trim' && Number.isFinite(t) && t >= 0 ? { keepTime: t } : null)};
       state.imageToolPanel = null;
       state.videoToolPanel = null;
       state.lottieComposePanel = null;
@@ -3040,8 +2966,7 @@ const editorSlice = createSlice({
       const allowed = new Set(['select', 'rect', 'ellipse', 'pen', 'text']);
       state.lottieComposePanel = {
         nodeId,
-        tool: allowed.has(tool) ? tool : 'select',
-      };
+        tool: allowed.has(tool) ? tool : 'select'};
       state.lottieTimelinePanel = null;
       clearLottiePrecompEdit(state);
       state.imageToolPanel = null;
@@ -3083,18 +3008,14 @@ const editorSlice = createSlice({
             '动画工作台';
           pushHistory(state);
           state.document = removeNodesFromDocument(state.document, [nodeId]);
-          editorSlice.caseReducers.placeUploadedLottie(state, {
-            type: 'editor/placeUploadedLottie',
-            payload: {
+          editorReducers.placeUploadedLottie(state, { payload: {
               animationData,
               x,
               y,
               width,
               height,
               name,
-              skipHistory: true,
-            },
-          });
+              skipHistory: true}});
           const frameId = String(state.selectedFrameIds?.[0] || '').trim();
           const promoted = frameId
             ? findFrameAnimationMediaId(state.document, frameId)
@@ -3185,8 +3106,7 @@ const editorSlice = createSlice({
           setLottiePrecompEditFocus({
             active: true,
             lotNodeId: state.lottiePrecompEdit.lotNodeId ?? null,
-            sessionMaterialized: true,
-          });
+            sessionMaterialized: true});
           bakePrecompSessionDocumentPoses(state);
           requestPlayheadSceneApply({ afterPaint: true });
           return;
@@ -3199,8 +3119,7 @@ const editorSlice = createSlice({
         document: state.document,
         hostNodeId,
         assetId,
-        playheadSec: Number(state.lottiePlayheadSec) || 0,
-      });
+        playheadSec: Number(state.lottiePlayheadSec) || 0});
       if (!begun) {
         state.lottiePrecompEdit = { hostNodeId, assetId, selectedLayerInd: layerInd };
         state.selectedNodeId = null;
@@ -3219,13 +3138,11 @@ const editorSlice = createSlice({
         frameId: begun.frameId,
         frameSnapshot: begun.frameSnapshot,
         lotNodeId: begun.lotNodeId,
-        sessionNodeIds: begun.sessionNodeIds,
-      };
+        sessionNodeIds: begun.sessionNodeIds};
       setLottiePrecompEditFocus({
         active: true,
         lotNodeId: begun.lotNodeId ?? null,
-        sessionMaterialized: begun.sessionNodeIds.length > 0,
-      });
+        sessionMaterialized: begun.sessionNodeIds.length > 0});
       state.document.activeFrameId = begun.frameId;
       state.selectedFrameIds = [];
       state.selectedNodeId = null;
@@ -3262,11 +3179,7 @@ const editorSlice = createSlice({
                 attrs: {
                   ...(lot.attrs || {}),
                   hidden: false,
-                  lottieInkRevision: nextRev,
-                },
-              },
-            },
-          };
+                  lottieInkRevision: nextRev}}}};
           state.documentPatchToken += 1;
           state.sceneReloadToken += 1;
           state.dirty = true;
@@ -3283,8 +3196,7 @@ const editorSlice = createSlice({
         requestSyncNestedLotHosts({
           frameHostId: hostNodeId,
           timeSec: Number(state.lottiePlayheadSec) || 0,
-          afterPaint: true,
-        });
+          afterPaint: true});
       }
       if (prev.frameId) queueEnsureAnimationFrame(prev.frameId);
     },
@@ -3329,8 +3241,7 @@ const editorSlice = createSlice({
         // Pausing must not clear the playhead host (SceneSync would seek 0).
       }
       writeAnimationPlaying(playing, {
-        hostNodeId: state.lottiePlayingHostId,
-      });
+        hostNodeId: state.lottiePlayingHostId});
       // Drop selection chrome when playback starts (handles / toolbars hide).
       if (playing && !wasPlaying) {
         state.selectedNodeId = null;
@@ -3379,8 +3290,7 @@ const editorSlice = createSlice({
         animationFrameHost: true,
         'fill-color': 'transparent',
         locked: true,
-        name: '',
-      } as const;
+        name: ''} as const;
 
       const applyHostGeometry = (host: SceneNode) => {
         host.x = Number(frame.x) || 0;
@@ -3443,8 +3353,7 @@ const editorSlice = createSlice({
         host.attrs = {
           ...(host.attrs || {}),
           ...hostAttrs,
-          animationData: synced.animationJson,
-        };
+          animationData: synced.animationJson};
         for (const p of synced.childAttrPatches) {
           const child = next.deltaSetLike?.[p.nodeId];
           if (!child) continue;
@@ -3452,8 +3361,7 @@ const editorSlice = createSlice({
             ...(child.attrs || {}),
             lottieLayerInd: p.lottieLayerInd,
             ...(p.lottieInFrame != null ? { lottieInFrame: p.lottieInFrame } : null),
-            ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null),
-          };
+            ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null)};
         }
         state.document = next;
         state.dirty = true;
@@ -3484,20 +3392,17 @@ const editorSlice = createSlice({
           width: Math.max(32, Math.round(frame.width)),
           height: Math.max(32, Math.round(frame.height)),
           durationSec: Math.max(0.5, Number(frame.durationSec) || 5),
-          fps: Math.max(1, Math.round(Number(frame.fps) || 30)),
-        });
+          fps: Math.max(1, Math.round(Number(frame.fps) || 30))});
         const { id, node } = createLottieNode({
           x: frame.x,
           y: frame.y,
           width: frame.width,
           height: frame.height,
           name: ' ',
-          animationData: blank,
-        });
+          animationData: blank});
         node.attrs = {
           ...(node.attrs || {}),
-          ...hostAttrs,
-        };
+          ...hostAttrs};
         state.document = addNodeToDocument(state.document, id, node);
         // History already pushed; sync writes without a second pushHistory.
         const synced = syncArtboardChildrenIntoAnimation(state.document, frameId, id);
@@ -3512,8 +3417,7 @@ const editorSlice = createSlice({
             host.attrs = {
               ...(host.attrs || {}),
               ...hostAttrs,
-              animationData: synced.animationJson,
-            };
+              animationData: synced.animationJson};
             for (const p of synced.childAttrPatches) {
               const child = next.deltaSetLike?.[p.nodeId];
               if (!child) continue;
@@ -3521,8 +3425,7 @@ const editorSlice = createSlice({
                 ...(child.attrs || {}),
                 lottieLayerInd: p.lottieLayerInd,
                 ...(p.lottieInFrame != null ? { lottieInFrame: p.lottieInFrame } : null),
-                ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null),
-              };
+                ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null)};
             }
             state.document = next;
           }
@@ -3570,8 +3473,7 @@ const editorSlice = createSlice({
         animationFrameHost: true,
         'fill-color': 'transparent',
         locked: true,
-        name: '',
-      } as const;
+        name: ''} as const;
       const genPrompt = String(
         action.payload?.genPrompt || action.payload?.prompt || ''
       ).trim();
@@ -3584,8 +3486,7 @@ const editorSlice = createSlice({
         width: natW,
         height: natH,
         durationSec,
-        fps,
-      };
+        fps};
       next.frames = frames;
       const sizedFrame = frames[frameIdx];
 
@@ -3607,13 +3508,11 @@ const editorSlice = createSlice({
             width: sizedFrame.width,
             height: sizedFrame.height,
             name: ' ',
-            animationData: parsed,
-          });
+            animationData: parsed});
           node.attrs = {
             ...(node.attrs || {}),
             ...hostAttrs,
-            animationData: json,
-          };
+            animationData: json};
           next = addNodeToDocument(next, id, node);
           hostId = id;
         } catch {
@@ -3629,8 +3528,7 @@ const editorSlice = createSlice({
         host.attrs = {
           ...(host.attrs || {}),
           ...hostAttrs,
-          animationData: json,
-        };
+          animationData: json};
       }
 
       // Drop stray free Lottie plates on this board — they looked like blue
@@ -3659,9 +3557,7 @@ const editorSlice = createSlice({
             x: Number(sizedFrame.x) || 0,
             y: Number(sizedFrame.y) || 0,
             width: Math.max(1, Number(sizedFrame.width) || 1),
-            height: Math.max(1, Number(sizedFrame.height) || 1),
-          },
-        });
+            height: Math.max(1, Number(sizedFrame.height) || 1)}});
         if (matured) {
           next = matured.document;
           maturedIds = matured.nodeIds;
@@ -3670,8 +3566,7 @@ const editorSlice = createSlice({
             hostM.attrs = {
               ...(hostM.attrs || {}),
               ...hostAttrs,
-              animationData: matured.animationJson,
-            };
+              animationData: matured.animationJson};
           }
         }
       }
@@ -3685,8 +3580,7 @@ const editorSlice = createSlice({
           host.attrs = {
             ...(host.attrs || {}),
             ...hostAttrs,
-            animationData: synced.animationJson,
-          };
+            animationData: synced.animationJson};
           for (const p of synced.childAttrPatches) {
             const child = next.deltaSetLike?.[p.nodeId];
             if (!child) continue;
@@ -3694,8 +3588,7 @@ const editorSlice = createSlice({
               ...(child.attrs || {}),
               lottieLayerInd: p.lottieLayerInd,
               ...(p.lottieInFrame != null ? { lottieInFrame: p.lottieInFrame } : null),
-              ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null),
-            };
+              ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null)};
           }
         }
       }
@@ -3787,8 +3680,7 @@ const editorSlice = createSlice({
         fillOpacity: Math.max(
           0,
           Math.min(100, Math.round(Number(next.fillOpacity ?? state.bucketFill.fillOpacity) || 100))
-        ),
-      };
+        )};
     },
     setPencilBrushId(state, action) {
       const id = String(action.payload || '').trim();
@@ -3847,8 +3739,7 @@ const editorSlice = createSlice({
       }
       state.pendingCanvasAttach = {
         target,
-        payload: action.payload.payload,
-      };
+        payload: action.payload.payload};
       // Keep canvasAttachPick until consume — cleared by SvgCanvas after one pick.
     },
     consumePendingCanvasAttach(state) {
@@ -3922,129 +3813,141 @@ const editorSlice = createSlice({
     ) {
       state.hoveredMarkPin = action.payload;
     },
-  },
-});
+} as const;
 
-export const {
-  createTemplate,
-  openTemplate,
-  setDocument,
-  setDocumentFromCanvas,
-  bakeDocumentOrigin,
-  removeDocumentNodes,
-  clearImageProcess,
-  patchDocumentNode,
-  patchDocumentNodes,
-  setSelectedNodeId,
-  setSelectedNodeIds,
-  addArtboardFrame,
-  setActiveFrameId,
-  setFrameChromeMode,
-  setSelectedFrameIds,
-  setMixedSelection,
-  removeArtboardFrames,
-  renameArtboardFrame,
-  updateArtboardFrame,
-  updateArtboardFrames,
-  pushEditorHistory,
-  touchDocumentRevision,
-  beginAiSceneMutation,
-  endAiSceneMutation,
-  beginCanvasApplyLock,
-  endCanvasApplyLock,
-  renameTemplate,
-  persistCurrent,
-  clearEditorDirty,
-  applyCollabDocument,
-  applyCollabScenePatch,
-  importDocument,
-  mergeImportedDocument,
-  startImportPlaceholder,
-  finishImportPlaceholder,
-  cancelImportPlaceholder,
-  setAiOperationState,
-  clearArtboardGenerating,
-  deleteTemplate,
-  deleteTemplates,
-  renameTemplateById,
-  clearProjectsLibrary,
-  undo,
-  redo,
-  setActiveTool,
-  setGridMode,
-  setShapeKind,
-  setPendingImageSrc,
-  setCanvasSize,
-  setCanvasMeta,
-  startImageUploadPlaceholder,
-  startVideoUploadPlaceholder,
-  startAudioUploadPlaceholder,
-  spawnImageGenerator,
-  spawnVideoGenerator,
-  spawnAnimationBoard,
-  spawnLottieGeneratorPlate,
-  spawnAudioGenerator,
-  spawnLottie,
-  placeUploadedLottie,
-  spawnAudio,
-  spawnCreatedNode,
-  placeMediaAsset,
-  importLottieIntoAnimationFrame,
-  finishImageGenerator,
-  finishVideoGenerator,
-  finishLottieGenerator,
-  finishAudioGenerator,
-  detachImageVariant,
-  startImageProcess,
-  finishImageProcess,
-  failImageProcess,
-  resumePendingImageProcess,
-  openImageToolPanel,
-  closeImageToolPanel,
-  openVideoToolPanel,
-  closeVideoToolPanel,
-  openAudioToolPanel,
-  closeAudioToolPanel,
-  openLottieComposePanel,
-  setLottieComposeTool,
-  closeLottieComposePanel,
-  openLottieTimelinePanel,
-  closeLottieTimelinePanel,
-  enterLottiePrecompEdit,
-  exitLottiePrecompEdit,
-  setLottiePrecompSelectedLayer,
-  setLottiePlayhead,
-  setLottiePlaying,
-  openAnimationFramePanel,
-  closeAnimationFramePanel,
-  ensureAnimationFrameMedia,
-  openShapeStylePanel,
-  closeShapeStylePanel,
-  setPenStrokeColor,
-  setPenFillColor,
-  setPenStrokeWidth,
-  setPenStrokeOpacity,
-  setBucketFill,
-  setPencilBrushId,
-  setPencilPressureEnabled,
-  setWorkspaceMode,
-  setDevHoverNodeId,
-  setAgentBusy,
-  startCanvasAttachPick,
-  clearCanvasAttachPick,
-  setCanvasAttachPickBlocked,
-  setPendingCanvasAttach,
-  consumePendingCanvasAttach,
-  enqueueAgentContexts,
-  consumePendingAgentContexts,
-  enqueueQuickEditMarkContexts,
-  consumePendingQuickEditMarkContexts,
-  enqueueImageGenMarkContexts,
-  consumePendingImageGenMarkContexts,
-  setImageMarkPin,
-  removeImageMarkPin,
-  clearImageMarkPin,
-  setHoveredMarkPin,
-} = editorSlice.actions;
 
-export default editorSlice.reducer;
+export const createTemplate = bindEditorMutator(editorReducers.createTemplate);
+export const openTemplate = bindEditorMutator(editorReducers.openTemplate);
+export const setDocument = bindEditorMutator(editorReducers.setDocument);
+export const setDocumentFromCanvas = bindEditorMutator(editorReducers.setDocumentFromCanvas);
+export const bakeDocumentOrigin = bindEditorMutator(editorReducers.bakeDocumentOrigin);
+export const removeDocumentNodes = bindEditorMutator(editorReducers.removeDocumentNodes);
+export const clearImageProcess = bindEditorMutator(editorReducers.clearImageProcess);
+export const patchDocumentNode = bindEditorMutator(editorReducers.patchDocumentNode);
+export const patchDocumentNodes = bindEditorMutator(editorReducers.patchDocumentNodes);
+export const setSelectedNodeId = bindEditorMutator(editorReducers.setSelectedNodeId);
+export const setSelectedNodeIds = bindEditorMutator(editorReducers.setSelectedNodeIds);
+export const addArtboardFrame = bindEditorMutator(editorReducers.addArtboardFrame);
+export const setActiveFrameId = bindEditorMutator(editorReducers.setActiveFrameId);
+export const setFrameChromeMode = bindEditorMutator(editorReducers.setFrameChromeMode);
+export const setSelectedFrameIds = bindEditorMutator(editorReducers.setSelectedFrameIds);
+export const setMixedSelection = bindEditorMutator(editorReducers.setMixedSelection);
+export const removeArtboardFrames = bindEditorMutator(editorReducers.removeArtboardFrames);
+export const renameArtboardFrame = bindEditorMutator(editorReducers.renameArtboardFrame);
+export const updateArtboardFrame = bindEditorMutator(editorReducers.updateArtboardFrame);
+export const updateArtboardFrames = bindEditorMutator(editorReducers.updateArtboardFrames);
+export const pushEditorHistory = bindEditorMutator(editorReducers.pushEditorHistory);
+export const touchDocumentRevision = bindEditorMutator(editorReducers.touchDocumentRevision);
+export const beginAiSceneMutation = bindEditorMutator(editorReducers.beginAiSceneMutation);
+export const endAiSceneMutation = bindEditorMutator(editorReducers.endAiSceneMutation);
+export const beginCanvasApplyLock = bindEditorMutator(editorReducers.beginCanvasApplyLock);
+export const endCanvasApplyLock = bindEditorMutator(editorReducers.endCanvasApplyLock);
+export const renameTemplate = bindEditorMutator(editorReducers.renameTemplate);
+export const persistCurrent = bindEditorMutator(editorReducers.persistCurrent);
+export const clearEditorDirty = bindEditorMutator(editorReducers.clearEditorDirty);
+export const applyCollabDocument = bindEditorMutator(editorReducers.applyCollabDocument);
+export const applyCollabScenePatch = bindEditorMutator(editorReducers.applyCollabScenePatch);
+export const importDocument = bindEditorMutator(editorReducers.importDocument);
+export const mergeImportedDocument = bindEditorMutator(editorReducers.mergeImportedDocument);
+export const startImportPlaceholder = bindEditorMutator(editorReducers.startImportPlaceholder);
+export const finishImportPlaceholder = bindEditorMutator(editorReducers.finishImportPlaceholder);
+export const cancelImportPlaceholder = bindEditorMutator(editorReducers.cancelImportPlaceholder);
+export const setAiOperationState = bindEditorMutator(editorReducers.setAiOperationState);
+export const clearArtboardGenerating = bindEditorMutator(editorReducers.clearArtboardGenerating);
+export const deleteTemplate = bindEditorMutator(editorReducers.deleteTemplate);
+export const deleteTemplates = bindEditorMutator(editorReducers.deleteTemplates);
+export const renameTemplateById = bindEditorMutator(editorReducers.renameTemplateById);
+export const clearProjectsLibrary = bindEditorMutator(editorReducers.clearProjectsLibrary);
+export const undo = bindEditorMutator(editorReducers.undo);
+export const redo = bindEditorMutator(editorReducers.redo);
+export const setActiveTool = bindEditorMutator(editorReducers.setActiveTool);
+export const setGridMode = bindEditorMutator(editorReducers.setGridMode);
+export const setShapeKind = bindEditorMutator(editorReducers.setShapeKind);
+export const setPendingImageSrc = bindEditorMutator(editorReducers.setPendingImageSrc);
+export const setCanvasSize = bindEditorMutator(editorReducers.setCanvasSize);
+export const setCanvasMeta = bindEditorMutator(editorReducers.setCanvasMeta);
+export const startImageUploadPlaceholder = bindEditorMutator(editorReducers.startImageUploadPlaceholder);
+export const startVideoUploadPlaceholder = bindEditorMutator(editorReducers.startVideoUploadPlaceholder);
+export const startAudioUploadPlaceholder = bindEditorMutator(editorReducers.startAudioUploadPlaceholder);
+export const spawnImageGenerator = bindEditorMutator(editorReducers.spawnImageGenerator);
+export const spawnVideoGenerator = bindEditorMutator(editorReducers.spawnVideoGenerator);
+export const spawnAnimationBoard = bindEditorMutator(editorReducers.spawnAnimationBoard);
+export const spawnLottieGeneratorPlate = bindEditorMutator(editorReducers.spawnLottieGeneratorPlate);
+export const spawnAudioGenerator = bindEditorMutator(editorReducers.spawnAudioGenerator);
+export const spawnLottie = bindEditorMutator(editorReducers.spawnLottie);
+export const placeUploadedLottie = bindEditorMutator(editorReducers.placeUploadedLottie);
+export const spawnAudio = bindEditorMutator(editorReducers.spawnAudio);
+export const spawnCreatedNode = bindEditorMutator(editorReducers.spawnCreatedNode);
+export const placeMediaAsset = bindEditorMutator(editorReducers.placeMediaAsset);
+export const importLottieIntoAnimationFrame = bindEditorMutator(editorReducers.importLottieIntoAnimationFrame);
+export const finishImageGenerator = bindEditorMutator(editorReducers.finishImageGenerator);
+export const finishVideoGenerator = bindEditorMutator(editorReducers.finishVideoGenerator);
+export const finishLottieGenerator = bindEditorMutator(editorReducers.finishLottieGenerator);
+export const finishAudioGenerator = bindEditorMutator(editorReducers.finishAudioGenerator);
+export const detachImageVariant = bindEditorMutator(editorReducers.detachImageVariant);
+export const startImageProcess = bindEditorMutator(editorReducers.startImageProcess);
+export const finishImageProcess = bindEditorMutator(editorReducers.finishImageProcess);
+export const failImageProcess = bindEditorMutator(editorReducers.failImageProcess);
+export const resumePendingImageProcess = bindEditorMutator(editorReducers.resumePendingImageProcess);
+export const openImageToolPanel = bindEditorMutator(editorReducers.openImageToolPanel);
+export const closeImageToolPanel = bindEditorMutator(editorReducers.closeImageToolPanel);
+export const openVideoToolPanel = bindEditorMutator(editorReducers.openVideoToolPanel);
+export const closeVideoToolPanel = bindEditorMutator(editorReducers.closeVideoToolPanel);
+export const openAudioToolPanel = bindEditorMutator(editorReducers.openAudioToolPanel);
+export const closeAudioToolPanel = bindEditorMutator(editorReducers.closeAudioToolPanel);
+export const openLottieComposePanel = bindEditorMutator(editorReducers.openLottieComposePanel);
+export const setLottieComposeTool = bindEditorMutator(editorReducers.setLottieComposeTool);
+export const closeLottieComposePanel = bindEditorMutator(editorReducers.closeLottieComposePanel);
+export const openLottieTimelinePanel = bindEditorMutator(editorReducers.openLottieTimelinePanel);
+export const closeLottieTimelinePanel = bindEditorMutator(editorReducers.closeLottieTimelinePanel);
+export const enterLottiePrecompEdit = bindEditorMutator(editorReducers.enterLottiePrecompEdit);
+export const exitLottiePrecompEdit = bindEditorMutator(editorReducers.exitLottiePrecompEdit);
+export const setLottiePrecompSelectedLayer = bindEditorMutator(editorReducers.setLottiePrecompSelectedLayer);
+export const setLottiePlayhead = bindEditorMutator(editorReducers.setLottiePlayhead);
+export const setLottiePlaying = bindEditorMutator(editorReducers.setLottiePlaying);
+export const openAnimationFramePanel = bindEditorMutator(editorReducers.openAnimationFramePanel);
+export const closeAnimationFramePanel = bindEditorMutator(editorReducers.closeAnimationFramePanel);
+export const ensureAnimationFrameMedia = bindEditorMutator(editorReducers.ensureAnimationFrameMedia);
+export const openShapeStylePanel = bindEditorMutator(editorReducers.openShapeStylePanel);
+export const closeShapeStylePanel = bindEditorMutator(editorReducers.closeShapeStylePanel);
+export const setPenStrokeColor = bindEditorMutator(editorReducers.setPenStrokeColor);
+export const setPenFillColor = bindEditorMutator(editorReducers.setPenFillColor);
+export const setPenStrokeWidth = bindEditorMutator(editorReducers.setPenStrokeWidth);
+export const setPenStrokeOpacity = bindEditorMutator(editorReducers.setPenStrokeOpacity);
+export const setBucketFill = bindEditorMutator(editorReducers.setBucketFill);
+export const setPencilBrushId = bindEditorMutator(editorReducers.setPencilBrushId);
+export const setPencilPressureEnabled = bindEditorMutator(editorReducers.setPencilPressureEnabled);
+export const setWorkspaceMode = bindEditorMutator(editorReducers.setWorkspaceMode);
+export const setDevHoverNodeId = bindEditorMutator(editorReducers.setDevHoverNodeId);
+export const setAgentBusy = bindEditorMutator(editorReducers.setAgentBusy);
+export const startCanvasAttachPick = bindEditorMutator(editorReducers.startCanvasAttachPick);
+export const clearCanvasAttachPick = bindEditorMutator(editorReducers.clearCanvasAttachPick);
+export const setCanvasAttachPickBlocked = bindEditorMutator(editorReducers.setCanvasAttachPickBlocked);
+export const setPendingCanvasAttach = bindEditorMutator(editorReducers.setPendingCanvasAttach);
+export const consumePendingCanvasAttach = bindEditorMutator(editorReducers.consumePendingCanvasAttach);
+export const enqueueAgentContexts = bindEditorMutator(editorReducers.enqueueAgentContexts);
+export const consumePendingAgentContexts = bindEditorMutator(editorReducers.consumePendingAgentContexts);
+export const enqueueQuickEditMarkContexts = bindEditorMutator(editorReducers.enqueueQuickEditMarkContexts);
+export const consumePendingQuickEditMarkContexts = bindEditorMutator(editorReducers.consumePendingQuickEditMarkContexts);
+export const enqueueImageGenMarkContexts = bindEditorMutator(editorReducers.enqueueImageGenMarkContexts);
+export const consumePendingImageGenMarkContexts = bindEditorMutator(editorReducers.consumePendingImageGenMarkContexts);
+export const setImageMarkPin = bindEditorMutator(editorReducers.setImageMarkPin);
+export const removeImageMarkPin = bindEditorMutator(editorReducers.removeImageMarkPin);
+export const clearImageMarkPin = bindEditorMutator(editorReducers.clearImageMarkPin);
+export const setHoveredMarkPin = bindEditorMutator(editorReducers.setHoveredMarkPin);
+
+export type EditorState = typeof initialState;
+export { initialState as editorInitialState };
+export { applyEditorReducer };
+
+/**
+ * Pure test helper: apply one case reducer without touching Zustand.
+ * Prefer `applyEditorReducer(state, editorReducers.foo, payload)`.
+ */
+export function reduceEditor(
+  state: EditorState | undefined,
+  reducer: (state: EditorState, action: { payload: any }) => void,
+  payload?: unknown
+): EditorState {
+  return applyEditorReducer(state ?? initialState, reducer as any, payload);
+}

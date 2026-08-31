@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useActiveFrameId } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
@@ -458,9 +458,7 @@ function EditorStageWorld({
   onCanvasReady,
   onOpenAgent,
   onAddToChat,
-}: Props) {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}: Props) {  const { t } = useTranslation();
   const aiOperationState = useSelector(
     (state: RootState) => state.editor.aiOperationState
   );
@@ -510,14 +508,14 @@ function EditorStageWorld({
       if (
         warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'artboard')
       ) {
-        dispatch(setActiveTool('select'));
+        setActiveTool('select');
         return;
       }
-      dispatch(addArtboardFrame(rect));
-      dispatch(setActiveTool('select'));
-      dispatch(setSelectedNodeIds([]));
+      addArtboardFrame(rect);
+      setActiveTool('select');
+      setSelectedNodeIds([]);
     },
-    [dispatch, t]
+    [t]
   );
 
   const onMoveFrame = useCallback(
@@ -765,12 +763,12 @@ function EditorStageWorld({
       }
       // Frame move = plate gesture only. Drop node selection so inner control
       // boxes do not ride along and look like content sliding inside the plate.
-      dispatch(setSelectedNodeIds([]));
+      setSelectedNodeIds([]);
       setMovingFrameIds(frameIds);
       setSelectionTransforming(true);
-      dispatch(pushEditorHistory());
+      pushEditorHistory();
     },
-    [dispatch, document, frames, selectedFrameIds]
+    [document, frames, selectedFrameIds]
   );
 
   const onFrameMoveEnd = useCallback(() => {
@@ -780,7 +778,7 @@ function EditorStageWorld({
       const liveDocument = frameMoveDocumentRef.current || document;
       const next = bindUnownedNodesToFrames(liveDocument, frameIds);
       // Always commit — move preview lived only in the ref during the gesture.
-      dispatch(setDocumentFromCanvas(next));
+      setDocumentFromCanvas(next);
       clearLiveArtboardFrameGeometry(frameIds);
     }
     if (childIds.length) clearNodeTransformPreviews(childIds);
@@ -791,7 +789,7 @@ function EditorStageWorld({
     setFrameSmartGuides([]);
     setMovingFrameIds([]);
     setSelectionTransforming(false);
-  }, [dispatch, document]);
+  }, [document]);
 
   const onSelectFrame = useCallback(
     (id: string, opts?: { chrome?: 'soft' | 'full' }) => {
@@ -804,28 +802,26 @@ function EditorStageWorld({
         if (pick.target === 'agent') {
           onAddToChatRef.current?.(payload);
         } else {
-          dispatch(setPendingCanvasAttach({ target: pick.target, payload }));
+          setPendingCanvasAttach({ target: pick.target, payload });
         }
-        dispatch(clearCanvasAttachPick());
+        clearCanvasAttachPick();
         return;
       }
-      dispatch(setActiveFrameId(id));
-      dispatch(setFrameChromeMode(opts?.chrome === 'soft' ? 'soft' : 'full'));
+      setActiveFrameId(id);
+      setFrameChromeMode(opts?.chrome === 'soft' ? 'soft' : 'full');
     },
-    [dispatch, canvasAttachPick]
+    [canvasAttachPick]
   );
 
   const onRenameFrame = useCallback(
     (id: string, name: string, options?: { skipHistory?: boolean }) => {
-      dispatch(renameArtboardFrame({ id, name, skipHistory: options?.skipHistory }));
-    },
-    [dispatch]
+      renameArtboardFrame({ id, name, skipHistory: options?.skipHistory });
+    }, []
   );
 
   const onCanvasDiffuseMeshChange = useCallback(
     (next: FillGradient) => {
-      dispatch(
-        setCanvasMeta(
+      setCanvasMeta(
           canvasFillToDocumentMeta(
             {
               ...canvasFillValue,
@@ -835,10 +831,9 @@ function EditorStageWorld({
             },
             false
           )
-        )
-      );
+        );
     },
-    [canvasFillValue, dispatch]
+    [canvasFillValue]
   );
 
   const selectedFrameBox = useMemo(() => frameUnionBox(selectedFrames), [selectedFrames]);

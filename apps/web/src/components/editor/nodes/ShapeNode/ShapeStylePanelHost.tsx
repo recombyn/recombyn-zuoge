@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
@@ -250,9 +250,7 @@ function ShapeStylePanelHost({
   document: SceneDocument;
   /** Hide docked side panel while selection is transforming (drag/resize). */
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}): ReactNode {  const { t } = useTranslation();
   const camera = useRcbCamera();
   const panel = useSelector(
     (s: any) =>
@@ -284,34 +282,34 @@ function ShapeStylePanelHost({
     const same =
       panel.nodeIds.length === selectedNodeIds.length &&
       panel.nodeIds.every((id) => selectedNodeIds.includes(id));
-    if (!same) dispatch(closeShapeStylePanel());
-  }, [panel, selectedNodeIds, dispatch]);
+    if (!same) closeShapeStylePanel();
+  }, [panel, selectedNodeIds]);
 
   useEffect(() => {
     if (!panel || panel.kind !== 'fill') return;
     const anyFill = panel.nodeIds.some((id) => supportsFill(document?.deltaSetLike?.[id]));
-    if (!anyFill) dispatch(closeShapeStylePanel());
-  }, [panel, document, dispatch]);
+    if (!anyFill) closeShapeStylePanel();
+  }, [panel, document]);
 
   useEffect(() => {
     if (!panel || panel.kind !== 'radius') return;
     const anyRadius = panel.nodeIds.some((id) =>
       supportsCornerRadius(document?.deltaSetLike?.[id])
     );
-    if (!anyRadius) dispatch(closeShapeStylePanel());
-  }, [panel, document, dispatch]);
+    if (!anyRadius) closeShapeStylePanel();
+  }, [panel, document]);
 
   useEffect(() => {
     if (!panel) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        dispatch(closeShapeStylePanel());
+        closeShapeStylePanel();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [panel, dispatch]);
+  }, [panel]);
 
   const box = useMemo(() => {
     if (!panel) return null;
@@ -326,7 +324,7 @@ function ShapeStylePanelHost({
   const firstId = panel.nodeIds[0];
   const firstNode = document?.deltaSetLike?.[firstId];
   const firstAttrs = firstNode?.attrs as Record<string, unknown> | undefined;
-  const close = () => dispatch(closeShapeStylePanel());
+  const close = () => closeShapeStylePanel();
   const fillValue = readFillValue(firstAttrs);
   const fillType = parseFillType(fillValue.fillType);
   const showGradientHandles =
@@ -369,12 +367,10 @@ function ShapeStylePanelHost({
       const wasVisible =
         boolEffectAttr(a['fill-enabled'], true) && boolEffectAttr(a['fill-visible'], true);
       const visible = hasFill ? true : wasVisible;
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: id,
           patch: { attrs: fillAttrsFromValue(next, shapeType, { visible }) },
-        })
-      );
+        });
     }
   };
 
@@ -410,15 +406,13 @@ function ShapeStylePanelHost({
       });
       // Keep outer ink on the same grid when width/align change (path insets).
       const geom = geometryPatchForStrokeOutsetChange(node, attrs);
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: id,
           patch: {
             ...(geom || {}),
             attrs,
           },
-        })
-      );
+        });
     }
   };
 
@@ -427,8 +421,7 @@ function ShapeStylePanelHost({
       const node = document?.deltaSetLike?.[id];
       if (!supportsFill(node)) continue;
       const shapeType = node?.attrs?.shapeType;
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: id,
           patch: {
             attrs: {
@@ -437,8 +430,7 @@ function ShapeStylePanelHost({
               'fill-visible': visible ? 'true' : 'false',
             },
           },
-        })
-      );
+        });
     }
   };
 
@@ -448,8 +440,7 @@ function ShapeStylePanelHost({
       if (!node) continue;
       const shapeType = node?.attrs?.shapeType;
       const geom = geometryPatchForStrokeVisibilityToggle(node, visible);
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: id,
           patch: {
             ...(geom || {}),
@@ -459,8 +450,7 @@ function ShapeStylePanelHost({
               'stroke-visible': visible ? 'true' : 'false',
             },
           },
-        })
-      );
+        });
     }
   };
 
@@ -493,8 +483,7 @@ function ShapeStylePanelHost({
               count
             );
       // Honor explicit link toggle — do not re-link just because corners match.
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: id,
           patch: {
             attrs: {
@@ -515,8 +504,7 @@ function ShapeStylePanelHost({
               ),
             },
           },
-        })
-      );
+        });
     }
   };
 

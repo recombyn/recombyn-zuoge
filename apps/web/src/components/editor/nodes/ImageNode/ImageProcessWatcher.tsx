@@ -1,5 +1,5 @@
 import { useEffect, useRef, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocument } from '@/store/editorSelectors';
 import i18n from '@/i18n';
 import { message } from '@/components/base';
@@ -116,7 +116,6 @@ function buildFinishAttrsForKind(
 }
 
 async function finishDecomposeResult(
-  dispatch: ReturnType<typeof useDispatch>,
   pendingId: string,
   kind: string,
   res: ImageProcessResult,
@@ -134,14 +133,12 @@ async function finishDecomposeResult(
   );
   if (cancelled()) return true;
 
-  dispatch(
-    finishImageProcess({
+  finishImageProcess({
       nodeId: pendingId,
       layers: persisted,
       sourceWidth: Number(res.width) || undefined,
       sourceHeight: Number(res.height) || undefined,
-    })
-  );
+    });
   const warn = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
   if (warn.length) {
     message.warning(warn.slice(0, 3).join('；'));
@@ -168,9 +165,7 @@ async function finishDecomposeResult(
  * Completes spawned image process jobs via async backend jobs + SSE progress.
  * Results are uploaded to our file server when still inline data URLs.
  */
-function ImageProcessWatcher() {
-  const dispatch = useDispatch();
-  useImageToolCapabilities();
+function ImageProcessWatcher() {  useImageToolCapabilities();
   const pendingId = useSelector((s: any) => s.editor.pendingImageProcessId as string | null);
   const document = useEditorDocument();
   const documentRef = useRef(document);
@@ -190,7 +185,7 @@ function ImageProcessWatcher() {
     const fail = (msg: string) => {
       if (cancelled) return;
       message.error(msg);
-      dispatch(failImageProcess({ nodeId: pendingId }));
+      failImageProcess({ nodeId: pendingId });
     };
 
     const run = async () => {
@@ -239,8 +234,7 @@ function ImageProcessWatcher() {
           jobId: existingJobIds[0],
           onProgress: (pct) => {
             if (cancelled) return;
-            dispatch(
-              patchDocumentNode({
+            patchDocumentNode({
                 nodeId: pendingId,
                 skipHistory: true,
                 patch: {
@@ -252,23 +246,20 @@ function ImageProcessWatcher() {
                     ),
                   },
                 },
-              })
-            );
+              });
           },
           onJobCreated: (jobId) => {
             if (cancelled) return;
-            dispatch(
-              patchDocumentNode({
+            patchDocumentNode({
                 nodeId: pendingId,
                 skipHistory: true,
                 patch: { attrs: processJobAttrPatch([jobId]) },
-              })
-            );
+              });
           },
         });
         if (cancelled) return;
 
-        if (await finishDecomposeResult(dispatch, pendingId, kind, res, isCancelled)) return;
+        if (await finishDecomposeResult(pendingId, kind, res, isCancelled)) return;
 
         const svgMarkup = String(res?.svg || '').trim();
         if (kind === 'vector' || svgMarkup) {
@@ -276,13 +267,11 @@ function ImageProcessWatcher() {
             fail(tt('editor.imageToolbar.processNoResult'));
             return;
           }
-          dispatch(
-            finishImageProcess({
+          finishImageProcess({
               nodeId: pendingId,
               svg: svgMarkup,
               attrs: { name: tt('editor.imageToolbar.nameVector') },
-            })
-          );
+            });
           message.success(tt('editor.imageToolbar.doneVector'));
           await refreshWallet();
           return;
@@ -300,13 +289,11 @@ function ImageProcessWatcher() {
           sourceGenPrompt: String(sourceNode?.attrs?.genPrompt || ''),
           replacedCopy,
         });
-        dispatch(
-          finishImageProcess({
+        finishImageProcess({
             nodeId: pendingId,
             src: storedUrl,
             ...(finishAttrs ? { attrs: finishAttrs } : {}),
-          })
-        );
+          });
         const labels: Record<string, string> = {
           removeBg: tt('editor.imageToolbar.doneRemoveBg'),
           eraser: tt('editor.imageToolbar.doneEraser'),
@@ -332,7 +319,7 @@ function ImageProcessWatcher() {
       cancelled = true;
       ac.abort();
     };
-  }, [pendingId, dispatch]);
+  }, [pendingId]);
 
   return null;
 }

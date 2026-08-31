@@ -15,8 +15,6 @@ import {
 } from '@/utils/uploadImage';
 import store from '@/store';
 
-type DispatchLike = (action: unknown) => unknown;
-
 export function buildUploadFinishAttrs(
   nodeAttrs: Record<string, unknown> | undefined,
   uploaded: Pick<UploadedFileItem, 'key'>
@@ -47,7 +45,6 @@ async function withManagedNodeUpload<T>(
 }
 
 function finishPlaceholderUpload(
-  dispatch: DispatchLike,
   nodeId: string,
   uploaded: UploadedFileItem,
   opts: {
@@ -67,18 +64,15 @@ function finishPlaceholderUpload(
     const doc = (store.getState() as { editor?: { document?: unknown } }).editor?.document;
     revokeNodePreviewSrc(doc as Parameters<typeof revokeNodePreviewSrc>[0], nodeId);
   }
-  dispatch(
-    finishImageProcess({
-      nodeId,
-      ...(useRemote ? { src: uploaded.url } : {}),
-      attrs,
-    })
-  );
+  finishImageProcess({
+    nodeId,
+    ...(useRemote ? { src: uploaded.url } : {}),
+    attrs,
+  });
 }
 
 /** Upload a file for a spawned placeholder node. */
 export async function uploadCanvasPlaceholderFile(opts: {
-  dispatch: DispatchLike;
   nodeId: string;
   file: File;
   extraAttrs?: Record<string, unknown>;
@@ -92,20 +86,17 @@ export async function uploadCanvasPlaceholderFile(opts: {
   const done = await withManagedNodeUpload(id, async (signal) => {
     const uploaded = await uploadImageFile(opts.file, {
       signal,
-      dispatch: opts.dispatch,
       nodeId: id,
       onProgress: (pct) => {
         if (signal.aborted) return;
-        opts.dispatch(
-          patchDocumentNode({
-            nodeId: id,
-            skipHistory: true,
-            skipHostReload: true,
-            patch: {
-              attrs: { processLabel: formatProcessProgressLabel('上传中', pct, '上传中') },
-            },
-          })
-        );
+        patchDocumentNode({
+          nodeId: id,
+          skipHistory: true,
+          skipHostReload: true,
+          patch: {
+            attrs: { processLabel: formatProcessProgressLabel('上传中', pct, '上传中') },
+          },
+        });
       },
     });
     if (signal.aborted) return false;
@@ -115,7 +106,7 @@ export async function uploadCanvasPlaceholderFile(opts: {
       : true;
     if (signal.aborted) return false;
 
-    finishPlaceholderUpload(opts.dispatch, id, uploaded, {
+    finishPlaceholderUpload(id, uploaded, {
       extraAttrs: opts.extraAttrs,
       remoteReady,
       waitDecode,
@@ -127,7 +118,6 @@ export async function uploadCanvasPlaceholderFile(opts: {
 
 /** Upload a remote/data URL into a spawned placeholder node. */
 export async function uploadCanvasPlaceholderSrc(opts: {
-  dispatch: DispatchLike;
   nodeId: string;
   src: string;
   filename?: string;
@@ -139,7 +129,6 @@ export async function uploadCanvasPlaceholderSrc(opts: {
   const done = await withManagedNodeUpload(id, async (signal) => {
     const uploaded = await uploadImageFromSrc(opts.src, opts.filename || 'upload.png', {
       signal,
-      dispatch: opts.dispatch,
       nodeId: id,
     });
     if (signal.aborted) return false;
@@ -147,7 +136,7 @@ export async function uploadCanvasPlaceholderSrc(opts: {
 
     const remoteReady = await waitForImageReady(uploaded.url, { signal });
     if (signal.aborted) return false;
-    finishPlaceholderUpload(opts.dispatch, id, uploaded, {
+    finishPlaceholderUpload(id, uploaded, {
       extraAttrs: opts.extraAttrs,
       remoteReady,
       waitDecode: true,

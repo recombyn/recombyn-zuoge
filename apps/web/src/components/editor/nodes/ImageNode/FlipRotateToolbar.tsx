@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineArrowPath,
@@ -38,12 +38,10 @@ function FlipRotateToolbar({
   flipY,
   hideRotate = false,
 }: Props): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const displayAngle = Math.round(normAngle(angle));
+  const { t } = useTranslation();  const displayAngle = Math.round(normAngle(angle));
 
   const patch = (attrs: Record<string, unknown>) => {
-    dispatch(patchDocumentNode({ nodeId, patch: { attrs } }));
+    patchDocumentNode({ nodeId, patch: { attrs } });
   };
 
   const title = hideRotate
@@ -123,7 +121,7 @@ function FlipRotateToolbar({
           type="button"
           aria-label={exitLabel}
           className={imageToolBtn}
-          onClick={() => dispatch(closeImageToolPanel())}
+          onClick={() => closeImageToolPanel()}
         >
           <BiExit className="h-[18px] w-[18px]" />
         </button>

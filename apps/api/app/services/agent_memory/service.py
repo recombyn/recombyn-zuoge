@@ -30,8 +30,6 @@ from app.services.agent_memory.short_term import (
     load_short_term_from_session,
 )
 
-from app.services.design.prompts.rules_text import _safe_print
-
 logger = logging.getLogger(__name__)
 
 # Roadmap labels → implementation notes (documentation + tests; not a router).
@@ -44,7 +42,13 @@ MEMORY_TIERS: dict[str, str] = {
 
 def _mem_print(msg: str) -> None:
     logger.info(msg)
-    _safe_print(msg)
+    try:
+        from app.services.design.prompts.rules_text import _exec_trace_verbose, _safe_print
+
+        if _exec_trace_verbose():
+            _safe_print(msg)
+    except Exception:
+        pass
 
 
 def _rule_on(rules: dict[str, str], key: str, default: str) -> bool:

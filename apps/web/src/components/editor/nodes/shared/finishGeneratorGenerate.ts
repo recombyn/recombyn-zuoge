@@ -1,5 +1,5 @@
 import type { MutableRefObject } from 'react';
-import type { Dispatch } from '@/store';
+
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   clearGeneratorProcessOverlay,
@@ -9,20 +9,19 @@ import { unregisterGeneratorSession } from '@/components/editor/nodes/shared/gen
 import store from '@/store';
 
 export function finishGeneratorGenerateSession(opts: {
-  dispatch: Dispatch;
   nodeId: string;
   finished: boolean;
   abortRef: MutableRefObject<AbortController | null>;
   ac: AbortController;
   setSending: (v: boolean) => void;
 }) {
-  const { dispatch, nodeId, finished, abortRef, ac, setSending } = opts;
+  const { nodeId, finished, abortRef, ac, setSending } = opts;
   unregisterGeneratorSession(nodeId);
   const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor?.document;
   if (!finished) {
-    clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+    clearGeneratorProcessOverlay(doc, nodeId);
   } else {
-    ensureGeneratorProcessCleared(dispatch, doc, nodeId);
+    ensureGeneratorProcessCleared(doc, nodeId);
   }
   if (abortRef.current === ac) abortRef.current = null;
   // May no-op if the composer already unmounted (selection cleared / processing).

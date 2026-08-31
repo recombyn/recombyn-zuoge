@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { cn } from '@/utils/classnames';
 import { parseMarkChipKey, isMarkContextKey } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import { setHoveredMarkPin } from '@/store/modules/editor';
@@ -934,9 +934,7 @@ const AgentComposerInput = forwardRef<
   },
   ref
 ) {
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  const dispatch = useDispatch();
-  const contextsRef = useRef(contexts);
+  const editorRef = useRef<HTMLDivElement | null>(null);  const contextsRef = useRef(contexts);
   const onContextsChangeRef = useRef(onContextsChange);
   const onChangeRef = useRef(onChange);
   const onPasteImagesRef = useRef(onPasteImages);
@@ -981,17 +979,17 @@ const AgentComposerInput = forwardRef<
         ? (target.closest('[data-composer-chip="1"]') as HTMLElement | null)
         : null;
     if (!chip || !el.contains(chip)) {
-      dispatch(setHoveredMarkPin(null));
+      setHoveredMarkPin(null);
       el.style.removeProperty('cursor');
       return;
     }
     const parsed = parseMarkChipKey(chipBaseKey(chip.dataset.chipId || ''));
     if (!parsed) {
-      dispatch(setHoveredMarkPin(null));
+      setHoveredMarkPin(null);
       el.style.removeProperty('cursor');
       return;
     }
-    dispatch(setHoveredMarkPin({ nodeId: parsed.nodeId, pinId: parsed.regionId }));
+    setHoveredMarkPin({ nodeId: parsed.nodeId, pinId: parsed.regionId });
     el.style.cursor = 'pointer';
   };
 
@@ -1000,7 +998,7 @@ const AgentComposerInput = forwardRef<
   };
 
   const handleComposerMouseLeave = () => {
-    dispatch(setHoveredMarkPin(null));
+    setHoveredMarkPin(null);
     editorRef.current?.style.removeProperty('cursor');
   };
 

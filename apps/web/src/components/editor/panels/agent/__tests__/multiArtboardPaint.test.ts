@@ -2,48 +2,14 @@
  * Multi-artboard paint: sequential create_frame retargets content onto sibling boards.
  * Mirrors applyAgentToolOps + handleStreamToolOps multi path in runDesignAgent.ts.
  */
-import { describe, expect, it, vi } from 'vitest';
-import {
-  createEmptyDocument
-} from '@/components/rcb/scene/document/sceneDocument';
-import { executeDesignTool, type DesignToolContext } from '../designTools';
+import { describe, expect, it } from 'vitest';
+import { executeDesignTool } from '../designTools';
+import { createDesignToolHarness } from './designToolHarness';
 
 describe('multi-artboard create_frame apply', () => {
   it('creates two sibling frames and paints content into each after retarget', () => {
-    let doc = createEmptyDocument({ width: 1440, height: 900 });
-    const dispatch = vi.fn((action: { type?: string; payload?: any }) => {
-      const type = String(action?.type || '');
-      const p = action?.payload;
-      if (type.endsWith('/addArtboardFrame') || type.includes('addArtboardFrame')) {
-        const id = `frame_${(doc.frames?.length || 0) + 1}`;
-        const frame = {
-          id,
-          name: p?.name || 'Frame',
-          x: Number(p?.x) || 0,
-          y: Number(p?.y) || 0,
-          width: Number(p?.width) || 390,
-          height: Number(p?.height) || 844,
-          backgroundColor: p?.backgroundColor || '#fff',
-        };
-        doc = {
-          ...doc,
-          frames: [...(doc.frames || []), frame],
-          stackOrder: [...(doc.stackOrder || []), `frame:${id}`],
-        };
-        return;
-      }
-      if (type.endsWith('/setDocument') || type.includes('setDocument')) {
-        if (p && typeof p === 'object') doc = p;
-      }
-    });
-
-    const toolCtx = {
-      dispatch,
-      getDocument: () => doc,
-      skipHistory: true,
-      targetFrameId: null as string | null,
-      allowDestructive: true,
-    } as DesignToolContext;
+    const h = createDesignToolHarness();
+    const toolCtx = h.ctx;
 
     const ops = [
       {
@@ -96,13 +62,15 @@ describe('multi-artboard create_frame apply', () => {
       }
     }
 
-    expect(doc.frames.length).toBe(2);
-    expect(String(doc.frames[0].name)).toBe('Login');
-    expect(String(doc.frames[1].name)).toBe('Home');
-    expect(frameIds).toEqual(['frame_1', 'frame_2']);
+    const doc = h.getDoc();
+    expect(doc.frames?.length).toBe(2);
+    expect(String(doc.frames?.[0]?.name)).toBe('Login');
+    expect(String(doc.frames?.[1]?.name)).toBe('Home');
+    expect(frameIds).toHaveLength(2);
+    expect(frameIds[0]).not.toBe(frameIds[1]);
 
-    const f0 = doc.frames[0];
-    const f1 = doc.frames[1];
+    const f0 = doc.frames![0]!;
+    const f1 = doc.frames![1]!;
     const overlap =
       Number(f0.x) < Number(f1.x) + Number(f1.width) &&
       Number(f0.x) + Number(f0.width) > Number(f1.x) &&

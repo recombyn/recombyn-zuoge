@@ -991,6 +991,7 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
     )
     persona = _resolve_agent_persona(rules, user_selected_model)
     size_auto_hint = _prompt_text(rules, "agent.prompt.size_auto")
+    chat_fallback_tmpl = _prompt_text(rules, "agent.prompt.chat_fallback")
     subagents_catalog = format_subagents_catalog(get_active_agent_profile())
     # Decide-stage packs + catalogs (full tool/skill bodies arrive via need_*).
     decide_catalogs = [
@@ -1041,6 +1042,7 @@ async def run_agent_graph(inp: AgentGraphRunInput) -> AsyncIterator[dict[str, An
         decision=decision,
         system=system,
         size_auto_hint=size_auto_hint,
+        chat_fallback_tmpl=chat_fallback_tmpl,
         persona=persona,
         defer_tools=defer_tools,
         max_rounds=max_rounds,

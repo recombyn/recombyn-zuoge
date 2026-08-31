@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocument, useSceneReloadToken } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
@@ -11,9 +11,7 @@ import {
 } from '@/components/editor/nodes/shared/generatorJobRecovery';
 import { resumePendingImageProcess } from '@/store/modules/editor';
 
-function GeneratorJobRecoveryHost() {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+function GeneratorJobRecoveryHost() {  const { t } = useTranslation();
   const document = useEditorDocument();
   const sceneReloadToken = useSceneReloadToken();
   const pendingImageProcessId = useSelector(
@@ -30,10 +28,10 @@ function GeneratorJobRecoveryHost() {
 
     if (!pendingImageProcessId) {
       const uploadId = findResumableUploadNodeId(doc);
-      if (uploadId) dispatch(resumePendingImageProcess({ nodeId: uploadId }));
+      if (uploadId) resumePendingImageProcess({ nodeId: uploadId });
       else {
         const aiId = findResumableAiProcessNodeId(doc);
-        if (aiId) dispatch(resumePendingImageProcess({ nodeId: aiId }));
+        if (aiId) resumePendingImageProcess({ nodeId: aiId });
       }
     }
 
@@ -44,7 +42,7 @@ function GeneratorJobRecoveryHost() {
 
     for (const { nodeId, node } of targets) {
       inflightRef.current.add(nodeId);
-      void recoverGeneratorNode(dispatch, doc, nodeId, node)
+      void recoverGeneratorNode(doc, nodeId, node)
         .then((result) => {
           if (result === 'cleared') {
             message.warning(t('editor.tools.genRecoverCleared'));
@@ -58,7 +56,7 @@ function GeneratorJobRecoveryHost() {
     }
 
     return undefined;
-  }, [dispatch, sceneReloadToken, pendingImageProcessId, t]);
+  }, [sceneReloadToken, pendingImageProcessId, t]);
 
   return null;
 }

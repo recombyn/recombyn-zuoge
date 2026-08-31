@@ -13,7 +13,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocument } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { FloatingPortal } from '@floating-ui/react';
@@ -146,9 +146,7 @@ function AnimationGeneratorCard({
   sceneBox,
   disabled = false,
 }: Props): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const { t } = useTranslation();  const fileRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<AgentComposerHandle | null>(null);
   const contextsRef = useRef<ComposerContext[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -239,7 +237,7 @@ function AnimationGeneratorCard({
   useEffect(() => {
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
-    dispatch(consumePendingCanvasAttach());
+    consumePendingCanvasAttach();
     const doc = editorDocument || (store.getState() as any).editor?.document;
     async function flyPendingAttach() {
       await flyPickIntoComposer({
@@ -256,7 +254,7 @@ function AnimationGeneratorCard({
       });
     }
     flyPendingAttach();
-  }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
+  }, [pendingCanvasAttach, pickTarget, editorDocument]);
 
   useEffect(() => {
     const id = nodeId;
@@ -411,7 +409,7 @@ function AnimationGeneratorCard({
     if (patch.duration != null) attrs.lottieGenDuration = patch.duration;
     if (patch.model != null) attrs.lottieGenModel = patch.model;
     if (!Object.keys(attrs).length) return;
-    dispatch(patchDocumentNode({ nodeId, patch: { attrs } }));
+    patchDocumentNode({ nodeId, patch: { attrs } });
   };
 
   // Image refs require a vision-capable model — auto-switch when current can't see images.
@@ -429,8 +427,7 @@ function AnimationGeneratorCard({
     setAspectRatio(nextAspect);
     persistGenSettings({ aspect: nextAspect });
     const next = plateSizeForAspect(sceneBox, nextAspect);
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           x: next.x,
@@ -439,8 +436,7 @@ function AnimationGeneratorCard({
           height: next.height,
           attrs: { lottieGenAspect: nextAspect },
         },
-      })
-    );
+      });
   };
 
   const onGenerate = async () => {
@@ -466,8 +462,7 @@ function AnimationGeneratorCard({
     registerGeneratorSession(nodeId);
     setSending(true);
     let finished = false;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -481,8 +476,7 @@ function AnimationGeneratorCard({
             genPrompt: text,
           },
         },
-      })
-    );
+      });
     try {
       const genW = Math.min(512, Math.max(32, Math.round(sceneBox.width)));
       const genH = Math.min(512, Math.max(32, Math.round(sceneBox.height)));
@@ -497,13 +491,11 @@ function AnimationGeneratorCard({
         },
         { signal: ac.signal }
       );
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           skipHistory: true,
           patch: { attrs: processJobAttrPatch([jobId]) },
-        })
-      );
+        });
       const res = await waitForLottieJob(jobId, { signal: ac.signal });
       const animationData = parseLottieAnimationData(res?.animationData) || null;
       if (!animationData) throw new Error(t('editor.tools.lottieGenEmpty'));
@@ -517,8 +509,7 @@ function AnimationGeneratorCard({
       const outX = Math.round(sceneBox.x + (sceneBox.width - outW) / 2);
       const outY = Math.round(sceneBox.y + (sceneBox.height - outH) / 2);
 
-      dispatch(
-        finishLottieGenerator({
+      finishLottieGenerator({
           nodeId,
           animationData,
           genPrompt: text,
@@ -527,8 +518,7 @@ function AnimationGeneratorCard({
           height: outH,
           x: outX,
           y: outY,
-        })
-      );
+        });
       finished = true;
     } catch (err: unknown) {
       if (!ac.signal.aborted) {
@@ -536,7 +526,6 @@ function AnimationGeneratorCard({
       }
     } finally {
       finishGeneratorGenerateSession({
-        dispatch,
         nodeId,
         finished,
         abortRef,
@@ -549,7 +538,7 @@ function AnimationGeneratorCard({
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
       pickingFromCanvas,
-      clearPick: () => dispatch(clearCanvasAttachPick()),
+      clearPick: () => clearCanvasAttachPick(),
       attachSelection: async () => {
         const doc = editorDocument || (store.getState() as any).editor?.document;
         const insertChip = (ctx: ComposerContext) => {
@@ -570,7 +559,7 @@ function AnimationGeneratorCard({
       },
       startPick: () => {
         noteCanvasFlyLand(pickTarget);
-        dispatch(startCanvasAttachPick({ target: pickTarget, accept: 'image' }));
+        startCanvasAttachPick({ target: pickTarget, accept: 'image' });
       },
     });
   };

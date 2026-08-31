@@ -1,11 +1,11 @@
 /**
  * Live editor bridge for MCP canvas control:
- * - heartbeat — server routes ops to live queue (full designTools parity)
+ * - heartbeat ï¿½ server routes ops to live queue (full designTools parity)
  * - pending batches ? applyAgentToolOps (same stagger + canvas lock as Design Agent)
  * - revision reload when headless writes land
  */
 import { useCallback, useEffect, useRef } from 'react';
-import store, { useDispatch } from '@/store';
+import store from '@/store';
 import { useActiveFrameId } from '@/store/editorSelectors';
 import { applyAgentToolOps } from '@/components/editor/panels/agent/runDesignAgent';
 import { importDocument } from '@/store/modules/editor';
@@ -26,9 +26,7 @@ export function McpCanvasBridge({
   projectId,
   enabled = true,
   pollMs = 1500,
-}: Props) {
-  const dispatch = useDispatch();
-  const activeFrameId = useActiveFrameId();
+}: Props) {  const activeFrameId = useActiveFrameId();
   const lastRev = useRef<number | null>(null);
   const applying = useRef(false);
   const activeFrameIdRef = useRef(activeFrameId);
@@ -47,20 +45,17 @@ export function McpCanvasBridge({
         }
         if (rev > lastRev.current && proj?.document) {
           lastRev.current = rev;
-          dispatch(
-            importDocument({
+          importDocument({
               id: pid,
               name: proj.name || 'Untitled',
               document: proj.document,
               source: 'user',
-            })
-          );
+            });
         }
       } catch {
         /* ignore */
       }
-    },
-    [dispatch]
+    }, []
   );
 
   const applyPending = useCallback(
@@ -78,7 +73,6 @@ export function McpCanvasBridge({
           if (ops.length) {
             await applyAgentToolOps({
               ops,
-              dispatch,
               getDocument: () => store.getState().editor.document,
               frameId: activeFrameIdRef.current || null,
               source: 'ai',
@@ -90,8 +84,7 @@ export function McpCanvasBridge({
       } finally {
         applying.current = false;
       }
-    },
-    [dispatch]
+    }, []
   );
 
   useEffect(() => {

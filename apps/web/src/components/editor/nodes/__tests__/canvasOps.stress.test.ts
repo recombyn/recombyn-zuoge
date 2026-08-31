@@ -3,7 +3,9 @@
  * Complements canvasGenerators + RCB geometry benches.
  */
 import { describe, expect, it } from 'vitest';
-import reducer, {
+import {
+  editorReducers,
+  reduceEditor,
   addArtboardFrame,
   closeImageToolPanel,
   createTemplate,
@@ -54,16 +56,13 @@ const TOOLS = [
 ] as const;
 
 function seed() {
-  let state = reducer(undefined, { type: '@@INIT' } as any);
-  state = reducer(
-    state,
-    createTemplate({
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, {
       name: 'canvas-ops-stress',
       document: createEmptyDocument({ emptyWorld: true }),
       emptyWorld: true,
       source: 'scratch',
-    })
-  );
+    });
   return state;
 }
 
@@ -76,7 +75,7 @@ function addCreated(
   created: { id: string; node: any }
 ) {
   const doc = addNodeToDocument(state.document!, created.id, created.node);
-  return reducer(state, setDocument(doc));
+  return reduceEditor(state, editorReducers.setDocument, doc);
 }
 
 describe('canvas ops store stress', () => {
@@ -125,18 +124,18 @@ describe('canvas ops store stress', () => {
           offsetX: 20 + i,
           offsetY: 20 + i,
         });
-        state = reducer(state, setDocument(pasted.document));
+        state = reduceEditor(state, editorReducers.setDocument, pasted.document);
         expect(pasted.ids.length).toBe(clip!.nodes!.length);
       }
 
       const beforeUndo = nodeCount(state);
-      state = reducer(state, undo());
+      state = reduceEditor(state, editorReducers.undo);
       expect(nodeCount(state)).toBeLessThan(beforeUndo);
-      state = reducer(state, redo());
+      state = reduceEditor(state, editorReducers.redo);
       expect(nodeCount(state)).toBe(beforeUndo);
 
       const drop = ids.slice(0, 50);
-      state = reducer(state, removeDocumentNodes({ nodeIds: drop }));
+      state = reduceEditor(state, editorReducers.removeDocumentNodes, { nodeIds: drop });
       for (const id of drop) {
         expect(state.document!.deltaSetLike[id]).toBeUndefined();
       }
@@ -148,31 +147,26 @@ describe('canvas ops store stress', () => {
     const frameIds: string[] = [];
 
     for (let i = 0; i < 30; i += 1) {
-      state = reducer(
-        state,
-        addArtboardFrame({
+      state = reduceEditor(state, editorReducers.addArtboardFrame, {
           x: i * 40,
           y: i * 20,
           width: 320,
           height: 240,
           name: `frame-${i}`,
           activate: i === 29,
-        })
-      );
+        });
       const frames = state.document!.frames || [];
       expect(frames.length).toBe(i + 1);
       frameIds.push(String(frames[frames.length - 1]!.id));
     }
 
-    state = reducer(state, spawnImageGenerator({ x: 10, y: 10 }));
-    state = reducer(state, spawnVideoGenerator({ x: 20, y: 20 }));
-    state = reducer(state, spawnLottieGeneratorPlate({ x: 30, y: 30 }));
-    state = reducer(state, spawnAudioGenerator({ x: 40, y: 40 }));
+    state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: 10, y: 10 });
+    state = reduceEditor(state, editorReducers.spawnVideoGenerator, { x: 20, y: 20 });
+    state = reduceEditor(state, editorReducers.spawnLottieGeneratorPlate, { x: 30, y: 30 });
+    state = reduceEditor(state, editorReducers.spawnAudioGenerator, { x: 40, y: 40 });
     expect(nodeCount(state)).toBeGreaterThanOrEqual(4);
 
-    state = reducer(
-      state,
-      placeMediaAsset({
+    state = reduceEditor(state, editorReducers.placeMediaAsset, {
         kind: 'image',
         src: 'https://cdn.example.com/ops.png',
         x: 50,
@@ -181,11 +175,8 @@ describe('canvas ops store stress', () => {
         height: 90,
         name: 'ops-img',
         prompt: 'ops place',
-      })
-    );
-    state = reducer(
-      state,
-      placeMediaAsset({
+      });
+    state = reduceEditor(state, editorReducers.placeMediaAsset, {
         kind: 'video',
         src: 'https://cdn.example.com/ops.mp4',
         x: 60,
@@ -193,70 +184,54 @@ describe('canvas ops store stress', () => {
         width: 160,
         height: 90,
         name: 'ops-vid',
-      })
-    );
-    state = reducer(
-      state,
-      placeMediaAsset({
+      });
+    state = reduceEditor(state, editorReducers.placeMediaAsset, {
         kind: 'audio',
         src: 'https://cdn.example.com/ops.mp3',
         x: 70,
         y: 70,
         name: 'ops-aud',
-      })
-    );
+      });
 
-    state = reducer(
-      state,
-      startImageUploadPlaceholder({
+    state = reduceEditor(state, editorReducers.startImageUploadPlaceholder, {
         src: 'blob:https://local/ops-img',
         x: 80,
         y: 80,
         width: 100,
         height: 80,
-      })
-    );
-    state = reducer(
-      state,
-      startVideoUploadPlaceholder({
+      });
+    state = reduceEditor(state, editorReducers.startVideoUploadPlaceholder, {
         src: 'blob:https://local/ops-vid',
         x: 90,
         y: 90,
         width: 120,
         height: 70,
-      })
-    );
+      });
 
     // Patch + lock/hide flags on selected node.
     const sel = String(state.selectedNodeId || '');
     if (sel) {
-      state = reducer(
-        state,
-        patchDocumentNode({
+      state = reduceEditor(state, editorReducers.patchDocumentNode, {
           nodeId: sel,
           patch: { attrs: { locked: 'true', hidden: 'false' } as any },
-        })
-      );
+        });
       expect(state.document!.deltaSetLike[sel].attrs?.locked).toBe('true');
     }
 
-    state = reducer(state, removeArtboardFrames(frameIds.slice(0, 10)));
+    state = reduceEditor(state, editorReducers.removeArtboardFrames, frameIds.slice(0, 10));
     expect((state.document!.frames || []).length).toBe(20);
   });
 
   it('deleting an artboard removes nodes bound to it in one history step', () => {
     let state = seed();
-    state = reducer(
-      state,
-      addArtboardFrame({
+    state = reduceEditor(state, editorReducers.addArtboardFrame, {
         x: 100,
         y: 100,
         width: 200,
         height: 150,
         name: 'delete-me',
         activate: true,
-      })
-    );
+      });
     const frameId = String(state.document!.frames?.[0]?.id || '');
     const inside = createShapeNode({
       x: 130,
@@ -293,14 +268,14 @@ describe('canvas ops store stress', () => {
     state = addCreated(state, outside);
     state = addCreated(state, overlapUnbound);
 
-    state = reducer(state, removeArtboardFrames([frameId]));
+    state = reduceEditor(state, editorReducers.removeArtboardFrames, [frameId]);
     expect(state.document!.frames || []).toHaveLength(0);
     expect(state.document!.deltaSetLike[inside.id]).toBeUndefined();
     expect(state.document!.deltaSetLike[crossing.id]).toBeUndefined();
     expect(state.document!.deltaSetLike[outside.id]).toBeDefined();
     expect(state.document!.deltaSetLike[overlapUnbound.id]).toBeDefined();
 
-    state = reducer(state, undo());
+    state = reduceEditor(state, editorReducers.undo);
     expect(state.document!.frames || []).toHaveLength(1);
     expect(state.document!.deltaSetLike[inside.id]).toBeDefined();
     expect(state.document!.deltaSetLike[crossing.id]).toBeDefined();
@@ -312,15 +287,15 @@ describe('canvas ops store stress', () => {
     let state = seed();
     for (let round = 0; round < 25; round += 1) {
       for (const tool of TOOLS) {
-        state = reducer(state, setActiveTool(tool));
+        state = reduceEditor(state, editorReducers.setActiveTool, tool);
         expect(state.activeTool).toBe(tool);
       }
       for (const kind of SHAPE_KINDS) {
-        state = reducer(state, setShapeKind(kind));
+        state = reduceEditor(state, editorReducers.setShapeKind, kind);
         expect(state.shapeKind).toBe(kind);
       }
     }
-    state = reducer(state, setActiveTool('select'));
+    state = reduceEditor(state, editorReducers.setActiveTool, 'select');
     expect(state.activeTool).toBe('select');
   });
 
@@ -344,9 +319,7 @@ describe('canvas ops store stress', () => {
 
   it('image tool panels open/close for mark and related kinds', () => {
     let state = seed();
-    state = reducer(
-      state,
-      placeMediaAsset({
+    state = reduceEditor(state, editorReducers.placeMediaAsset, {
         kind: 'image',
         src: 'https://cdn.example.com/mark-panel.png',
         x: 10,
@@ -354,25 +327,24 @@ describe('canvas ops store stress', () => {
         width: 200,
         height: 150,
         name: 'panel-img',
-      })
-    );
+      });
     const id = String(state.selectedNodeId);
     expect(id.length).toBeGreaterThan(2);
     for (const kind of ['mark', 'eraser', 'crop', 'expand', 'adjust', 'effects', 'blendMode', 'opacity', 'multiAngle'] as const) {
-      state = reducer(state, openImageToolPanel({ nodeId: id, kind }));
+      state = reduceEditor(state, editorReducers.openImageToolPanel, { nodeId: id, kind });
       expect(state.imageToolPanel?.kind).toBe(kind);
       expect(state.imageToolPanel?.nodeId).toBe(id);
-      state = reducer(state, closeImageToolPanel());
+      state = reduceEditor(state, editorReducers.closeImageToolPanel);
       expect(state.imageToolPanel).toBeFalsy();
     }
   });
 
   it('openImageToolPanel does not exit animation timeline edit mode', () => {
     let state = seed();
-    state = reducer(state, spawnAnimationBoard({ x: 0, y: 0, width: 300, height: 300 }));
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, { x: 0, y: 0, width: 300, height: 300 });
     const frameId = String(state.selectedFrameIds[0] || '');
     expect(frameId.length).toBeGreaterThan(2);
-    state = reducer(state, ensureAnimationFrameMedia({ frameId }));
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId });
     const hostId = Object.keys(state.document!.deltaSetLike || {}).find((id) => {
       const n = state.document!.deltaSetLike?.[id];
       return (
@@ -381,12 +353,10 @@ describe('canvas ops store stress', () => {
       );
     });
     expect(hostId).toBeTruthy();
-    state = reducer(state, openLottieTimelinePanel({ nodeId: String(hostId) }));
+    state = reduceEditor(state, editorReducers.openLottieTimelinePanel, { nodeId: String(hostId) });
     expect(state.lottieTimelinePanel?.nodeId).toBe(hostId);
 
-    state = reducer(
-      state,
-      placeMediaAsset({
+    state = reduceEditor(state, editorReducers.placeMediaAsset, {
         kind: 'image',
         src: 'https://cdn.example.com/in-workbench.png',
         x: 20,
@@ -394,10 +364,9 @@ describe('canvas ops store stress', () => {
         width: 80,
         height: 80,
         name: 'wb-img',
-      })
-    );
+      });
     const imageId = String(state.selectedNodeId);
-    state = reducer(state, openImageToolPanel({ nodeId: imageId, kind: 'crop' }));
+    state = reduceEditor(state, editorReducers.openImageToolPanel, { nodeId: imageId, kind: 'crop' });
     expect(state.imageToolPanel?.kind).toBe('crop');
     expect(state.lottieTimelinePanel?.nodeId).toBe(hostId);
   });

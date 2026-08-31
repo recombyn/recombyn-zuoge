@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useDispatch, useSelector, useStore } from '@/store';
+import { useSelector, useStore } from '@/store';
 import {
   useActiveFrameId,
   useCurrentProjectId,
@@ -740,9 +740,7 @@ function AgentDock({
   projectName,
   onGoHome,
 }: AgentDockProps): ReactNode {
-  const { t, i18n } = useTranslation();
-  const dispatch = useDispatch();
-  const store = useStore<RootState>();
+  const { t, i18n } = useTranslation();  const store = useStore<RootState>();
   const document = useEditorDocumentOnCommit();
   const activeFrameId = useActiveFrameId();
   const { planId } = useWalletSnapshot();
@@ -1245,12 +1243,12 @@ function AgentDock({
     }
     const token = pendingAgentContexts.map((c) => c.key).join('|');
     if (pendingAgentContextsLockRef.current === token) {
-      dispatch(consumePendingAgentContexts());
+      consumePendingAgentContexts();
       return;
     }
     pendingAgentContextsLockRef.current = token;
     const list = pendingAgentContexts.slice();
-    dispatch(consumePendingAgentContexts());
+    consumePendingAgentContexts();
     void (async () => {
       const doc = store.getState().editor?.document;
       const enriched = doc
@@ -1262,7 +1260,7 @@ function AgentDock({
       }
       insertPendingComposerChips(() => inputRef.current, enriched, { focus: 'caret' });
     })();
-  }, [open, pendingAgentContexts, dispatch, store]);
+  }, [open, pendingAgentContexts, store]);
 
   useEffect(() => {
     listRef.current?.scrollToBottom();
@@ -1286,9 +1284,9 @@ function AgentDock({
     }
     abortRef.current?.abort();
     setSending(false);
-    dispatch(setAgentBusy(false));
+    setAgentBusy(false);
     for (const c of contextChips) {
-      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(c.key);
     }
     resetChatSession();
     setInput('');
@@ -1308,7 +1306,7 @@ function AgentDock({
     if (action === 'clear_context') {
       abortRef.current?.abort();
       setSending(false);
-      dispatch(setAgentBusy(false));
+      setAgentBusy(false);
       const chipsToClear = contextChips;
       // Keep the intent-LLM reply that just streamed; drop the rest of the thread.
       window.setTimeout(() => {
@@ -1320,7 +1318,7 @@ function AgentDock({
           return prev;
         });
         for (const c of chipsToClear) {
-          if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+          if (isMarkContextKey(c.key)) syncMarkPinRemoved(c.key);
         }
         resetChatSession();
     setInput('');
@@ -1349,7 +1347,7 @@ function AgentDock({
     if (action === 'stop') {
       abortRef.current?.abort();
       setSending(false);
-      dispatch(setAgentBusy(false));
+      setAgentBusy(false);
     }
   };
 
@@ -1362,7 +1360,7 @@ function AgentDock({
 
   const openSession = (s: ChatSession) => {
     abortRef.current?.abort();
-    dispatch(setAgentBusy(false));
+    setAgentBusy(false);
     setSending(false);
     loadChatSession(s.id);
     setHistoryOpen(false);
@@ -1472,13 +1470,13 @@ function AgentDock({
       }
     }
     for (const c of contextChips) {
-      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(c.key);
     }
     const keys = contextChips.map((c) => c.key);
     if (keys.length) contextDismissedKeyRef.current = keys[keys.length - 1];
     keys.forEach((k) => pinnedContextKeysRef.current.delete(k));
     setContextChips([]);
-    dispatch(setHoveredMarkPin(null));
+    setHoveredMarkPin(null);
   };
 
   const onContextsChange = (next: ComposerContext[]) => {
@@ -1487,7 +1485,7 @@ function AgentDock({
     for (const c of removed) {
       revokeComposerPreviewUrls(c);
       if (isMarkContextKey(c.key)) {
-        syncMarkPinRemoved(dispatch, c.key);
+        syncMarkPinRemoved(c.key);
       } else {
         pinnedContextKeysRef.current.delete(c.key);
         contextDismissedKeyRef.current = c.key;
@@ -1505,7 +1503,7 @@ function AgentDock({
     }
     for (const c of added) {
       if (isMarkContextKey(c.key)) {
-        syncMarkPinRestored(dispatch, { key: c.key, payload: c.payload, document });
+        syncMarkPinRestored({ key: c.key, payload: c.payload, document });
       }
     }
     setContextChips(next);
@@ -1774,15 +1772,15 @@ function AgentDock({
     if (pendingCanvasAttach.target !== 'agent') return;
     const token = `pending:${pendingCanvasAttach.target}:${canvasAttachToken(pendingCanvasAttach.payload)}`;
     if (pendingCanvasAttachLockRef.current === token) {
-      dispatch(consumePendingCanvasAttach());
+      consumePendingCanvasAttach();
       return;
     }
     pendingCanvasAttachLockRef.current = token;
     const payload = pendingCanvasAttach.payload;
-    dispatch(consumePendingCanvasAttach());
+    consumePendingCanvasAttach();
     flyPayloadIntoComposer(payload, composerImagesOnly);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, pendingCanvasAttach, document, dispatch, composerImagesOnly]);
+  }, [open, pendingCanvasAttach, document, composerImagesOnly]);
 
   const selectedModel =
     model === 'auto' ? AUTO_MODEL : models.find((m) => m.id === model);
@@ -1858,7 +1856,7 @@ function AgentDock({
       ? undefined
       : () => {
           if (pickingFromCanvas) {
-            dispatch(clearCanvasAttachPick());
+            clearCanvasAttachPick();
             return;
           }
           // Image chat mode — stills only; video chat mode allows media.
@@ -1890,12 +1888,10 @@ function AgentDock({
             }
             attachSelectionWithFly();
           } else {
-            dispatch(
-              startCanvasAttachPick({
+            startCanvasAttachPick({
                 target: 'agent',
                 accept: imagesOnly ? 'image' : 'media',
-              })
-            );
+              });
           }
         },
     pickingFromCanvas: floating ? false : pickingFromCanvas,
@@ -1928,21 +1924,18 @@ function AgentDock({
       const key = String(node.key || '').toLowerCase();
       if (['text', 'frame', 'artboard', 'group'].includes(key)) return false;
       if (key === 'image') {
-        if (!skipHistory) dispatch(pushEditorHistory());
-        dispatch(
-          patchDocumentNode({
+        if (!skipHistory) pushEditorHistory();
+        patchDocumentNode({
             nodeId: id,
             skipHistory: true,
             patch: { attrs: { src: url } },
-          })
-        );
+          });
         return true;
       }
       const shape = String(node.attrs?.shapeType || key || '').toLowerCase();
       if (['line', 'arrow', 'pen', 'pencil'].includes(shape)) return false;
-      if (!skipHistory) dispatch(pushEditorHistory());
-      dispatch(
-        patchDocumentNode({
+      if (!skipHistory) pushEditorHistory();
+      patchDocumentNode({
           nodeId: id,
           skipHistory: true,
           patch: {
@@ -1954,11 +1947,10 @@ function AgentDock({
               'fill-image-fit': 'fill',
             },
           },
-        })
-      );
+        });
       return true;
     },
-    [dispatch, store]
+    [store]
   );
 
   const stopGeneration = () => {
@@ -1975,7 +1967,7 @@ function AgentDock({
       pauseLiveDesignRun();
     }
     abortRef.current?.abort();
-    dispatch(setAgentBusy(false));
+    setAgentBusy(false);
     setSending(false);
     setMessages((prev) =>
       prev.map((m) => {
@@ -2018,7 +2010,7 @@ function AgentDock({
     pauseRequestedRef.current = false;
     liveDesignTaskRef.current = taskId;
     setSending(true);
-    dispatch(setAgentBusy(true));
+    setAgentBusy(true);
     setMessages((prev) =>
       prev.map((m) =>
         m.id === target.id
@@ -2074,7 +2066,6 @@ function AgentDock({
         projectId: chatScopeId || '__none__',
         locale: i18n.language || 'zh-CN',
         designIntensity,
-        dispatch,
         getDocument: () => store.getState().editor.document,
         signal: ac.signal,
         onEvent: (ev) => {
@@ -2084,7 +2075,7 @@ function AgentDock({
         },
       });
     } finally {
-      dispatch(setAgentBusy(false));
+      setAgentBusy(false);
       setSending(false);
       if (ac.signal.aborted && pauseRequestedRef.current) {
         /* stopGeneration already patched the message */
@@ -2164,7 +2155,7 @@ function AgentDock({
     if (sending) {
       abortRef.current?.abort();
       setSending(false);
-      dispatch(setAgentBusy(false));
+      setAgentBusy(false);
     }
 
     // Typed confirm/revise/dismiss: attach proposal ids; intent LLM judges.
@@ -2243,7 +2234,7 @@ function AgentDock({
     setEditingUserId(null);
     setEditDraft('');
     setPendingReview(null);
-    dispatch(setHoveredMarkPin(null));
+    setHoveredMarkPin(null);
     const docForSend = store.getState().editor?.document;
     const chipsForSend = await enrichChipsForAgentVision(docForSend, contextChips);
     const {
@@ -2298,7 +2289,7 @@ function AgentDock({
         ? String(videoGenAspectRatio).trim() || undefined
         : undefined;
     for (const c of contextChips) {
-      syncMarkPinRemoved(dispatch, c.key);
+      syncMarkPinRemoved(c.key);
     }
     clearContextChips();
     setSending(true);
@@ -2357,7 +2348,7 @@ function AgentDock({
 
     // Video model — gallery in chat; takes precedence over image gen.
     if (runVideoGen) {
-      dispatch(setAgentBusy(true));
+      setAgentBusy(true);
       const aspect = videoGenAspect;
       const resolution = videoResolution;
       const duration = videoGenDuration;
@@ -2431,7 +2422,7 @@ function AgentDock({
             })
         );
       } finally {
-        dispatch(setAgentBusy(false));
+        setAgentBusy(false);
         setSending(false);
         refreshWalletAfterSpend();
       }
@@ -2439,7 +2430,7 @@ function AgentDock({
     }
 
     if (runAudioGen) {
-      dispatch(setAgentBusy(true));
+      setAgentBusy(true);
       const audioModel =
         audioGenModels.find((m) => m.id === model)?.id ||
         nextAudioModelId(audioGenModels, model) ||
@@ -2492,7 +2483,7 @@ function AgentDock({
             })
         );
       } finally {
-        dispatch(setAgentBusy(false));
+        setAgentBusy(false);
         setSending(false);
         refreshWalletAfterSpend();
       }
@@ -2500,7 +2491,7 @@ function AgentDock({
     }
 
     if (runLottieGen) {
-      dispatch(setAgentBusy(true));
+      setAgentBusy(true);
       const aspect = lottieGenAspect;
       const lottieModel =
         lottieChatModels.find((m) => m.id === model)?.id ||
@@ -2549,16 +2540,14 @@ function AgentDock({
           return;
         }
         // Animation track: land on — ——(also keep chat card for preview/drag).
-        dispatch(
-          placeMediaAsset({
+        placeMediaAsset({
             kind: 'lottie',
             animationData,
             width: res.w ?? width,
             height: res.h ?? height,
             name: text.slice(0, 48) || '动画',
             prompt: text,
-          })
-        );
+          });
         patchAssistant(
           (m) => m.id === assistantId,
           (m) =>
@@ -2589,7 +2578,7 @@ function AgentDock({
             })
         );
       } finally {
-        dispatch(setAgentBusy(false));
+        setAgentBusy(false);
         setSending(false);
         refreshWalletAfterSpend();
       }
@@ -2603,7 +2592,7 @@ function AgentDock({
         hasApplyOps: Boolean(options.applyOps?.length),
       })
     ) {
-      dispatch(setAgentBusy(true));
+      setAgentBusy(true);
       const count = imageGenCount;
       const fillTargets = imageFillTargets;
       const aspect = imageGenAspect;
@@ -2648,7 +2637,7 @@ function AgentDock({
           case 'success': {
             let filled = 0;
             if (fillTargets.length) {
-              dispatch(pushEditorHistory());
+              pushEditorHistory();
               const n = Math.min(fillTargets.length, urls.length);
               for (let i = 0; i < n; i += 1) {
                 if (fillNodeWithImage(fillTargets[i], urls[i], true)) filled += 1;
@@ -2743,7 +2732,7 @@ function AgentDock({
             })
         );
       } finally {
-        dispatch(setAgentBusy(false));
+        setAgentBusy(false);
         setSending(false);
         refreshWalletAfterSpend();
       }
@@ -2784,7 +2773,7 @@ function AgentDock({
       checkpointsRef.current.set(userMsg.id, cloneDocument(docNow) ?? docNow);
     }
 
-    dispatch(setAgentBusy(true));
+    setAgentBusy(true);
     const memoryMedium = buildTaskStateFromDocument({
       doc: docNow,
       sessionId,
@@ -2885,9 +2874,7 @@ function AgentDock({
           setPendingLongSuggestions((prev) =>
             mergeLongSuggestions(prev, patch.long_suggestions)
           );
-        },
-        dispatch,
-        getDocument: () => store.getState().editor.document,
+        }, getDocument: () => store.getState().editor.document,
         targetFrameId,
         // Explicit @ frame / @ node?frame only — not last-agent inference.
         pinnedFrameId: chipFrameId || null,
@@ -2899,7 +2886,7 @@ function AgentDock({
         },
       });
     } finally {
-      dispatch(setAgentBusy(false));
+      setAgentBusy(false);
       if (designMutable.canvasMutated && checkpointsRef.current.has(userMsg.id)) {
         setMessages((prev) =>
           prev.map((m) => (m.id === userMsg.id ? { ...m, canRestore: true } : m))
@@ -3029,7 +3016,7 @@ function AgentDock({
       setContextChips(rebuilt);
       for (const c of rebuilt) {
         if (isMarkContextKey(c.key)) {
-          syncMarkPinRestored(dispatch, { key: c.key, payload: c.payload, document });
+          syncMarkPinRestored({ key: c.key, payload: c.payload, document });
         }
       }
       // Keep U+FFFC slots so the edit composer matches bubble chip order
@@ -3084,7 +3071,7 @@ function AgentDock({
       message.warning(t('agent.checkpointInvalid'));
       return;
     }
-    dispatch(setDocument(cloneDocument(snap) ?? snap));
+    setDocument(cloneDocument(snap) ?? snap);
     checkpointsRef.current.delete(userMessageId);
     setMessages((prev) =>
       prev.map((m) => (m.id === userMessageId ? { ...m, canRestore: false } : m))
@@ -3115,7 +3102,7 @@ function AgentDock({
 
   const handleHeaderClose = () => {
     abortRef.current?.abort();
-    dispatch(setAgentBusy(false));
+    setAgentBusy(false);
     setSending(false);
     closePopovers();
     setHistoryOpen(false);

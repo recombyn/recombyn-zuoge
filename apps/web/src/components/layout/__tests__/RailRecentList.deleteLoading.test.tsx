@@ -100,22 +100,21 @@ vi.mock('@/components/base', async () => {
   };
 });
 
-const dispatch = vi.fn();
-vi.mock('react-redux', () => ({
-  useDispatch: () => dispatch,
+const deleteTemplate = vi.fn();
+vi.mock('@/store', () => ({
   useSelector: (fn: (s: unknown) => unknown) =>
     fn({ editor: { currentId: null } }),
 }));
 
 vi.mock('@/store/modules/editor', () => ({
-  deleteTemplate: (id: string) => ({ type: 'templates/delete', payload: id }),
+  deleteTemplate: (...args: unknown[]) => deleteTemplate(...args),
   renameTemplateById: vi.fn(),
 }));
 
 describe('RailRecentList delete confirm loading', () => {
   beforeEach(() => {
     removeProjectFromCloud.mockReset();
-    dispatch.mockReset();
+    deleteTemplate.mockReset();
   });
 
   it('shows a spinner on Delete while cloud delete is pending', async () => {

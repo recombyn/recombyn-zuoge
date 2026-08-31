@@ -4,7 +4,9 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  * Mirrors Image/Video/Audio/Lottie generator + placeMediaAsset → QuickEdit read path.
  */
 import { describe, expect, it } from 'vitest';
-import reducer, {
+import {
+  editorReducers,
+  reduceEditor,
   createTemplate,
   finishAudioGenerator,
   finishImageGenerator,
@@ -43,16 +45,13 @@ function readQuickEditEcho(state: { document: SceneDocument }, nodeId: string): 
 }
 
 function seedEditor() {
-  let state = reducer(undefined, { type: '@@INIT' } as any);
-  state = reducer(
-    state,
-    createTemplate({
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, {
       name: 'quick-edit-echo-stress',
       document: createEmptyDocument({ emptyWorld: true }),
       emptyWorld: true,
       source: 'scratch',
-    })
-  );
+    });
   return state;
 }
 
@@ -63,9 +62,7 @@ function patchGeneratorWithPromptAndAttachment(
   prompt: string,
   attachmentUrl: string
 ) {
-  return reducer(
-    state,
-    patchDocumentNode({
+  return reduceEditor(state, editorReducers.patchDocumentNode, {
       nodeId,
       skipHistory: true,
       patch: {
@@ -77,8 +74,7 @@ function patchGeneratorWithPromptAndAttachment(
           genAttachmentSrc: attachmentUrl,
         },
       },
-    })
-  );
+    });
 }
 
 describe('quick-edit genPrompt echo stress (e2e store path)', () => {
@@ -91,7 +87,7 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
       const attach = `https://cdn.example.com/ref-${i}.png`;
       const src = `https://cdn.example.com/gen-${i}.png`;
 
-      state = reducer(state, spawnImageGenerator({ x: i * 10, y: i * 8 }));
+      state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: i * 10, y: i * 8 });
       const nodeId = String(state.selectedNodeId || '');
       expect(nodeId).toBeTruthy();
 
@@ -99,16 +95,13 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
       expect(readQuickEditEcho(state, nodeId)).toBe(prompt);
       expect(String(state.document.deltaSetLike[nodeId].attrs.genAttachmentSrc)).toBe(attach);
 
-      state = reducer(
-        state,
-        finishImageGenerator({
+      state = reduceEditor(state, editorReducers.finishImageGenerator, {
           nodeId,
           src,
           name: 'Image',
           variants: [src],
           genPrompt: prompt,
-        })
-      );
+        });
 
       const echo = readQuickEditEcho(state, nodeId);
       expect(echo).toBe(prompt);
@@ -118,14 +111,11 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
 
       // Quick-edit regenerate updates genPrompt again (second pass).
       const edited = `${prompt} · 再改一版`;
-      state = reducer(
-        state,
-        finishImageProcess({
+      state = reduceEditor(state, editorReducers.finishImageProcess, {
           nodeId,
           src: `https://cdn.example.com/qe-${i}.png`,
           attrs: { genPrompt: edited },
-        })
-      );
+        });
       expect(readQuickEditEcho(state, nodeId)).toBe(edited);
     }
 
@@ -139,17 +129,14 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
     {
       const prompt = '夜景公路延时 · 参考附件帧';
       const attach = 'https://cdn.example.com/frame.jpg';
-      state = reducer(state, spawnVideoGenerator({ x: 0, y: 0 }));
+      state = reduceEditor(state, editorReducers.spawnVideoGenerator, { x: 0, y: 0 });
       const nodeId = String(state.selectedNodeId);
       state = patchGeneratorWithPromptAndAttachment(state, nodeId, prompt, attach);
-      state = reducer(
-        state,
-        finishVideoGenerator({
+      state = reduceEditor(state, editorReducers.finishVideoGenerator, {
           nodeId,
           src: 'https://cdn.example.com/out.mp4',
           genPrompt: prompt,
-        })
-      );
+        });
       expect(readQuickEditEcho(state, nodeId)).toBe(prompt);
     }
 
@@ -157,18 +144,15 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
     {
       const prompt = '女声旁白：欢迎来到九十年代';
       const attach = 'https://cdn.example.com/voice-ref.mp3';
-      state = reducer(state, spawnAudioGenerator({ x: 40, y: 40 }));
+      state = reduceEditor(state, editorReducers.spawnAudioGenerator, { x: 40, y: 40 });
       const nodeId = String(state.selectedNodeId);
       state = patchGeneratorWithPromptAndAttachment(state, nodeId, prompt, attach);
-      state = reducer(
-        state,
-        finishAudioGenerator({
+      state = reduceEditor(state, editorReducers.finishAudioGenerator, {
           nodeId,
           src: 'https://cdn.example.com/tts.mp3',
           genPrompt: prompt,
           uploadKey: 'uploads/tts.mp3',
-        })
-      );
+        });
       expect(readQuickEditEcho(state, nodeId)).toBe(prompt);
     }
 
@@ -176,17 +160,14 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
     {
       const prompt = '加载中旋转圆环';
       const attach = 'https://cdn.example.com/style-ref.png';
-      state = reducer(state, spawnLottieGeneratorPlate({ x: 80, y: 80 }));
+      state = reduceEditor(state, editorReducers.spawnLottieGeneratorPlate, { x: 80, y: 80 });
       const nodeId = String(state.selectedNodeId);
       state = patchGeneratorWithPromptAndAttachment(state, nodeId, prompt, attach);
-      state = reducer(
-        state,
-        finishLottieGenerator({
+      state = reduceEditor(state, editorReducers.finishLottieGenerator, {
           nodeId,
           animationData: SAMPLE_LOTTIE,
           genPrompt: prompt,
-        })
-      );
+        });
       const frameId = String(state.selectedFrameIds?.[0] || '');
       const host = Object.values(state.document!.deltaSetLike || {}).find(
         (n) => n?.attrs?.animationFrameHost && String(n?.attrs?.frameId) === frameId
@@ -219,9 +200,7 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
     for (let round = 0; round < 20; round++) {
       for (const c of cases) {
         const prompt = `${c.prompt} · r${round}`;
-        state = reducer(
-          state,
-          placeMediaAsset({
+        state = reduceEditor(state, editorReducers.placeMediaAsset, {
             kind: c.kind,
             src: c.src,
             prompt,
@@ -231,8 +210,7 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
             width: 200,
             height: 160,
             name: prompt.slice(0, 40),
-          })
-        );
+          });
         const nodeId = String(state.selectedNodeId);
         expect(readQuickEditEcho(state, nodeId)).toBe(prompt);
       }
@@ -251,31 +229,25 @@ describe('quick-edit genPrompt echo stress (e2e store path)', () => {
       const attach = `data:image/png;base64,AAA${i}`;
 
       if (i % 2 === 0) {
-        state = reducer(state, spawnImageGenerator({ x: i, y: i }));
+        state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: i, y: i });
         const nodeId = String(state.selectedNodeId);
         state = patchGeneratorWithPromptAndAttachment(state, nodeId, prompt, attach);
-        state = reducer(
-          state,
-          finishImageGenerator({
+        state = reduceEditor(state, editorReducers.finishImageGenerator, {
             nodeId,
             src: `https://cdn.example.com/s${i}.png`,
             genPrompt: prompt,
-          })
-        );
+          });
         expect(readQuickEditEcho(state, nodeId)).toBe(prompt);
         seen.push(nodeId);
       } else {
-        state = reducer(
-          state,
-          placeMediaAsset({
+        state = reduceEditor(state, editorReducers.placeMediaAsset, {
             kind: 'image',
             src: `https://cdn.example.com/p${i}.png`,
             prompt,
             uploadKey: `uk-${i}`,
             x: i,
             y: i,
-          })
-        );
+          });
         const nodeId = String(state.selectedNodeId);
         expect(readQuickEditEcho(state, nodeId)).toBe(prompt);
         seen.push(nodeId);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { loginGoogle } from '@/service/auth';
@@ -16,9 +16,7 @@ import {
  * Exchanges ?code= for a session, then navigates into the app.
  */
 function GoogleOAuthCallbackPage() {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const { t } = useTranslation();  const navigate = useNavigate();
   const [params] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
@@ -47,8 +45,7 @@ function GoogleOAuthCallbackPage() {
           code,
           redirectUri: getGoogleRedirectUri(),
         });
-        dispatch(
-          setSession({
+        setSession({
             user: {
               email: res.user.email,
               name: res.user.name,
@@ -57,15 +54,14 @@ function GoogleOAuthCallbackPage() {
               id: res.user.id,
             },
             token: res.token,
-          })
-        );
+          });
         navigate(saved.returnTo || '/home', { replace: true });
       } catch (e: unknown) {
         setError(getHttpErrorMessage(e, 'Google login failed'));
       }
     }
     completeGoogleLogin();
-  }, [dispatch, navigate, params, t]);
+  }, [navigate, params, t]);
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 bg-[var(--surface)] px-4 text-center">

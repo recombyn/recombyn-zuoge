@@ -3,7 +3,7 @@
  * Dock UI only seeks/toggles; this advances `lottiePlayheadSec` while playing.
  */
 import { memo, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { getLottieHost } from '@/components/editor/nodes/AnimationNode/AnimationNodeOverlay';
@@ -26,9 +26,7 @@ function AnimationPlayheadTransport({
   document,
 }: {
   document: any;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const playhead = useAnimationPlayheadSec();
+}): ReactNode {  const playhead = useAnimationPlayheadSec();
   const playing = useAnimationPlaying();
   const timelineOpen = useSelector((s: any) => Boolean(s.editor.lottieTimelinePanel?.nodeId));
   const hostNodeId = useSelector((s: any) => resolveLottiePlayheadHostId(s.editor));
@@ -122,29 +120,27 @@ function AnimationPlayheadTransport({
           t = workInSec;
           host?.playFrom(t);
           playheadRef.current = t;
-          dispatch(setLottiePlayhead(snapSecToFrame(t, fps, duration)));
+          setLottiePlayhead(snapSecToFrame(t, fps, duration));
           raf = requestAnimationFrame(tick);
           return;
         }
         playheadRef.current = workOutSec;
-        dispatch(setLottiePlayhead(workOutSec));
+        setLottiePlayhead(workOutSec);
         host?.seek(workOutSec);
         host?.pause();
-        dispatch(setLottiePlaying({ playing: false, hostNodeId }));
+        setLottiePlaying({ playing: false, hostNodeId });
         return;
       }
 
       playheadRef.current = t;
-      dispatch(
-        setLottiePlayhead(
+      setLottiePlayhead(
           snapSecToFrame(Math.max(workInSec, Math.min(duration, t)), fps, duration)
-        )
-      );
+        );
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, active, hostNodeId, bounds, dispatch]);
+  }, [playing, active, hostNodeId, bounds]);
 
   return null;
 }

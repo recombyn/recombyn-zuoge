@@ -6,7 +6,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * Freehand `path` has no AABB R-dots (radius baked into d).
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
@@ -155,20 +155,18 @@ function uniformRadii(r: number): CornerRadii {
 }
 
 function commitUniformRadius(opts: {
-  dispatch: (a: unknown) => void;
   nodeId: string;
   node: SceneNodeInput;
   radius: number;
   skipHistory?: boolean;
 }) {
-  const { dispatch, nodeId, node, skipHistory } = opts;
+  const { nodeId, node, skipHistory } = opts;
   const w = Math.max(1, Number(node.width) || 1);
   const h = Math.max(1, Number(node.height) || 1);
   const clamped = clampCornerRadii(uniformRadii(opts.radius), w, h);
   const count = Math.max(1, cornerVertexCount(node));
   const vertices = Array.from({ length: count }, () => Math.round(clamped.tl));
-  dispatch(
-    patchDocumentNode({
+  patchDocumentNode({
       nodeId,
       skipHistory: Boolean(skipHistory),
       patch: {
@@ -183,25 +181,21 @@ function commitUniformRadius(opts: {
           cornerRadius: Math.round(clamped.tl),
         },
       },
-    })
-  );
+    });
 }
 
 function commitSides(opts: {
-  dispatch: (a: unknown) => void;
   nodeId: string;
   sides: number;
   skipHistory?: boolean;
 }) {
-  opts.dispatch(
-    patchDocumentNode({
+  patchDocumentNode({
       nodeId: opts.nodeId,
       skipHistory: Boolean(opts.skipHistory),
       patch: {
         attrs: { sides: clampShapeSides(opts.sides, DEFAULT_SHAPE_SIDES) },
       },
-    })
-  );
+    });
 }
 
 type DragState =
@@ -238,9 +232,7 @@ function PolygonShapeHandlesOverlay({
   stageEl: HTMLElement | null;
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+  const { t } = useTranslation();  const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const k = 1 / z;
 
@@ -375,14 +367,14 @@ function PolygonShapeHandlesOverlay({
       if (d.mode === 'sides') {
         const delta = Math.round((d.startY - e.clientY) / SIDES_DRAG_STEP_PX);
         const next = clampShapeSides(d.startSides + delta, d.startSides);
-        commitSides({ dispatch, nodeId, sides: next });
+        commitSides({ nodeId, sides: next });
         return;
       }
 
       const sc = toScene(e.clientX, e.clientY);
       const local = scenePointToLocal(sc.x, sc.y, box, angle);
       const rounded = Math.round(radiusAlongSite(d.site, local));
-      commitUniformRadius({ dispatch, nodeId, node, radius: rounded });
+      commitUniformRadius({ nodeId, node, radius: rounded });
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -407,9 +399,7 @@ function PolygonShapeHandlesOverlay({
       setLiveCornerRadiusPreview(null);
     };
   }, [
-    interactive,
-    dispatch,
-    nodeId,
+    interactive, nodeId,
     node,
     box,
     angle,

@@ -13,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
 import {
   RcbOverlayPortal,
@@ -127,9 +127,7 @@ function AnimationPrecompEditOverlay({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+}): ReactNode {  const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
   const toScene = useRcbScreenToScene();
   const edit = useSelector(
@@ -165,27 +163,23 @@ function AnimationPrecompEditOverlay({
   const commitHostJson = useCallback(
     (json: string | null) => {
       if (!json || !hostNodeId) return;
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: hostNodeId,
           patch: { attrs: { animationData: json } },
-        })
-      );
+        });
       const lotId = linkedLotNodeIdFromAsset(assetId);
       if (lotId && document.deltaSetLike?.[lotId]) {
         const childJson = extractPrecompAssetJson(json, assetId);
         if (childJson) {
-          dispatch(
-            patchDocumentNode({
+          patchDocumentNode({
               nodeId: lotId,
               patch: { attrs: { animationData: childJson } },
-            })
-          );
+            });
         }
       }
       setDraft(null);
     },
-    [assetId, dispatch, document.deltaSetLike, hostNodeId]
+    [assetId, document.deltaSetLike, hostNodeId]
   );
 
   const onPointerMove = useCallback(
@@ -351,7 +345,7 @@ function AnimationPrecompEditOverlay({
         onPointerDown={(e) => {
           // Click empty board — clear selection.
           if (e.target === e.currentTarget) {
-            dispatch(setLottiePrecompSelectedLayer(null));
+            setLottiePrecompSelectedLayer(null);
           }
         }}
       >
@@ -403,7 +397,7 @@ function AnimationPrecompEditOverlay({
                 cursor: 'move',
               }}
               onPointerDown={(e) => {
-                dispatch(setLottiePrecompSelectedLayer(layer.ind));
+                setLottiePrecompSelectedLayer(layer.ind);
                 const scene = toScene(e.clientX, e.clientY);
                 const local = scenePointToPrecompLocal(
                   scene.x,

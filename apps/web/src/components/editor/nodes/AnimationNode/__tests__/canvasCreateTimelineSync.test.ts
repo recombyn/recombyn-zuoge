@@ -3,7 +3,9 @@
  * via setDocumentFromCanvas (shape create path does not use patchDocumentNode).
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import reducer, {
+import {
+  editorReducers,
+  reduceEditor,
   createTemplate,
   ensureAnimationFrameMedia,
   openLottieTimelinePanel,
@@ -27,16 +29,13 @@ afterEach(() => {
 });
 
 function seed() {
-  let state = reducer(undefined, { type: '@@INIT' } as any);
-  state = reducer(
-    state,
-    createTemplate({
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, {
       name: 'canvas-create-timeline',
       document: createEmptyDocument({ emptyWorld: true }),
       emptyWorld: true,
       source: 'scratch',
-    })
-  );
+    });
   return state;
 }
 
@@ -47,15 +46,15 @@ function flushEnsureMicrotask(): Promise<void> {
 describe('canvas create → animation timeline layers', () => {
   it('setDocumentFromCanvas while timeline focused queues ensure and bakes the shape', async () => {
     let state = seed();
-    state = reducer(state, spawnAnimationBoard({ x: 0, y: 0, width: 400, height: 400 }));
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, { x: 0, y: 0, width: 400, height: 400 });
     const frameId = String(state.selectedFrameIds[0] || '');
     expect(frameId).toBeTruthy();
 
-    state = reducer(state, ensureAnimationFrameMedia({ frameId, skipHistory: true }));
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId, skipHistory: true });
     const hostId = findFrameAnimationMediaId(state.document, frameId);
     expect(hostId).toBeTruthy();
 
-    state = reducer(state, openLottieTimelinePanel({ nodeId: hostId! }));
+    state = reduceEditor(state, editorReducers.openLottieTimelinePanel, { nodeId: hostId! });
     expect(getAnimationWorkbenchTimelineFocus()).toBe(frameId);
 
     const before = parseLottieAnimationData(
@@ -86,14 +85,14 @@ describe('canvas create → animation timeline layers', () => {
       name: 'new-on-workbench',
     };
     const nextDoc = addNodeToDocument(state.document!, id, node);
-    state = reducer(state, setDocumentFromCanvas(nextDoc));
+    state = reduceEditor(state, editorReducers.setDocumentFromCanvas, nextDoc);
 
     await flushEnsureMicrotask();
     window.removeEventListener(RCB_ENSURE_ANIMATION_FRAME, onEnsure);
     expect(queued).toContain(frameId);
 
     // Same as AnimationFrameWorkbenchHost listener.
-    state = reducer(state, ensureAnimationFrameMedia({ frameId, skipHistory: true }));
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId, skipHistory: true });
 
     const after = parseLottieAnimationData(
       state.document!.deltaSetLike![hostId!].attrs?.animationData

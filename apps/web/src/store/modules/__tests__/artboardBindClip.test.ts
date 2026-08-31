@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import reducer, {
+import {
+  editorReducers,
+  reduceEditor,
   addArtboardFrame,
   createTemplate,
 } from '@/store/modules/editor';
@@ -20,21 +22,15 @@ describe('addArtboardFrame bind+clip', () => {
     });
     doc = addNodeToDocument(doc, id, node);
 
-    let state = reducer(undefined, { type: '@@INIT' } as any);
-    state = reducer(
-      state,
-      createTemplate({
+    let state = reduceEditor(undefined, () => {});
+    state = reduceEditor(state, editorReducers.createTemplate, {
         name: 'frame-bind-clip',
         document: doc,
         emptyWorld: true,
         source: 'scratch',
-      })
-    );
+      });
 
-    state = reducer(
-      state,
-      addArtboardFrame({ x: 20, y: 20, width: 120, height: 120 })
-    );
+    state = reduceEditor(state, editorReducers.addArtboardFrame, { x: 20, y: 20, width: 120, height: 120 });
 
     const frameId = state.selectedFrameIds[0];
     expect(frameId).toBeTruthy();

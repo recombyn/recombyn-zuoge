@@ -6,16 +6,13 @@ export async function startEraserFromMask(opts: {
   eraseMask: string;
   sourceId: string;
   label: string;
-  dispatch: DispatchFn;
   onSpawned?: () => void;
 }): Promise<void> {
-  opts.dispatch(
-    startImageProcess({
+  startImageProcess({
       sourceId: opts.sourceId,
       kind: 'eraser',
       label: opts.label,
       meta: { eraseMask: opts.eraseMask },
-    })
-  );
+    });
   opts.onSpawned?.();
 }

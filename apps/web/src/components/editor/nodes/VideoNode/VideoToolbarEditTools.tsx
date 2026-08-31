@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
@@ -255,9 +255,7 @@ async function captureExtractDataUrl(opts: {
 }
 
 function ExtractFrameMenu({ nodeId }: { nodeId: string }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -290,8 +288,7 @@ function ExtractFrameMenu({ nodeId }: { nodeId: string }) {
         const x = Math.round((Number(node.x) || 0) + width + SIBLING_GAP);
         const y = Math.round(Number(node.y) || 0);
 
-        dispatch(
-          startImageUploadPlaceholder({
+        startImageUploadPlaceholder({
             src: dataUrl,
             width,
             height,
@@ -299,14 +296,12 @@ function ExtractFrameMenu({ nodeId }: { nodeId: string }) {
             y,
             name: t('editor.videoToolbar.extractFrameName'),
             label: t('editor.uploading'),
-          })
-        );
+          });
 
         const spawnedId = String(
           (store.getState() as any).editor?.pendingImageProcessId || ''
         );
         await uploadCanvasPlaceholderSrc({
-          dispatch,
           nodeId: spawnedId,
           src: dataUrl,
           filename: 'video-frame.jpg',
@@ -315,13 +310,13 @@ function ExtractFrameMenu({ nodeId }: { nodeId: string }) {
         if (isUploadAbortError(err)) return;
         console.warn('[video] extract frame failed', err);
         message.error(t('editor.videoToolbar.extractFrameFail'));
-        dispatch(failImageProcess({}));
+        failImageProcess({});
       } finally {
         busyRef.current = false;
         setBusy(false);
       }
     },
-    [dispatch, document, node, nodeId, poster, src, t, trimStart, uploadKey]
+    [document, node, nodeId, poster, src, t, trimStart, uploadKey]
   );
 
   const items: MenuItemType[] = useMemo(

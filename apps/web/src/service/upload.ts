@@ -18,15 +18,14 @@ export async function uploadUserFile(
     onProgress?: (pct: number) => void;
     onJobCreated?: (jobId: string) => void;
     jobId?: string;
-    dispatch?: (action: unknown) => unknown;
     nodeId?: string;
   }
 ): Promise<UploadedFileItem> {
   const nodeId = String(opts?.nodeId || '').trim();
   const onJobCreated =
     opts?.onJobCreated ??
-    (opts?.dispatch && nodeId
-      ? (jobId: string) => dispatchUploadJobCreated(opts.dispatch!, nodeId, jobId)
+    (nodeId
+      ? (jobId: string) => dispatchUploadJobCreated(nodeId, jobId)
       : undefined);
 
   return uploadFileViaJob(file, {

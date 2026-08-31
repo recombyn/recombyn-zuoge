@@ -5,7 +5,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * via WorldSvgFrame (ADR 0027 — no host viewBox mirror).
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
@@ -347,7 +347,6 @@ function resolvePathVertexRadii(
 }
 
 function patchNodeCornerRadii(opts: {
-  dispatch: (a: unknown) => void;
   nodeId: string;
   node: SceneNodeInput;
   radii: CornerRadii;
@@ -356,7 +355,7 @@ function patchNodeCornerRadii(opts: {
   vertices?: number[];
   skipHistory?: boolean;
 }) {
-  const { dispatch, nodeId, node, radii, linked, skipHistory } = opts;
+  const { nodeId, node, radii, linked, skipHistory } = opts;
   const clamped = clampCornerRadii(radii, Number(node.width) || 1, Number(node.height) || 1);
   const count = cornerVertexCount(node);
   let vertices: number[];
@@ -376,8 +375,7 @@ function patchNodeCornerRadii(opts: {
       count
     );
   }
-  dispatch(
-    patchDocumentNode({
+  patchDocumentNode({
       nodeId,
       skipHistory: Boolean(skipHistory),
       patch: {
@@ -398,8 +396,7 @@ function patchNodeCornerRadii(opts: {
           ),
         },
       },
-    })
-  );
+    });
 }
 
 type RadiusHandleDrag =
@@ -471,9 +468,7 @@ function CornerRadiusHandlesOverlay({
   /** False while moving/resizing so dots follow chrome without stealing pointers. */
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+  const { t } = useTranslation();  const camera = useRcbCamera();
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
@@ -604,7 +599,6 @@ function CornerRadiusHandlesOverlay({
         return;
       }
       patchNodeCornerRadii({
-        dispatch,
         nodeId,
         node,
         radii: uniformCornerRadii(next[0] ?? 0),
@@ -633,7 +627,6 @@ function CornerRadiusHandlesOverlay({
         return;
       }
       patchNodeCornerRadii({
-        dispatch,
         nodeId,
         node,
         radii: next,

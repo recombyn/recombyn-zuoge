@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useActiveFrameId, useSelectedFrameIds } from '@/store/editorSelectors';
 import {
   addNodeToDocument,
@@ -267,9 +267,7 @@ function SvgCanvas({
   embedded = false,
   stageEl = null,
   viewRect = null,
-}: SvgCanvasProps) {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}: SvgCanvasProps) {  const { t } = useTranslation();
   const camera = useRcbCamera();
   const viewportEl = useRcbViewportEl();
   useSyncExternalStore(subscribeCollabView, getCollabViewEpoch, getCollabViewEpoch);
@@ -589,7 +587,6 @@ function SvgCanvas({
         getBoard: () => boardRefHolder.current.current,
         getZoom: () => cameraZoomRef.current,
         isReadOnly: () => readOnlyRef.current,
-        dispatch,
         spatial: spatialRuntimeRef.current,
         setEditingTextId,
         measureViewport: () =>
@@ -612,7 +609,7 @@ function SvgCanvas({
           setVideoLiveGeomRef.current(null);
         },
       }),
-    [dispatch, clearFrameGeometryPreview]
+    [clearFrameGeometryPreview]
   );
   resetFrameMoveOwnersRef.current = session.resetFrameMoveOwners;
   const {
@@ -695,11 +692,11 @@ function SvgCanvas({
       } else {
         // Pending attach keeps the node composer open via the payload — do not
         // steal selection onto the host plate (that feels like exiting pick).
-        dispatch(setPendingCanvasAttach({ target: pickTarget, payload }));
+        setPendingCanvasAttach({ target: pickTarget, payload });
       }
-      dispatch(clearCanvasAttachPick());
+      clearCanvasAttachPick();
     },
-    [dispatch]
+    []
   );
 
   const emitAddToChat = useCallback((payload: string | string[]) => {
@@ -723,7 +720,7 @@ function SvgCanvas({
   // Plus / not-allowed cursor while picking for Chat.
   useEffect(() => {
     if (!canvasAttachPick || !stageEl) {
-      dispatch(setCanvasAttachPickBlocked(false));
+      setCanvasAttachPickBlocked(false);
       return undefined;
     }
     const onMove = (e: PointerEvent) => {
@@ -733,7 +730,7 @@ function SvgCanvas({
         clientY: e.clientY,
       });
       if (!id) {
-        dispatch(setCanvasAttachPickBlocked(false));
+        setCanvasAttachPickBlocked(false);
         return;
       }
       const doc = documentRef.current;
@@ -743,37 +740,37 @@ function SvgCanvas({
         seed,
         attachPickFilterOpts(canvasAttachPickRef.current)
       );
-      dispatch(setCanvasAttachPickBlocked(seed.length > 0 && attachable.length === 0));
+      setCanvasAttachPickBlocked(seed.length > 0 && attachable.length === 0);
     };
     stageEl.addEventListener('pointermove', onMove);
     return () => {
       stageEl.removeEventListener('pointermove', onMove);
-      dispatch(setCanvasAttachPickBlocked(false));
+      setCanvasAttachPickBlocked(false);
     };
-  }, [canvasAttachPick, stageEl, dispatch, camera]);
+  }, [canvasAttachPick, stageEl, camera]);
 
   const onSelectFrame = useCallback(
     (frameId: string | null, opts?: { chrome?: 'soft' | 'full' }) => {
       const pick = canvasAttachPickRef.current;
       if (pick?.target) {
         if (!frameId) {
-          dispatch(clearCanvasAttachPick());
+          clearCanvasAttachPick();
           return;
         }
         completeCanvasAttachPick(pick.target, `frame:${frameId}`);
         return;
       }
       if (!frameId) {
-        dispatch(setActiveFrameId(null));
+        setActiveFrameId(null);
         return;
       }
       const chrome = opts?.chrome === 'soft' ? 'soft' : 'full';
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setSelectedNodeId(null));
-      dispatch(setActiveFrameId(frameId));
-      dispatch(setFrameChromeMode(chrome));
+      setSelectedNodeIds([]);
+      setSelectedNodeId(null);
+      setActiveFrameId(frameId);
+      setFrameChromeMode(chrome);
     },
-    [dispatch, completeCanvasAttachPick]
+    [ completeCanvasAttachPick]
   );
 
   const onSelectFrames = useCallback(
@@ -782,20 +779,20 @@ function SvgCanvas({
       const ids = Array.isArray(frameIds) ? frameIds.filter(Boolean) : [];
       if (pick?.target) {
         if (!ids.length) {
-          dispatch(clearCanvasAttachPick());
+          clearCanvasAttachPick();
           return;
         }
         completeCanvasAttachPick(pick.target, `frame:${ids[0]}`);
         return;
       }
       if (!ids.length) {
-        dispatch(setActiveFrameId(null));
+        setActiveFrameId(null);
         return;
       }
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setSelectedFrameIds(ids));
+      setSelectedNodeIds([]);
+      setSelectedFrameIds(ids);
     },
-    [dispatch, completeCanvasAttachPick]
+    [ completeCanvasAttachPick]
   );
 
   const onSelectMixed = useCallback(
@@ -809,7 +806,7 @@ function SvgCanvas({
           attachPickFilterOpts(pick)
         );
         if (!resolved) {
-          dispatch(clearCanvasAttachPick());
+          clearCanvasAttachPick();
           return;
         }
         if (resolved.blockedOnly) return; // stay in pick mode
@@ -833,9 +830,9 @@ function SvgCanvas({
         });
         nextFrames = [...curFrames];
       }
-      dispatch(setMixedSelection({ nodeIds: nextNodes, frameIds: nextFrames }));
+      setMixedSelection({ nodeIds: nextNodes, frameIds: nextFrames });
     },
-    [dispatch, completeCanvasAttachPick]
+    [ completeCanvasAttachPick]
   );
 
   const onSelect = useCallback(
@@ -849,7 +846,7 @@ function SvgCanvas({
       // Composer pick mode — attach hit (group-expanded); blocked nodes keep pick active.
       if (pick?.target && !opts?.additive) {
         if (!ids.length) {
-          dispatch(clearCanvasAttachPick());
+          clearCanvasAttachPick();
           return;
         }
         if (ids.length === 1) {
@@ -866,7 +863,7 @@ function SvgCanvas({
           attachPickFilterOpts(pick)
         );
         if (!resolved) {
-          dispatch(clearCanvasAttachPick());
+          clearCanvasAttachPick();
           return;
         }
         if (resolved.blockedOnly) return;
@@ -879,9 +876,9 @@ function SvgCanvas({
       if (!opts?.additive && ids.length === 1) {
         const plateFrame = frameForFullBleedPlate(doc, ids[0]);
         if (plateFrame) {
-          dispatch(setSelectedNodeIds([]));
-          dispatch(setActiveFrameId(plateFrame.id));
-          dispatch(setFrameChromeMode('soft'));
+          setSelectedNodeIds([]);
+          setActiveFrameId(plateFrame.id);
+          setFrameChromeMode('soft');
           return;
         }
       }
@@ -896,13 +893,13 @@ function SvgCanvas({
         });
         next = [...cur];
         // Keep frames when shift-adding nodes.
-        dispatch(setSelectedNodeIds(next));
+        setSelectedNodeIds(next);
         return;
       }
       // Prefer setSelectedNodeIds only — setSelectedNodeId clears multi-select to [id].
-      dispatch(setMixedSelection({ nodeIds: next, frameIds: [] }));
+      setMixedSelection({ nodeIds: next, frameIds: [] });
     },
-    [dispatch, completeCanvasAttachPick]
+    [ completeCanvasAttachPick]
   );
 
   const onTextEditCommit = useCallback(
@@ -925,15 +922,13 @@ function SvgCanvas({
         const coords = sceneToDocumentCoords(doc, next.left, 0);
         patch.x = coords.x;
       }
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: id,
           patch,
-        })
-      );
+        });
       setEditingTextId(null);
     },
-    [dispatch, editingTextId]
+    [ editingTextId]
   );
 
   const onTextLiveSize = useCallback(
@@ -951,15 +946,13 @@ function SvgCanvas({
         const coords = sceneToDocumentCoords(doc, next.left, 0);
         patch.x = coords.x;
       }
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: editingTextId,
           patch,
           skipHistory: true,
-        })
-      );
+        });
     },
-    [dispatch, editingTextId]
+    [ editingTextId]
   );
 
   const onTextEditCancel = useCallback(() => {
@@ -973,15 +966,15 @@ function SvgCanvas({
     if (!md) {
       const next = removeNodesFromDocument(documentRef.current, [id]);
       documentRef.current = next;
-      dispatch(setDocument(next));
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setSelectedNodeId(null));
+      setDocument(next);
+      setSelectedNodeIds([]);
+      setSelectedNodeId(null);
     } else {
       // Discard edits but keep the node selected (same as blur-to-select).
-      dispatch(setSelectedNodeIds([id]));
-      dispatch(setSelectedNodeId(id));
+      setSelectedNodeIds([id]);
+      setSelectedNodeId(id);
     }
-  }, [dispatch, editingTextId]);
+  }, [ editingTextId]);
 
   // Hide SVG text glyph while the caret editor is open (avoid double text).
   // Native SVGElement has no SVG.js `.opacity()` — use style/attribute.
@@ -1094,14 +1087,14 @@ function SvgCanvas({
         meta?.frameId
       );
       documentRef.current = next;
-      dispatch(pushEditorHistory());
-      dispatch(setDocumentFromCanvas(next));
+      pushEditorHistory();
+      setDocumentFromCanvas(next);
       // Stay in pencil mode for continuous strokes; do not auto-select.
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setSelectedNodeId(null));
+      setSelectedNodeIds([]);
+      setSelectedNodeId(null);
       return id;
     },
-    [dispatch, readOnly, penStrokeColor, penStrokeWidth, pencilBrushId, penStrokeOpacity, pencilPressureEnabled]
+    [ readOnly, penStrokeColor, penStrokeWidth, pencilBrushId, penStrokeOpacity, pencilPressureEnabled]
   );
 
   const onBucketFill = useCallback(
@@ -1137,14 +1130,12 @@ function SvgCanvas({
           })
         );
       }
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: { attrs },
-        })
-      );
+        });
     },
-    [dispatch, readOnly]
+    [ readOnly]
   );
 
   const onPenCommit = useCallback(
@@ -1162,9 +1153,8 @@ function SvgCanvas({
         const prev = doc.deltaSetLike[replaceId];
         const prevType = String(prev?.attrs?.shapeType || 'pen');
         const shapeType = prevType === 'path' ? 'path' : 'pen';
-        dispatch(pushEditorHistory());
-        dispatch(
-          patchDocumentNode({
+        pushEditorHistory();
+        patchDocumentNode({
             nodeId: replaceId,
             patch: {
               x: origin.x,
@@ -1181,9 +1171,8 @@ function SvgCanvas({
                 ...(closed ? closedPenFillAttrs(penFillColor) : {}),
               },
             },
-          })
-        );
-        dispatch(setSelectedNodeIds([replaceId]));
+          });
+        setSelectedNodeIds([replaceId]);
         return;
       }
       const { id, node } = createShapeNode({
@@ -1205,12 +1194,12 @@ function SvgCanvas({
         opts?.frameId
       );
       documentRef.current = next;
-      dispatch(pushEditorHistory());
-      dispatch(setDocumentFromCanvas(next));
+      pushEditorHistory();
+      setDocumentFromCanvas(next);
       // Close / Enter finish — keep pen tool so the next click starts a new path.
-      dispatch(setSelectedNodeIds([id]));
+      setSelectedNodeIds([id]);
     },
-    [dispatch, readOnly, penStrokeColor, penFillColor, penStrokeWidth]
+    [ readOnly, penStrokeColor, penFillColor, penStrokeWidth]
   );
 
   const onPenPathEditCommit = useCallback(
@@ -1228,9 +1217,8 @@ function SvgCanvas({
       const prev = doc.deltaSetLike?.[payload.nodeId];
       const prevType = String(prev?.attrs?.shapeType || 'path');
       const shapeType = prevType === 'pen' ? 'pen' : 'path';
-      dispatch(pushEditorHistory());
-      dispatch(
-        patchDocumentNode({
+      pushEditorHistory();
+      patchDocumentNode({
           nodeId: payload.nodeId,
           patch: {
             x: origin.x,
@@ -1252,10 +1240,9 @@ function SvgCanvas({
               ...(payload.clearFlip ? { flipX: 'false', flipY: 'false' } : {}),
             },
           },
-        })
-      );
+        });
     },
-    [dispatch, readOnly]
+    [ readOnly]
   );
 
   const onPathEditUnionNewShape = useCallback(
@@ -1304,10 +1291,10 @@ function SvgCanvas({
         });
         const next = addNodeToDocument(doc, id, node);
         documentRef.current = next;
-        dispatch(pushEditorHistory());
-        dispatch(setDocument(next));
-        dispatch(setSelectedNodeIds([id]));
-        dispatch(setSelectedNodeId(id));
+        pushEditorHistory();
+        setDocument(next);
+        setSelectedNodeIds([id]);
+        setSelectedNodeId(id);
         return;
       }
 
@@ -1339,9 +1326,8 @@ function SvgCanvas({
 
       const fillKeep = String(baseNode.attrs?.['fill-color'] || ink);
       const origin = sceneToDocumentCoords(doc, result.x, result.y);
-      dispatch(pushEditorHistory());
-      dispatch(
-        patchDocumentNode({
+      pushEditorHistory();
+      patchDocumentNode({
           nodeId: editingId,
           patch: {
             x: origin.x,
@@ -1364,12 +1350,11 @@ function SvgCanvas({
               'border-width': 0,
             },
           },
-        })
-      );
-      dispatch(setSelectedNodeIds([editingId]));
-      dispatch(setSelectedNodeId(editingId));
+        });
+      setSelectedNodeIds([editingId]);
+      setSelectedNodeId(editingId);
     },
-    [dispatch, readOnly, penStrokeColor, penStrokeWidth]
+    [ readOnly, penStrokeColor, penStrokeWidth]
   );
 
   const reorderLayer = useCallback(
@@ -1380,10 +1365,10 @@ function SvgCanvas({
       // Reorder only changes z-order — do not bump sceneReloadToken (full remount).
       // Hosts keep their SVG; CSS z-index + DOM order update instead.
       documentRef.current = next;
-      dispatch(pushEditorHistory());
-      dispatch(setDocumentFromCanvas(next));
+      pushEditorHistory();
+      setDocumentFromCanvas(next);
     },
-    [dispatch]
+    []
   );
 
   const deleteSelected = useCallback(
@@ -1391,11 +1376,11 @@ function SvgCanvas({
       if (!ids.length || !documentRef.current) return;
       // Abort in-flight placeholder uploads so finishImageProcess cannot resurrect them.
       ids.forEach((id) => abortNodeUpload(id));
-      dispatch(removeDocumentNodes({ nodeIds: ids }));
+      removeDocumentNodes({ nodeIds: ids });
       // Persist ASAP — refresh must not restore deleted nodes from a stale cloud doc.
       requestProjectFlush();
     },
-    [dispatch]
+    []
   );
 
   /**
@@ -1420,11 +1405,11 @@ function SvgCanvas({
       const allNodes = [...new Set([...nodeIds, ...bound])];
       allNodes.forEach((id) => abortNodeUpload(id));
 
-      dispatch(removeDocumentNodes({ nodeIds: allNodes, frameIds }));
+      removeDocumentNodes({ nodeIds: allNodes, frameIds });
       requestProjectFlush();
       return true;
     },
-    [dispatch, t]
+    [ t]
   );
 
 
@@ -1467,7 +1452,6 @@ function SvgCanvas({
       imageInputRef,
       clipboardApiRef,
       readOnly: Boolean(readOnly),
-      dispatch,
       camera,
       stageEl: stageEl ?? null,
       t,
@@ -1544,8 +1528,7 @@ function SvgCanvas({
       const natural = await measureImageNaturalSize(preview);
       const { width, height } = imageSizeForViewport(natural);
       const origin = placeOriginForSize({ width, height }, at);
-      dispatch(
-        startImageUploadPlaceholder({
+      startImageUploadPlaceholder({
           src: preview,
           width,
           height,
@@ -1553,15 +1536,14 @@ function SvgCanvas({
           y: origin?.y,
           label: '上传中',
           name: file.name?.replace(/\.[^.]+$/, '') || 'Image',
-        })
-      );
+        });
       finishToSelect();
       spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
-      await uploadCanvasPlaceholderFile({ dispatch, nodeId: spawnedId, file });
+      await uploadCanvasPlaceholderFile({ nodeId: spawnedId, file });
     } catch (err: unknown) {
       if (isUploadAbortError(err)) return;
       revokeNodePreviewSrc(store.getState().editor?.document, spawnedId || undefined);
-      dispatch(failImageProcess({ nodeId: spawnedId || undefined }));
+      failImageProcess({ nodeId: spawnedId || undefined });
       message.error(formatUploadErrorMessage(err, t, '图片上传失败'));
     }
   };
@@ -1578,8 +1560,7 @@ function SvgCanvas({
         height: prepared.height,
       });
       const origin = placeOriginForSize({ width, height }, at);
-      dispatch(
-        startVideoUploadPlaceholder({
+      startVideoUploadPlaceholder({
           src: prepared.preview,
           poster: prepared.poster,
           width,
@@ -1589,13 +1570,10 @@ function SvgCanvas({
           label: '上传中',
           name: prepared.name,
           duration: prepared.duration,
-        })
-      );
+        });
       finishToSelect();
       const spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
-      await uploadCanvasPlaceholderFile({
-        dispatch,
-        nodeId: spawnedId,
+      await uploadCanvasPlaceholderFile({ nodeId: spawnedId,
         file,
         waitDecode: false,
         extraAttrs: {
@@ -1610,7 +1588,7 @@ function SvgCanvas({
       if (isUploadAbortError(err)) return;
       const failedId = String(store.getState().editor?.pendingImageProcessId || '');
       revokeNodePreviewSrc(store.getState().editor?.document, failedId || undefined);
-      dispatch(failImageProcess({ nodeId: failedId || undefined }));
+      failImageProcess({ nodeId: failedId || undefined });
       message.error(formatUploadErrorMessage(err, t, '视频上传失败'));
     }
   };
@@ -1629,8 +1607,7 @@ function SvgCanvas({
         imageSizeForViewport
       );
       const origin = placeOriginForSize({ width, height }, at);
-      dispatch(
-        startAudioUploadPlaceholder({
+      startAudioUploadPlaceholder({
           src: preview,
           width,
           height,
@@ -1641,13 +1618,10 @@ function SvgCanvas({
             file.name?.replace(/\.[^.]+$/, '') ||
             t('editor.tools.audio', { defaultValue: 'Audio' }),
           duration,
-        })
-      );
+        });
       finishToSelect();
       const spawnedId = String(store.getState().editor?.pendingImageProcessId || '');
-      await uploadCanvasPlaceholderFile({
-        dispatch,
-        nodeId: spawnedId,
+      await uploadCanvasPlaceholderFile({ nodeId: spawnedId,
         file,
         waitDecode: false,
         extraAttrs: {
@@ -1659,7 +1633,7 @@ function SvgCanvas({
       if (isUploadAbortError(err)) return;
       const failedId = String(store.getState().editor?.pendingImageProcessId || '');
       revokeNodePreviewSrc(store.getState().editor?.document, failedId || undefined);
-      dispatch(failImageProcess({ nodeId: failedId || undefined }));
+      failImageProcess({ nodeId: failedId || undefined });
       message.error(formatUploadErrorMessage(err, t, '音频上传失败'));
     }
   };
@@ -1688,8 +1662,7 @@ function SvgCanvas({
         message.error(t('editor.tools.lottieGenInvalidJson'));
         return;
       }
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId: timelineHostId,
           patch: {
             attrs: {
@@ -1697,8 +1670,7 @@ function SvgCanvas({
               ...(payload.name ? { name: payload.name } : {}),
             },
           },
-        })
-      );
+        });
       finishToSelect();
       return;
     }
@@ -1707,16 +1679,14 @@ function SvgCanvas({
     const { width, height } = imageSizeForViewport({ width: natW, height: natH });
     const origin = placeOriginForSize({ width, height }, anchor);
     // Always independent preview plate — open 「关键帧」 to promote into a workbench.
-    dispatch(
-      spawnLottie({
+    spawnLottie({
         width,
         height,
         x: origin?.x,
         y: origin?.y,
         name: payload.name || 'Lottie',
         animationData: data,
-      })
-    );
+      });
     finishToSelect();
   };
 
@@ -1903,8 +1873,8 @@ function SvgCanvas({
       if (!nodeId || readOnly) return;
       setEditingTextId(null);
       setEditingPenId(nodeId);
-      dispatch(setSelectedNodeIds([nodeId]));
-      dispatch(setActiveTool('select'));
+      setSelectedNodeIds([nodeId]);
+      setActiveTool('select');
       // Outline / enter path-edit: default to Select (edit anchors), not Pen (draw).
       setPathEditSubtool('select');
       window.dispatchEvent(
@@ -1913,7 +1883,7 @@ function SvgCanvas({
     };
     window.addEventListener('resume:enter-path-edit', onEnter);
     return () => window.removeEventListener('resume:enter-path-edit', onEnter);
-  }, [dispatch, readOnly]);
+  }, [ readOnly]);
 
   useEffect(() => {
     const onSub = (e: Event) => {
@@ -2143,7 +2113,7 @@ function SvgCanvas({
               window.dispatchEvent(
                 new CustomEvent('resume:path-edit-subtool', { detail: { subtool: 'select' } })
               );
-              dispatch(setActiveTool('select'));
+              setActiveTool('select');
             }}
           />
           {editingPenId ? (

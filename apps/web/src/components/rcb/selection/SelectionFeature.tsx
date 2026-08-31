@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { isLottieTimelineUiActive } from '@/components/editor/nodes/AnimationNode/animationTimelineHotkeys';
 import { useAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
@@ -87,12 +87,10 @@ import store from '@/store';
 
 /** Soft blank click while an image quick-edit / mark session is pinned. */
 function handlePinnedImageToolBlankClick(
-  pin: string,
-  dispatch: ReturnType<typeof useDispatch>
-) {
+  pin: string) {
   const editor = (store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null; document?: SceneDocument } })
     .editor;
-  dismissMarkToolSession(dispatch, editor?.document, editor?.imageToolPanel, pin);
+  dismissMarkToolSession(editor?.document, editor?.imageToolPanel, pin);
 }
 
 function isImageToolSessionPinned(
@@ -250,8 +248,9 @@ export function createTransformPreviewCoalescer(handlers: {
     pending = null;
     if (!batch) return;
     handlers.applyChrome(batch);
-    if (batch.geom?.length) handlers.applyGeom(batch.geom, batch.geomOpts);
+    // Stroke endpoint drag: angle before box so both ends don't jump.
     if (batch.angles?.length) handlers.applyAngles(batch.angles);
+    if (batch.geom?.length) handlers.applyGeom(batch.geom, batch.geomOpts);
   };
 
   return {
@@ -413,7 +412,6 @@ function SelectionFeature({
   const gridSize = getDocumentGridSize(document);
   /** Prefer live context viewport — prop stageEl can go stale after resize remounts. */
   const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
-  const dispatch = useDispatch();
   const frameChromeMode = useSelector(
     (s: { editor?: { frameChromeMode?: 'soft' | 'full' } }) =>
       s.editor?.frameChromeMode === 'full' ? 'full' : 'soft'
@@ -723,7 +721,7 @@ function SelectionFeature({
       setHoverNodeId(id);
       // Dev / share inspect panel reads hover from Redux.
       if (workspaceMode === 'dev' || readOnly) {
-        dispatch(setDevHoverNodeId(id));
+        setDevHoverNodeId(id);
       }
     };
 
@@ -858,7 +856,7 @@ function SelectionFeature({
       window.removeEventListener('blur', onLeave);
       clearSelectionChromeCursor(hitEl);
     };
-  }, [enabled, hitEl, paperEl, overlayRoot, artboard, hitTest, dispatch, toScene, workspaceMode, readOnly]);
+  }, [enabled, hitEl, paperEl, overlayRoot, artboard, hitTest, toScene, workspaceMode, readOnly]);
 
   useEffect(() => {
     if (!enabled || !hitEl) return undefined;
@@ -1726,7 +1724,7 @@ function SelectionFeature({
             ? hitTestFrame?.(p.x, p.y) ?? null
             : null;
         if (pin) {
-          handlePinnedImageToolBlankClick(pin, dispatch);
+          handlePinnedImageToolBlankClick(pin);
         } else if (platePick && drag.frameId) {
           onSelectFrame?.(drag.frameId, {
             chrome: drag.framePlateChrome === 'full' ? 'full' : 'soft',
@@ -1755,7 +1753,7 @@ function SelectionFeature({
         if (!passed) {
           const pin = imageToolSessionNodeIdRef.current;
           if (pin) {
-            handlePinnedImageToolBlankClick(pin, dispatch);
+            handlePinnedImageToolBlankClick(pin);
           } else {
             onSelectFrame?.(null);
             onSelect([]);
@@ -1798,7 +1796,7 @@ function SelectionFeature({
         ) {
           const pin = imageToolSessionNodeIdRef.current;
           if (pin) {
-            handlePinnedImageToolBlankClick(pin, dispatch);
+            handlePinnedImageToolBlankClick(pin);
             endTransform();
             return;
           }
@@ -1864,7 +1862,7 @@ function SelectionFeature({
           const panel = (store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null } })
             .editor?.imageToolPanel;
           if (pin && panel?.kind === 'mark' && panel.nodeId === pin) {
-            handlePinnedImageToolBlankClick(pin, dispatch);
+            handlePinnedImageToolBlankClick(pin);
             endTransform();
             return;
           }
@@ -2716,15 +2714,13 @@ function SelectionFeature({
           icon={(textFrameTitle || mediaTitle)!.icon}
           dataProps={{ 'data-scene-node-id': singleId }}
           onRename={(name, options) =>
-            dispatch(
-              patchDocumentNode({
+            patchDocumentNode({
                 nodeId: singleId,
                 patch: { attrs: { name } },
                 skipHistory: options?.skipHistory,
                 // A title is chrome metadata; the media SVG pixels do not change.
                 skipHostReload: true,
               })
-            )
           }
           renameAriaLabel={(textFrameTitle || mediaTitle)!.renameAriaLabel}
         />

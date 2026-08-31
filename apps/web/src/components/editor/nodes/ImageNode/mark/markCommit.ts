@@ -1,4 +1,4 @@
-import type { Dispatch } from '@/store';
+
 import {
   enqueueAgentContexts,
   enqueueImageGenMarkContexts,
@@ -33,7 +33,6 @@ export function buildPendingMarkChip(
 }
 
 function reopenMarkPanel(
-  dispatch: Dispatch,
   opts: {
     markedNodeId: string;
     sessionNodeId?: string;
@@ -44,19 +43,16 @@ function reopenMarkPanel(
     opts.sink === 'quickEdit' || opts.sink === 'imageGen'
       ? opts.sessionNodeId || opts.markedNodeId
       : opts.markedNodeId;
-  dispatch(
-    openImageToolPanel({
+  openImageToolPanel({
       nodeId: anchor,
       kind: 'mark',
       ...(opts.sink === 'quickEdit' ? { markSink: 'quickEdit' as const } : {}),
       ...(opts.sink === 'imageGen' ? { markSink: 'imageGen' as const } : {}),
-    })
-  );
+    });
 }
 
 /** Stage a mark chip (no prompt text) — used when quick-edit draws a box. */
 export function stageMarkRegion(
-  dispatch: Dispatch,
   opts: {
     nodeId: string;
     sessionNodeId?: string;
@@ -67,14 +63,14 @@ export function stageMarkRegion(
 ) {
   const chip = buildPendingMarkChip(opts.nodeId, opts.region, opts.box);
   if (opts.sink === 'quickEdit') {
-    dispatch(enqueueQuickEditMarkContexts([chip]));
+    enqueueQuickEditMarkContexts([chip]);
   } else if (opts.sink === 'imageGen') {
-    dispatch(enqueueImageGenMarkContexts([chip]));
+    enqueueImageGenMarkContexts([chip]);
   } else {
-    dispatch(enqueueAgentContexts([chip]));
+    enqueueAgentContexts([chip]);
   }
-  dispatch(setImageMarkPin(regionToMarkPin(opts.nodeId, opts.region, opts.sink)));
-  reopenMarkPanel(dispatch, {
+  setImageMarkPin(regionToMarkPin(opts.nodeId, opts.region, opts.sink));
+  reopenMarkPanel({
     markedNodeId: opts.nodeId,
     sessionNodeId: opts.sessionNodeId,
     sink: opts.sink,
@@ -82,7 +78,6 @@ export function stageMarkRegion(
 }
 
 export function commitMarkRegion(
-  dispatch: Dispatch,
   opts: {
     nodeId: string;
     sessionNodeId?: string;
@@ -94,7 +89,7 @@ export function commitMarkRegion(
 ) {
   const tail = opts.text.trim();
   if (!tail) {
-    stageMarkRegion(dispatch, {
+    stageMarkRegion({
       nodeId: opts.nodeId,
       sessionNodeId: opts.sessionNodeId,
       region: opts.region,
@@ -106,14 +101,14 @@ export function commitMarkRegion(
 
   const chip = buildPendingMarkChip(opts.nodeId, opts.region, opts.box, tail);
   if (opts.sink === 'quickEdit') {
-    dispatch(enqueueQuickEditMarkContexts([chip]));
+    enqueueQuickEditMarkContexts([chip]);
   } else if (opts.sink === 'imageGen') {
-    dispatch(enqueueImageGenMarkContexts([chip]));
+    enqueueImageGenMarkContexts([chip]);
   } else {
-    dispatch(enqueueAgentContexts([chip]));
+    enqueueAgentContexts([chip]);
   }
-  dispatch(setImageMarkPin(regionToMarkPin(opts.nodeId, opts.region, opts.sink)));
-  reopenMarkPanel(dispatch, {
+  setImageMarkPin(regionToMarkPin(opts.nodeId, opts.region, opts.sink));
+  reopenMarkPanel({
     markedNodeId: opts.nodeId,
     sessionNodeId: opts.sessionNodeId,
     sink: opts.sink,

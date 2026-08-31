@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeId } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown } from 'react-icons/hi2';
@@ -76,9 +76,7 @@ function UpscaleSessionHost({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}): ReactNode {  const { t } = useTranslation();
   const camera = useRcbCamera();
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
@@ -105,16 +103,16 @@ function UpscaleSessionHost({
   useEffect(() => {
     if (!active || !nodeId) return;
     if (!selectedNodeId || selectedNodeId !== nodeId) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
     }
-  }, [selectedNodeId, active, nodeId, dispatch]);
+  }, [selectedNodeId, active, nodeId]);
 
   useEffect(() => {
     if (!active || !nodeId) return;
     if (!node || node.key !== 'image') {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
     }
-  }, [document, active, nodeId, node, dispatch]);
+  }, [document, active, nodeId, node]);
 
   const z = Math.max(0.05, camera.zoom || 1);
   const toolbarGap = rcbScreenPxToScene(10, z);
@@ -129,20 +127,18 @@ function UpscaleSessionHost({
   const selected =
     UPSCALE_PRESETS.find((p) => p.key === selectedKey) ?? UPSCALE_PRESETS[1] ?? UPSCALE_PRESETS[0];
 
-  const close = () => dispatch(closeImageToolPanel());
+  const close = () => closeImageToolPanel();
 
   const onConfirm = () => {
     if (!selected) return;
-    dispatch(
-      startImageProcess({
+    startImageProcess({
         sourceId: nodeId,
         kind: 'upscale',
         label: t('editor.imageToolbar.processingUpscale'),
         targetWidth: selected.width,
         targetHeight: selected.height,
         meta: { resolution: selected.resolution },
-      })
-    );
+      });
     close();
   };
 

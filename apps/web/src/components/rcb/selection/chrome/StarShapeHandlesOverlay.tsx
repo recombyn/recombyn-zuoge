@@ -4,7 +4,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * World-SVG knobs — same paint contract as SelectionChrome / CornerRadius.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
@@ -142,7 +142,6 @@ export function starHandleSites(
 }
 
 function commitUniformRadius(opts: {
-  dispatch: (a: unknown) => void;
   nodeId: string;
   node: SceneNodeInput;
   radius: number;
@@ -152,8 +151,7 @@ function commitUniformRadius(opts: {
   const clamped = clampCornerRadii(uniformRadii(opts.radius), w, h);
   const count = Math.max(1, cornerVertexCount(opts.node));
   const vertices = Array.from({ length: count }, () => Math.round(clamped.tl));
-  opts.dispatch(
-    patchDocumentNode({
+  patchDocumentNode({
       nodeId: opts.nodeId,
       patch: {
         attrs: {
@@ -167,8 +165,7 @@ function commitUniformRadius(opts: {
           cornerRadius: Math.round(clamped.tl),
         },
       },
-    })
-  );
+    });
 }
 
 type DragState =
@@ -215,9 +212,7 @@ function StarShapeHandlesOverlay({
   stageEl: HTMLElement | null;
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+  const { t } = useTranslation();  const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const k = 1 / z;
 
@@ -375,7 +370,7 @@ function StarShapeHandlesOverlay({
       if (d.mode === 'sides') {
         const delta = Math.round((d.startY - e.clientY) / SIDES_DRAG_STEP_PX);
         const next = clampShapeSides(d.startSides + delta, d.startSides);
-        dispatch(patchDocumentNode({ nodeId, patch: { attrs: { sides: next } } }));
+        patchDocumentNode({ nodeId, patch: { attrs: { sides: next } } });
         return;
       }
 
@@ -384,7 +379,7 @@ function StarShapeHandlesOverlay({
         const local = scenePointToLocal(sc.x, sc.y, box, angle);
         const dist = Math.hypot(local.x - d.cx, local.y - d.cy);
         const next = clampStarInnerRatio(dist / Math.max(1e-3, d.outerDist), d.startRatio);
-        dispatch(patchDocumentNode({ nodeId, patch: { attrs: { starInnerRatio: next } } }));
+        patchDocumentNode({ nodeId, patch: { attrs: { starInnerRatio: next } } });
         return;
       }
 
@@ -392,7 +387,7 @@ function StarShapeHandlesOverlay({
       const local = scenePointToLocal(sc.x, sc.y, box, angle);
       const along = (local.x - d.site.x) * d.site.ix + (local.y - d.site.y) * d.site.iy;
       const rounded = Math.max(0, Math.min(maxR, Math.round(along)));
-      commitUniformRadius({ dispatch, nodeId, node, radius: rounded });
+      commitUniformRadius({ nodeId, node, radius: rounded });
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -418,9 +413,7 @@ function StarShapeHandlesOverlay({
       setLiveCornerRadiusPreview(null);
     };
   }, [
-    interactive,
-    dispatch,
-    nodeId,
+    interactive, nodeId,
     node,
     box,
     angle,

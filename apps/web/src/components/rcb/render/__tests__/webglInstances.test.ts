@@ -5,7 +5,11 @@ import {
   syncSceneRenderBufferFromDocument,
   SOA_FLAG_CANVAS_IDLE,
 } from '../sceneRenderBuffer';
-import { collectSoaWebglInstances } from '../webglSceneRenderer';
+import {
+  collectSoaWebglInstances,
+  soaPathPrefersAtlasStamp,
+} from '../webglSceneRenderer';
+import { SOA_ATLAS_SEG_THRESHOLD } from '../webglInstanceAtlas';
 
 describe('collectSoaWebglInstances', () => {
   it('packs rect and ellipse in view', () => {
@@ -132,5 +136,48 @@ describe('collectSoaWebglInstances', () => {
     collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, rects, colors, kinds, angles);
     expect(kinds.length).toBe(2);
     expect(kinds.every((k) => k === 2)).toBe(true);
+  });
+
+  it('prefers atlas stamp for closed pens even below segment threshold', () => {
+    // Regression: sparse closed fills used stroke-only instances → fill vanished when deselected.
+    expect(soaPathPrefersAtlasStamp(true, 3)).toBe(true);
+    expect(soaPathPrefersAtlasStamp(false, 3)).toBe(false);
+    expect(soaPathPrefersAtlasStamp(false, SOA_ATLAS_SEG_THRESHOLD)).toBe(true);
+  });
+
+  it('skips stroke-only segment fallback for closed pens without atlas', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'pen', {
+      id: 'pen',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      attrs: {
+        shapeType: 'pen',
+        path: 'M 10 10 L 90 10 L 50 90 Z',
+        closed: 'true',
+        fill: '#8b1a1a',
+        'fill-color': '#8b1a1a',
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    expect(buf.pathClosed[0]).toBe(1);
+    const kinds: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 200, height: 200 },
+      [],
+      [],
+      kinds,
+      [],
+      []
+    );
+    // Prefer invisible idle over border-only ghost when atlas is unavailable.
+    expect(kinds).toEqual([]);
   });
 });

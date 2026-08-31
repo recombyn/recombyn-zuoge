@@ -13,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { BiExit } from 'react-icons/bi';
 import {
@@ -768,9 +768,7 @@ function AnimationFrameChildToolbar({
   edgePadScene,
   angle,
 }: Props) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+  const { t } = useTranslation();  const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
   const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
   const timelinePanelNodeId = useSelector(
@@ -905,7 +903,7 @@ function AnimationFrameChildToolbar({
 
   const ensureLinked = () => {
     if (!frameId) return null;
-    dispatch(ensureAnimationFrameMedia({ frameId }));
+    ensureAnimationFrameMedia({ frameId });
     const doc = store.getState()?.editor?.document;
     const hid = findFrameAnimationMediaId(doc, frameId);
     const child = doc?.deltaSetLike?.[nodeId];
@@ -918,15 +916,13 @@ function AnimationFrameChildToolbar({
   };
 
   const patchAttrs = (attrs: Record<string, unknown>, geomPatch?: Partial<SceneNode>) => {
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           ...(geomPatch || {}),
           attrs,
         },
-      })
-    );
+      });
     const docNow = store.getState()?.editor?.document || document;
     const mergedNode = {
       ...(docNow?.deltaSetLike?.[nodeId] || node || {}),
@@ -973,12 +969,10 @@ function AnimationFrameChildToolbar({
         playheadSec: playhead,
       });
       if (keyed) {
-        dispatch(
-          patchDocumentNode({
+        patchDocumentNode({
             nodeId: keyed.hostId,
             patch: { attrs: { animationData: keyed.animationJson } },
-          })
-        );
+          });
       }
     }
     // Defer frame sync while label-scrubbing — sync each move was rewriting
@@ -988,17 +982,17 @@ function AnimationFrameChildToolbar({
       frameId &&
       !window.document.documentElement.hasAttribute('data-lottie-scrubbing')
     ) {
-      dispatch(ensureAnimationFrameMedia({ frameId }));
+      ensureAnimationFrameMedia({ frameId });
     }
   };
 
   useEffect(() => {
     const onScrubEnd = () => {
-      if (frameId) dispatch(ensureAnimationFrameMedia({ frameId }));
+      if (frameId) ensureAnimationFrameMedia({ frameId });
     };
     window.addEventListener('lottie-inspector-scrub-end', onScrubEnd);
     return () => window.removeEventListener('lottie-inspector-scrub-end', onScrubEnd);
-  }, [dispatch, frameId]);
+  }, [frameId]);
 
   const commitWorldXY = (nextLocalX: number, nextLocalY: number) => {
     patchAttrs({}, { x: frameX + nextLocalX, y: frameY + nextLocalY });
@@ -1129,9 +1123,7 @@ function AnimationFrameChildToolbar({
     }
     const json = serializeLottieAnimationData(next);
     if (!json) return;
-    dispatch(
-      patchDocumentNode({ nodeId: linked.hostId, patch: { attrs: { animationData: json } } })
-    );
+    patchDocumentNode({ nodeId: linked.hostId, patch: { attrs: { animationData: json } } });
     window.dispatchEvent(
       new CustomEvent(LOTTIE_EXPAND_LAYER_EVENT, {
         detail: { layerInd: linked.layerInd, propKey },
@@ -1193,8 +1185,8 @@ function AnimationFrameChildToolbar({
       h: frameH,
     });
     if (!patches.length) return;
-    dispatch(patchDocumentNodes({ patches }));
-    if (frameId) dispatch(ensureAnimationFrameMedia({ frameId }));
+    patchDocumentNodes({ patches });
+    if (frameId) ensureAnimationFrameMedia({ frameId });
   };
 
   const kfTip = (on: boolean) =>
@@ -1241,7 +1233,7 @@ function AnimationFrameChildToolbar({
 
   const onOpenKeyframes = () => {
     // Sync host + layer inds so diamond toggles can write; panel is the UI for 关键帧.
-    if (frameId) dispatch(ensureAnimationFrameMedia({ frameId }));
+    if (frameId) ensureAnimationFrameMedia({ frameId });
     setKfPanelOpen(true);
   };
 
@@ -1332,17 +1324,15 @@ function AnimationFrameChildToolbar({
               e.stopPropagation();
               if (!isImage) return;
               if (puppetActive) {
-                dispatch(closeImageToolPanel());
+                closeImageToolPanel();
                 return;
               }
               // Open panel first so chrome stays in puppet mode even if attrs patch re-renders.
-              dispatch(openImageToolPanel({ nodeId, kind: 'puppet' }));
-              dispatch(
-                patchDocumentNode({
+              openImageToolPanel({ nodeId, kind: 'puppet' });
+              patchDocumentNode({
                   nodeId,
                   patch: { attrs: { puppetEnabled: true } },
-                })
-              );
+                });
               expandPuppetTimelineLayer(node);
             }}
           >
@@ -1391,19 +1381,17 @@ function AnimationFrameChildToolbar({
                   message.warning(t('editor.lottieToolbar.vectorizeUnavailable'));
                   return;
                 }
-                dispatch(
-                  startImageProcess({
+                startImageProcess({
                     sourceId: nodeId,
                     kind: 'vector',
                     label: t('editor.imageToolbar.vectorize', {
                       defaultValue: '矢量化',
                     }),
-                  })
-                );
+                  });
                 return;
               }
               if (key === 'cornerRadius') {
-                dispatch(openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] }));
+                openShapeStylePanel({ kind: 'radius', nodeIds: [nodeId] });
                 return;
               }
               if (
@@ -1415,7 +1403,7 @@ function AnimationFrameChildToolbar({
                 key === 'flipRotate' ||
                 key === 'opacity'
               ) {
-                dispatch(openImageToolPanel({ nodeId, kind: key }));
+                openImageToolPanel({ nodeId, kind: key });
               }
             }}
           />
@@ -1646,7 +1634,7 @@ function AnimationFrameChildToolbar({
                     aria-label={t('editor.selectionToolbar.color')}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() =>
-                      dispatch(openShapeStylePanel({ kind: 'fill', nodeIds: [nodeId] }))
+                      openShapeStylePanel({ kind: 'fill', nodeIds: [nodeId] })
                     }
                   />
                   <input
