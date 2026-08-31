@@ -1,7 +1,8 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocument } from '@/store/editorSelectors';
 import { FloatingPortal } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown } from 'react-icons/hi2';
 import { generateVideo, createVideoJob, waitForVideoJob } from '@/service/chat';
@@ -140,7 +141,7 @@ function VideoGeneratorCard({
       | undefined
   );
   const nodeProcessing = String(genAttrs?.processStatus || '') === 'running';
-  const editorDocument = useSelector((state: any) => state.editor?.document);
+  const editorDocument = useEditorDocument();
   const canvasAttachPick = useSelector(
     (state: any) => state.editor?.canvasAttachPick as null | { target: string }
   );
@@ -471,8 +472,8 @@ function VideoGeneratorCard({
         resolution,
         duration,
       };
-      // First-frame / style refs 鈥?video refs are attachable but never sent as body.images.
-      // Canvas 缂栫粍 lands as kind:'group' chips (not attachment strip).
+      // First-frame / style refs — video refs are attachable but never sent as body.images.
+      // Canvas 缂栫—lands as kind:'group' chips (not attachment strip).
       const refImages = contextsRef.current
         .filter((c) => c.kind === 'attachment' || c.kind === 'group')
         .map((c) => String(c.dataUrl || c.thumbUrl || '').trim())
@@ -495,9 +496,9 @@ function VideoGeneratorCard({
       try {
         poster = await captureVideoPosterFrame(src);
       } catch {
-        /* poster is a nice-to-have 鈥?video still plays without it */
+        /* poster is a nice-to-have — video still plays without it */
       }
-      // Promote in place 鈥?keep the generator plate's document x/y/size so the
+      // Promote in place — keep the generator plate's document x/y/size so the
       // result appears exactly where the plate was (sceneBox is origin-relative).
       dispatch(
         finishVideoGenerator({

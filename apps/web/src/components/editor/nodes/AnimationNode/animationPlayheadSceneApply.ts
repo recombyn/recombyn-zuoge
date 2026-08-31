@@ -13,6 +13,8 @@ import {
   previewSvgNodeGeometry,
   previewSvgNodeTransform,
 } from '@/components/rcb/scene/paint/sceneToSvg';
+import { clearNodeTransformPreviews, setNodeTransformHidden } from '@/components/rcb/core/transformPreview';
+import { getSharedSceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
 import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { lottieLocalToScenePoint } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
@@ -83,7 +85,11 @@ function restoreDocumentGeometry(
   const top = Number(node.y) || 0;
   const width = Math.max(1, Number(node.width) || 1);
   const height = Math.max(1, Number(node.height) || 1);
-  previewSvgNodeGeometry(nodeEls, sceneNodeId, { left, top, width, height });
+  // Drop TransformPreview first so SoA snaps to document without a publish flash.
+  clearNodeTransformPreviews([sceneNodeId]);
+  previewSvgNodeGeometry(nodeEls, sceneNodeId, { left, top, width, height }, {
+    publishPreview: false,
+  });
   const el = nodeEls.get(sceneNodeId) as any;
   if (el) {
     el.__sceneAngle = Number(node.attrs?.angle) || 0;
@@ -95,10 +101,41 @@ function restoreDocumentGeometry(
     delete el.__sceneDragBaseW;
     delete el.__sceneDragBaseH;
   }
-  previewSvgNodeAngle(nodeEls, sceneNodeId, Number(node.attrs?.angle) || 0);
+  previewSvgNodeAngle(nodeEls, sceneNodeId, Number(node.attrs?.angle) || 0, null, {
+    publishPreview: false,
+  });
   previewSvgNodeTransform(nodeEls, sceneNodeId);
   notifyShapeHostGeometry(sceneNodeId);
   return { left, top, width, height };
+}
+
+function listLinkedSceneNodeIds(
+  anim: Record<string, unknown>,
+  document: SceneDocument,
+  frameId: string | null
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const walk = (layers: unknown) => {
+    if (!Array.isArray(layers)) return;
+    for (const raw of layers) {
+      if (!raw || typeof raw !== 'object') continue;
+      const sceneNodeId = String((raw as Record<string, unknown>)[LINK_KEY] || '').trim();
+      if (!sceneNodeId || seen.has(sceneNodeId)) continue;
+      const node = document.deltaSetLike?.[sceneNodeId];
+      if (!node) continue;
+      const nodeFrame = String(node.attrs?.frameId || '').trim();
+      if (frameId && nodeFrame && nodeFrame !== frameId) continue;
+      seen.add(sceneNodeId);
+      out.push(sceneNodeId);
+    }
+  };
+  walk(anim.layers);
+  const assets = Array.isArray(anim.assets) ? (anim.assets as Record<string, unknown>[]) : [];
+  for (const asset of assets) {
+    walk(asset?.layers);
+  }
+  return out;
 }
 
 function layerTransformAnimated(
@@ -381,9 +418,13 @@ export function applyAnimationPlayheadScenePose(opts: {
   const fps = Math.max(1, Number(anim.fr) || Number(frame?.fps) || 30);
   const frameN = secToFrame(playheadSec, fps);
 
-  const nodeEls = getSharedNodeEls();
-  if (!nodeEls || !(nodeEls instanceof Map)) return '';
+  const nodeElsRaw = getSharedNodeEls();
+  const nodeEls =
+    nodeElsRaw && nodeElsRaw instanceof Map
+      ? (nodeElsRaw as Map<string, SVGElement>)
+      : new Map<string, SVGElement>();
 
+  const touchedIds: string[] = [];
   const sigParts: string[] = [String(frameN), applyGeometry ? 'g' : 'i'];
 
   const applyLinkedLayers = (
@@ -403,6 +444,7 @@ export function applyAnimationPlayheadScenePose(opts: {
       if (frameId && nodeFrame && nodeFrame !== frameId) continue;
       const ind = Number(raw.ind);
       if (!Number.isFinite(ind)) continue;
+      touchedIds.push(sceneNodeId);
 
       const ip = Number(raw.ip);
       const op = Number(raw.op);
@@ -436,7 +478,12 @@ export function applyAnimationPlayheadScenePose(opts: {
           raw,
           node,
         });
-        if (!pose) continue;
+        if (!pose) {
+          restoreDocumentGeometry(nodeEls, sceneNodeId, node);
+          const el = nodeEls.get(sceneNodeId) as any;
+          applyLayerInkVisibility(el, inRange, documentOpacityPct(node));
+          continue;
+        }
 
         const { left, top, width: w, height: h, rotation, opacity, skew, skewAxis, roundness } =
           pose;
@@ -450,6 +497,7 @@ export function applyAnimationPlayheadScenePose(opts: {
         }
         previewSvgNodeAngle(nodeEls, sceneNodeId, rotation);
         previewSvgNodeTransform(nodeEls, sceneNodeId);
+        setNodeTransformHidden([{ nodeId: sceneNodeId, hidden: !inRange }]);
 
         const shapeType = String(node.attrs?.shapeType || '');
         if (shapeType && roundness >= 0) {
@@ -483,7 +531,12 @@ export function applyAnimationPlayheadScenePose(opts: {
         layerInd: ind,
         frame: frameN,
       });
-      if (!sampled) continue;
+      if (!sampled) {
+        restoreDocumentGeometry(nodeEls, sceneNodeId, node);
+        const el = nodeEls.get(sceneNodeId) as any;
+        applyLayerInkVisibility(el, inRange, documentOpacityPct(node));
+        continue;
+      }
 
       const fit = plateFitScale(plate, localAnimW, localAnimH);
       const baseW = Math.max(1, Number(raw.w) || Number(node.width) || 1);
@@ -513,6 +566,7 @@ export function applyAnimationPlayheadScenePose(opts: {
       }
       previewSvgNodeAngle(nodeEls, sceneNodeId, sampled.rotation);
       previewSvgNodeTransform(nodeEls, sceneNodeId);
+      setNodeTransformHidden([{ nodeId: sceneNodeId, hidden: !inRange }]);
 
       const shapeType = String(node.attrs?.shapeType || '');
       if (shapeType && sampled.roundness >= 0) {
@@ -556,5 +610,18 @@ export function applyAnimationPlayheadScenePose(opts: {
       Math.max(1, Number(asset.h) || animH)
     );
   }
+
+  // Resting path: restore already cleared per-node previews — wipe any leftovers
+  // so SoA bake is not stuck gated after dock close.
+  if (!applyGeometry) {
+    const linked = listLinkedSceneNodeIds(anim, document, frameId);
+    if (linked.length) clearNodeTransformPreviews(linked);
+  }
+
+  const spatial = getSharedSceneSpatialRuntime();
+  if (spatial && touchedIds.length) {
+    spatial.patchNodes(document, touchedIds);
+  }
+
   return sigParts.join('|');
 }

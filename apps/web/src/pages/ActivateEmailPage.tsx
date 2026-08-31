@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, memo } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { activateEmailLink } from '@/service/auth';

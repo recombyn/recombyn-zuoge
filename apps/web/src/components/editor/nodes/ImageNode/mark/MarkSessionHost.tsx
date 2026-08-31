@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { nanoid } from 'nanoid';
 import { message } from '@/components/base';

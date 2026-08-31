@@ -1,16 +1,30 @@
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 
-/** Stores the latest synchronous HTML-media geometry during an SVG drag. */
+/**
+ * Coalesce HTML-media geometry publishes to one apply per animation frame.
+ * SVG preview stays sync via previewSvgNodeGeometry; React setState must not
+ * run on every pointermove (that re-reconciles SvgCanvas).
+ */
 export function createDragWriteCoalescer(
   apply: (batch: { videoGeom: Record<string, VideoGeomOverride> | null }) => void
 ) {
-  /** Latest intended video overrides (kept for merge-on-move / angle preview). */
   let pendingVideo: Record<string, VideoGeomOverride> | null = null;
+  let raf = 0;
+
+  const flush = () => {
+    raf = 0;
+    apply({ videoGeom: pendingVideo });
+  };
 
   return {
     queueVideoGeom(next: Record<string, VideoGeomOverride> | null) {
       pendingVideo = next;
-      apply({ videoGeom: next });
+      if (typeof requestAnimationFrame === 'undefined') {
+        flush();
+        return;
+      }
+      if (raf) return;
+      raf = requestAnimationFrame(flush);
     },
     getPendingVideoGeom() {
       return pendingVideo;
@@ -18,6 +32,10 @@ export function createDragWriteCoalescer(
     /** Drop pending work without applying (commit owns the final document). */
     cancel() {
       pendingVideo = null;
+      if (raf && typeof cancelAnimationFrame !== 'undefined') {
+        cancelAnimationFrame(raf);
+      }
+      raf = 0;
     },
   };
 }

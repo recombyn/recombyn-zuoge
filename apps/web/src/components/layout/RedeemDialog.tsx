@@ -1,6 +1,6 @@
 import { useEffect, useState, memo } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Dialog, Input, message } from '@/components/base';

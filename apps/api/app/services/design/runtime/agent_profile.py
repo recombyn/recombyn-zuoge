@@ -339,8 +339,6 @@ def _policy_from_routing(routing: dict[str, Any]) -> dict[str, str]:
         if text:
             patches[rule_key] = text
 
-    if "router_model" in routing:
-        put("precheck.router_model", routing.get("router_model"))
     if "lanes" in routing:
         put("precheck.model_threshold", routing.get("lanes"), serialize="lanes")
     if "fallback" in routing:

@@ -225,7 +225,7 @@ const TYPE_MS = 72;
 const DELETE_MS = 36;
 const HOLD_MS = 1800;
 
-/** Typewriter cycle through prompt phrases (type 鈫?hold 鈫?delete 鈫?next). */
+/** Typewriter cycle through prompt phrases (type →hold →delete →next). */
 function useTypewriterCycle(phrases: string[], enabled = true): string {
   const [index, setIndex] = useState(0);
   const [len, setLen] = useState(0);
@@ -411,7 +411,7 @@ const HomeAgentComposer = forwardRef<HomeAgentComposerHandle, Props>(function Ho
     const raw = t('home.composerPlaceholderPrompts', { returnObjects: true });
     return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
   }, [t, i18n.language, category]);
-  // Pause typewriter while the user has text/chips 鈥?avoids re-render storms during paste/typing.
+  // Pause typewriter while the user has text/chips — avoids re-render storms during paste/typing.
   const typewriterOn = !value.trim() && contexts.length === 0;
   const typedPrompt = useTypewriterCycle(placeholderPrompts, typewriterOn);
   const [caretOn, setCaretOn] = useState(true);

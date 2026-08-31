@@ -3,7 +3,7 @@
  *
  * SceneDocument stays the commit fact. During drag / resize / rotate, writers
  * publish here; Canvas underlay, chrome, and hit use
- * `effective = preview ?? document` — not SVG DOM mutation alone.
+ * `effective = preview —  document` — not SVG DOM mutation alone.
  */
 export type NodeTransformPreview = {
   left: number;
@@ -12,6 +12,11 @@ export type NodeTransformPreview = {
   height: number;
   /** Degrees; omit to keep document angle. */
   angle?: number;
+  /**
+   * Playhead out-of-range / ink hide — SoA paint + hit skip while true.
+   * Document visibility is unchanged (scrub-only).
+   */
+  hidden?: boolean;
 };
 
 export type NodeTransformPreviewPatch = {
@@ -21,6 +26,7 @@ export type NodeTransformPreviewPatch = {
   width: number;
   height: number;
   angle?: number;
+  hidden?: boolean;
 };
 
 const byId = new Map<string, NodeTransformPreview>();
@@ -60,6 +66,7 @@ export function setNodeTransformPreviews(patches: readonly NodeTransformPreviewP
       width: Math.max(1, Number(p.width) || 1),
       height: Math.max(1, Number(p.height) || 1),
       angle: p.angle !== undefined ? Number(p.angle) : prev?.angle,
+      hidden: p.hidden !== undefined ? Boolean(p.hidden) : prev?.hidden,
     };
     if (
       prev &&
@@ -67,7 +74,8 @@ export function setNodeTransformPreviews(patches: readonly NodeTransformPreviewP
       prev.top === next.top &&
       prev.width === next.width &&
       prev.height === next.height &&
-      prev.angle === next.angle
+      prev.angle === next.angle &&
+      prev.hidden === next.hidden
     ) {
       continue;
     }
@@ -92,6 +100,7 @@ export function setNodeTransformAngles(
     const prev = byId.get(id);
     const angle = Number(a.angle);
     if (!Number.isFinite(angle)) continue;
+    if (prev && prev.angle === angle) continue;
     if (prev) {
       byId.set(id, { ...prev, angle });
     } else {
@@ -103,6 +112,36 @@ export function setNodeTransformAngles(
         height: Number.NaN,
         angle,
       });
+    }
+    changed = true;
+  }
+  if (changed) notify();
+}
+
+/** Playhead in/out hide for SoA (keeps last box/angle). */
+export function setNodeTransformHidden(
+  patches: ReadonlyArray<{ nodeId: string; hidden: boolean }>
+): void {
+  if (!patches.length) return;
+  let changed = false;
+  for (const p of patches) {
+    const id = String(p.nodeId || '');
+    if (!id) continue;
+    const prev = byId.get(id);
+    const hidden = Boolean(p.hidden);
+    if (prev) {
+      if (prev.hidden === hidden) continue;
+      byId.set(id, { ...prev, hidden });
+    } else if (hidden) {
+      byId.set(id, {
+        left: Number.NaN,
+        top: Number.NaN,
+        width: Number.NaN,
+        height: Number.NaN,
+        hidden: true,
+      });
+    } else {
+      continue;
     }
     changed = true;
   }
@@ -137,6 +176,7 @@ export type EffectivePaintBox = {
   width: number;
   height: number;
   angle: number;
+  hidden: boolean;
 };
 
 /**
@@ -155,6 +195,7 @@ export function effectivePaintBox(
       width: Math.max(1, docBox.width),
       height: Math.max(1, docBox.height),
       angle: Number(docAngle) || 0,
+      hidden: false,
     };
   }
   const left = Number.isFinite(preview.left) ? preview.left : docBox.left;
@@ -167,5 +208,12 @@ export function effectivePaintBox(
     preview.angle !== undefined && Number.isFinite(preview.angle)
       ? Number(preview.angle)
       : Number(docAngle) || 0;
-  return { left, top, width, height, angle };
+  return {
+    left,
+    top,
+    width,
+    height,
+    angle,
+    hidden: Boolean(preview.hidden),
+  };
 }

@@ -15,7 +15,14 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import {
+  useActiveFrameId,
+  useCurrentProjectId,
+  useDocumentRevision,
+  useSelectedFrameIds,
+  useSelectedNodeIds,
+} from '@/store/editorSelectors';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import * as Y from 'yjs';
@@ -38,8 +45,9 @@ import {
   syncOwnedDocumentToCloud,
 } from '@/components/editor/useProjectCloudSync';
 import store from '@/store';
-import { applyCollabDocument, applyCollabScenePatch, EMPTY_ID_LIST } from '@/store/modules/editor';
+import { applyCollabDocument, applyCollabScenePatch } from '@/store/modules/editor';
 import { getToken } from '@/utils/token';
+import { isAnimationWorkbenchGeometryPreview } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
   bindCollabUndoManager,
   clearCollabUndoStack,
@@ -265,7 +273,7 @@ function preferPeer(prev: CollabPeer, next: CollabPeer): CollabPeer {
   return prev;
 }
 
-/** One entry per userId 鈥?skip self (incl. stale tabs after refresh) and merge multi-tab ghosts. */
+/** One entry per userId — skip self (incl. stale tabs after refresh) and merge multi-tab ghosts. */
 function readPeers(awareness: Awareness, selfId: number, selfUserId: string): CollabPeer[] {
   const byUserId = new Map<string, CollabPeer>();
   awareness.getStates().forEach((state, clientId) => {
@@ -551,17 +559,11 @@ export function CollabRoomProvider({
   const onCameraChangeRef = useRef(onCameraChange);
   onCameraChangeRef.current = onCameraChange;
 
-  const document = useSelector((s: any) => s.editor.document);
-  const currentId = useSelector((s: any) => s.editor.currentId as string | null);
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const selectedFrameIds = useSelector(
-    (s: any) => (s.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const activeFrameId = useSelector(
-    (s: any) => (s.editor.document?.activeFrameId as string | null) || null
-  );
+  const documentRevision = useDocumentRevision();
+  const currentId = useCurrentProjectId();
+  const selectedNodeIds = useSelectedNodeIds();
+  const selectedFrameIds = useSelectedFrameIds();
+  const activeFrameId = useActiveFrameId();
   const user = useSelector(
     (s: any) =>
       s.auth?.user as { id?: string; name?: string; email?: string } | null
@@ -582,8 +584,9 @@ export function CollabRoomProvider({
   const lastPushedHashRef = useRef('');
   const seededRef = useRef(false);
   const persistTimerRef = useRef<number | null>(null);
-  const documentRef = useRef(document);
-  documentRef.current = document;
+  const documentRef = useRef(store.getState().editor.document);
+  documentRef.current = store.getState().editor.document;
+  const lastPushedRevisionRef = useRef(-1);
 
   const followPeer = (userId: string) => {
     setFollowingUserId(userId);
@@ -622,6 +625,7 @@ export function CollabRoomProvider({
     ydocRef.current = ydoc;
     seededRef.current = false;
     lastPushedHashRef.current = '';
+    lastPushedRevisionRef.current = -1;
     setStatus('connecting');
     setError(null);
     setCollabActive(true);
@@ -631,7 +635,7 @@ export function CollabRoomProvider({
       setCollabCloudPersistOwned(roleRef.current === 'edit' && seededRef.current);
     };
 
-    // Track only local scene writes 鈥?seed / remote / undo replay stay out of the stack.
+    // Track only local scene writes — seed / remote / undo replay stay out of the stack.
     const undoManager = new Y.UndoManager(
       [yMetaMap(ydoc), yFramesMap(ydoc), yNodesMap(ydoc), yPageChildren(ydoc), yStackOrder(ydoc)],
       {
@@ -676,12 +680,17 @@ export function CollabRoomProvider({
       }, PERSIST_DEBOUNCE_MS);
     };
 
+    const syncPushedRevisionFromStore = () => {
+      lastPushedRevisionRef.current = Number(store.getState().editor.documentRevision) || 0;
+    };
+
     const hydrateFromY = () => {
       applyingRemoteRef.current = true;
       try {
         const scene = sceneFromYDoc(ydoc);
         lastPushedHashRef.current = sceneHash(scene);
         dispatch(applyCollabDocument(scene));
+        syncPushedRevisionFromStore();
         clearCollabUndoStack();
       } finally {
         queueMicrotask(() => {
@@ -693,6 +702,7 @@ export function CollabRoomProvider({
     const seedFromLocal = (localDoc: unknown) => {
       seedYDocFromScene(ydoc, localDoc);
       lastPushedHashRef.current = sceneHash(sceneFromYDoc(ydoc));
+      syncPushedRevisionFromStore();
       clearCollabUndoStack();
     };
 
@@ -707,7 +717,7 @@ export function CollabRoomProvider({
         return;
       }
 
-      // Viewers never seed 鈥?wait for an editor to populate the room.
+      // Viewers never seed — wait for an editor to populate the room.
       if (roleRef.current === 'view') {
         window.setTimeout(() => {
           if (cancelled) return;
@@ -746,7 +756,7 @@ export function CollabRoomProvider({
             hydrateFromY();
             return;
           }
-          // Leader never seeded (left / failed) 鈥?claim and seed as fallback.
+          // Leader never seeded (left / failed) — claim and seed as fallback.
           if (tryClaimRoomSeed(ydoc, ydoc.clientID)) {
             seedFromLocal(localDoc);
           }
@@ -967,18 +977,21 @@ export function CollabRoomProvider({
     apply(next);
   }, [followingUserId, peers, stageEl]);
 
-  // Local Redux 鈫?Y (editors only).
+  // Local store → Y (editors only). Gate on documentRevision — skip playhead bake
+  // (documentPatchToken only) and avoid pushEditorHistory-only false positives.
   useEffect(() => {
     if (!enabled || role !== 'edit') return;
     const ydoc = ydocRef.current;
+    const document = store.getState().editor.document;
     if (!ydoc || !document || !seededRef.current) return;
     if (applyingRemoteRef.current) return;
-    const hash = sceneHash(document);
-    if (hash === lastPushedHashRef.current) return;
+    if (isAnimationWorkbenchGeometryPreview()) return;
+    if (documentRevision === lastPushedRevisionRef.current) return;
     applyLocalSceneToY(ydoc, document);
+    lastPushedRevisionRef.current = documentRevision;
     // Hash the Y snapshot (not Redux JSON) so websocket echoes compare equal.
     lastPushedHashRef.current = sceneHash(sceneFromYDoc(ydoc));
-  }, [enabled, role, document]);
+  }, [enabled, role, documentRevision]);
 
   // Awareness: local node + artboard selection (republish when room syncs).
   useEffect(() => {
@@ -994,7 +1007,7 @@ export function CollabRoomProvider({
     awareness.setLocalStateField('selectedFrameIds', frameIds);
   }, [enabled, status, selectedNodeIds, selectedFrameIds, activeFrameId]);
 
-  // Awareness: local pointer 鈫?scene coords (so peers with different cameras still align).
+  // Awareness: local pointer →scene coords (so peers with different cameras still align).
   useEffect(() => {
     if (!enabled || !stageEl || status === 'idle') return undefined;
     let lastSent = 0;

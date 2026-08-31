@@ -19,7 +19,7 @@ export function nearestScrollRoot(el: HTMLElement | null): Element | null {
 
 type ScrollLoadMoreOptions = {
   hasMore: boolean;
-  /** Initial / blocking load �?do not fire load-more. */
+  /** Initial / blocking load — do not fire load-more. */
   loading?: boolean;
   loadingMore?: boolean;
   onLoadMore: () => void;
@@ -66,7 +66,7 @@ type ScrollLoadFooterProps = {
   className?: string;
 };
 
-/** Bottom sentinel � three-dot pulse while the next page is fetching. */
+/** Bottom sentinel — three-dot pulse while the next page is fetching. */
 function ScrollLoadFooter({
   sentinelRef,
   hasMore,

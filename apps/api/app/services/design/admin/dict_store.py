@@ -19,15 +19,6 @@ _DICTS_LOCK = threading.RLock()
 # Bump when seeds/design_dicts_seed.json gains rows (also stored as seed.rev).
 _DICT_SEED_REV = 29
 _seeded_rev = 0
-# Label lookup cache (resolve_edge_condition is identity — no per-edge DB).
-_EDGE_COND_LABELS: dict[str, str] | None = None
-_EDGE_COND_LABELS_LOCK = threading.Lock()
-
-
-def _invalidate_edge_condition_label_cache() -> None:
-    global _EDGE_COND_LABELS
-    with _EDGE_COND_LABELS_LOCK:
-        _EDGE_COND_LABELS = None
 
 
 def _dicts_data_path():
@@ -97,49 +88,6 @@ def _dict_description_defaults() -> dict[tuple[str, str], str]:
         if typ and code:
             out[(typ, code)] = str(v or "")
     return out
-
-
-# Compatibility aliases (loaded from JSON; prefer _dict_*_defaults() at runtime).
-DICT_TYPE_DEFAULTS = _dict_type_defaults()
-DICT_DEFAULTS = _dict_item_defaults()
-DICT_DESCRIPTION_DEFAULTS = _dict_description_defaults()
-
-
-def resolve_edge_condition(raw: str) -> str:
-    """Normalize edge condition to dict ``code`` / predicate string.
-
-    Identity strip only: never reverse-maps mutable display ``label`` → code,
-    and never hits MySQL (Admin GET / normalize used to N+1 list_dicts per edge).
-    """
-    return str(raw or "").strip()
-
-
-def edge_condition_label(code: str) -> str:
-    """Display name for a flow_edge_condition code (empty if unknown)."""
-    global _EDGE_COND_LABELS
-    key = str(code or "").strip()
-    if not key:
-        return ""
-    labels = _EDGE_COND_LABELS
-    if labels is None:
-        with _EDGE_COND_LABELS_LOCK:
-            labels = _EDGE_COND_LABELS
-            if labels is None:
-                labels = {}
-                try:
-                    items = list_dicts(dict_type="flow_edge_condition", enabled=True)
-                    for i in items:
-                        c = str(i.get("code") or "").strip()
-                        if c:
-                            labels[c] = str(i.get("label") or "").strip()
-                except Exception:
-                    pass
-                if not labels:
-                    for typ, c, label, _ord in _dict_item_defaults():
-                        if typ == "flow_edge_condition" and str(c).strip():
-                            labels[str(c).strip()] = str(label).strip()
-                _EDGE_COND_LABELS = labels
-    return str(labels.get(key) or "")
 
 
 def _norm_type_code(raw: str) -> str:
@@ -409,7 +357,6 @@ def ensure_design_dicts() -> None:
             rev = _DICT_SEED_REV
         _seeded_rev = max(_DICT_SEED_REV, rev)
         _DICTS_READY = True
-        _invalidate_edge_condition_label_cache()
 
 
 def list_dicts(*, dict_type: str | None = None, enabled: bool | None = True) -> list[dict[str, Any]]:
@@ -619,7 +566,6 @@ def upsert_dict(payload: dict[str, Any]) -> dict[str, Any]:
                 session.add(row)
                 session.commit()
                 session.refresh(row)
-    _invalidate_edge_condition_label_cache()
     return _pub_dict(row)
 
 
@@ -638,7 +584,6 @@ def soft_delete_dict(item_id: int) -> bool:
         row.updated_at = time.time()
         session.add(row)
         session.commit()
-    _invalidate_edge_condition_label_cache()
     return True
 
 
@@ -655,5 +600,4 @@ def hard_delete_dict(item_id: int) -> bool:
             return False
         session.delete(row)
         session.commit()
-    _invalidate_edge_condition_label_cache()
     return True

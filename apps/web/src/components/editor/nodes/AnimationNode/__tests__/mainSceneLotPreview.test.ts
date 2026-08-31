@@ -18,8 +18,10 @@ import editorReducer, {
   finishLottieGenerator,
   patchDocumentNodes,
   placeUploadedLottie,
+  setDocumentFromCanvas,
   spawnLottieGeneratorPlate,
 } from '@/store/modules/editor';
+import { collectPrecompSessionDocumentPatches } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
 import { createEmptyDocument } from '@/components/rcb/scene/document/sceneDocument';
 import {
   isHiddenByLottiePrecompEditFocus,
@@ -251,6 +253,117 @@ describe('main scene LOT preview data', () => {
     const again = state.lottiePrecompEdit?.sessionNodeIds?.[0];
     expect(again).toBeTruthy();
     expect(Number(state.document!.deltaSetLike[again!].width)).toBeGreaterThan(widthBefore);
+  });
+
+  it('user JSON: LOT tab playhead bake does not infinite-loop with persist', () => {
+    const anim = userLotFixture();
+    expect(anim).toBeTruthy();
+    let state = seedEditor();
+    state = editorReducer(
+      state,
+      placeUploadedLottie({
+        animationData: anim,
+        name: '重测生成LOT-edited',
+      })
+    );
+    const hostId = String(state.lottieTimelinePanel!.nodeId);
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    const lotId = findNestedLot(state, hostId, frameId)!;
+    const assetId = `lot_${lotId}`;
+
+    state = editorReducer(
+      state,
+      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
+    );
+    expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
+
+    let lastToken = state.documentPatchToken;
+    let lastPatches = -1;
+    let lastSig = '';
+    for (let i = 0; i < 12; i += 1) {
+      const patches = collectPrecompSessionDocumentPatches({
+        document: state.document!,
+        hostNodeId: hostId,
+        playheadSec: Number(state.lottiePlayheadSec) || 0,
+      });
+      lastPatches = patches.length;
+      const sig = patches
+        .map(
+          (p) =>
+            `${p.nodeId}:${p.patch.x},${p.patch.y},${p.patch.width},${p.patch.height}`
+        )
+        .join('|');
+      // React layout effect re-entry: same sig must not keep dispatching.
+      if (patches.length && sig === lastSig) {
+        throw new Error(`playhead bake sig did not stabilize (iter ${i})`);
+      }
+      lastSig = sig;
+      if (!patches.length) break;
+      state = editorReducer(
+        state,
+        patchDocumentNodes({ patches, skipHistory: true })
+      );
+      // Canvas remount during LOT tab — must not persist/autoKey.
+      state = editorReducer(
+        state,
+        // setDocumentFromCanvas is imported below — use ensure with skipHistory
+        ensureAnimationFrameMedia({ frameId, skipHistory: true })
+      );
+      expect(state.documentPatchToken - lastToken).toBeLessThan(4);
+      lastToken = state.documentPatchToken;
+    }
+    expect(lastPatches).toBe(0);
+    expect(state.lottiePrecompEdit?.assetId).toBe(assetId);
+  });
+
+  it('user JSON: enter LOT tab then setDocumentFromCanvas does not bump forever', () => {
+    const anim = userLotFixture();
+    let state = seedEditor();
+    state = editorReducer(
+      state,
+      placeUploadedLottie({
+        animationData: anim,
+        name: '重测生成LOT-edited',
+      })
+    );
+    const hostId = String(state.lottieTimelinePanel!.nodeId);
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    const lotId = findNestedLot(state, hostId, frameId)!;
+    const assetId = `lot_${lotId}`;
+    state = editorReducer(
+      state,
+      enterLottiePrecompEdit({ hostNodeId: hostId, assetId, selectedLayerInd: 1 })
+    );
+    const token0 = state.documentPatchToken;
+    const doc = state.document!;
+    for (let i = 0; i < 8; i += 1) {
+      state = editorReducer(state, setDocumentFromCanvas(doc));
+    }
+    // No persist while LOT tab open → token should not keep climbing from autoKey.
+    expect(state.documentPatchToken - token0).toBeLessThanOrEqual(8);
+    const patches = collectPrecompSessionDocumentPatches({
+      document: state.document!,
+      hostNodeId: hostId,
+      playheadSec: 0,
+    });
+    // After at most one bake, further collects must empty or stay small.
+    let s = state;
+    for (let i = 0; i < 5 && patches.length; i += 1) {
+      const p = collectPrecompSessionDocumentPatches({
+        document: s.document!,
+        hostNodeId: hostId,
+        playheadSec: 0,
+      });
+      if (!p.length) break;
+      s = editorReducer(s, patchDocumentNodes({ patches: p, skipHistory: true }));
+    }
+    expect(
+      collectPrecompSessionDocumentPatches({
+        document: s.document!,
+        hostNodeId: hostId,
+        playheadSec: 0,
+      }).length
+    ).toBe(0);
   });
 
   it('finishLottieGenerator (AI path): 主场景 uses materialized shapes, not nested lot', () => {

@@ -8,8 +8,6 @@ import {
 import {
   noteCanvasFlyLand,
   playFlyChipToChat,
-  resolveAttachFlyLabel,
-  resolveNextFlyOrigin,
 } from '@/components/editor/panels/agent/composer/flyToChat';
 import { canAttachNodeToChat, canvasAttachPickPayload } from '@/components/rcb/scene/document/mediaLifecycle';
 import { captureVideoPosterFrame } from '@/components/rcb/scene/document/nodeFactories';
@@ -247,8 +245,6 @@ export async function flyPickIntoComposer(opts: {
 }) {
   const { landId, document: doc, payload, ...applyOpts } = opts;
   noteCanvasFlyLand(landId);
-  const from = resolveNextFlyOrigin({ document: doc, payload });
-  const label = resolveAttachFlyLabel(doc, payload);
   const apply = () =>
     applyCanvasPickToComposer({
       document: doc,
@@ -256,7 +252,7 @@ export async function flyPickIntoComposer(opts: {
       ...applyOpts,
     });
   try {
-    await playFlyChipToChat({ from, label, landId, onLand: apply });
+    await playFlyChipToChat({ onLand: apply });
   } catch {
     await apply();
   }

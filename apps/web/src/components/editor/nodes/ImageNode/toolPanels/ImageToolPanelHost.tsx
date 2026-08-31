@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector, useStore } from 'react-redux';
+import { useDispatch, useSelector, useStore } from '@/store';
+import { useSelectedNodeId, useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
 import { getHttpErrorMessage } from '@/service/client';
@@ -57,10 +58,11 @@ import {
   readPuppetDensity,
   readPuppetTrack,
 } from '@/components/editor/nodes/ImageNode/puppet/puppetModel';
+import { requestPuppetWarpApply } from '@/components/editor/nodes/ImageNode/puppet/puppetWarpApplyEvent';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 
-/** Local erase → right-side cutout node (source image untouched), same pattern as 抠图. */
+/** Local erase — right-side cutout node (source image untouched), same pattern as 抠图. */
 async function confirmEraserAsNewNode(opts: {
   applyErase: (src: string, o?: { uploadKey?: string | null }) => Promise<string>;
   src: string;
@@ -106,7 +108,7 @@ async function confirmEraserAsNewNode(opts: {
   }
 }
 
-/** Dock Eraser / Replace text / … to the image's top-right (not the selection toolbar). */
+/** Dock Eraser / Replace text / — to the image's top-right (not the selection toolbar). */
 function panelStyleRight(
   camera: { x: number; y: number; zoom: number },
   box: { left: number; top: number; width: number; height: number },
@@ -174,10 +176,8 @@ function ImageToolPanelHost({
     kind: ImageToolPanelKind;
   });
   const timelineOpen = useSelector((s: any) => Boolean(s.editor.lottieTimelinePanel));
-  const selectedNodeId = useSelector((s: any) => s.editor.selectedNodeId as string | null);
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) || []
-  );
+  const selectedNodeId = useSelectedNodeId();
+  const selectedNodeIds = useSelectedNodeIds();
   const effectiveSelectedId =
     selectedNodeId ||
     (selectedNodeIds.length === 1 ? String(selectedNodeIds[0]) : null);
@@ -417,18 +417,20 @@ function ImageToolPanelHost({
           density={readPuppetDensity(attrs)}
           keyframeCount={readPuppetTrack(attrs).length}
           timelineOpen={timelineOpen}
-          onDensityChange={(v) =>
+          onDensityChange={(v) => {
             writeAttrPatch(
               { puppetEnabled: true, puppetDensity: Math.round(v) },
               'preview'
-            )
-          }
-          onReset={() =>
+            );
+            requestPuppetWarpApply();
+          }}
+          onReset={() => {
             writeAttrPatch(
               { puppetEnabled: true, puppetDensity: PUPPET_DENSITY_DEFAULT },
               'preview'
-            )
-          }
+            );
+            requestPuppetWarpApply();
+          }}
           onClose={closeLiveAttrPanel}
         />
       );

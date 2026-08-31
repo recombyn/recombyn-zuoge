@@ -1,0 +1,58 @@
+{
+  "generatedAt": "2026-08-31T11:05:46.249Z",
+  "note": "1M light shapes: use SoA bake tiles + pick (not 1M SVG hosts / editable layers).",
+  "bakeThresholdDefault": 8000,
+  "tiers": [
+    {
+      "n": 2000,
+      "buildDocMs": 3.7,
+      "syncMs": 6.4,
+      "panCullMs": 0.18,
+      "panCullVisible": 294,
+      "hitLinearMs": 0.065,
+      "hitOrderedMs": 0.001,
+      "spatialBuildMs": 2.5,
+      "spatialHitCandAvg": 4,
+      "bakeEnsureMs": null,
+      "bakeTiles": null,
+      "rssMb": 143.6,
+      "heapMb": 72.6,
+      "bakeRecommended": false,
+      "bakeThreshold": 8000
+    },
+    {
+      "n": 10000,
+      "buildDocMs": 22.9,
+      "syncMs": 21.4,
+      "panCullMs": 0.4,
+      "panCullVisible": 294,
+      "hitLinearMs": 0.157,
+      "hitOrderedMs": 0,
+      "spatialBuildMs": 11.4,
+      "spatialHitCandAvg": 4,
+      "bakeEnsureMs": 11.6,
+      "bakeTiles": 0,
+      "rssMb": 150.9,
+      "heapMb": 83,
+      "bakeRecommended": true,
+      "bakeThreshold": 8000
+    },
+    {
+      "n": 100000,
+      "buildDocMs": 314.8,
+      "syncMs": 190.2,
+      "panCullMs": 4.06,
+      "panCullVisible": 294,
+      "hitLinearMs": 1.061,
+      "hitOrderedMs": 0.001,
+      "spatialBuildMs": 63.5,
+      "spatialHitCandAvg": 4,
+      "bakeEnsureMs": 7.3,
+      "bakeTiles": 0,
+      "rssMb": 211,
+      "heapMb": 136.9,
+      "bakeRecommended": true,
+      "bakeThreshold": 8000
+    }
+  ]
+}

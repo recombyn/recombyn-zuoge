@@ -14,10 +14,12 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 | Pixel grid + Canvas idle | Grid underlay `[data-rcb-scene-canvas]`; idle ink `[data-rcb-idle-ink-canvas]` | `RcbCanvas` + `createCanvasSceneRenderer` |
 | Selection chrome | Shared scene SVG camera group for AABB, path silhouette, shape knobs, guides, and drawing previews; HTML overlay only for screen UI/hit seats | `rcb/selection/SelectionChrome.tsx`, `HostPathChrome.tsx`, chrome overlays |
 | Transform gestures | `pointermove` → RAF-coalesced live preview into `TransformPreview` + transitional SVG DOM; `pointerup` commits SceneDocument and clears preview | `core/transformPreview.ts`, `SelectionFeature` coalescer, `canvasSession.onGeometryPreview/Commit` |
+| Frame clip (live) | Artboard move: preview plate geom → `setNodeTransformPreviews` → SVG → `syncFrameContentClip` (never clip before preview boxes land) | `EditorStageWorld`, `canvasSession.onGeometryPreview` |
 | Pointer hit | Overlay seats → chrome **geometry** → shared `SceneSpatialRuntime` → Path2D/AABB (SVG DOM off by default) | `pickSelectionInkAtClient`, `hitTestWithSpatialIndex`, `setSharedSceneSpatialRuntime` |
 | Document model | Types + Zod | `rcb/sceneNode.ts`, `packages/scene-schema` |
 | Mutations | normalize / stack / CRUD | `rcb/scene/document/sceneDocument.ts` |
 | Live state | `document`, selection, tools | `store/modules/editor.ts` |
+| React subscriptions | Narrow editor hooks only — live vs commit-only document | `store/editorSelectors.ts` (`useEditorDocument` / `useEditorDocumentOnCommit`) |
 | Undo | COW / patch history | `store/modules/editorHistory.ts` |
 | Collab | Yjs ↔ scene ↔ Redux | `editor/collab/sceneYBridge.ts`, `CollabRoomProvider.tsx` |
 
@@ -62,7 +64,7 @@ Node and artboard titles are native-input edits: the browser owns the active inp
 
 Pen, pencil, shape, and frame tools portal preview into a shared scene SVG mount (`getSceneDrawPreviewMount` in `shapeHostRegistry.ts`):
 
-- **Pen / path edit** — SVG `<g>` preview (`PenDrawFeature`, `PenPathEditFeature`)
+- **Pen / path edit** — SVG `<g>` preview (`PenDrawFeature`, `PenPathEditFeature`). Entering path edit bakes `flipX`/`flipY` into anchors (`flipAnchorsAroundCenter`) so the host-hidden path matches the flipped ink; commit clears flip flags.
 - **Pencil** — filled **SVG ribbon** from `outlinePathFromPoints` (`pencilBrushes.ts`); preview and commit share that outline
 - **Shape / frame draw** — SVG stroke/box preview portals
 
@@ -150,11 +152,16 @@ apps/web/src/components/rcb/
   shapes/shapeHostRegistry.ts    # host registry + draw preview mount
   scene/document/sceneShapes.ts  # Path2D cache + ribbon outline helpers
   scene/document/sceneHitBridge.ts
+  frames/frameContentClip.ts     # clip-content sync during artboard drag
   tools/PenDrawFeature.tsx
+  tools/PenPathEditFeature.tsx   # path edit + flip bake
   tools/PencilDrawFeature.tsx
   tools/pencilBrushes.ts
   tools/ShapeDrawFeature.tsx
   core/spatialIndex.ts
 apps/web/src/components/editor/canvas/SvgCanvas.tsx
+apps/web/src/components/editor/canvas/canvasSession.ts
+apps/web/src/store/editorSelectors.ts
 docs/scene-json-spec.md
+docs/adr/0027-canvas-layered-runtime.md
 ```

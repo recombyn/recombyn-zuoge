@@ -99,10 +99,6 @@ def _slim_admin_steps(
             out.append(slim)
     return out
 
-def _slim_failure_steps(steps: list[dict[str, Any]], *, limit: int = 12) -> list[dict[str, Any]]:
-    """Compat alias — prefer ``_slim_admin_steps``."""
-    return _slim_admin_steps(steps, limit=limit, io_limit=4000)
-
 def _hydrate_srcs_for_log(ops: list[dict[str, Any]] | None) -> list[str] | None:
     urls: list[str] = []
     for op in list(ops or [])[:12]:
@@ -377,10 +373,6 @@ def _goto_cmd(rt: AgentRuntime, *, frm: str, to: str, **extra: Any) -> Command:
     _log_graph_hop(rt.run, frm=frm, to=to, **extra)
     return Command(update=_bump(rt), goto=to)
 
-def _commit(rt: AgentRuntime) -> Command:
-    """Compat: update-only (no goto) for tests."""
-    return Command(update=_bump(rt))
-
 async def _persist_progress(rt: AgentRuntime) -> None:
     """Flush execution_log while status=running so Admin replay is not empty mid-flight."""
     try:
@@ -396,7 +388,6 @@ async def _persist_progress(rt: AgentRuntime) -> None:
 __all__ = [
     '_clip_admin_step_io',
     '_slim_admin_steps',
-    '_slim_failure_steps',
     '_hydrate_srcs_for_log',
     '_hydrate_log_kwargs',
     '_hydrate_prompts_for_log',
@@ -406,6 +397,5 @@ __all__ = [
     '_log_graph_hop',
     '_bump',
     '_goto_cmd',
-    '_commit',
     '_persist_progress',
 ]

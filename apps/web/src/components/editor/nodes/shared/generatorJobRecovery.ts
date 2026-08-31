@@ -1,4 +1,4 @@
-import type { Dispatch } from '@reduxjs/toolkit';
+import type { Dispatch } from '@/store';
 import {
   listImageVariantUrls,
   writeImageVariantsAttr,

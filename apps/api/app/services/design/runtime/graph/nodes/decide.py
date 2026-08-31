@@ -656,7 +656,6 @@ async def _node_design_agent(state: GraphState) -> Command:
         st,
         skill={
             "category": "agent",
-            "default_model": "doubao",
             "name": "react",
             "skill_key": "react"
         },

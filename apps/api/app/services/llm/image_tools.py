@@ -27,7 +27,6 @@ IMAGE_PROCESS_KINDS = frozenset(
         "detectRegions",
         "replaceText",
         "vector",
-        "adjust",
     }
 )
 
@@ -143,12 +142,6 @@ def _prompt_for(
             f"with \"{new}\". Keep the same artistic lettering style, brush/calligraphy "
             f"texture, colors, lighting, layout, and background. Do not add extra "
             f"captions, watermarks, or unrelated objects. Only change that text content."
-        )
-    if kind == "adjust":
-        hint = str(m.get("hint") or "balanced exposure, natural contrast and color").strip()
-        return (
-            f"Apply photographic color/tone adjustment: {hint}. "
-            f"Keep composition and subject identity identical; no restyling."
         )
     raise ValueError(f"Unsupported image process kind: {kind}")
 

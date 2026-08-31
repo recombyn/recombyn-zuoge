@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { LuPencil } from 'react-icons/lu';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
 import { Icon } from '@/components/base/icon';
@@ -22,7 +22,7 @@ const BTN_ACTIVE = 'bg-white/15 text-white';
 
 /**
  * Icon annotate strip: pen · select · text · color · stroke width.
- * No photo tools (remove-bg / upscale / eraser …).
+ * No photo tools (remove-bg / upscale / eraser — .
  */
 function IconAnnotateToolbar({ downloadSlot }: Props): ReactNode {
   const dispatch = useDispatch();

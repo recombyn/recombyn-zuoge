@@ -1,4 +1,4 @@
-import { nanoid } from '@reduxjs/toolkit';
+import { nanoid } from 'nanoid';
 import { buildMarkdownTextAttrs, measurePlainTextSize } from './sceneText';
 import {
   clampShapeSides,

@@ -5,7 +5,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * via WorldSvgFrame (ADR 0027 — no host viewBox mirror).
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeCornerRadii } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
@@ -185,7 +185,7 @@ function radiusAlongBoxCorner(
   const cornerLx = corner.cx * w;
   const cornerLy = corner.cy * h;
   const len = Math.hypot(corner.ix, corner.iy) || 1;
-  // Bisector projection; seat at (R,R) ⇒ along = R√2, so R = along/√2.
+  // Bisector projection; seat at (R,R) — along = R—, so R = along/—.
   const along =
     (local.x - cornerLx) * (corner.ix / len) + (local.y - cornerLy) * (corner.iy / len);
   return Math.max(0, Math.min(boxMaxR, along / Math.SQRT2));
@@ -254,7 +254,7 @@ export function radiusSeatInset(r: number, halfSide: number, parkScene: number):
 /**
  * Box-mode local seat: slide along the inward diagonal `(inset, inset)` from
  * the corner — same path the drag projects onto ({@link radiusAlongBoxCorner}).
- * At R≈0 this is `(park,park)` and still clears resize; as R grows every corner
+ * At R— this is `(park,park)` and still clears resize; as R grows every corner
  * moves toward the box center (not along one AABB edge).
  */
 export function boxRadiusSeatLocal(
@@ -294,7 +294,7 @@ export function pathRadiusSeatAlong(
 
 /**
  * Path seats travel along the inward bisector. Axis AABB clearance needs the
- * same park on both axes as box-mode `(inset, inset)` — so along ≥ park / min(|ix|,|iy|).
+ * same park on both axes as box-mode `(inset, inset)` — so along — park / min(|ix|,|iy|).
  * Prefer {@link pathRadiusSeatAlong} for seating path R-dots (no amplification).
  */
 export function radiusParkAlongBisector(
@@ -443,7 +443,7 @@ function isPathRadiusShape(node: SceneNodeInput, shapeType: string): boolean {
 function shouldSkipRadiusHandles(node: SceneNodeInput, shapeType: string): boolean {
   if (node?.key === 'ellipse') return true;
   if (shapeType === 'circle' || shapeType === 'ellipse') return true;
-  // 轮廓化结果：一律不显示圆角控制点（含钢笔 / 线 / 箭头 / 文字等）.
+  // 轮廓化结果：一律不显示圆角控制点（含钢—/ — / 箭头 / 文字等）.
   if (isOutlinedPath(node)) return true;
   return false;
 }
@@ -503,7 +503,7 @@ function CornerRadiusHandlesOverlay({
   const skipRadiusHandles = shouldSkipRadiusHandles(node, shapeType);
 
   // Prefer live host geom so park inset shares the same lattice as resize knobs
-  // (Redux box drifts after high-zoom sticky re-align → R-dot lands on the corner).
+  // (Redux box drifts after high-zoom sticky re-align — R-dot lands on the corner).
   const seatBox = liveShapeGeomBox(nodeId) || box;
   chromeDeferRef.current = {
     box: seatBox,
@@ -519,7 +519,7 @@ function CornerRadiusHandlesOverlay({
   const linked = isRadiusLinked(node?.attrs);
   const pathSites = skipRadiusHandles ? null : sharpCornerSitesForNode(node);
   const usePath = Boolean(pathSites && pathSites.length > 0);
-  // Path/pen with no parseable sharp corners (curves only) → no handles at all.
+  // Path/pen with no parseable sharp corners (curves only) — no handles at all.
   // Without this guard the code falls back to AABB box-mode handles that float
   // in the empty space outside the actual shape (e.g. crescent, arc shapes).
   const hidePathWithoutSites = isPathType && !usePath;
@@ -537,7 +537,7 @@ function CornerRadiusHandlesOverlay({
   // `box` prop is path geom (caller deflates visual chrome). Host-mirrored
   // local space is also geom — path sites need no chrome pad.
 
-  /** Control-box local: corner → seat on the inward diagonal. */
+  /** Control-box local: corner — seat on the inward diagonal. */
   const boxHandleLocalPos = (corner: (typeof RADIUS_CORNERS)[number], r: number) =>
     boxRadiusSeatLocal(corner, r, w, h, parkScene);
 
@@ -646,7 +646,7 @@ function CornerRadiusHandlesOverlay({
       const d = dragRef.current;
       if (!d) return;
       const distSq = (e.clientX - d.startX) ** 2 + (e.clientY - d.startY) ** 2;
-      // Soft-click: ignore OS jitter; seat maps to R via along/√2 but R=0
+      // Soft-click: ignore OS jitter; seat maps to R via along/— but R=0
       // seats on the screen pad and must not commit that pad as radius.
       if (!d.moved && distSq <= DRAG_DISTANCE_SQUARED) return;
       d.moved = true;
@@ -754,7 +754,7 @@ function CornerRadiusHandlesOverlay({
     return null;
   }
 
-  // Always show while selected — seats track R (park only when R≈0).
+  // Always show while selected — seats track R (park only when R—).
   let badgeVal = Math.round(baseRadii.tl);
   if (dragValue != null) {
     badgeVal = dragValue;
@@ -836,7 +836,7 @@ function CornerRadiusHandlesOverlay({
     pathSeatClearsControlCorners(handle.lx, handle.ly, w, h, pathClearScene)
   );
 
-  // Path seats on the outer ring sit on AABB corners → look like "圆角" on resize.
+  // Path seats on the outer ring sit on AABB corners — look like "圆角" on resize.
   // Keep hole/inner seats; if every site was a control-box corner (rect-like path),
   // fall back to inset AABB seats.
   let handles: HandleSpec[] = [];

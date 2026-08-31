@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useNavigate } from 'react-router-dom';
 import { store } from '@/store';
 import { buildLoginUrl } from '@/utils/authReturnTo';
@@ -17,7 +17,7 @@ export type GoEditorOpts = {
   /** Open editor in a new browser tab/window (home project cards). */
   newWindow?: boolean;
   /**
-   * Home → editor handoff payload. Not placed in the URL (URL only has createNew / fromHomeAgent).
+   * Home — editor handoff payload. Not placed in the URL (URL only has createNew / fromHomeAgent).
    * Seeded into the new tab's sessionStorage; cleared after the editor consumes it.
    */
   homeAgentBoot?: HomeAgentBoot;

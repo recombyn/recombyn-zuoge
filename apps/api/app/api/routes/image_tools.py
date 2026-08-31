@@ -35,7 +35,6 @@ _KIND_CREDIT_COST: dict[str, int] = {
     "detectRegions": 0,
     "replaceText": 30,
     "vector": 0,  # local vtracer, no LLM
-    "adjust": 0,  # FE uses CSS filters; API adjust is unused
 }
 
 

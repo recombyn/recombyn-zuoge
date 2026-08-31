@@ -1,6 +1,7 @@
 /**
  * Puppet tool: canvas overlay (mesh + pins), SVG warp sync, and toolbar icon.
- * Overlay mounts only while the puppet panel is open so 退出 restores image drag.
+ * Overlay mounts only while the puppet panel is open so 退—restores image drag.
+ * Warp bake is Canvas 2D; apply is event-driven (not a document watcher).
  */
 import {
   useCallback,
@@ -12,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { RcbOverlayPortal, useRcbCamera, rcbSceneToScreen } from '@/components/rcb';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -21,6 +22,7 @@ import { getFillImageReady } from '@/components/rcb/render/sceneRenderer';
 import { secToFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineModel';
 import { getAnimationWorkbenchPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import { getAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
 import type { ImageToolPanelState } from '@/store/modules/editor';
 import { patchDocumentNode } from '@/store/modules/editor';
 import store from '@/store';
@@ -32,7 +34,11 @@ import {
   readPuppetPins,
   type PuppetPin,
 } from './puppetModel';
-import { autoKeyPuppetPins, expandPuppetTimelineLayer } from './puppetTimeline';
+import { autoKeyPuppetPins } from './puppetTimeline';
+import {
+  RCB_PUPPET_WARP_APPLY,
+  requestPuppetWarpApply,
+} from './puppetWarpApplyEvent';
 
 const HANDLE = 12;
 const MESH_STROKE = 'rgba(255, 107, 53, 0.55)';
@@ -57,6 +63,46 @@ function meshPathD(pins: PuppetPin[], density: number, stageW: number, stageH: n
     parts.push(`M ${col.join(' L ')}`);
   }
   return parts.join(' ');
+}
+
+function fpsForNode(document: SceneDocument, nodeId: string) {
+  const node = document.deltaSetLike?.[nodeId];
+  const frameId = resolveAnimationFrameId(document, node);
+  if (!frameId) return 30;
+  const frame = (document.frames || []).find((f) => String(f?.id) === frameId);
+  const fps = Math.round(Number(frame?.fps) || 30);
+  return fps > 0 ? fps : 30;
+}
+
+function applyPuppetWarpsFromStore() {
+  const editor = (store.getState() as { editor?: { document?: SceneDocument } }).editor;
+  const document = editor?.document;
+  if (!document) return;
+  for (const id of Object.keys(document.deltaSetLike || {})) {
+    const node = document.deltaSetLike?.[id];
+    if (!node || !nodeNeedsPuppetWarp(node)) continue;
+    const src = String(node.attrs?.src || '').trim();
+    if (!src) continue;
+    const img = getFillImageReady(src);
+    if (!img) continue;
+    const attrs = (node.attrs || {}) as Record<string, unknown>;
+    const frame = secToFrame(getAnimationWorkbenchPlayheadSec(), fpsForNode(document, id));
+    const pins = effectivePuppetPins(attrs, frame);
+    const dataUrl = bakePuppetWarpDataUrl(img, {
+      width: Math.max(1, Math.round(Number(node.width) || 1)),
+      height: Math.max(1, Math.round(Number(node.height) || 1)),
+      pins,
+      attrs,
+    });
+    if (!dataUrl) continue;
+    const sel = `[data-scene-node-id="${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"] image`;
+    window.document.querySelectorAll(sel).forEach((el) => {
+      if (!(el instanceof SVGImageElement)) return;
+      el.setAttribute('href', dataUrl);
+      el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', dataUrl);
+      el.setAttribute('data-puppet-warped', '1');
+    });
+  }
 }
 
 function PuppetOverlay({
@@ -102,7 +148,7 @@ function PuppetOverlay({
         document: state.editor?.document,
         nodeId,
         pins: next,
-        playheadSec: Number(state.editor?.lottiePlayheadSec) || 0,
+        playheadSec: getAnimationPlayheadSec(),
       });
       dispatch(
         patchDocumentNode({
@@ -117,6 +163,7 @@ function PuppetOverlay({
           skipHistory,
         })
       );
+      requestPuppetWarpApply();
     },
     [dispatch, nodeId]
   );
@@ -249,47 +296,14 @@ function PuppetOverlay({
   );
 }
 
-function fpsForNode(document: SceneDocument, nodeId: string) {
-  const node = document.deltaSetLike?.[nodeId];
-  const frameId = resolveAnimationFrameId(document, node);
-  if (!frameId) return 30;
-  const frame = (document.frames || []).find((f) => String(f?.id) === frameId);
-  const fps = Math.round(Number(frame?.fps) || 30);
-  return fps > 0 ? fps : 30;
-}
-
-function PuppetWarpSync({ document }: { document: SceneDocument }) {
-  const playheadSec = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
-  const patchToken = useSelector((s: any) => Number(s.editor.documentPatchToken) || 0);
-
+/** Mount once; applies only when `requestPuppetWarpApply` fires. */
+function PuppetWarpSyncHost(): ReactNode {
   useEffect(() => {
-    for (const id of Object.keys(document.deltaSetLike || {})) {
-      const node = document.deltaSetLike?.[id];
-      if (!node || !nodeNeedsPuppetWarp(node)) continue;
-      const src = String(node.attrs?.src || '').trim();
-      if (!src) continue;
-      const img = getFillImageReady(src);
-      if (!img) continue;
-      const attrs = (node.attrs || {}) as Record<string, unknown>;
-      const frame = secToFrame(getAnimationWorkbenchPlayheadSec(), fpsForNode(document, id));
-      const pins = effectivePuppetPins(attrs, frame);
-      const dataUrl = bakePuppetWarpDataUrl(img, {
-        width: Math.max(1, Math.round(Number(node.width) || 1)),
-        height: Math.max(1, Math.round(Number(node.height) || 1)),
-        pins,
-        attrs,
-      });
-      if (!dataUrl) continue;
-      const sel = `[data-scene-node-id="${id.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"] image`;
-      window.document.querySelectorAll(sel).forEach((el) => {
-        if (!(el instanceof SVGImageElement)) return;
-        el.setAttribute('href', dataUrl);
-        el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', dataUrl);
-        el.setAttribute('data-puppet-warped', '1');
-      });
-    }
-  }, [document, playheadSec, patchToken]);
-
+    const onApply = () => applyPuppetWarpsFromStore();
+    window.addEventListener(RCB_PUPPET_WARP_APPLY, onApply);
+    onApply();
+    return () => window.removeEventListener(RCB_PUPPET_WARP_APPLY, onApply);
+  }, []);
   return null;
 }
 
@@ -325,14 +339,9 @@ function PuppetPinHost({
     };
   }, [document, hidden, panel]);
 
-  useEffect(() => {
-    if (!entry?.layerNode) return;
-    expandPuppetTimelineLayer(entry.layerNode);
-  }, [entry?.nodeId, entry?.layerNode]);
-
   return (
     <>
-      <PuppetWarpSync document={document} />
+      <PuppetWarpSyncHost />
       {entry ? (
         <PuppetOverlay
           nodeId={entry.nodeId}

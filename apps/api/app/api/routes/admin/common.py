@@ -122,7 +122,6 @@ _RUNTIME_SETTING_KEYS = frozenset(
         "precheck.model_threshold",
         "precheck.vision_model",
         "precheck.fallback_chain",
-        "precheck.router_model",
         "precheck.user_preset.economy",
         "precheck.user_preset.balanced",
         "precheck.user_preset.quality",

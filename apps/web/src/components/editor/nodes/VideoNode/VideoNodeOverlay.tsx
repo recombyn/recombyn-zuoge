@@ -14,7 +14,7 @@ import {
 
 } from 'react';
 
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 
 import { useRcbCamera } from '@/components/rcb';
 

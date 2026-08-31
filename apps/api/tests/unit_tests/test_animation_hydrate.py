@@ -35,27 +35,30 @@ def test_validate_lottie_animation_requires_layers_and_size():
     assert ok["assets"] == []
 
 
-def test_build_fallback_lottie_is_valid():
-    from app.services.design.ops.animation_hydrate import (
-        build_fallback_lottie,
-        validate_lottie_animation,
-    )
-
-    anim = build_fallback_lottie(prompt="soft pulse loading", width=160, height=120, duration_sec=2)
-    validated = validate_lottie_animation(anim)
-    assert validated is not None
-    assert validated["w"] == 160
-    assert validated["h"] == 120
-    assert isinstance(validated["layers"], list) and validated["layers"]
-
-
 def test_hydrate_tool_ops_lottie_fills_gen_prompt(monkeypatch):
     from app.services.design.ops import animation_hydrate as mod
 
     async def _fake_gen(*, prompt, width, height, duration_sec, model=None):
-        return mod.build_fallback_lottie(
-            prompt=prompt, width=width, height=height, duration_sec=duration_sec
-        )
+        return {
+            "v": "5.7.4",
+            "fr": 30,
+            "ip": 0,
+            "op": 60,
+            "w": int(width),
+            "h": int(height),
+            "nm": str(prompt or "Lottie")[:80],
+            "ddd": 0,
+            "assets": [],
+            "layers": [
+                {
+                    "ty": 4,
+                    "shapes": [
+                        {"ty": "el", "p": {"a": 0, "k": [0, 0]}, "s": {"a": 0, "k": [40, 40]}},
+                        {"ty": "fl", "c": {"a": 0, "k": [0.2, 0.45, 1.0, 1]}},
+                    ],
+                }
+            ],
+        }
 
     monkeypatch.setattr(mod, "generate_lottie_animation", _fake_gen)
 

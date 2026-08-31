@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import {
   RcbOverlayPortal,
   useRcbCamera,
@@ -73,7 +73,7 @@ function surroundAltLayout(
 }
 
 /**
- * Multi-gen stack: top-right “N张图” count + expand tiles.
+ * Multi-gen stack: top-right “N张图—count + expand tiles.
  * Positioned from the same scene box as selection chrome so controls never overlap.
  */
 function ImageVariantsOverlay({

@@ -181,7 +181,7 @@ function RcbShapeHost({
     node?.attrs?.opacity,
     node?.attrs?.blendMode,
     // Track markdown *and* DATA/ORIGIN_DATA — style-only edits (fontSize) keep
-    // markdown identical, so `markdown ?? DATA` would skip remounts.
+    // markdown identical, so `markdown —  DATA` would skip remounts.
     node?.attrs?.markdown,
     node?.attrs?.DATA,
     node?.attrs?.ORIGIN_DATA,

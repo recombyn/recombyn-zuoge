@@ -65,7 +65,7 @@ function ProjectCardSkeleton({
   );
 }
 
-/** Dashed 鈥淣ew project鈥?tile 鈥?first cell in Recent / My projects grids. */
+/** Dashed “New project” tile — first cell in Recent / My projects grids. */
 function NewProjectCard({
   disabled = false,
   onClick,

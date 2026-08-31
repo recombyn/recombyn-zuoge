@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineBold,
@@ -63,6 +63,7 @@ import {
 import { markdownToPlain } from '@/components/rcb/scene/document/sceneMarkdown';
 import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
 import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
+import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import { getSharedNodeEls } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   isAudioGeneratorNode,
@@ -506,7 +507,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
   }, [decorationOpen, alignOpen]);
 
   if (!node || !box) return null;
-  // Timeline host under 动画工作台 — select frame instead; no node chrome.
+  // Timeline host under 动画工作——select frame instead; no node chrome.
   if (isAnimationFrameHostNode(node, document)) return null;
 
   const placementAngle = angleProp ?? (Number(node?.attrs?.angle) || 0);
@@ -611,6 +612,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
         skipHostReload: previewed,
       })
     );
+    clearNodeTransformPreviews([nodeId]);
   };
 
   const commitFontSize = (raw: string) => {
@@ -623,7 +625,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
 
   const isTextBoxMode = String(node?.attrs?.textFrame ?? '') === 'true';
 
-  /** Plain text ↔ fixed plate with scrollable content (image-like W×H). */
+  /** Plain text — fixed plate with scrollable content (image-like W×H). */
   const toggleTextBoxMode = () => {
     if (!node || !style) return;
     const plain = parseNodeText(node.attrs || {}) || ' ';
@@ -943,8 +945,8 @@ function SelectionContextToolbar(props: Props): ReactNode {
               type="button"
               aria-label={
                 imageAspectLocked
-                  ? t('editor.imageToolbar.unlockAspect')
-                  : t('editor.imageToolbar.lockAspect')
+                ? t('editor.imageToolbar.unlockAspect')
+                : t('editor.imageToolbar.lockAspect')
               }
               aria-pressed={imageAspectLocked}
               className={cn(
@@ -1066,7 +1068,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
         }
         bare={kind === 'image' && isIconImageNode(node)}
       >
-          {/* Order: Style/Edit → Geometry → Opacity → More → Actions */}
+          {/* Order: Style/Edit — Geometry — Opacity — More — Actions */}
           {kind === 'text' && style ? (
             <>
               <ColorPanelPopover

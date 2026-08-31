@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Lottie generator composer under the empty plate.
- * On-plate generate → POST /api/v1/chat/lottie/jobs → promote to Lottie node.
+ * On-plate generate — POST /api/v1/chat/lottie/jobs — promote to Lottie node.
  */
 import {
   memo,
@@ -13,7 +13,8 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocument } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { FloatingPortal } from '@floating-ui/react';
 import {
@@ -159,7 +160,7 @@ function AnimationGeneratorCard({
         unknown
       > | null
   );
-  const editorDocument = useSelector((state: any) => state.editor?.document);
+  const editorDocument = useEditorDocument();
   const canvasAttachPick = useSelector(
     (state: any) => state.editor?.canvasAttachPick as null | { target: string }
   );
@@ -413,7 +414,7 @@ function AnimationGeneratorCard({
     dispatch(patchDocumentNode({ nodeId, patch: { attrs } }));
   };
 
-  // Image refs require a vision-capable model 鈥?auto-switch when current can't see images.
+  // Image refs require a vision-capable model — auto-switch when current can't see images.
   useEffect(() => {
     if (!needsVisionModel || !models.length) return;
     if (modelSupportsVisionInput(selectedModel)) return;

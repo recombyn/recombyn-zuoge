@@ -1,10 +1,13 @@
-import { useEffect, useLayoutEffect, useMemo, useState, memo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
+import { useSelector } from '@/store';
 import { useRcbCamera, useRcbCameraMotion, useRcbViewportEl } from '../camera/context';
 import { rcbViewportSceneBounds } from '../core/math';
 import {
   RcbSpatialIndex,
+  SCENE_SPATIAL_LARGE_THRESHOLD,
   boxesIntersect,
   buildIdRankMap,
+  getSharedSceneSpatialRuntime,
   nodeSceneAabb,
   sortIdsByRank,
 } from '../core/spatialIndex';
@@ -23,11 +26,75 @@ import {
   clearSceneCanvasIdlePaint,
   canIdlePaintOnCanvas,
   canvasIdleIsStrokeOnly,
+  bumpSceneCanvasIdlePaint,
   setSceneCanvasIdlePaint,
 } from '@/components/rcb/render/sceneRenderer';
+import {
+  applySoaHostPromotion,
+  getSharedSceneRenderBuffer,
+  isSoaBasicGeomSufficient,
+  isSoaCanvasShapesEnabled,
+  markAllSoaDirty,
+  syncSceneRenderBufferFromDocument,
+  syncSceneRenderBufferIncremental,
+  type SceneRenderBuffer,
+} from '@/components/rcb/render/sceneRenderBuffer';
+import {
+  getSharedSoaBake,
+  getSharedSoaBakeCache,
+  patchSoaBakeDirty,
+  resetSharedSoaBake,
+  setSharedSoaBake,
+} from '@/components/rcb/render/soaBakeLayer';
+import { RCB_SOA_AI_FLUSH } from '@/components/editor/sceneEvents';
 import RcbShapeHost from './RcbShapeHost';
 
 export { canvasIdleIsStrokeOnly, canIdlePaintOnCanvas };
+
+/** After SoA sync, push shape AABBs into the shared spatial runtime (large N). */
+function refreshSharedSpatialFromSoa(buf: SceneRenderBuffer) {
+  if (buf.count < SCENE_SPATIAL_LARGE_THRESHOLD) return;
+  const runtime = getSharedSceneSpatialRuntime();
+  if (!runtime) return;
+  runtime.upsertFromRenderBuffer(buf, { pad: 32 });
+}
+
+/**
+ * Sync document → SoA buffer (+ promote + spatial). Used by the shapes layer and
+ * AI flush. Prefer calling once per AI transaction commit, not per tool_op.
+ */
+export function syncSoaBufferFromDocumentNow(
+  document: SceneDocument,
+  opts: {
+    ids: readonly string[];
+    lastPatchedNodeIds?: readonly string[];
+    forceFullIds: ReadonlySet<string> | readonly string[];
+    fullRebuild?: boolean;
+  }
+): boolean {
+  if (!isSoaCanvasShapesEnabled()) return false;
+  const buf = getSharedSceneRenderBuffer();
+  const patchedList = (opts.lastPatchedNodeIds || []).filter(Boolean);
+  const canIncremental =
+    !opts.fullRebuild &&
+    buf.count > 0 &&
+    patchedList.length > 0 &&
+    patchedList.length <= Math.max(32, Math.floor(opts.ids.length * 0.2));
+  if (canIncremental) {
+    syncSceneRenderBufferIncremental(buf, document, patchedList, {
+      allIds: opts.ids,
+      removeMissing: false,
+    });
+  } else {
+    syncSceneRenderBufferFromDocument(buf, document);
+    markAllSoaDirty(buf);
+    resetSharedSoaBake();
+    setSharedSoaBake(null);
+  }
+  applySoaHostPromotion(buf, opts.forceFullIds);
+  refreshSharedSpatialFromSoa(buf);
+  return true;
+}
 
 /**
  * Whether a full SVG host should drop artboard clip.
@@ -138,15 +205,20 @@ export function pickFullAndCanvasIds(opts: {
   zoom: number;
   moving: boolean;
   maxCanvasIdle?: number;
+  /** Prefer SoA/Canvas for idle-eligible shapes even under SVG host budget. */
+  preferSoaCanvas?: boolean;
 }): { fullIds: string[]; canvasIds: string[] } {
   const { document, visibleIds, zoom, moving } = opts;
   const forceFullSet = opts.forceFullSet ?? EMPTY_FORCE_FULL_SET;
   const maxCanvasIdle = opts.maxCanvasIdle ?? MAX_CANVAS_IDLE_PAINT;
+  const preferSoa =
+    opts.preferSoaCanvas === true ||
+    (opts.preferSoaCanvas !== false && isSoaCanvasShapesEnabled());
   const budget = hostBudget({ moving, visibleCount: visibleIds.length });
   const motionOverflow =
     moving && visibleIds.length >= EFFICIENT_ZOOM_SHAPE_THRESHOLD;
 
-  if (visibleIds.length <= budget && !motionOverflow) {
+  if (visibleIds.length <= budget && !motionOverflow && !preferSoa) {
     // Under host budget: keep SVG hosts for every visible node.
     // Canvas-idle must NOT drop hosts — selection / hit / chrome still need a
     // mounted lattice (ADR 0027 phase 1).
@@ -157,7 +229,14 @@ export function pickFullAndCanvasIds(opts: {
   for (const id of visibleIds) {
     const node = document?.deltaSetLike?.[id];
     const force = forceFullSet.has(id);
-    const canvasIdle = !force && canIdlePaintOnCanvas(node);
+    const key = String(node?.key || '');
+    // SoA prefer: only BASIC_GEOM demotes off SVG. Stroke / gradient / poly /
+    // text / media stay hosts unless SVG budget overflow pushes them to canvasIds.
+    const mediaKeepHost = preferSoa && (key === 'image' || key === 'video');
+    const canvasIdle =
+      !force &&
+      !mediaKeepHost &&
+      (preferSoa ? isSoaBasicGeomSufficient(node) : canIdlePaintOnCanvas(node));
     let score = screenAreaPx(node, zoom);
     // Dense motion: demote heavy paths first when filling the SVG budget.
     if (isHeavyPathNode(node) && motionOverflow) score *= 0.05;
@@ -176,7 +255,7 @@ export function pickFullAndCanvasIds(opts: {
       fullSet.add(s.id);
       continue;
     }
-    // Overflow / dense-motion path: idle Canvas ink skips SVG hosts.
+    // SoA / overflow / dense-motion: idle Canvas ink skips SVG hosts.
     if (s.canvasIdle) continue;
     if (fullSet.size < budget) fullSet.add(s.id);
   }
@@ -187,7 +266,7 @@ export function pickFullAndCanvasIds(opts: {
     document,
     canvasIds: canvasRaw,
     zoom,
-    maxCanvasIdle,
+    maxCanvasIdle: preferSoa ? Math.max(maxCanvasIdle, 16384) : maxCanvasIdle,
   });
   return { fullIds, canvasIds };
 }
@@ -278,6 +357,11 @@ function RcbShapesLayer({
     [forceFullIds]
   );
 
+  /** Defer SoA buffer rebuild while AI tool_ops apply — flush once on unlock. */
+  const aiMutationLock = useSelector(
+    (s) => (s.editor?.aiMutationLock as number) || 0
+  );
+
   /** Mount only in-view (+ keep) ids — never `ids.filter` over 100k after spatial hits. */
   const visibleIds = useMemo(() => {
     if (!document || !ids.length || stageSize.width < 1 || stageSize.height < 1) {
@@ -325,11 +409,60 @@ function RcbShapesLayer({
     [document, visibleIds, keepSet, forceFullSet, cullCam.zoom, moving]
   );
 
-  const patched = useMemo(() => new Set(lastPatchedNodeIds.filter(Boolean)), [lastPatchedNodeIds]);
+  // Keep SoA render buffer in sync with the authoring document.
+  // AI lock: skip — `RCB_SOA_AI_FLUSH` / unlock remount does one full sync.
+  // Selection promote is a separate effect (do not rebuild buffer on select).
+  const forceFullSetRef = useRef(forceFullSet);
+  forceFullSetRef.current = forceFullSet;
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
 
-  // Publish Canvas idle ids to the stage overlay (screen-space, camera baked).
-  // useLayoutEffect so RcbCanvas's paint layout effect sees the snapshot same frame.
   useLayoutEffect(() => {
+    if (!isSoaCanvasShapesEnabled() || !document) return;
+    if (aiMutationLock > 0) return;
+    syncSoaBufferFromDocumentNow(document, {
+      ids,
+      lastPatchedNodeIds,
+      forceFullIds: forceFullSetRef.current,
+    });
+  }, [document, documentPatchToken, reloadToken, ids, lastPatchedNodeIds, aiMutationLock]);
+
+  // Selection promote/demote — Canvas idle flags only (no document rebuild).
+  useLayoutEffect(() => {
+    if (!isSoaCanvasShapesEnabled() || aiMutationLock > 0) return;
+    const buf = getSharedSceneRenderBuffer();
+    if (buf.count === 0) return;
+    const flipped = applySoaHostPromotion(buf, forceFullSet);
+    if (flipped > 0) {
+      refreshSharedSpatialFromSoa(buf);
+      const bake = getSharedSoaBake();
+      const cache = getSharedSoaBakeCache();
+      if (bake?.valid && cache) {
+        patchSoaBakeDirty(buf, bake);
+      }
+      bumpSceneCanvasIdlePaint();
+    }
+  }, [forceFullSet, aiMutationLock]);
+
+  // AI transaction commit — one buffer sync + bake invalidate + idle paint bump.
+  useEffect(() => {
+    if (!isSoaCanvasShapesEnabled()) return;
+    const onFlush = () => {
+      if (!document) return;
+      syncSoaBufferFromDocumentNow(document, {
+        ids: idsRef.current,
+        forceFullIds: forceFullSetRef.current,
+        fullRebuild: true,
+      });
+      bumpSceneCanvasIdlePaint();
+    };
+    window.addEventListener(RCB_SOA_AI_FLUSH, onFlush);
+    return () => window.removeEventListener(RCB_SOA_AI_FLUSH, onFlush);
+  }, [document]);
+
+  // Freeze idle-paint publish during AI lock (buffer is stale until flush).
+  useLayoutEffect(() => {
+    if (aiMutationLock > 0) return;
     if (!document || !canvasIds.length) {
       clearSceneCanvasIdlePaint();
       return () => {
@@ -357,7 +490,9 @@ function RcbShapesLayer({
     return () => {
       clearSceneCanvasIdlePaint();
     };
-  }, [document, canvasIds, hiddenNodeId, documentPatchToken]);
+  }, [document, canvasIds, hiddenNodeId, documentPatchToken, aiMutationLock]);
+
+  const patched = useMemo(() => new Set(lastPatchedNodeIds.filter(Boolean)), [lastPatchedNodeIds]);
 
   if (!document || !visibleIds.length) return null;
 

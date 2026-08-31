@@ -255,6 +255,79 @@ def test_filter_ops_allowlist():
     assert any("explode_canvas" in e for e in errs)
 
 
+def test_filter_ops_ui_plus_image_gen_keeps_ui_tools():
+    """mobile_app_ui (no allowed_ops) + image_gen must not strip create_text/shape."""
+    from app.services.design.prompts.skill_store import filter_ops_by_skill_output_schema
+
+    ops = [
+        {"name": "create_text", "args": {}},
+        {"name": "create_shape", "args": {}},
+        {"name": "create_image", "args": {}},
+        {"name": "explode_canvas", "args": {}},
+    ]
+    # Schema gate alone: undeclared UI skill → do not tighten.
+    kept_schema, errs_schema = filter_ops_by_skill_output_schema(
+        ops, skill_keys=["mobile_app_ui", "image_gen"], scene="website"
+    )
+    assert errs_schema == []
+    assert {o["name"] for o in kept_schema} == {
+        "create_text",
+        "create_shape",
+        "create_image",
+        "explode_canvas",
+    }
+    # Full allowlist path: preferred_tools union still blocks explode; UI ops stay.
+    kept, errs = filter_ops_by_skill_allowlist(
+        ops, skill_keys=["mobile_app_ui", "image_gen"], scene="website"
+    )
+    names = {o["name"] for o in kept}
+    assert "create_text" in names
+    assert "create_shape" in names
+    assert "create_image" in names
+    assert "explode_canvas" not in names
+    assert any("explode_canvas" in e for e in errs)
+
+
+def test_filter_ops_image_gen_alone_still_narrow():
+    """Solo image_gen may keep its narrow output_schema allowlist."""
+    from app.services.design.prompts.skill_store import filter_ops_by_skill_output_schema
+
+    ops = [
+        {"name": "create_text", "args": {}},
+        {"name": "create_image", "args": {}},
+        {"name": "create_frame", "args": {}},
+    ]
+    kept, errs = filter_ops_by_skill_output_schema(
+        ops, skill_keys=["image_gen"], scene="website"
+    )
+    names = {o["name"] for o in kept}
+    assert "create_image" in names
+    assert "create_frame" in names
+    assert "create_text" not in names
+    assert any("create_text" in e for e in errs)
+
+
+def test_filter_ops_two_schemas_union():
+    """When every skill declares allowed_ops, enforce the union."""
+    from app.services.design.prompts.skill_store import filter_ops_by_skill_output_schema
+
+    ops = [
+        {"name": "create_text", "args": {}},
+        {"name": "create_image", "args": {}},
+        {"name": "create_icon", "args": {}},
+        {"name": "explode_canvas", "args": {}},
+    ]
+    kept, errs = filter_ops_by_skill_output_schema(
+        ops, skill_keys=["dashboard_ui", "image_gen"], scene="website"
+    )
+    names = {o["name"] for o in kept}
+    assert "create_text" in names  # from dashboard_ui
+    assert "create_image" in names  # both
+    assert "create_icon" in names  # from dashboard_ui
+    assert "explode_canvas" not in names
+    assert any("explode_canvas" in e for e in errs)
+
+
 def test_file_skill_loader_returns_list():
     """Loader scans public + private ``design_skills`` packs."""
     files = _load_file_skills()

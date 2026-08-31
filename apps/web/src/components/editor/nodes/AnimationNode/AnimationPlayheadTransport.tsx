@@ -3,7 +3,7 @@
  * Dock UI only seeks/toggles; this advances `lottiePlayheadSec` while playing.
  */
 import { memo, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { parseLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { getLottieHost } from '@/components/editor/nodes/AnimationNode/AnimationNodeOverlay';
@@ -15,6 +15,10 @@ import {
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import { setLottiePlayhead, setLottiePlaying } from '@/store/modules/editor';
 import { resolveLottiePlayheadHostId } from '@/components/editor/nodes/AnimationNode/resolveLottiePlayheadHostId';
+import {
+  useAnimationPlayheadSec,
+  useAnimationPlaying,
+} from '@/components/editor/nodes/AnimationNode/animationTransport';
 
 export { resolveLottiePlayheadHostId };
 
@@ -24,8 +28,8 @@ function AnimationPlayheadTransport({
   document: any;
 }): ReactNode {
   const dispatch = useDispatch();
-  const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
-  const playing = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
+  const playhead = useAnimationPlayheadSec();
+  const playing = useAnimationPlaying();
   const timelineOpen = useSelector((s: any) => Boolean(s.editor.lottieTimelinePanel?.nodeId));
   const hostNodeId = useSelector((s: any) => resolveLottiePlayheadHostId(s.editor));
 

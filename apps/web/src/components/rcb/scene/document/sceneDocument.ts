@@ -1,5 +1,5 @@
 import { current, isDraft, produce, type WritableDraft } from 'immer';
-import { nanoid } from '@reduxjs/toolkit';
+import { nanoid } from 'nanoid';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import type {

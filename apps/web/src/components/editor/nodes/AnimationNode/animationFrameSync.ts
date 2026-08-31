@@ -1062,6 +1062,7 @@ export function syncPrecompSessionShapesIntoHost(opts: {
   assets[assetIdx] = asset;
   const json = serializeLottieAnimationData({ ...root, assets });
   if (!json) return opts.document;
+  if (json === String(host.attrs?.animationData || '')) return opts.document;
 
   const hostNode = opts.document.deltaSetLike?.[hostId];
   if (!hostNode) return opts.document;

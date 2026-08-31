@@ -1,4 +1,4 @@
-"""Design job orchestrator — permission gate then LangGraph agent (or partial).
+"""Design job orchestrator — permission gate then LangGraph agent.
 
 SSE: status | decision | skill_start | skill_progress | skill_done | analysis |
   thinking | tool_ops | activity | scene_feedback_request | result |
@@ -8,7 +8,6 @@ SSE: status | decision | skill_start | skill_progress | skill_done | analysis |
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
@@ -17,7 +16,6 @@ from typing import Any
 
 from app.services.agent_memory.service import memory_service
 from app.services.design.readpath.canvas_scene import (
-    parse_size as _parse_size,
     scene_key as _scene_key,
 )
 from app.services.design.readpath.catalog import get_global_rules
@@ -27,33 +25,16 @@ from app.services.design.runtime.decision_log import (
     focus_frame_from_medium,
     probe_has_target_chip,
 )
-from app.services.design.runtime.llm_step import stream_skill_step
 from app.services.design.runtime.models_route import (
     apply_user_route_overrides,
     pin_user_locked_model_routes,
-    resolve_model_for_skill,
     sanitize_model_ref_for_openrouter_region,
     sanitize_rules_for_openrouter_region,
 )
 from app.services.design.runtime.pipeline_support import (
     _normalize_ref_images,
-    _run_error_code,
-    _user_facing_run_error,
 )
-from app.services.design.prompts.prompt_build import (
-    _edit_context_block,
-    _finalize_memory_patch,
-)
-from app.services.design.prompts.rules_text import _as_text, _rule_text, _stage, exec_trace
-from app.services.design.admin.task_store import _insert_task, _lock_layers, _update_task
-from app.services.design.ops.tool_ops_contract import (
-    TOOL_OPS_SCHEMA_VERSION,
-    extract_and_validate_tool_ops,
-    format_canvas_tools_for_model,
-    tool_ops_activity_events as _tool_ops_activity_events,
-    tool_ops_for_sse,
-    validation_failure_reason,
-)
+from app.services.design.prompts.rules_text import _as_text, _rule_text, exec_trace
 from app.services.wallet.billing import (
     byok_agent_fee_credits,
     estimate_design_hold_credits,
@@ -90,7 +71,6 @@ def _localized_error_event(
 
 # Fallback authorize ceilings if TaskPricing import fails.
 AGENT_HOLD = 30
-PARTIAL_HOLD = 10
 SINGLE_HOLD = 20
 
 
@@ -125,8 +105,6 @@ def _authorize_need(
     except Exception:
         if mode == "agent":
             return AGENT_HOLD
-        if mode == "partial":
-            return PARTIAL_HOLD
         return SINGLE_HOLD
 
 
@@ -267,7 +245,9 @@ async def run_design_job(
 
     out_locale = normalize_locale(locale)
     mode = _as_text(run_mode or "agent").strip().lower()
-    if mode not in ("agent", "single_model", "partial"):
+    if mode == "partial":
+        mode = "single_model"
+    if mode not in ("agent", "single_model"):
         yield _localized_error_event("invalid_run_mode", out_locale)
         return
 
@@ -526,30 +506,6 @@ async def run_design_job(
         intent=None,
         is_chitchat=False,
     )
-    if mode == "partial":
-        async for ev in _run_partial(
-            user_id=user_id,
-            prompt=prompt,
-            rules=rules,
-            user_selected_model=user_selected_model,
-            canvas_id=canvas_id,
-            canvas_size=canvas_size,
-            target_layer_id=target_layer_id,
-            layer_ids=layer_ids,
-            current_svg=current_svg or "",
-            scene_nodes=scene_nodes_gate,
-            scene=scene,
-            ref_images=ref_images,
-            mem_bundle=mem_bundle,
-            sid=sid,
-            pid=pid,
-            decision=decision,
-            t0=t0,
-            locale=out_locale,
-            task_id=task_id,
-        ):
-            yield ev
-        return
     yield _localized_error_event("invalid_run_mode", out_locale)
 
 
@@ -604,276 +560,6 @@ async def run_design_job_from_snapshot(
         task_id=task_id,
     ):
         yield event
-
-
-async def _run_partial(
-    *,
-    user_id: str,
-    prompt: str,
-    rules: dict[str, str],
-    user_selected_model: str | None,
-    canvas_id: str | None,
-    canvas_size: str | None,
-    target_layer_id: str | None,
-    layer_ids: list[str] | None,
-    current_svg: str,
-    scene_nodes: list[dict[str, Any]],
-    scene: str | None,
-    ref_images: list[str],
-    mem_bundle: Any,
-    sid: str,
-    pid: str,
-    decision: DesignRunDecision,
-    t0: float,
-    task_id: str | None = None,
-    locale: str | None = None,
-) -> AsyncIterator[dict[str, Any]]:
-    hold_need = _authorize_need("partial", model=user_selected_model, rules=rules)
-    bal = get_user_credits(user_id)
-    free_daily = False
-    try:
-        hold, free_daily = _reserve_design_hold(
-            user_id, hold_need, mode="partial", model=user_selected_model
-        )
-    except ValueError:
-        code = (
-            "free_daily_exhausted"
-            if bal < hold_need
-            else "insufficient_credits"
-        )
-        yield _localized_error_event(
-            code,
-            locale,
-            balance=bal,
-            need=hold_need,
-        )
-        return
-    if free_daily:
-        user_selected_model = "auto"
-
-
-    task_id = str(task_id or uuid.uuid4())
-    scene_key = _scene_key(scene) or str(rules.get("canvas.default_scene") or "").strip()
-    w, h = _parse_size(canvas_size, scene_key, rules)
-    if w <= 0 or h <= 0:
-        yield {
-            "type": "error",
-            "code": "invalid_canvas_size",
-            "message": "invalid_canvas_size",
-            "detail": "Admin default_size_* / canvas chip missing — runtime does not invent size",
-        }
-        return
-    if canvas_id and layer_ids and target_layer_id:
-        _lock_layers(canvas_id, target_layer_id, layer_ids)
-
-    _insert_task(
-        {
-            "id": task_id,
-            "user_id": user_id,
-            "canvas_id": canvas_id,
-            "scene": scene_key,
-            "skill_group_id": None,
-            "task_type": "partial",
-            "user_selected_model": user_selected_model,
-            "actual_models": "[]",
-            "target_layer_id": target_layer_id,
-            "current_skill_index": 0,
-            "status": "running",
-            "hold_credits": hold,
-            "charged_credits": 0,
-            "total_tokens": 0,
-            "prompt": prompt,
-            "canvas_size": canvas_size or f"{w}x{h}",
-            "result_svg": None,
-            "error_message": None,
-            "meta_json": json.dumps({"control": "partial_loop"}, ensure_ascii=False),
-            "created_at": time.time(),
-            "updated_at": time.time(),
-        }
-    )
-
-    try:
-        family, reason = resolve_model_for_skill(
-            skill={
-                "category": "refine",
-                "default_model": "doubao",
-                "name": "partial",
-                "skill_key": "partial",
-            },
-            user_selected_model=user_selected_model,
-            run_mode="partial",
-            prompt=prompt,
-            rules=rules,
-            scene=scene_key,
-            attempt=0,
-            has_images=bool(ref_images),
-        )
-        tools_block = format_canvas_tools_for_model()
-        partial_system = _rule_text(rules, "agent.prompt.partial_system").strip()
-        system = "\n".join(
-            p
-            for p in [
-                partial_system,
-                tools_block,
-                _rule_text(rules, "edit.tool_ops"),
-                f"Canvas {w}x{h}.",
-            ]
-            if p
-        )
-        user_msg = (
-            f"USER_PROMPT:\n{prompt}\n\nTARGET_LAYER: {target_layer_id or '-'}\n\n"
-            + _edit_context_block(
-                rules,
-                current_svg,
-                include_full_svg=False,
-                scene_nodes=scene_nodes,
-            )
-        )
-        yield {
-            "type": "skill_start",
-            "index": 0,
-            "skill_id": None,
-            "skill_key": "partial",
-            "skill_name": "partial",
-            "category": "refine",
-            "model": family,
-            "model_reason": reason,
-        }
-        content = ""
-        used = 0
-        async for kind, piece in stream_skill_step(
-            model_family=family,
-            system=system,
-            user=user_msg,
-            max_tokens=2048,
-            images=ref_images or None,
-            enable_thinking=False,
-            rules=rules,
-            allow_vision_switch=True,
-        ):
-            if kind == "model" and isinstance(piece, str) and piece.strip():
-                family = piece.strip()
-                continue
-            if kind == "usage":
-                used = int(piece) if isinstance(piece, int) else used
-                continue
-            if kind == "token" and isinstance(piece, str):
-                content += piece
-        if used <= 0:
-            used = max(1, len(content) // 3)
-        step_ops, op_errors = extract_and_validate_tool_ops(
-            content, scene_nodes=scene_nodes, rules=rules
-        )
-        if not step_ops:
-            raise RuntimeError(
-                validation_failure_reason(op_errors)
-                if op_errors
-                else "missing_tool_ops"
-            )
-        yield {
-            "type": "tool_ops",
-            "index": 0,
-            "skill_key": "partial",
-            "skill_name": "partial",
-            "schema_version": TOOL_OPS_SCHEMA_VERSION,
-            "ops": tool_ops_for_sse(step_ops),
-        }
-        for act in _tool_ops_activity_events(
-            batch=step_ops,
-            totals={"created": 0, "updated": 0, "deleted": 0},
-            skill_index=0,
-        ):
-            yield act
-        yield {
-            "type": "skill_done",
-            "index": 0,
-            "skill_key": "partial",
-            "skill_name": "partial",
-            "tokens": used,
-        }
-        from app.services.llm import is_byok_model_ref
-
-        spend_confirm = _settle_hold(
-            user_id,
-            hold=hold,
-            actual_tokens=used,
-            detail=f"design_settle:partial:{task_id}",
-            rules=rules,
-            free_daily=free_daily,
-            byok=is_byok_model_ref(user_selected_model),
-            mode="partial",
-        )
-        _update_task(
-            task_id,
-            status="success",
-            charged_credits=spend_confirm,
-            total_tokens=used,
-            result_svg="",
-        )
-        yield {
-            "type": "result",
-            "task_id": task_id,
-            "status": "success",
-            "svg": "",
-            "charged_credits": spend_confirm,
-            "total_tokens": used,
-            "tool_ops_applied": True,
-            "intent": "edit",
-            "edit_in_place": True,
-        }
-        try:
-            from app.services.agent_memory.episodes import maybe_write_episode
-
-            maybe_write_episode(
-                user_id=user_id,
-                session_id=sid,
-                project_id=pid,
-                task_id=task_id,
-                scene="",
-                goal=prompt,
-                summary="",
-                applied_ops=list(step_ops or []),
-                observe={"ops_applied": True, "route": "partial"},
-                outcome="success",
-                chat_only=False,
-                tool_ops_applied=True,
-                rules=rules,
-            )
-        except Exception:
-            _log.exception("episode write failed partial task=%s", task_id)
-        if sid:
-            yield {
-                "type": "memory_patch",
-                **_finalize_memory_patch(
-                    user_id=user_id,
-                    session_id=sid,
-                    project_id=pid,
-                    medium=mem_bundle.medium,
-                    task_id=task_id,
-                    intent="edit",
-                    edit_in_place=True,
-                    blank_artboard=False,
-                    summary="",
-                    tool_ops_applied=True,
-                    critique_notes=None,
-                    scene_key=scene_key,
-                    canvas_size=f"{w}x{h}",
-                ),
-            }
-        _stage(t0, "partial done", ops=len(step_ops))
-    except Exception as err:  # noqa: BLE001
-        try:
-            _refund_hold(user_id, hold, task_id=task_id)
-        except Exception:
-            pass
-        _update_task(task_id, status="error", error_message=str(err)[:800])
-        yield {
-            "type": "error",
-            "code": _run_error_code(err),
-            "message": _user_facing_run_error(err, rules=rules, locale=locale),
-            "task_id": task_id,
-            "refunded_credits": hold,
-        }
 
 
 async def resume_design_job(

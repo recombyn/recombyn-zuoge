@@ -31,6 +31,15 @@ _DESIGN_TASK_UPDATE_FIELDS = frozenset(
         "meta_json",
     }
 )
+# NOT NULL integer columns — never persist None (IntegrityError).
+_DESIGN_TASK_INT_FIELDS = frozenset(
+    {
+        "hold_credits",
+        "charged_credits",
+        "total_tokens",
+        "current_skill_index",
+    }
+)
 
 
 def get_design_task(*, session: Session, task_id: str) -> DesignTask | None:
@@ -94,6 +103,11 @@ def update_design_task(
     for key, value in fields.items():
         if key not in _DESIGN_TASK_UPDATE_FIELDS:
             continue
+        if key in _DESIGN_TASK_INT_FIELDS:
+            try:
+                value = int(value if value is not None else 0)
+            except (TypeError, ValueError):
+                value = 0
         setattr(row, key, value)
     row.updated_at = time.time()
     session.add(row)

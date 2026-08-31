@@ -340,13 +340,13 @@ export const AGENT_ROUTE_POPOVER_PANEL = cn(
   'w-[min(220px,calc(100vw-24px))] max-h-[min(480px,calc(100vh-24px))] overflow-x-hidden overflow-y-auto'
 );
 
-/** Route field / preset side flyout 鈥?300px. */
+/** Route field / preset side flyout — 300px. */
 export const AGENT_ROUTE_SUBMENU_PANEL = cn(
   PANEL_SHELL,
   'w-[min(300px,calc(100vw-24px))] max-h-[min(520px,calc(100vh-24px))] overflow-y-auto'
 );
 
-/** 1 = 渚垮疁 路 2 = 閫備腑 路 3 = 杈冭吹 (matches catalog price bands). */
+/** 1 = cheap · 2 = mid · 3 = pricey (matches catalog price bands). */
 export type ModelPriceLevel = 1 | 2 | 3;
 
 export function parseModelPriceAmount(raw?: string | null): number | null {
@@ -355,7 +355,7 @@ export function parseModelPriceAmount(raw?: string | null): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-/** Map catalog `price` 鈫?relative cost level for the orange dots. */
+/** Map catalog `price` → relative cost level for the orange dots. */
 export function modelPriceLevel(
   m: Pick<LlmModel, 'id' | 'kind' | 'price' | 'provider'> | null | undefined
 ): ModelPriceLevel | null {
@@ -367,13 +367,13 @@ export function modelPriceLevel(
     if (n <= 0.4) return 2;
     return 3;
   }
-  // Text: display 鍏?鐧句竾 tokens
+  // Text: display ¥/百万 tokens
   if (n < 1) return 1;
   if (n < 8) return 2;
   return 3;
 }
 
-/** Orange-dot cost tag (title row, top-right) 鈥?same pattern as video model picker. */
+/** Orange-dot cost tag (title row, top-right) — same pattern as video model picker. */
 function ModelPriceTag({
   level,
   label,
@@ -399,7 +399,7 @@ function ModelPriceTag({
   );
 }
 
-/** Soft pill for meta labels (鑷畾涔?/ 澶氭ā鎬? 鈥?matches saved-provider kind tags. */
+/** Soft pill for meta labels (鑷畾涔?/ 澶氭ā鎬? — matches saved-provider kind tags. */
 function ModelMetaBadge({ label }: { label: string }) {
   return (
     <span className="shrink-0 rounded-lg bg-[var(--accent-soft)] px-1.5 py-0.5 text-[11px] leading-none text-[var(--muted)]">
@@ -415,7 +415,7 @@ export function isUserCustomModel(
   return isCustomModelId(m.id) || m.provider === 'custom';
 }
 
-/** Dots + relative cost label (渚垮疁 / 閫備腑 / 杈冭吹) 鈥?no raw 楼 amounts. */
+/** Dots + relative cost label (cheap / mid / pricey) — no raw ¥ amounts. */
 export function modelPriceTagInfo(
   m: Pick<LlmModel, 'id' | 'kind' | 'price' | 'provider'> | null | undefined,
   t: (key: string, opts?: Record<string, unknown>) => string
@@ -453,12 +453,12 @@ export function modelDescription(
 type Props = {
   /** Filters the list: design (=agent/ask) vs image models. */
   tab: ModelPickerTab;
-  /** Optional 鈥?kept for callers; mode switch lives in the composer toolbar. */
+  /** Optional — kept for callers; mode switch lives in the composer toolbar. */
   onTabChange?: (tab: ModelPickerTab) => void;
   models: LlmModel[];
   selectedId: string;
   onPick: (id: string) => void;
-  /** idle | loading | ready | error 鈥?drives empty / loading / error copy. */
+  /** idle | loading | ready | error — drives empty / loading / error copy. */
   status?: 'idle' | 'loading' | 'ready' | 'error';
   /** Free plan: show all models; only Auto + fixed free image model are selectable. */
   autoOnly?: boolean;
@@ -469,12 +469,12 @@ type Props = {
   /** Use `models` as-is (route field opts already filtered). */
   useModelsAsIs?: boolean;
   /**
-   * popover 鈥?standalone card (image/video mode).
-   * submenu 鈥?narrower card beside AgentRoutePrefsEditor rows.
-   * plain 鈥?list only (parent supplies chrome / Back).
+   * popover — standalone card (image/video mode).
+   * submenu — narrower card beside AgentRoutePrefsEditor rows.
+   * plain — list only (parent supplies chrome / Back).
    */
   chrome?: 'popover' | 'submenu' | 'plain';
-  /** Called with pointerdown on a row 鈥?keep parent floating menus focused. */
+  /** Called with pointerdown on a row — keep parent floating menus focused. */
   onRowPointerDown?: (e: { preventDefault: () => void }) => void;
   className?: string;
 };
@@ -538,7 +538,7 @@ function listClassForChrome(
 }
 
 /**
- * Shared model picker 鈥?one list UI for home, editor, and route-prefs field submenus.
+ * Shared model picker — one list UI for home, editor, and route-prefs field submenus.
  */
 function ModelPickerPanel({
   tab,

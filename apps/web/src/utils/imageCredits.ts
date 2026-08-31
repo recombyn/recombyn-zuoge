@@ -1,9 +1,9 @@
 ﻿/**
- * Image credit estimates 鈥?Ark and OpenRouter use separate formulas.
+ * Image credit estimates — Ark and OpenRouter use separate formulas.
  *
- * Ark (doubao / Seedream): 鍏?寮? Pro may switch high-pixel tier.
- * OpenRouter: flat 鍏?寮? or output_image_token 脳 Gemini fixed tokens
- *   (1K/2K 鈫?1120, 4K 鈫?2000). Never pixel梅256.
+ * Ark (doubao / Seedream): ¥/image; Pro may switch high-pixel tier.
+ * OpenRouter: flat ¥/image or output_image_token × Gemini fixed tokens
+ *   (1K/2K → 1120, 4K → 2000). Never pixel÷256.
  *
  * Credits: ceil(¥/张 × 340/49 × 1.2 × count)
  */
@@ -85,7 +85,7 @@ function openrouterOutputTokens(
   return GEMINI_OUTPUT_TOKENS[res] || GEMINI_OUTPUT_TOKENS['2K'];
 }
 
-/** 鏂硅垷锛氭寜寮狅紱Pro 鍙寜鎬诲儚绱犳。鍒囨崲銆?*/
+/** Ark: ¥/image; Pro may switch by total pixel threshold. */
 export function resolveArkImageUnitCny(
   model?: LlmModel | null,
   resolution?: string | null
@@ -103,7 +103,7 @@ export function resolveArkImageUnitCny(
   return parsePriceAmount(model?.price == null ? null : String(model.price));
 }
 
-/** OpenRouter锛歠lat 鍏?寮狅紝鎴?token 脳 鍥哄畾妗ｃ€?*/
+/** OpenRouter: flat ¥/image, or token × fixed Gemini buckets. */
 export function resolveOpenRouterImageUnitCny(
   model?: LlmModel | null,
   resolution?: string | null
@@ -137,10 +137,14 @@ export function resolveImageUnitCny(
   const meta = metaOf(model);
   const kind = providerKind(model, meta);
   if (kind === 'openrouter') return resolveOpenRouterImageUnitCny(model, resolution);
-  if (kind === 'ark') return resolveArkImageUnitCny(model, resolution);
-  const unit = String(meta?.unit || '').toLowerCase();
-  if (unit.includes('token')) return resolveOpenRouterImageUnitCny(model, resolution);
   return resolveArkImageUnitCny(model, resolution);
+}
+
+function cnyToWalletCredits(priceCny: number, count = 1): number {
+  return Math.max(
+    1,
+    Math.ceil(priceCny * count * (PLUS_FACE_CREDITS / PLUS_LIST_CNY) * DEFAULT_MARKUP)
+  );
 }
 
 export function estimateImageCredits(
@@ -151,30 +155,29 @@ export function estimateImageCredits(
   const n = Math.max(1, Math.min(4, Math.round(count) || 1));
   const price = resolveImageUnitCny(model, resolution);
   if (price == null || price <= 0) return FALLBACK_CREDITS * n;
-  return Math.max(1, Math.ceil(price * n * (PLUS_FACE_CREDITS / PLUS_LIST_CNY) * DEFAULT_MARKUP));
+  return cnyToWalletCredits(price, n);
 }
 
-/** Video gen credit estimate 鈥?same 楼鈫掔Н鍒?conversion as image; fallback 8. */
+/** Video gen credit estimate — same ¥→credits conversion as image; fallback 8. */
 export function estimateVideoCredits(model?: LlmModel | null): number {
   const price = parsePriceAmount(model?.price);
   if (price == null || price <= 0) return 8;
-  return Math.max(1, Math.ceil(price * (PLUS_FACE_CREDITS / PLUS_LIST_CNY) * DEFAULT_MARKUP));
+  return cnyToWalletCredits(price);
 }
 
-/** TTS / speech catalog price (鍏?娆? 鈫?wallet 绉垎. */
+/** TTS / speech catalog price (¥/call) → wallet credits. */
 export function estimateAudioCredits(model?: LlmModel | null): number {
   const price = parsePriceAmount(model?.price);
   if (price == null || price <= 0) return FALLBACK_CREDITS;
-  return Math.max(1, Math.ceil(price * (PLUS_FACE_CREDITS / PLUS_LIST_CNY) * DEFAULT_MARKUP));
+  return cnyToWalletCredits(price);
 }
 
 /**
- * Lottie gen credit estimate 鈥?LLM structured JSON, billed like chat tokens.
- * Matches wallet `TOKENS_PER_CREDIT` (15k billed 鈮?1 绉垎). Catalog chat `price`
- * is 鍏?鐧句竾 tokens; scale vs mid-tier 楼2.
+ * Lottie gen credit estimate — LLM structured JSON, billed like chat tokens.
+ * Matches wallet `TOKENS_PER_CREDIT` (15k billed ≈ 1 credit). Catalog chat `price`
+ * is ¥/百万 tokens; scale vs mid-tier ¥2.
  */
 const LOTTIE_TOKENS_PER_CREDIT = 15_000;
-const LOTTIE_FALLBACK_CREDITS = 2;
 const LOTTIE_MID_PRICE_CNY_PER_MTOK = 2;
 
 export function estimateLottieCredits(
@@ -182,7 +185,7 @@ export function estimateLottieCredits(
   durationSec = 3
 ): number {
   const sec = Math.max(0.5, Math.min(30, Number(durationSec) || 3));
-  // Bodymovin JSON is token-heavy; longer clips 鈫?denser layer estimate.
+  // Bodymovin JSON is token-heavy; longer clips → denser layer estimate.
   const estTokens = Math.round(10_000 + sec * 3_000);
   const billed = Math.ceil(estTokens * DEFAULT_MARKUP);
   let credits = Math.max(1, Math.ceil(billed / LOTTIE_TOKENS_PER_CREDIT));
@@ -195,5 +198,5 @@ export function estimateLottieCredits(
       credits = Math.max(1, Math.ceil(credits * scale));
     }
   }
-  return credits || LOTTIE_FALLBACK_CREDITS;
+  return credits;
 }

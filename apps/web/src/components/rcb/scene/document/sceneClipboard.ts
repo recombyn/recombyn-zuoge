@@ -1,4 +1,4 @@
-import { nanoid } from '@reduxjs/toolkit';
+import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {

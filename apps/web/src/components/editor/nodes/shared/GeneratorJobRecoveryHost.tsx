@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocument, useSceneReloadToken } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
 import {
@@ -9,15 +10,12 @@ import {
   recoverGeneratorNode,
 } from '@/components/editor/nodes/shared/generatorJobRecovery';
 import { resumePendingImageProcess } from '@/store/modules/editor';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 function GeneratorJobRecoveryHost() {
   const dispatch = useDispatch();
   const { t } = useTranslation();
-  const document = useSelector((s: { editor?: { document?: SceneDocument } }) => s.editor?.document);
-  const sceneReloadToken = useSelector(
-    (s: { editor?: { sceneReloadToken?: number } }) => s.editor?.sceneReloadToken ?? 0
-  );
+  const document = useEditorDocument();
+  const sceneReloadToken = useSceneReloadToken();
   const pendingImageProcessId = useSelector(
     (s: { editor?: { pendingImageProcessId?: string | null } }) =>
       s.editor?.pendingImageProcessId ?? null

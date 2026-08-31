@@ -264,12 +264,12 @@ export function getSceneDrawPreviewMount() {
   return sceneDrawPreviewMount;
 }
 
-/** Align/gap guides — must share world SVG lattice (not a sibling surface). */
+/** Align/gap guides — chrome SVG above idle Canvas ink; same CameraTransform. */
 export function getSceneSmartGuidesMount() {
   return sceneSmartGuidesMount;
 }
 
-/** Selection paint shares the exact SVG root and camera group with scene ink. */
+/** Selection paint — chrome SVG above idle ink; same CameraTransform as scene. */
 export function getSceneSelectionChromeMount() {
   return sceneSelectionChromeMount;
 }

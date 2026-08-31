@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode, memo } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSelector } from 'react-redux';
+import { useSelector } from '@/store';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -95,7 +95,7 @@ async function copyImageToClipboard(url: string): Promise<boolean> {
   const src = String(url || '').trim();
   if (!src) return false;
   try {
-    // COS/plaza covers lack browser CORS 鈥?go through /api/v1/uploads/content.
+    // COS/plaza covers lack browser CORS — go through /api/v1/uploads/content.
     const file = await imageSrcToFile(src, 'inspiration.png');
     const type = file.type && file.type.startsWith('image/') ? file.type : 'image/png';
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
@@ -267,7 +267,7 @@ function InspirationCaseCard({
           version={Number(meta.updatedAt) || Number(meta.createdAt) || undefined}
           layout="flow"
         >
-          {/* Hover title 鈥?bottom scrim gradient (see plaza showcase covers). */}
+          {/* Hover title — bottom scrim gradient (see plaza showcase covers). */}
           <span
             className={cn(
               'pointer-events-none absolute inset-x-0 bottom-0 z-10',
@@ -283,7 +283,7 @@ function InspirationCaseCard({
         </PlazaCoverThumb>
       </button>
 
-      {/* Flow footer 鈥?avatar + author; like + use (prompt/image) menu. */}
+      {/* Flow footer — avatar + author; like + use (prompt/image) menu. */}
       <div className="mt-2 flex items-center gap-2">
         <button
           type="button"
@@ -487,7 +487,7 @@ function InspirationSection({ onOpenCase, disabled }: Props): ReactNode {
       }
       trackRemixUse();
       setPreviewId(null);
-      // Skill chip 鈫?chat; blank canvas (handled by HomePage). No document clone.
+      // Skill chip — chat; blank canvas (handled by HomePage). No document clone.
       onOpenCase(meta);
     } catch {
       message.error(t('home.casesOpenFailed'));

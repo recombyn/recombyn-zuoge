@@ -1,6 +1,6 @@
 /**
  * Audio generator composer under the empty plate.
- * Prompt → OpenRouter TTS via POST /api/v1/chat/audio/jobs; optional local upload shortcut.
+ * Prompt — OpenRouter TTS via POST /api/v1/chat/audio/jobs; optional local upload shortcut.
  * Attachments use the same strip + `@` mention chips as image/video generators.
  */
 import type { SceneDocument } from '@/components/rcb/sceneNode';
@@ -14,7 +14,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { FloatingPortal } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt } from 'react-icons/hi2';
@@ -151,7 +151,6 @@ function AudioGeneratorCard({
     const id = nodeId;
     return () => {
       // Card unmounts when selection clears / processing hides the toolbar —
-      // keep the in-flight generate promise alive (session registry).
       if (hasActiveGeneratorSession(id)) return;
       abortRef.current?.abort();
     };
@@ -400,7 +399,7 @@ function AudioGeneratorCard({
           attrs: {
             processStatus: 'running',
             processKind: 'generate',
-            processLabel: t('editor.tools.audioGenerating'),
+              processLabel: t('editor.tools.audioGenerating'),
             processStartedAt: String(Date.now()),
             genPrompt: text,
             audioGenModel: modelId,

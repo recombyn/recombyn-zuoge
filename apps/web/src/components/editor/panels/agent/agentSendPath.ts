@@ -310,13 +310,6 @@ export function firstGeneratedImageUrl(res: GeneratedMediaUrls): string {
   return firstListMediaUrl(res, 'images');
 }
 
-export function canvasSizeFromChip(chipNorm: string): string | undefined {
-  if (/^\d+x\d+$/.test(chipNorm)) return chipNorm;
-  if (chipNorm === 'auto') return 'auto';
-  if (/^(?:\d+xauto|autox\d+)$/.test(chipNorm)) return chipNorm;
-  return undefined;
-}
-
 function pickCatalogModel(
   pool: LlmModel[],
   selectedId: string
@@ -892,46 +885,6 @@ export function buildLottieAssistantSeed(opts: {
     imageModelLabel: String(opts.selectedModel?.label || opts.model || fallbackId),
     steps: [],
   };
-}
-
-export function buildAssistantTurnSeed(opts: {
-  runVideoGen: boolean;
-  runAudioGen: boolean;
-  runLottieGen: boolean;
-  video: Parameters<typeof buildVideoAssistantSeed>[0];
-  audio: Parameters<typeof buildAudioAssistantSeed>[0];
-  lottie: Parameters<typeof buildLottieAssistantSeed>[0];
-  image: Parameters<typeof buildStreamingAssistantSeed>[0];
-}): Partial<ChatUiMessage> {
-  if (opts.runVideoGen) return buildVideoAssistantSeed(opts.video);
-  if (opts.runAudioGen) return buildAudioAssistantSeed(opts.audio);
-  if (opts.runLottieGen) return buildLottieAssistantSeed(opts.lottie);
-  return buildStreamingAssistantSeed(opts.image);
-}
-
-export type DirectMediaTurnCtx = {
-  signal: AbortSignal;
-  fail: (content: string, extra?: Partial<ChatUiMessage>) => void;
-  succeed: (patch: Partial<ChatUiMessage>) => void;
-};
-
-/** Shared try/catch for video / audio / lottie chat jobs. */
-export async function runDirectMediaTurn(
-  ctx: DirectMediaTurnCtx,
-  generate: () => Promise<Partial<ChatUiMessage> | null>
-): Promise<void> {
-  try {
-    const patch = await generate();
-    if (ctx.signal.aborted) return;
-    if (!patch) {
-      ctx.fail('');
-      return;
-    }
-    ctx.succeed(patch);
-  } catch (err) {
-    if (ctx.signal.aborted) return;
-    ctx.fail(formatChatMediaError(() => '', err));
-  }
 }
 
 function buildCreditModelControls(opts: {

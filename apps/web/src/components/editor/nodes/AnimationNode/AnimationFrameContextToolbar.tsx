@@ -1,10 +1,11 @@
 /**
- * 动画工作台 frame toolbar — plate chrome + shared playback strip.
- * Order: fill → 关键帧/transport → FPS → lock → export (last).
+ * — ——frame toolbar — plate chrome + shared playback strip.
+ * Order: fill — — —transport — FPS — lock — export (last).
  * clipContent stays on by default — no overflow eye toggle.
  */
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineLockClosed,
@@ -68,7 +69,7 @@ function Tool({
 function LottieFrameContextToolbar({ frame, box }: Props) {
   const { t } = useTranslation();
   const dispatch = useDispatch();
-  const document = useSelector((s: any) => s.editor.document);
+  const document = useEditorDocumentOnCommit();
   const timelinePanel = useSelector(
     (s: any) => s.editor.lottieTimelinePanel as null | { nodeId: string }
   );

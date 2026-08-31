@@ -29,7 +29,7 @@ Rules injected from flow "prompt" nodes: adopt only entries relevant to this tas
 SCENE_FRAMES (artboard ids — delete_frame / create must use these ids only):
 
 <!-- pack:agent.prompt.skill_catalog_empty -->
-(No runtime skills yet: Admin "Agent skills" or seeds/design_skills/*/_meta.json + SKILL.md)
+(No runtime skills yet: Admin "Agent skills" or repo-root skills/ packs)
 
 <!-- pack:agent.prompt.skill_catalog_header -->
 Skills catalog (need_skills loads bodies; keys like `key` / `ns.key` / `key@version`; simple add/recolor may tool_ops directly; matching triggers auto-inject):

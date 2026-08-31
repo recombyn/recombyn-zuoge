@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineScissors } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
@@ -15,7 +16,7 @@ import { FloatingToolbar } from '@/components/editor/chrome/FloatingToolbar';
 import { ImageToolSep, imageToolBtn } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { closeVideoToolPanel, setDocument, setSelectedNodeId, setSelectedNodeIds, EMPTY_ID_LIST } from '@/store/modules/editor';
+import { closeVideoToolPanel, setDocument, setSelectedNodeId, setSelectedNodeIds } from '@/store/modules/editor';
 import {
   addNodeToDocument,
   cloneSceneValue,
@@ -276,9 +277,7 @@ function VideoTrimSessionHost({
         keepTime?: number;
       }
   );
-  const selectedNodeIds = useSelector(
-    (s: any) => (s.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
+  const selectedNodeIds = useSelectedNodeIds();
   const open = panel?.kind === 'trim';
   const nodeId = open ? panel!.nodeId : '';
   const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;

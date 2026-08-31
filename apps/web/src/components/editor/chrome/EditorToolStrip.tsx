@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type SVGProps, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
   LuArrowUpRight,
@@ -394,7 +395,7 @@ function EditorToolStrip({
   const dispatch = useDispatch();
   const activeTool = useSelector((state: any) => state.editor.activeTool);
   const shapeKind = useSelector((state: any) => state.editor.shapeKind);
-  const document = useSelector((state: any) => state.editor.document);
+  const document = useEditorDocumentOnCommit();
   const timelineOpen = useSelector((state: any) =>
     Boolean(state.editor.lottieTimelinePanel?.nodeId)
   );

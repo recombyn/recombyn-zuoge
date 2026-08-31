@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, memo } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch } from '@/store';
 import { cn } from '@/utils/classnames';
 import { parseMarkChipKey, isMarkContextKey } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
 import { setHoveredMarkPin } from '@/store/modules/editor';

@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector } from '@/store';
+import {
+  useCurrentProjectId,
+  useDocumentPatchToken,
+  useEditorDocument,
+  useLastPatchedNodeIds,
+  useLastPatchTransformOnly,
+  useSceneReloadToken,
+  useSelectedFrameIds,
+  useSelectedNodeId,
+  useSelectedNodeIds,
+} from '@/store/editorSelectors';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -86,7 +97,6 @@ import {
   setSelectedNodeId,
   setWorkspaceMode,
   bakeDocumentOrigin,
-  EMPTY_ID_LIST,
 } from '@/store/modules/editor';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
@@ -382,7 +392,7 @@ function persistUnsyncedDraft(
   writeUnsyncedProjectDraft(targetId, name, draft.document);
 }
 
-/** Keep /editor/:id when cloud has no row yet 鈥?never mint a second nanoid. */
+/** Keep /editor/:id when cloud has no row yet — never mint a second nanoid. */
 function seedLocalProjectForUrl(
   targetId: string,
   dispatch: ReturnType<typeof useDispatch>,
@@ -490,7 +500,7 @@ async function hydrateCloudProject(
 
     if (!proj?.document) {
       if (draft?.document) {
-        const name = draft.name || t('home.untitled');
+    const name = draft.name || t('home.untitled');
         dispatch(
           importDocument({
             id: targetId,
@@ -523,7 +533,7 @@ async function hydrateCloudProject(
     syncProjectRowFromServer(proj);
     void putProjectDraft({
       projectId: proj.id,
-      name: proj.name || t('home.untitled'),
+        name: proj.name || t('home.untitled'),
       document: proj.document,
       updatedAt: cloudUpdated || Date.now(),
       syncedAt: Date.now(),
@@ -533,7 +543,7 @@ async function hydrateCloudProject(
   } catch {
     if (isCancelled()) return;
     if (draft?.document) {
-      const name = draft.name || t('home.untitled');
+    const name = draft.name || t('home.untitled');
       dispatch(
         importDocument({
           id: targetId,
@@ -549,7 +559,7 @@ async function hydrateCloudProject(
     seedLocalProjectForUrl(
       targetId,
       dispatch,
-      t('home.untitled'),
+        t('home.untitled'),
       createEmptyDocument({ emptyWorld: true })
     );
   }
@@ -570,7 +580,7 @@ function EditorPage() {
   }, []);
   const [camera, setCamera] = useState<CanvasCamera>(DEFAULT_CAMERA);
   const [agentOpen, setAgentOpen] = useState(true);
-  /** Bumps AgentDock hydrate (catalog/models) 鈥?first enter starts at 1; reopen via openAgentPanel. */
+  /** Bumps AgentDock hydrate (catalog/models) — first enter starts at 1; reopen via openAgentPanel. */
   const [agentOpenSignal, setAgentOpenSignal] = useState(1);
   const [inspectOpen, setInspectOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -592,7 +602,7 @@ function EditorPage() {
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [minimapOpen, setMinimapOpen] = useState(false);
   const [canvasBgOpen, setCanvasBgOpen] = useState(false);
-  /** Enter page / fit-to-canvas 鈥?menu highlights銆岄€傚簲鐢诲竷銆島ntil user picks another zoom. */
+  /** Enter page / fit-to-canvas — menu highlights銆岄€傚簲鐢诲竷銆島ntil user picks another zoom. */
   const [zoomFitActive, setZoomFitActive] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [toolsExpanded, setToolsExpanded] = useState(false);
@@ -620,31 +630,23 @@ function EditorPage() {
   const didInitialFitRef = useRef(false);
   /** Previous stage layout size — used to keep the viewport anchor when side panels open/close. */
   const prevStageLayoutRef = useRef({ width: 0, height: 0 });
-  /** User pan/zoom 鈥?do not overwrite with auto-fit. */
+  /** User pan/zoom — do not overwrite with auto-fit. */
   const cameraUserTouchedRef = useRef(false);
   const gridUserTouchedRef = useRef(false);
   /** Apply sessionStorage home boot at most once per EditorPage lifetime. */
   const homeAgentBootAppliedRef = useRef(false);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageEl, setStageEl] = useState<HTMLElement | null>(null);
-  const document = useSelector((state: any) => state.editor.document);
+  const document = useEditorDocument();
   useProjectCloudSync();
-  const sceneReloadToken = useSelector((state: any) => state.editor.sceneReloadToken);
-  const documentPatchToken = useSelector((state: any) => state.editor.documentPatchToken);
-  const lastPatchedNodeIds = useSelector(
-    (state: any) => (state.editor.lastPatchedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const lastPatchTransformOnly = useSelector(
-    (state: any) => Boolean(state.editor.lastPatchTransformOnly)
-  );
-  const selectedNodeId = useSelector((state: any) => state.editor.selectedNodeId);
-  const selectedNodeIds = useSelector(
-    (state: any) => (state.editor.selectedNodeIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const selectedFrameIds = useSelector(
-    (state: any) => (state.editor.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
-  );
-  const currentId = useSelector((state: any) => state.editor.currentId as string | null);
+  const sceneReloadToken = useSceneReloadToken();
+  const documentPatchToken = useDocumentPatchToken();
+  const lastPatchedNodeIds = useLastPatchedNodeIds();
+  const lastPatchTransformOnly = useLastPatchTransformOnly();
+  const selectedNodeId = useSelectedNodeId();
+  const selectedNodeIds = useSelectedNodeIds();
+  const selectedFrameIds = useSelectedFrameIds();
+  const currentId = useCurrentProjectId();
   useOpenProjectSession(currentId || routeProjectId);
   const authUserId = useSelector((s: any) => s.auth?.user?.id as string | undefined);
   const templates = useSelector((state: any) => state.editor.templates as any[]);
@@ -813,15 +815,15 @@ function EditorPage() {
   }, [stageEl]);
 
 
-  // Scene paper follows content bounds only. Camera pan/zoom is CSS on RcbCanvas 鈥?
+  // Scene paper follows content bounds only. Camera pan/zoom is CSS on RcbCanvas — 
   // never resize/slide SVG viewBox to chase the frustum.
   const worldSurface = document
     ? computeWorldSurface(document, frames)
     : { x: 0, y: 0, width: 3600, height: 2400 };
-  // RcbCanvas autofit disabled here 鈥?we only center once on first load (below).
+  // RcbCanvas autofit disabled here — we only center once on first load (below).
   const worldBounds = { x: 0, y: 0, width: 0, height: 0 };
 
-  /** Stable embedded scene doc 鈥?avoid `document={{...}}` identity churn each render.
+  /** Stable embedded scene doc — avoid `document={{...}}` identity churn each render.
    * Paper fill is transparent here so SVG hosts don't paint over the stage CSS fill.
    * Reducers preserve real stage `backgroundColor` when this view doc is committed. */
   const canvasDocument = useMemo(() => {
@@ -830,7 +832,7 @@ function EditorPage() {
       ...document,
       x: 0,
       y: 0,
-      // Content bounds only 鈥?viewport coverage is handled by viewRect, not doc size.
+      // Content bounds only — viewport coverage is handled by viewRect, not doc size.
       width: worldSurface.width,
       height: worldSurface.height,
       backgroundColor: 'transparent',
@@ -904,7 +906,7 @@ function EditorPage() {
 
     if (!document) dispatch(createTemplate({ emptyWorld: true }));
     return cleanup;
-    // Only re-run when route / nav intent changes 鈥?not on every doc edit.
+    // Only re-run when route / nav intent changes — not on every doc edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, routeProjectId, location.search, navigate, t]);
 
@@ -916,7 +918,7 @@ function EditorPage() {
     cameraUserTouchedRef.current = false;
     gridUserTouchedRef.current = false;
     setZoomFitActive(true);
-    // Keep previous camera until fit 鈥?snapping to DEFAULT here causes a visible jump.
+    // Keep previous camera until fit — snapping to DEFAULT here causes a visible jump.
     dispatch(setGridMode(false));
   }, [currentId, dispatch]);
 
@@ -932,7 +934,7 @@ function EditorPage() {
         session = null;
       }
       if (cancelled) return;
-      // Do not restore session.camera 鈥?enter page always fits content once after load.
+      // Do not restore session.camera — enter page always fits content once after load.
       if (!gridUserTouchedRef.current) {
         dispatch(setGridMode(Boolean(session?.isGridMode)));
       }
@@ -1268,7 +1270,6 @@ function EditorPage() {
   }, [currentId, document, t, templates]);
 
   // Layers (left dock) and assets (floating HUD panel) can stay open together —
-  // opening one must not dismiss the other.
   const toggleLayersOpen = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setLayersOpen((prev) => (typeof v === 'function' ? v(prev) : v));
   }, []);
@@ -1326,7 +1327,7 @@ function EditorPage() {
     if (!el) return;
     cameraUserTouchedRef.current = true;
     setZoomFitActive(false);
-    // Layout px (clientWidth) 鈥?same space as camera.x/y. getBoundingClientRect is visual
+    // Layout px (clientWidth) — same space as camera.x/y. getBoundingClientRect is visual
     // and drifts under browser zoom / CSS scale, which makes content jump off-screen.
     setCamera((c) =>
       zoomAtPoint(c, nextZoom, el.clientWidth / 2, el.clientHeight / 2)
@@ -1366,7 +1367,7 @@ function EditorPage() {
     const state = store.getState() as any;
     const doc = state.editor?.document;
     const fr: ArtboardFrame[] = Array.isArray(doc?.frames) ? doc.frames : [];
-    // Empty scene → 100%. With content → fit visible artboards/nodes with 120px margins.
+    // Empty scene — 100%. With content — fit visible artboards/nodes with 120px margins.
     if (!editorHasFitContent(doc, fr)) {
       const next = { ...DEFAULT_CAMERA, zoom: 1 };
       setCamera(next);
@@ -1391,7 +1392,7 @@ function EditorPage() {
     return true;
   }, [toolsLeftDockPx, toolsRightDockPx, toolsTimelineLiftPx]);
 
-  /** Manual fit (toolbar / shortcut) 鈥?stop auto re-fit after this. */
+  /** Manual fit (toolbar / shortcut) — stop auto re-fit after this. */
   const onFitViewManual = useCallback((): boolean => {
     cameraUserTouchedRef.current = true;
     return onFitView();
@@ -1482,7 +1483,7 @@ function EditorPage() {
 
     const hasContent = editorHasFitContent(document, frames);
 
-    // Boot already gone (e.g. empty → agent added nodes): skip auto-fit to avoid jump.
+    // Boot already gone (e.g. empty — agent added nodes): skip auto-fit to avoid jump.
     if (!bootOpenRef.current && hasContent) {
       didInitialFitRef.current = true;
       return;
