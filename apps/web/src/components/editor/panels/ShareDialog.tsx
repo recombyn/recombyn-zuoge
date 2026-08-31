@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import {
   useCurrentProjectId,
   useEditorDocumentOnCommit,
@@ -166,9 +166,7 @@ function applyShareDtoToForm(s: ShareDto): {
 
 function ShareDialog({ open, onClose }: Props) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const dispatch = useDispatch();
-  const document = useEditorDocumentOnCommit();
+  const navigate = useNavigate();  const document = useEditorDocumentOnCommit();
   const currentId = useCurrentProjectId();
   const templates = useSelector(
     (s: any) =>

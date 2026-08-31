@@ -3,7 +3,7 @@
  * Export lives at the end of AnimationFrameContextToolbar (not mid-strip).
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { Dropdown } from '@/components/base';
@@ -80,9 +80,7 @@ function AnimationToolbarEditTools({
   loop: boolean;
   speed: number;
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
   const playhead = useAnimationPlayheadSec();
   const [playbackReady, setPlaybackReady] = useState(false);
   const timelinePanelNodeId = useSelector(
@@ -140,9 +138,9 @@ function AnimationToolbarEditTools({
 
   useEffect(() => {
     if (hasPlayableContent || !lottiePlaying) return;
-    dispatch(setLottiePlaying(false));
+    setLottiePlaying(false);
     getLottieHost(nodeId)?.pause();
-  }, [dispatch, hasPlayableContent, lottiePlaying, nodeId]);
+  }, [hasPlayableContent, lottiePlaying, nodeId]);
 
   const speedItems: MenuItemType[] = [
     { key: '0.5', label: '0.5×' },
@@ -152,7 +150,7 @@ function AnimationToolbarEditTools({
   ];
 
   const bindHost = () => {
-    dispatch(setLottiePlaying({ playing: lottiePlaying, hostNodeId: nodeId }));
+    setLottiePlaying({ playing: lottiePlaying, hostNodeId: nodeId });
   };
 
   const seekPlayhead = (tSec: number, opts?: { play?: boolean }) => {
@@ -162,14 +160,14 @@ function AnimationToolbarEditTools({
       fps,
       duration
     );
-    dispatch(setLottiePlayhead(next));
+    setLottiePlayhead(next);
     getLottieHost(nodeId)?.seek(next);
     if (opts?.play) {
       getLottieHost(nodeId)?.playFrom(next);
-      dispatch(setLottiePlaying({ playing: true, hostNodeId: nodeId }));
+      setLottiePlaying({ playing: true, hostNodeId: nodeId });
     } else {
       getLottieHost(nodeId)?.pause();
-      dispatch(setLottiePlaying({ playing: false, hostNodeId: nodeId }));
+      setLottiePlaying({ playing: false, hostNodeId: nodeId });
     }
   };
 
@@ -179,7 +177,7 @@ function AnimationToolbarEditTools({
     if (workbenchFrame || animationIntent) {
       if (lottiePlaying) {
         getLottieHost(nodeId)?.pause();
-        dispatch(setLottiePlaying({ playing: false, hostNodeId: nodeId }));
+        setLottiePlaying({ playing: false, hostNodeId: nodeId });
         return;
       }
       // At / past out — restart from in; otherwise continue from Redux playhead.
@@ -194,10 +192,10 @@ function AnimationToolbarEditTools({
     if (!host) return;
     if (host.isPaused()) {
       host.play();
-      dispatch(setLottiePlaying({ playing: true, hostNodeId: nodeId }));
+      setLottiePlaying({ playing: true, hostNodeId: nodeId });
     } else {
       host.pause();
-      dispatch(setLottiePlaying({ playing: false, hostNodeId: nodeId }));
+      setLottiePlaying({ playing: false, hostNodeId: nodeId });
     }
   };
 
@@ -218,14 +216,14 @@ function AnimationToolbarEditTools({
 
   const onToggleLoop = () => {
     const next = !loop;
-    dispatch(patchDocumentNode({ nodeId, patch: { attrs: { lottieLoop: next ? 'true' : 'false' } } }));
+    patchDocumentNode({ nodeId, patch: { attrs: { lottieLoop: next ? 'true' : 'false' } } });
     getLottieHost(nodeId)?.setLoop(next);
     bindHost();
   };
 
   const onSpeed = (key: string) => {
     const next = Number(key) || 1;
-    dispatch(patchDocumentNode({ nodeId, patch: { attrs: { lottieSpeed: next } } }));
+    patchDocumentNode({ nodeId, patch: { attrs: { lottieSpeed: next } } });
     getLottieHost(nodeId)?.setSpeed(next);
   };
 
@@ -268,7 +266,7 @@ function AnimationToolbarEditTools({
         label={t('editor.lottieToolbar.timeline')}
         tip={t('editor.lottieToolbar.timelineTip')}
         onClick={() => {
-          dispatch(openLottieTimelinePanel({ nodeId }));
+          openLottieTimelinePanel({ nodeId });
         }}
       >
         <span

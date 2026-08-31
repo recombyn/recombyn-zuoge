@@ -1,4 +1,3 @@
-import type { Dispatch } from '@/store';
 import { message } from '@/components/base';
 import {
   groupNodesInDocument,
@@ -55,7 +54,6 @@ export type RunCanvasCtxActionDeps = {
   imageInputRef: { current: HTMLInputElement | null };
   clipboardApiRef: { current: CanvasClipboardApi | null };
   readOnly: boolean;
-  dispatch: Dispatch<any>;
   camera: any;
   stageEl: HTMLElement | null;
   t: (key: string, opts?: any) => string;
@@ -78,7 +76,6 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
     imageInputRef,
     clipboardApiRef,
     readOnly,
-    dispatch,
     camera,
     stageEl,
     t,
@@ -162,7 +159,6 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
       input.remove();
       if (!file) return;
       const opts = {
-        dispatch,
         nodeId: targetId,
         keepWidth,
         file,
@@ -193,25 +189,25 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
         natural: { width: 1024, height: 1024 },
         fit: { minRatio: 0.28, maxRatio: 0.42 },
         nameKey: 'editor.tools.imageGenerator' as const,
-        dispatch: spawnImageGenerator,
+        spawn: spawnImageGenerator,
       },
       spawnVideoGenerator: {
         natural: { width: 1280, height: 720 },
         fit: { minRatio: 0.28, maxRatio: 0.48 },
         nameKey: 'editor.tools.videoGenerator' as const,
-        dispatch: spawnVideoGenerator,
+        spawn: spawnVideoGenerator,
       },
       spawnAnimationBoard: {
         natural: { width: 364, height: 364 },
         fit: { minRatio: 0.22, maxRatio: 0.42 },
         nameKey: 'editor.tools.animationBoard' as const,
-        dispatch: spawnAnimationBoard,
+        spawn: spawnAnimationBoard,
       },
       spawnAudioGenerator: {
         natural: { ...MEDIA_PLACE_DEFAULT },
         fit: { minRatio: 0.22, maxRatio: 0.4 },
         nameKey: 'editor.tools.audioGenerator' as const,
-        dispatch: spawnAudioGenerator,
+        spawn: spawnAudioGenerator,
       },
     }[action];
     const laid = layoutGeneratorPlateAtScene({
@@ -222,23 +218,21 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
       center: placeAt,
       fit: specs.fit,
     });
-    dispatch(
-      specs.dispatch({
+    specs.spawn({
         x: laid.x,
         y: laid.y,
         width: laid.width,
         height: laid.height,
         name: t(specs.nameKey),
-      })
-    );
+      });
     return;
   }
   if (action === 'addToChat') {
     const clearAfter = () => {
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setSelectedNodeId(null));
-      dispatch(setSelectedFrameIds([]));
-      dispatch(setActiveFrameId(null));
+      setSelectedNodeIds([]);
+      setSelectedNodeId(null);
+      setSelectedFrameIds([]);
+      setActiveFrameId(null);
     };
     const seedNodes = ctxMenuSeedNodeIds(ids, hitNodeId);
     const expanded = resolveSelectionNodeIds(
@@ -279,8 +273,8 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
     const grouped = unlockedGroupableIds(documentRef.current, targetIds);
     if (grouped.length < 2) return;
     const next = groupNodesInDocument(documentRef.current, grouped);
-    dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: grouped, frameIds: frameIdsForAction }));
+    setDocument(next);
+    setMixedSelection({ nodeIds: grouped, frameIds: frameIdsForAction });
     return;
   }
   if (action === 'ungroup') {
@@ -288,16 +282,16 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
     const unlocked = unlockedGroupableIds(documentRef.current, targetIds);
     if (!unlocked.length) return;
     const next = ungroupNodesInDocument(documentRef.current, unlocked);
-    dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: unlocked, frameIds: frameIdsForAction }));
+    setDocument(next);
+    setMixedSelection({ nodeIds: unlocked, frameIds: frameIdsForAction });
     return;
   }
   if (action === 'undo') {
-    if (!collabUndo()) dispatch(undo());
+    if (!collabUndo()) undo();
     return;
   }
   if (action === 'redo') {
-    if (!collabRedo()) dispatch(redo());
+    if (!collabRedo()) redo();
     return;
   }
   if (action === 'copy') {
@@ -346,19 +340,19 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
     if (!doc) return;
     // Hide if any target is visible; show only when all are hidden.
     const anyVisible = targetIds.some((id) => !isNodeHidden(doc?.deltaSetLike?.[id]));
-    dispatch(pushEditorHistory());
+    pushEditorHistory();
     let next = doc;
     for (const id of targetIds) {
       next = updateNodeInDocument(next, id, {
         attrs: { hidden: anyVisible ? 'true' : 'false' },
       });
     }
-    dispatch(setDocumentFromCanvas(next));
+    setDocumentFromCanvas(next);
     // Drop selection on hide so the canvas cannot keep interacting with it.
     // Unhide via layers eye, or re-select the layer then Show.
     if (anyVisible) {
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setSelectedNodeId(null));
+      setSelectedNodeIds([]);
+      setSelectedNodeId(null);
     }
     return;
   }
@@ -372,14 +366,14 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
     const doc = documentRef.current;
     if (targetIds.length && doc) {
       const anyUnlocked = targetIds.some((id) => !isNodeLocked(doc?.deltaSetLike?.[id]));
-      dispatch(pushEditorHistory());
+      pushEditorHistory();
       let next = doc;
       for (const id of targetIds) {
         next = updateNodeInDocument(next, id, {
           attrs: { locked: anyUnlocked ? 'true' : 'false' },
         });
       }
-      dispatch(setDocumentFromCanvas(next));
+      setDocumentFromCanvas(next);
     }
     // Also toggle co-selected artboards (same gesture as node lock).
     if (frameIdsForAction.length) {
@@ -390,14 +384,12 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
         const frame = frames.find((f: any) => f?.id === fid);
         return frame && !frame.locked;
       });
-      dispatch(
-        updateArtboardFrames({
+      updateArtboardFrames({
           patches: frameIdsForAction.map((fid) => ({
             id: fid,
             patch: { locked: anyFrameUnlocked },
           })),
-        })
-      );
+        });
       return;
     }
     if (!targetIds.length && menuFrameId) {
@@ -405,12 +397,10 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
         ? documentRef.current.frames
         : [];
       const frame = frames.find((f: any) => f?.id === menuFrameId);
-      dispatch(
-        updateArtboardFrame({
+      updateArtboardFrame({
           id: menuFrameId,
           patch: { locked: !frame?.locked },
-        })
-      );
+        });
     }
     return;
   }

@@ -2,7 +2,9 @@
  * Store-level canvas generators + media promote coverage (no browser).
  */
 import { describe, expect, it } from 'vitest';
-import reducer, {
+import {
+  editorReducers,
+  reduceEditor,
   clearImageProcess,
   createTemplate,
   finishAudioGenerator,
@@ -40,16 +42,13 @@ const SAMPLE_LOTTIE = {
 };
 
 function seed() {
-  let state = reducer(undefined, { type: '@@INIT' } as any);
-  state = reducer(
-    state,
-    createTemplate({
+  let state = reduceEditor(undefined, () => {});
+  state = reduceEditor(state, editorReducers.createTemplate, {
       name: 'canvas-generators-store',
       document: createEmptyDocument({ emptyWorld: true }),
       emptyWorld: true,
       source: 'scratch',
-    })
-  );
+    });
   return state;
 }
 
@@ -57,15 +56,15 @@ describe('canvas generators (store)', () => {
   it('spawns image/video/lottie/audio generator plates as selected nodes', () => {
     let state = seed();
     const specs = [
-      { action: spawnImageGenerator, flag: 'imageGenerator' },
-      { action: spawnVideoGenerator, flag: 'videoGenerator' },
-      { action: spawnLottieGeneratorPlate, flag: 'lottieGenerator' },
-      { action: spawnAudioGenerator, flag: 'audioGenerator' },
+      { reducer: editorReducers.spawnImageGenerator, flag: 'imageGenerator' },
+      { reducer: editorReducers.spawnVideoGenerator, flag: 'videoGenerator' },
+      { reducer: editorReducers.spawnLottieGeneratorPlate, flag: 'lottieGenerator' },
+      { reducer: editorReducers.spawnAudioGenerator, flag: 'audioGenerator' },
     ] as const;
 
     for (let i = 0; i < specs.length; i += 1) {
-      const { action, flag } = specs[i]!;
-      state = reducer(state, action({ x: i * 40, y: i * 30, name: flag }));
+      const { reducer, flag } = specs[i]!;
+      state = reduceEditor(state, reducer, { x: i * 40, y: i * 30, name: flag });
       const id = String(state.selectedNodeId || '');
       expect(id.length).toBeGreaterThan(2);
       const node = state.document!.deltaSetLike[id];
@@ -76,7 +75,7 @@ describe('canvas generators (store)', () => {
 
   it('spawnAnimationBoard creates a 动画工作台 artboard', () => {
     let state = seed();
-    state = reducer(state, spawnAnimationBoard({ x: 10, y: 20, width: 300, height: 300 }));
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, { x: 10, y: 20, width: 300, height: 300 });
     expect(state.selectedNodeId).toBeNull();
     expect(state.selectedFrameIds.length).toBe(1);
     const frame = state.document!.frames?.find((f) => f.id === state.selectedFrameIds[0]);
@@ -100,7 +99,7 @@ describe('canvas generators (store)', () => {
         children: [],
       }),
     };
-    state = reducer(state, spawnAnimationBoard({ x: 0, y: 0, width: 200, height: 200 }));
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, { x: 0, y: 0, width: 200, height: 200 });
     const frameId = String(state.selectedFrameIds[0] || '');
     const order = (state.document!.stackOrder || []).map(String);
     expect(order[order.length - 1]).toBe(`frame:${frameId}`);
@@ -125,62 +124,47 @@ describe('canvas generators (store)', () => {
   it('finish* promote clears generator flags and keeps genPrompt', () => {
     let state = seed();
 
-    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: 0, y: 0 });
     let id = String(state.selectedNodeId);
-    state = reducer(
-      state,
-      patchDocumentNode({
+    state = reduceEditor(state, editorReducers.patchDocumentNode, {
         id,
         patch: { attrs: { genPrompt: 'img-prompt', imageGenerator: true } as any },
-      })
-    );
-    state = reducer(
-      state,
-      finishImageGenerator({
+      });
+    state = reduceEditor(state, editorReducers.finishImageGenerator, {
         nodeId: id,
         src: 'https://cdn.example.com/a.png',
         genPrompt: 'img-prompt',
-      })
-    );
+      });
     expect(state.document!.deltaSetLike[id].attrs?.imageGenerator).toBeFalsy();
     expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('img-prompt');
 
-    state = reducer(state, spawnVideoGenerator({ x: 1, y: 1 }));
+    state = reduceEditor(state, editorReducers.spawnVideoGenerator, { x: 1, y: 1 });
     id = String(state.selectedNodeId);
-    state = reducer(
-      state,
-      finishVideoGenerator({
+    state = reduceEditor(state, editorReducers.finishVideoGenerator, {
         nodeId: id,
         src: 'https://cdn.example.com/a.mp4',
         genPrompt: 'vid-prompt',
-      })
-    );
+      });
     expect(state.document!.deltaSetLike[id].attrs?.videoGenerator).toBeFalsy();
     expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('vid-prompt');
 
-    state = reducer(state, spawnAudioGenerator({ x: 2, y: 2 }));
+    state = reduceEditor(state, editorReducers.spawnAudioGenerator, { x: 2, y: 2 });
     id = String(state.selectedNodeId);
-    state = reducer(
-      state,
-      finishAudioGenerator({
+    state = reduceEditor(state, editorReducers.finishAudioGenerator, {
         nodeId: id,
         src: 'https://cdn.example.com/a.mp3',
         genPrompt: 'aud-prompt',
-      })
-    );
+      });
     expect(state.document!.deltaSetLike[id].attrs?.audioGenerator).toBeFalsy();
     expect(state.document!.deltaSetLike[id].attrs?.genPrompt).toBe('aud-prompt');
 
-    state = reducer(state, spawnLottieGeneratorPlate({ x: 3, y: 3 }));
+    state = reduceEditor(state, editorReducers.spawnLottieGeneratorPlate, { x: 3, y: 3 });
     id = String(state.selectedNodeId);
-    state = reducer(
-      state,
-      finishLottieGenerator({
+    state = reduceEditor(state, editorReducers.finishLottieGenerator, {
         nodeId: id,
         animationData: SAMPLE_LOTTIE,
         genPrompt: 'lot-prompt',
-      })
-    );
+      });
     // Generator plate is replaced by an animation workbench + host.
     expect(state.document!.deltaSetLike[id]).toBeUndefined();
     const frameId = String(state.selectedFrameIds?.[0] || '');
@@ -196,11 +180,9 @@ describe('canvas generators (store)', () => {
 
   it('allows deleting image generator while processStatus is running', () => {
     let state = seed();
-    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: 0, y: 0 });
     const id = String(state.selectedNodeId);
-    state = reducer(
-      state,
-      patchDocumentNode({
+    state = reduceEditor(state, editorReducers.patchDocumentNode, {
         nodeId: id,
         patch: {
           attrs: {
@@ -209,11 +191,10 @@ describe('canvas generators (store)', () => {
             processLabel: 'Generating',
           },
         },
-      })
-    );
+      });
     expect(state.document!.deltaSetLike[id].attrs?.processStatus).toBe('running');
 
-    const deleted = reducer(state, removeDocumentNodes({ nodeIds: [id] }));
+    const deleted = reduceEditor(state, editorReducers.removeDocumentNodes, { nodeIds: [id] });
     expect(deleted.document!.deltaSetLike[id]).toBeUndefined();
   });
 
@@ -240,11 +221,9 @@ describe('canvas generators (store)', () => {
 
   it('clearImageProcess reducer clears SoftGlow and bumps sceneReloadToken', () => {
     let state = seed();
-    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: 0, y: 0 });
     const id = String(state.selectedNodeId);
-    state = reducer(
-      state,
-      patchDocumentNode({
+    state = reduceEditor(state, editorReducers.patchDocumentNode, {
         nodeId: id,
         patch: {
           attrs: {
@@ -253,28 +232,24 @@ describe('canvas generators (store)', () => {
             processJobIds: '["job-1"]',
           },
         },
-      })
-    );
+      });
     const token = state.sceneReloadToken;
-    const next = reducer(state, clearImageProcess({ nodeId: id }));
+    const next = reduceEditor(state, editorReducers.clearImageProcess, { nodeId: id });
     expect(next.document!.deltaSetLike[id].attrs?.processStatus).toBeUndefined();
     expect(next.sceneReloadToken).toBe(token + 1);
   });
 
   it('finishImageGenerator stores multi-gen stack on attrs.imageVariants', () => {
     let state = seed();
-    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: 0, y: 0 });
     const id = String(state.selectedNodeId);
-    state = reducer(
-      state,
-      finishImageGenerator({
+    state = reduceEditor(state, editorReducers.finishImageGenerator, {
         nodeId: id,
         src: 'https://cdn.example.com/a.png',
         variants: ['https://cdn.example.com/a.png', 'https://cdn.example.com/b.png'],
         name: 'Image Generator',
         genPrompt: 'puppy in grass',
-      })
-    );
+      });
     const attrs = state.document!.deltaSetLike[id].attrs || {};
     expect(attrs.imageGenerator).toBeFalsy();
     expect(attrs.src).toBe('https://cdn.example.com/a.png');
@@ -297,16 +272,13 @@ describe('canvas generators (store)', () => {
 
   it('finishImageGenerator does not resurrect a deleted plate', () => {
     let state = seed();
-    state = reducer(state, spawnImageGenerator({ x: 0, y: 0 }));
+    state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: 0, y: 0 });
     const id = String(state.selectedNodeId);
-    state = reducer(state, removeDocumentNodes({ nodeIds: [id] }));
-    const after = reducer(
-      state,
-      finishImageGenerator({
+    state = reduceEditor(state, editorReducers.removeDocumentNodes, { nodeIds: [id] });
+    const after = reduceEditor(state, editorReducers.finishImageGenerator, {
         nodeId: id,
         src: 'https://cdn/ghost.png',
-      })
-    );
+      });
     expect(after.document!.deltaSetLike[id]).toBeUndefined();
   });
 });

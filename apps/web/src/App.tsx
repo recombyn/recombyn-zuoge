@@ -1,5 +1,5 @@
 import { useEffect, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { apiQuery, queryClient } from '@/service/client';
 import { clearProjectsListCache } from '@/service/projects';
 import { clearWalletCache, WALLET_ME_QUERY_OPTS } from '@/service/wallet';
@@ -9,7 +9,6 @@ import { clearProjectsLibrary } from '@/store/modules/editor';
 import { getToken } from '@/utils/token';
 
 function applySessionUser(
-  dispatch: ReturnType<typeof useDispatch>,
   user: {
     id?: string;
     email: string;
@@ -21,8 +20,7 @@ function applySessionUser(
   },
   token?: string
 ) {
-  dispatch(
-    setSession({
+  setSession({
       user: {
         id: user.id,
         email: user.email,
@@ -33,8 +31,7 @@ function applySessionUser(
         role: user.role,
       },
       token,
-    })
-  );
+    });
 }
 
 async function runQuietly(task: () => Promise<void>): Promise<void> {
@@ -45,20 +42,17 @@ async function runQuietly(task: () => Promise<void>): Promise<void> {
   }
 }
 
-function App() {
-  const dispatch = useDispatch();
-
-  useEffect(() => {
+function App() {  useEffect(() => {
     const onUnauthorized = () => {
-      dispatch(logout());
-      dispatch(clearProjectsLibrary());
+      logout();
+      clearProjectsLibrary();
       clearSessionCaches();
       clearProjectsListCache();
       clearWalletCache();
     };
     window.addEventListener('recombine:auth-unauthorized', onUnauthorized);
     return () => window.removeEventListener('recombine:auth-unauthorized', onUnauthorized);
-  }, [dispatch]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +85,7 @@ function App() {
           };
         };
         if (cancelled || !getToken()) return false;
-        applySessionUser(dispatch, res.user, getToken() || undefined);
+        applySessionUser(res.user, getToken() || undefined);
         return true;
       } catch {
         return false;
@@ -118,7 +112,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [dispatch]);
+  }, []);
 
   return <AppRouter />;
 }

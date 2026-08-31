@@ -1,6 +1,6 @@
 import { forwardRef, useRef, type ReactNode, type Ref, memo } from 'react';
 import { useEffect, useState } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import {
   HiOutlineArrowUturnLeft,
@@ -1993,9 +1993,7 @@ function LottieGenGallery({
   assistant: ChatUiMessage;
   sending?: boolean;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const lotties = assistant.lotties || [];
+  const { t } = useTranslation();  const lotties = assistant.lotties || [];
   const pending = Math.max(0, Number(assistant.lottiePendingCount) || 0);
   const slots = Math.max(lotties.length, pending);
   if (slots <= 0) return null;
@@ -2016,15 +2014,13 @@ function LottieGenGallery({
             );
             return;
           }
-          dispatch(
-            placeMediaAsset({
+          placeMediaAsset({
               kind: 'lottie',
               animationData: anim,
               width: asset.width ?? box.width,
               height: asset.height ?? box.height,
               name: '动画工作台',
-            })
-          );
+            });
           message.success(
             t('agent.lottiePlacedOnBoard', {
               defaultValue: '已添加到动画工作台',

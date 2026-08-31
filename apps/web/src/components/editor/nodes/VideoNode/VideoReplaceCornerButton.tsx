@@ -41,13 +41,12 @@ async function optionalVideoPoster(src: string): Promise<string> {
  * Clears prior crop / trim for the new source.
  */
 export async function replaceVideoNodeFromFile(opts: {
-  dispatch: DispatchLike;
   nodeId: string;
   keepWidth: number;
   file: File;
   isAlive?: () => boolean;
 }): Promise<void> {
-  const { dispatch, nodeId, file } = opts;
+  const { nodeId, file } = opts;
   const keepWidth = Math.max(1, Math.round(opts.keepWidth));
   const alive = opts.isAlive ?? (() => true);
   if (!file.type.startsWith('video/')) return;
@@ -59,8 +58,7 @@ export async function replaceVideoNodeFromFile(opts: {
     const previewPoster = await optionalVideoPoster(preview);
     if (!alive()) return;
 
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           width: keepWidth,
@@ -75,12 +73,11 @@ export async function replaceVideoNodeFromFile(opts: {
             ...CLEAR_CROP_TRIM,
           },
         },
-      })
-    );
+      });
 
     const signal = beginNodeUpload(nodeId);
     try {
-      const uploaded = await uploadImageFile(file, { signal, dispatch, nodeId });
+      const uploaded = await uploadImageFile(file, { signal, nodeId });
       if (!alive()) return;
 
       const src = uploaded.url;
@@ -93,8 +90,7 @@ export async function replaceVideoNodeFromFile(opts: {
       }
 
       const poster = previewPoster || (await optionalVideoPoster(src));
-      dispatch(
-        finishImageProcess({
+      finishImageProcess({
           nodeId,
           src,
           attrs: {
@@ -102,10 +98,8 @@ export async function replaceVideoNodeFromFile(opts: {
             genPrompt: '',
             ...(uploaded.key ? { uploadKey: uploaded.key } : {}),
           },
-        })
-      );
-      dispatch(
-        patchDocumentNode({
+        });
+      patchDocumentNode({
           nodeId,
           patch: {
             width: keepWidth,
@@ -117,8 +111,7 @@ export async function replaceVideoNodeFromFile(opts: {
             },
           },
           skipHistory: true,
-        })
-      );
+        });
       revokeFilePreviewUrl(preview);
     } finally {
       finishNodeUpload(nodeId);
@@ -126,7 +119,7 @@ export async function replaceVideoNodeFromFile(opts: {
   } catch (err: unknown) {
     if (!alive()) return;
     revokeFilePreviewUrl(preview);
-    dispatch(finishImageProcess({ nodeId }));
+    finishImageProcess({ nodeId });
     message.error(getHttpErrorMessage(err, '替换视频失败'));
   }
 }

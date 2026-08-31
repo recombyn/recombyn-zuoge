@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import {
   useDocumentPatchToken,
   useEditorDocument,
@@ -139,9 +139,7 @@ function previewContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Scen
 function SharePage() {
   const { shareId = '' } = useParams();
   const { t } = useTranslation();
-  const location = useLocation();
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const location = useLocation();  const navigate = useNavigate();
   const viewerId = useSelector((s: any) => s.auth?.user?.id as string | undefined);
   const document = useEditorDocument();
   const selectedNodeId = useSelectedNodeId();
@@ -257,16 +255,14 @@ function SharePage() {
     const doc = (store.getState() as any).editor?.document as SceneDocument | null;
     if (!doc) return;
     const baseName = record?.name || t('home.untitled');
-    dispatch(
-      createTemplate({
+    createTemplate({
         name: `${baseName} ${t('editor.projectMenu.duplicateSuffix')}`,
         document: structuredClone(doc),
         source: 'user',
-      })
-    );
+      });
     const newId = (store.getState() as any).editor?.currentId;
     if (newId) navigate(`/editor/${encodeURIComponent(newId)}`, { replace: true });
-  }, [dispatch, navigate, record?.name, t]);
+  }, [navigate, record?.name, t]);
 
   const importJsonFromShare = useCallback(
     async (file: File) => {
@@ -277,13 +273,11 @@ function SharePage() {
           message.error(t('home.importJsonInvalid'));
           return;
         }
-        dispatch(
-          importDocument({
+        importDocument({
             name: file.name.replace(/\.json$/i, ''),
             document: validation.data,
             source: 'import',
-          })
-        );
+          });
         message.success(t('home.importSuccess'));
         const id = (store.getState() as any).editor?.currentId;
         if (id) navigate(`/editor/${encodeURIComponent(id)}`, { replace: true });
@@ -291,7 +285,7 @@ function SharePage() {
         message.error(t('home.importJsonFailed'));
       }
     },
-    [dispatch, navigate, t]
+    [navigate, t]
   );
 
   const shareMenuProps = {
@@ -450,28 +444,26 @@ function SharePage() {
     );
     if (firstHydrate) {
       hydratedShareIdRef.current = shareId;
-      dispatch(setDocument(preview));
-      dispatch(setSelectedNodeIds([]));
-      dispatch(setWorkspaceMode('dev'));
-      dispatch(setActiveTool('select'));
+      setDocument(preview);
+      setSelectedNodeIds([]);
+      setWorkspaceMode('dev');
+      setActiveTool('select');
     } else {
-      dispatch(applyCollabDocument(preview));
+      applyCollabDocument(preview);
     }
   }, [
     shareId,
     shareQuery.data,
     shareQuery.isPending,
-    shareQuery.isError,
-    dispatch,
-    navigate,
+    shareQuery.isError, navigate,
     viewerId,
   ]);
 
   // Keep inspect mode sticky — other routes may flip workspaceMode back to design.
   useEffect(() => {
-    dispatch(setWorkspaceMode('dev'));
-    dispatch(setActiveTool('select'));
-  }, [dispatch, shareId]);
+    setWorkspaceMode('dev');
+    setActiveTool('select');
+  }, [shareId]);
 
   // Keep preview in sync with the source project (API returns live doc when linked).
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { nanoid } from 'nanoid';
 import { message } from '@/components/base';
@@ -54,9 +54,7 @@ function MarkSessionHost({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}): ReactNode {  const { t } = useTranslation();
   const camera = useRcbCamera();
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
@@ -123,10 +121,10 @@ function MarkSessionHost({
   const close = () => {
     resetLocalSession();
     if (!panel?.nodeId) {
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
       return;
     }
-    dismissMarkToolSession(dispatch, document, panel, panel.nodeId);
+    dismissMarkToolSession(document, panel, panel.nodeId);
   };
 
   useEffect(() => {
@@ -235,7 +233,7 @@ function MarkSessionHost({
   const onSubmitMultiImagePrompt = (text: string) => {
     if (!sessionNodeId || !activeQuickEditPrompt || !multiMarkSink) return;
     const { nodeId: targetNodeId, box: targetBox, region } = activeQuickEditPrompt;
-    commitMarkRegion(dispatch, {
+    commitMarkRegion({
       nodeId: targetNodeId,
       sessionNodeId,
       region,
@@ -330,7 +328,7 @@ function MarkSessionHost({
 
   const onSubmitPrompt = (text: string) => {
     if (!agentMarkNodeId || !agentBox || !promptRegion) return;
-    commitMarkRegion(dispatch, {
+    commitMarkRegion({
       nodeId: agentMarkNodeId,
       sessionNodeId: panel?.nodeId,
       region: promptRegion,

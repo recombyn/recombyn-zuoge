@@ -7,6 +7,7 @@ import '@/theme/light.css';
 import '@/theme/dark.css';
 import { applyTheme, getStoredThemeMode } from '@/theme';
 import '@/styles/index.css';
+import '@/store';
 import App from '@/App';
 import { MessageContainer } from '@/components/base';
 import { queryClient } from '@/service/client';

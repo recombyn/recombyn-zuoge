@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocument } from '@/store/editorSelectors';
 import { FloatingPortal } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown } from 'react-icons/hi2';
@@ -162,9 +162,7 @@ function ImageGeneratorCard({
   sceneBox,
   disabled,
 }: Props): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const inputRef = useRef<AgentComposerHandle | null>(null);
+  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -253,7 +251,7 @@ function ImageGeneratorCard({
   useEffect(() => {
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
-    dispatch(consumePendingCanvasAttach());
+    consumePendingCanvasAttach();
     const doc = editorDocument || (store.getState() as any).editor?.document;
     async function flyPendingAttach() {
       await flyPickIntoComposer({
@@ -269,7 +267,7 @@ function ImageGeneratorCard({
       });
     }
     flyPendingAttach();
-  }, [pendingCanvasAttach, pickTarget, editorDocument, dispatch]);
+  }, [pendingCanvasAttach, pickTarget, editorDocument]);
 
   // Re-hydrate after overlay remount (e.g. geometry transform hides the portal).
   useEffect(() => {
@@ -331,9 +329,9 @@ function ImageGeneratorCard({
     if (pendingMarksLockRef.current === token) return;
     pendingMarksLockRef.current = token;
     const list = pendingImageGenMarks.slice();
-    dispatch(consumePendingImageGenMarkContexts());
+    consumePendingImageGenMarkContexts();
     insertPendingComposerChips(() => inputRef.current, list, { focus: 'caret' });
-  }, [pendingImageGenMarks, dispatch]);
+  }, [pendingImageGenMarks]);
 
   const attachments = useMemo(
     () => contexts.filter((c) => c.kind === 'attachment'),
@@ -366,7 +364,7 @@ function ImageGeneratorCard({
   });
 
   const removeContext = (key: string) => {
-    if (isMarkContextKey(key)) syncMarkPinRemoved(dispatch, key);
+    if (isMarkContextKey(key)) syncMarkPinRemoved(key);
     const removed = contextsRef.current.find((c) => c.key === key);
     if (removed) revokeComposerPreviewUrls(removed);
     if (removed?.kind === 'attachment' && removed.uploadKey) {
@@ -381,7 +379,7 @@ function ImageGeneratorCard({
     const prevInline = contextsRef.current.filter((c) => c.kind !== 'attachment');
     for (const c of prevInline) {
       if (!next.some((item) => item.key === c.key) && isMarkContextKey(c.key)) {
-        syncMarkPinRemoved(dispatch, c.key);
+        syncMarkPinRemoved(c.key);
       }
     }
     const attachmentsOnly = contextsRef.current.filter((c) => c.kind === 'attachment');
@@ -414,11 +412,11 @@ function ImageGeneratorCard({
     if (nodeProcessing || disabled || sending) return;
     const doc = editorDocument || (store.getState() as any).editor?.document;
     if (markActive) {
-      clearImageGenMarkSession(dispatch, doc);
-      dispatch(closeImageToolPanel());
+      clearImageGenMarkSession(doc);
+      closeImageToolPanel();
       return;
     }
-    dispatch(openImageToolPanel({ nodeId, kind: 'mark', markSink: 'imageGen' }));
+    openImageToolPanel({ nodeId, kind: 'mark', markSink: 'imageGen' });
   };
 
   const onPickRef = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -571,11 +569,10 @@ function ImageGeneratorCard({
     abortRef.current = ac;
     // Register before clearing selection — toolbar unmount must not abort this run.
     registerGeneratorSession(nodeId);
-    dispatch(setSelectedNodeIds([]));
+    setSelectedNodeIds([]);
     setSending(true);
     let finished = false;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -587,8 +584,7 @@ function ImageGeneratorCard({
             genPrompt: text,
           },
         },
-      })
-    );
+      });
     try {
       const promptForApi = buildComposerChipPrompt(contextsRef.current, text);
       const body: Parameters<typeof generateImage>[0] = {
@@ -608,13 +604,11 @@ function ImageGeneratorCard({
         signal: ac.signal,
         emptyMessage: t('editor.tools.imageGenEmpty'),
         onJobsCreated: (jobIds) => {
-          dispatch(
-            patchDocumentNode({
+          patchDocumentNode({
               nodeId,
               skipHistory: true,
               patch: { attrs: processJobAttrPatch(jobIds) },
-            })
-          );
+            });
         },
       });
       const src = urls[0] || '';
@@ -629,19 +623,17 @@ function ImageGeneratorCard({
         );
       }
 
-      dispatch(
-        finishImageGenerator({
+      finishImageGenerator({
           nodeId,
           src,
           name: t('editor.tools.imageGenerator'),
           variants: urls,
           genPrompt: text,
-        })
-      );
+        });
       for (const c of contextsRef.current) {
-        if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+        if (isMarkContextKey(c.key)) syncMarkPinRemoved(c.key);
       }
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
       finished = true;
     } catch (err: unknown) {
       if (!ac.signal.aborted) {
@@ -649,7 +641,6 @@ function ImageGeneratorCard({
       }
     } finally {
       finishGeneratorGenerateSession({
-        dispatch,
         nodeId,
         finished,
         abortRef,
@@ -674,13 +665,11 @@ function ImageGeneratorCard({
     if (patch.count != null) attrs.imageGenCount = patch.count;
     if (patch.model != null) attrs.imageGenModel = patch.model;
     if (!Object.keys(attrs).length) return;
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: { attrs },
         skipHistory: opts?.skipHistory !== false,
-      })
-    );
+      });
   };
 
   const applyAspectToNode = (nextAspect: string, nextResolution = resolutionRef.current) => {
@@ -698,8 +687,7 @@ function ImageGeneratorCard({
       return;
     }
     const next = plateSizeForAspect(sceneBox, nextAspect, res);
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           x: next.x,
@@ -711,14 +699,13 @@ function ImageGeneratorCard({
             imageGenResolution: res,
           },
         },
-      })
-    );
+      });
   };
 
   const onCanvasPick = () => {
     void pickOrAttachFromCanvas({
       pickingFromCanvas,
-      clearPick: () => dispatch(clearCanvasAttachPick()),
+      clearPick: () => clearCanvasAttachPick(),
       attachSelection: async () => {
         const doc = editorDocument || (store.getState() as any).editor?.document;
         const insertChip = (ctx: ComposerContext) => {
@@ -738,7 +725,7 @@ function ImageGeneratorCard({
       },
       startPick: () => {
         noteCanvasFlyLand(pickTarget);
-        dispatch(startCanvasAttachPick({ target: pickTarget, accept: 'image' }));
+        startCanvasAttachPick({ target: pickTarget, accept: 'image' });
       },
     });
   };

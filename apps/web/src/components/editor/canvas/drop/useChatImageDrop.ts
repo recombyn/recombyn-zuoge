@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import { useDispatch } from '@/store';
+
 import {
   measureImageNaturalSize,
   parseLottieAnimationData,
@@ -116,10 +116,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
     documentRef,
     imageSizeForViewport,
     finishToSelect,
-  } = args;
-  const dispatch = useDispatch();
-
-  useEffect(() => {
+  } = args;  useEffect(() => {
     const hitEl = stageEl || paperEl;
     if (readOnly || !hitEl) return undefined;
 
@@ -171,8 +168,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
         y: snapCoordToGrid(rawOrigin.y, grid),
       };
       const prompt = String(placePayload.prompt || '').trim();
-      dispatch(
-        placeMediaAsset({
+      placeMediaAsset({
           kind: placePayload.kind,
           src: placePayload.src,
           uploadKey: placePayload.uploadKey || undefined,
@@ -189,8 +185,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
           ...(hydrated.animationData
             ? { animationData: hydrated.animationData }
             : {}),
-        })
-      );
+        });
       finishToSelect();
     };
 
@@ -212,8 +207,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
         x: snapCoordToGrid(rawOrigin.x, grid),
         y: snapCoordToGrid(rawOrigin.y, grid),
       };
-      dispatch(
-        startImageUploadPlaceholder({
+      startImageUploadPlaceholder({
           src: url,
           width,
           height,
@@ -221,14 +215,12 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
           y: origin.y,
           label: '上传中',
           name: 'Image',
-        })
-      );
+        });
       finishToSelect();
       const spawnedId = String(
         (store.getState() as any).editor?.pendingImageProcessId || ''
       );
       await uploadCanvasPlaceholderSrc({
-        dispatch,
         nodeId: spawnedId,
         src: url,
         filename: 'chat-image.png',
@@ -257,7 +249,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
         await placeChatImage(url, e.clientX, e.clientY);
       } catch (err: any) {
         if (isUploadAbortError(err)) return;
-        dispatch(failImageProcess({}));
+        failImageProcess({});
         message.error(getHttpErrorMessage(err, '图片上传失败'));
       }
     };
@@ -270,9 +262,7 @@ export function useChatImageDrop(args: UseChatImageDropArgs) {
     };
   }, [
     artboard,
-    camera,
-    dispatch,
-    documentRef,
+    camera, documentRef,
     finishToSelect,
     imageSizeForViewport,
     paperEl,

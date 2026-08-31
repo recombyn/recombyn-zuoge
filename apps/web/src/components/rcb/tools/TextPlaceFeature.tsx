@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, memo } from 'react';
-import { useRcbCamera, useRcbScreenToScene } from '../camera/context';
+import { useRcbCamera, useRcbScreenToScene, useRcbViewportEl } from '../camera/context';
+import { rcbResolveViewportEl } from '../core/math';
 import { rcbPlaceTextFontSize, RCB_PLACE_TEXT_SCREEN_PX } from '../core/layout';
 
 /** `dragDistanceSquared` default = 16 → 4px; fixed-width needs ~6× that. */
@@ -48,12 +49,11 @@ function TextPlaceFeature({
 }: TextPlaceFeatureProps) {
   const camera = useRcbCamera();
   const toScene = useRcbScreenToScene();
+  const viewportEl = useRcbViewportEl();
   const onPlaceRef = useRef(onPlace);
   onPlaceRef.current = onPlace;
   const pointingRef = useRef<{
     pointerId: number;
-    startClientX: number;
-    startClientY: number;
     originX: number;
     originY: number;
     enterAt: number;
@@ -66,7 +66,7 @@ function TextPlaceFeature({
   } | null>(null);
 
   useEffect(() => {
-    const hitEl = stageEl || paperEl;
+    const hitEl = rcbResolveViewportEl(viewportEl, stageEl, paperEl);
     if (!enabled || !hitEl) return undefined;
 
     const minDragForFixed = () => {
@@ -92,8 +92,6 @@ function TextPlaceFeature({
       const p = toScene(e.clientX, e.clientY);
       pointingRef.current = {
         pointerId: e.pointerId,
-        startClientX: e.clientX,
-        startClientY: e.clientY,
         originX: p.x,
         originY: p.y,
         enterAt: Date.now(),
@@ -168,18 +166,18 @@ function TextPlaceFeature({
     const onUp = (e: PointerEvent) => finish(e, true);
     const onCancel = (e: PointerEvent) => finish(e, false);
 
-    hitEl.addEventListener('pointerdown', onDown);
+    hitEl.addEventListener('pointerdown', onDown, true);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onCancel);
     return () => {
-      hitEl.removeEventListener('pointerdown', onDown);
+      hitEl.removeEventListener('pointerdown', onDown, true);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onCancel);
       clear();
     };
-  }, [enabled, artboard, paperEl, stageEl, toScene, camera.zoom]);
+  }, [enabled, artboard, paperEl, stageEl, viewportEl, toScene, camera.zoom]);
 
   if (!preview) return null;
 

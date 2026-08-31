@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { HiOutlinePencil } from 'react-icons/hi2';
@@ -72,9 +72,7 @@ function AccountProfileTab({
   onOpenPlans,
   onGoUsage,
 }: Props) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const billingEnabled = useBillingEnabled();
+  const { t } = useTranslation();  const billingEnabled = useBillingEnabled();
   const hideBillingUi = !billingEnabled;
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState('');
@@ -134,8 +132,7 @@ function AccountProfileTab({
           avatar,
         },
       })) as { user: AuthUser };
-      dispatch(
-        setUser({
+      setUser({
           ...user,
           id: res.user.id || user.id,
           name: res.user.name,
@@ -143,8 +140,7 @@ function AccountProfileTab({
           avatar: res.user.avatar ?? avatar,
           email: res.user.email || user.email,
           provider: res.user.provider || user.provider,
-        })
-      );
+        });
       message.success(t('me.profileSaved'));
     } catch {
       message.error(t('home.casesLoadFailed'));

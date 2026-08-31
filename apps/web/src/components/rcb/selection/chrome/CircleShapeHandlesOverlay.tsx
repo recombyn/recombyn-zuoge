@@ -3,7 +3,7 @@ import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
  * Circle / ellipse knobs: 内半径, 开始位置 (display), 弧度 / 周弧度.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import { previewSvgNodeEllipseParams } from '@/components/rcb/scene/paint/sceneToSvg';
 import { useRcbCamera } from '@/components/rcb/camera/context';
@@ -95,15 +95,13 @@ function localPointToScene(
 }
 
 function commitEllipseParams(opts: {
-  dispatch: (a: unknown) => void;
   nodeId: string;
   innerRatio: number;
   arcPercent: number;
   startDeg: number;
   skipHistory?: boolean;
 }) {
-  opts.dispatch(
-    patchDocumentNode({
+  patchDocumentNode({
       nodeId: opts.nodeId,
       skipHistory: Boolean(opts.skipHistory),
       patch: {
@@ -113,8 +111,7 @@ function commitEllipseParams(opts: {
           ellipseStartDeg: opts.startDeg,
         },
       },
-    })
-  );
+    });
 }
 
 type DragState =
@@ -156,9 +153,7 @@ function CircleShapeHandlesOverlay({
   stageEl: HTMLElement | null;
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+  const { t } = useTranslation();  const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const k = 1 / z;
 
@@ -298,7 +293,6 @@ function CircleShapeHandlesOverlay({
       }
 
       commitEllipseParams({
-        dispatch,
         nodeId,
         innerRatio: d.mode === 'inner' ? d.current : baseInner,
         arcPercent: d.mode === 'arc' ? d.current : baseArc,
@@ -336,9 +330,7 @@ function CircleShapeHandlesOverlay({
     z,
     baseInner,
     baseArc,
-    startDeg,
-    dispatch,
-    nodeId,
+    startDeg, nodeId,
     w,
     h,
   ]);
@@ -402,7 +394,6 @@ function CircleShapeHandlesOverlay({
     setLiveInner(null);
     setLiveArc(null);
     commitEllipseParams({
-      dispatch,
       nodeId,
       innerRatio: 0,
       arcPercent: baseArc,
@@ -445,7 +436,6 @@ function CircleShapeHandlesOverlay({
     setLiveInner(null);
     setLiveArc(null);
     commitEllipseParams({
-      dispatch,
       nodeId,
       innerRatio: baseInner,
       arcPercent: full,

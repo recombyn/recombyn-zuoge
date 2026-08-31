@@ -1,5 +1,5 @@
 import { useCallback, useEffect, type RefObject } from 'react';
-import { useDispatch } from '@/store';
+
 import { addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 import {
   createSvgNode,
@@ -102,10 +102,7 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     onAudioFile,
     onLottiePaste,
     getPasteAnchor,
-  } = args;
-  const dispatch = useDispatch();
-
-  const copySelected = useCallback(
+  } = args;  const copySelected = useCallback(
     (nodeIds?: string[], frameIds?: string[]) => {
       const doc = documentRef.current;
       if (!doc) return false;
@@ -181,12 +178,12 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       );
       if (!newIds.length && !newFrameIds.length) return false;
       documentRef.current = next;
-      dispatch(setDocument(next));
+      setDocument(next);
       const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
-      dispatch(setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds }));
+      setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds });
       return true;
     },
-    [dispatch, documentRef, readOnly]
+    [documentRef, readOnly]
   );
 
   const pasteClipboard = useCallback(
@@ -234,14 +231,12 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       );
       if (!newIds.length && !newFrameIds.length) return;
       documentRef.current = next;
-      dispatch(setDocument(next));
+      setDocument(next);
       const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
-      dispatch(setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds }));
+      setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds });
     },
     [
-      activeFrameIdRef,
-      dispatch,
-      documentRef,
+      activeFrameIdRef, documentRef,
       readOnly,
       selectedFrameIdsRef,
       selectedIdsRef,
@@ -283,13 +278,13 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       });
       const next = addNodeToDocument(doc, id, node);
       documentRef.current = next;
-      dispatch(setDocument(next));
-      dispatch(setSelectedNodeIds([id]));
-      dispatch(setSelectedNodeId(id));
+      setDocument(next);
+      setSelectedNodeIds([id]);
+      setSelectedNodeId(id);
       finishToSelect();
       return true;
     },
-    [artboardWidth, dispatch, documentRef, finishToSelect, getZoom, placeOriginForSize, readOnly]
+    [artboardWidth, documentRef, finishToSelect, getZoom, placeOriginForSize, readOnly]
   );
 
   const insertPastedSvg = useCallback(
@@ -310,13 +305,13 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       });
       const next = addNodeToDocument(doc, id, node);
       documentRef.current = next;
-      dispatch(setDocument(next));
-      dispatch(setSelectedNodeIds([id]));
-      dispatch(setSelectedNodeId(id));
+      setDocument(next);
+      setSelectedNodeIds([id]);
+      setSelectedNodeId(id);
       finishToSelect();
       return true;
     },
-    [dispatch, documentRef, finishToSelect, placeOriginForSize, readOnly]
+    [documentRef, finishToSelect, placeOriginForSize, readOnly]
   );
 
   const pasteSystemPayload = useCallback(

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type SVGProps, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useEditorDocumentOnCommit } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import {
@@ -392,7 +392,6 @@ function EditorToolStrip({
   chrome?: 'pill' | 'flat';
 }) {
   const { t } = useTranslation();
-  const dispatch = useDispatch();
   const activeTool = useSelector((state: any) => state.editor.activeTool);
   const shapeKind = useSelector((state: any) => state.editor.shapeKind);
   const document = useEditorDocumentOnCommit();
@@ -424,14 +423,14 @@ function EditorToolStrip({
   useEffect(() => {
     if (!toolsLocked) return;
     if (activeTool === 'select' || activeTool === 'pan') return;
-    dispatch(setActiveTool('select'));
-  }, [toolsLocked, activeTool, dispatch]);
+    setActiveTool('select');
+  }, [toolsLocked, activeTool]);
 
   useEffect(() => {
     if (!timelineOpen) return;
     if (activeTool !== 'frame') return;
-    dispatch(setActiveTool('select'));
-  }, [timelineOpen, activeTool, dispatch]);
+    setActiveTool('select');
+  }, [timelineOpen, activeTool]);
 
   const L = useMemo(
     () => ({
@@ -631,15 +630,13 @@ function EditorToolStrip({
         y = laid.y;
       }
     }
-    dispatch(
-      spawnImageGenerator({
+    spawnImageGenerator({
         x,
         y,
         width,
         height,
         name: L.imageGenerator,
-      })
-    );
+      });
   };
 
   const spawnVideoGeneratorAtView = () => {
@@ -665,15 +662,13 @@ function EditorToolStrip({
         y = laid.y;
       }
     }
-    dispatch(
-      spawnVideoGenerator({
+    spawnVideoGenerator({
         x,
         y,
         width,
         height,
         name: L.videoGenerator,
-      })
-    );
+      });
   };
 
   const spawnAnimationBoardAtView = () => {
@@ -701,15 +696,13 @@ function EditorToolStrip({
         y = laid.y;
       }
     }
-    dispatch(
-      spawnAnimationBoard({
+    spawnAnimationBoard({
         x,
         y,
         width,
         height,
         name: L.animationBoard,
-      })
-    );
+      });
   };
 
   const spawnAudioGeneratorAtView = () => {
@@ -735,15 +728,13 @@ function EditorToolStrip({
         y = laid.y;
       }
     }
-    dispatch(
-      spawnAudioGenerator({
+    spawnAudioGenerator({
         x,
         y,
         width,
         height,
         name: L.audioGenerator,
-      })
-    );
+      });
   };
 
   useEffect(() => {
@@ -762,32 +753,32 @@ function EditorToolStrip({
       const key = e.key.toLowerCase();
       if (key === 'v' && !e.shiftKey) {
         window.dispatchEvent(new Event('resume:exit-path-edit'));
-        dispatch(setActiveTool('select'));
+        setActiveTool('select');
       }
       if (key === 'h' && !e.shiftKey) {
         window.dispatchEvent(new Event('resume:exit-path-edit'));
-        dispatch(setActiveTool('pan'));
+        setActiveTool('pan');
       }
       if (toolsLocked) {
         if (key === 'escape') {
           window.dispatchEvent(new Event('resume:exit-path-edit'));
-          dispatch(setActiveTool('select'));
+          setActiveTool('select');
         }
         return;
       }
       if (key === 'f' && !e.shiftKey) {
         if (newPlateLocked) return;
         if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'artboard')) return;
-        dispatch(setActiveTool('frame'));
+        setActiveTool('frame');
       }
-      if (key === 't' && !e.shiftKey) dispatch(setActiveTool('text'));
-      if (key === 'r' && !e.shiftKey) dispatch(setShapeKind('rect'));
-      if (key === 'l' && !e.shiftKey) dispatch(setShapeKind('line'));
-      if (key === 'l' && e.shiftKey) dispatch(setShapeKind('arrow'));
-      if (key === 'o' && !e.shiftKey) dispatch(setShapeKind('circle'));
-      if (key === 'g' && !e.shiftKey) dispatch(setShapeKind('polygon'));
+      if (key === 't' && !e.shiftKey) setActiveTool('text');
+      if (key === 'r' && !e.shiftKey) setShapeKind('rect');
+      if (key === 'l' && !e.shiftKey) setShapeKind('line');
+      if (key === 'l' && e.shiftKey) setShapeKind('arrow');
+      if (key === 'o' && !e.shiftKey) setShapeKind('circle');
+      if (key === 'g' && !e.shiftKey) setShapeKind('polygon');
       if (key === 's' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        dispatch(setShapeKind('star'));
+        setShapeKind('star');
       }
       if (key === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setOpenMenu('upload');
@@ -807,20 +798,18 @@ function EditorToolStrip({
         if (timelineOpen) return;
         spawnAudioGeneratorAtView();
       }
-      if (key === 'p' && !e.shiftKey) dispatch(setActiveTool('pen'));
-      if (key === 'p' && e.shiftKey) dispatch(setActiveTool('pencil'));
+      if (key === 'p' && !e.shiftKey) setActiveTool('pen');
+      if (key === 'p' && e.shiftKey) setActiveTool('pencil');
       if (key === 'escape') {
         window.dispatchEvent(new Event('resume:exit-path-edit'));
-        dispatch(setActiveTool('select'));
+        setActiveTool('select');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // Intentionally stable: always call latest spawn via closure from this render's effect re-run when deps change.
   }, [
-    camera,
-    dispatch,
-    document,
+    camera, document,
     L.imageGenerator,
     L.videoGenerator,
     L.animationBoard,
@@ -860,8 +849,7 @@ function EditorToolStrip({
       const preview = createFilePreviewUrl(file);
       const natural = await measureImageNaturalSize(preview);
       const { width, height, x, y } = placeAtViewportCenter(natural);
-      dispatch(
-        startImageUploadPlaceholder({
+      startImageUploadPlaceholder({
           src: preview,
           width,
           height,
@@ -869,17 +857,16 @@ function EditorToolStrip({
           y,
           label: L.uploading,
           name: file.name?.replace(/\.[^.]+$/, '') || 'Image',
-        })
-      );
+        });
       const spawnedId = String(
         (store.getState() as any).editor?.pendingImageProcessId || ''
       );
-      await uploadCanvasPlaceholderFile({ dispatch, nodeId: spawnedId, file });
+      await uploadCanvasPlaceholderFile({ nodeId: spawnedId, file });
     } catch (err: any) {
       if (isUploadAbortError(err)) return;
       const failedId = String((store.getState() as any).editor?.pendingImageProcessId || '');
       revokeNodePreviewSrc((store.getState() as any).editor?.document, failedId || undefined);
-      dispatch(failImageProcess({ nodeId: failedId || undefined }));
+      failImageProcess({ nodeId: failedId || undefined });
       message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };
@@ -895,8 +882,7 @@ function EditorToolStrip({
         width: prepared.width,
         height: prepared.height,
       });
-      dispatch(
-        startVideoUploadPlaceholder({
+      startVideoUploadPlaceholder({
           src: prepared.preview,
           poster: prepared.poster,
           width,
@@ -906,13 +892,11 @@ function EditorToolStrip({
           label: L.uploading,
           name: prepared.name,
           duration: prepared.duration,
-        })
-      );
+        });
       const spawnedId = String(
         (store.getState() as any).editor?.pendingImageProcessId || ''
       );
       await uploadCanvasPlaceholderFile({
-        dispatch,
         nodeId: spawnedId,
         file,
         waitDecode: false,
@@ -928,7 +912,7 @@ function EditorToolStrip({
       if (isUploadAbortError(err)) return;
       const failedId = String((store.getState() as any).editor?.pendingImageProcessId || '');
       revokeNodePreviewSrc((store.getState() as any).editor?.document, failedId || undefined);
-      dispatch(failImageProcess({ nodeId: failedId || undefined }));
+      failImageProcess({ nodeId: failedId || undefined });
       message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };
@@ -949,8 +933,7 @@ function EditorToolStrip({
         audio.src = preview;
       });
       const { width, height, x, y } = placeAtViewportCenter({ ...MEDIA_PLACE_DEFAULT });
-      dispatch(
-        startAudioUploadPlaceholder({
+      startAudioUploadPlaceholder({
           src: preview,
           width,
           height: Math.max(140, height),
@@ -959,13 +942,11 @@ function EditorToolStrip({
           label: L.uploading,
           name: file.name?.replace(/\.[^.]+$/, '') || 'Audio',
           duration,
-        })
-      );
+        });
       const spawnedId = String(
         (store.getState() as any).editor?.pendingImageProcessId || ''
       );
       await uploadCanvasPlaceholderFile({
-        dispatch,
         nodeId: spawnedId,
         file,
         waitDecode: false,
@@ -978,7 +959,7 @@ function EditorToolStrip({
       if (isUploadAbortError(err)) return;
       const failedId = String((store.getState() as any).editor?.pendingImageProcessId || '');
       revokeNodePreviewSrc((store.getState() as any).editor?.document, failedId || undefined);
-      dispatch(failImageProcess({ nodeId: failedId || undefined }));
+      failImageProcess({ nodeId: failedId || undefined });
       message.error(getHttpErrorMessage(err, L.uploadFail));
     }
   };
@@ -1009,8 +990,7 @@ function EditorToolStrip({
       if (timelineHostId && timelineHost?.key === 'lottie' && !timelineOnWorkbench) {
         const json = serializeLottieAnimationData(animationData);
         if (!json) throw new Error('invalid lottie');
-        dispatch(
-          patchDocumentNode({
+        patchDocumentNode({
             nodeId: timelineHostId,
             patch: {
               attrs: {
@@ -1018,8 +998,7 @@ function EditorToolStrip({
                 ...(importName ? { name: importName } : {}),
               },
             },
-          })
-        );
+          });
         return;
       }
       const natural = {
@@ -1028,16 +1007,14 @@ function EditorToolStrip({
       };
       const { width, height, x, y } = placeAtViewportCenter(natural);
       // Always independent preview plate — open 「关键帧」 to promote into a workbench.
-      dispatch(
-        spawnLottie({
+      spawnLottie({
           width,
           height,
           x,
           y,
           name: importName || 'Lottie',
           animationData,
-        })
-      );
+        });
     } catch {
       message.error(t('editor.tools.lottieGenInvalidJson', { defaultValue: 'Invalid Lottie JSON' }));
     }
@@ -1083,11 +1060,11 @@ function EditorToolStrip({
   const pickSelect = (key: string) => {
     // Bottom Select / Pan: leave path-edit if open (✓ / Esc also exit).
     window.dispatchEvent(new Event('resume:exit-path-edit'));
-    dispatch(setActiveTool(key === 'pan' ? 'pan' : 'select'));
+    setActiveTool(key === 'pan' ? 'pan' : 'select');
   };
   const pickShape = (id: string) => {
     if (id === 'image') return;
-    dispatch(setShapeKind(id));
+    setShapeKind(id);
   };
 
   const shapeIconKind = resolveToolbarShapeKind(shapeKind);
@@ -1130,7 +1107,7 @@ function EditorToolStrip({
         selectedKeys={[activeTool === 'pan' ? 'pan' : 'select']}
         onMenuPick={pickSelect}
         onPrimaryClick={() =>
-          dispatch(setActiveTool(activeTool === 'pan' ? 'pan' : 'select'))
+          setActiveTool(activeTool === 'pan' ? 'pan' : 'select')
         }
       >
         <ToolIcon>
@@ -1155,7 +1132,7 @@ function EditorToolStrip({
         selectedKeys={[shapeKind]}
         onMenuPick={pickShape}
         onPrimaryClick={() =>
-          dispatch(setShapeKind(resolveToolbarShapeKind(shapeKind)))
+          setShapeKind(resolveToolbarShapeKind(shapeKind))
         }
       >
         <ToolIcon>
@@ -1171,7 +1148,7 @@ function EditorToolStrip({
             ariaLabel={L.pen}
             active={penActive}
             disabled={toolsLocked}
-            onClick={() => dispatch(setActiveTool('pen'))}
+            onClick={() => setActiveTool('pen')}
           >
             <ToolIcon>
               <PenIcon className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
@@ -1184,7 +1161,7 @@ function EditorToolStrip({
             ariaLabel={L.pencil}
             active={pencilActive}
             disabled={toolsLocked}
-            onClick={() => dispatch(setActiveTool('pencil'))}
+            onClick={() => setActiveTool('pencil')}
           >
             <ToolIcon>
               <PencilIcon className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
@@ -1198,7 +1175,7 @@ function EditorToolStrip({
         tip={toolTipWithShortcut(L.text, TOOL_SHORTCUT.text)}
         active={textActive}
         disabled={toolsLocked}
-        onClick={() => dispatch(setActiveTool('text'))}
+        onClick={() => setActiveTool('text')}
       >
         <ToolIcon>
           <TextIcon className={TOOL_ICON_CLASS} strokeWidth={STROKE} />
@@ -1215,7 +1192,7 @@ function EditorToolStrip({
             if (warnIfNewPlateBlockedByAnimationWorkbenchFocus(message.warning, t, 'artboard')) {
               return;
             }
-            dispatch(setActiveTool('frame'));
+            setActiveTool('frame');
           }}
         >
           <ToolIcon className="h-3.5 w-3.5">
@@ -1300,7 +1277,7 @@ function EditorToolStrip({
           tip={btn.tip}
           disabled={toolsLocked}
           onClick={() => {
-            const runtime = buildCanvasPluginRuntime(dispatch as any, () => store.getState(), {
+            const runtime = buildCanvasPluginRuntime(() => store.getState(), {
               camera,
               stageEl,
             });

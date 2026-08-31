@@ -6,7 +6,7 @@
  * bundle (same trust as first-party UI code).
  */
 import type { ReactNode } from 'react';
-import type { AppDispatch, RootState } from '@/store';
+import type { RootState } from '@/store';
 import { spawnCreatedNode } from '@/store/modules/editor';
 import { createTextNode } from '@/components/rcb/scene/document/nodeFactories';
 import {
@@ -29,7 +29,6 @@ export type CanvasPluginManifest = {
 };
 
 export type CanvasPluginRuntime = {
-  dispatch: AppDispatch;
   getState: () => RootState;
   /** Place a text node near the stage center (document coords). */
   placeText: (opts: {
@@ -135,14 +134,12 @@ function readViewportCenterDoc(
 }
 
 export function buildCanvasPluginRuntime(
-  dispatch: AppDispatch,
   getState: () => RootState,
   opts?: { camera?: RcbCamera | null; stageEl?: HTMLElement | null }
 ): CanvasPluginRuntime {
   const camera = opts?.camera;
   const stageEl = opts?.stageEl;
   return {
-    dispatch,
     getState,
     viewportCenterDoc: () => readViewportCenterDoc(getState(), camera, stageEl),
     placeText(textOpts) {
@@ -169,7 +166,7 @@ export function buildCanvasPluginRuntime(
           Math.min(1, Math.max(0.05, Number(opacity)))
         );
       }
-      dispatch(spawnCreatedNode({ id, node }));
+      spawnCreatedNode({ id, node });
     },
   };
 }

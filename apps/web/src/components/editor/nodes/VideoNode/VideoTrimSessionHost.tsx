@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineScissors } from 'react-icons/hi2';
@@ -265,9 +265,7 @@ function VideoTrimSessionHost({
   document: SceneDocument;
   hidden?: boolean;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+  const { t } = useTranslation();  const camera = useRcbCamera();
   const { zoom } = camera;
   const panel = useSelector(
     (s: any) =>
@@ -350,7 +348,7 @@ function VideoTrimSessionHost({
     else restoreKeepTime();
   };
 
-  const close = () => dispatch(closeVideoToolPanel());
+  const close = () => closeVideoToolPanel();
 
   useEffect(() => {
     if (!open) return;
@@ -639,9 +637,9 @@ function VideoTrimSessionHost({
       delete attrs.processSourceId;
       clone.attrs = attrs;
       const nextDoc = addNodeToDocument(document, id, clone);
-      dispatch(setDocument(nextDoc));
-      dispatch(setSelectedNodeIds([id]));
-      dispatch(setSelectedNodeId(id));
+      setDocument(nextDoc);
+      setSelectedNodeIds([id]);
+      setSelectedNodeId(id);
       close();
     } catch (err) {
       console.warn('[video trim confirm]', err);

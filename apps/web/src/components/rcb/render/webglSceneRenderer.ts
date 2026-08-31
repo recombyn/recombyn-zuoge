@@ -201,6 +201,11 @@ function countPathSegments(buf: SceneRenderBuffer, index: number): number {
   return segs;
 }
 
+/** Closed paths must atlas-stamp (segment instances are stroke-only). */
+export function soaPathPrefersAtlasStamp(closed: boolean, segCount: number): boolean {
+  return closed || segCount >= SOA_ATLAS_SEG_THRESHOLD;
+}
+
 export type CollectSoaWebglOpts = {
   atlas?: SoaWebglAtlas | null;
   bufferRevision?: number;
@@ -251,13 +256,13 @@ export function collectSoaWebglInstances(
       if (start < 0 || len < 2) continue;
       const closed = buf.pathClosed[i] !== 0;
       const segCount = countPathSegments(buf, i);
-      // Atlas stamps are baked in document space — skip while TransformPreview offsets.
-      if (atlas && segCount >= SOA_ATLAS_SEG_THRESHOLD && odx === 0 && ody === 0) {
+      const canStamp =
+        Boolean(atlas) && odx === 0 && ody === 0 && soaPathPrefersAtlasStamp(closed, segCount);
+      if (canStamp && atlas) {
         const id = buf.ids[i] || String(i);
-        const key = `path:${id}`;
         const region = stampSoaPathToAtlas(
           atlas,
-          key,
+          `path:${id}`,
           buf.pathXY,
           start,
           len,
@@ -272,10 +277,13 @@ export function collectSoaWebglInstances(
           continue;
         }
       }
+      // Closed fill cannot use stroke segments (border-only idle ghost).
+      if (closed) {
+        if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+        continue;
+      }
       const base = start * 2;
-      let segStart = -1;
       let lastFinite = -1;
-      let firstFinite = -1;
       let emitted = 0;
       const emitSeg = (a: number, b: number) => {
         if (emitted >= SOA_WEBGL_PATH_MAX_SEGS) return;
@@ -299,25 +307,15 @@ export function collectSoaWebglInstances(
         const px = buf.pathXY[fo];
         const py = buf.pathXY[fo + 1];
         if (!Number.isFinite(px) || !Number.isFinite(py)) {
-          if (closed && firstFinite >= 0 && lastFinite >= 0 && firstFinite !== lastFinite) {
-            emitSeg(lastFinite, firstFinite);
-          }
-          segStart = -1;
           lastFinite = -1;
-          firstFinite = -1;
           continue;
         }
-        if (segStart < 0) {
-          segStart = fo;
-          firstFinite = fo;
+        if (lastFinite < 0) {
           lastFinite = fo;
           continue;
         }
         emitSeg(lastFinite, fo);
         lastFinite = fo;
-      }
-      if (closed && firstFinite >= 0 && lastFinite >= 0 && firstFinite !== lastFinite) {
-        emitSeg(lastFinite, firstFinite);
       }
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;

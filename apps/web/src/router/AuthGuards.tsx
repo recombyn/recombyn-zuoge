@@ -1,5 +1,5 @@
 import { useEffect, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { logout, clearSessionCaches } from '@/store/modules/auth';
 import { buildLoginUrl, readReturnToParam } from '@/utils/authReturnTo';
@@ -25,18 +25,16 @@ function RequireAuth() {
 
 /** Login / register only. Signed-in users follow ?from= or /home. */
 function GuestOnly() {
-  const user = useSelector((state: any) => state.auth.user);
-  const dispatch = useDispatch();
-  const [params] = useSearchParams();
+  const user = useSelector((state: any) => state.auth.user);  const [params] = useSearchParams();
   const hasToken = Boolean(getToken());
 
   // Stale user blob without a session token (e.g. raced getMe after logout).
   useEffect(() => {
     if (user && !hasToken) {
-      dispatch(logout());
+      logout();
       clearSessionCaches();
     }
-  }, [user, hasToken, dispatch]);
+  }, [user, hasToken]);
 
   if (user && hasToken) {
     return <Navigate to={readReturnToParam(params)} replace />;

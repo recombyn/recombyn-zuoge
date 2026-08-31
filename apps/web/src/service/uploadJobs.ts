@@ -412,21 +412,13 @@ export async function uploadFileViaJob(
   });
 }
 
-type DispatchLike = (action: unknown) => unknown;
-
-export function dispatchUploadJobCreated(
-  dispatch: DispatchLike,
-  nodeId: string,
-  jobId: string
-): void {
+export function dispatchUploadJobCreated(nodeId: string, jobId: string): void {
   const id = String(nodeId || '').trim();
   if (!id || !jobId) return;
-  dispatch(
-    patchDocumentNode({
+  patchDocumentNode({
       nodeId: id,
       skipHistory: true,
       patch: { attrs: processJobAttrPatch([jobId]) },
-    })
-  );
+    });
   requestProjectFlush();
 }

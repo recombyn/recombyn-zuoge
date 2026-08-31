@@ -139,6 +139,56 @@ def get_global_rules() -> dict[str, str]:
     return out
 
 
+def get_refine_skill(
+    *,
+    scene: str | None = None,
+    prefer_layer_partial: bool = False,
+) -> dict[str, Any] | None:
+    """Pick an enabled refine skill.
+
+    Default: full-canvas refine for a scene (never layer_partial).
+    prefer_layer_partial=True: target-layer skill for partial mode.
+    """
+    scene_l = (scene or "").strip().lower()
+    with Session(core_db.engine) as session:
+        rows = crud.list_enabled_refine_skills(session=session)
+    if prefer_layer_partial:
+        best: dict[str, Any] | None = None
+        for r in rows:
+            d = _orm_dict(r)
+            key = str(d.get("skill_key") or "").strip()
+            name = str(d.get("name") or "")
+            scenes = str(d.get("scenes") or "all")
+            if key == "layer_partial":
+                return d
+            if scenes == "all" or "图层" in name:
+                if best is None:
+                    best = d
+        return best
+
+    # Prefer design_execute, then scene match, then weak fallback.
+    rows_sorted = sorted(
+        rows,
+        key=lambda r: (
+            0 if str(getattr(r, "skill_key", "") or "").strip() == "design_execute" else 1,
+            -(int(getattr(r, "sort_weight", 0) or 0)),
+            -(int(getattr(r, "id", 0) or 0)),
+        ),
+    )
+    best = None
+    for r in rows_sorted:
+        d = _orm_dict(r)
+        key = str(d.get("skill_key") or "").strip()
+        if key == "layer_partial":
+            continue
+        scenes = str(d.get("scenes") or "").lower()
+        if scene_l and scene_l not in scenes.replace(" ", "").split(",") and scenes != "all":
+            if best is None:
+                best = d  # weak fallback if no scene match later
+            continue
+        return d
+    return best
+
 
 def list_scene_codes() -> list[str]:
     try:

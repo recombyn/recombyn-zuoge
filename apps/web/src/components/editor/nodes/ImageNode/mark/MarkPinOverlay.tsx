@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { RcbOverlayPortal, useRcbCamera, rcbSceneToScreen } from '@/components/rcb';
 import type { ImageMarkPin, ImageToolPanelState } from '@/store/modules/editor';
 import { setHoveredMarkPin } from '@/store/modules/editor';
@@ -20,9 +20,7 @@ function MarkPinOverlay({
   nodeId: string;
   pin: ImageMarkPin;
   imageBox: SceneBox;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const camera = useRcbCamera();
+}): ReactNode {  const camera = useRcbCamera();
   const hoveredMarkPin = useSelector((s: RootState) => s.editor.hoveredMarkPin);
   const [expanded, setExpanded] = useState(false);
   const [promptText, setPromptText] = useState('');
@@ -90,7 +88,7 @@ function MarkPinOverlay({
       .editor?.imageToolPanel;
     const sessionNodeId =
       pin.sink === 'quickEdit' && panel?.nodeId ? panel.nodeId : undefined;
-    commitMarkRegion(dispatch, {
+    commitMarkRegion({
       nodeId,
       sessionNodeId,
       region: markPinToRegion(pin),
@@ -116,7 +114,7 @@ function MarkPinOverlay({
             e.nativeEvent.stopImmediatePropagation?.();
           }}
           onPointerEnter={() => {
-            dispatch(setHoveredMarkPin({ nodeId, pinId: pin.id }));
+            setHoveredMarkPin({ nodeId, pinId: pin.id });
           }}
           onPointerLeave={(e) => {
             const next = e.relatedTarget;
@@ -126,7 +124,7 @@ function MarkPinOverlay({
             ) {
               return;
             }
-            dispatch(setHoveredMarkPin(null));
+            setHoveredMarkPin(null);
           }}
           onClick={(e) => {
             e.stopPropagation();

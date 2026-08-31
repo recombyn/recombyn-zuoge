@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
-import { useDispatch } from '@/store';
+
 import { useTranslation } from 'react-i18next';
 import { HiOutlineLink, HiOutlineLinkSlash } from 'react-icons/hi2';
 import { Icon, message, DropdownPanel, DropdownPanelItem } from '@/components/base';
@@ -369,9 +369,7 @@ function MultiSelectionToolbar({
   box,
   angle = 0,
   edgePadScene = 0,
-}: Props): ReactNode {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}: Props): ReactNode {  const { t } = useTranslation();
   const [distributeOpen, setDistributeOpen] = useState(false);
   const [booleanOpen, setBooleanOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
@@ -429,7 +427,7 @@ function MultiSelectionToolbar({
 
   const applyPatches = (patches: GeomPatch[]) => {
     if (!patches.length) return;
-    dispatch(patchDocumentNodes({ patches }));
+    patchDocumentNodes({ patches });
   };
 
   const align = (mode: AlignMode) => {
@@ -554,15 +552,15 @@ function MultiSelectionToolbar({
     if (!frameId) {
       next = tagCreatedNodeForWorkbenchSurround(next, id);
     }
-    dispatch(setDocument(next));
+    setDocument(next);
     if (frameId) {
       const frame = (next.frames || []).find((f) => String(f?.id) === frameId);
       if (frame && isAnimationArtboardKind(frame.kind)) {
-        dispatch(ensureAnimationFrameMedia({ frameId }));
+        ensureAnimationFrameMedia({ frameId });
       }
     }
-    dispatch(setSelectedNodeIds([id]));
-    dispatch(setSelectedNodeId(id));
+    setSelectedNodeIds([id]);
+    setSelectedNodeId(id);
     setDistributeOpen(false);
     setBooleanOpen(false);
   };
@@ -599,7 +597,7 @@ function MultiSelectionToolbar({
   const openStyle = (kind: keyof typeof STYLE_SUPPORT) => {
     const ids = opNodeIds.filter((id) => STYLE_SUPPORT[kind](document?.deltaSetLike?.[id]));
     if (!ids.length) return;
-    dispatch(openShapeStylePanel({ kind, nodeIds: ids }));
+    openShapeStylePanel({ kind, nodeIds: ids });
   };
 
   const toggleAspectLock = () => {
@@ -686,16 +684,16 @@ function MultiSelectionToolbar({
     const ids = unlockedGroupableIds(document, opNodeIds);
     if (ids.length < 2) return;
     const next = groupNodesInDocument(document, ids);
-    dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: ids, frameIds }));
+    setDocument(next);
+    setMixedSelection({ nodeIds: ids, frameIds });
   };
 
   const ungroup = () => {
     const ids = unlockedGroupableIds(document, opNodeIds);
     if (!ids.length) return;
     const next = ungroupNodesInDocument(document, ids);
-    dispatch(setDocument(next));
-    dispatch(setMixedSelection({ nodeIds: ids, frameIds }));
+    setDocument(next);
+    setMixedSelection({ nodeIds: ids, frameIds });
   };
 
   const applyAspectPreset = (preset: (typeof ELEMENT_ASPECT_PRESETS)[number]) => {

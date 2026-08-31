@@ -5,7 +5,7 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
  */
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch } from '@/store';
+
 import { HiArrowUp, HiOutlineChevronDown, HiOutlinePlus } from 'react-icons/hi2';
 import { generateVideo, type LlmModel } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';
@@ -59,9 +59,7 @@ function VideoQuickEditComposer({
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const inputRef = useRef<AgentComposerHandle>(null);
+  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -167,9 +165,8 @@ function VideoQuickEditComposer({
     const ac = new AbortController();
     abortRef.current = ac;
     setSending(true);
-    dispatch(pushEditorHistory());
-    dispatch(
-      patchDocumentNode({
+    pushEditorHistory();
+    patchDocumentNode({
         nodeId,
         skipHistory: true,
         patch: {
@@ -179,8 +176,7 @@ function VideoQuickEditComposer({
             processLabel: t('editor.imageToolbar.processingQuickEdit'),
           },
         },
-      })
-    );
+      });
     try {
       const body: Parameters<typeof generateVideo>[0] = {
         prompt: text,
@@ -209,8 +205,7 @@ function VideoQuickEditComposer({
         /* optional */
       }
 
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             attrs: {
@@ -222,14 +217,13 @@ function VideoQuickEditComposer({
               processLabel: null,
             },
           },
-        })
-      );
-      dispatch(closeImageToolPanel());
+        });
+      closeImageToolPanel();
     } catch (err: any) {
       if (ac.signal.aborted) return;
       const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
         ?.document;
-      clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+      clearGeneratorProcessOverlay(doc, nodeId);
       message.error(getHttpErrorMessage(err, t('editor.tools.videoGenFail')));
     } finally {
       if (abortRef.current === ac) abortRef.current = null;

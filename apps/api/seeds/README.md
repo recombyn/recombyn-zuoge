@@ -12,10 +12,11 @@ Owner docs: [self-hosting.md](../../../docs/self-hosting.md) · AgentProfile: [a
 | `agents/bindings.yaml`                                                   | product/surface → Profile id                      |
 | `agents/profiles/*.yaml`                                                 | AgentProfile YAML (`design.canvas`)               |
 | `design_prompt_packs/`                                                   | `_index.json` + `stages/*.md` + `snippets.md` (pack sections) |
-| Private extensions                                                       | `<repo>/plugins/skills/<key>/` — [docs/skill-extensions.md](../../docs/skill-extensions.md) (shipped skills live under repo-root `skills/`) |
+| `design_skills/<key>/`                                                   | Shipped skill packs. V3 core: `design_brief` `visual_direction` `design_system` `composition` `typography` `color` `imagery` `layout` `anti_ai_slop` `design_review` `polish` `responsive`. Surfaces: `poster_craft` `landing_page` `dashboard_ui` `image_gen` |
+| Private extensions                                                       | `<repo>/plugins/skills/<key>/` — [docs/skill-extensions.md](../../docs/skill-extensions.md) |
 | `canvas_actions_seed.json`                                               | Canvas tool registry                              |
 | `design_agent_stress_suite.json`                                         | Agent SSE / browser stress cases (not loaded at runtime) |
-| `fonts_seed.json` · `design_dicts_seed.json`                             | Fonts / dicts                                     |
+| `fonts_seed.json` · `design_tokens_seed.json` · `design_dicts_seed.json` | Fonts / tokens / dicts                            |
 | `plaza_agent_docs/`                                                      | Optional official plaza boards (`npm run plaza:agent-showcase`); empty by default |
 | `llm_models_seed.json`                                                   | Model catalog seed                                |
 | `stage_rule_defaults.json` · `progress_stages.json`                      | Platform KV defaults / progress labels            |

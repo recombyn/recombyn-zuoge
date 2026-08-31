@@ -1,4 +1,4 @@
-import type { Dispatch } from '@/store';
+
 import {
   listImageVariantUrls,
   writeImageVariantsAttr,
@@ -85,7 +85,6 @@ export function findResumableAiProcessNodeId(
  * - Without job ids / stale → clear SoftGlow (idle plate).
  */
 export async function recoverGeneratorNode(
-  dispatch: Dispatch,
   document: SceneDocument,
   nodeId: string,
   node: SceneNodeInput,
@@ -98,13 +97,13 @@ export async function recoverGeneratorNode(
 
   // No persisted job ids (refresh mid-create) — stop loading and surface failure.
   if (!jobIds.length) {
-    dispatch(clearImageProcess({ nodeId }));
+    clearImageProcess({ nodeId });
     return 'failed';
   }
 
   // Job ids present but started too long ago — do not poll silently.
   if (isStaleProcessJob(node)) {
-    dispatch(clearImageProcess({ nodeId }));
+    clearImageProcess({ nodeId });
     return 'failed';
   }
 
@@ -119,16 +118,14 @@ export async function recoverGeneratorNode(
       const variantAttrs: Record<string, unknown> = {};
       writeImageVariantsAttr(variantAttrs, stack);
 
-      dispatch(
-        finishImageProcess({
+      finishImageProcess({
           nodeId,
           src: nextSrc,
           attrs: {
             genPrompt: String(node.attrs?.genPrompt || '').trim() || undefined,
             ...variantAttrs,
           },
-        })
-      );
+        });
       return 'done';
     }
 
@@ -136,14 +133,12 @@ export async function recoverGeneratorNode(
       const urls = await waitForImageBatchJobs(jobIds, { signal: opts?.signal });
       const src = urls[0] || '';
       if (!src) throw new Error('image generation returned no results');
-      dispatch(
-        finishImageGenerator({
+      finishImageGenerator({
           nodeId,
           src,
           variants: urls,
           genPrompt: String(node.attrs?.genPrompt || '').trim() || undefined,
-        })
-      );
+        });
       return 'done';
     }
 
@@ -157,14 +152,12 @@ export async function recoverGeneratorNode(
       } catch {
         /* optional */
       }
-      dispatch(
-        finishVideoGenerator({
+      finishVideoGenerator({
           nodeId,
           src,
           ...(poster ? { poster } : {}),
           genPrompt: String(node.attrs?.genPrompt || '').trim() || undefined,
-        })
-      );
+        });
       return 'done';
     }
 
@@ -173,14 +166,12 @@ export async function recoverGeneratorNode(
       const src = pickAudioUrl(res);
       if (!src) throw new Error('audio generation returned no results');
       const duration = (await probeAudioDuration(src)) || undefined;
-      dispatch(
-        finishAudioGenerator({
+      finishAudioGenerator({
           nodeId,
           src,
           genPrompt: String(node.attrs?.genPrompt || '').trim() || undefined,
           duration,
-        })
-      );
+        });
       return 'done';
     }
 
@@ -199,8 +190,7 @@ export async function recoverGeneratorNode(
       const outH = Math.max(32, Math.round(ah * fit));
       const outX = Math.round(sceneX + (sceneW - outW) / 2);
       const outY = Math.round(sceneY + (sceneH - outH) / 2);
-      dispatch(
-        finishLottieGenerator({
+      finishLottieGenerator({
           nodeId,
           animationData,
           genPrompt: String(node.attrs?.genPrompt || '').trim() || undefined,
@@ -209,17 +199,16 @@ export async function recoverGeneratorNode(
           height: outH,
           x: outX,
           y: outY,
-        })
-      );
+        });
       return 'done';
     }
 
-    dispatch(clearImageProcess({ nodeId }));
+    clearImageProcess({ nodeId });
     return 'failed';
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return 'skipped';
     if (document.deltaSetLike?.[nodeId]) {
-      dispatch(clearImageProcess({ nodeId }));
+      clearImageProcess({ nodeId });
     }
     return 'failed';
   }

@@ -1,7 +1,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown, HiOutlinePlus, HiOutlineViewfinderCircle } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
 import { PiSelectionPlus } from 'react-icons/pi';
@@ -126,9 +126,7 @@ function ImageQuickEditComposer({
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const inputRef = useRef<AgentComposerHandle>(null);
+  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -200,24 +198,22 @@ function ImageQuickEditComposer({
       if (draft && nodeId) {
         const attrs = { ...(node?.attrs || {}) } as Record<string, unknown>;
         applyVariantPromptPatch(attrs, prevSrc, draft);
-        dispatch(
-          patchDocumentNode({
+        patchDocumentNode({
             nodeId,
             skipHistory: true,
             patch: { attrs },
-          })
-        );
+          });
       }
     }
     prevSrcRef.current = src;
     setPrompt(promptForImageSrc(node?.attrs, src));
     pendingMarksLockRef.current = null;
-  }, [nodeId, src, savedPrompt, node?.attrs?.imageVariantPrompts, dispatch, node?.attrs]);
+  }, [nodeId, src, savedPrompt, node?.attrs?.imageVariantPrompts, node?.attrs]);
 
   useEffect(() => {
     if (!pendingCanvasAttach || pendingCanvasAttach.target !== pickTarget) return;
     const payload = pendingCanvasAttach.payload;
-    dispatch(consumePendingCanvasAttach());
+    consumePendingCanvasAttach();
     async function flyPendingAttach() {
       await flyPickIntoComposer({
         landId: pickTarget,
@@ -232,7 +228,7 @@ function ImageQuickEditComposer({
       });
     }
     flyPendingAttach();
-  }, [pendingCanvasAttach, pickTarget, document, dispatch]);
+  }, [pendingCanvasAttach, pickTarget, document]);
 
   // Auto-focus prompt when the floating chat panel opens.
   useEffect(() => {
@@ -259,10 +255,10 @@ function ImageQuickEditComposer({
     }
     pendingMarksLockRef.current = token;
     const list = pendingQuickEditMarks.slice();
-    dispatch(consumePendingQuickEditMarkContexts());
+    consumePendingQuickEditMarkContexts();
     // Same caret path as Add from canvas — never force chips before typed text.
     insertPendingComposerChips(() => inputRef.current, list, { focus: 'caret' });
-  }, [pendingQuickEditMarks, dispatch]);
+  }, [pendingQuickEditMarks]);
 
   const attachments = contexts.filter((c) => c.kind === 'attachment');
   const inlineContexts = contexts.filter((c) => c.kind !== 'attachment');
@@ -286,7 +282,7 @@ function ImageQuickEditComposer({
   const settingsSummary = `${resolution} · ${ratioSummaryLabel(aspectRatio, t)} · ${imageCount}`;
 
   const removeContext = (key: string) => {
-    if (isMarkContextKey(key)) syncMarkPinRemoved(dispatch, key);
+    if (isMarkContextKey(key)) syncMarkPinRemoved(key);
     setContexts((prev) => prev.filter((c) => c.key !== key));
   };
 
@@ -294,7 +290,7 @@ function ImageQuickEditComposer({
     const prevInline = contextsRef.current.filter((c) => c.kind !== 'attachment');
     for (const c of prevInline) {
       if (!next.some((item) => item.key === c.key) && isMarkContextKey(c.key)) {
-        syncMarkPinRemoved(dispatch, c.key);
+        syncMarkPinRemoved(c.key);
       }
     }
     const attachmentsOnly = contextsRef.current.filter((c) => c.kind === 'attachment');
@@ -328,12 +324,12 @@ function ImageQuickEditComposer({
   };
 
   const dismissComposerAfterSend = () => {
-    dispatch(clearCanvasAttachPick());
-    dispatch(setHoveredMarkPin(null));
+    clearCanvasAttachPick();
+    setHoveredMarkPin(null);
     for (const c of contextsRef.current) {
-      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(c.key);
     }
-    dispatch(closeImageToolPanel());
+    closeImageToolPanel();
   };
 
   const onGenerate = async () => {
@@ -343,13 +339,12 @@ function ImageQuickEditComposer({
     const ac = new AbortController();
     abortRef.current = ac;
     dismissComposerAfterSend();
-    dispatch(setSelectedNodeIds([]));
+    setSelectedNodeIds([]);
     registerGeneratorSession(nodeId);
     setSending(true);
     let finished = false;
-    dispatch(pushEditorHistory());
-    dispatch(
-      patchDocumentNode({
+    pushEditorHistory();
+    patchDocumentNode({
         nodeId,
         skipHistory: true,
         patch: {
@@ -361,8 +356,7 @@ function ImageQuickEditComposer({
             genPrompt: text,
           },
         },
-      })
-    );
+      });
     try {
       const promptForApi = buildComposerChipPrompt(contexts, text);
       const body: Parameters<typeof generateImage>[0] = {
@@ -379,13 +373,11 @@ function ImageQuickEditComposer({
         signal: ac.signal,
         emptyMessage: t('editor.tools.imageGenEmpty'),
         onJobsCreated: (jobIds) => {
-          dispatch(
-            patchDocumentNode({
+          patchDocumentNode({
               nodeId,
               skipHistory: true,
               patch: { attrs: processJobAttrPatch(jobIds) },
-            })
-          );
+            });
         },
       });
       const nextSrc = urls[0] || '';
@@ -398,19 +390,17 @@ function ImageQuickEditComposer({
       applyVariantPromptPatch(variantAttrs, nextSrc, text);
       for (const u of urls) applyVariantPromptPatch(variantAttrs, u, text);
 
-      dispatch(
-        finishImageProcess({
+      finishImageProcess({
           nodeId,
           src: nextSrc,
           attrs: {
             ...variantAttrs,
           },
-        })
-      );
+        });
       for (const c of contexts) {
-        if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+        if (isMarkContextKey(c.key)) syncMarkPinRemoved(c.key);
       }
-      dispatch(closeImageToolPanel());
+      closeImageToolPanel();
       finished = true;
     } catch (err: unknown) {
       if (!ac.signal.aborted) {
@@ -421,7 +411,7 @@ function ImageQuickEditComposer({
       const doc = (store.getState() as { editor?: { document?: SceneDocument } }).editor
         ?.document;
       if (!finished) {
-        clearGeneratorProcessOverlay(dispatch, doc, nodeId);
+        clearGeneratorProcessOverlay(doc, nodeId);
       }
       if (abortRef.current === ac) abortRef.current = null;
       setSending(false);
@@ -456,21 +446,21 @@ function ImageQuickEditComposer({
       return;
     }
     if (markActive) {
-      clearQuickEditMarkSession(dispatch, document);
-      dispatch(openImageToolPanel({ nodeId, kind: 'quickEdit' }));
+      clearQuickEditMarkSession(document);
+      openImageToolPanel({ nodeId, kind: 'quickEdit' });
       return;
     }
-    dispatch(openImageToolPanel({ nodeId, kind: 'mark', markSink: 'quickEdit' }));
+    openImageToolPanel({ nodeId, kind: 'mark', markSink: 'quickEdit' });
   };
 
   const onCloseQuickEdit = () => {
     abortRef.current?.abort();
-    dispatch(clearCanvasAttachPick());
-    dispatch(setHoveredMarkPin(null));
+    clearCanvasAttachPick();
+    setHoveredMarkPin(null);
     for (const c of contextsRef.current) {
-      if (isMarkContextKey(c.key)) syncMarkPinRemoved(dispatch, c.key);
+      if (isMarkContextKey(c.key)) syncMarkPinRemoved(c.key);
     }
-    dispatch(closeImageToolPanel());
+    closeImageToolPanel();
   };
 
   if (!node) return null;
@@ -564,11 +554,11 @@ function ImageQuickEditComposer({
               aria-pressed={pickingFromCanvas}
               onClick={() => {
                 if (pickingFromCanvas) {
-                  dispatch(clearCanvasAttachPick());
+                  clearCanvasAttachPick();
                   return;
                 }
                 noteCanvasFlyLand(pickTarget);
-                dispatch(startCanvasAttachPick({ target: pickTarget, accept: 'image' }));
+                startCanvasAttachPick({ target: pickTarget, accept: 'image' });
               }}
               className={composerAttachActionClass(pickingFromCanvas)}
             >

@@ -91,22 +91,18 @@ describe('Scene Mutation Pipeline', () => {
   it('applySceneMutation does not execute on revision conflict', async () => {
     setAllowedCanvasToolKeys(['create_text']);
     const execute = vi.fn(async () => ({ opResults: [] }));
-    const dispatch = vi.fn();
     const out = await applySceneMutation({
       source: 'ai',
       transactionId: 'tx_1',
       ops: [{ name: 'create_text', op_id: 't1', args: { text: 'Hi' } }],
       allowDestructive: true,
       baseRevision: 5,
-      currentRevision: 8,
-      dispatch,
-      execute,
+      currentRevision: 8, execute,
     });
     expect(out.ok).toBe(false);
     expect(out.stage).toBe('revision');
     expect(out.reason).toBe('revision_conflict');
     expect(execute).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
     expect(out.opResults[0]?.error).toBe('revision_conflict');
     setAllowedCanvasToolKeys([]);
   });
@@ -120,16 +116,13 @@ describe('Scene Mutation Pipeline', () => {
         ok: true,
       })),
     }));
-    const dispatch = vi.fn();
     const out = await applySceneMutation({
       source: 'ai',
       ops: [{ name: 'create_text', op_id: 't1', args: { text: 'Hi' } }],
       allowDestructive: true,
       baseRevision: 3,
       currentRevision: 3,
-      skipHistory: true,
-      dispatch,
-      execute,
+      skipHistory: true, execute,
     });
     expect(out.ok).toBe(true);
     expect(out.stage).toBe('sync');
@@ -220,7 +213,6 @@ describe('PR8 revision rebase / reject', () => {
         ok: true,
       })),
     }));
-    const dispatch = vi.fn();
     const out = await applySceneMutation({
       source: 'ai',
       ops: [
@@ -231,9 +223,7 @@ describe('PR8 revision rebase / reject', () => {
       baseRevision: 5,
       currentRevision: 8,
       document: sceneDoc(['title']),
-      skipHistory: true,
-      dispatch,
-      execute,
+      skipHistory: true, execute,
     });
     expect(out.ok).toBe(true);
     expect(out.revisionAction).toBe('rebase');
@@ -254,7 +244,6 @@ describe('PR8 revision rebase / reject', () => {
       currentRevision: 2,
       document: sceneDoc([], ['f1']),
       skipHistory: true,
-      dispatch: vi.fn(),
       execute,
     });
     expect(out.ok).toBe(false);

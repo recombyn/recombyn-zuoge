@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import { useDispatch } from '@/store';
+
 import {
   isGeneratorNode
 } from '@/components/rcb/scene/document/nodeCapabilities';
@@ -74,10 +74,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
     cutSelected,
     duplicateSelected,
     onAddToChat,
-  } = args;
-  const dispatch = useDispatch();
-
-  useEffect(() => {
+  } = args;  useEffect(() => {
     const isTypingTarget = (t: HTMLElement | null) =>
       Boolean(
         t &&
@@ -128,12 +125,12 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
           (panel?.kind === 'mark' && panel.markSink === 'quickEdit')
         ) {
           e.preventDefault();
-          dispatch(closeImageToolPanel());
+          closeImageToolPanel();
           return;
         }
         if (canvasAttachPickRef.current) {
           e.preventDefault();
-          dispatch(clearCanvasAttachPick());
+          clearCanvasAttachPick();
           return;
         }
       }
@@ -149,12 +146,12 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       if (mod && e.key === 'z' && !e.shiftKey) {
         if (typing) return;
         e.preventDefault();
-        if (!collabUndo()) dispatch(undo());
+        if (!collabUndo()) undo();
       }
       if (mod && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         if (typing) return;
         e.preventDefault();
-        if (!collabRedo()) dispatch(redo());
+        if (!collabRedo()) redo();
       }
       if (mod && e.key.toLowerCase() === 'a' && activeTool === 'select' && !typing) {
         e.preventDefault();
@@ -193,10 +190,10 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'l' && !typing) {
         const clearAfterAddToChat = () => {
-          dispatch(setSelectedNodeIds([]));
-          dispatch(setSelectedNodeId(null));
-          dispatch(setSelectedFrameIds([]));
-          dispatch(setActiveFrameId(null));
+          setSelectedNodeIds([]);
+          setSelectedNodeId(null);
+          setSelectedFrameIds([]);
+          setActiveFrameId(null);
         };
         const attachable = filterChatAttachNodeIds(
           documentRef.current,
@@ -336,9 +333,7 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
     canvasAttachPickRef,
     copySelected,
     cutSelected,
-    deleteCanvasSelection,
-    dispatch,
-    documentRef,
+    deleteCanvasSelection, documentRef,
     duplicateSelected,
     imageInputRef,
     imagePlaceAtRef,

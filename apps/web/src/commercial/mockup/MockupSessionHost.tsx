@@ -7,7 +7,7 @@ import {
   type ReactNode,
   memo,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeId } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
@@ -184,9 +184,7 @@ function MockupPlate({
   nodeId: string;
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {
-  const dispatch = useDispatch();
-  const { t } = useTranslation();
+}): ReactNode {  const { t } = useTranslation();
   const camera = useRcbCamera();
   const { data: imageToolCaps } = useImageToolCapabilities();
   const selectedNodeId = useSelectedNodeId();
@@ -331,8 +329,7 @@ function MockupPlate({
     const setPlateProcessing = (running: boolean) => {
       if (running) {
         // Same in-place SoftGlow path as upload / replace — host remounts to opaque plate.
-        dispatch(
-          patchDocumentNode({
+        patchDocumentNode({
             nodeId,
             patch: {
               attrs: {
@@ -342,11 +339,10 @@ function MockupPlate({
                 processStartedAt: String(Date.now()),
               },
             },
-          })
-        );
+          });
         return;
       }
-      dispatch(clearImageProcess({ nodeId }));
+      clearImageProcess({ nodeId });
     };
     void (async () => {
       try {
@@ -379,9 +375,7 @@ function MockupPlate({
     };
   }, [
     applyKitToPreview,
-    clearPreviewSurface,
-    dispatch,
-    nodeId,
+    clearPreviewSurface, nodeId,
     photoForAutoBake,
     template.id,
     t,
@@ -436,17 +430,15 @@ function MockupPlate({
       const baseSrc = String(node?.attrs?.mockupBaseSrc || '').trim();
       const curSrc = String(node?.attrs?.src || '').trim();
       if (baseSrc && curSrc && baseSrc !== curSrc) {
-        dispatch(
-          patchDocumentNode({
+        patchDocumentNode({
             nodeId,
             patch: { attrs: { src: baseSrc } },
             skipHostReload: true,
-          })
-        );
+          });
       }
     }
     setDesignSelected(false);
-  }, [dispatch, nodeId, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement, node?.attrs?.mockupBaseSrc, node?.attrs?.src]);
+  }, [nodeId, node?.attrs?.mockupDesignSrc, node?.attrs?.mockupPlacement, node?.attrs?.mockupBaseSrc, node?.attrs?.src]);
 
   // Toolbar "样机" again → enter FE adjust (no API).
   useEffect(() => {
@@ -458,8 +450,7 @@ function MockupPlate({
 
   const persistPlacement = useCallback(
     (nextPlacement: MockupPlacement, nextDesign: string) => {
-      dispatch(
-        patchDocumentNode({
+      patchDocumentNode({
           nodeId,
           patch: {
             attrs: {
@@ -470,10 +461,9 @@ function MockupPlate({
             },
           },
           skipHostReload: true,
-        })
-      );
+        });
     },
-    [dispatch, nodeId, template.id]
+    [nodeId, template.id]
   );
 
   /** FE-only: compose sheet + Canvas 2D UV remap (no /mockup/render). */
@@ -602,8 +592,7 @@ function MockupPlate({
     setLivePreviewUrl(null);
     void previewRef.current?.setDesignSheet(null).catch(() => undefined);
     const baseSrc = String(node?.attrs?.mockupBaseSrc || '').trim();
-    dispatch(
-      patchDocumentNode({
+    patchDocumentNode({
         nodeId,
         patch: {
           attrs: {
@@ -614,9 +603,8 @@ function MockupPlate({
           },
         },
         skipHostReload: true,
-      })
-    );
-  }, [dispatch, node?.attrs?.mockupBaseSrc, nodeId, template.id]);
+      });
+  }, [node?.attrs?.mockupBaseSrc, nodeId, template.id]);
 
   // When kit arrives after design already set, re-cover-fit to printFull then warp.
   useEffect(() => {
@@ -669,11 +657,11 @@ function MockupPlate({
         removeId: pending.removeId,
       });
       if (ok && pending.removeId) {
-        dispatch(removeDocumentNodes({ nodeIds: [pending.removeId] }));
-        dispatch(setSelectedNodeId(nodeId));
+        removeDocumentNodes({ nodeIds: [pending.removeId] });
+        setSelectedNodeId(nodeId);
       }
     })();
-  }, [assignDesignSrc, dispatch, kit, nodeId]);
+  }, [assignDesignSrc, kit, nodeId]);
 
   /** Canvas node drag → drop onto this mockup plate. */
   useEffect(() => {
@@ -722,8 +710,8 @@ function MockupPlate({
             removeId: designId,
           });
           if (!ok) return;
-          dispatch(removeDocumentNodes({ nodeIds: [designId] }));
-          dispatch(setSelectedNodeId(nodeId));
+          removeDocumentNodes({ nodeIds: [designId] });
+          setSelectedNodeId(nodeId);
         } catch (err) {
           console.warn('[mockup] canvas absorb', err);
           message.error(mockupErrorMessage(err, t('editor.imageToolbar.mockupFailed')));
@@ -751,7 +739,7 @@ function MockupPlate({
       window.removeEventListener('pointermove', onMove, true);
       window.removeEventListener('pointerup', onUp, true);
     };
-  }, [assignDesignSrc, box, dispatch, document, node, nodeId, selectedNodeId, t, template.height, template.width]);
+  }, [assignDesignSrc, box, document, node, nodeId, selectedNodeId, t, template.height, template.width]);
 
   // Bake FE composite into node.src when `requestMockupBakeComposite` fires.
   useEffect(() => {
@@ -776,8 +764,7 @@ function MockupPlate({
             if (!url || !design) return;
             const uploaded = await uploadImageFromSrc(url, 'mockup.png');
             if (applySeqRef.current !== seq) return;
-            dispatch(
-              patchDocumentNode({
+            patchDocumentNode({
                 nodeId,
                 patch: {
                   attrs: {
@@ -788,8 +775,7 @@ function MockupPlate({
                     mockupEnabled: 'true',
                   },
                 },
-              })
-            );
+              });
           } catch (err) {
             console.warn('[mockup] auto apply', err);
           }
@@ -801,7 +787,7 @@ function MockupPlate({
       window.removeEventListener(RCB_MOCKUP_BAKE_COMPOSITE, onBake);
       if (bakeTimerRef.current) window.clearTimeout(bakeTimerRef.current);
     };
-  }, [dispatch, nodeId, template.id]);
+  }, [nodeId, template.id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -874,11 +860,11 @@ function MockupPlate({
       e.stopPropagation();
       setCtxMenu({ x: e.clientX, y: e.clientY });
       setDesignSelected(true);
-      dispatch(setSelectedNodeId(nodeId));
+      setSelectedNodeId(nodeId);
     };
     window.addEventListener('contextmenu', onCtx, true);
     return () => window.removeEventListener('contextmenu', onCtx, true);
-  }, [designSrc, dispatch, nodeId, screenRect]);
+  }, [designSrc, nodeId, screenRect]);
 
   useEffect(() => {
     if (!ctxMenu) return;

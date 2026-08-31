@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createEmptyDocument, normalizeDocument } from '@/components/rcb/scene/document/sceneDocument';
-import { executeDesignTool, type DesignToolContext } from '../designTools';
+import { normalizeDocument } from '@/components/rcb/scene/document/sceneDocument';
+import { executeDesignTool } from '../designTools';
+import { createDesignToolHarness } from './designToolHarness';
 
 type FixtureCase = {
   id: string;
@@ -27,45 +28,7 @@ function loadFixtures(): FixtureCase[] {
   }
 }
 
-function createHarness(initialDoc: Record<string, unknown> | undefined, targetFrameId: string | null) {
-  let doc = initialDoc
-    ? normalizeDocument(initialDoc as Parameters<typeof normalizeDocument>[0])
-    : createEmptyDocument();
-  const dispatch = (action: { type?: string; payload?: unknown }) => {
-    const type = String(action?.type || '');
-    if (
-      (type.includes('setDocument') || type.includes('setDocumentFromCanvas')) &&
-      action.payload &&
-      typeof action.payload === 'object'
-    ) {
-      doc = action.payload as typeof doc;
-      return;
-    }
-    if (type.includes('pushEditorHistory')) {
-      return;
-    }
-  };
-  const ctx = {
-    dispatch,
-    getDocument: () => doc,
-    skipHistory: true,
-    targetFrameId,
-    allowDestructive: true,
-  } as DesignToolContext;
-  return {
-    ctx,
-    getDocument: () => doc,
-    applyOps(ops: FixtureCase['ops']) {
-      for (const op of ops) {
-        const name = String(op.name || '').trim();
-        if (!name) continue;
-        executeDesignTool(name, JSON.stringify(op.args || {}), ctx);
-      }
-    },
-  };
-}
-
-function sceneNodes(doc: ReturnType<typeof createEmptyDocument>) {
+function sceneNodes(doc: ReturnType<typeof createDesignToolHarness>['getDoc'] extends () => infer D ? D : never) {
   const delta = doc.deltaSetLike || {};
   return Object.entries(delta)
     .filter(([nid, node]) => nid !== 'ROOT' && node && typeof node === 'object')
@@ -80,12 +43,19 @@ describe('shared tool_ops fixtures (live designTools)', () => {
     it(fixture.id, () => {
       const expectSpec = fixture.expect || {};
       const frameId = String(expectSpec.frameId || '');
-      const harness = createHarness(
-        fixture.doc as Record<string, unknown> | undefined,
-        frameId || null
-      );
-      harness.applyOps(fixture.ops);
-      const doc = harness.getDocument();
+      const initial = fixture.doc
+        ? normalizeDocument(fixture.doc as Parameters<typeof normalizeDocument>[0])
+        : undefined;
+      const harness = createDesignToolHarness({
+        doc: initial,
+        targetFrameId: frameId || null,
+      });
+      for (const op of fixture.ops) {
+        const name = String(op.name || '').trim();
+        if (!name) continue;
+        executeDesignTool(name, JSON.stringify(op.args || {}), harness.ctx);
+      }
+      const doc = harness.getDoc();
 
       if (expectSpec.shapeCount != null) {
         const shapes = sceneNodes(doc).filter((n) => n.key === 'shape');

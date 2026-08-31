@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineChevronDown, HiOutlineChevronUp } from 'react-icons/hi2';
 import { LuLayers2, LuMapPinned } from 'react-icons/lu';
@@ -480,9 +480,7 @@ function EditorBottomHud({
   dockPlacement = 'bottom',
   dockedTrailing = null,
 }: Props) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
+  const { t } = useTranslation();  const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const [fpsHudOn, setFpsHudOn] = useState(readFpsHudEnabled);
   const bottomHudRef = useRef<HTMLDivElement | null>(null);
   const leftHudInsetPx = useLeftDockInset(layersOpen);
@@ -780,9 +778,9 @@ function EditorBottomHud({
                   onChange={(next) => {
                     const follow =
                       next.fillType === 'solid' && isThemeFollowCanvasBg(next.fillColor);
-                    dispatch(setCanvasMeta(canvasFillToDocumentMeta(next, follow)));
+                    setCanvasMeta(canvasFillToDocumentMeta(next, follow));
                   }}
-                  onReset={() => dispatch(setCanvasMeta(themeDefaultCanvasMeta()))}
+                  onReset={() => setCanvasMeta(themeDefaultCanvasMeta())}
                 />
                 <HudBtn tip={t('editor.layers')} active={layersOpen} onClick={() => setLayersOpen((v) => !v)}>
                   <LuLayers2 className={HUD_ICON} strokeWidth={HUD_ICON_STROKE} />

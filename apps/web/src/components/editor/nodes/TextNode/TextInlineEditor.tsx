@@ -156,25 +156,25 @@ function TextInlineEditor({
     }
     const s = styleRef.current;
     const boxW = Math.max(Math.ceil(s.fontSize || 14), boxWidthRef.current);
-    const measuredBox = autoSizeRef.current
+    const measured = autoSizeRef.current
       ? measurePlainTextSize(trimmed, s)
       : measureWrappedTextSize(trimmed, s, boxW);
-    const attrs = buildMarkdownTextAttrs(trimmed, s);
-    (attrs as any).autoSize = autoSizeRef.current ? 'true' : 'false';
+    const attrs = buildMarkdownTextAttrs(trimmed, s) as Record<string, unknown>;
+    attrs.autoSize = autoSizeRef.current ? 'true' : 'false';
     if (textFrameRef.current) {
-      (attrs as any).textFrame = 'true';
-      (attrs as any).autoSize = 'false';
+      attrs.textFrame = 'true';
+      attrs.autoSize = 'false';
+    }
+    let width = autoSizeRef.current ? measured.width : boxW;
+    let height = measured.height;
+    if (textFrameRef.current) {
+      width = Math.max(1, Math.round(Number(node?.width) || boxW));
+      height = Math.max(1, Math.round(Number(node?.height) || measured.height));
     }
     onCommitRef.current({
       attrs,
-      width: textFrameRef.current
-        ? Math.max(1, Math.round(Number(node?.width) || boxW))
-        : autoSizeRef.current
-          ? measuredBox.width
-          : boxW,
-      height: textFrameRef.current
-        ? Math.max(1, Math.round(Number(node?.height) || measuredBox.height))
-        : measuredBox.height,
+      width,
+      height,
       left: dragLeftRef.current ?? undefined,
     });
   };
@@ -201,12 +201,14 @@ function TextInlineEditor({
     const box = autoSizeRef.current
       ? measurePlainTextSize(has ? plain : 'M', s)
       : measureWrappedTextSize(plain || 'M', s, fixedW);
-    // Empty autoSize: keep the thin caret width — do not inflate to a measured "M"/space.
-    const nextW = autoSizeRef.current
-      ? has
-        ? Math.max(Math.round(Number(node.width) || 0), Math.round(box.width))
-        : Math.max(1, Math.round(Number(node.width) || Math.ceil((s.fontSize || 14) * 0.15)))
-      : Math.round(fixedW);
+    let nextW: number;
+    if (!autoSizeRef.current) {
+      nextW = Math.round(fixedW);
+    } else if (has) {
+      nextW = Math.max(Math.round(Number(node.width) || 0), Math.round(box.width));
+    } else {
+      nextW = Math.max(1, Math.round(Number(node.width) || Math.ceil((s.fontSize || 14) * 0.15)));
+    }
     const nextH = Math.max(
       Math.ceil((s.fontSize || 14) * (s.lineHeight || 1.4)),
       Math.round(box.height)

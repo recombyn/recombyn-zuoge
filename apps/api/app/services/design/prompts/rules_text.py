@@ -57,10 +57,10 @@ def render_prompt_template(template: str, **variables: Any) -> str:
 
 
 def _safe_print(msg: str) -> None:
-    """Windows consoles are often GBK — never crash the run on emoji in logs."""
+    """Windows consoles often reject emoji (UnicodeEncodeError or OSError 22)."""
     try:
         print(msg, flush=True)
-    except UnicodeEncodeError:
+    except (UnicodeEncodeError, OSError):
         enc = getattr(sys.stdout, "encoding", None) or "utf-8"
         try:
             buf = getattr(sys.stdout, "buffer", None)

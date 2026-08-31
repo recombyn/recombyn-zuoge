@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, memo } from 'react';
-import { useDispatch, useSelector } from '@/store';
+import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { HiOutlineAdjustmentsHorizontal } from 'react-icons/hi2';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
@@ -425,9 +425,7 @@ function PenStrokeToolbar({
   chrome = 'pill',
   className,
 }: PenStrokeToolbarProps) {
-  const { t } = useTranslation();
-  const dispatch = useDispatch();
-  const isPencil = mode === 'pencil';
+  const { t } = useTranslation();  const isPencil = mode === 'pencil';
   const docked = placement === 'dock';
   const tipSide = docked ? 'bottom' : 'top';
   const color = useSelector((s: any) => String(s.editor.penStrokeColor || '#333333'));
@@ -463,20 +461,19 @@ function PenStrokeToolbar({
       viewportWidth: viewportWidth && viewportWidth > 0 ? viewportWidth : undefined,
       docWidth: docWidth && docWidth > 0 ? docWidth : undefined,
     });
-    if (width !== next) dispatch(setPenStrokeWidth(next));
-  }, [zoom, viewportWidth, docWidth, dispatch, width, mode]);
+    if (width !== next) setPenStrokeWidth(next);
+  }, [zoom, viewportWidth, docWidth, width, mode]);
 
   const exitPenEdit = useCallback(() => {
     window.dispatchEvent(new Event('resume:exit-pen'));
-    dispatch(setActiveTool('select'));
-  }, [dispatch]);
+    setActiveTool('select');
+  }, []);
 
   const pinStrokeWidth = useCallback(
     (n: number) => {
       userPinnedRef.current = true;
-      dispatch(setPenStrokeWidth(Math.max(1, Math.round(n) || 1)));
-    },
-    [dispatch]
+      setPenStrokeWidth(Math.max(1, Math.round(n) || 1));
+    }, []
   );
 
   const bumpBrush = useCallback(() => setBrushRev((r) => r + 1), []);
@@ -527,9 +524,9 @@ function PenStrokeToolbar({
           <ColorPanelPopover
             {...colorPanelProps}
             value={color}
-            onChange={(hex) => dispatch(setPenStrokeColor(hex))}
+            onChange={(hex) => setPenStrokeColor(hex)}
             opacity={opacity}
-            onOpacityChange={(pct) => dispatch(setPenStrokeOpacity(pct))}
+            onOpacityChange={(pct) => setPenStrokeOpacity(pct)}
             showAlpha
             title={t('editor.pencilBrushFill')}
           >
@@ -540,7 +537,7 @@ function PenStrokeToolbar({
             <ColorPanelPopover
               {...colorPanelProps}
               value={fillColor}
-              onChange={(hex) => dispatch(setPenFillColor(hex))}
+              onChange={(hex) => setPenFillColor(hex)}
               showAlpha
               title={t('editor.fill', { defaultValue: '背景' })}
             >
@@ -549,7 +546,7 @@ function PenStrokeToolbar({
             <ColorPanelPopover
               {...colorPanelProps}
               value={color}
-              onChange={(hex) => dispatch(setPenStrokeColor(hex))}
+              onChange={(hex) => setPenStrokeColor(hex)}
               title={t('editor.stroke', { defaultValue: '描边' })}
             >
               <StrokeColorSwatch color={color} />
@@ -594,13 +591,13 @@ function PenStrokeToolbar({
                     strokeColor={strokeColor}
                     strokeWidth={width}
                     opacity={opacity}
-                    onFillColorChange={(value) => dispatch(setPenStrokeColor(value))}
+                    onFillColorChange={(value) => setPenStrokeColor(value)}
                     onStrokeColorChange={(value) => {
                       updatePencilBrushInk(brush.id, { outlineStrokeColor: value });
                       bumpBrush();
                     }}
                     onStrokeWidthChange={pinStrokeWidth}
-                    onOpacityChange={(pct) => dispatch(setPenStrokeOpacity(pct))}
+                    onOpacityChange={(pct) => setPenStrokeOpacity(pct)}
                     onChanged={bumpBrush}
                   />
                 </div>
