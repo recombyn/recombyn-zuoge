@@ -8,7 +8,7 @@ import {
   hitTestSoaBuffer,
   hitTestSoaBufferOrdered,
   forEachVisibleInRect,
-  applySoaHostPromotion,
+  applySoaHostInkFlags,
   upsertSoaGeom,
   markSoaDirtyById,
   packCssColor,
@@ -171,13 +171,13 @@ describe('sceneRenderBuffer', () => {
     expect(buf.flags[ia] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(buf.flags[ib] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
 
-    applySoaHostPromotion(buf, new Set(['a']));
+    applySoaHostInkFlags(buf, new Set(['a']));
     expect(buf.flags[ia] & SOA_FLAG_CANVAS_IDLE).toBeFalsy();
     expect(buf.flags[ib] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(hitTestSoaBufferOrdered(buf, 20, 20, ['a', 'b'])).toBeNull();
     expect(hitTestSoaBufferOrdered(buf, 110, 20, ['a', 'b'])).toBe('b');
 
-    applySoaHostPromotion(buf, new Set());
+    applySoaHostInkFlags(buf, new Set());
     expect(buf.flags[ia] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(hitTestSoaBufferOrdered(buf, 20, 20, ['a', 'b'])).toBe('a');
   });

@@ -64,6 +64,31 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.radii[1]).toBeGreaterThan(0);
   });
 
+  it('polygon path samples follow rounded baseline (vertex radii)', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'p', {
+      id: 'p',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 80,
+      attrs: {
+        shapeType: 'polygon',
+        sides: 5,
+        cornerRadius: 12,
+        radiusLinked: true,
+        fill: '#fff',
+        'fill-color': '#fff',
+        'stroke-enabled': false,
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.pathLen[0]).toBeGreaterThan(5);
+  });
+
   it('polygon is SoA-basic on Canvas2D path (samples into pathXY)', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'p', {
@@ -161,7 +186,7 @@ describe('SoA basic geom vs rounded / poly', () => {
       },
       children: [],
     });
-    expect(canIdlePaintOnCanvas(doc.deltaSetLike.b)).toBe(true);
+    expect(canIdlePaintOnCanvas(doc.deltaSetLike.b)).toBe(false);
     expect(isSoaBasicGeomSufficient(doc.deltaSetLike.b)).toBe(false);
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);

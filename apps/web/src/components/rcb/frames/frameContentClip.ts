@@ -13,6 +13,35 @@ function nextClipId(prefix: string) {
   return `${prefix}-${clipSeq}`;
 }
 
+const EMPTY_REVEAL_OVERFLOW = new Set<string>();
+let revealOverflowNodeIds: ReadonlySet<string> = EMPTY_REVEAL_OVERFLOW;
+
+/**
+ * Selection / editor hosts that must paint past clipContent (Figma-like).
+ * SoftGlow processing stays out of this set via {@link shouldRevealShapeOverflow}.
+ */
+export function setFrameClipRevealOverflowIds(ids: Iterable<string> | null | undefined): void {
+  if (!ids) {
+    revealOverflowNodeIds = EMPTY_REVEAL_OVERFLOW;
+    return;
+  }
+  const next = new Set<string>();
+  for (const id of ids) {
+    const s = String(id || '').trim();
+    if (s) next.add(s);
+  }
+  revealOverflowNodeIds = next.size ? next : EMPTY_REVEAL_OVERFLOW;
+}
+
+export function frameClipRevealsOverflow(nodeId: string | null | undefined): boolean {
+  if (!nodeId) return false;
+  return revealOverflowNodeIds.has(nodeId);
+}
+
+export function hasFrameClipRevealOverflow(): boolean {
+  return revealOverflowNodeIds.size > 0;
+}
+
 /**
  * Owning clipContent artboard for a node (`attrs.frameId`).
  * Live plate geometry overrides x/y/w/h while the frame is being dragged.
@@ -90,12 +119,36 @@ function resolveClipHost(el: SVGElement): SVGElement {
   return el;
 }
 
+/** Stable per-host clipPath id — recreating url(#…) every pointermove shakes the edge. */
+function stableFrameClipId(host: SVGElement): string {
+  const existing = host.getAttribute('data-rcb-frame-clip');
+  if (existing) return existing;
+  const shapeId = String(host.getAttribute('data-rcb-shape-id') || '').trim();
+  const id = shapeId
+    ? `frame-clip-${shapeId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    : nextClipId('frame-clip');
+  host.setAttribute('data-rcb-frame-clip', id);
+  return id;
+}
+
 function clearHostClip(host: SVGElement) {
+  const id = host.getAttribute('data-rcb-frame-clip');
   host.removeAttribute('clip-path');
+  host.removeAttribute('data-rcb-frame-clip');
   try {
     host.style.removeProperty('clip-path');
   } catch {
     /* ignore */
+  }
+  if (!id) return;
+  const root = host.ownerSVGElement;
+  const clip = root?.getElementById(id);
+  if (clip) {
+    try {
+      clip.remove();
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -145,6 +198,9 @@ export function syncFrameContentClip(
  * Clip sits on the **untransformed paint layer** (same lattice as
  * `HtmlArtboardFrame` plate) with a **scene-absolute** rect — not on the
  * rotated node `g`, and not on a nested wrap.
+ *
+ * Reuses a stable `clipPath` per host and only updates the rect — minting a
+ * new `url(#…)` every gesture frame made the clipped edge jitter.
  */
 export function applyFrameContentClip(
   root: SVGSVGElement,
@@ -172,24 +228,33 @@ export function applyFrameContentClip(
     // Cap inset so far zoom (z≪1) cannot collapse the clip rect to empty.
     const z = Math.max(0.05, Number(opts?.zoom) || 1);
     const inset = Math.min(2, 0.5 / z);
+    const rectAttrs = {
+      x: fx + inset,
+      y: fy + inset,
+      width: Math.max(1, fw - inset * 2),
+      height: Math.max(1, fh - inset * 2),
+    };
 
-    const id = nextClipId('frame-clip');
+    const id = stableFrameClipId(host);
     const defs = ensureDefs(root);
-    const clip = svgEl('clipPath', {
-      id,
-      clipPathUnits: 'userSpaceOnUse',
-    });
-    clip.appendChild(
-      svgEl('rect', {
-        x: fx + inset,
-        y: fy + inset,
-        width: Math.max(1, fw - inset * 2),
-        height: Math.max(1, fh - inset * 2),
-      })
-    );
-    defs.appendChild(clip);
+    let clip = root.getElementById(id) as SVGClipPathElement | null;
+    if (!clip) {
+      clip = svgEl('clipPath', {
+        id,
+        clipPathUnits: 'userSpaceOnUse',
+      }) as SVGClipPathElement;
+      clip.appendChild(svgEl('rect', rectAttrs));
+      defs.appendChild(clip);
+    } else {
+      const rect = clip.querySelector('rect');
+      if (rect) setAttrs(rect, rectAttrs);
+      else clip.appendChild(svgEl('rect', rectAttrs));
+    }
 
-    setAttrs(host, { 'clip-path': urlRef(id) });
+    const ref = urlRef(id);
+    if (host.getAttribute('clip-path') !== ref) {
+      setAttrs(host, { 'clip-path': ref });
+    }
     if (host !== el) el.removeAttribute('clip-path');
   } catch {
     /* ignore */

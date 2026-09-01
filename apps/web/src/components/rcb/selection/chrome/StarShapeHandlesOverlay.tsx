@@ -347,7 +347,11 @@ function StarShapeHandlesOverlay({
       const along = (local.x - d.site.x) * d.site.ix + (local.y - d.site.y) * d.site.iy;
       const rounded = Math.max(0, Math.min(maxR, Math.round(along)));
       setDragValue(rounded);
-      setLiveCornerRadiusPreview({ nodeId, display: rounded });
+      setLiveCornerRadiusPreview({
+        nodeId,
+        display: rounded,
+        radii: { tl: rounded, tr: rounded, br: rounded, bl: rounded },
+      });
       preview({ r: rounded });
     };
 

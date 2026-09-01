@@ -9,6 +9,7 @@ import {
   isSoaCanvasShapesEnabled,
   isSoaWebglEnvEnabled,
   resolveSoaPaintBox,
+  setSoaPaintDocument,
   SOA_FLAG_CANVAS_IDLE,
   SOA_FLAG_DIRTY,
   SOA_FLAG_VISIBLE,
@@ -51,6 +52,7 @@ import {
   type SceneRenderRequest,
   type SceneRenderer,
 } from '@/components/rcb/render/sceneRenderer';
+import { hasFrameClipRevealOverflow } from '@/components/rcb/frames/frameContentClip';
 
 const VS = `#version 300 es
 uniform vec2 uPan;
@@ -269,7 +271,10 @@ export function collectSoaWebglInstances(
           unpackCssColor(buf.colors[i]),
           closed,
           lineW,
-          { force: forceStamp }
+          {
+            force: forceStamp,
+            strokeCss: unpackCssColor(buf.strokeColors[i] || 0xff333333),
+          }
         );
         if (region) {
           pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs);
@@ -505,6 +510,7 @@ export function createWebglSceneRenderer(
       const pan = rcbCameraScreenOffset(req.camera, dpr);
       const view = rcbViewportSceneBounds(req.camera, { width: sw, height: sh }, dpr);
       const buf = getSharedSceneRenderBuffer();
+      setSoaPaintDocument(req.document);
       const atlas = isSoaWebglAtlasEnabled() ? ensureSharedSoaWebglAtlas() : null;
       if (atlas && atlasBufferRevision !== buf.revision) {
         // Drop orphans; dirty path/round stamps restamp in-place via force.
@@ -520,7 +526,14 @@ export function createWebglSceneRenderer(
       const uvs: number[] = [];
 
       let usedBakeAtlas = false;
-      if (atlas && shouldUseSoaBake(buf) && !hasNodeTransformPreviews()) {
+      // Bake tiles stamp clipped ink — skip while selection reveals overflow
+      // (same gate as canvas2d) or nodes are mid-TransformPreview.
+      if (
+        atlas &&
+        shouldUseSoaBake(buf) &&
+        !hasNodeTransformPreviews() &&
+        !hasFrameClipRevealOverflow()
+      ) {
         let cache = getSharedSoaBakeCache();
         if (!cache || cache.bufferRevision !== buf.revision) {
           cache = createSoaBakeCache();

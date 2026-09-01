@@ -654,6 +654,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
             autoSize: 'false',
             lockAspect: 'true',
             name: titleName,
+            'fill-color': '#FFFFFF',
             radiusTL: TEXT_FRAME_RADIUS,
             radiusTR: TEXT_FRAME_RADIUS,
             radiusBR: TEXT_FRAME_RADIUS,

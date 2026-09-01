@@ -18,13 +18,11 @@ import {
   FrameDrawFeature,
   FrameMoveFeature,
   HtmlArtboardFrame,
-  getSharedNodeEls,
-  getSharedSceneSpatialRuntime,
-  shapeHostRevealsOverflow,
   type RcbCamera as CanvasCamera,
 } from '@/components/rcb';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import SvgCanvas from '@/components/editor/canvas/SvgCanvas';
+import type { CanvasSession } from '@/components/editor/canvas/canvasSession';
 import ImageProcessWatcher from '@/components/editor/nodes/ImageNode/ImageProcessWatcher';
 import UploadJobWatcher from '@/components/editor/nodes/shared/UploadJobWatcher';
 import GeneratorJobRecoveryHost from '@/components/editor/nodes/shared/GeneratorJobRecoveryHost';
@@ -89,18 +87,11 @@ import {
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
 import { canvasFillToDocumentMeta } from './EditorBottomHud';
 import type { RootState } from '@/store';
-import { nodeLeftTop, previewSvgNodeGeometry } from '@/components/rcb/scene/paint/sceneToSvg';
+import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
-import {
-  clearNodeTransformPreviews,
-  setNodeTransformPreviews,
-} from '@/components/rcb/core/transformPreview';
-import { syncFrameContentClip } from '@/components/rcb/frames/frameContentClip';
-import {
-  bindUnownedNodesToFrames,
-  shouldCoMoveNodeWithFrames,
-} from '@/components/rcb/frames/frameNodeBinding';
-import { previewArtboardFrameGeometry, clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
+import { bindUnownedNodesToFrames } from '@/components/rcb/frames/frameNodeBinding';
+import { clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   isArtboardVisibleInDocument,
   setAnimationWorkbenchGeometryPreview,
@@ -199,74 +190,6 @@ function frameUnionBox(frames: ArtboardFrame[]) {
     width: Math.max(1, right - left),
     height: Math.max(1, bottom - top),
   };
-}
-
-function boxesIntersect(
-  a: { x: number; y: number; width: number; height: number },
-  b: { x: number; y: number; width: number; height: number }
-) {
-  return (
-    a.x < b.x + b.width &&
-    a.x + a.width > b.x &&
-    a.y < b.y + b.height &&
-    a.y + a.height > b.y
-  );
-}
-
-function nodeBox(node: SceneNode) {
-  return {
-    x: Number(node.x) || 0,
-    y: Number(node.y) || 0,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
-  };
-}
-
-function frameBox(frame: ArtboardFrame) {
-  return {
-    x: Number(frame.x) || 0,
-    y: Number(frame.y) || 0,
-    width: Math.max(1, Number(frame.width) || 1),
-    height: Math.max(1, Number(frame.height) || 1),
-  };
-}
-
-/** Nodes that visually sit inside moved frames — co-move + exclude from smart guides. */
-function nodeIdsOverlappingFrames(
-  doc: SceneDocument,
-  movedFrames: Array<{
-    id: string;
-    startX: number;
-    startY: number;
-    width: number;
-    height: number;
-    kind?: string | null;
-  }>
-) {
-  const movedFrameIds = new Set(movedFrames.map((frame) => frame.id));
-  const out: string[] = [];
-  for (const [nodeId, node] of Object.entries(doc.deltaSetLike || {})) {
-    if (!node || nodeId === 'ROOT') continue;
-    const box = nodeBox(node);
-    const nodeRect = { left: box.x, top: box.y, width: box.width, height: box.height };
-    const hits = movedFrames.some((frame) => {
-      const plate = (doc.frames || []).find((f) => String(f?.id) === String(frame.id));
-      return shouldCoMoveNodeWithFrames(
-        node,
-        nodeRect,
-        movedFrameIds,
-        {
-          left: frame.startX,
-          top: frame.startY,
-          width: frame.width,
-          height: frame.height,
-        },
-        frame.kind ?? plate?.kind
-      );
-    });
-    if (hits) out.push(nodeId);
-  }
-  return out;
 }
 
 /** Node highlight / operation label / AI cursor — world overlay, not SceneDocument. */
@@ -458,7 +381,8 @@ function EditorStageWorld({
   onCanvasReady,
   onOpenAgent,
   onAddToChat,
-}: Props) {  const { t } = useTranslation();
+}: Props) {
+  const { t } = useTranslation();
   const aiOperationState = useSelector(
     (state: RootState) => state.editor.aiOperationState
   );
@@ -494,10 +418,15 @@ function EditorStageWorld({
       startY: number;
       width: number;
       height: number;
+      kind?: string | null;
     }>;
-    childOrigins: Array<{ nodeId: string; x: number; y: number; width: number; height: number }>;
   } | null>(null);
   const frameMoveDocumentRef = useRef<SceneDocument | null>(document);
+  const geometryPreviewRef = useRef<CanvasSession['onGeometryPreview'] | null>(null);
+  const getPreviewDocumentRef = useRef<() => SceneDocument | null>(() => null);
+  const resetFrameGestureRef = useRef<(() => void) | null>(null);
+  /** Sync flag — label/workbench plate drag does not use SelectionFeature transforming. */
+  const frameGestureActiveRef = useRef(false);
   const showWorkbenchFrame = useCallback(
     (frame: ArtboardFrame) => isArtboardVisibleInDocument(frame),
     []
@@ -545,11 +474,38 @@ function EditorStageWorld({
       const rawDy = y - baseY;
 
       const movedFrameIds = new Set(movedFrames.map((item) => item.id));
+      const isAnimPlate = movedFrames.some((item) => isAnimationArtboardKind(item.kind));
+      const dx0 = Math.round(rawDx);
+      const dy0 = Math.round(rawDy);
+
+      // Animation workbench: plate-only (frame-local). Skip O(n) snap scans — they
+      // freeze the tab when the workbench has hundreds of bound layers.
+      if (isAnimPlate) {
+        setFrameSmartGuides((prev) => (prev.length ? [] : prev));
+        if (dx0 !== 0 || dy0 !== 0) {
+          const geomPatches = movedFrames.map((moved) => ({
+            nodeId: frameSelId(moved.id),
+            left: moved.startX + dx0,
+            top: moved.startY + dy0,
+            width: moved.width,
+            height: moved.height,
+          }));
+          geometryPreviewRef.current?.(geomPatches);
+        }
+        const nextDocument = {
+          ...document,
+          frames: frames.map((item) => {
+            const moved = movedFrames.find((entry) => entry.id === item.id);
+            if (!moved) return item;
+            return { ...item, x: moved.startX + dx0, y: moved.startY + dy0 };
+          }),
+        };
+        frameMoveDocumentRef.current = getPreviewDocumentRef.current?.() ?? nextDocument;
+        return;
+      }
+
       const threshold = smartSnapThreshold(camera.zoom);
-      const movedChildIds = new Set([
-        ...nodeIdsBoundToFrames(document, [...movedFrameIds]),
-        ...(dragState?.childOrigins.map((item) => item.nodeId) ?? []),
-      ]);
+      const movedChildIds = new Set(nodeIdsBoundToFrames(document, [...movedFrameIds]));
       const excludeIds = new Set<string>([
         ...movedChildIds,
         ...[...movedFrameIds, id].flatMap((frameId) => [frameId, frameSelId(frameId)]),
@@ -607,107 +563,44 @@ function EditorStageWorld({
         threshold,
       });
 
-      setFrameSmartGuides(guides);
+      setFrameSmartGuides((prev) => {
+        if (
+          prev.length === guides.length &&
+          prev.every((g, i) => {
+            const n = guides[i];
+            if (!n || g.kind !== n.kind || g.axis !== n.axis) return false;
+            if (g.at !== n.at || g.from !== n.from || g.to !== n.to) return false;
+            if (g.kind === 'gap' && n.kind === 'gap' && g.dist !== n.dist) return false;
+            return true;
+          })
+        ) {
+          return prev;
+        }
+        return guides;
+      });
       const dx = Math.round(sdx);
       const dy = Math.round(sdy);
-      let childPatches: Array<{
-        nodeId: string;
-        patch: { x: number; y: number };
-      }> = [];
       if (dx !== 0 || dy !== 0) {
-        const origins = dragState?.childOrigins || [];
-        childPatches = origins.map(({ nodeId, x, y }) => ({
-          nodeId,
-          patch: { x: x + dx, y: y + dy },
+        // Frame-local children: only the plate moves. Ink follows via live frame
+        // geom + nodeLeftTop — do not rewrite child x/y or TransformPreview.
+        const geomPatches = movedFrames.map((moved) => ({
+          nodeId: frameSelId(moved.id),
+          left: moved.startX + dx,
+          top: moved.startY + dy,
+          width: moved.width,
+          height: moved.height,
         }));
-        const previewFrames = frames.map((item) => {
-          const moved = movedFrames.find((entry) => entry.id === item.id);
-          if (!moved) return item;
-          return { ...item, x: moved.startX + dx, y: moved.startY + dy };
-        });
-        const previewDocument = { ...document, frames: previewFrames };
-        const sharedNodeEls = getSharedNodeEls();
-        const nodeEls = sharedNodeEls instanceof Map
-          ? sharedNodeEls
-          : new Map<string, SVGElement>();
-        // Live plate MUST update before clip sync — findClippingFrameForNode prefers
-        // liveArtboardGeom over document frames; stale live + moved nodes = spill.
-        for (const moved of movedFrames) {
-          previewArtboardFrameGeometry({
-            id: moved.id,
-            x: moved.startX + dx,
-            y: moved.startY + dy,
-            width: moved.width,
-            height: moved.height,
-          });
-        }
-        // Fact-layer preview (ADR 0027) — Canvas/SoA ink reads this, not SVG-only.
-        setNodeTransformPreviews(
-          origins.map((origin) => ({
-            nodeId: origin.nodeId,
-            left: origin.x + dx,
-            top: origin.y + dy,
-            width: origin.width,
-            height: origin.height,
-          }))
-        );
-        for (const origin of origins) {
-          const node = document.deltaSetLike?.[origin.nodeId];
-          const el = nodeEls.get(origin.nodeId);
-          if (!node || !el) continue;
-          const left = origin.x + dx;
-          const top = origin.y + dy;
-          previewSvgNodeGeometry(nodeEls, origin.nodeId, {
-            left,
-            top,
-            width: origin.width,
-            height: origin.height,
-          });
-          const previewNode = { ...node, x: left, y: top };
-          if (el.ownerSVGElement) {
-            syncFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
-              zoom: camera.zoom,
-              revealOverflow: shapeHostRevealsOverflow(origin.nodeId),
-            });
-          }
-        }
-        // Re-evaluate clipping for every mounted node against the preview frame
-        // position. Otherwise overflow appears only after pointer-up/remount.
-        for (const [nodeId, el] of nodeEls.entries()) {
-          const node = document.deltaSetLike?.[nodeId];
-          if (!node || !el.ownerSVGElement) continue;
-          const moved = childPatches.find((patch) => patch.nodeId === nodeId)?.patch;
-          const previewNode = moved ? { ...node, ...moved } : node;
-          syncFrameContentClip(el.ownerSVGElement, el, previewDocument, previewNode, {
-            zoom: camera.zoom,
-            revealOverflow: shapeHostRevealsOverflow(nodeId),
-          });
-        }
-      } else if (dragState?.childOrigins?.length) {
-        clearNodeTransformPreviews(dragState.childOrigins.map((o) => o.nodeId));
-      }
-      const nextDelta = { ...(document.deltaSetLike || {}) };
-      for (const item of childPatches) {
-        const node = nextDelta[item.nodeId];
-        if (node) nextDelta[item.nodeId] = { ...node, ...item.patch };
+        geometryPreviewRef.current?.(geomPatches);
       }
       const nextDocument = {
         ...document,
-        deltaSetLike: nextDelta,
         frames: frames.map((item) => {
           const moved = movedFrames.find((entry) => entry.id === item.id);
           if (!moved) return item;
           return { ...item, x: moved.startX + dx, y: moved.startY + dy };
         }),
       };
-      frameMoveDocumentRef.current = nextDocument;
-      const spatial = getSharedSceneSpatialRuntime();
-      if (spatial && childPatches.length) {
-        spatial.patchNodes(
-          nextDocument,
-          childPatches.map((item) => item.nodeId)
-        );
-      }
+      frameMoveDocumentRef.current = getPreviewDocumentRef.current?.() ?? nextDocument;
       // Preview only — do not setDocumentFromCanvas on every pointermove (that
       // re-renders EditorPage/panels and, with collab, JSON.stringifys the scene).
     },
@@ -728,37 +621,15 @@ function EditorStageWorld({
           kind: item.kind,
         }));
       if (movedFrames.length) {
+        frameGestureActiveRef.current = true;
         frameMoveDocumentRef.current = document;
         // Only gate animation ensure/sync during 动画工作台 plate drags.
         if (movedFrames.some((f) => isAnimationArtboardKind(f.kind))) {
           setAnimationWorkbenchGeometryPreview(true);
         }
         setFrameSmartGuides([]);
-        const boundNodeIds = nodeIdsBoundToFrames(document, frameIds);
-        const interiorNodeIds = nodeIdsOverlappingFrames(document, movedFrames);
-        const coMoveIds = [...new Set([...boundNodeIds, ...interiorNodeIds])];
-        const childOrigins = coMoveIds
-          .map((nodeId) => {
-            const node = document.deltaSetLike?.[nodeId];
-            if (!node) return null;
-            return {
-              nodeId,
-              x: Number(node.x) || 0,
-              y: Number(node.y) || 0,
-              width: Math.max(1, Number(node.width) || 1),
-              height: Math.max(1, Number(node.height) || 1),
-            };
-          })
-          .filter(Boolean) as Array<{
-            nodeId: string;
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-          }>;
         frameDragRef.current = {
           frames: movedFrames,
-          childOrigins,
         };
       }
       // Frame move = plate gesture only. Drop node selection so inner control
@@ -772,8 +643,9 @@ function EditorStageWorld({
   );
 
   const onFrameMoveEnd = useCallback(() => {
+    frameGestureActiveRef.current = false;
+    resetFrameGestureRef.current?.();
     const frameIds = frameDragRef.current?.frames.map((item) => item.id) || [];
-    const childIds = frameDragRef.current?.childOrigins.map((item) => item.nodeId) || [];
     if (frameIds.length) {
       const liveDocument = frameMoveDocumentRef.current || document;
       const next = bindUnownedNodesToFrames(liveDocument, frameIds);
@@ -781,8 +653,7 @@ function EditorStageWorld({
       setDocumentFromCanvas(next);
       clearLiveArtboardFrameGeometry(frameIds);
     }
-    if (childIds.length) clearNodeTransformPreviews(childIds);
-    else clearNodeTransformPreviews();
+    clearNodeTransformPreviews();
     frameDragRef.current = null;
     frameMoveDocumentRef.current = document;
     setAnimationWorkbenchGeometryPreview(false);
@@ -918,6 +789,11 @@ function EditorStageWorld({
           onFrameMoveStart={onFrameMoveStart}
           onFrameMoveEnd={onFrameMoveEnd}
           onFrameMove={onMoveFrame}
+          geometryPreviewRef={geometryPreviewRef}
+          getPreviewDocumentRef={getPreviewDocumentRef}
+          frameGestureActiveRef={frameGestureActiveRef}
+          resetFrameGestureRef={resetFrameGestureRef}
+          frameGestureActive={movingFrameIds.length > 0 || selectionTransforming}
           suppressChromeWhileFrameMoving={movingFrameIds.length > 0}
           embedded
           stageEl={stageEl}

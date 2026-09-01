@@ -9,7 +9,7 @@ export const RcbViewportElContext = createContext<HTMLElement | null>(null);
 /** Live `window.devicePixelRatio` (browser zoom). Camera pan snaps to this. */
 export const RcbDevicePixelRatioContext = createContext(1);
 
-/** Camera interaction: pan/zoom in flight → use efficientZoom for cull / host budget. */
+/** Camera interaction: pan/zoom in flight → use efficientZoom for cull. */
 export type RcbCameraMotion = {
   moving: boolean;
   /** Stepped while moving; equals live zoom when idle. */

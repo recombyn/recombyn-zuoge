@@ -16,6 +16,7 @@ import {
   urlRef,
   XLINK_NS,
 } from './svgDom';
+import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import { resolveLottieInkJson } from '@/components/editor/nodes/AnimationNode/mainSceneLotPreview';
 import {
   parseNodeText,
@@ -33,7 +34,7 @@ import {
   resolveStrokeLinecap,
   resolveStrokeLinejoin,
   resolveStrokeMiterlimit,
-  TEXT_FRAME_RADIUS,
+  textFrameCornerRadii,
 } from '../document/sceneEffects';
 import type { StrokeAlign, StrokeLinecap, StrokeLinejoin } from '../document/sceneEffects';
 import { isTransparentFill, resolveDocumentBackground, resolveFill } from '../document/sceneFill';
@@ -60,6 +61,7 @@ import {
 import {
   parseLottieAnimationData,
   resolveGenPlateFill,
+  resolveTextFramePlateFill,
   resolveThemeSurfaceFill
 } from '../document/nodeFactories';
 import { generatorEmptyIconSize } from '../../core/layout';
@@ -226,9 +228,80 @@ function sceneOrigin(document: SceneDocument | null | undefined) {
   return { ox: num(document?.x, 0), oy: num(document?.y, 0) };
 }
 
+/** Bound artboard children store x/y relative to the plate (00 = frame top-left). */
+export const FRAME_LOCAL_COORD_SPACE = 'frameLocal';
+
+export function isFrameLocalCoordSpace(
+  document: SceneDocument | null | undefined
+): boolean {
+  return String(document?.coordSpace || '') === FRAME_LOCAL_COORD_SPACE;
+}
+
+function frameDocumentOrigin(
+  document: SceneDocument | null | undefined,
+  frameId: string
+): { x: number; y: number } | null {
+  const id = String(frameId || '').trim();
+  if (!id || !document) return null;
+  const live = getLiveArtboardFrameGeometry(id);
+  if (live) return { x: num(live.x, 0), y: num(live.y, 0) };
+  const frame = (Array.isArray(document.frames) ? document.frames : []).find(
+    (f) => String(f?.id) === id
+  );
+  if (!frame) return null;
+  return { x: num(frame.x, 0), y: num(frame.y, 0) };
+}
+
+/** Document-space absolute box origin (same lattice as `frames[].x/y`). */
+export function nodeDocumentLeftTop(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeInput | null | undefined
+): { left: number; top: number } {
+  const x = num(node?.x, 0);
+  const y = num(node?.y, 0);
+  if (!isFrameLocalCoordSpace(document)) return { left: x, top: y };
+  const frameId = String(node?.attrs?.frameId || '').trim();
+  if (!frameId) return { left: x, top: y };
+  const origin = frameDocumentOrigin(document, frameId);
+  if (!origin) return { left: x, top: y };
+  return { left: origin.x + x, top: origin.y + y };
+}
+
+/** Scene-space paint origin (document absolute minus scene origin). */
 export function nodeLeftTop(document: SceneDocument | null | undefined, node: SceneNodeInput) {
   const { ox, oy } = sceneOrigin(document);
-  return { left: num(node.x, 0) - ox, top: num(node.y, 0) - oy };
+  const abs = nodeDocumentLeftTop(document, node);
+  return { left: abs.left - ox, top: abs.top - oy };
+}
+
+/** World/document absolute → frame-local (when `coordSpace` is frameLocal). */
+export function documentPointToNodeLocal(
+  document: SceneDocument | null | undefined,
+  node: SceneNodeInput | null | undefined,
+  absX: number,
+  absY: number
+): { x: number; y: number } {
+  if (!isFrameLocalCoordSpace(document)) return { x: absX, y: absY };
+  const frameId = String(node?.attrs?.frameId || '').trim();
+  if (!frameId) return { x: absX, y: absY };
+  const origin = frameDocumentOrigin(document, frameId);
+  if (!origin) return { x: absX, y: absY };
+  return { x: absX - origin.x, y: absY - origin.y };
+}
+
+/** Frame-local (or world) node x/y → document absolute. */
+export function nodeLocalToDocumentPoint(
+  document: SceneDocument | null | undefined,
+  frameId: string | null | undefined,
+  localX: number,
+  localY: number
+): { x: number; y: number } {
+  if (!isFrameLocalCoordSpace(document)) return { x: localX, y: localY };
+  const id = String(frameId || '').trim();
+  if (!id) return { x: localX, y: localY };
+  const origin = frameDocumentOrigin(document, id);
+  if (!origin) return { x: localX, y: localY };
+  return { x: origin.x + localX, y: origin.y + localY };
 }
 
 function objectMeta(node: SceneNodeInput) {
@@ -1257,29 +1330,21 @@ export async function nodeToSvgElement(
       const g = appendChild(parent, svgEl('g'));
       const plateW = Math.max(1, boxW);
       const plateH = Math.max(1, boxH);
-      const radii = radiiFromAttrs(node.attrs);
-      const cornerR = {
-        tl: radii.tl > 0 ? radii.tl : TEXT_FRAME_RADIUS,
-        tr: radii.tr > 0 ? radii.tr : TEXT_FRAME_RADIUS,
-        br: radii.br > 0 ? radii.br : TEXT_FRAME_RADIUS,
-        bl: radii.bl > 0 ? radii.bl : TEXT_FRAME_RADIUS,
-      };
+      const cornerR = textFrameCornerRadii(node.attrs);
       const clipD = roundedRectPath(plateW, plateH, cornerR);
-      // Rim underlay matches HTML outer (darker track); FO paints dual-tone on top.
-      const plateFill = resolveGenPlateFill(node.attrs?.['fill-color']);
+      // Plate underlay matches HTML: artboard white + plate hairline.
+      const plateFill = resolveTextFramePlateFill(node.attrs?.['fill-color']);
       const plate = appendChild(g, svgEl('path', { d: clipD }));
-      setFill(
-        plate,
-        plateFill === 'var(--gen-empty)' ? 'var(--audio-wave-track)' : plateFill
-      );
+      setFill(plate, plateFill);
       setStroke(plate, {
-        color: 'var(--line)',
+        color: FRAME_PLATE_STROKE,
         width: editorChromeStrokeSceneWidth(1),
       });
       setAttrs(plate, {
         'data-radius-body': '1',
         'data-baseline': '1',
         'data-rcb-text-frame-plate': '1',
+        'shape-rendering': 'crispEdges',
       });
       rememberSceneCornerRadii(g, cornerR);
       appendHtmlMediaMount(g, {
@@ -1673,10 +1738,17 @@ export async function nodeToSvgElement(
     if (!hasData) {
       const plate = appendChild(g, svgEl('path', { d: clipD }));
       setFill(plate, plateFill);
-      setStroke(plate, {
-        color: FRAME_PLATE_STROKE,
-        width: plateStrokeW,
-      });
+      // Frame host sits under the artboard plate — a second hairline looks like a
+      // thick 动画工作台 border. Nested workbench lotties follow the same rule.
+      if (frameHost || workbenchNested) {
+        setStroke(plate, 'none');
+        setAttrs(plate, { 'pointer-events': 'none' });
+      } else {
+        setStroke(plate, {
+          color: FRAME_PLATE_STROKE,
+          width: plateStrokeW,
+        });
+      }
       setAttrs(plate, {
         'data-radius-body': '1',
         'data-baseline': '1',
@@ -2763,7 +2835,7 @@ export function previewSvgNodeAngle(
   options?: { publishPreview?: boolean }
 ): boolean {
   // Fact layer (SoA / Canvas) must see playhead rotation — SVG host alone is not enough
-  // when idle shapes are demoted to SoA basic paint.
+  // when vectors paint as SoA canvas ink without a DOM host.
   if (options?.publishPreview !== false) {
     setNodeTransformAngles([{ nodeId, angle: angleDeg }]);
   }
@@ -3033,7 +3105,7 @@ export function previewSvgNodeGeometry(
   }
 ): boolean {
   // Fact-layer first (ADR 0027): Canvas/SoA reads TransformPreview even when
-  // there is no SVG host (idle demoted shapes).
+  // there is no SVG host (canvas-ink vectors).
   if (options?.publishPreview !== false) {
     setNodeTransformPreviews([
       {

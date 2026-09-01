@@ -34,6 +34,14 @@ import {
   sceneHitSlop,
   strokeEndpointsFromBox,
 } from '@/components/rcb/scene/document/sceneShapes';
+import {
+  hitTestSoaSlot,
+  SOA_FLAG_CANVAS_IDLE,
+  SOA_KIND_LINE,
+  SOA_KIND_PATH,
+  SOA_KIND_POLY,
+  type SceneRenderBuffer,
+} from '@/components/rcb/render/sceneRenderBuffer';
 
 export type SceneHitFn = (
   x: number,
@@ -128,6 +136,8 @@ export type HitTestSceneAtPointOpts = {
    * Default false: Path2D / AABB only (no live DOM lattice).
    */
   allowSvgDomHit?: boolean;
+  /** When set, canvas-idle slots are tested in z-order alongside SVG/scene hits. */
+  soaBuf?: SceneRenderBuffer | null;
 };
 
 let hitFn: SceneHitFn | null = null;
@@ -180,6 +190,7 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     getNodeBox,
     nodeEls,
     allowSvgDomHit = false,
+    soaBuf = null,
   } = opts;
   const pad = sceneHitSlop(Math.max(0.05, zoom || 1));
   const boxes: Array<{ id: string; box: SceneHitBox | null; hit: boolean }> = [];
@@ -203,6 +214,27 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     if (!isNodePickableAtPoint(doc, node, x, y)) {
       boxes.push({ id, box: null, hit: false });
       continue;
+    }
+    const soaIndex = soaBuf?.indexById.get(id);
+    const isSoaIdle =
+      soaIndex != null &&
+      soaIndex >= 0 &&
+      (soaBuf!.flags[soaIndex] & SOA_FLAG_CANVAS_IDLE) !== 0;
+    if (isSoaIdle && hitTestSoaSlot(soaBuf!, soaIndex, x, y)) {
+      boxes.push({ id, box: getNodeBox(id), hit: true });
+      lastHitDebug = { x, y, orderLen: order.length, orderHead: order.slice(0, 8), boxes };
+      return id;
+    }
+    if (isSoaIdle) {
+      // Stroke ink: SoA polylines undersample curves / can go stale vs paint.
+      // Fall through to Path2D / segment hit (same path line/arrow hosts use).
+      const kind = soaBuf!.kinds[soaIndex];
+      const strokeInk =
+        kind === SOA_KIND_PATH || kind === SOA_KIND_LINE || kind === SOA_KIND_POLY;
+      if (!strokeInk) {
+        boxes.push({ id, box: getNodeBox(id), hit: false });
+        continue;
+      }
     }
     const box = getNodeBox(id);
     if (!box) {
@@ -255,8 +287,11 @@ export function frameIdAtPoint(
 
 /**
  * Bound nodes only pick inside their owning artboard.
- * Unowned ink over a clipContent artboard is pickable only inside that plate —
- * except 动画工作台, which must not suppress world shapes that merely overlap it.
+ * Unowned filled ink over a clipContent artboard is pickable only inside that
+ * plate (AABB overhang is treated as clipped for pick).
+ * Open strokes (pen / pencil / path / line / arrow) skip that gate — their AABB
+ * often grazes a nearby plate while the ink sits in world space (marquee worked,
+ * point pick did not).
  */
 export function isNodePickableAtPoint(
   doc: SceneDocument,
@@ -267,6 +302,11 @@ export function isNodePickableAtPoint(
   const ownerId = String(node.attrs?.frameId || '').trim();
   if (ownerId) return frameIdAtPoint(doc, x, y) === ownerId;
   return isPointVisibleForFrameClip(doc, node, x, y);
+}
+
+function isOpenStrokeShape(node: SceneNodeInput | null | undefined): boolean {
+  const t = String(node?.attrs?.shapeType || node?.key || '').toLowerCase();
+  return t === 'pen' || t === 'pencil' || t === 'path' || t === 'line' || t === 'arrow';
 }
 
 function frameRect(frame: { x?: unknown; y?: unknown; width?: unknown; height?: unknown }) {
@@ -293,7 +333,12 @@ function pointInRect(
 }
 
 function isPointVisibleForFrameClip(doc: SceneDocument, node: SceneNode, x: number, y: number) {
+  // Only called for unbound nodes (owned nodes use frameIdAtPoint above) —
+  // their x/y are already world, including under frameLocal.
   const nodeRect = frameRect(node);
+  // Freehand / open strokes: don't require the click to land inside a plate the
+  // stroke AABB merely grazes (line/arrow already rarely hit this; pens do).
+  if (isOpenStrokeShape(node)) return true;
   const clipping = (doc.frames || []).filter((frame) => {
     if (frame?.clipContent === false || isAnimationArtboardKind(frame.kind)) return false;
     return rectsOverlap(nodeRect, frameRect(frame));

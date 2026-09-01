@@ -8,6 +8,9 @@
  */
 import { getSharedNodeEls, notifyShapeHostGeometry } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
+  documentPointToNodeLocal,
+  isFrameLocalCoordSpace,
+  nodeLeftTop,
   previewSvgNodeAngle,
   previewSvgNodeCornerRadii,
   previewSvgNodeGeometry,
@@ -24,7 +27,9 @@ import {
   sampleLayerTransformAtFrame,
 } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { isAnimationWorkbenchGeometryPreview } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 
 const LINK_KEY = 'ln';
 
@@ -79,10 +84,14 @@ function restoreDocumentGeometry(
     width?: unknown;
     height?: unknown;
     attrs?: Record<string, unknown> | null;
-  }
+  },
+  document?: SceneDocument | null
 ) {
-  const left = Number(node.x) || 0;
-  const top = Number(node.y) || 0;
+  const abs = document
+    ? nodeLeftTop(document, node as SceneNodeInput)
+    : { left: Number(node.x) || 0, top: Number(node.y) || 0 };
+  const left = abs.left;
+  const top = abs.top;
   const width = Math.max(1, Number(node.width) || 1);
   const height = Math.max(1, Number(node.height) || 1);
   // Drop TransformPreview first so SoA snaps to document without a publish flash.
@@ -184,9 +193,22 @@ export function resolvePrecompSessionShapePose(opts: {
     height?: unknown;
     attrs?: Record<string, unknown> | null;
   };
+  /** When set, base left/top are scene paint coords (frameLocal-aware). */
+  document?: SceneDocument | null;
 }): PrecompSessionShapePose | null {
-  const { anim, sceneKind, assetId, layerInd, frameN, plate, localAnimW, localAnimH, raw, node } =
-    opts;
+  const {
+    anim,
+    sceneKind,
+    assetId,
+    layerInd,
+    frameN,
+    plate,
+    localAnimW,
+    localAnimH,
+    raw,
+    node,
+    document,
+  } = opts;
   const sampled = sampleLayerTransformAtFrame({
     animationData: anim,
     sceneKind,
@@ -198,8 +220,11 @@ export function resolvePrecompSessionShapePose(opts: {
   const baseW = Math.max(1, Number(raw.w) || Number(node.width) || 1);
   const baseH = Math.max(1, Number(raw.h) || Number(node.height) || 1);
 
-  let left = Number(node.x) || 0;
-  let top = Number(node.y) || 0;
+  const baseOrigin = document
+    ? nodeLeftTop(document, node as SceneNodeInput)
+    : { left: Number(node.x) || 0, top: Number(node.y) || 0 };
+  let left = baseOrigin.left;
+  let top = baseOrigin.top;
   let width = Math.max(1, Number(node.width) || 1);
   let height = Math.max(1, Number(node.height) || 1);
   let rotation = Number(node.attrs?.angle) || 0;
@@ -247,12 +272,22 @@ export function resolvePrecompSessionShapePose(opts: {
 }
 
 function poseDiffers(
-  node: { x?: unknown; y?: unknown; width?: unknown; height?: unknown; attrs?: Record<string, unknown> | null },
-  pose: PrecompSessionShapePose
+  node: {
+    x?: unknown;
+    y?: unknown;
+    width?: unknown;
+    height?: unknown;
+    attrs?: Record<string, unknown> | null;
+  },
+  pose: PrecompSessionShapePose,
+  document?: SceneDocument | null
 ): boolean {
   const eps = 0.05;
-  if (Math.abs((Number(node.x) || 0) - pose.left) > eps) return true;
-  if (Math.abs((Number(node.y) || 0) - pose.top) > eps) return true;
+  const stored = document
+    ? nodeLeftTop(document, node as SceneNodeInput)
+    : { left: Number(node.x) || 0, top: Number(node.y) || 0 };
+  if (Math.abs(stored.left - pose.left) > eps) return true;
+  if (Math.abs(stored.top - pose.top) > eps) return true;
   if (Math.abs((Number(node.width) || 0) - pose.width) > eps) return true;
   if (Math.abs((Number(node.height) || 0) - pose.height) > eps) return true;
   if (Math.abs((Number(node.attrs?.angle) || 0) - pose.rotation) > eps) return true;
@@ -260,6 +295,29 @@ function poseDiffers(
   if (Math.abs((Number(node.attrs?.skewX) || 0) - pose.skew) > eps) return true;
   if (Math.abs((Number(node.attrs?.skewAxis) || 0) - pose.skewAxis) > eps) return true;
   return false;
+}
+
+/** Bake scene pose into stored node x/y (plate-local when frameLocal). */
+function poseToStoredXY(
+  document: SceneDocument,
+  node: {
+    x?: unknown;
+    y?: unknown;
+    width?: unknown;
+    height?: unknown;
+    attrs?: Record<string, unknown> | null;
+  },
+  pose: PrecompSessionShapePose
+): { x: number; y: number } {
+  if (!isFrameLocalCoordSpace(document)) {
+    return { x: pose.left, y: pose.top };
+  }
+  const { ox, oy } = {
+    ox: Number(document.x) || 0,
+    oy: Number(document.y) || 0,
+  };
+  // pose is scene paint; documentPointToNodeLocal wants document absolute.
+  return documentPointToNodeLocal(document, node as SceneNodeInput, pose.left + ox, pose.top + oy);
 }
 
 /** Bake playhead pose into document so host repaints cannot reset siblings. */
@@ -335,8 +393,9 @@ export function collectPrecompSessionDocumentPatches(opts: {
         localAnimH,
         raw,
         node,
+        document: opts.document,
       });
-      if (!pose || !poseDiffers(node, pose)) continue;
+      if (!pose || !poseDiffers(node, pose, opts.document)) continue;
 
       const opacityAttr =
         Number(node.attrs?.opacity) <= 1
@@ -353,11 +412,12 @@ export function collectPrecompSessionDocumentPatches(opts: {
         attrs.ry = pose.roundness;
         attrs.cornerRadius = pose.roundness;
       }
+      const stored = poseToStoredXY(opts.document, node, pose);
       out.push({
         nodeId: sceneNodeId,
         patch: {
-          x: Math.round(pose.left * 100) / 100,
-          y: Math.round(pose.top * 100) / 100,
+          x: Math.round(stored.x * 100) / 100,
+          y: Math.round(stored.y * 100) / 100,
           width: Math.round(pose.width * 100) / 100,
           height: Math.round(pose.height * 100) / 100,
           attrs,
@@ -395,6 +455,11 @@ export function applyAnimationPlayheadScenePose(opts: {
    */
   applyGeometry?: boolean;
 }): string {
+  // Plate drag owns child TransformPreview (+ SoA ink). Restoring document
+  // geometry here would snap linked children back to pre-drag coords while the
+  // live plate has already moved — looks like content "falling out" of 动画.
+  if (isAnimationWorkbenchGeometryPreview()) return '';
+
   const { document, hostNodeId } = opts;
   const applyGeometry = opts.applyGeometry !== false;
   const playheadSec = Math.max(0, Number(opts.playheadSec) || 0);
@@ -407,11 +472,12 @@ export function applyAnimationPlayheadScenePose(opts: {
   const frameId = resolveAnimationFrameId(document, host);
   const frames = Array.isArray(document.frames) ? document.frames : [];
   const frame = frameId ? frames.find((f) => String(f?.id) === frameId) : null;
+  const livePlate = frameId ? getLiveArtboardFrameGeometry(frameId) : null;
   const plate = {
-    left: Number(frame?.x ?? host.x) || 0,
-    top: Number(frame?.y ?? host.y) || 0,
-    width: Math.max(1, Number(frame?.width ?? host.width) || 1),
-    height: Math.max(1, Number(frame?.height ?? host.height) || 1),
+    left: Number(livePlate?.x ?? frame?.x ?? host.x) || 0,
+    top: Number(livePlate?.y ?? frame?.y ?? host.y) || 0,
+    width: Math.max(1, Number(livePlate?.width ?? frame?.width ?? host.width) || 1),
+    height: Math.max(1, Number(livePlate?.height ?? frame?.height ?? host.height) || 1),
   };
   const animW = Math.max(1, Number(anim.w) || plate.width);
   const animH = Math.max(1, Number(anim.h) || plate.height);
@@ -453,7 +519,7 @@ export function applyAnimationPlayheadScenePose(opts: {
         (!Number.isFinite(op) || frameN < op - 1e-6);
 
       if (!applyGeometry) {
-        const box = restoreDocumentGeometry(nodeEls, sceneNodeId, node);
+        const box = restoreDocumentGeometry(nodeEls, sceneNodeId, node, document);
         const el = nodeEls.get(sceneNodeId) as any;
         applyLayerInkVisibility(el, inRange, documentOpacityPct(node));
         sigParts.push(
@@ -477,9 +543,10 @@ export function applyAnimationPlayheadScenePose(opts: {
           localAnimH,
           raw,
           node,
+          document,
         });
         if (!pose) {
-          restoreDocumentGeometry(nodeEls, sceneNodeId, node);
+          restoreDocumentGeometry(nodeEls, sceneNodeId, node, document);
           const el = nodeEls.get(sceneNodeId) as any;
           applyLayerInkVisibility(el, inRange, documentOpacityPct(node));
           continue;
@@ -532,7 +599,7 @@ export function applyAnimationPlayheadScenePose(opts: {
         frame: frameN,
       });
       if (!sampled) {
-        restoreDocumentGeometry(nodeEls, sceneNodeId, node);
+        restoreDocumentGeometry(nodeEls, sceneNodeId, node, document);
         const el = nodeEls.get(sceneNodeId) as any;
         applyLayerInkVisibility(el, inRange, documentOpacityPct(node));
         continue;

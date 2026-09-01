@@ -144,7 +144,8 @@ function AnimationPrecompEditFocusHost({
         sessionNodeIds?: string[];
         frameId?: string;
       }
-  );  const active = Boolean(edit?.hostNodeId && edit?.assetId);
+  );
+  const active = Boolean(edit?.hostNodeId && edit?.assetId);
   const hostNodeId = edit?.hostNodeId || '';
   const assetId = edit?.assetId || '';
   const frameId = edit?.frameId || '';

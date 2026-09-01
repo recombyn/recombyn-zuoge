@@ -145,7 +145,7 @@ One FastAPI app with domain modules, plus the collab WebSocket process:
 - [x] Worker + collab tracing (same enable env as API) — ADR 0011
 - [x] Cluster starter manifests — [0012](../adr/0012-k8s-starter-manifests.md) / `deploy/k8s/`
 - [x] Resource×action RBAC helpers + admin audit (`require_permission`, `PATCH /admin/users`)
-- [x] 5k-node interactive host / Canvas idle budget Vitest (`canvas5k.interactiveBudget`)
+- [x] 5k-node interactive canvas-ink budget Vitest (`canvas5k.interactiveBudget`)
 - [x] Opt-in paid image gen E2E (`E2E_PAID_IMAGE_GEN=1`)
 - [x] Hydrate DLQ alert
 - [x] Cluster HPA + Ingress examples (`deploy/k8s/hpa.yaml`, `ingress.yaml`)

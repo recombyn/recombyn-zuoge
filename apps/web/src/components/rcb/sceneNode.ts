@@ -97,6 +97,11 @@ export type SceneDocument = {
   backgroundImageAdjust?: unknown;
   frames?: ArtboardFrame[];
   activeFrameId?: string | null;
+  /**
+   * When `'frameLocal'`, bound children store x/y relative to their plate
+   * (00 = frame top-left). Set by normalizeDocument migration.
+   */
+  coordSpace?: string;
   pages?: ScenePage[];
   activePageId?: string;
   deltaSetLike: SceneDeltaSet;

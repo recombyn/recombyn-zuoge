@@ -3,6 +3,7 @@ import {
   enqueueAgentContexts,
   enqueueImageGenMarkContexts,
   enqueueQuickEditMarkContexts,
+  enqueueVideoGenMarkContexts,
   openImageToolPanel,
   setImageMarkPin,
   type PendingMarkContextChip,
@@ -36,11 +37,11 @@ function reopenMarkPanel(
   opts: {
     markedNodeId: string;
     sessionNodeId?: string;
-    sink: 'agent' | 'quickEdit' | 'imageGen';
+    sink: 'agent' | 'quickEdit' | 'imageGen' | 'videoGen';
   }
 ) {
   const anchor =
-    opts.sink === 'quickEdit' || opts.sink === 'imageGen'
+    opts.sink === 'quickEdit' || opts.sink === 'imageGen' || opts.sink === 'videoGen'
       ? opts.sessionNodeId || opts.markedNodeId
       : opts.markedNodeId;
   openImageToolPanel({
@@ -48,6 +49,7 @@ function reopenMarkPanel(
       kind: 'mark',
       ...(opts.sink === 'quickEdit' ? { markSink: 'quickEdit' as const } : {}),
       ...(opts.sink === 'imageGen' ? { markSink: 'imageGen' as const } : {}),
+      ...(opts.sink === 'videoGen' ? { markSink: 'videoGen' as const } : {}),
     });
 }
 
@@ -58,7 +60,7 @@ export function stageMarkRegion(
     sessionNodeId?: string;
     region: MarkRegion;
     box: SceneBox;
-    sink: 'agent' | 'quickEdit' | 'imageGen';
+    sink: 'agent' | 'quickEdit' | 'imageGen' | 'videoGen';
   }
 ) {
   const chip = buildPendingMarkChip(opts.nodeId, opts.region, opts.box);
@@ -66,6 +68,8 @@ export function stageMarkRegion(
     enqueueQuickEditMarkContexts([chip]);
   } else if (opts.sink === 'imageGen') {
     enqueueImageGenMarkContexts([chip]);
+  } else if (opts.sink === 'videoGen') {
+    enqueueVideoGenMarkContexts([chip]);
   } else {
     enqueueAgentContexts([chip]);
   }
@@ -84,7 +88,7 @@ export function commitMarkRegion(
     region: MarkRegion;
     box: SceneBox;
     text: string;
-    sink: 'agent' | 'quickEdit' | 'imageGen';
+    sink: 'agent' | 'quickEdit' | 'imageGen' | 'videoGen';
   }
 ) {
   const tail = opts.text.trim();
@@ -104,6 +108,8 @@ export function commitMarkRegion(
     enqueueQuickEditMarkContexts([chip]);
   } else if (opts.sink === 'imageGen') {
     enqueueImageGenMarkContexts([chip]);
+  } else if (opts.sink === 'videoGen') {
+    enqueueVideoGenMarkContexts([chip]);
   } else {
     enqueueAgentContexts([chip]);
   }

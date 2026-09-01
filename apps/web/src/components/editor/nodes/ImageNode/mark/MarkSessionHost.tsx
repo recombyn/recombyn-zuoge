@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { nanoid } from 'nanoid';
 import { message } from '@/components/base';
 import { useRcbCamera } from '@/components/rcb';
-import { isImageGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isImageGeneratorNode, isVideoGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { useImageToolCapabilities } from '@/service/imageTools';
 import {
   closeImageToolPanel,
@@ -254,12 +254,15 @@ function MarkSessionHost({
   };
 
   if (isMultiImageMark && sessionNodeId && quickEditTargets.length) {
-    const imageGenMark = multiMarkSink === 'imageGen';
+    const genMarkSession = multiMarkSink === 'imageGen' || multiMarkSink === 'videoGen';
     return (
       <>
         {quickEditTargets.map(({ nodeId, box: targetBox, node, blocked }) => {
-          const overlayBlocked = imageGenMark
-            ? blocked || nodeId === sessionNodeId || isImageGeneratorNode(node)
+          const overlayBlocked = genMarkSession
+            ? blocked ||
+              nodeId === sessionNodeId ||
+              (multiMarkSink === 'imageGen' && isImageGeneratorNode(node)) ||
+              (multiMarkSink === 'videoGen' && isVideoGeneratorNode(node))
             : blocked && nodeId !== sessionNodeId;
           return (
           <MarkRegionOverlay

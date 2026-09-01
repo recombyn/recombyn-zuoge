@@ -7,6 +7,7 @@ import {
   isHiddenByAnimationWorkbenchFocus,
   isInactiveAtAnimationPlayhead,
   isAnimationWorkbenchPreviewChild,
+  isBoundOutsideOwningClipPlate,
   isArtboardVisibleInDocument,
   canBindToArtboard,
   getWorkbenchToolPolicy,
@@ -134,6 +135,7 @@ export function isNodeStructurallyHiddenInDocument(
 ): boolean {
   if (!node || isNodeHidden(node)) return true;
   if (isHiddenByAnimationWorkbenchFocus(node)) return true;
+  if (isBoundOutsideOwningClipPlate(document, node)) return true;
   if (isHiddenByLottiePrecompEditFocus(resolveNodeId(document, node), node)) return true;
   const frameId = String(node.attrs?.frameId || '').trim();
   if (!frameId) return false;

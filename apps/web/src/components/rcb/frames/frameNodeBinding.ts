@@ -7,6 +7,7 @@ import {
   WORKBENCH_SURROUND_ATTR,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
 
 export type BBox = {
   left: number;
@@ -103,7 +104,11 @@ export function bindUnownedNodesToFrames(
   if (!frames.length) return doc;
 
   const nodes = Object.values(doc.deltaSetLike || {});
-  const patches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
+  const patches: Array<{
+    nodeId: string;
+    patch: { attrs: Record<string, unknown>; x?: number; y?: number };
+  }> = [];
+  const localPlate = isFrameLocalCoordSpace(doc);
   for (const node of nodes) {
     if (!node?.id || node.id === 'ROOT') continue;
     const frame = frames.find((item) => shouldBindUnownedNodeToFrame(node, item));
@@ -116,15 +121,21 @@ export function bindUnownedNodesToFrames(
       string,
       unknown
     >;
+    const patch: { attrs: Record<string, unknown>; x?: number; y?: number } = {
+      attrs: {
+        ...rest,
+        frameId: String(frame.id),
+        frameOrder: orders.length ? Math.max(...orders) + 1 : 0,
+      },
+    };
+    // Free nodes still store world absolute; convert to plate-local on bind.
+    if (localPlate) {
+      patch.x = (Number(node.x) || 0) - (Number(frame.x) || 0);
+      patch.y = (Number(node.y) || 0) - (Number(frame.y) || 0);
+    }
     patches.push({
       nodeId: String(node.id),
-      patch: {
-        attrs: {
-          ...rest,
-          frameId: String(frame.id),
-          frameOrder: orders.length ? Math.max(...orders) + 1 : 0,
-        },
-      },
+      patch,
     });
   }
   return patches.length ? updateNodesInDocument(doc, patches) : doc;
