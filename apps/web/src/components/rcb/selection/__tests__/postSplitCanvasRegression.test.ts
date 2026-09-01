@@ -1008,7 +1008,7 @@ describe('resolveLockAspect', () => {
   it('forces proportional resize for animation frame in preview', () => {
     setAnimationWorkbenchTimelineFocus(null);
     const doc = {
-      frames: [{ id: 'anim1', kind: 'lottie', x: 0, y: 0, width: 50, height: 50 }],
+      frames: [{ id: 'anim1', kind: 'animation', x: 0, y: 0, width: 50, height: 50 }],
     } as SceneDocument;
     expect(resolveLockAspect(doc, [{ nodeId: frameSelId('anim1') }], 'e', false)).toBe(true);
     expect(resolveLockAspect(doc, [{ nodeId: frameSelId('anim1') }], 'e', true)).toBe(true);

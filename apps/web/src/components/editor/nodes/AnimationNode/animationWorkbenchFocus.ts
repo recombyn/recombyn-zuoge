@@ -90,20 +90,14 @@ export const WORKBENCH_PREVIEW_ONLY_DEFAULT =
   '工作台预览中：请先打开关键帧时间轴再编辑内部元素';
 
 function isAnimationPlateKind(kind: unknown): boolean {
-  const k = String(kind || '');
-  return k === 'animation' || k === 'lottie';
+  return String(kind || '') === 'animation';
 }
 
 function isAnimationFrameHostAttrs(
   attrs: Record<string, unknown> | null | undefined
 ): boolean {
   if (!attrs) return false;
-  return (
-    attrs.animationFrameHost === true ||
-    attrs.animationFrameHost === 'true' ||
-    attrs.lottieFrameHost === true ||
-    attrs.lottieFrameHost === 'true'
-  );
+  return attrs.animationFrameHost === true || attrs.animationFrameHost === 'true';
 }
 
 /**
@@ -374,15 +368,10 @@ export function isInactiveAtAnimationPlayhead(
   );
   if (!plate) return false;
   const kind = String(plate.kind || '');
-  if (kind !== 'animation' && kind !== 'lottie') return false;
+  if (kind !== 'animation') return false;
 
   if (workbenchSurroundFrameId(node)) return false;
-  if (
-    node.attrs?.animationFrameHost === true ||
-    node.attrs?.animationFrameHost === 'true' ||
-    node.attrs?.lottieFrameHost === true ||
-    node.attrs?.lottieFrameHost === 'true'
-  ) {
+  if (isAnimationFrameHostAttrs(node.attrs)) {
     return false;
   }
 

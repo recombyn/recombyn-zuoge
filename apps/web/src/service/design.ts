@@ -1,5 +1,5 @@
 /**
- * Backend design job client (agent / single_model; partial is a legacy alias).
+ * Backend design job client (agent / single_model).
  */
 
 import { z } from 'zod';
@@ -7,8 +7,8 @@ import { abortAfter, apiClient, apiQuery, queryClient } from '@/service/client';
 import { request } from '@/utils/request';
 import { sse } from '@/utils/sse';
 
-/** Design canvas run modes. `partial` is accepted by the API as an alias of `single_model`. */
-export type DesignRunMode = 'agent' | 'single_model' | 'partial';
+/** Design canvas run modes. */
+export type DesignRunMode = 'agent' | 'single_model';
 export type DesignScene = 'website' | 'mobile' | 'image' | 'poster' | 'drawing' | 'video';
 
 export type DesignCatalog = {
@@ -256,7 +256,7 @@ export type DesignJobEvent =
       phase?: string;
       chunk_index?: number;
       chunk_total?: number;
-      /** Canvas ops for this chunk — FE applies these (same path as legacy `tool_ops`). */
+      /** Canvas ops for this chunk — FE applies these. */
       ops?: Array<{ name: string; args?: Record<string, unknown>; op_id?: string }>;
       task_id?: string;
       round?: number;

@@ -27,9 +27,14 @@ Canvas paint / Path2D / viewport cull + SoA canvas ink: **[canvas-architecture.m
 
 Also common on saved projects:
 
-- `frames` — artboards
+- `frames` — artboards (`kind`: `'artboard'` | `'animation'` for 动画工作台; load rewrites leftover `'lottie'` plate kinds to `'animation'`)
 - `stackOrder` — unified paint order (`frame:id` | `node:id`, bottom → top)
 - `pages` / `activePageId` — page children when used
+- Shape fill/stroke attrs use **`'fill-color'`** and **`'border-color'`** (not parallel `fill` / `strokeColor` keys)
+- Animation workbench invisible host nodes use **`attrs.animationFrameHost`** (not `lottieFrameHost`)
+- Node `key: 'lottie'` is still the Lottie **asset** node type (distinct from frame `kind`)
+
+`normalizeDocument` may heal leftover plate fills / text-frame radii and strip ephemeral frame process chrome; AI SoftGlow for frames lives in editor `aiOperationState`, not persisted `frames[].processStatus`.
 
 Types: `apps/web/src/components/rcb/sceneNode.ts`.  
 Full JSON Schema: `packages/scene-schema/schema/scene-document.schema.json`.

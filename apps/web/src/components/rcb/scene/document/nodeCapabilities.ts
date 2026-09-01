@@ -223,12 +223,6 @@ export function isImageProcessRunning(node: SceneNodeRef): boolean {
   return Boolean(node) && String(node?.attrs?.processStatus || '') === 'running';
 }
 
-export function isFrameProcessRunning(
-  frame: { processStatus?: unknown } | null | undefined
-): boolean {
-  return Boolean(frame) && String(frame?.processStatus || '') === 'running';
-}
-
 /**
  * Spawned upload / import / AI-tool clone — used for history scrub on delete
  * (Ctrl+Z must not resurrect an unfinished placeholder). Never used to block delete.
@@ -242,7 +236,7 @@ export function isEphemeralUploadNode(node: SceneNodeRef): boolean {
 }
 
 /**
- * True when any selected node / artboard is still showing process SoftGlow.
+ * True when any selected node is still showing process SoftGlow.
  * Blocks copy / duplicate / reorder / hide / lock — not delete.
  */
 export function selectionHasProcessing(
@@ -259,12 +253,6 @@ export function selectionHasProcessing(
   }
   for (const id of allNodeIds) {
     if (isImageProcessRunning(document.deltaSetLike?.[id])) return true;
-  }
-  if (!frameIds.length) return false;
-  const frames = Array.isArray(document.frames) ? document.frames : [];
-  for (const fid of frameIds) {
-    const frame = frames.find((f) => f?.id === fid);
-    if (isFrameProcessRunning(frame)) return true;
   }
   return false;
 }
@@ -294,10 +282,7 @@ export function isAnimationFrameHostNode(
   _document?: SceneDocument | null
 ): boolean {
   if (!isLottieNode(node)) return false;
-  return (
-    attrFlagTrue(node!.attrs?.animationFrameHost) ||
-    attrFlagTrue(node!.attrs?.lottieFrameHost)
-  );
+  return attrFlagTrue(node!.attrs?.animationFrameHost);
 }
 
 /** Nested LOT plate inside a 动画工作台 — preview uses lottie ink, not editor fill. */

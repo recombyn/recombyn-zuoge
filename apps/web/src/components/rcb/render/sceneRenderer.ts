@@ -803,7 +803,7 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
   }
 
   const attrs = node.attrs || {};
-  const blend = String(attrs.blendMode || attrs['blend-mode'] || 'normal')
+  const blend = String(attrs.blendMode || 'normal')
     .trim()
     .toLowerCase();
   if (blend && blend !== 'normal' && blend !== 'pass-through' && blend !== 'passthrough') {
@@ -2243,5 +2243,5 @@ export function resolveIdleInkBackend(): SceneRendererBackend {
 }
 
 // Re-export bake invalidate for AI flush listeners.
-export { invalidateSoaBake, resetSharedSoaBake } from '@/components/rcb/render/soaBakeLayer';
+export { resetSharedSoaBake } from '@/components/rcb/render/soaBakeLayer';
 export { markAllSoaDirty } from '@/components/rcb/render/sceneRenderBuffer';

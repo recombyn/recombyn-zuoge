@@ -499,9 +499,6 @@ function RcbCanvas({
     const mount = inkCamera
       ? (inkCamera.querySelector(':scope > g[data-rcb-shapes-mount]') as SVGGElement | null)
       : null;
-    const processMount = inkCamera
-      ? (inkCamera.querySelector(':scope > g[data-rcb-process-mount]') as SVGGElement | null)
-      : null;
     const previewMount = chromeCamera
       ? (chromeCamera.querySelector(
           ':scope > g[data-rcb-draw-preview-mount]'
@@ -521,7 +518,6 @@ function RcbCanvas({
       previewMount,
       guidesMount,
       selectionChromeMount,
-      processMount,
       framesInk,
       framesMount
     );
@@ -551,7 +547,7 @@ function RcbCanvas({
     [publishSceneWorldMounts]
   );
   useEffect(() => {
-    return () => setSceneWorldRoot(null, null, null, null, null, null, null, null);
+    return () => setSceneWorldRoot(null, null, null, null, null, null, null);
   }, []);
 
   // Stage: grid → frame plates → SoA canvas ink → DOM hosts (ADR 0027).
@@ -824,7 +820,6 @@ function RcbCanvas({
                 >
                   <g data-rcb-scene-camera="1" transform={sceneCameraTransform}>
                     <g data-rcb-shapes-mount="1" />
-                    <g data-rcb-process-mount="1" />
                   </g>
                 </svg>
               ) : null}

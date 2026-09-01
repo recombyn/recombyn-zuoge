@@ -104,20 +104,12 @@ export function resolvePresetForRegion(
   return base;
 }
 
-function migrateLegacyRouteKeys(raw: Record<string, unknown>): Partial<AgentRoutePrefs> {
+function parseRoutePrefsBag(raw: Record<string, unknown>): Partial<AgentRoutePrefs> {
   const out: Partial<AgentRoutePrefs> = {};
-  const pick = (...keys: string[]) => {
-    for (const k of keys) {
-      const v = String(raw[k] || '').trim();
-      if (v) return v;
-    }
-    return undefined;
-  };
-  out.fast = pick('fast', 'simple');
-  out.standard = pick('standard', 'medium');
-  out.reasoning = pick('reasoning', 'complex');
-  out.vision = pick('vision');
-  out.image = pick('image');
+  for (const key of ['fast', 'standard', 'reasoning', 'vision', 'image'] as const) {
+    const v = String(raw[key] || '').trim();
+    if (v) out[key] = v;
+  }
   return out;
 }
 
@@ -134,16 +126,13 @@ function parseUserPresetRoutes(raw: string): Partial<AgentRoutePrefs> {
       key === 'fast' ||
       key === 'standard' ||
       key === 'reasoning' ||
-      key === 'simple' ||
-      key === 'medium' ||
-      key === 'complex' ||
       key === 'vision' ||
       key === 'image'
     ) {
       bag[key] = val;
     }
   }
-  return migrateLegacyRouteKeys(bag);
+  return parseRoutePrefsBag(bag);
 }
 
 export function resolveNamedPreset(
@@ -205,7 +194,7 @@ export function loadAgentRoutePrefs(rules?: Record<string, string> | null): Agen
       return resolvePresetForRegion(preset, rules);
     }
     if (preset === 'custom') {
-      const migrated = migrateLegacyRouteKeys(parsed);
+      const migrated = parseRoutePrefsBag(parsed);
       return remapRetiredRoutePrefs({
         preset: 'custom',
         fast: migrated.fast,

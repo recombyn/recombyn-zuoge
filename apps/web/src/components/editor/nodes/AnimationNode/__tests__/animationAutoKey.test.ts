@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   autoKeyAnimatedGeometry,
   autoKeyAnimatedProp,
-  autoKeyAnimatedRotation,
 } from '../animationAutoKey';
 import {
   isTransformPropAnimated,
@@ -70,7 +69,7 @@ function makeDoc(opts: {
   };
 }
 
-describe('autoKeyAnimatedRotation', () => {
+describe('autoKeyAnimatedProp (rotation)', () => {
   it('writes playhead rotation when r is already animated', () => {
     const anim = {
       v: '5.7.4',
@@ -115,11 +114,12 @@ describe('autoKeyAnimatedRotation', () => {
     ).toBe(true);
 
     const document = makeDoc({ anim, nodeAttrs: { angle: 40 } });
-    const keyed = autoKeyAnimatedRotation({
+    const keyed = autoKeyAnimatedProp({
       document,
       nodeId: 'rect1',
-      angleDeg: 40,
+      propKey: 'r',
       playheadSec: 1,
+      value: 40,
     });
     expect(keyed?.hostId).toBe('host1');
     const next = JSON.parse(keyed!.animationJson) as Record<string, unknown>;
@@ -146,11 +146,12 @@ describe('autoKeyAnimatedRotation', () => {
     // fix layer ind in node
     document.deltaSetLike.rect1.attrs.lottieLayerInd = 1;
     expect(
-      autoKeyAnimatedRotation({
+      autoKeyAnimatedProp({
         document,
         nodeId: 'rect1',
-        angleDeg: 10,
+        propKey: 'r',
         playheadSec: 0,
+        value: 10,
       })
     ).toBeNull();
   });

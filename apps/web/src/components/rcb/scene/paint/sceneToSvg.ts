@@ -307,15 +307,12 @@ export function nodeLocalToDocumentPoint(
 function objectMeta(node: SceneNodeInput) {
   const attrs = (node.attrs || {}) as Record<string, unknown>;
   const { anchorX, anchorY } = anchorPercentsFromAttrs(attrs);
-  const skewAmount = num(attrs.skewX ?? attrs.skew, 0);
-  // AE-style skew axis (动画工作台 Sa). Legacy independent skewY only when Sa absent.
-  const hasSkewAxis = attrs.skewAxis != null && attrs.skewAxis !== '';
-  const skewAxis = hasSkewAxis ? num(attrs.skewAxis, 0) : 0;
-  const skewY = hasSkewAxis ? 0 : num(attrs.skewY, 0);
+  const skewAmount = num(attrs.skewX, 0);
+  const skewAxis = num(attrs.skewAxis, 0);
   return {
     angle: num(attrs.angle, 0),
     skewX: skewAmount,
-    skewY,
+    skewY: 0,
     skewAxis,
     anchorX,
     anchorY,

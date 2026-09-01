@@ -36,25 +36,111 @@ import {
 import { effectivePaintBox } from '@/components/rcb/core/transformPreview';
 import {
   applySoaHostInkFlags,
+  bulkInsertSoaFromDocument,
+  bulkRemoveSoaByIds,
+  bulkUpsertSoaQuadtree,
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
   markAllSoaDirty,
+  resolveSoaPaintBox,
+  SOA_FLAG_FREE,
   syncSceneRenderBufferFromDocument,
   syncSceneRenderBufferIncremental,
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
 import {
+  bindSoaBakeElementTiles,
   getSharedSoaBake,
   getSharedSoaBakeCache,
   patchSoaBakeDirty,
   resetSharedSoaBake,
   setSharedSoaBake,
+  unbindSoaBakeElement,
 } from '@/components/rcb/render/soaBakeLayer';
+import {
+  createRenderDemotionScheduler,
+  type RenderDemotionScheduler,
+} from '@/components/rcb/render/renderDemotionScheduler';
 import { RCB_SOA_AI_FLUSH } from '@/components/editor/sceneEvents';
 import { setFrameClipRevealOverflowIds } from '@/components/rcb/frames/frameContentClip';
 import RcbShapeHost from './RcbShapeHost';
 
 export { canvasIdleIsStrokeOnly, canIdlePaintOnCanvas };
+
+function bindDemoteBakeTiles(buf: SceneRenderBuffer, ids: readonly string[]): void {
+  const cache = getSharedSoaBakeCache();
+  if (!cache) return;
+  for (const id of ids) {
+    const i = buf.indexById.get(id);
+    if (i == null) continue;
+    const { x, y, w, h } = resolveSoaPaintBox(buf, i);
+    bindSoaBakeElementTiles(cache, id, {
+      minX: Math.min(x, x + w),
+      minY: Math.min(y, y + h),
+      maxX: Math.max(x, x + w),
+      maxY: Math.max(y, y + h),
+    });
+  }
+}
+
+function unbindPromoteBakeTiles(ids: readonly string[]): void {
+  const cache = getSharedSoaBakeCache();
+  if (!cache) return;
+  for (const id of ids) unbindSoaBakeElement(cache, id);
+}
+
+function flushDemotionPaintWake(ids?: readonly string[]): void {
+  const buf = getSharedSceneRenderBuffer();
+  if (ids && ids.length > 0) {
+    patchSharedSpatialFromSoaIds(buf, ids);
+  } else {
+    refreshSharedSpatialFromSoa(buf);
+  }
+  const bake = getSharedSoaBake();
+  const cache = getSharedSoaBakeCache();
+  if (bake?.valid && cache) patchSoaBakeDirty(buf, bake);
+  bumpSceneCanvasIdlePaint();
+}
+
+function patchSharedSpatialFromSoaIds(
+  buf: SceneRenderBuffer,
+  ids: readonly string[]
+): void {
+  if (buf.count < SCENE_SPATIAL_LARGE_THRESHOLD) return;
+  const runtime = getSharedSceneSpatialRuntime();
+  if (!runtime) return;
+  runtime.upsertIdsFromRenderBuffer(buf, ids, { pad: 32 });
+}
+
+function createShapesDemotionScheduler(
+  forceFullSetRef: { current: ReadonlySet<string> },
+  onHintsChanged: () => void
+): RenderDemotionScheduler {
+  return createRenderDemotionScheduler({
+    demoteDelayMs: 300,
+    onHintsChanged,
+    sink: {
+      promote(ids) {
+        const buf = getSharedSceneRenderBuffer();
+        if (buf.count === 0) return;
+        const hosts = new Set(forceFullSetRef.current);
+        for (const id of ids) hosts.add(id);
+        applySoaHostInkFlags(buf, hosts, { onlyIds: ids });
+        unbindPromoteBakeTiles(ids);
+      },
+      demote(ids) {
+        const buf = getSharedSceneRenderBuffer();
+        if (buf.count === 0) return;
+        applySoaHostInkFlags(buf, forceFullSetRef.current, { onlyIds: ids });
+        bulkUpsertSoaQuadtree(buf, ids);
+        bindDemoteBakeTiles(buf, ids);
+      },
+      afterFlips(ids) {
+        flushDemotionPaintWake(ids);
+      },
+    },
+  });
+}
 
 /** After SoA sync, push shape AABBs into the shared spatial runtime (large N). */
 function refreshSharedSpatialFromSoa(buf: SceneRenderBuffer) {
@@ -94,10 +180,29 @@ export function syncSoaBufferFromDocumentNow(
     patchedList.length > 0 &&
     patchedList.length <= Math.max(32, Math.floor(liveIds.length * 0.2 || 1));
   if (canIncremental) {
-    syncSceneRenderBufferIncremental(buf, document, patchedList, {
-      allIds: liveIds,
-      removeMissing: true,
-    });
+    if (patchedList.length >= 8) {
+      const toWrite: string[] = [];
+      const toRemove: string[] = [];
+      for (const id of patchedList) {
+        if (!document.deltaSetLike?.[id]) toRemove.push(id);
+        else toWrite.push(id);
+      }
+      if (toRemove.length) bulkRemoveSoaByIds(buf, toRemove);
+      if (toWrite.length) bulkInsertSoaFromDocument(buf, document, toWrite);
+      const keep = new Set(liveIds);
+      const missing: string[] = [];
+      for (let i = 0; i < buf.count; i += 1) {
+        if (buf.flags[i] & SOA_FLAG_FREE) continue;
+        const id = buf.ids[i];
+        if (id && !keep.has(id)) missing.push(id);
+      }
+      if (missing.length) bulkRemoveSoaByIds(buf, missing);
+    } else {
+      syncSceneRenderBufferIncremental(buf, document, patchedList, {
+        allIds: liveIds,
+        removeMissing: true,
+      });
+    }
   } else {
     syncSceneRenderBufferFromDocument(buf, document);
     markAllSoaDirty(buf);
@@ -130,12 +235,14 @@ export function soaBufferMembershipChanged(
   liveIds: readonly string[]
 ): boolean {
   const keep = new Set(liveIds.map(String).filter(Boolean));
-  if (keep.size !== buf.count) return true;
+  let liveCount = 0;
   for (let i = 0; i < buf.count; i += 1) {
+    if (buf.flags[i] & SOA_FLAG_FREE) continue;
     const id = buf.ids[i];
     if (!id || !keep.has(id)) return true;
+    liveCount += 1;
   }
-  return false;
+  return liveCount !== keep.size;
 }
 
 /**
@@ -215,18 +322,25 @@ export function pickFullAndCanvasIds(opts: {
   visibleIds: string[];
   /** Editors / SoftGlow only — not selection of canvas-ink shapes. */
   forceFullSet?: Set<string>;
+  /**
+   * Extra ids that must keep a DOM host during demote quiet period
+   * (RenderDemotionScheduler CANDIDATE / ACTIVE_SVG).
+   */
+  holdHostIds?: ReadonlySet<string>;
   zoom: number;
   maxCanvasInk?: number;
 }): { fullIds: string[]; canvasIds: string[] } {
   const { document, visibleIds, zoom } = opts;
   const forceFullSet = opts.forceFullSet ?? EMPTY_FORCE_FULL_SET;
+  const holdHostIds = opts.holdHostIds;
   const maxCanvasInk = opts.maxCanvasInk ?? MAX_CANVAS_INK_PAINT;
   const fullIds: string[] = [];
   const canvasRaw: string[] = [];
   for (const id of visibleIds) {
     const node = document?.deltaSetLike?.[id];
     if (isNodeStructurallyHiddenInDocument(document, node)) continue;
-    if (nodeNeedsDomShapeHost(node, forceFullSet.has(id))) fullIds.push(id);
+    const forceHost = forceFullSet.has(id) || Boolean(holdHostIds?.has(id));
+    if (nodeNeedsDomShapeHost(node, forceHost)) fullIds.push(id);
     else canvasRaw.push(id);
   }
   return {
@@ -363,24 +477,35 @@ function RcbShapesLayer({
     return out;
   }, [document, ids, stageSize, cullCam, spatialIndex, idRank, keepSet]);
 
+  const forceFullSetRef = useRef(forceFullSet);
+  forceFullSetRef.current = forceFullSet;
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
+
+  // Promote/demote quiet period: CANDIDATE keeps DOM host until timer fires.
+  const [holdEpoch, setHoldEpoch] = useState(0);
+  const demotionRef = useRef<RenderDemotionScheduler | null>(null);
+  if (!demotionRef.current) {
+    demotionRef.current = createShapesDemotionScheduler(forceFullSetRef, () => {
+      setHoldEpoch((n) => n + 1);
+    });
+  }
+
+  const holdHostIds = useMemo(() => {
+    return demotionRef.current?.heldHostIds() ?? forceFullSet;
+  }, [holdEpoch, forceFullSet]);
+
   const { fullIds, canvasIds } = useMemo(
     () =>
       pickFullAndCanvasIds({
         document,
         visibleIds,
         forceFullSet,
+        holdHostIds,
         zoom: cullCam.zoom || 1,
       }),
-    [document, visibleIds, forceFullSet, cullCam.zoom, workbenchTimelineToken]
+    [document, visibleIds, forceFullSet, holdHostIds, cullCam.zoom, workbenchTimelineToken]
   );
-
-  // Keep SoA render buffer in sync with the authoring document.
-  // AI lock: skip — `RCB_SOA_AI_FLUSH` / unlock remount does one full sync.
-  // Host ink flags are a separate effect (do not rebuild buffer on editor forceFull).
-  const forceFullSetRef = useRef(forceFullSet);
-  forceFullSetRef.current = forceFullSet;
-  const idsRef = useRef(ids);
-  idsRef.current = ids;
 
   useLayoutEffect(() => {
     if (!isSoaCanvasShapesEnabled() || !document) return;
@@ -390,24 +515,24 @@ function RcbShapesLayer({
       lastPatchedNodeIds,
       forceFullIds: forceFullSetRef.current,
     });
+    if (lastPatchedNodeIds.length) {
+      demotionRef.current?.noteElementsActive(lastPatchedNodeIds);
+    }
   }, [document, documentPatchToken, reloadToken, ids, lastPatchedNodeIds, aiMutationLock]);
 
-  // Editors / SoftGlow off SoA canvas; selection stays on canvas ink.
   useLayoutEffect(() => {
     if (!isSoaCanvasShapesEnabled() || aiMutationLock > 0 || !document) return;
     const buf = getSharedSceneRenderBuffer();
     if (buf.count === 0) return;
-    const flipped = applySoaHostInkFlags(buf, forceFullSet);
-    if (flipped > 0) {
-      refreshSharedSpatialFromSoa(buf);
-      const bake = getSharedSoaBake();
-      const cache = getSharedSoaBakeCache();
-      if (bake?.valid && cache) {
-        patchSoaBakeDirty(buf, bake);
-      }
-      bumpSceneCanvasIdlePaint();
-    }
+    demotionRef.current?.setForceHosts(forceFullSet);
   }, [forceFullSet, aiMutationLock, document]);
+
+  useEffect(() => {
+    return () => {
+      demotionRef.current?.dispose();
+      demotionRef.current = null;
+    };
+  }, []);
 
   // Corner-radius drag stays on SoA canvas (transparent SVG corners).
   useLayoutEffect(() => {
@@ -419,10 +544,7 @@ function RcbShapesLayer({
       const radiusId = getLiveCornerRadiusPreviewNodeId();
       if (radiusId) hostIds.delete(radiusId);
       const flipped = applySoaHostInkFlags(buf, hostIds);
-      if (flipped > 0) {
-        refreshSharedSpatialFromSoa(buf);
-        bumpSceneCanvasIdlePaint();
-      }
+      if (flipped > 0) flushDemotionPaintWake();
     });
     return () => {
       unsubRadius();

@@ -28,10 +28,9 @@ export type ArtboardFrame = {
   backgroundOpacity?: number;
   /**
    * Plate role. `animation` = 动画工作台 (same HtmlArtboardFrame + clip,
-   * different selection toolbar). `lottie` is legacy alias for the same plate.
-   * Default / omitted = normal artboard.
+   * different selection toolbar). Default / omitted = normal artboard.
    */
-  kind?: 'artboard' | 'animation' | 'lottie';
+  kind?: 'artboard' | 'animation';
   /** 动画工作台 composition length (seconds). */
   durationSec?: number;
   /** 动画工作台 frame rate. */
@@ -48,18 +47,11 @@ export type ArtboardFrame = {
   /** Size before first ratio preset — restored by 「原始」. */
   aspectOriginalWidth?: number;
   aspectOriginalHeight?: number;
-  /**
-   * Legacy artboard generating chrome. AI overlay now lives in editor
-   * `aiOperationState` (ephemeral). Kept so old Yjs/clipboard docs can strip it.
-   */
-  processStatus?: 'running' | null;
-  processLabel?: string;
-  processKind?: 'design' | 'import' | string;
 };
 
-/** True for 动画工作台 plates (`animation` or legacy `lottie`). */
+/** True for 动画工作台 plates. */
 export function isAnimationArtboardKind(
   kind: ArtboardFrame['kind'] | string | null | undefined
 ): boolean {
-  return kind === 'animation' || kind === 'lottie';
+  return kind === 'animation';
 }
