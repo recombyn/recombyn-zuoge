@@ -24,7 +24,7 @@ Treat the editor runtime as four facts (**this is the product architecture — d
 3. **Layered render** — **single SoA Canvas2D vector ink**; DOM hosts only for text / media FO / SoftGlow / editors / heavy paths; grid on Canvas; selection, guides, and drawing previews share the camera surface; screen UI stays in the HTML overlay. SoftGlow/editors use `RenderDemotionScheduler` (`ACTIVE_SVG` → `CANDIDATE` → `DEPLOYED_SOA`); selection does **not** promote basic shapes onto SVG.
 4. **Independent hit** — root pointer capture → chrome hit → spatial index coarse → precise geometry. `sceneToSvg` stays an **export** path, not the live paint core.
 
-SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SoA (`SceneRenderBuffer` + `SoaQuadtree`) is a **derived** paint/pick cache and must not write back into SceneDocument.
+SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SoA (`SceneRenderBuffer` + `SoaQuadtree`) is a **derived** paint/pick cache and must not write back into SceneDocument. Demotion host-release uses one shared wake over `lastActive` timestamps; TransformPreview uses dirty AABB + live filter + threshold rebuild (not per-frame QT upsert).
 
 ### Delivery roadmap (phased — no rewrite)
 

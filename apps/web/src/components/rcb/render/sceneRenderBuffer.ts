@@ -34,8 +34,12 @@ import {
   sampleSoaPathPolyline,
   SOA_PATH_MAX_PTS,
 } from '@/components/rcb/render/soaPathSamples';
-import { getNodeTransformPreview, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
-import { SoaQuadtree } from '@/components/rcb/core/soaQuadtree';
+import {
+  getNodeTransformPreview,
+  hasNodeTransformPreviews,
+  listNodeTransformPreviewIds,
+} from '@/components/rcb/core/transformPreview';
+import { SoaQuadtree, type SoaQuadItem } from '@/components/rcb/core/soaQuadtree';
 import {
   getLiveCornerRadiusPreviewNodeId,
   getLiveCornerRadiusPreviewRadii,
@@ -1200,6 +1204,66 @@ export function hitTestSoaBufferOrdered(
   return null;
 }
 
+const SOA_QT_BROADPHASE_MIN = 48;
+/** Modest pad for rotated ink while TransformPreview is live. */
+const SOA_QT_PREVIEW_PAD = 32;
+
+function soaLiveQuadItem(buf: SceneRenderBuffer, id: string): SoaQuadItem | null {
+  const i = buf.indexById.get(id);
+  if (i == null) return null;
+  const { x, y, w, h } = resolveSoaPaintBox(buf, i);
+  return { id, ...aabbFromBox(x, y, w, h) };
+}
+
+function useSoaQuadtreeBroadphase(buf: SceneRenderBuffer): boolean {
+  return buf.quadtree.size > 0 && buf.count >= SOA_QT_BROADPHASE_MIN;
+}
+
+/** Lazy QT: mark TransformPreview ids dirty; rebuild when dirty pile is large. */
+function prepareSoaQuadtreeForQuery(buf: SceneRenderBuffer): {
+  liveAabb?: (id: string) => SoaQuadItem | null;
+  pad: number;
+} {
+  if (!hasNodeTransformPreviews()) {
+    if (buf.quadtree.dirtySize > 0) {
+      bulkUpsertSoaQuadtree(buf);
+    }
+    return { pad: 0 };
+  }
+  for (const id of listNodeTransformPreviewIds()) {
+    const item = soaLiveQuadItem(buf, id);
+    if (item) buf.quadtree.patchBoundsLazy(item);
+    else buf.quadtree.markDirty(id);
+  }
+  buf.quadtree.rebuildIfDirty(SOA_QT_BROADPHASE_MIN);
+  return {
+    pad: SOA_QT_PREVIEW_PAD,
+    liveAabb: (id) => soaLiveQuadItem(buf, id),
+  };
+}
+
+function forEachSoaQuadHitInRect(
+  buf: SceneRenderBuffer,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+  visit: (index: number) => void
+): void {
+  const qtOpts = prepareSoaQuadtreeForQuery(buf);
+  const pad = qtOpts.pad;
+  for (const hit of buf.quadtree.search(
+    minX - pad,
+    minY - pad,
+    maxX + pad,
+    maxY + pad,
+    qtOpts
+  )) {
+    const i = buf.indexById.get(hit.id);
+    if (i != null) visit(i);
+  }
+}
+
 /** Point hit against visible slots (quadtree candidates + fine slot test). */
 export function hitTestSoaBuffer(
   buf: SceneRenderBuffer,
@@ -1208,14 +1272,14 @@ export function hitTestSoaBuffer(
   pad = 0
 ): string | null {
   if (buf.count <= 0) return null;
-  // Small N: reverse linear is fine and avoids QT build edge cases in tests.
-  if (buf.quadtree.size === 0 || buf.count < 48) {
+  if (!useSoaQuadtreeBroadphase(buf)) {
     for (let i = buf.count - 1; i >= 0; i -= 1) {
       if (hitTestSoaSlot(buf, i, x, y)) return buf.ids[i] || null;
     }
     return null;
   }
-  const hits = buf.quadtree.searchPoint(x, y, pad);
+  const qtOpts = prepareSoaQuadtreeForQuery(buf);
+  const hits = buf.quadtree.searchPoint(x, y, pad + qtOpts.pad, qtOpts);
   if (!hits.length) return null;
   let bestIndex = -1;
   let bestId: string | null = null;
@@ -1246,23 +1310,11 @@ export function forEachVisibleInRect(
     visit(i, id);
   }
 
-  // TransformPreview may move ink outside stored AABBs — expand query pad.
-  const PREVIEW_CULL_PAD = 512;
-  const useTree = buf.quadtree.size > 0 && buf.count >= 48;
-  if (!useTree) {
+  if (!useSoaQuadtreeBroadphase(buf)) {
     for (let i = 0; i < buf.count; i += 1) visitIfVisible(i);
     return;
   }
-  const pad = hasNodeTransformPreviews() ? PREVIEW_CULL_PAD : 0;
-  for (const hit of buf.quadtree.search(
-    view.minX - pad,
-    view.minY - pad,
-    view.maxX + pad,
-    view.maxY + pad
-  )) {
-    const i = buf.indexById.get(hit.id);
-    if (i != null) visitIfVisible(i);
-  }
+  forEachSoaQuadHitInRect(buf, view.minX, view.minY, view.maxX, view.maxY, visitIfVisible);
 }
 
 function resolveSoaSlotCornerRadii(
@@ -1616,16 +1668,8 @@ export function paintSoaBufferBasic(
     if (shouldSkipPaintSlot(i, buf.flags[i], buf.ids[i])) return;
     paintOrder.push(i);
   }
-  // Quadtree broad-phase when large. TransformPreview may move ink outside
-  // stored AABBs — expand the query pad instead of falling back to O(N).
-  const PREVIEW_CULL_PAD = 512;
-  const useTree = buf.quadtree.size > 0 && buf.count >= 48;
-  if (useTree) {
-    const pad = hasNodeTransformPreviews() ? PREVIEW_CULL_PAD : 0;
-    for (const hit of buf.quadtree.search(vl - pad, vt - pad, vr + pad, vb + pad)) {
-      const i = buf.indexById.get(hit.id);
-      if (i != null) considerPaintIndex(i);
-    }
+  if (useSoaQuadtreeBroadphase(buf)) {
+    forEachSoaQuadHitInRect(buf, vl, vt, vr, vb, considerPaintIndex);
   } else {
     for (let i = 0; i < buf.count; i += 1) considerPaintIndex(i);
   }
