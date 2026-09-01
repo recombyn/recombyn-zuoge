@@ -22,7 +22,7 @@ const document = {
 
 describe('listVisibleMarkPins', () => {
   it('shows pin for selected image when not in mark session', () => {
-    const visible = listVisibleMarkPins(document, { 'img-1': pin }, null, ['img-1']);
+    const visible = listVisibleMarkPins(document, { 'img-1': [pin] }, null, ['img-1']);
     expect(visible).toHaveLength(1);
     expect(visible[0]?.nodeId).toBe('img-1');
   });
@@ -30,7 +30,7 @@ describe('listVisibleMarkPins', () => {
   it('shows pin while mark session is active on the same node', () => {
     const visible = listVisibleMarkPins(
       document,
-      { 'img-1': pin },
+      { 'img-1': [pin] },
       { nodeId: 'img-1', kind: 'mark' },
       ['img-1']
     );
@@ -53,7 +53,7 @@ describe('listVisibleMarkPins', () => {
     } as any;
     const visible = listVisibleMarkPins(
       doc,
-      { 'img-1': pin, 'img-2': pin2 },
+      { 'img-1': [pin], 'img-2': [pin2] },
       { nodeId: 'img-1', kind: 'mark', markSink: 'quickEdit' },
       []
     );

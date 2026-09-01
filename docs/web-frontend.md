@@ -12,7 +12,7 @@ You load server state in `apps/web` through **OpenAPI → OpenAPILink → TanSta
 | Query provider | `apps/web/src/main.tsx` (`QueryClientProvider`) |
 | URL state (nuqs) | `NuqsAdapter` in `apps/web/src/router/index.tsx` |
 
-HTTP transport is **ky** via OpenAPILink (not axios). Errors: `getHttpStatus` / `getHttpErrorMessage` in `client.ts`.
+HTTP transport is **ky** via OpenAPILink (not axios). Errors: `getHttpStatus` / `getHttpErrorMessage` in `client.ts` (ORPCError / HTTPError only — no axios-shaped probes).
 
 ## Reads: `useQuery(apiQuery…)`
 
@@ -83,7 +83,7 @@ Editor **document**, selection, tools, camera-ish UI — local canvas SoT. Do no
 
 ## Related
 
-- [canvas-architecture.md](./canvas-architecture.md) — paint / Path2D / viewport cull + SoA canvas ink
+- [canvas-architecture.md](./canvas-architecture.md) — paint / SoA ink / demotion / QT cull / Path2D
 - [scene-json-spec.md](./scene-json-spec.md) — persisted document JSON
 - [billing.md](./billing.md) — `WALLET_BILLING_ENABLED` + `useBillingEnabled`
 - [deployment-modes.md](./deployment-modes.md) — self-host / dev / desktop

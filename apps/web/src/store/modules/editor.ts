@@ -218,21 +218,19 @@ export function markPanelSink(
 }
 
 function pruneMarkPinsBySink(
-  pins: Record<string, ImageMarkPin | ImageMarkPin[]>,
+  pins: Record<string, ImageMarkPin[]>,
   sink: 'quickEdit' | 'imageGen' | 'videoGen'
 ): Record<string, ImageMarkPin[]> {
   const out: Record<string, ImageMarkPin[]> = {};
   for (const [nodeId, raw] of Object.entries(pins || {})) {
-    const list = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(
-      (p) => p.sink !== sink
-    );
+    const list = (Array.isArray(raw) ? raw : []).filter((p) => p.sink !== sink);
     if (list.length) out[nodeId] = list;
   }
   return out;
 }
 
 function pruneQuickEditMarkPins(
-  pins: Record<string, ImageMarkPin | ImageMarkPin[]>
+  pins: Record<string, ImageMarkPin[]>
 ): Record<string, ImageMarkPin[]> {
   return pruneMarkPinsBySink(pins, 'quickEdit');
 }
@@ -351,11 +349,13 @@ function createFrame(partial?: Partial<ArtboardFrame>): ArtboardFrame {
   const hasH = partial?.height != null && Number.isFinite(Number(partial.height));
   const width = Math.max(1, Math.round(hasW ? Number(partial!.width) : 794));
   const height = Math.max(1, Math.round(hasH ? Number(partial!.height) : 1123));
-  const kind = isAnimationArtboardKind(partial?.kind)
-    ? 'animation'
-    : partial?.kind === 'artboard'
-      ? 'artboard'
-      : undefined;
+  const rawKind = String(partial?.kind || '').trim();
+  const kind =
+    rawKind === 'animation' || rawKind === 'lottie'
+      ? 'animation'
+      : rawKind === 'artboard'
+        ? 'artboard'
+        : undefined;
   const durationSec = isAnimationArtboardKind(kind)
     ? Math.max(
         0.5,
@@ -3089,7 +3089,7 @@ export const editorReducers = {
       state.lottiePlayheadSec = 0;
       writeAnimationPlayheadSec(0);
       setAnimationWorkbenchPlayheadSec(0);
-      // Optional: start playing after open (legacy callers may still pass play).
+      // Optional: start playing when caller requests play:true.
       state.lottiePlaying = Boolean(action.payload?.play);
       // Point activeFrameId at the workbench so new uploads / JSON land in-plate
       // (spawn centers + Lottie import resolve via activeFrameId).
@@ -3363,9 +3363,7 @@ export const editorReducers = {
         if (!synced) return;
         const hostBefore = state.document.deltaSetLike?.[hostId];
         const prevJson = String(hostBefore?.attrs?.animationData || '');
-        const hasHostFlag =
-          hostBefore?.attrs?.animationFrameHost === true ||
-          hostBefore?.attrs?.lottieFrameHost === true;
+        const hasHostFlag = hostBefore?.attrs?.animationFrameHost === true;
         const geomNeed =
           Math.round(Number(hostBefore?.x) || 0) !== Math.round(Number(frame.x) || 0) ||
           Math.round(Number(hostBefore?.y) || 0) !== Math.round(Number(frame.y) || 0) ||
@@ -3857,8 +3855,7 @@ export const editorReducers = {
     setImageMarkPin(state, action: PayloadAction<ImageMarkPin>) {
       const pin = action.payload;
       if (!pin?.nodeId) return;
-      const raw = state.imageMarkPins[pin.nodeId];
-      const list = Array.isArray(raw) ? [...raw] : raw ? [raw] : [];
+      const list = [...(state.imageMarkPins[pin.nodeId] || [])];
       const idx = list.findIndex((p) => p.id === pin.id);
       if (idx >= 0) list[idx] = pin;
       else list.push(pin);
@@ -3871,8 +3868,7 @@ export const editorReducers = {
       const nodeId = String(action.payload?.nodeId || '').trim();
       const pinId = String(action.payload?.pinId || '').trim();
       if (!nodeId || !pinId) return;
-      const raw = state.imageMarkPins[nodeId];
-      const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      const list = state.imageMarkPins[nodeId] || [];
       const next = list.filter((p) => p.id !== pinId);
       if (!next.length) delete state.imageMarkPins[nodeId];
       else state.imageMarkPins[nodeId] = next;

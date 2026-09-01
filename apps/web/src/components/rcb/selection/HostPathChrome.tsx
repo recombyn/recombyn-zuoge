@@ -26,7 +26,6 @@ import {
   chromeHitScaleForBox,
   clearChromeHitPads,
   cornerLLocalPath,
-  disposeLegacyHitPadLayer,
   liveHostPaintOrigin,
   sceneChromeBodyTransform,
   strokeOuterForRotateLScene,
@@ -193,8 +192,6 @@ const SVG_NS = 'http://www.w3.org/2000/svg' as const;
 const SEL_OUTLINE_ATTR = 'data-rcb-sel-outline';
 const SEL_CHROME_ATTR = 'data-rcb-sel-chrome';
 const HOST_PATH_CHROME_ATTR = 'data-rcb-host-path-chrome';
-/** Legacy host AABB box attr — cleaned on sync; path silhouette is the outline. */
-const SEL_BOX_ATTR = 'data-rcb-sel-box';
 /** Inspect pair top/bottom (or L/R) edge rails — host-injected. */
 const SEL_EDGE_ATTR = 'data-rcb-sel-edge';
 /** Gap / size badge pill — host-injected. */
@@ -338,7 +335,7 @@ function syncHostSelHandlesIfNeeded(
     if (chrome.getAttribute('data-rcb-handles-key')) {
       chrome
         .querySelectorAll(
-          `g.sel-hit,[data-sel-handle],[data-rcb-sel-knob],[data-rcb-sel-rotate-l],[${SEL_BOX_ATTR}]`
+          `g.sel-hit,[data-sel-handle],[data-rcb-sel-knob],[data-rcb-sel-rotate-l]`
         )
         .forEach((n) => n.remove());
       chrome.removeAttribute('data-rcb-handles-key');
@@ -533,7 +530,7 @@ function syncHostSelHandles(
   // Drop previous handle/rotate/box (keep path silhouette outline).
   chrome
     .querySelectorAll(
-      `g.sel-hit,[data-sel-handle],[data-rcb-sel-knob],[data-rcb-sel-rotate-l],[${SEL_BOX_ATTR}]`
+      `g.sel-hit,[data-sel-handle],[data-rcb-sel-knob],[data-rcb-sel-rotate-l]`
     )
     .forEach((n) => n.remove());
 
@@ -854,8 +851,6 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
       stickRaf = requestAnimationFrame(stickLoop);
     };
     if (z >= 2) stickRaf = requestAnimationFrame(stickLoop);
-
-    disposeLegacyHitPadLayer();
 
     return () => {
       cancelAnimationFrame(raf);

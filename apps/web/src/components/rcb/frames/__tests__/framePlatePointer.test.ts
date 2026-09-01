@@ -171,7 +171,7 @@ describe('framePlatePointer', () => {
 
   it('resolveFramePlateTarget treats Lottie frame host as plate', () => {
     const doc = {
-      frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'lottie' }],
+      frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'animation' }],
       deltaSetLike: {
         ROOT: { children: ['host'] },
         host: {
@@ -181,7 +181,7 @@ describe('framePlatePointer', () => {
           y: 0,
           width: 300,
           height: 300,
-          attrs: { frameId: 'lot', lottieFrameHost: true },
+          attrs: { frameId: 'lot', animationFrameHost: true },
         },
       },
     } as unknown as SceneDocument;
@@ -191,7 +191,7 @@ describe('framePlatePointer', () => {
 
   it('frameIsEmpty ignores Lottie frame host (host-only plate is empty)', () => {
     const doc = {
-      frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'lottie' }],
+      frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'animation' }],
       deltaSetLike: {
         ROOT: { children: ['host'] },
         host: {
@@ -201,7 +201,7 @@ describe('framePlatePointer', () => {
           y: 0,
           width: 300,
           height: 300,
-          attrs: { frameId: 'lot', lottieFrameHost: true },
+          attrs: { frameId: 'lot', animationFrameHost: true },
         },
       },
     } as unknown as SceneDocument;

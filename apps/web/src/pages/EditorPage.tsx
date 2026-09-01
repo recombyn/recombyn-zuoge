@@ -1386,15 +1386,10 @@ function EditorPage() {
       const vw = el.clientWidth;
       const vh = el.clientHeight;
       if (vw < 40 || vh < 40) return;
-      const legacyBottom = Math.max(0, Number(detail.viewportHeightInset) || 0);
       const band = {
         top: Math.max(0, Number(detail.bandInsets?.top) || 0),
         right: Math.max(0, Number(detail.bandInsets?.right) || 0),
-        bottom: Math.max(
-          0,
-          Number(detail.bandInsets?.bottom) || 0,
-          legacyBottom
-        ),
+        bottom: Math.max(0, Number(detail.bandInsets?.bottom) || 0),
         left: Math.max(0, Number(detail.bandInsets?.left) || 0),
       };
       const next = rcbFitCameraInBand(

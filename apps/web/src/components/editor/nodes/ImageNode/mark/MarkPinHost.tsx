@@ -14,8 +14,7 @@ function MarkPinHost({
   hidden?: boolean;
 }): ReactNode {
   const pins = useSelector(
-    (s: any) =>
-      (s.editor.imageMarkPins || {}) as Record<string, ImageMarkPin | ImageMarkPin[]>
+    (s: any) => (s.editor.imageMarkPins || {}) as Record<string, ImageMarkPin[]>
   );
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null

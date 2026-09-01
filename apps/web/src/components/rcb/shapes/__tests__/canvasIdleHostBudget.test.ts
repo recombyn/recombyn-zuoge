@@ -127,6 +127,19 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(canvasIds.length).toBe(39);
   });
 
+  it('holdHostIds keeps demote-candidate as DOM host', () => {
+    const doc = makeDoc({ n0: rect('n0'), n1: rect('n1') });
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['n0', 'n1'],
+      zoom: 1,
+      holdHostIds: new Set(['n0']),
+    });
+    expect(fullIds).toContain('n0');
+    expect(canvasIds).toContain('n1');
+    expect(canvasIds).not.toContain('n0');
+  });
+
   it('caps canvas ink count when maxCanvasInk is set', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 5000; i += 1) nodes[`n${i}`] = rect(`n${i}`);

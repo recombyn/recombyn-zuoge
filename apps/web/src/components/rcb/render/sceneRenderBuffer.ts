@@ -34,7 +34,8 @@ import {
   sampleSoaPathPolyline,
   SOA_PATH_MAX_PTS,
 } from '@/components/rcb/render/soaPathSamples';
-import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
+import { getNodeTransformPreview, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
+import { SoaQuadtree } from '@/components/rcb/core/soaQuadtree';
 import {
   getLiveCornerRadiusPreviewNodeId,
   getLiveCornerRadiusPreviewRadii,
@@ -52,6 +53,8 @@ export const SOA_FLAG_DIRTY = 1 << 2;
 export const SOA_FLAG_CANVAS_IDLE = 1 << 3;
 /** Geometry is SoA-basic (solid fill/roundRect/ellipse/line/path/poly + center stroke). */
 export const SOA_FLAG_BASIC_GEOM = 1 << 4;
+/** Tombstone slot awaiting reuse via freeSlots (skipped by paint/hit). */
+export const SOA_FLAG_FREE = 1 << 5;
 
 export const SOA_KIND_RECT = 0;
 export const SOA_KIND_ELLIPSE = 1;
@@ -75,8 +78,13 @@ export function setSoaPaintDocument(doc: SceneDocument | null | undefined): void
   soaPaintDocument = doc ?? null;
 }
 
-export function getSoaPaintDocument(): SceneDocument | null {
-  return soaPaintDocument;
+/** Normalize shapeType / key into a lowercase token (no nested ternary). */
+function shapeTypeToken(node: SceneNodeInput): string {
+  const key = String(node.key || '');
+  let fallback = key;
+  if (key === 'shape') fallback = 'rect';
+  const raw = node.attrs?.shapeType || fallback || '';
+  return String(raw).toLowerCase();
 }
 
 /** Lightweight SoA paint/pick eligibility — shapes only (not media/text hosts). */
@@ -86,7 +94,7 @@ export function isSoaCanvasEligible(node: SceneNodeInput | null | undefined): bo
   if (key === 'lottie' || key === 'audio' || key === 'group' || key === 'text') return false;
   // Image/video stay on SVG/HTML hosts — never SoA canvas ink.
   if (key === 'image' || key === 'video') return false;
-  const t = String(node.attrs?.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
+  const t = shapeTypeToken(node);
   if (t === 'rect' || t === 'roundrect' || t === '' || key === 'shape') return true;
   if (t === 'circle' || t === 'ellipse' || t === 'oval') return true;
   if (t === 'line' || t === 'arrow') return true;
@@ -106,7 +114,7 @@ function isTransparentCssColor(c: string): boolean {
 function pathAttrsHaveSolidFill(attrs: Record<string, unknown>): boolean {
   if (!boolEffectAttr(attrs['fill-enabled'], true)) return false;
   if (!boolEffectAttr(attrs['fill-visible'], true)) return false;
-  const fill = attrs.fill ?? attrs['fill-color'] ?? attrs.fillColor;
+  const fill = attrs['fill-color'];
   return !isTransparentCssColor(String(fill || ''));
 }
 
@@ -141,7 +149,7 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
   if (fillType && fillType !== 'solid' && fillType !== '') return false;
 
   const key = String(node.key || '');
-  const t = String(attrs.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
+  const t = shapeTypeToken(node);
   const webgl = isSoaWebglEnvEnabled();
   // Line/path ink *is* the stroke — outline stroke on filled shapes is separate.
   const strokeInk =
@@ -224,6 +232,16 @@ export type SceneRenderBuffer = {
   pathXY: Float32Array;
   /** Number of floats currently used in pathXY. */
   pathXYCount: number;
+  /**
+   * World-AABB quadtree for visible SoA slots (cull / hit broad-phase).
+   * Derived cache only — never writes back to SceneDocument.
+   */
+  quadtree: SoaQuadtree;
+  /**
+   * Recycled slot indices (tombstones). Prefer {@link allocateSoaSlot}; dense
+   * single deletes still use swap-pop and leave this empty.
+   */
+  freeSlots: number[];
 };
 
 /** Test-only override; `null` = use env / Vitest defaults. */
@@ -315,7 +333,108 @@ export function createSceneRenderBuffer(initialCapacity = GROW): SceneRenderBuff
     pathClosed: new Uint8Array(capacity),
     pathXY: new Float32Array(0),
     pathXYCount: 0,
+    quadtree: new SoaQuadtree(),
+    freeSlots: [],
   };
+}
+
+/**
+ * Sync one slot into the buffer quadtree — only CANVAS_IDLE visible ink.
+ * Promote removes the id; demote re-inserts (SoA-only spatial sidecar).
+ */
+function syncQuadSlot(buf: SceneRenderBuffer, index: number): void {
+  const id = buf.ids[index];
+  if (!id) return;
+  const flags = buf.flags[index];
+  if (
+    (flags & SOA_FLAG_FREE) !== 0 ||
+    (flags & SOA_FLAG_VISIBLE) === 0 ||
+    (flags & SOA_FLAG_CANVAS_IDLE) === 0
+  ) {
+    buf.quadtree.remove(id);
+    return;
+  }
+  const o = index * POS_STRIDE;
+  const box = aabbFromBox(
+    buf.positions[o],
+    buf.positions[o + 1],
+    buf.positions[o + 2],
+    buf.positions[o + 3]
+  );
+  buf.quadtree.upsert({ id, ...box });
+}
+
+function soaSlotQuadItem(
+  buf: SceneRenderBuffer,
+  index: number
+): { id: string; minX: number; minY: number; maxX: number; maxY: number } | null {
+  if (index < 0 || index >= buf.count) return null;
+  if (buf.flags[index] & SOA_FLAG_FREE) return null;
+  const id = buf.ids[index];
+  if (!id) return null;
+  const o = index * POS_STRIDE;
+  return { id, ...aabbFromBox(buf.positions[o], buf.positions[o + 1], buf.positions[o + 2], buf.positions[o + 3]) };
+}
+
+/** Upsert many world AABBs into the buffer quadtree in one pass (bulk demote / full sync). */
+export function bulkUpsertSoaQuadtree(
+  buf: SceneRenderBuffer,
+  ids?: readonly string[]
+): number {
+  // Small demote batches: per-id upsert. Large / full: one rebuild (no expand O(n²)).
+  const SMALL_BATCH = 24;
+  if (ids && ids.length > 0 && ids.length < SMALL_BATCH) {
+    let n = 0;
+    for (const raw of ids) {
+      const i = buf.indexById.get(String(raw || ''));
+      if (i == null) continue;
+      syncQuadSlot(buf, i);
+      n += 1;
+    }
+    return n;
+  }
+
+  if (ids && ids.length > 0) {
+    const items: Array<{ id: string; minX: number; minY: number; maxX: number; maxY: number }> = [];
+    for (const raw of ids) {
+      const i = buf.indexById.get(String(raw || ''));
+      if (i == null) continue;
+      const item = soaSlotQuadItem(buf, i);
+      if (!item) continue;
+      items.push(item);
+    }
+    buf.quadtree.bulkUpsert(items);
+    return items.length;
+  }
+
+  const items: Array<{ id: string; minX: number; minY: number; maxX: number; maxY: number }> = [];
+  for (let i = 0; i < buf.count; i += 1) {
+    const item = soaSlotQuadItem(buf, i);
+    if (!item) continue;
+    items.push(item);
+  }
+  buf.quadtree.replaceAll(items);
+  return items.length;
+}
+
+/** Allocate a slot index — reuse freeSlots first, else append (O(1)). */
+export function allocateSoaSlot(buf: SceneRenderBuffer): number {
+  while (buf.freeSlots.length > 0) {
+    const i = buf.freeSlots.pop()!;
+    if (i < 0 || i >= buf.count) continue;
+    if (!(buf.flags[i] & SOA_FLAG_FREE) && buf.ids[i]) continue;
+    buf.flags[i] = SOA_FLAG_FREE;
+    return i;
+  }
+  ensureCapacity(buf, buf.count + 1);
+  const index = buf.count;
+  buf.count += 1;
+  buf.flags[index] = SOA_FLAG_FREE;
+  buf.ids[index] = undefined as unknown as string;
+  buf.pathStart[index] = -1;
+  buf.pathLen[index] = 0;
+  buf.pathClosed[index] = 0;
+  return index;
 }
 
 function ensureCapacity(buf: SceneRenderBuffer, need: number) {
@@ -408,7 +527,7 @@ export function unpackCssColor(argb: number): string {
 function shapeKindOf(node: SceneNodeInput): number {
   const key = String(node.key || '');
   if (key === 'image' || key === 'video') return SOA_KIND_IMAGE;
-  const t = String(node.attrs?.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
+  const t = shapeTypeToken(node);
   if (t === 'circle' || t === 'ellipse' || t === 'oval') return SOA_KIND_ELLIPSE;
   if (t === 'line' || t === 'arrow') return SOA_KIND_LINE;
   if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path') return SOA_KIND_PATH;
@@ -419,8 +538,7 @@ function shapeKindOf(node: SceneNodeInput): number {
 
 function fillColorOf(node: SceneNodeInput): number {
   const attrs = node.attrs || {};
-  const fill = attrs.fill ?? attrs['fill-color'] ?? attrs.fillColor;
-  return packCssColor(fill, 0xffc0c0c0);
+  return packCssColor(attrs['fill-color'], 0xffc0c0c0);
 }
 
 /**
@@ -431,16 +549,14 @@ function slotColorOf(node: SceneNodeInput): number {
   const kind = shapeKindOf(node);
   const attrs = node.attrs || {};
   if (kind === SOA_KIND_LINE) {
-    const stroke =
-      attrs.stroke ?? attrs['stroke-color'] ?? attrs.strokeColor ?? attrs.fill ?? attrs['fill-color'];
+    const { stroke } = resolveStroke(node, '#333333');
     return packCssColor(stroke, 0xff333333);
   }
   if (kind === SOA_KIND_PATH) {
     const d = String(attrs.path || '');
     const closed = pathDLooksClosed(d, attrs.closed);
     if (closed && pathAttrsHaveSolidFill(attrs)) {
-      const fill = attrs.fill ?? attrs['fill-color'] ?? attrs.fillColor;
-      return packCssColor(fill, 0xffc0c0c0);
+      return packCssColor(attrs['fill-color'], 0xffc0c0c0);
     }
     return 0;
   }
@@ -452,7 +568,8 @@ function writeSlot(
   index: number,
   id: string,
   node: SceneNodeInput,
-  document: SceneDocument | null | undefined
+  document: SceneDocument | null | undefined,
+  opts?: { skipQuad?: boolean }
 ) {
   const { left, top } = nodeLeftTop(document, node);
   const o = index * POS_STRIDE;
@@ -493,6 +610,7 @@ function writeSlot(
   buf.pathStart[index] = -1;
   buf.pathLen[index] = 0;
   buf.pathClosed[index] = 0;
+  if (!opts?.skipQuad) syncQuadSlot(buf, index);
 }
 
 /**
@@ -587,6 +705,8 @@ export function syncSceneRenderBufferFromDocument(
   document: SceneDocument | null | undefined
 ): SceneRenderBuffer {
   buf.indexById.clear();
+  buf.quadtree.clear();
+  buf.freeSlots.length = 0;
   buf.count = 0;
   if (!document?.deltaSetLike) {
     buf.revision += 1;
@@ -601,12 +721,13 @@ export function syncSceneRenderBufferFromDocument(
   for (const id of ids) {
     const node = document.deltaSetLike[id];
     if (!node) continue;
-    writeSlot(buf, n, id, node, document);
+    writeSlot(buf, n, id, node, document, { skipQuad: true });
     n += 1;
   }
   buf.count = n;
   buf.revision += 1;
   rebuildSoaPathSamples(buf, document);
+  bulkUpsertSoaQuadtree(buf);
   return buf;
 }
 
@@ -632,6 +753,7 @@ export function refreshSoaOverlayVisibilityFromDocument(
     if (wantVisible) flags = (flags | SOA_FLAG_VISIBLE) >>> 0;
     else flags = (flags & ~SOA_FLAG_VISIBLE) >>> 0;
     buf.flags[i] = (flags | SOA_FLAG_DIRTY) >>> 0;
+    syncQuadSlot(buf, i);
     changed += 1;
   }
   if (changed > 0) buf.revision += 1;
@@ -658,9 +780,8 @@ export function syncSceneRenderBufferIncremental(
     if (existing != null) {
       writeSlot(buf, existing, id, node, document);
     } else {
-      ensureCapacity(buf, buf.count + 1);
-      writeSlot(buf, buf.count, id, node, document);
-      buf.count += 1;
+      const slot = allocateSoaSlot(buf);
+      writeSlot(buf, slot, id, node, document);
     }
   }
   if (opts?.removeMissing && opts.allIds) {
@@ -675,44 +796,135 @@ export function syncSceneRenderBufferIncremental(
   return buf;
 }
 
+/**
+ * Tombstone a slot into freeSlots (O(1), leaves a hole). Prefer for bulk deletes
+ * followed by {@link compactSoaFreeSlots}. Single deletes use swap-pop via
+ * {@link removeSlot}.
+ */
+function freeSlotTombstone(buf: SceneRenderBuffer, index: number): void {
+  if (index < 0 || index >= buf.count) return;
+  if (buf.flags[index] & SOA_FLAG_FREE) return;
+  const id = buf.ids[index];
+  if (id) {
+    buf.indexById.delete(id);
+    buf.quadtree.remove(id);
+  }
+  buf.ids[index] = undefined as unknown as string;
+  buf.flags[index] = SOA_FLAG_FREE;
+  buf.pathStart[index] = -1;
+  buf.pathLen[index] = 0;
+  buf.pathClosed[index] = 0;
+  buf.freeSlots.push(index);
+}
+
+/** Copy one dense SoA slot (positions/radii/colors/…) from `from` → `to`. */
+function copySoaSlot(buf: SceneRenderBuffer, from: number, to: number): void {
+  if (from === to) return;
+  const o = to * POS_STRIDE;
+  const fo = from * POS_STRIDE;
+  buf.positions[o] = buf.positions[fo];
+  buf.positions[o + 1] = buf.positions[fo + 1];
+  buf.positions[o + 2] = buf.positions[fo + 2];
+  buf.positions[o + 3] = buf.positions[fo + 3];
+  const ro = to * RAD_STRIDE;
+  const fro = from * RAD_STRIDE;
+  buf.radii[ro] = buf.radii[fro];
+  buf.radii[ro + 1] = buf.radii[fro + 1];
+  buf.radii[ro + 2] = buf.radii[fro + 2];
+  buf.radii[ro + 3] = buf.radii[fro + 3];
+  buf.colors[to] = buf.colors[from];
+  buf.flags[to] = buf.flags[from];
+  buf.kinds[to] = buf.kinds[from];
+  buf.strokeWidths[to] = buf.strokeWidths[from];
+  buf.strokeColors[to] = buf.strokeColors[from];
+  buf.ids[to] = buf.ids[from];
+  buf.pathStart[to] = buf.pathStart[from];
+  buf.pathLen[to] = buf.pathLen[from];
+  buf.pathClosed[to] = buf.pathClosed[from];
+}
+
+function aabbFromBox(x: number, y: number, w: number, h: number) {
+  return {
+    minX: Math.min(x, x + w),
+    minY: Math.min(y, y + h),
+    maxX: Math.max(x, x + w),
+    maxY: Math.max(y, y + h),
+  };
+}
+
+function aabbIntersectsView(
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+  view: { minX: number; minY: number; maxX: number; maxY: number }
+): boolean {
+  return !(
+    box.maxX < view.minX ||
+    box.maxY < view.minY ||
+    box.minX > view.maxX ||
+    box.minY > view.maxY
+  );
+}
+
+function clearSoaDirtyFlag(buf: SceneRenderBuffer, index: number): void {
+  buf.flags[index] = (buf.flags[index] & ~SOA_FLAG_DIRTY) >>> 0;
+}
+
+/** Pack live slots to the front and clear freeSlots (restores dense TypedArrays). */
+export function compactSoaFreeSlots(buf: SceneRenderBuffer): number {
+  if (!buf.freeSlots.length) return 0;
+  let write = 0;
+  const freed = buf.freeSlots.length;
+  for (let read = 0; read < buf.count; read += 1) {
+    if (buf.flags[read] & SOA_FLAG_FREE) continue;
+    copySoaSlot(buf, read, write);
+    const id = buf.ids[write];
+    if (id) buf.indexById.set(id, write);
+    write += 1;
+  }
+  buf.count = write;
+  buf.freeSlots.length = 0;
+  buf.revision += 1;
+  return freed;
+}
+
+/**
+ * Remove many ids. Uses free-slot tombstones + one compact when K is large;
+ * otherwise swap-pop each (keeps the array dense without a second pass).
+ */
+export function bulkRemoveSoaByIds(buf: SceneRenderBuffer, ids: readonly string[]): number {
+  const uniq = new Set(ids.map(String).filter(Boolean));
+  if (!uniq.size) return 0;
+  const indices: number[] = [];
+  for (const id of uniq) {
+    const i = buf.indexById.get(id);
+    if (i != null) indices.push(i);
+  }
+  if (!indices.length) return 0;
+  if (indices.length >= 8) {
+    for (const i of indices) freeSlotTombstone(buf, i);
+    compactSoaFreeSlots(buf);
+    return indices.length;
+  }
+  indices.sort((a, b) => b - a);
+  for (const i of indices) removeSlot(buf, i);
+  return indices.length;
+}
+
 function removeSlot(buf: SceneRenderBuffer, index: number) {
   const last = buf.count - 1;
   const id = buf.ids[index];
-  if (id) buf.indexById.delete(id);
+  if (id) {
+    buf.indexById.delete(id);
+    buf.quadtree.remove(id);
+  }
   if (index !== last && last >= 0) {
-    const o = index * POS_STRIDE;
-    const lo = last * POS_STRIDE;
-    buf.positions[o] = buf.positions[lo];
-    buf.positions[o + 1] = buf.positions[lo + 1];
-    buf.positions[o + 2] = buf.positions[lo + 2];
-    buf.positions[o + 3] = buf.positions[lo + 3];
-    const ro = index * RAD_STRIDE;
-    const rlo = last * RAD_STRIDE;
-    buf.radii[ro] = buf.radii[rlo];
-    buf.radii[ro + 1] = buf.radii[rlo + 1];
-    buf.radii[ro + 2] = buf.radii[rlo + 2];
-    buf.radii[ro + 3] = buf.radii[rlo + 3];
-    buf.colors[index] = buf.colors[last];
-    buf.flags[index] = buf.flags[last];
-    buf.kinds[index] = buf.kinds[last];
-    buf.strokeWidths[index] = buf.strokeWidths[last];
-    buf.strokeColors[index] = buf.strokeColors[last];
-    buf.ids[index] = buf.ids[last];
-    buf.pathStart[index] = buf.pathStart[last];
-    buf.pathLen[index] = buf.pathLen[last];
-    buf.pathClosed[index] = buf.pathClosed[last];
+    copySoaSlot(buf, last, index);
     const movedId = buf.ids[index];
     if (movedId) buf.indexById.set(movedId, index);
   }
+  // Tail slot becomes recyclable capacity (dense count shrink — no hole).
+  buf.ids[last] = undefined as unknown as string;
+  if (last >= 0) buf.flags[last] = 0;
   buf.count = Math.max(0, last);
-}
-
-export function getSoaBox(
-  buf: SceneRenderBuffer,
-  index: number
-): { x: number; y: number; w: number; h: number } | null {
-  if (index < 0 || index >= buf.count) return null;
-  return resolveSoaPaintBox(buf, index);
 }
 
 /**
@@ -888,7 +1100,9 @@ export function hitTestSoaSlot(
 ): boolean {
   if (index < 0 || index >= buf.count) return false;
   const flags = buf.flags[index];
+  if (flags & SOA_FLAG_FREE) return false;
   if (!(flags & SOA_FLAG_VISIBLE)) return false;
+  if (!(flags & SOA_FLAG_CANVAS_IDLE)) return false;
   if (flags & SOA_FLAG_LOCKED) return false;
   const id = buf.ids[index];
   if (id && getNodeTransformPreview(id)?.hidden) return false;
@@ -986,36 +1200,35 @@ export function hitTestSoaBufferOrdered(
   return null;
 }
 
-/** Point hit against visible slots (linear reverse scan; prefer Ordered + spatial for large N). */
+/** Point hit against visible slots (quadtree candidates + fine slot test). */
 export function hitTestSoaBuffer(
   buf: SceneRenderBuffer,
   x: number,
-  y: number
+  y: number,
+  pad = 0
 ): string | null {
-  for (let i = buf.count - 1; i >= 0; i -= 1) {
-    if (hitTestSoaSlot(buf, i, x, y)) return buf.ids[i] || null;
+  if (buf.count <= 0) return null;
+  // Small N: reverse linear is fine and avoids QT build edge cases in tests.
+  if (buf.quadtree.size === 0 || buf.count < 48) {
+    for (let i = buf.count - 1; i >= 0; i -= 1) {
+      if (hitTestSoaSlot(buf, i, x, y)) return buf.ids[i] || null;
+    }
+    return null;
   }
-  return null;
-}
-
-/** Upsert every visible SoA AABB into a spatial index (cull / hit candidates). */
-export function syncSpatialIndexFromSoaBuffer(
-  buf: SceneRenderBuffer,
-  index: { upsert: (item: { id: string; minX: number; minY: number; maxX: number; maxY: number }) => void }
-) {
-  for (let i = 0; i < buf.count; i += 1) {
-    if (!(buf.flags[i] & SOA_FLAG_VISIBLE)) continue;
-    const id = buf.ids[i];
-    if (!id) continue;
-    const { x, y, w, h } = resolveSoaPaintBox(buf, i);
-    index.upsert({
-      id,
-      minX: Math.min(x, x + w),
-      minY: Math.min(y, y + h),
-      maxX: Math.max(x, x + w),
-      maxY: Math.max(y, y + h),
-    });
+  const hits = buf.quadtree.searchPoint(x, y, pad);
+  if (!hits.length) return null;
+  let bestIndex = -1;
+  let bestId: string | null = null;
+  for (const hit of hits) {
+    const i = buf.indexById.get(hit.id);
+    if (i == null) continue;
+    if (!hitTestSoaSlot(buf, i, x, y)) continue;
+    if (i > bestIndex) {
+      bestIndex = i;
+      bestId = buf.ids[i] || hit.id;
+    }
   }
+  return bestId;
 }
 
 /** Visit visible slots whose AABB intersects the view rect (scene units). */
@@ -1024,19 +1237,31 @@ export function forEachVisibleInRect(
   view: { minX: number; minY: number; maxX: number; maxY: number },
   visit: (index: number, id: string) => void
 ) {
-  for (let i = 0; i < buf.count; i += 1) {
-    if (!(buf.flags[i] & SOA_FLAG_VISIBLE)) continue;
+  function visitIfVisible(i: number): void {
+    if (!(buf.flags[i] & SOA_FLAG_VISIBLE)) return;
     const id = buf.ids[i];
-    if (!id) continue;
+    if (!id) return;
     const { x, y, w, h } = resolveSoaPaintBox(buf, i);
-    const minX = Math.min(x, x + w);
-    const minY = Math.min(y, y + h);
-    const maxX = Math.max(x, x + w);
-    const maxY = Math.max(y, y + h);
-    if (maxX < view.minX || maxY < view.minY || minX > view.maxX || minY > view.maxY) {
-      continue;
-    }
+    if (!aabbIntersectsView(aabbFromBox(x, y, w, h), view)) return;
     visit(i, id);
+  }
+
+  // TransformPreview may move ink outside stored AABBs — expand query pad.
+  const PREVIEW_CULL_PAD = 512;
+  const useTree = buf.quadtree.size > 0 && buf.count >= 48;
+  if (!useTree) {
+    for (let i = 0; i < buf.count; i += 1) visitIfVisible(i);
+    return;
+  }
+  const pad = hasNodeTransformPreviews() ? PREVIEW_CULL_PAD : 0;
+  for (const hit of buf.quadtree.search(
+    view.minX - pad,
+    view.minY - pad,
+    view.maxX + pad,
+    view.maxY + pad
+  )) {
+    const i = buf.indexById.get(hit.id);
+    if (i != null) visitIfVisible(i);
   }
 }
 
@@ -1097,6 +1322,35 @@ function clipSoaIdleSlotToFrame(
   return true;
 }
 
+function pathStrokeArgb(opts: {
+  outlineArgb: number;
+  fillArgb: number;
+  doFill: boolean;
+  isPoly: boolean;
+}): number {
+  if (opts.outlineArgb) return opts.outlineArgb;
+  if (opts.doFill || opts.isPoly) return 0;
+  return opts.fillArgb;
+}
+
+function livePreviewAngleDeg(id: string | undefined): number {
+  if (!id) return 0;
+  const liveAngle = getNodeTransformPreview(id)?.angle;
+  if (!Number.isFinite(liveAngle)) return 0;
+  if (Math.abs(Number(liveAngle)) <= 0.5) return 0;
+  return Number(liveAngle);
+}
+
+function nodeAttrsForId(
+  doc: SceneDocument | null,
+  id: string | undefined
+): Record<string, unknown> | null {
+  if (!doc || !id) return null;
+  const attrs = doc.deltaSetLike?.[id]?.attrs;
+  if (!attrs) return null;
+  return attrs as Record<string, unknown>;
+}
+
 function soaPathOrPolyLineWidth(
   buf: SceneRenderBuffer,
   i: number,
@@ -1107,6 +1361,11 @@ function soaPathOrPolyLineWidth(
   if (isPoly && outlineArgb && outlineW > 0) return outlineW;
   if (isPoly) return 0;
   return soaStrokeWidth(buf, i);
+}
+
+function resolvePathStrokeStyle(strokeArgb: number, fillArgb: number): string {
+  if (strokeArgb) return unpackCssColor(strokeArgb);
+  return unpackCssColor(fillArgb || 0xff333333);
 }
 
 /** Paint one SoA idle slot (document z-order callers walk ids). */
@@ -1150,18 +1409,20 @@ export function paintSoaIdleSlot(
       const outlineArgb = buf.strokeColors[i] >>> 0;
       const outlineW = buf.strokeWidths[i];
       const isPoly = kind === SOA_KIND_POLY;
-      const nodeAttrs = id ? doc?.deltaSetLike?.[id]?.attrs : null;
+      const nodeAttrs = nodeAttrsForId(doc, id);
       const solidFill =
-        fillArgb !== 0 &&
-        (!nodeAttrs || pathAttrsHaveSolidFill(nodeAttrs as Record<string, unknown>));
+        fillArgb !== 0 && (!nodeAttrs || pathAttrsHaveSolidFill(nodeAttrs));
       // PATH: colors = fill (0 if transparent); strokeColors = stroke.
       // Never fill closed pens with the stroke color (looked black until select→SVG).
       const doFill = closed && solidFill;
-      const strokeArgb = outlineArgb || (!doFill && !isPoly ? fillArgb : 0);
+      const strokeArgb = pathStrokeArgb({
+        outlineArgb,
+        fillArgb,
+        doFill,
+        isPoly,
+      });
       if (doFill) ctx.fillStyle = unpackCssColor(fillArgb);
-      ctx.strokeStyle = strokeArgb
-        ? unpackCssColor(strokeArgb)
-        : unpackCssColor(fillArgb || 0xff333333);
+      ctx.strokeStyle = resolvePathStrokeStyle(strokeArgb, fillArgb);
       ctx.lineWidth = soaPathOrPolyLineWidth(buf, i, isPoly, outlineArgb, outlineW);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -1201,12 +1462,8 @@ export function paintSoaIdleSlot(
     ctx.fillStyle = unpackCssColor(buf.colors[i]);
     const outlineArgb = buf.strokeColors[i] >>> 0;
     const outlineW = buf.strokeWidths[i];
-    const liveAngle = id ? getNodeTransformPreview(id)?.angle : undefined;
-    const rot =
-      Number.isFinite(liveAngle) && Math.abs(Number(liveAngle)) > 0.5
-        ? Number(liveAngle)
-        : 0;
-    const nodeForRadii = id ? (doc?.deltaSetLike?.[id] as SceneNodeInput | undefined) : undefined;
+    const rot = livePreviewAngleDeg(id);
+    const nodeForRadii = id && doc ? (doc.deltaSetLike?.[id] as SceneNodeInput | undefined) : undefined;
     const cornerR = resolveSoaSlotCornerRadii(buf, i, id || '', nodeForRadii, w, h);
     const strokeOutline = () => {
       if (!(outlineArgb && outlineW > 0)) return;
@@ -1325,36 +1582,52 @@ export function paintSoaBufferBasic(
   // back→front by document z so a later-created (or reordered) shape's fill
   // covers lower siblings' strokes — otherwise gray borders "ghost" on top.
   const paintOrder: number[] = [];
-  for (let i = 0; i < buf.count; i += 1) {
-    const flags = buf.flags[i];
-    if (!(flags & SOA_FLAG_VISIBLE)) continue;
-    if (!(flags & SOA_FLAG_CANVAS_IDLE)) continue;
-    if (!(flags & SOA_FLAG_BASIC_GEOM)) continue;
-    if (dirtyOnly && !(flags & SOA_FLAG_DIRTY)) continue;
-    if (skipIndex?.(i)) continue;
-    const id = buf.ids[i];
-    if (doc && id && !doc.deltaSetLike?.[id]) {
-      buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
-      continue;
+  function shouldSkipPaintSlot(i: number, flags: number, id: string | undefined): boolean {
+    if (flags & SOA_FLAG_FREE) return true;
+    if (!(flags & SOA_FLAG_VISIBLE)) return true;
+    if (!(flags & SOA_FLAG_CANVAS_IDLE)) return true;
+    if (!(flags & SOA_FLAG_BASIC_GEOM)) return true;
+    if (dirtyOnly && !(flags & SOA_FLAG_DIRTY)) return true;
+    if (skipIndex?.(i)) return true;
+    if (!id) return false;
+    if (doc && !doc.deltaSetLike?.[id]) {
+      clearSoaDirtyFlag(buf, i);
+      return true;
     }
-    if (doc && id) {
+    if (doc) {
       const paintNode = doc.deltaSetLike[id] as SceneNodeInput | undefined;
       if (paintNode && isNodeOverlayHidden(doc, paintNode)) {
-        buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
-        continue;
+        clearSoaDirtyFlag(buf, i);
+        return true;
       }
     }
-    const liveRadiusPreview = Boolean(id && getLiveCornerRadiusPreviewNodeId() === id);
-    // DOM hosts own pixels — skip SoA paint (corner-radius drag stays on canvas).
-    if (id && getShapeHost(id)?.el && !liveRadiusPreview) {
-      buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
-      continue;
+    const liveRadiusPreview = getLiveCornerRadiusPreviewNodeId() === id;
+    if (getShapeHost(id)?.el && !liveRadiusPreview) {
+      clearSoaDirtyFlag(buf, i);
+      return true;
     }
-    if (id && getNodeTransformPreview(id)?.hidden) {
-      buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
-      continue;
+    if (getNodeTransformPreview(id)?.hidden) {
+      clearSoaDirtyFlag(buf, i);
+      return true;
     }
+    return false;
+  }
+  function considerPaintIndex(i: number): void {
+    if (shouldSkipPaintSlot(i, buf.flags[i], buf.ids[i])) return;
     paintOrder.push(i);
+  }
+  // Quadtree broad-phase when large. TransformPreview may move ink outside
+  // stored AABBs — expand the query pad instead of falling back to O(N).
+  const PREVIEW_CULL_PAD = 512;
+  const useTree = buf.quadtree.size > 0 && buf.count >= 48;
+  if (useTree) {
+    const pad = hasNodeTransformPreviews() ? PREVIEW_CULL_PAD : 0;
+    for (const hit of buf.quadtree.search(vl - pad, vt - pad, vr + pad, vb + pad)) {
+      const i = buf.indexById.get(hit.id);
+      if (i != null) considerPaintIndex(i);
+    }
+  } else {
+    for (let i = 0; i < buf.count; i += 1) considerPaintIndex(i);
   }
   if (doc && paintOrder.length > 1) {
     paintOrder.sort((a, b) => {
@@ -1454,9 +1727,7 @@ export function upsertSoaGeom(
 ): number {
   let index = buf.indexById.get(id);
   if (index == null) {
-    ensureCapacity(buf, buf.count + 1);
-    index = buf.count;
-    buf.count += 1;
+    index = allocateSoaSlot(buf);
     buf.ids[index] = id;
     buf.indexById.set(id, index);
     buf.kinds[index] = SOA_KIND_RECT;
@@ -1479,23 +1750,27 @@ export function upsertSoaGeom(
   buf.positions[o + 3] = Math.max(0.01, geom.h);
   if (geom.color != null) buf.colors[index] = geom.color >>> 0;
   buf.flags[index] = (buf.flags[index] | SOA_FLAG_DIRTY) >>> 0;
+  syncQuadSlot(buf, index);
   return index;
 }
 
 /**
  * Mark DOM hosts (editors / SoftGlow) off SoA canvas ink; BASIC_GEOM stays on canvas.
+ * Pass `onlyIds` to evaluate a batch without scanning the full buffer.
  */
 export function applySoaHostInkFlags(
   buf: SceneRenderBuffer,
-  hostIds: ReadonlySet<string> | readonly string[]
+  hostIds: ReadonlySet<string> | readonly string[],
+  opts?: { onlyIds?: readonly string[] }
 ): number {
   const hosts = Array.isArray(hostIds)
     ? new Set(hostIds.filter(Boolean))
     : new Set(hostIds);
-  let flipped = 0;
-  for (let i = 0; i < buf.count; i += 1) {
+
+  function flipIndex(i: number): boolean {
     const id = buf.ids[i];
-    if (!id) continue;
+    if (!id) return false;
+    if (buf.flags[i] & SOA_FLAG_FREE) return false;
     const kind = buf.kinds[i];
     const shapeEligible =
       kind === SOA_KIND_RECT ||
@@ -1503,18 +1778,86 @@ export function applySoaHostInkFlags(
       kind === SOA_KIND_LINE ||
       kind === SOA_KIND_PATH ||
       kind === SOA_KIND_POLY;
-    if (!shapeEligible) continue;
+    if (!shapeEligible) return false;
     let flags = buf.flags[i];
     const wantInk = !hosts.has(id) && (flags & SOA_FLAG_BASIC_GEOM) !== 0;
     const isInk = (flags & SOA_FLAG_CANVAS_IDLE) !== 0;
-    if (wantInk === isInk) continue;
+    if (wantInk === isInk) return false;
     if (wantInk) flags = (flags | SOA_FLAG_CANVAS_IDLE) >>> 0;
     else flags = (flags & ~SOA_FLAG_CANVAS_IDLE) >>> 0;
     flags = (flags | SOA_FLAG_DIRTY) >>> 0;
     buf.flags[i] = flags;
-    flipped += 1;
+    syncQuadSlot(buf, i);
+    return true;
+  }
+
+  let flipped = 0;
+  const only = opts?.onlyIds;
+  if (only && only.length > 0) {
+    for (const raw of only) {
+      const id = String(raw || '');
+      if (!id) continue;
+      const i = buf.indexById.get(id);
+      if (i == null) continue;
+      if (flipIndex(i)) flipped += 1;
+    }
+    return flipped;
+  }
+  for (let i = 0; i < buf.count; i += 1) {
+    if (flipIndex(i)) flipped += 1;
   }
   return flipped;
+}
+
+/** Batch demote listed BASIC_GEOM ids onto canvas ink (clears host override for those ids). */
+export function bulkDemoteSoaInk(
+  buf: SceneRenderBuffer,
+  ids: readonly string[],
+  hostIds: ReadonlySet<string> | readonly string[]
+): number {
+  return applySoaHostInkFlags(buf, hostIds, { onlyIds: ids });
+}
+
+/** Batch promote listed ids off canvas ink while they remain in hostIds. */
+export function bulkPromoteSoaHosts(
+  buf: SceneRenderBuffer,
+  ids: readonly string[],
+  hostIds: ReadonlySet<string> | readonly string[]
+): number {
+  return applySoaHostInkFlags(buf, hostIds, { onlyIds: ids });
+}
+
+/**
+ * Bulk write slots from document ids (import / AI flush demote path).
+ * One revision bump + one path rebuild + one quadtree pass.
+ */
+export function bulkInsertSoaFromDocument(
+  buf: SceneRenderBuffer,
+  document: SceneDocument,
+  ids: readonly string[]
+): number {
+  if (!document?.deltaSetLike) return 0;
+  let wrote = 0;
+  const written: string[] = [];
+  for (const raw of ids) {
+    const id = String(raw || '');
+    if (!id || id === 'ROOT') continue;
+    const node = document.deltaSetLike[id];
+    if (!node) continue;
+    let index = buf.indexById.get(id);
+    if (index == null) {
+      index = allocateSoaSlot(buf);
+    }
+    writeSlot(buf, index, id, node, document, { skipQuad: true });
+    written.push(id);
+    wrote += 1;
+  }
+  if (wrote > 0) {
+    buf.revision += 1;
+    rebuildSoaPathSamples(buf, document);
+    bulkUpsertSoaQuadtree(buf, written);
+  }
+  return wrote;
 }
 
 /** Module singleton used by the live stage. */

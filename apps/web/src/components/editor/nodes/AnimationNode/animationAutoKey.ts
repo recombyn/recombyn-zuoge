@@ -236,22 +236,6 @@ export function autoKeyAnimatedProp(opts: {
   return { hostId: link.hostId, animationJson: json };
 }
 
-/** @deprecated Prefer autoKeyAnimatedProp({ propKey: 'r', ... }) */
-export function autoKeyAnimatedRotation(opts: {
-  document: any;
-  nodeId: string;
-  angleDeg: number;
-  playheadSec: number;
-}): { hostId: string; animationJson: string } | null {
-  return autoKeyAnimatedProp({
-    document: opts.document,
-    nodeId: opts.nodeId,
-    propKey: 'r',
-    playheadSec: opts.playheadSec,
-    value: opts.angleDeg,
-  });
-}
-
 /** Auto-key every animated channel that may have changed with a geometry commit. */
 export function autoKeyAnimatedGeometry(opts: {
   document: any;

@@ -86,10 +86,6 @@ export function notifyShapeHostGeometry(nodeId?: string) {
   bumpHostEpoch(nodeId);
 }
 
-export function getShapeHostEpoch() {
-  return hostEpoch;
-}
-
 /** Per-node epoch for media portals — unrelated host remounts must not tear WaveSurfer. */
 export function getShapeHostNodeEpoch(nodeId: string) {
   return nodeHostEpochs.get(String(nodeId || '')) || 0;
@@ -169,7 +165,6 @@ let sceneWorldRoot: SVGSVGElement | null = null;
 let sceneFramesRoot: SVGSVGElement | null = null;
 let sceneShapesMount: SVGGElement | null = null;
 let sceneFramesMount: SVGGElement | null = null;
-let sceneProcessMount: SVGGElement | null = null;
 let sceneDrawPreviewMount: SVGGElement | null = null;
 let sceneSmartGuidesMount: SVGGElement | null = null;
 let sceneSelectionChromeMount: SVGGElement | null = null;
@@ -181,7 +176,6 @@ export function setSceneWorldRoot(
   drawPreviewMount: SVGGElement | null = null,
   smartGuidesMount: SVGGElement | null = null,
   selectionChromeMount: SVGGElement | null = null,
-  processMount: SVGGElement | null = null,
   framesRoot: SVGSVGElement | null = null,
   framesMount: SVGGElement | null = null
 ) {
@@ -189,7 +183,6 @@ export function setSceneWorldRoot(
   sceneShapesMount = shapesMount;
   sceneFramesRoot = framesRoot;
   sceneFramesMount = framesMount;
-  sceneProcessMount = processMount;
   sceneDrawPreviewMount = drawPreviewMount;
   sceneSmartGuidesMount = smartGuidesMount;
   sceneSelectionChromeMount = selectionChromeMount;
@@ -211,11 +204,6 @@ export function getSceneShapesMount() {
 
 export function getSceneFramesMount() {
   return sceneFramesMount;
-}
-
-/** Upload / process SoftGlow — above shapes, below selection chrome. */
-export function getSceneProcessMount() {
-  return sceneProcessMount;
 }
 
 /** Frame body plates only — sorted by data-z on the frames mount. */

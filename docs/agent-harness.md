@@ -39,7 +39,8 @@ UI publish path: `event_publisher.publish_design_output` → `session_log.append
 |------------|----------|
 | `agent` | Full LangGraph canvas ops |
 | `single_model` | Same graph; locked / simplified model routing |
-| `partial` | **Legacy alias** → remapped to `single_model` (+ optional `TARGET_LAYER`) |
+
+The web client `DesignRunMode` is only `'agent' | 'single_model'`. Do not send other mode strings from FE.
 
 Chat `mode=react` (`stream_official_agent`) is a **separate** conversation loop, not the Design canvas driver.
 

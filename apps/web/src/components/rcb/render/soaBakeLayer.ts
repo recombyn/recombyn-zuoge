@@ -61,6 +61,10 @@ export type SoaBakeCache = {
   tileWorld: number;
   tiles: Map<string, SoaBakeTile>;
   lru: string[];
+  /** Element id → bake tile keys covering its AABB. */
+  elementToTiles: Map<string, Set<string>>;
+  /** Tile key → element ids stamped into that tile. */
+  tileToElements: Map<string, Set<string>>;
 };
 
 function createBakeCanvas(w: number, h: number): OffscreenCanvas | HTMLCanvasElement {
@@ -289,8 +293,154 @@ function touchLru(cache: SoaBakeCache, key: string) {
   cache.lru.push(key);
   while (cache.lru.length > MAX_CACHED_TILES) {
     const drop = cache.lru.shift();
-    if (drop) cache.tiles.delete(drop);
+    if (!drop) continue;
+    cache.tiles.delete(drop);
+    unbindTileKey(cache, drop);
   }
+}
+
+function linkElementToTile(cache: SoaBakeCache, elementId: string, key: string): void {
+  let et = cache.elementToTiles.get(elementId);
+  if (!et) {
+    et = new Set();
+    cache.elementToTiles.set(elementId, et);
+  }
+  et.add(key);
+  let te = cache.tileToElements.get(key);
+  if (!te) {
+    te = new Set();
+    cache.tileToElements.set(key, te);
+  }
+  te.add(elementId);
+}
+
+/** Drop reverse maps for one tile key (tile bitmap already removed). */
+function unbindTileKey(cache: SoaBakeCache, key: string): void {
+  const els = cache.tileToElements.get(key);
+  if (!els) {
+    cache.tileToElements.delete(key);
+    return;
+  }
+  for (const id of els) {
+    const tiles = cache.elementToTiles.get(id);
+    if (!tiles) continue;
+    tiles.delete(key);
+    if (!tiles.size) cache.elementToTiles.delete(id);
+  }
+  cache.tileToElements.delete(key);
+}
+
+/** Delete one tile bitmap + LRU + reverse maps. */
+function dropBakeTile(cache: SoaBakeCache, key: string): void {
+  cache.tiles.delete(key);
+  const li = cache.lru.indexOf(key);
+  if (li >= 0) cache.lru.splice(li, 1);
+  unbindTileKey(cache, key);
+}
+
+/** Clear element↔tile bindings for one element (keeps tile bitmaps). */
+export function unbindSoaBakeElement(cache: SoaBakeCache, elementId: string): void {
+  const tiles = cache.elementToTiles.get(elementId);
+  if (!tiles) return;
+  for (const key of tiles) {
+    const els = cache.tileToElements.get(key);
+    if (!els) continue;
+    els.delete(elementId);
+    if (!els.size) cache.tileToElements.delete(key);
+  }
+  cache.elementToTiles.delete(elementId);
+}
+
+/**
+ * Bind an element's world AABB to the tiles it covers.
+ * Replaces any previous binding for that id.
+ */
+export function bindSoaBakeElementTiles(
+  cache: SoaBakeCache,
+  elementId: string,
+  box: { minX: number; minY: number; maxX: number; maxY: number }
+): string[] {
+  unbindSoaBakeElement(cache, elementId);
+  const keys: string[] = [];
+  const view = {
+    left: box.minX,
+    top: box.minY,
+    width: Math.max(1e-3, box.maxX - box.minX),
+    height: Math.max(1e-3, box.maxY - box.minY),
+  };
+  for (const { tx, ty } of tilesForView(view, cache.tileWorld)) {
+    const key = tileKey(tx, ty);
+    keys.push(key);
+    linkElementToTile(cache, elementId, key);
+  }
+  return keys;
+}
+
+function slotIntersectsBounds(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  bounds: SoaWorldBounds
+): boolean {
+  const minX = Math.min(x, x + w);
+  const minY = Math.min(y, y + h);
+  const maxX = Math.max(x, x + w);
+  const maxY = Math.max(y, y + h);
+  const br = bounds.left + bounds.width;
+  const bb = bounds.top + bounds.height;
+  return !(maxX < bounds.left || maxY < bounds.top || minX > br || minY > bb);
+}
+
+/** Register all visible idle SoA slots against the tiles covering a painted tile AABB. */
+function bindElementsForTileBounds(
+  buf: SceneRenderBuffer,
+  cache: SoaBakeCache,
+  tileK: string,
+  bounds: SoaWorldBounds
+): void {
+  for (let i = 0; i < buf.count; i += 1) {
+    const flags = buf.flags[i];
+    if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
+    const id = buf.ids[i];
+    if (!id) continue;
+    const o = i * POS_STRIDE;
+    if (
+      !slotIntersectsBounds(
+        buf.positions[o],
+        buf.positions[o + 1],
+        buf.positions[o + 2],
+        buf.positions[o + 3],
+        bounds
+      )
+    ) {
+      continue;
+    }
+    linkElementToTile(cache, id, tileK);
+  }
+}
+
+/**
+ * Invalidate bake tiles for known element ids via the reverse map (no AABB re-intersect).
+ * Falls back to empty when ids have no binding yet.
+ */
+export function invalidateSoaBakeTilesForElements(
+  cache: SoaBakeCache,
+  elementIds: readonly string[]
+): string[] {
+  const dropped = new Set<string>();
+  for (const raw of elementIds) {
+    const id = String(raw || '');
+    if (!id) continue;
+    const keys = cache.elementToTiles.get(id);
+    if (!keys) continue;
+    for (const key of [...keys]) {
+      if (dropped.has(key)) continue;
+      dropped.add(key);
+      dropBakeTile(cache, key);
+    }
+  }
+  return [...dropped];
 }
 
 export function createSoaBakeCache(): SoaBakeCache {
@@ -299,6 +449,8 @@ export function createSoaBakeCache(): SoaBakeCache {
     tileWorld: getSoaBakeTileWorld(),
     tiles: new Map(),
     lru: [],
+    elementToTiles: new Map(),
+    tileToElements: new Map(),
   };
 }
 
@@ -312,6 +464,8 @@ export function ensureSoaBakeTile(
   if (cache.bufferRevision !== buf.revision) {
     cache.tiles.clear();
     cache.lru = [];
+    cache.elementToTiles.clear();
+    cache.tileToElements.clear();
     cache.bufferRevision = buf.revision;
     cache.tileWorld = getSoaBakeTileWorld();
   }
@@ -330,6 +484,7 @@ export function ensureSoaBakeTile(
   paintIdleInto(ctx, buf, bounds);
   const tile: SoaBakeTile = { key, canvas, bounds, bufferRevision: buf.revision };
   cache.tiles.set(key, tile);
+  bindElementsForTileBounds(buf, cache, key, bounds);
   touchLru(cache, key);
   return tile;
 }
@@ -369,34 +524,40 @@ export function patchSoaBakeDirty(buf: SceneRenderBuffer, bake: SoaBakeLayer): b
 }
 
 /**
- * Delete bake-cache tiles overlapping `dirty` and clear DIRTY flags.
- * Returns the dropped tile keys (`tx,ty`) for atlas incremental restamp.
+ * Delete bake-cache tiles for dirty slots.
+ * Uses element↔tile map when present, always unions dirty-AABB tiles so moves
+ * still clear the destination footprint.
  */
 export function invalidateSoaBakeTilesForDirty(
   buf: SceneRenderBuffer,
   cache: SoaBakeCache,
   dirty: SoaWorldBounds
 ): string[] {
+  const dirtyIds: string[] = [];
+  for (let i = 0; i < buf.count; i += 1) {
+    if (!(buf.flags[i] & SOA_FLAG_DIRTY)) continue;
+    const id = buf.ids[i];
+    if (id) dirtyIds.push(id);
+  }
+  const dropped = new Set<string>();
+  if (dirtyIds.length && cache.elementToTiles.size > 0) {
+    for (const key of invalidateSoaBakeTilesForElements(cache, dirtyIds)) {
+      dropped.add(key);
+    }
+  }
   const tw = cache.tileWorld;
-  const dropped: string[] = [];
   for (const { tx, ty } of tilesForView(dirty, tw)) {
     const key = tileKey(tx, ty);
-    cache.tiles.delete(key);
-    const i = cache.lru.indexOf(key);
-    if (i >= 0) cache.lru.splice(i, 1);
-    dropped.push(key);
+    if (dropped.has(key)) continue;
+    dropBakeTile(cache, key);
+    dropped.add(key);
   }
   for (let i = 0; i < buf.count; i += 1) {
     if (buf.flags[i] & SOA_FLAG_DIRTY) {
       buf.flags[i] = (buf.flags[i] & ~SOA_FLAG_DIRTY) >>> 0;
     }
   }
-  return dropped;
-}
-
-export function invalidateSoaBake(bake: SoaBakeLayer | null | undefined) {
-  if (bake) bake.valid = false;
-  resetSharedSoaBakeCache();
+  return [...dropped];
 }
 
 function blitOneTile(

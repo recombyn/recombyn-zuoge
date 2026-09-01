@@ -190,7 +190,7 @@ describe('frameNodeBinding', () => {
   it('rejects video/audio on 动画工作台; preview blocks new binds until timeline open', () => {
     const lottie = {
       id: 'lot',
-      kind: 'lottie',
+      kind: 'animation',
       x: 0,
       y: 0,
       width: 200,
