@@ -164,7 +164,7 @@ function LottiePlate({
   mount: SVGSVGElement;
 }) {
   const animRef = useRef<AnimationItem | null>(null);
-  const reduxPlaying = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
+  const storePlaying = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
   const playingHostId = useSelector((s: any) =>
     String(s.editor.lottiePlayingHostId || '').trim()
   );
@@ -241,12 +241,12 @@ function LottiePlate({
     if (!api) return;
     let mine = isTimelineHost(nodeId, timelineHostId);
     if (playingHostId) mine = isPlayingHost(nodeId, playingHostId);
-    if (reduxPlaying && mine) {
+    if (storePlaying && mine) {
       if (api.isPaused()) api.play();
       return;
     }
     if (!api.isPaused()) api.pause();
-  }, [reduxPlaying, playingHostId, timelineHostId, nodeId, mount, animationJson]);
+  }, [storePlaying, playingHostId, timelineHostId, nodeId, mount, animationJson]);
 
   useEffect(() => {
     if (hidden) return;

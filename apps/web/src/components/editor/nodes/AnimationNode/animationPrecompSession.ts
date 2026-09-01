@@ -551,7 +551,7 @@ export function endPrecompEditSession(opts: {
   return doc;
 }
 
-/** Apply end session when Redux edit state has a restorable snapshot. */
+/** Apply end session when the editor store edit state has a restorable snapshot. */
 export function endPrecompEditFromState(
   document: SceneDocument,
   edit: LottiePrecompEditState,

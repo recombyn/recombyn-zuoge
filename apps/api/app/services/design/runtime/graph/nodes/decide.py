@@ -22,6 +22,7 @@ from app.services.design.runtime.graph.state import (
 )
 from app.services.design.runtime.graph.emit_sse import (
     _emit,
+    _emit_chat_ui_done,
 )
 from app.services.design.runtime.graph.llm_io import (
     _clip_llm_raw,
@@ -889,6 +890,7 @@ async def _node_design_agent(state: GraphState) -> Command:
             _absorb_ask_choices(st, turn)
             rt.flags["await_user"] = True
             rt.terminal = True
+            _emit_chat_ui_done(rt)
             return Command(update=_bump(rt), goto="__settle__")
 
         brief = _stash_design_brief(rt, turn, round_i=round_i)
@@ -944,6 +946,7 @@ async def _node_design_agent(state: GraphState) -> Command:
             st.reply = text
             _emit({"type": "token", "text": text})
         rt.terminal = True
+        _emit_chat_ui_done(rt)
         return Command(update=_bump(rt), goto="__settle__")
 
     # Rounds exhausted on decide — if classified canvas work, still try paint.

@@ -116,7 +116,7 @@ export function clearCollabUndoStack() {
   bumpUndoListeners();
 }
 
-/** @returns true when collab handled the gesture (caller should skip Redux history). */
+/** @returns true when collab handled the gesture (caller should skip editor-store history). */
 export function collabUndo(): boolean {
   if (!active || viewOnly || !undoManager) return false;
   if (!undoManager.canUndo()) return false;

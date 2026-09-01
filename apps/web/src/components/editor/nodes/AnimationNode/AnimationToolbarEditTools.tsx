@@ -80,7 +80,8 @@ function AnimationToolbarEditTools({
   loop: boolean;
   speed: number;
 }) {
-  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();
+  const document = useEditorDocumentOnCommit();
   const playhead = useAnimationPlayheadSec();
   const [playbackReady, setPlaybackReady] = useState(false);
   const timelinePanelNodeId = useSelector(
@@ -180,7 +181,7 @@ function AnimationToolbarEditTools({
         setLottiePlaying({ playing: false, hostNodeId: nodeId });
         return;
       }
-      // At / past out — restart from in; otherwise continue from Redux playhead.
+      // At / past out — restart from in; otherwise continue from the editor store playhead.
       const start =
         playhead >= workOutSec - 1e-3 || playhead < workInSec - 1e-3
           ? workInSec

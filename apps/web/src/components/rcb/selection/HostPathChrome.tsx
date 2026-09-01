@@ -33,7 +33,7 @@ import {
 } from './SelectionChrome';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
-import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
+import { getNodeTransformPreview, subscribeTransformPreview } from '@/components/rcb/core/transformPreview';
 
 function liveNodeEl(nodeId: string): Element | null {
   // Prefer the live shape host — shared map can lag one frame after draw/remount
@@ -67,50 +67,61 @@ function hostSkewDeg(nodeId: string): { skewX: number; skewAxis: number } {
   };
 }
 
-/** Live rotation: host `__sceneAngle` → TransformPreview → fallback. */
+function previewGeomBox(nodeId: string): SceneBox | null {
+  const preview = getNodeTransformPreview(nodeId);
+  if (
+    !preview ||
+    !Number.isFinite(preview.left) ||
+    !Number.isFinite(preview.top) ||
+    !Number.isFinite(preview.width) ||
+    !Number.isFinite(preview.height) ||
+    preview.width <= 0 ||
+    preview.height <= 0
+  ) {
+    return null;
+  }
+  return {
+    left: preview.left,
+    top: preview.top,
+    width: preview.width,
+    height: preview.height,
+  };
+}
+
+/** Live rotation: TransformPreview (gesture) → host `__sceneAngle` → fallback. */
 function hostAngleDeg(nodeId: string, fallback = 0): number {
+  const previewAngle = getNodeTransformPreview(nodeId)?.angle;
+  if (previewAngle !== undefined && Number.isFinite(previewAngle)) return Number(previewAngle);
   const el = liveNodeEl(nodeId) as { __sceneAngle?: number } | null;
   const n = Number(el?.__sceneAngle);
   if (Number.isFinite(n)) return n;
-  const previewAngle = getNodeTransformPreview(nodeId)?.angle;
-  if (previewAngle !== undefined && Number.isFinite(previewAngle)) return Number(previewAngle);
   return fallback;
 }
 
 /**
- * Live geometry: mounted SVG host, else TransformPreview (SoA-demoted / playhead).
+ * Live geometry for path chrome / control box.
+ * Same lattice as SoA ink + marquee/group move: TransformPreview wins while
+ * gesturing. Idle: active shape host only — shared `nodeEls` can keep a stale
+ * leaf for canvas-ink shapes and desync the blue path from fill (脱落路径线).
  */
 function liveShapeGeomBox(nodeId: string): SceneBox | null {
-  const el = liveNodeEl(nodeId) as (SVGElement & {
-    __sceneLeft?: number;
-    __sceneTop?: number;
-    sceneWidth?: number;
-    sceneHeight?: number;
-  }) | null;
-  if (el) {
-    const origin = liveHostPaintOrigin(el);
-    const width = Number(el.sceneWidth);
-    const height = Number(el.sceneHeight);
-    if (origin && [width, height].every(Number.isFinite) && width > 0 && height > 0) {
-      return { left: origin.left, top: origin.top, width, height };
-    }
-  }
-  const preview = getNodeTransformPreview(nodeId);
-  if (
-    preview &&
-    Number.isFinite(preview.left) &&
-    Number.isFinite(preview.top) &&
-    Number.isFinite(preview.width) &&
-    Number.isFinite(preview.height) &&
-    preview.width > 0 &&
-    preview.height > 0
-  ) {
-    return {
-      left: preview.left,
-      top: preview.top,
-      width: preview.width,
-      height: preview.height,
-    };
+  const fromPreview = previewGeomBox(nodeId);
+  if (fromPreview) return fromPreview;
+  const el = getShapeHost(nodeId)?.el as
+    | (SVGElement & {
+        __sceneLeft?: number;
+        __sceneTop?: number;
+        sceneWidth?: number;
+        sceneHeight?: number;
+      })
+    | null
+    | undefined;
+  if (!el) return null;
+  const origin = liveHostPaintOrigin(el);
+  const width = Number(el.sceneWidth);
+  const height = Number(el.sceneHeight);
+  if (origin && [width, height].every(Number.isFinite) && width > 0 && height > 0) {
+    return { left: origin.left, top: origin.top, width, height };
   }
   return null;
 }
@@ -278,7 +289,7 @@ function hostSelHandlesKey(
   inv: number,
   outlineD: string
 ): string {
-  // Live host lattice (not Redux alone) — at 5000%+ even 0.01 scene is a screen px.
+  // Live host lattice (not the editor store alone) — at 5000%+ even 0.01 scene is a screen px.
   const live = liveShapeGeomBox(o.id);
   const origin = liveHostPaintOrigin(liveNodeEl(o.id));
   const left = live?.left ?? origin?.left ?? o.box.left;
@@ -790,6 +801,19 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
   outlinesRef.current = outlines;
 
   useEffect(() => subscribeShapeHosts(() => setHostEpoch((n) => n + 1)), []);
+
+  // Same beat as SoA ink / frame-plate move: TransformPreview writers paint
+  // immediately — re-sync path chrome in that callback so blue outline cannot
+  // lag a stale host leaf (marquee/group move already share this preview lattice).
+  useEffect(() => {
+    return subscribeTransformPreview(() => {
+      const strokeNow = CHROME_STROKE_PX * (1 / Math.max(0.05, rcbCameraCssZoom(camera)));
+      const invNow = 1 / Math.max(0.05, rcbCameraCssZoom(camera));
+      for (const o of outlinesRef.current) {
+        syncHostSelOutline(o, strokeNow, invNow, camera, dpr);
+      }
+    });
+  }, [camera, dpr]);
 
   useLayoutEffect(() => {
     const current = outlinesRef.current;

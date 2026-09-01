@@ -136,7 +136,7 @@ export function normalizeProjectThumbnailUrls(
     .slice(0, 4);
 }
 
-/** Card / Redux cover field: null | single url | collage urls. */
+/** Card / editor store cover field: null | single url | collage urls. */
 export function collageOrSingleThumb(urls: string[]): string | string[] | null {
   if (urls.length === 0) return null;
   if (urls.length === 1) return urls[0]!;

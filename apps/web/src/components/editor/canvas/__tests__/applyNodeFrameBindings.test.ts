@@ -101,3 +101,29 @@ describe('applyNodeFrameBindings document-space membership', () => {
     expect(String(next.deltaSetLike?.s1?.attrs?.frameId || '')).toBe('anim');
   });
 });
+
+describe('bindCreatedNodeToFrame final AABB', () => {
+  it('drops preferred plate when finished box is fully outside', async () => {
+    const { bindCreatedNodeToFrame } = await import(
+      '@/components/editor/canvas/canvasSession'
+    );
+    setAnimationWorkbenchTimelineFocus('anim');
+    const doc = makeDoc({
+      ox: 0,
+      oy: 0,
+      frame: { x: 0, y: 0, width: 364, height: 364 },
+      node: { x: 400, y: 40, width: 80, height: 60 },
+    });
+    // Preferred = plate (pointer-down hit), final rect off-plate to the right.
+    const next = bindCreatedNodeToFrame(
+      doc,
+      's1',
+      { left: 400, top: 40, width: 80, height: 60 },
+      'anim'
+    );
+    expect(String(next.deltaSetLike?.s1?.attrs?.frameId || '')).toBe('');
+    expect(String(next.deltaSetLike?.s1?.attrs?.animationWorkbenchSurround || '')).toBe(
+      'anim'
+    );
+  });
+});

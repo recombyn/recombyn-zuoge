@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach } from 'vitest';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  clearNodeTransformPreviews,
+  setNodeTransformPreviews,
+} from '@/components/rcb/core/transformPreview';
 import {
   createSceneRenderBuffer,
   markAllSoaDirty,
@@ -21,6 +25,10 @@ import {
   tilesForView,
   unionSoaDirtyAabb,
 } from '../soaBakeLayer';
+
+afterEach(() => {
+  clearNodeTransformPreviews();
+});
 
 describe('soa dirty + bake helpers', () => {
   it('unionSoaDirtyAabb tracks dirty slots only', () => {
@@ -67,6 +75,28 @@ describe('soa dirty + bake helpers', () => {
     const box = unionSoaDirtyAabb(buf);
     expect(box?.left).toBe(10);
     expect(box?.top).toBe(20);
+  });
+
+  it('unionSoaDirtyAabb unions document + TransformPreview trail', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'a', {
+      id: 'a',
+      key: 'shape',
+      x: 10,
+      y: 20,
+      width: 30,
+      height: 40,
+      attrs: { shapeType: 'rect', fill: '#fff' },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    setNodeTransformPreviews([{ nodeId: 'a', left: 100, top: 20, width: 30, height: 40 }]);
+    const box = unionSoaDirtyAabb(buf);
+    expect(box?.left).toBe(10);
+    expect(box?.top).toBe(20);
+    expect(box?.width).toBeGreaterThanOrEqual(120);
+    expect(box?.height).toBeGreaterThanOrEqual(40);
   });
 
   it('shouldUseSoaBake respects threshold', () => {

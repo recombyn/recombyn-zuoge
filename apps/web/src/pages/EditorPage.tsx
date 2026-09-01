@@ -548,7 +548,8 @@ async function hydrateCloudProject(
 const MOBILE_AGENT_INTERACTION_MODES: ComposerInteractionMode[] = ['agent'];
 
 function EditorPage() {
-  const { t } = useTranslation();  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const location = useLocation();
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   // Defer font catalog off home cold path (was eager in main.tsx).
@@ -1433,7 +1434,7 @@ function EditorPage() {
   /**
    * Fit camera **before** boot overlay dismisses — once content is visible, never
    * auto-adjust again (no post-reveal re-fit when AgentDock width settles).
-   * Wait until the route project is actually in Redux (not a leftover / null doc).
+   * Wait until the route project is actually in the editor store (not a leftover / null doc).
    */
   useEffect(() => {
     const routeId = decodeURIComponent((routeProjectId || '').trim());

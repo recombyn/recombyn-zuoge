@@ -481,7 +481,7 @@ function mutationRejectResults(
 
 /**
  * Scene Mutation Pipeline: validate → permission → revision → history → apply → sync.
- * AI / human / collab writes go through here — never AI → Redux action shapes.
+ * AI / human / collab writes go through here — never AI → store action shapes.
  */
 export async function applySceneMutation<T extends { opResults: SceneMutationOpResult[] }>(opts: {
   source: SceneMutationSource;

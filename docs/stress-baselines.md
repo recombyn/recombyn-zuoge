@@ -26,7 +26,7 @@ How to capture a performance baseline (canvas, API, collab, Agent). Tools alread
 ## Intentional gaps (still)
 
 - Real provider paid image/video gen finish in CI (opt-in: `E2E_PAID_IMAGE_GEN=1`)
-- Full 5k SVG host DOM mount (product uses ≤96 full hosts + Canvas idle — covered by `canvas5k.interactiveBudget`)
+- Full 5k SVG host DOM mount (product uses SoA canvas ink + cull — covered by `canvas5k.interactiveBudget`)
 
 Dual-client Yjs concurrent merge: `npm run test:collab:merge` (also Gate B `perf-k6.yml`).
 

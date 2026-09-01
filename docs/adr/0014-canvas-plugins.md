@@ -11,7 +11,7 @@ After Skill playbooks (ADR 0013), the second extension surface is **canvas-nativ
 
 1. **Phase B = in-process canvas plugins.** Packs under `plugins/canvas/<id>/` register with a small host API (`registerToolbarButton`, …). They run in the editor bundle — **not** a browser sandbox yet.
 2. **Host** lives in `apps/web/src/plugins/canvas/host.ts`; the bottom tool strip renders registered buttons after `ensureCanvasPlugins()`.
-3. **Scene writes** go through existing Redux helpers (`spawnCreatedNode`, `placeText` on the runtime) — plugins must not invent a second document writer.
+3. **Scene writes** go through existing editor store helpers (`spawnCreatedNode`, `placeText` on the runtime) — plugins must not invent a second document writer.
 4. **Sample:** `plugins/canvas/watermark` — toolbar inserts translucent text.
 5. **Out of scope here:** sandboxed iframes, remote CDN plugins, Python `handler.py` runners (Skill Phase next), `.recombyn-plugin` zip install.
 

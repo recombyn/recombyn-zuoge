@@ -25,7 +25,7 @@ describe('patchDeltaSetLike Immer COW', () => {
     expect(Object.keys(next).sort()).toEqual(['ROOT', 'a', 'b']);
   });
 
-  it('returns a plain extensible object safe for Redux Object.keys', () => {
+  it('returns a plain extensible object safe for editor store Object.keys', () => {
     const base: Record<string, any> = {
       ROOT: { id: 'ROOT', children: ['a'] },
       a: { id: 'a', x: 0, attrs: { shapeType: 'rect' } },

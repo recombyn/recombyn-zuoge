@@ -12,7 +12,8 @@ import { buildLoginUrl } from '@/utils/authReturnTo';
  * Exchanges the one-time id for a session, then enters the app.
  */
 function ActivateEmailPage() {
-  const { t } = useTranslation();  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);

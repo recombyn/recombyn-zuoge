@@ -2,7 +2,7 @@ import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/
 /**
  * Canvas stress micro-benchmarks (Node/jsdom) — post-optimization suite.
  *
- * Measures COW history / patch undo / spatial cull / Canvas idle host budget on
+ * Measures COW history / patch undo / spatial cull / canvas ink budget on
  * homogeneous + mixed “design-like” scenes (rect / text / path / heavy outline).
  *
  * Run: `npm run test:stress --workspace=apps/web`
@@ -281,13 +281,11 @@ function measureHitNearby(doc: SceneDocument, _idx: RcbSpatialIndex, points: Arr
   };
 }
 
-function hostBudgetFor(doc: SceneDocument, visibleIds: string[], zoom: number, moving: boolean) {
+function hostBudgetFor(doc: SceneDocument, visibleIds: string[], zoom: number) {
   const { fullIds, canvasIds } = pickFullAndCanvasIds({
     document: doc,
     visibleIds,
-    keepSet: new Set(visibleIds.slice(0, 2)),
     zoom,
-    moving,
   });
   return { full: fullIds.length, canvas: canvasIds.length };
 }
@@ -401,8 +399,8 @@ function runSuite(n: number, kind: Kind): Row {
       if (box && boxesIntersect(box, view)) visibleIds.push(id);
     }
   }
-  const host1 = hostBudgetFor(doc, visibleIds, 1, false);
-  const hostFar = hostBudgetFor(doc, visibleIds, 0.25, true);
+  const host1 = hostBudgetFor(doc, visibleIds, 1);
+  const hostFar = hostBudgetFor(doc, visibleIds, 0.25);
 
   return {
     n,

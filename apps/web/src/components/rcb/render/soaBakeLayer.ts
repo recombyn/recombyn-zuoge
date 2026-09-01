@@ -16,6 +16,14 @@ import {
   resolveSoaPaintBox,
 } from './sceneRenderBuffer';
 import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+
+/** Document for plate clip while baking tiles (set by the stage renderer). */
+let bakeClipDocument: SceneDocument | null = null;
+
+export function setSoaBakeClipDocument(doc: SceneDocument | null | undefined) {
+  bakeClipDocument = doc ?? null;
+}
 
 export const SOA_BAKE_COUNT_THRESHOLD = 8_000;
 /** World-space tile edge (scene units). */
@@ -111,6 +119,42 @@ export function computeSoaIdleBounds(buf: SceneRenderBuffer): SoaWorldBounds | n
   };
 }
 
+function unionRotatedPaintBox(
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  angleDeg: number
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  let x0 = x;
+  let y0 = y;
+  let x1 = x + w;
+  let y1 = y + h;
+  if (Math.abs(angleDeg) > 0.5) {
+    const rad = (Math.abs(angleDeg) * Math.PI) / 180;
+    const cos = Math.abs(Math.cos(rad));
+    const sin = Math.abs(Math.sin(rad));
+    const bw = w * cos + h * sin;
+    const bh = w * sin + h * cos;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    x0 = cx - bw / 2;
+    y0 = cy - bh / 2;
+    x1 = cx + bw / 2;
+    y1 = cy + bh / 2;
+  }
+  return {
+    minX: Math.min(minX, x0, x1),
+    minY: Math.min(minY, y0, y1),
+    maxX: Math.max(maxX, x0, x1),
+    maxY: Math.max(maxY, y0, y1),
+  };
+}
+
 export function unionSoaDirtyAabb(buf: SceneRenderBuffer): SoaWorldBounds | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -123,30 +167,41 @@ export function unionSoaDirtyAabb(buf: SceneRenderBuffer): SoaWorldBounds | null
     if (!(buf.flags[i] & SOA_FLAG_VISIBLE)) continue;
     const id = buf.ids[i];
     if (id && getNodeTransformPreview(id)?.hidden) continue;
-    const { x, y, w, h } = resolveSoaPaintBox(buf, i);
+    const live = resolveSoaPaintBox(buf, i);
     const angle = id ? Number(getNodeTransformPreview(id)?.angle) || 0 : 0;
-    let x0 = x;
-    let y0 = y;
-    let x1 = x + w;
-    let y1 = y + h;
-    if (Math.abs(angle) > 0.5) {
-      const rad = (Math.abs(angle) * Math.PI) / 180;
-      const cos = Math.abs(Math.cos(rad));
-      const sin = Math.abs(Math.sin(rad));
-      const bw = w * cos + h * sin;
-      const bh = w * sin + h * cos;
-      const cx = x + w / 2;
-      const cy = y + h / 2;
-      x0 = cx - bw / 2;
-      y0 = cy - bh / 2;
-      x1 = cx + bw / 2;
-      y1 = cy + bh / 2;
+    const o = i * POS_STRIDE;
+    const baseX = buf.positions[o];
+    const baseY = buf.positions[o + 1];
+    const baseW = buf.positions[o + 2];
+    const baseH = buf.positions[o + 3];
+    const unioned = unionRotatedPaintBox(
+      minX,
+      minY,
+      maxX,
+      maxY,
+      live.x,
+      live.y,
+      live.w,
+      live.h,
+      angle
+    );
+    minX = unioned.minX;
+    minY = unioned.minY;
+    maxX = unioned.maxX;
+    maxY = unioned.maxY;
+    if (
+      Math.abs(live.dx) > 1e-3 ||
+      Math.abs(live.dy) > 1e-3 ||
+      Math.abs(live.w - baseW) > 1e-3 ||
+      Math.abs(live.h - baseH) > 1e-3
+    ) {
+      const trail = unionRotatedPaintBox(minX, minY, maxX, maxY, baseX, baseY, baseW, baseH, angle);
+      minX = trail.minX;
+      minY = trail.minY;
+      maxX = trail.maxX;
+      maxY = trail.maxY;
     }
     any = true;
-    minX = Math.min(minX, x0, x1);
-    minY = Math.min(minY, y0, y1);
-    maxX = Math.max(maxX, x0, x1);
-    maxY = Math.max(maxY, y0, y1);
   }
   if (!any || !Number.isFinite(minX)) return null;
   return {
@@ -193,6 +248,7 @@ function paintIdleInto(
   ctx.setTransform(sx, 0, 0, sy, -bounds.left * sx, -bounds.top * sy);
   paintSoaBufferBasic(ctx as CanvasRenderingContext2D, buf, bounds, {
     dirtyOnly: false,
+    document: bakeClipDocument,
   });
 }
 

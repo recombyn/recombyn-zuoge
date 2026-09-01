@@ -12,7 +12,7 @@ import {
 export type GoEditorOpts = {
   createNew?: boolean;
   fromHomeAgent?: boolean;
-  /** Open this project; falls back to Redux currentId when omitted. */
+  /** Open this project; falls back to the editor store currentId when omitted. */
   projectId?: string | null;
   /** Open editor in a new browser tab/window (home project cards). */
   newWindow?: boolean;

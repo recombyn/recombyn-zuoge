@@ -18,9 +18,9 @@ SVG remains fine for export and moderate static paint. It must not remain the in
 
 Treat the editor runtime as four facts (**this is the product architecture — do not invent a parallel one mid-fix**):
 
-1. **`SceneDocument`** — unique document source of truth (Redux / collab patches write here).
+1. **`SceneDocument`** — unique document source of truth (store / collab patches write here).
 2. **`CameraTransform`** — single pan/zoom matrix; only `worldToScreen` / `screenToWorld` / `screenDeltaToWorldDelta` on hot paths. No DOM “correction” of coordinates during gestures.
-3. **Layered render** — committed ink: SVG hosts for rich/media; Canvas2D or opt-in WebGL2 for SoA idle ink; grid on Canvas underlay. Selection, guides, and drawing previews share the camera surface; screen UI stays in the HTML overlay.
+3. **Layered render** — **single SoA Canvas2D vector ink**; DOM hosts only for text / media FO / SoftGlow / editors / heavy paths; grid on Canvas; selection, guides, and drawing previews share the camera surface; screen UI stays in the HTML overlay.
 4. **Independent hit** — root pointer capture → chrome hit → spatial index coarse → precise geometry. `sceneToSvg` stays an **export** path, not the live paint core.
 
 SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`.
@@ -31,8 +31,8 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 |-------|--------|------|
 | 1 | Done (core) | CameraTransform API; ink and selection chrome share the same SVG root and camera `<g>`; geometry-first chrome hit; shared spatial; union AABB chrome. |
 | 2 | Done (core) | `SceneRenderer` (`svg` + `canvas2d` underlay); idle Canvas ink (`canIdlePaintOnCanvas` + rounded/poly Path2D). |
-| 3 | Done (core) | **SoA** `SceneRenderBuffer` + `VITE_SOA_CANVAS_SHAPES=1`; radii in buffer → `roundRect`; promote/demote; AI lock → one flush; spatial from SoA; dirty AABB; bake ≥8k; tier bench 2k/10k/100k. Outline stroke / gradient / poly / text / media stay SVG hosts (rich Canvas only on host-budget overflow) — not SoA BASIC_GEOM. |
-| 4 | Core usable (opt-in) | WebGL2 instancing + path densify; LRU atlas (defaults on with WebGL); dirty path/round restamp + orphan prune; SoA `strokeWidths`; rounded-rect atlas stamps; GL fail → Canvas2D; WebGL keeps rich idle on SVG hosts. Flags: `VITE_SOA_WEBGL=1` (+ SoA shapes). Not default-on for all installs. |
+| 3 | Done (default-on) | **SoA** `SceneRenderBuffer` default-on Canvas2D (`VITE_SOA_CANVAS_SHAPES=0` kill-switch); single vector ink surface; radii + center outline stroke + simple poly/star samples; AI lock → one flush; spatial from SoA; dirty AABB; bake ≥8k. Text / media FO / SoftGlow / editors / heavy paths stay DOM hosts. |
+| 4 | Frozen (opt-in) | WebGL2 instancing + path densify + atlas — **not** product default. Outline stroke / poly stay on SVG while WebGL is on (instances lack those). Flags: `VITE_SOA_WEBGL=1`. Converge later; do not dual-default. |
 
 ### Acceptance targets
 
@@ -40,7 +40,7 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 - Pointer-move → paint P95 &lt; 16ms; single-point hit P95 &lt; 1ms
 - Non-media DOM node count in the low hundreds
 - Zoom 5%–10_000%: element/control geometry transform error = 0
-- Drag does not dispatch full Redux scene updates
+- Drag does not dispatch full editor store scene updates
 - Export and screen share one `SceneDocument`, without depending on live DOM ink
 
 ## Consequences

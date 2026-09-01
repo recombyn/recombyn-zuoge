@@ -401,7 +401,8 @@ async function outlineSelectedNode(opts: {
 }
 
 function SelectionContextToolbar(props: Props): ReactNode {
-  const { document, nodeId, box, valueBox, edgePadScene = 0, angle: angleProp } = props;  const { t } = useTranslation();
+  const { document, nodeId, box, valueBox, edgePadScene = 0, angle: angleProp } = props;
+  const { t } = useTranslation();
   const [decorationOpen, setDecorationOpen] = useState(false);
   const [alignOpen, setAlignOpen] = useState(false);
   const imageToolPanel = useSelector(
@@ -653,6 +654,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
             autoSize: 'false',
             lockAspect: 'true',
             name: titleName,
+            'fill-color': '#FFFFFF',
             radiusTL: TEXT_FRAME_RADIUS,
             radiusTR: TEXT_FRAME_RADIUS,
             radiusBR: TEXT_FRAME_RADIUS,

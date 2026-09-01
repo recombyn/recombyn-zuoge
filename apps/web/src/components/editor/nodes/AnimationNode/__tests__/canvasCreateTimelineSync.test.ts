@@ -11,6 +11,7 @@ import {
   openLottieTimelinePanel,
   setDocumentFromCanvas,
   spawnAnimationBoard,
+  removeDocumentNodes,
 } from '@/store/modules/editor';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 import {
@@ -92,7 +93,15 @@ describe('canvas create → animation timeline layers', () => {
     expect(queued).toContain(frameId);
 
     // Same as AnimationFrameWorkbenchHost listener.
-    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId, skipHistory: true });
+    const revBeforeEnsure = Number(state.documentRevision) || 0;
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+
+    // useEditorDocumentOnCommit only re-reads on documentRevision — bake must bump it
+    // even with skipHistory, or 「图层」 stays stale until the next drag touch.
+    expect(Number(state.documentRevision) || 0).toBeGreaterThan(revBeforeEnsure);
 
     const after = parseLottieAnimationData(
       state.document!.deltaSetLike![hostId!].attrs?.animationData
@@ -103,5 +112,66 @@ describe('canvas create → animation timeline layers', () => {
       true
     );
     expect(Number(state.document!.deltaSetLike![id].attrs?.lottieLayerInd)).toBeGreaterThan(0);
+  });
+
+  it('delete → undo bumps documentRevision so timeline layers restore', async () => {
+    let state = seed();
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, { x: 0, y: 0, width: 400, height: 400 });
+    const frameId = String(state.selectedFrameIds[0] || '');
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId, skipHistory: true });
+    const hostId = findFrameAnimationMediaId(state.document, frameId)!;
+    state = reduceEditor(state, editorReducers.openLottieTimelinePanel, { nodeId: hostId });
+
+    const { id, node } = createShapeNode({
+      x: 40,
+      y: 40,
+      width: 80,
+      height: 60,
+      shapeType: 'triangle',
+      fill: '#ff0000',
+    });
+    node.attrs = { ...(node.attrs || {}), frameId, frameOrder: 1, name: 'tri' };
+    state = reduceEditor(
+      state,
+      editorReducers.setDocumentFromCanvas,
+      addNodeToDocument(state.document!, id, node)
+    );
+    await flushEnsureMicrotask();
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+
+    const layersBeforeDelete = (
+      (parseLottieAnimationData(state.document!.deltaSetLike![hostId].attrs?.animationData)
+        ?.layers as any[]) || []
+    ).filter((l) => String(l.ln || '').trim());
+    expect(layersBeforeDelete.some((l) => String(l.ln) === id)).toBe(true);
+
+    state = reduceEditor(state, editorReducers.removeDocumentNodes, { nodeIds: [id] });
+    await flushEnsureMicrotask();
+    // Simulate workbench host listener draining the ensure queue after delete.
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+    expect(state.document!.deltaSetLike?.[id]).toBeUndefined();
+
+    const revBeforeUndo = Number(state.documentRevision) || 0;
+    state = reduceEditor(state, editorReducers.undo, undefined);
+    expect(state.document!.deltaSetLike?.[id]).toBeTruthy();
+    // Dock only re-reads on documentRevision — undo must bump it.
+    expect(Number(state.documentRevision) || 0).toBeGreaterThan(revBeforeUndo);
+
+    await flushEnsureMicrotask();
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+    const layersAfterUndo = (
+      (parseLottieAnimationData(state.document!.deltaSetLike![hostId].attrs?.animationData)
+        ?.layers as any[]) || []
+    ).filter((l) => String(l.ln || '').trim());
+    expect(layersAfterUndo.some((l) => String(l.ln) === id)).toBe(true);
   });
 });

@@ -768,7 +768,8 @@ function AnimationFrameChildToolbar({
   edgePadScene,
   angle,
 }: Props) {
-  const { t } = useTranslation();  const camera = useRcbCamera();
+  const { t } = useTranslation();
+  const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
   const playhead = useSelector((s: any) => Number(s.editor.lottiePlayheadSec) || 0);
   const timelinePanelNodeId = useSelector(

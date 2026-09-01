@@ -2,8 +2,8 @@
  * Imperative editor scene events — prefer dispatching these over useEffect([state]).
  * Hosts bind once with addEventListener; producers call request* at the action site.
  *
- * All fires are deferred (queueMicrotask) so reducers can call them safely —
- * listeners often read store.getState(), which Redux forbids mid-reduce.
+ * All fires are deferred (queueMicrotask) so mutators can call them safely —
+ * listeners often read store.getState(), which must not run mid-write.
  */
 
 export const RCB_ENSURE_ANIMATION_FRAME = 'rcb-ensure-animation-frame';
