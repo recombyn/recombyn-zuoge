@@ -188,12 +188,29 @@ function queryNode(
   for (let i = 0; i < items.length; i += 1) {
     const it = items[i];
     if (seen.has(it.id)) continue;
-    if (!aabbIntersects(minX, minY, maxX, maxY, it.minX, it.minY, it.maxX, it.maxY)) {
-      continue;
-    }
+    if (!itemIntersectsQuery(it, minX, minY, maxX, maxY)) continue;
     seen.add(it.id);
     out.push(it);
   }
+}
+
+function itemIntersectsQuery(
+  item: SoaQuadItem,
+  qMinX: number,
+  qMinY: number,
+  qMaxX: number,
+  qMaxY: number
+): boolean {
+  return aabbIntersects(
+    qMinX,
+    qMinY,
+    qMaxX,
+    qMaxY,
+    item.minX,
+    item.minY,
+    item.maxX,
+    item.maxY
+  );
 }
 
 function rebuildRoot(
@@ -212,6 +229,8 @@ function rebuildRoot(
 export class SoaQuadtree {
   private root: QuadNode | null = null;
   private readonly byId = new Map<string, SoaQuadItem>();
+  /** Stale tree membership — resolve live AABB on search; rebuild when large. */
+  private readonly dirtyIds = new Set<string>();
   private readonly maxItems: number;
   private readonly maxDepth: number;
 
@@ -224,8 +243,16 @@ export class SoaQuadtree {
     return this.byId.size;
   }
 
+  get dirtySize(): number {
+    return this.dirtyIds.size;
+  }
+
   has(id: string): boolean {
     return this.byId.has(id);
+  }
+
+  isDirty(id: string): boolean {
+    return this.dirtyIds.has(id);
   }
 
   ids(): IterableIterator<string> {
@@ -235,6 +262,54 @@ export class SoaQuadtree {
   clear(): void {
     this.root = null;
     this.byId.clear();
+    this.dirtyIds.clear();
+  }
+
+  /**
+   * Mark id dirty without tree surgery. Search uses live AABB for dirty ids;
+   * call {@link rebuildIfDirty} after many moves.
+   */
+  markDirty(id: string): void {
+    if (!id || !this.byId.has(id)) return;
+    this.dirtyIds.add(id);
+  }
+
+  markDirtyMany(ids: Iterable<string>): void {
+    for (const id of ids) this.markDirty(id);
+  }
+
+  /**
+   * Rebuild the tree from current `byId` when dirty count ≥ threshold.
+   * Returns true if a rebuild ran.
+   */
+  rebuildIfDirty(threshold = 48): boolean {
+    if (this.dirtyIds.size < threshold) return false;
+    this.rebuildFromById();
+    return true;
+  }
+
+  /** Force one rebuild from `byId` and clear dirty. */
+  rebuildFromById(): void {
+    this.dirtyIds.clear();
+    if (this.byId.size === 0) {
+      this.root = null;
+      return;
+    }
+    this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
+  }
+
+  /**
+   * Update stored AABB only (no remove/insert). Marks dirty for lazy tree repair.
+   * Prefer during TransformPreview micro-moves.
+   */
+  patchBoundsLazy(item: SoaQuadItem): void {
+    const normalized = normalizeItem(item);
+    if (!this.byId.has(normalized.id)) {
+      this.upsert(normalized);
+      return;
+    }
+    this.byId.set(normalized.id, normalized);
+    this.dirtyIds.add(normalized.id);
   }
 
   /** Insert or replace AABB for `item.id` (world scene units). */
@@ -242,6 +317,7 @@ export class SoaQuadtree {
     if (this.byId.has(item.id)) this.remove(item.id);
     const normalized = normalizeItem(item);
     this.byId.set(normalized.id, normalized);
+    this.dirtyIds.delete(normalized.id);
     if (!this.root) {
       this.root = rootAround(normalized);
       insert(this.root, normalized, 0, this.maxItems, this.maxDepth);
@@ -261,6 +337,7 @@ export class SoaQuadtree {
   replaceAll(items: Iterable<SoaQuadItem>): void {
     this.root = null;
     this.byId.clear();
+    this.dirtyIds.clear();
     for (const raw of items) {
       const normalized = normalizeItem(raw);
       this.byId.set(normalized.id, normalized);
@@ -282,27 +359,86 @@ export class SoaQuadtree {
     }
     if (!any) return;
     this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
+    this.dirtyIds.clear();
   }
 
   remove(id: string): void {
     if (!this.byId.has(id)) return;
     this.byId.delete(id);
+    this.dirtyIds.delete(id);
     if (this.root) removeFromNode(this.root, id);
   }
 
-  /** All items whose AABB intersects the query rect. */
-  search(minX: number, minY: number, maxX: number, maxY: number): SoaQuadItem[] {
+  /**
+   * Items whose AABB intersects the query rect.
+   * When `liveAabb` is set, dirty ids are filtered / rescued with the live box
+   * so TransformPreview need not upsert every frame.
+   */
+  search(
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number,
+    opts?: {
+      liveAabb?: (id: string) => SoaQuadItem | null | undefined;
+    }
+  ): SoaQuadItem[] {
     const out: SoaQuadItem[] = [];
-    if (!this.root) return out;
+    if (!this.root && this.dirtyIds.size === 0) return out;
     const qMinX = Math.min(minX, maxX);
     const qMaxX = Math.max(minX, maxX);
     const qMinY = Math.min(minY, maxY);
     const qMaxY = Math.max(minY, maxY);
-    queryNode(this.root, qMinX, qMinY, qMaxX, qMaxY, new Set(), out);
-    return out;
+    const seen = new Set<string>();
+    const liveAabb = opts?.liveAabb;
+
+    if (this.root) {
+      queryNode(this.root, qMinX, qMinY, qMaxX, qMaxY, seen, out);
+    }
+    if (!liveAabb || this.dirtyIds.size === 0) return out;
+
+    const kept: SoaQuadItem[] = [];
+    for (const hit of out) {
+      if (!this.dirtyIds.has(hit.id)) {
+        kept.push(hit);
+        continue;
+      }
+      const live = resolveLiveInQuery(hit.id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
+      if (live) kept.push(live);
+    }
+    for (const id of this.dirtyIds) {
+      if (seen.has(id)) continue;
+      const live = resolveLiveInQuery(id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
+      if (!live) continue;
+      seen.add(id);
+      kept.push(live);
+    }
+    return kept;
   }
 
-  searchPoint(x: number, y: number, pad = 0): SoaQuadItem[] {
-    return this.search(x - pad, y - pad, x + pad, y + pad);
+  searchPoint(
+    x: number,
+    y: number,
+    pad = 0,
+    opts?: {
+      liveAabb?: (id: string) => SoaQuadItem | null | undefined;
+    }
+  ): SoaQuadItem[] {
+    return this.search(x - pad, y - pad, x + pad, y + pad, opts);
   }
+}
+
+function resolveLiveInQuery(
+  id: string,
+  liveAabb: (id: string) => SoaQuadItem | null | undefined,
+  qMinX: number,
+  qMinY: number,
+  qMaxX: number,
+  qMaxY: number
+): SoaQuadItem | null {
+  const live = liveAabb(id);
+  if (!live) return null;
+  const box = normalizeItem(live);
+  if (!itemIntersectsQuery(box, qMinX, qMinY, qMaxX, qMaxY)) return null;
+  return box;
 }

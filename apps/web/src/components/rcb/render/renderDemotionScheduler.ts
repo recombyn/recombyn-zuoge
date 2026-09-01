@@ -6,12 +6,13 @@
  *
  * Product mapping:
  * - ACTIVE_SVG — SoftGlow / inline editors (`forceFullIds`), not selection
- * - CANDIDATE — released from forceFull; quiet timer running (DOM host held)
+ * - CANDIDATE — released from forceFull; quiet window (DOM host held)
  * - DEPLOYED_SOA — canvas-idle ink
  *
  * Quiet demote: SoA ink flags flip immediately on CANDIDATE (host still mounted;
- * paint skips slots with a live SVG host). Timer only releases the host hold so
- * there is no blank frame when SoftGlow/editors end.
+ * paint skips slots with a live SVG host). Host release uses one shared wake
+ * timer over `Map<id, lastActive>` (not per-id setTimeout): when due, scan and
+ * batch-release all quiet candidates.
  *
  * Promote is flushed synchronously. Paint/bake wakes coalesce via rAF.
  */
@@ -34,8 +35,8 @@ export type RenderDemotionScheduler = {
   /** Diff force-full host set; promote adds immediately; schedule demote on removes. */
   setForceHosts: (hostIds: ReadonlySet<string> | readonly string[]) => void;
   /**
-   * Edit pulse on an id: cancel demote timer; if still forceFull → ACTIVE;
-   * if CANDIDATE → restart quiet timer; does not promote selection onto SVG.
+   * Edit pulse on an id: if still forceFull → ACTIVE;
+   * if CANDIDATE → bump quiet lastActive (does not re-demote ink).
    */
   noteElementActive: (id: string) => void;
   noteElementsActive: (ids: readonly string[]) => void;
@@ -43,15 +44,20 @@ export type RenderDemotionScheduler = {
   promoteNow: (ids: readonly string[]) => void;
   /** Batch demote without delay. */
   demoteNow: (ids: readonly string[]) => void;
-  /** Cancel timers; drop hints. */
+  /** Cancel tick; drop hints. */
   dispose: () => void;
-  /** Test helper — pending demote ids. */
+  /** Test helper — pending host-release candidate ids. */
   pendingDemoteIds: () => string[];
 };
 
 function toHostSet(hostIds: ReadonlySet<string> | readonly string[]): Set<string> {
-  if (Array.isArray(hostIds)) return new Set(hostIds.filter(Boolean).map(String));
-  return new Set([...hostIds].map(String).filter(Boolean));
+  const src = Array.isArray(hostIds) ? hostIds : hostIds;
+  const out = new Set<string>();
+  for (const raw of src) {
+    const id = String(raw || '').trim();
+    if (id) out.add(id);
+  }
+  return out;
 }
 
 function normalizeId(raw: string): string {
@@ -60,28 +66,43 @@ function normalizeId(raw: string): string {
 
 /**
  * @param demoteDelayMs Quiet period after ink demote before releasing DOM host (default 300).
+ * @param now Injectable clock (tests).
  */
 export function createRenderDemotionScheduler(opts: {
   sink: RenderDemotionSink;
   demoteDelayMs?: number;
   onHintsChanged?: () => void;
+  now?: () => number;
 }): RenderDemotionScheduler {
   const demoteDelayMs = Math.max(0, opts.demoteDelayMs ?? 300);
+  const nowFn = opts.now ?? (() => Date.now());
   const hints = new Map<string, RenderHint>();
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** CANDIDATE ids → last activity ms (host hold until quiet). */
+  const lastActive = new Map<string, number>();
   let forceHosts = new Set<string>();
   const pendingAfter = new Set<string>();
   let afterRaf = 0;
+  /** At most one wake timer for the whole candidate set. */
+  let wakeTimer: ReturnType<typeof setTimeout> | null = null;
 
   function notifyHints(): void {
     opts.onHintsChanged?.();
   }
 
-  function clearTimer(id: string): void {
-    const t = timers.get(id);
-    if (t == null) return;
-    clearTimeout(t);
-    timers.delete(id);
+  function dropCandidate(id: string): void {
+    lastActive.delete(id);
+  }
+
+  function clearWake(): void {
+    if (wakeTimer == null) return;
+    clearTimeout(wakeTimer);
+    wakeTimer = null;
+  }
+
+  function cancelAfterRaf(): void {
+    if (!afterRaf) return;
+    cancelAnimationFrame(afterRaf);
+    afterRaf = 0;
   }
 
   function queueAfterFlip(ids: readonly string[]): void {
@@ -95,10 +116,68 @@ export function createRenderDemotionScheduler(opts: {
     });
   }
 
+  function releaseHostHolds(ids: readonly string[]): void {
+    if (!ids.length) return;
+    for (const id of ids) {
+      dropCandidate(id);
+      if (forceHosts.has(id)) {
+        hints.set(id, 'ACTIVE_SVG');
+        continue;
+      }
+      hints.set(id, 'DEPLOYED_SOA');
+    }
+    notifyHints();
+  }
+
+  function flushExpiredCandidates(ts: number): void {
+    if (lastActive.size === 0) return;
+    const due: string[] = [];
+    for (const [id, activeAt] of lastActive) {
+      if (hints.get(id) !== 'CANDIDATE') {
+        dropCandidate(id);
+        continue;
+      }
+      if (forceHosts.has(id)) {
+        dropCandidate(id);
+        hints.set(id, 'ACTIVE_SVG');
+        continue;
+      }
+      if (ts - activeAt >= demoteDelayMs) due.push(id);
+    }
+    if (due.length) releaseHostHolds(due);
+  }
+
+  function ensureWake(): void {
+    clearWake();
+    if (lastActive.size === 0 || demoteDelayMs <= 0) return;
+    const ts = nowFn();
+    let soonest = Infinity;
+    for (const activeAt of lastActive.values()) {
+      const dueAt = activeAt + demoteDelayMs;
+      if (dueAt < soonest) soonest = dueAt;
+    }
+    if (!Number.isFinite(soonest)) return;
+    wakeTimer = setTimeout(() => {
+      wakeTimer = null;
+      flushExpiredCandidates(nowFn());
+      ensureWake();
+    }, Math.max(0, soonest - ts));
+  }
+
+  function armCandidate(id: string): void {
+    hints.set(id, 'CANDIDATE');
+    lastActive.set(id, nowFn());
+    if (demoteDelayMs <= 0) {
+      releaseHostHolds([id]);
+      return;
+    }
+    ensureWake();
+  }
+
   function promoteIds(ids: readonly string[]): void {
     if (!ids.length) return;
     for (const id of ids) {
-      clearTimer(id);
+      dropCandidate(id);
       hints.set(id, 'ACTIVE_SVG');
     }
     opts.sink.promote(ids);
@@ -111,7 +190,7 @@ export function createRenderDemotionScheduler(opts: {
     if (!ids.length) return;
     const out: string[] = [];
     for (const id of ids) {
-      clearTimer(id);
+      dropCandidate(id);
       if (forceHosts.has(id)) continue;
       hints.set(id, 'DEPLOYED_SOA');
       out.push(id);
@@ -122,45 +201,35 @@ export function createRenderDemotionScheduler(opts: {
     notifyHints();
   }
 
-  /** Release host hold only — ink already demoted at CANDIDATE start. */
-  function releaseHostHold(id: string): void {
-    clearTimer(id);
-    if (forceHosts.has(id)) {
-      hints.set(id, 'ACTIVE_SVG');
-      notifyHints();
-      return;
-    }
-    hints.set(id, 'DEPLOYED_SOA');
-    notifyHints();
-  }
-
   function scheduleDemote(id: string): void {
-    clearTimer(id);
-    hints.set(id, 'CANDIDATE');
     // Prepare SoA ink while SVG host is still mounted (paint skips host.el).
     opts.sink.demote([id]);
     queueAfterFlip([id]);
+    armCandidate(id);
     notifyHints();
-    if (demoteDelayMs <= 0) {
-      hints.set(id, 'DEPLOYED_SOA');
-      notifyHints();
-      return;
-    }
-    const handle = setTimeout(() => {
-      timers.delete(id);
-      releaseHostHold(id);
-    }, demoteDelayMs);
-    timers.set(id, handle);
   }
 
-  /** Shared by noteElementActive / noteElementsActive. */
   function pulseActiveKey(key: string): void {
-    clearTimer(key);
     if (forceHosts.has(key)) {
+      dropCandidate(key);
       hints.set(key, 'ACTIVE_SVG');
       return;
     }
-    if (hints.get(key) === 'CANDIDATE') scheduleDemote(key);
+    if (hints.get(key) !== 'CANDIDATE') return;
+    lastActive.set(key, nowFn());
+    ensureWake();
+  }
+
+  function diffForceHosts(next: Set<string>): { added: string[]; removed: string[] } {
+    const added: string[] = [];
+    const removed: string[] = [];
+    for (const id of next) {
+      if (!forceHosts.has(id)) added.push(id);
+    }
+    for (const id of forceHosts) {
+      if (!next.has(id)) removed.push(id);
+    }
+    return { added, removed };
   }
 
   return {
@@ -178,14 +247,7 @@ export function createRenderDemotionScheduler(opts: {
 
     setForceHosts(hostIds: ReadonlySet<string> | readonly string[]): void {
       const next = toHostSet(hostIds);
-      const added: string[] = [];
-      const removed: string[] = [];
-      for (const id of next) {
-        if (!forceHosts.has(id)) added.push(id);
-      }
-      for (const id of forceHosts) {
-        if (!next.has(id)) removed.push(id);
-      }
+      const { added, removed } = diffForceHosts(next);
       forceHosts = next;
       if (added.length) promoteIds(added);
       for (const id of removed) scheduleDemote(id);
@@ -215,17 +277,16 @@ export function createRenderDemotionScheduler(opts: {
     },
 
     dispose(): void {
-      for (const id of [...timers.keys()]) clearTimer(id);
+      clearWake();
+      cancelAfterRaf();
+      lastActive.clear();
       hints.clear();
       forceHosts = new Set();
       pendingAfter.clear();
-      if (!afterRaf) return;
-      cancelAnimationFrame(afterRaf);
-      afterRaf = 0;
     },
 
     pendingDemoteIds(): string[] {
-      return [...timers.keys()].sort();
+      return [...lastActive.keys()].sort();
     },
   };
 }
