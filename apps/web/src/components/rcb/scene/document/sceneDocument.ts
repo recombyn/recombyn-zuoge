@@ -314,7 +314,7 @@ export function mergeNodePatch(
 
 /**
  * Patch deltaSetLike keys with Immer structural sharing (plain objects only).
- * Never use a custom Proxy — Redux/Immer Object.keys traps reject it.
+ * Never use a custom Proxy — Immer Object.keys traps reject it.
  *
  * Always return an extensible shallow shell: Immer autoFreeze seals `produce`
  * results in DEV, but normalize/add/remove still assign or delete top-level keys.
@@ -711,7 +711,7 @@ export function updateNodesInDocument(
 
 export function listSceneNodes(doc: SceneDocument | null | undefined) {
   if (!doc) return [];
-  // Read-only: never mutate Redux/Immer state here
+  // Read-only: never mutate Immer state here
   const page = getActivePage(doc);
   const ids = page?.children || doc.deltaSetLike?.ROOT?.children || [];
   return ids

@@ -1,5 +1,5 @@
 /**
- * Live editor paint board handle (runtime only — not Redux / document state).
+ * Live editor paint board handle (runtime only — not the editor store / document state).
  */
 export type SvgBoardHandle = {
   root: SVGSVGElement;

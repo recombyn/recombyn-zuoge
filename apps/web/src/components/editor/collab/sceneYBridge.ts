@@ -1,7 +1,7 @@
 /**
  * Bidirectional bridge: sceneDocument ↔ Y.Doc.
  * Local writes use origin `local`; remote observes skip echoing back into Y.
- * Local→Y and remote→Redux prefer granular diffs (only changed nodes/frames/meta).
+ * Local→Y and remote→store prefer granular diffs (only changed nodes/frames/meta).
  */
 
 import * as Y from 'yjs';
@@ -180,7 +180,7 @@ export function seedYDocFromScene(doc: Y.Doc, scene: unknown) {
   }, Y_ORIGIN_SEED);
 }
 
-/** Export a plain sceneDocument from the Y.Doc (for Redux / PUT). */
+/** Export a plain sceneDocument from the Y.Doc (for editor store / PUT). */
 export function sceneFromYDoc(doc: Y.Doc): any {
   const meta = yMetaMap(doc);
   const frames = yFramesMap(doc);

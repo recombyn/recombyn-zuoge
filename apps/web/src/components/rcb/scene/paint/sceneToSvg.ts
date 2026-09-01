@@ -3358,7 +3358,7 @@ export function previewSvgNodeEllipseParams(
 
 /**
  * Live corner-radius preview without remounting the shape host.
- * (Redux skipHistory patches remount via documentPatchToken and can leave ghosts.)
+ * (store skipHistory patches remount via documentPatchToken and can leave ghosts.)
  */
 export function previewSvgNodeCornerRadii(
   nodeEls: Map<string, SVGElement>,

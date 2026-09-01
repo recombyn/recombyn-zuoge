@@ -54,7 +54,8 @@ function MarkSessionHost({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {  const { t } = useTranslation();
+}): ReactNode {
+  const { t } = useTranslation();
   const camera = useRcbCamera();
   const { data: imageToolCaps } = useImageToolCapabilities();
   const ilpEnabled = imageToolCaps?.ilp?.enabled === true;

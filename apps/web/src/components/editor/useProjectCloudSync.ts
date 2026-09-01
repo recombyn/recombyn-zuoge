@@ -584,7 +584,7 @@ export function useProjectCloudSync() {
   }, []);
 
   const flush = useCallback(async (opts?: FlushProjectOptions): Promise<FlushProjectResult> => {
-    // Read Redux directly — requestProjectFlush may fire before this hook re-renders.
+    // Read editor store directly — requestProjectFlush may fire before this hook re-renders.
     const force = Boolean(opts?.force);
     const ed = store.getState().editor as {
       dirty: boolean;

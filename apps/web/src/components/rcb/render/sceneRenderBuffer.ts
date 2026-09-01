@@ -12,27 +12,32 @@ import {
   clampCornerRadii,
   radiiFromAttrs,
 } from '@/components/rcb/scene/document/sceneRadii';
-import { resolveStroke } from '@/components/rcb/scene/document/sceneEffects';
+import {
+  resolveStroke,
+  resolveStrokeAlign,
+} from '@/components/rcb/scene/document/sceneEffects';
 import {
   ellipseArcPercentFromAttrs,
   ellipseInnerRatioFromAttrs,
   HEAVY_PATH_D_CHARS,
+  shapeVertexPoints,
+  starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
   pathDLooksClosed,
   sampleSoaPathPolyline,
   SOA_PATH_MAX_PTS,
 } from '@/components/rcb/render/soaPathSamples';
-import { getNodeTransformPreview, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
+import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
 import { findClippingFrameForNode } from '@/components/rcb/frames/frameContentClip';
-import { hasLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 
 export const SOA_FLAG_VISIBLE = 1 << 0;
 export const SOA_FLAG_LOCKED = 1 << 1;
 export const SOA_FLAG_DIRTY = 1 << 2;
 /** Eligible for Canvas-only paint (no SVG host unless promoted). */
 export const SOA_FLAG_CANVAS_IDLE = 1 << 3;
-/** Geometry is SoA-basic (solid fillRect/roundRect/ellipse/line/path samples). */
+/** Geometry is SoA-basic (solid fill/roundRect/ellipse/line/path/poly + center stroke). */
 export const SOA_FLAG_BASIC_GEOM = 1 << 4;
 
 export const SOA_KIND_RECT = 0;
@@ -91,10 +96,12 @@ function isSoaWebglAtlasEnvOff(): boolean {
 }
 
 /**
- * True when {@link paintSoaBufferBasic} / WebGL can draw the node faithfully.
- * Outline stroke / gradient / poly / text / media / rotation / flip stay on SVG
- * hosts (or rich Canvas overflow) — they never set BASIC_GEOM / CANVAS_IDLE.
- * Solid rounded rects are OK — radii live in the SoA `radii` array.
+ * True when {@link paintSoaBufferBasic} can draw the node faithfully.
+ * Gradient / non-center strokeAlign / text / media / rotation / flip stay on SVG
+ * (or rich Canvas overflow) — they never set BASIC_GEOM / CANVAS_IDLE.
+ * Solid rounded rects, center outline stroke, and simple poly/star are OK on the
+ * Canvas2D SoA path. WebGL instances still lack outline+poly, so those stay SVG
+ * while `VITE_SOA_WEBGL` is on.
  * Line/path ink *is* the stroke (not an outline on a fill).
  */
 export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined): boolean {
@@ -110,7 +117,8 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
 
   const key = String(node.key || '');
   const t = String(attrs.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
-  // Line/path ink *is* the stroke — outline stroke on filled shapes still demotes.
+  const webgl = isSoaWebglEnvEnabled();
+  // Line/path ink *is* the stroke — outline stroke on filled shapes is separate.
   const strokeInk =
     t === 'line' ||
     t === 'arrow' ||
@@ -121,7 +129,10 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
   if (!strokeInk) {
     const stroke = resolveStroke(node);
     if ((Number(stroke.strokeWidth) || 0) > 0 && !isTransparentCssColor(String(stroke.stroke || ''))) {
-      return false;
+      // Canvas2D SoA only paints center-aligned outlines.
+      if (resolveStrokeAlign(attrs) !== 'center') return false;
+      // WebGL instance path has no outline stroke — keep SVG hosts.
+      if (webgl) return false;
     }
   }
 
@@ -133,6 +144,11 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
     return true;
   }
   if (t === 'line' || t === 'arrow') return true;
+  if (t === 'triangle' || t === 'polygon' || t === 'star') {
+    // WebGL pack skips SOA_KIND_POLY — Canvas2D SoA only.
+    if (webgl) return false;
+    return true;
+  }
   if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path') {
     const d = String(attrs.path || '').trim();
     if (!d || d.length >= HEAVY_PATH_D_CHARS) return false;
@@ -142,7 +158,7 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
     if (attrs.outlined === true || attrs.outlined === 'true') return false;
     // Closed fill needs atlas stamps; without atlas keep SVG (segment batch is stroke-only).
     if (
-      isSoaWebglEnvEnabled() &&
+      webgl &&
       isSoaWebglAtlasEnvOff() &&
       pathDLooksClosed(d, attrs.closed) &&
       pathAttrsHaveSolidFill(attrs)
@@ -165,8 +181,10 @@ export type SceneRenderBuffer = {
   flags: Uint32Array;
   /** Low 8 bits unused; kind in bits 8–11 via helpers. */
   kinds: Uint8Array;
-  /** Per-slot stroke width in scene units (line/path). 0 = unused. */
+  /** Per-slot stroke width in scene units (line/path/outline). 0 = unused. */
   strokeWidths: Float32Array;
+  /** Outline stroke ARGB for rect/ellipse/poly (0 = no outline). Line/path ink uses `colors`. */
+  strokeColors: Uint32Array;
   ids: string[];
   indexById: Map<string, number>;
   /** Generation bumped on any structural sync. */
@@ -199,10 +217,10 @@ export function isSoaCanvasShapesEnabled(): boolean {
     const env = String(import.meta.env.VITE_SOA_CANVAS_SHAPES ?? '').toLowerCase();
     if (env === '0' || env === 'false' || env === 'no') return false;
     if (env === '1' || env === 'true' || env === 'yes') return true;
-    // Opt-in: keep SVG host path as default until SoA paint is validated in QA.
-    return false;
+    // Default-on: Canvas2D SoA idle for BASIC_GEOM (WebGL stays opt-in).
+    return true;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -228,10 +246,32 @@ export function soaStrokeWidth(buf: SceneRenderBuffer, index: number): number {
 }
 
 function slotStrokeWidth(node: SceneNodeInput, kind: number): number {
-  if (kind !== SOA_KIND_LINE && kind !== SOA_KIND_PATH) return 0;
-  const { strokeWidth } = resolveStroke(node, '#333333');
-  if (Number.isFinite(strokeWidth) && strokeWidth > 0) return strokeWidth;
-  return SOA_DEFAULT_STROKE_WIDTH;
+  if (kind === SOA_KIND_LINE || kind === SOA_KIND_PATH) {
+    const { strokeWidth } = resolveStroke(node, '#333333');
+    if (Number.isFinite(strokeWidth) && strokeWidth > 0) return strokeWidth;
+    return SOA_DEFAULT_STROKE_WIDTH;
+  }
+  if (kind === SOA_KIND_RECT || kind === SOA_KIND_ELLIPSE || kind === SOA_KIND_POLY) {
+    if (resolveStrokeAlign(node.attrs) !== 'center') return 0;
+    const { stroke, strokeWidth } = resolveStroke(node);
+    if (!(strokeWidth > 0) || isTransparentCssColor(String(stroke || ''))) return 0;
+    return strokeWidth;
+  }
+  return 0;
+}
+
+function slotOutlineStrokeColor(node: SceneNodeInput, kind: number): number {
+  // PATH: stroke lives here so closed unfilled pens stay stroke-only (colors=0).
+  if (kind === SOA_KIND_PATH) {
+    const { stroke, strokeWidth } = resolveStroke(node, '#333333');
+    if (!(strokeWidth > 0) || isTransparentCssColor(String(stroke || ''))) return 0;
+    return packCssColor(stroke, 0xff333333);
+  }
+  if (kind !== SOA_KIND_RECT && kind !== SOA_KIND_ELLIPSE && kind !== SOA_KIND_POLY) return 0;
+  if (resolveStrokeAlign(node.attrs) !== 'center') return 0;
+  const { stroke, strokeWidth } = resolveStroke(node);
+  if (!(strokeWidth > 0) || isTransparentCssColor(String(stroke || ''))) return 0;
+  return packCssColor(stroke, 0xff333333);
 }
 
 export function createSceneRenderBuffer(initialCapacity = GROW): SceneRenderBuffer {
@@ -245,6 +285,7 @@ export function createSceneRenderBuffer(initialCapacity = GROW): SceneRenderBuff
     flags: new Uint32Array(capacity),
     kinds: new Uint8Array(capacity),
     strokeWidths: new Float32Array(capacity),
+    strokeColors: new Uint32Array(capacity),
     ids: new Array(capacity),
     indexById: new Map(),
     revision: 0,
@@ -272,6 +313,8 @@ function ensureCapacity(buf: SceneRenderBuffer, need: number) {
   kinds.set(buf.kinds);
   const strokeWidths = new Float32Array(next);
   strokeWidths.set(buf.strokeWidths);
+  const strokeColors = new Uint32Array(next);
+  strokeColors.set(buf.strokeColors);
   const ids = new Array(next);
   for (let i = 0; i < buf.count; i += 1) ids[i] = buf.ids[i];
   const pathStart = new Int32Array(next).fill(-1);
@@ -287,6 +330,7 @@ function ensureCapacity(buf: SceneRenderBuffer, need: number) {
   buf.flags = flags;
   buf.kinds = kinds;
   buf.strokeWidths = strokeWidths;
+  buf.strokeColors = strokeColors;
   buf.ids = ids;
   buf.pathStart = pathStart;
   buf.pathLen = pathLen;
@@ -357,7 +401,10 @@ function fillColorOf(node: SceneNodeInput): number {
   return packCssColor(fill, 0xffc0c0c0);
 }
 
-/** Line/arrow/path ink prefers stroke; closed filled paths keep fill. */
+/**
+ * Slot fill color. For PATH: only closed + solid fill (0 = stroke-only —
+ * paint must not fill with the stroke color when fill is transparent).
+ */
 function slotColorOf(node: SceneNodeInput): number {
   const kind = shapeKindOf(node);
   const attrs = node.attrs || {};
@@ -369,13 +416,11 @@ function slotColorOf(node: SceneNodeInput): number {
   if (kind === SOA_KIND_PATH) {
     const d = String(attrs.path || '');
     const closed = pathDLooksClosed(d, attrs.closed);
-    const fill = attrs.fill ?? attrs['fill-color'] ?? attrs.fillColor;
-    const fillStr = String(fill || '').trim().toLowerCase();
-    const hasFill = Boolean(fillStr) && fillStr !== 'none' && fillStr !== 'transparent';
-    if (closed && hasFill) return packCssColor(fill, 0xffc0c0c0);
-    const stroke =
-      attrs.stroke ?? attrs['stroke-color'] ?? attrs.strokeColor ?? fill ?? '#333333';
-    return packCssColor(stroke, 0xff333333);
+    if (closed && pathAttrsHaveSolidFill(attrs)) {
+      const fill = attrs.fill ?? attrs['fill-color'] ?? attrs.fillColor;
+      return packCssColor(fill, 0xffc0c0c0);
+    }
+    return 0;
   }
   return fillColorOf(node);
 }
@@ -412,11 +457,12 @@ function writeSlot(
   buf.colors[index] = slotColorOf(node);
   buf.kinds[index] = kind;
   buf.strokeWidths[index] = slotStrokeWidth(node, kind);
+  buf.strokeColors[index] = slotOutlineStrokeColor(node, kind) >>> 0;
   let flags = SOA_FLAG_DIRTY;
   if (!isNodeOverlayHidden(document, node)) flags |= SOA_FLAG_VISIBLE;
   if (Boolean(node.attrs?.locked)) flags |= SOA_FLAG_LOCKED;
-  // Only BASIC_GEOM demotes to SoA/Canvas idle. Stroke / gradient / poly / text /
-  // media stay on SVG hosts unless host-budget overflow forces rich idle.
+  // Only BASIC_GEOM demotes to SoA/Canvas idle. Gradient / text / media / WebGL-unsafe
+  // outline+poly stay on SVG hosts unless host-budget overflow forces rich idle.
   if (isSoaBasicGeomSufficient(node)) {
     flags |= SOA_FLAG_BASIC_GEOM | SOA_FLAG_CANVAS_IDLE;
   }
@@ -429,7 +475,7 @@ function writeSlot(
 }
 
 /**
- * Rebuild world-space path polylines after slot sync.
+ * Rebuild world-space path / poly polylines after slot sync.
  * Call after full or incremental document sync.
  */
 export function rebuildSoaPathSamples(
@@ -445,22 +491,39 @@ export function rebuildSoaPathSamples(
   if (!document?.deltaSetLike) return;
 
   let floatNeed = 0;
-  const pending: Array<{ index: number; pts: ReturnType<typeof sampleSoaPathPolyline>; closed: boolean }> =
-    [];
+  const pending: Array<{
+    index: number;
+    pts: Array<{ x: number; y: number }>;
+    closed: boolean;
+  }> = [];
   for (let i = 0; i < buf.count; i += 1) {
-    if (buf.kinds[i] !== SOA_KIND_PATH) continue;
+    const kind = buf.kinds[i];
     const id = buf.ids[i];
     const node = id ? document.deltaSetLike[id] : null;
     if (!node) continue;
-    const d = String(node.attrs?.path || '');
-    const pts = sampleSoaPathPolyline(d, SOA_PATH_MAX_PTS);
-    if (pts.length < 2) continue;
-    pending.push({
-      index: i,
-      pts,
-      closed: pathDLooksClosed(d, node.attrs?.closed),
-    });
-    floatNeed += pts.length * 2;
+    if (kind === SOA_KIND_PATH) {
+      const d = String(node.attrs?.path || '');
+      const pts = sampleSoaPathPolyline(d, SOA_PATH_MAX_PTS);
+      if (pts.length < 2) continue;
+      pending.push({
+        index: i,
+        pts,
+        closed: pathDLooksClosed(d, node.attrs?.closed),
+      });
+      floatNeed += pts.length * 2;
+      continue;
+    }
+    if (kind === SOA_KIND_POLY) {
+      const t = String(node.attrs?.shapeType || '').toLowerCase();
+      const w = Math.max(0.01, buf.positions[i * POS_STRIDE + 2]);
+      const h = Math.max(0.01, buf.positions[i * POS_STRIDE + 3]);
+      const sides = Number(node.attrs?.sides ?? node.attrs?.points) || 5;
+      const verts = shapeVertexPoints(t, w, h, sides, starInnerRatioFromAttrs(node.attrs));
+      if (verts.length < 3) continue;
+      const pts = verts.map(([x, y]) => ({ x, y }));
+      pending.push({ index: i, pts, closed: true });
+      floatNeed += pts.length * 2;
+    }
   }
   ensurePathXYCapacity(buf, floatNeed);
   let cursor = 0;
@@ -570,6 +633,7 @@ function removeSlot(buf: SceneRenderBuffer, index: number) {
     buf.flags[index] = buf.flags[last];
     buf.kinds[index] = buf.kinds[last];
     buf.strokeWidths[index] = buf.strokeWidths[last];
+    buf.strokeColors[index] = buf.strokeColors[last];
     buf.ids[index] = buf.ids[last];
     buf.pathStart[index] = buf.pathStart[last];
     buf.pathLen[index] = buf.pathLen[last];
@@ -762,7 +826,7 @@ export function hitTestSoaSlot(
     return distPointToSeg(x, y, left, top, left + w, top + h) <= pickR;
   }
 
-  if (kind === SOA_KIND_PATH) {
+  if (kind === SOA_KIND_PATH || kind === SOA_KIND_POLY) {
     const start = buf.pathStart[index];
     const len = buf.pathLen[index];
     if (start < 0 || len < 2) {
@@ -788,7 +852,20 @@ export function hitTestSoaSlot(
       last = fo;
     }
     if (buf.pathClosed[index]) {
-      return hitSoaPolylineFill(buf.pathXY, start, len, odx, ody, x, y);
+      // Close the ring for stroke hit.
+      if (len >= 2) {
+        const fo0 = base;
+        const foN = base + (len - 1) * 2;
+        const ax = buf.pathXY[foN] + odx;
+        const ay = buf.pathXY[foN + 1] + ody;
+        const bx = buf.pathXY[fo0] + odx;
+        const by = buf.pathXY[fo0 + 1] + ody;
+        if (distPointToSeg(x, y, ax, ay, bx, by) <= thresh) return true;
+      }
+      // Interior hit only when the path has a solid fill (colors ≠ 0).
+      if (buf.colors[index]) {
+        return hitSoaPolylineFill(buf.pathXY, start, len, odx, ody, x, y);
+      }
     }
     return false;
   }
@@ -888,6 +965,221 @@ export function forEachVisibleInRect(
   }
 }
 
+type SvgOccluder = {
+  id: string;
+  z: number;
+  /** SoA slot when the occluder still has buffer geometry (promoted BASIC_GEOM). */
+  index: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+/**
+ * SVG hosts under the idle-ink canvas that must punch silhouette holes in
+ * lower-z SoA paint (selection promote / rich hosts). Artboard plates excluded.
+ */
+function collectSvgOccluders(buf: SceneRenderBuffer, document: SceneDocument): SvgOccluder[] {
+  const out: SvgOccluder[] = [];
+  const rootKids = document.deltaSetLike?.ROOT?.children;
+  const ids = Array.isArray(rootKids)
+    ? rootKids.map(String).filter((id) => id && id !== 'ROOT')
+    : Object.keys(document.deltaSetLike || {}).filter((id) => id !== 'ROOT');
+  for (const id of ids) {
+    const node = document.deltaSetLike?.[id] as SceneNodeInput | undefined;
+    if (!node) continue;
+    const key = String(node.key || '');
+    if (key === 'frame' || key === 'entry') continue;
+    if (node.attrs?.isArtboard === true || node.attrs?.isArtboard === 'true') continue;
+    if (isNodeOverlayHidden(document, node)) continue;
+    if (getNodeTransformPreview(id)?.hidden) continue;
+
+    const si = buf.indexById.get(id);
+    if (si != null) {
+      const flags = buf.flags[si];
+      // Currently drawn on this idle canvas — not an SVG occluder.
+      if (
+        (flags & SOA_FLAG_VISIBLE) &&
+        (flags & SOA_FLAG_CANVAS_IDLE) &&
+        (flags & SOA_FLAG_BASIC_GEOM)
+      ) {
+        continue;
+      }
+    }
+
+    let x: number;
+    let y: number;
+    let w: number;
+    let h: number;
+    if (si != null) {
+      const box = resolveSoaPaintBox(buf, si);
+      x = box.x;
+      y = box.y;
+      w = box.w;
+      h = box.h;
+    } else {
+      const lt = nodeLeftTop(document, node);
+      x = Number(lt.left) || 0;
+      y = Number(lt.top) || 0;
+      w = Math.max(0.01, Number(node.width) || 1);
+      h = Math.max(0.01, Number(node.height) || 1);
+      const preview = getNodeTransformPreview(id);
+      if (preview) {
+        if (Number.isFinite(preview.left)) x = preview.left;
+        if (Number.isFinite(preview.top)) y = preview.top;
+        if (Number.isFinite(preview.width)) w = Math.max(0.01, preview.width);
+        if (Number.isFinite(preview.height)) h = Math.max(0.01, preview.height);
+      }
+    }
+    out.push({
+      id,
+      index: si != null ? si : -1,
+      x,
+      y,
+      w,
+      h,
+      z: stackZIndex(document, 'node', id),
+    });
+  }
+  return out;
+}
+
+function aabbOverlap(
+  ax: number,
+  ay: number,
+  aw: number,
+  ah: number,
+  bx: number,
+  by: number,
+  bw: number,
+  bh: number
+): boolean {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+function occluderAngleDeg(document: SceneDocument, id: string): number {
+  const live = getNodeTransformPreview(id)?.angle;
+  if (Number.isFinite(live) && Math.abs(Number(live)) > 0.5) return Number(live);
+  const a = Number(document.deltaSetLike?.[id]?.attrs?.angle);
+  return Number.isFinite(a) ? a : 0;
+}
+
+/**
+ * Append one occluder silhouette as a subpath (no beginPath).
+ * Prefer SoA kind/path/radii so the hole matches ink — AABB+pad holes leaked
+ * a gray fringe around the SVG host.
+ */
+function appendOccluderSilhouette(
+  ctx: CanvasRenderingContext2D,
+  buf: SceneRenderBuffer,
+  document: SceneDocument,
+  o: SvgOccluder
+): void {
+  const { x, y, w, h, index } = o;
+  const inflate =
+    index >= 0 && (buf.strokeColors[index] >>> 0) !== 0 && buf.strokeWidths[index] > 0
+      ? buf.strokeWidths[index] * 0.5
+      : 0;
+  const ix = x - inflate;
+  const iy = y - inflate;
+  const iw = Math.max(0.01, w + inflate * 2);
+  const ih = Math.max(0.01, h + inflate * 2);
+
+  if (index < 0) {
+    ctx.rect(ix, iy, iw, ih);
+    return;
+  }
+
+  const kind = buf.kinds[index];
+  const rot = occluderAngleDeg(document, o.id);
+
+  if (kind === SOA_KIND_PATH || kind === SOA_KIND_POLY) {
+    const start = buf.pathStart[index];
+    const len = buf.pathLen[index];
+    if (start < 0 || len < 2) {
+      ctx.rect(ix, iy, iw, ih);
+      return;
+    }
+    const { dx, dy } = resolveSoaPaintBox(buf, index);
+    const base = start * 2;
+    let started = false;
+    for (let p = 0; p < len; p += 1) {
+      const fo = base + p * 2;
+      const px = buf.pathXY[fo] + dx;
+      const py = buf.pathXY[fo + 1] + dy;
+      if (!Number.isFinite(px) || !Number.isFinite(py)) {
+        started = false;
+        continue;
+      }
+      if (!started) {
+        ctx.moveTo(px, py);
+        started = true;
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    if (started && buf.pathClosed[index] !== 0) ctx.closePath();
+    return;
+  }
+
+  if (kind === SOA_KIND_LINE) {
+    const sw = Math.max(inflate * 2, soaStrokeWidth(buf, index));
+    const minX = Math.min(x, x + w) - sw;
+    const minY = Math.min(y, y + h) - sw;
+    const maxX = Math.max(x, x + w) + sw;
+    const maxY = Math.max(y, y + h) + sw;
+    ctx.rect(minX, minY, Math.max(0.01, maxX - minX), Math.max(0.01, maxY - minY));
+    return;
+  }
+
+  const addLocalShape = () => {
+    if (kind === SOA_KIND_ELLIPSE) {
+      ctx.moveTo(iw, ih / 2);
+      ctx.ellipse(iw / 2, ih / 2, Math.max(0.01, iw / 2), Math.max(0.01, ih / 2), 0, 0, Math.PI * 2);
+      return;
+    }
+    const ro = index * RAD_STRIDE;
+    const grow = inflate > 0 ? inflate : 0;
+    const tl = buf.radii[ro] + grow;
+    const tr = buf.radii[ro + 1] + grow;
+    const br = buf.radii[ro + 2] + grow;
+    const bl = buf.radii[ro + 3] + grow;
+    if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
+      pathSoaRoundedRect(ctx, 0, 0, iw, ih, tl, tr, br, bl, { append: true });
+    } else {
+      ctx.rect(0, 0, iw, ih);
+    }
+  };
+
+  if (Math.abs(rot) > 0.5) {
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.translate(-iw / 2, -ih / 2);
+    addLocalShape();
+    ctx.restore();
+    return;
+  }
+
+  if (kind === SOA_KIND_ELLIPSE) {
+    ctx.moveTo(ix + iw, iy + ih / 2);
+    ctx.ellipse(ix + iw / 2, iy + ih / 2, Math.max(0.01, iw / 2), Math.max(0.01, ih / 2), 0, 0, Math.PI * 2);
+    return;
+  }
+  const ro = index * RAD_STRIDE;
+  const grow = inflate > 0 ? inflate : 0;
+  const tl = buf.radii[ro] + grow;
+  const tr = buf.radii[ro + 1] + grow;
+  const br = buf.radii[ro + 2] + grow;
+  const bl = buf.radii[ro + 3] + grow;
+  if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
+    pathSoaRoundedRect(ctx, ix, iy, iw, ih, tl, tr, br, bl, { append: true });
+  } else {
+    ctx.rect(ix, iy, iw, ih);
+  }
+}
+
 /** Paint visible SoA idle slots that intersect the view (scene units). */
 export function paintSoaBufferBasic(
   ctx: CanvasRenderingContext2D,
@@ -914,8 +1206,9 @@ export function paintSoaBufferBasic(
   const dirtyOnly = opts?.dirtyOnly === true;
   const skipIndex = opts?.skipIndex;
   const doc = opts?.document ?? null;
-  const clipActive =
-    Boolean(doc) && (hasNodeTransformPreviews() || hasLiveArtboardFrameGeometry());
+  // Frame clip is part of paint identity — not a gesture-only hint. Gating on
+  // TransformPreview left idle SoA ink unclipped on 动画工作台 / artboards.
+  const occluders = doc ? collectSvgOccluders(buf, doc) : [];
   const vl = view.left ?? view.x ?? 0;
   const vt = view.top ?? view.y ?? 0;
   const vr = vl + view.width;
@@ -928,6 +1221,11 @@ export function paintSoaBufferBasic(
     if (dirtyOnly && !(flags & SOA_FLAG_DIRTY)) continue;
     if (skipIndex?.(i)) continue;
     const id = buf.ids[i];
+    // Defense: never paint slots the document no longer owns (stale incremental).
+    if (doc && id && !doc.deltaSetLike?.[id]) {
+      buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+      continue;
+    }
     if (id && getNodeTransformPreview(id)?.hidden) {
       buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;
@@ -935,8 +1233,8 @@ export function paintSoaBufferBasic(
     const { x, y, w, h, dx: odx, dy: ody } = resolveSoaPaintBox(buf, i);
     if (x + w < vl || y + h < vt || x > vr || y > vb) continue;
     const kind = buf.kinds[i];
-    let clipped = false;
-    if (clipActive && id && doc) {
+    let clipDepth = 0;
+    if (doc && id) {
       const node = doc.deltaSetLike?.[id] as SceneNodeInput | undefined;
       if (node) {
         const frame = findClippingFrameForNode(doc, {
@@ -951,6 +1249,7 @@ export function paintSoaBufferBasic(
           const ox = Number(doc.x) || 0;
           const oy = Number(doc.y) || 0;
           ctx.save();
+          clipDepth += 1;
           ctx.beginPath();
           ctx.rect(
             Number(frame.x) - ox,
@@ -959,8 +1258,27 @@ export function paintSoaBufferBasic(
             Math.max(1, Number(frame.height) || 1)
           );
           ctx.clip();
-          clipped = true;
         }
+      }
+    }
+    // Idle canvas sits above SVG hosts — punch silhouette holes for higher-z
+    // SVG so demoted ink cannot cover selection (SoA kept; no AABB gray fringe).
+    if (doc && id && occluders.length) {
+      const slotZ = stackZIndex(doc, 'node', id);
+      const holes = occluders.filter(
+        (o) => o.z > slotZ && aabbOverlap(x, y, w, h, o.x, o.y, o.w, o.h)
+      );
+      if (holes.length) {
+        ctx.save();
+        clipDepth += 1;
+        ctx.beginPath();
+        // Tiny pad only on the keep-region (slot), never expand the hole.
+        const pad = 0.5;
+        ctx.rect(x - pad, y - pad, w + pad * 2, h + pad * 2);
+        for (const hole of holes) {
+          appendOccluderSilhouette(ctx, buf, doc, hole);
+        }
+        ctx.clip('evenodd');
       }
     }
     try {
@@ -975,26 +1293,40 @@ export function paintSoaBufferBasic(
         buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
         continue;
       }
-      if (kind === SOA_KIND_PATH) {
+      if (kind === SOA_KIND_PATH || kind === SOA_KIND_POLY) {
         const start = buf.pathStart[i];
         const len = buf.pathLen[i];
         if (start < 0 || len < 2) continue;
-        const color = unpackCssColor(buf.colors[i]);
+        const fillArgb = buf.colors[i] >>> 0;
         const closed = buf.pathClosed[i] !== 0;
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color;
-        ctx.lineWidth = soaStrokeWidth(buf, i);
+        const outlineArgb = buf.strokeColors[i] >>> 0;
+        const outlineW = buf.strokeWidths[i];
+        const isPoly = kind === SOA_KIND_POLY;
+        // PATH: colors = fill (0 if transparent); strokeColors = stroke.
+        // Never fill closed pens with the stroke color (looked black until select→SVG).
+        const doFill = closed && fillArgb !== 0;
+        const strokeArgb = outlineArgb || (!doFill && !isPoly ? fillArgb : 0);
+        if (doFill) ctx.fillStyle = unpackCssColor(fillArgb);
+        ctx.strokeStyle = strokeArgb
+          ? unpackCssColor(strokeArgb)
+          : unpackCssColor(fillArgb || 0xff333333);
+        ctx.lineWidth =
+          isPoly && outlineArgb && outlineW > 0
+            ? outlineW
+            : isPoly
+              ? 0
+              : soaStrokeWidth(buf, i);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         const base = start * 2;
         let pending = false;
-        const strokeContour = () => {
+        const finishContour = () => {
           if (!pending) return;
-          if (closed) {
-            ctx.closePath();
-            ctx.fill();
+          if (closed) ctx.closePath();
+          if (doFill) ctx.fill();
+          if (!isPoly || (outlineArgb && outlineW > 0)) {
+            if (ctx.lineWidth > 0 && strokeArgb) ctx.stroke();
           }
-          ctx.stroke();
           pending = false;
         };
         ctx.beginPath();
@@ -1003,7 +1335,7 @@ export function paintSoaBufferBasic(
           const px = buf.pathXY[fo] + odx;
           const py = buf.pathXY[fo + 1] + ody;
           if (!Number.isFinite(px) || !Number.isFinite(py)) {
-            strokeContour();
+            finishContour();
             ctx.beginPath();
             continue;
           }
@@ -1014,22 +1346,49 @@ export function paintSoaBufferBasic(
             ctx.lineTo(px, py);
           }
         }
-        strokeContour();
+        finishContour();
         buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
         continue;
       }
       if (kind !== SOA_KIND_RECT && kind !== SOA_KIND_ELLIPSE) continue;
       ctx.fillStyle = unpackCssColor(buf.colors[i]);
+      const outlineArgb = buf.strokeColors[i] >>> 0;
+      const outlineW = buf.strokeWidths[i];
       const liveAngle = id ? getNodeTransformPreview(id)?.angle : undefined;
       const rot =
         Number.isFinite(liveAngle) && Math.abs(Number(liveAngle)) > 0.5
           ? Number(liveAngle)
           : 0;
+      const strokeOutline = () => {
+        if (!(outlineArgb && outlineW > 0)) return;
+        ctx.strokeStyle = unpackCssColor(outlineArgb);
+        ctx.lineWidth = outlineW;
+        ctx.lineJoin = 'miter';
+        if (kind === SOA_KIND_ELLIPSE) {
+          ctx.beginPath();
+          ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          return;
+        }
+        const ro = i * RAD_STRIDE;
+        const tl = buf.radii[ro];
+        const tr = buf.radii[ro + 1];
+        const br = buf.radii[ro + 2];
+        const bl = buf.radii[ro + 3];
+        if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
+          pathSoaRoundedRect(ctx, 0, 0, w, h, tl, tr, br, bl);
+        } else {
+          ctx.beginPath();
+          ctx.rect(0, 0, w, h);
+        }
+        ctx.stroke();
+      };
       const paintRectOrEllipse = () => {
         if (kind === SOA_KIND_ELLIPSE) {
           ctx.beginPath();
           ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
           ctx.fill();
+          strokeOutline();
           return;
         }
         const ro = i * RAD_STRIDE;
@@ -1042,6 +1401,7 @@ export function paintSoaBufferBasic(
         } else {
           ctx.fillRect(0, 0, w, h);
         }
+        strokeOutline();
       };
       if (rot) {
         ctx.save();
@@ -1054,6 +1414,13 @@ export function paintSoaBufferBasic(
         ctx.beginPath();
         ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
         ctx.fill();
+        if (outlineArgb && outlineW > 0) {
+          ctx.strokeStyle = unpackCssColor(outlineArgb);
+          ctx.lineWidth = outlineW;
+          ctx.beginPath();
+          ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       } else {
         const ro = i * RAD_STRIDE;
         const tl = buf.radii[ro];
@@ -1065,16 +1432,31 @@ export function paintSoaBufferBasic(
         } else {
           ctx.fillRect(x, y, w, h);
         }
+        if (outlineArgb && outlineW > 0) {
+          ctx.strokeStyle = unpackCssColor(outlineArgb);
+          ctx.lineWidth = outlineW;
+          ctx.lineJoin = 'miter';
+          if (tl > 0 || tr > 0 || br > 0 || bl > 0) {
+            pathSoaRoundedRect(ctx, x, y, w, h, tl, tr, br, bl);
+          } else {
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+          }
+          ctx.stroke();
+        }
       }
       buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
     } finally {
-      if (clipped) ctx.restore();
+      while (clipDepth > 0) {
+        ctx.restore();
+        clipDepth -= 1;
+      }
     }
   }
 }
 
-/** World-space rounded rect fill (tl/tr/br/bl). */
-export function fillSoaRoundedRect(
+/** World-space rounded rect path (tl/tr/br/bl) — shared by fill and outline stroke. */
+export function pathSoaRoundedRect(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -1083,9 +1465,10 @@ export function fillSoaRoundedRect(
   tl: number,
   tr: number,
   br: number,
-  bl: number
+  bl: number,
+  opts?: { append?: boolean }
 ) {
-  ctx.beginPath();
+  if (!opts?.append) ctx.beginPath();
   ctx.moveTo(x + tl, y);
   ctx.lineTo(x + w - tr, y);
   if (tr > 0) ctx.arcTo(x + w, y, x + w, y + tr, tr);
@@ -1100,6 +1483,21 @@ export function fillSoaRoundedRect(
   if (tl > 0) ctx.arcTo(x, y, x + tl, y, tl);
   else ctx.lineTo(x, y);
   ctx.closePath();
+}
+
+/** World-space rounded rect fill (tl/tr/br/bl). */
+export function fillSoaRoundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  tl: number,
+  tr: number,
+  br: number,
+  bl: number
+) {
+  pathSoaRoundedRect(ctx, x, y, w, h, tl, tr, br, bl);
   ctx.fill();
 }
 
@@ -1143,6 +1541,7 @@ export function upsertSoaGeom(
     buf.indexById.set(id, index);
     buf.kinds[index] = SOA_KIND_RECT;
     buf.strokeWidths[index] = 0;
+    buf.strokeColors[index] = 0;
     buf.flags[index] = (SOA_FLAG_VISIBLE | SOA_FLAG_CANVAS_IDLE | SOA_FLAG_BASIC_GEOM | SOA_FLAG_DIRTY) >>> 0;
     buf.pathStart[index] = -1;
     buf.pathLen[index] = 0;

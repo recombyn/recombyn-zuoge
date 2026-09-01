@@ -203,7 +203,7 @@ type SvgCanvasProps = {
   selectedNodeId?: string | null;
   selectedNodeIds?: string[];
   documentPatchToken?: number;
-  /** Nodes patched via Redux — refresh SVG even when selection is empty (e.g. agent busy). */
+  /** Nodes patched via the editor store — refresh SVG even when selection is empty (e.g. agent busy). */
   lastPatchedNodeIds?: string[];
   lastPatchTransformOnly?: boolean;
   onZoomIn?: () => void;
@@ -267,7 +267,8 @@ function SvgCanvas({
   embedded = false,
   stageEl = null,
   viewRect = null,
-}: SvgCanvasProps) {  const { t } = useTranslation();
+}: SvgCanvasProps) {
+  const { t } = useTranslation();
   const camera = useRcbCamera();
   const viewportEl = useRcbViewportEl();
   useSyncExternalStore(subscribeCollabView, getCollabViewEpoch, getCollabViewEpoch);
@@ -319,15 +320,15 @@ function SvgCanvas({
   const hitTestRef = useRef<(x: number, y: number, screen?: { clientX: number; clientY: number }) => string | null>(
     () => null
   );
-  const reduxCanUndo = useSelector((s: RootState) => (s.editor.historyPast?.length || 0) > 0);
-  const reduxCanRedo = useSelector((s: RootState) => (s.editor.historyFuture?.length || 0) > 0);
+  const storeCanUndo = useSelector((s: RootState) => (s.editor.historyPast?.length || 0) > 0);
+  const storeCanRedo = useSelector((s: RootState) => (s.editor.historyFuture?.length || 0) > 0);
   useSyncExternalStore(subscribeCollabUndo, getCollabUndoEpoch, getCollabUndoEpoch);
   // Collab prefers Yjs undo; if that stack is empty (pre-seed / sync lag), fall
-  // back to Redux so the menu and Ctrl+Z stay usable. View-only never undoes.
+  // back to the editor store so the menu and Ctrl+Z stay usable. View-only never undoes.
   const viewOnly = isCollabViewOnly();
   const collabActive = isCollabActive();
-  const canUndo = !viewOnly && (collabActive ? canCollabUndo() || reduxCanUndo : reduxCanUndo);
-  const canRedo = !viewOnly && (collabActive ? canCollabRedo() || reduxCanRedo : reduxCanRedo);
+  const canUndo = !viewOnly && (collabActive ? canCollabUndo() || storeCanUndo : storeCanUndo);
+  const canRedo = !viewOnly && (collabActive ? canCollabRedo() || storeCanRedo : storeCanRedo);
   const imageToolPanel = useSelector(
     (s: RootState) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
   );
@@ -389,7 +390,7 @@ function SvgCanvas({
   const resetFrameMoveOwnersRef = useRef<() => void>(() => undefined);
   const [geometryTransforming, setGeometryTransforming] = useState(false);
   const geometryTransformingRef = useRef(false);
-  /** Live video plate boxes while dragging — Redux only commits on gesture end. */
+  /** Live video plate boxes while dragging — editor store only commits on gesture end. */
   const [videoLiveGeom, setVideoLiveGeom] = useState<Record<string, VideoGeomOverride> | null>(
     null
   );
@@ -429,15 +430,15 @@ function SvgCanvas({
     onTransformingChange?.(next);
     if (!next) {
       dragWriteCoalesceRef.current.cancel();
-      // Clear live geom with the Redux document write in onGeometryCommit when
+      // Clear live geom with the editor store document write in onGeometryCommit when
       // possible. Soft-click / cancelled transforms still need a clear here.
       setVideoLiveGeom(null);
       clearFrameGeometryPreview();
       resetFrameMoveOwnersRef.current();
     }
   }, [clearFrameGeometryPreview, onTransformingChange]);
-  // Geometry previews update documentRef before Redux commits on pointer-up.
-  // Do not overwrite that live document with the previous Redux snapshot while
+  // Geometry previews update documentRef before the editor store commits on pointer-up.
+  // Do not overwrite that live document with the previous editor store snapshot while
   // a transform is active, otherwise cleared frame bindings reappear.
   if (!geometryTransformingRef.current) {
     documentRef.current = document;
@@ -1187,6 +1188,9 @@ function SvgCanvas({
         path: pathD,
         closed,
       });
+      if (closed) {
+        Object.assign(node.attrs, closedPenFillAttrs(penFillColor));
+      }
       const next = bindCreatedNodeToFrame(
         addNodeToDocument(doc, id, node),
         id,

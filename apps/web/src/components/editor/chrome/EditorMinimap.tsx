@@ -182,7 +182,7 @@ function EditorMinimap({
 }: Props): ReactNode {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerId: number } | null>(null);
-  /** Recompute when timeline edit focus toggles (module flag + Redux). */
+  /** Recompute when timeline edit focus toggles (module flag + store). */
   const workbenchEditOpen = useSelector((state: any) =>
     Boolean(state.editor.lottieTimelinePanel?.nodeId)
   );

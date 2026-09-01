@@ -143,7 +143,7 @@ export function isNodeStructurallyHiddenInDocument(
 /**
  * Editor visibility for hit / chrome / marquee.
  * Includes playhead out-of-range (same as hiding the layer for interaction).
- * Pass `playheadSec` from Redux during React render when needed for sync.
+ * Pass `playheadSec` from the editor store during React render when needed for sync.
  *
  * Do **not** use this to drive SVG/host paint opacity — playhead ink hide is
  * live DOM in AnimationPlayheadSceneSync; React hosts that skip playhead

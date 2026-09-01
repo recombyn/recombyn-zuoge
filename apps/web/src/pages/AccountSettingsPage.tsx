@@ -57,7 +57,8 @@ function accountShowsSubtitle(tab: AccountTab): boolean {
 
 /** Account hub — left nav + profile / usage / agent panels. */
 function AccountSettingsPage(): ReactNode {
-  const { t } = useTranslation();  const [tab, setTabState] = useQueryState('tab', accountTabParser);
+  const { t } = useTranslation();
+  const [tab, setTabState] = useQueryState('tab', accountTabParser);
   const [searchParams] = useSearchParams();
   const user = useSelector((s: any) => s.auth.user as AuthUser | null);
   const { credits, creditsIncluded } = useWalletSnapshot();

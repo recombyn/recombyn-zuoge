@@ -16,6 +16,14 @@ import {
   resolveSoaPaintBox,
 } from './sceneRenderBuffer';
 import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+
+/** Document for plate clip while baking tiles (set by the stage renderer). */
+let bakeClipDocument: SceneDocument | null = null;
+
+export function setSoaBakeClipDocument(doc: SceneDocument | null | undefined) {
+  bakeClipDocument = doc ?? null;
+}
 
 export const SOA_BAKE_COUNT_THRESHOLD = 8_000;
 /** World-space tile edge (scene units). */
@@ -193,6 +201,7 @@ function paintIdleInto(
   ctx.setTransform(sx, 0, 0, sy, -bounds.left * sx, -bounds.top * sy);
   paintSoaBufferBasic(ctx as CanvasRenderingContext2D, buf, bounds, {
     dirtyOnly: false,
+    document: bakeClipDocument,
   });
 }
 

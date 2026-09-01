@@ -2,7 +2,7 @@ import type { NavigateFunction } from 'react-router-dom';
 import { writeUnsyncedProjectDraft } from '@/components/editor/projectDraftStore';
 import { flushCurrentProjectNow } from '@/components/editor/useProjectCloudSync';
 
-/** Session key: Redux switched project before URL caught up (duplicate / import). */
+/** Session key: editor store switched project before URL caught up (duplicate / import). */
 export const EDITOR_NAV_LOCK_KEY = 'editor:nav-lock-project-id';
 
 function navSession(): Storage | null {
@@ -34,7 +34,7 @@ export function buildEditorProjectPath(projectId: string, locationSearch = ''): 
   return fromHomeAgent ? `${base}?fromHomeAgent=1` : base;
 }
 
-/** Whether URL sync should attach Redux currentId (not when opening a list item). */
+/** Whether URL sync should attach editor store currentId (not when opening a list item). */
 export function shouldSyncEditorRoute(pathId: string, currentId: string): boolean {
   if (!currentId || pathId === currentId) return false;
   if (readEditorProjectNavigationLock() === currentId) return true;

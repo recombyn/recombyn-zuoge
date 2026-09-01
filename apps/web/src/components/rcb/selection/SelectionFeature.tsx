@@ -97,13 +97,13 @@ function isImageToolSessionPinned(
   pin: string | null | undefined,
   liveOrigins: Array<{ nodeId: string; box: SceneBox }> | null | undefined,
   selectedIds: string[],
-  reduxSelectedIds: string[]
+  storeSelectedIds: string[]
 ): pin is string {
   if (!pin) return false;
   return (
     liveOrigins?.some((o) => o.nodeId === pin) ||
     selectedIds.includes(pin) ||
-    reduxSelectedIds.includes(pin)
+    storeSelectedIds.includes(pin)
   );
 }
 
@@ -625,7 +625,7 @@ function SelectionFeature({
   useEffect(() => {
     if (dragRef.current) return;
     // After draw/remount, prefer live host geom so picks match HostPathChrome paint
-    // (Redux AABB alone drifts under sticky lattice at high zoom).
+    // (store AABB alone drifts under sticky lattice at high zoom).
     const origins = baseOrigins.map((o) => {
       const frameId = parseFrameSelId(o.nodeId);
       if (frameId) {
@@ -719,7 +719,7 @@ function SelectionFeature({
       if (hoverNodeIdRef.current === id) return;
       hoverNodeIdRef.current = id;
       setHoverNodeId(id);
-      // Dev / share inspect panel reads hover from Redux.
+      // Dev / share inspect panel reads hover from the editor store.
       if (workspaceMode === 'dev' || readOnly) {
         setDevHoverNodeId(id);
       }
@@ -1244,7 +1244,7 @@ function SelectionFeature({
           return;
         }
 
-        // Expand on down so pointerdown?move uses full group origins before Redux catches up.
+        // Expand on down so pointerdown?move uses full group origins before the editor store catches up.
         if (!selectedIds.includes(hitId)) {
           // Do not open text edit on pointerdown — a single click's up would
           // otherwise count as a second tap and enter edit immediately.
@@ -1935,7 +1935,7 @@ function SelectionFeature({
           setLiveAngle(stroke.angle);
           lastTextClickRef.current = null;
           // Bake angle into documentRef first so geometry rebuild reads attrs.angle;
-          // one history entry via onGeometryCommit (do not patch angle into Redux first).
+          // one history entry via onGeometryCommit (do not patch angle into the editor store first).
           anglePreview?.(stroke.strokeId, stroke.angle);
           onGeometryCommit([
             {

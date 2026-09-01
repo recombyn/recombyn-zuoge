@@ -9,7 +9,7 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 | Stage shell | Camera, frames, product canvas | `editor/page/EditorStageWorld.tsx` |
 | Camera / pan-zoom | Infinite world (`zoom` ~0.05–100); **CameraTransform** is the sole world↔screen API | `rcb/canvas/RcbCanvas.tsx`, `rcb/core/math.ts`, `rcb/camera/transform.ts` |
 | SceneRenderer | Paint/hit backend (`svg` hosts + `canvas2d` grid underlay + idle ink overlay) | `rcb/render/sceneRenderer.ts` |
-| Product canvas | Tools, media overlays, Redux writes; hit via SceneRenderer | `editor/canvas/SvgCanvas.tsx` |
+| Product canvas | Tools, media overlays, store writes; hit via SceneRenderer | `editor/canvas/SvgCanvas.tsx` |
 | Shape paint | Per-node SVG hosts; host overflow → `setSceneCanvasIdlePaint` → Canvas idle ink | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx` |
 | Pixel grid + Canvas idle | Grid underlay `[data-rcb-scene-canvas]`; idle ink `[data-rcb-idle-ink-canvas]` | `RcbCanvas` + `createCanvasSceneRenderer` |
 | Selection chrome | Shared scene SVG camera group for AABB, path silhouette, shape knobs, guides, and drawing previews; HTML overlay only for screen UI/hit seats | `rcb/selection/SelectionChrome.tsx`, `HostPathChrome.tsx`, chrome overlays |
@@ -21,7 +21,7 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 | Live state | `document`, selection, tools | `store/modules/editor.ts` |
 | React subscriptions | Narrow editor hooks only — live vs commit-only document | `store/editorSelectors.ts` (`useEditorDocument` / `useEditorDocumentOnCommit`) |
 | Undo | COW / patch history | `store/modules/editorHistory.ts` |
-| Collab | Yjs ↔ scene ↔ Redux | `editor/collab/sceneYBridge.ts`, `CollabRoomProvider.tsx` |
+| Collab | Yjs ↔ scene ↔ editor store | `editor/collab/sceneYBridge.ts`, `CollabRoomProvider.tsx` |
 
 **Fact layer (ADR 0027):** `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SVG/`sceneToSvg` is export + transitional live paint — not the interaction substrate.
 

@@ -96,6 +96,7 @@ import {
   getSharedSoaBake,
   patchSoaBakeDirty,
   setSharedSoaBake,
+  setSoaBakeClipDocument,
   shouldUseSoaBake,
   unionSoaDirtyAabb,
 } from '@/components/rcb/render/soaBakeLayer';
@@ -401,6 +402,7 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
           const dirtyOnly =
             !isFullDirty(req.dirty) &&
             (req.dirty.kind === 'aabb' || req.dirty.kind === 'nodes');
+          setSoaBakeClipDocument(doc);
           if (
             shouldUseSoaBake(soaBuf) &&
             !hasNodeTransformPreviews() &&
@@ -704,8 +706,9 @@ function isTransparentCssColor(c: string): boolean {
  * Still SVG: lottie/audio/group/text, non-center strokeAlign, inner/backdrop/blur,
  * heavy paths, donut·arc ellipses, blend modes other than normal.
  *
- * Note: rounded rects / polys are idle-capable via {@link paintCanvasShapeInk}, but
- * SoA `paintSoaBufferBasic` must not claim them — see {@link isSoaBasicGeomSufficient}.
+ * Note: rounded rects / polys / center stroke are SoA-basic via
+ * {@link isSoaBasicGeomSufficient} + {@link paintSoaBufferBasic} on the Canvas2D
+ * path. Gradient / outside strokeAlign / flip / WebGL-unsafe kinds stay SVG.
  */
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;

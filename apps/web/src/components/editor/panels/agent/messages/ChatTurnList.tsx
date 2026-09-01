@@ -9,7 +9,6 @@ import {
   HiOutlineComputerDesktop,
   HiOutlineExclamationTriangle,
   HiOutlinePlay,
-  HiOutlineQuestionMarkCircle,
   HiOutlineXCircle,
 } from 'react-icons/hi2';
 import ChatMarkdown from '@/components/editor/panels/ChatMarkdown';
@@ -17,6 +16,7 @@ import { ContextChipPill } from '@/components/editor/panels/AgentComposerInput';
 import {
   SoftGlowSurface,
   VirtualList,
+  LoadingDots,
   type VirtualListHandle,
 } from '@/components/base';
 import { message } from '@/components/base';
@@ -1725,14 +1725,12 @@ function AssistantTurn({
       data-assistant-id={assistant.id}
       className="flex w-full min-w-0 flex-col items-stretch gap-2.5 px-0.5"
     >
-      <div className="flex w-full items-center gap-1.5 text-[12px] leading-none text-[var(--ink)]/70">
-        <HiOutlineQuestionMarkCircle className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">
-          {streaming && (!assistant.content?.trim() || processRunning)
-            ? t('agent.working')
-            : t('agent.replied', { defaultValue: '已回复' })}
-        </span>
-      </div>
+      {streaming && (!assistant.content?.trim() || processRunning) ? (
+        <LoadingDots
+          className="h-3.5 justify-start px-0.5"
+          label={t('agent.working')}
+        />
+      ) : null}
 
       {/* Process first, then reply — matching product timeline order. */}
       {foldable ? <AssistantProcessBody assistant={assistant} /> : null}
@@ -1993,7 +1991,8 @@ function LottieGenGallery({
   assistant: ChatUiMessage;
   sending?: boolean;
 }): ReactNode {
-  const { t } = useTranslation();  const lotties = assistant.lotties || [];
+  const { t } = useTranslation();
+  const lotties = assistant.lotties || [];
   const pending = Math.max(0, Number(assistant.lottiePendingCount) || 0);
   const slots = Math.max(lotties.length, pending);
   if (slots <= 0) return null;

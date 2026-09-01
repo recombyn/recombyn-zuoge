@@ -26,7 +26,8 @@ export function McpCanvasBridge({
   projectId,
   enabled = true,
   pollMs = 1500,
-}: Props) {  const activeFrameId = useActiveFrameId();
+}: Props) {
+  const activeFrameId = useActiveFrameId();
   const lastRev = useRef<number | null>(null);
   const applying = useRef(false);
   const activeFrameIdRef = useRef(activeFrameId);

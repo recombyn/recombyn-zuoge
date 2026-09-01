@@ -1,5 +1,5 @@
 /**
- * Upload-in-flight + geometry drag must not snap nodes/hosts back to stale Redux coords.
+ * Upload-in-flight + geometry drag must not snap nodes/hosts back to stale store coords.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {

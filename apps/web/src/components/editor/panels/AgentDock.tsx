@@ -740,7 +740,8 @@ function AgentDock({
   projectName,
   onGoHome,
 }: AgentDockProps): ReactNode {
-  const { t, i18n } = useTranslation();  const store = useStore<RootState>();
+  const { t, i18n } = useTranslation();
+  const store = useStore<RootState>();
   const document = useEditorDocumentOnCommit();
   const activeFrameId = useActiveFrameId();
   const { planId } = useWalletSnapshot();
@@ -834,7 +835,7 @@ function AgentDock({
   const selectedFrameIds = useSelectedFrameIds();
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   const location = useLocation();
-  // Prefer Redux; fall back to /editor/:projectId so we don't hit projectId=__none__ while hydrating.
+  // Prefer store; fall back to /editor/:projectId so we don't hit projectId=__none__ while hydrating.
   const chatScopeId =
     (currentId || '').trim() || decodeURIComponent((routeProjectId || '').trim()) || null;
   const {
@@ -1010,7 +1011,7 @@ function AgentDock({
 
   useEffect(
     () => () => {
-      // `document` is shadowed by the scene document from Redux.
+      // `document` is shadowed by the scene document from the editor store.
       window.document.body.style.cursor = '';
       window.document.body.style.userSelect = '';
     },
@@ -2072,6 +2073,11 @@ function AgentDock({
           if (ev.type === 'task') liveDesignTaskRef.current = ev.taskId;
           if (ev.type === 'paused' && ev.taskId) liveDesignTaskRef.current = ev.taskId;
           onDesignEvent(ev);
+          // Chat reply finished — free composer/stop UI while settle finishes in background.
+          if (ev.type === 'chat') {
+            setSending(false);
+            setAgentBusy(false);
+          }
         },
       });
     } finally {
@@ -2883,6 +2889,11 @@ function AgentDock({
           if (ev.type === 'task') liveDesignTaskRef.current = ev.taskId;
           if (ev.type === 'paused' && ev.taskId) liveDesignTaskRef.current = ev.taskId;
           onDesignEvent(ev);
+          // Chat reply finished — free composer/stop UI while settle finishes in background.
+          if (ev.type === 'chat') {
+            setSending(false);
+            setAgentBusy(false);
+          }
         },
       });
     } finally {

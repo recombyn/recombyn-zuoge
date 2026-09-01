@@ -56,7 +56,7 @@ export type { EditorState } from './modules/editor';
 export type { AuthState } from './modules/auth';
 export type { PayloadAction } from './payload';
 
-/** Drop-in for `useStore` from react-redux (getState/subscribe). */
+/** Vanilla store handle for non-React callers (`getState` / `subscribe`). */
 export function useStore() {
   return store;
 }

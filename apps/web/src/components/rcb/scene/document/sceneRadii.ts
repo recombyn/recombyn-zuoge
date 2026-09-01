@@ -847,7 +847,7 @@ export function polygonRadiiFromCorners(
 }
 
 /**
- * Live corner-radius while knob-dragging (DOM preview only — Redux stays idle
+ * Live corner-radius while knob-dragging (DOM preview only — editor store stays idle
  * mid-drag to avoid remount ghosts). Toolbars subscribe for the compact R label.
  */
 type LiveCornerRadiusPreview = { nodeId: string; display: number };

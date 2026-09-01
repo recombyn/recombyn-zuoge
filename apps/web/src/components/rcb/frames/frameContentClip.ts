@@ -1,7 +1,6 @@
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import { ensureDefs, setAttrs, svgEl, urlRef } from '@/components/rcb/scene/paint/svgDom';
-import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
 
 function num(v: unknown, fallback = 0): number {
   const n = Number(v);
@@ -15,8 +14,8 @@ function nextClipId(prefix: string) {
 }
 
 /**
- * clipContent frame for a node: largest bbox intersection, then smaller area, then topmost.
- * Prefer gesture-time plate + TransformPreview node boxes when present (frame move).
+ * Owning clipContent artboard for a node (`attrs.frameId`).
+ * Live plate geometry overrides x/y/w/h while the frame is being dragged.
  */
 export function findClippingFrameForNode(
   document: { frames?: ArtboardFrame[]; x?: number; y?: number } | null | undefined,
@@ -25,13 +24,6 @@ export function findClippingFrameForNode(
   if (!node || !document) return null;
   const frames = Array.isArray(document.frames) ? document.frames : [];
   if (!frames.length) return null;
-
-  const nodeId = String(node.id || '').trim();
-  const preview = nodeId ? getNodeTransformPreview(nodeId) : null;
-  const nx = preview ? preview.left : num(node.x);
-  const ny = preview ? preview.top : num(node.y);
-  const nw = Math.max(1, preview ? preview.width : num(node.width, 1));
-  const nh = Math.max(1, preview ? preview.height : num(node.height, 1));
 
   const explicitOwner = String(
     (node.attrs as Record<string, unknown> | undefined)?.frameId || ''
@@ -44,9 +36,8 @@ export function findClippingFrameForNode(
   const fy = num(live?.y ?? ownedFrame.y);
   const fw = Math.max(1, num(live?.width ?? ownedFrame.width, 1));
   const fh = Math.max(1, num(live?.height ?? ownedFrame.height, 1));
-  const overlapWidth = Math.min(nx + nw, fx + fw) - Math.max(nx, fx);
-  const overlapHeight = Math.min(ny + nh, fy + fh) - Math.max(ny, fy);
-  if (!(overlapWidth > 0 && overlapHeight > 0)) return null;
+  // Always clip to the owning plate — even when the node AABB is fully outside
+  // (otherwise idle SoA / mid-drag ink "runs out" of the workbench).
   if (!live) return ownedFrame;
   return {
     ...ownedFrame,

@@ -66,7 +66,7 @@ export function isLottieJsonFile(file: { name?: string; type?: string } | null |
 }
 
 /**
- * React-friendly accept string: pass timeline-open from Redux (`lottieTimelinePanel`).
+ * React-friendly accept string: pass timeline-open from the editor store (`lottieTimelinePanel`).
  * Prefer this over reading the module focus flag (does not trigger re-render).
  */
 export function mediaFileAcceptForWorkbenchTimeline(timelineOpen: boolean): string {
@@ -301,7 +301,7 @@ export function getWorkbenchToolPolicy(): WorkbenchToolPolicy {
 /**
  * Bound workbench child whose layer in/out excludes the current playhead.
  * Same rule whether the timeline dock is open or closed (playhead stays at 0
- * after exit = first frame). Pass `playheadSec` from Redux during React render.
+ * after exit = first frame). Pass `playheadSec` from the editor store during React render.
  */
 export function isInactiveAtAnimationPlayhead(
   document: {

@@ -65,7 +65,7 @@ export type ArtboardFrameGeometry = Pick<ArtboardFrame, 'id' | 'x' | 'y' | 'widt
 
 /**
  * Gesture-time plate geometry (ADR 0027). Selection chrome updates every move;
- * React still holds the pre-gesture Redux frame — without this map, a layout
+ * React still holds the pre-gesture editor store frame — without this map, a layout
  * effect would rebuild the plate from stale width/height and desync the white
  * plate from the blue selection box (and leave clipContent one frame behind).
  */
@@ -106,7 +106,7 @@ function resolvePaintFrameGeometry(frame: ArtboardFrameGeometry): ArtboardFrameG
 /**
  * Drag-time frame paint follows the same immediate SVG path as scene nodes.
  * React receives the final document position on pointer-up; repainting through
- * Redux during the drag puts frame paint one animation frame behind its nodes.
+ * editor store during the drag puts frame paint one animation frame behind its nodes.
  */
 export function previewArtboardFrameGeometry(
   frame: ArtboardFrameGeometry,
