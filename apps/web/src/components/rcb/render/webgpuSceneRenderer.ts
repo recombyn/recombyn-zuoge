@@ -13,7 +13,6 @@ import {
   shouldRunGpuDepthOfField,
 } from '@/components/rcb/render/gpuDepthOfField';
 import {
-  bumpSceneCanvasIdlePaint,
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
   setSoaPaintDocument,
@@ -26,6 +25,7 @@ import {
 } from '@/components/rcb/render/webglInstanceAtlas';
 import { collectSoaWebglInstances } from '@/components/rcb/render/webglSceneRenderer';
 import {
+  bumpSceneCanvasIdlePaint,
   hitTestWithSpatialIndex,
   type CanvasSceneRendererDeps,
   type SceneRenderRequest,
