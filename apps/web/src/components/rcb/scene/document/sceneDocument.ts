@@ -314,7 +314,7 @@ export function mergeNodePatch(
 
 /**
  * Patch deltaSetLike keys with Immer structural sharing (plain objects only).
- * Never use a custom Proxy — Redux/Immer Object.keys traps reject it.
+ * Never use a custom Proxy — Immer Object.keys traps reject it.
  *
  * Always return an extensible shallow shell: Immer autoFreeze seals `produce`
  * results in DEV, but normalize/add/remove still assign or delete top-level keys.
@@ -426,7 +426,47 @@ export function normalizeDocument(doc: unknown): SceneDocument {
   next.activePageId = next.pages[0].id;
   syncRootChildren(next);
   reconcileStackOrder(next);
-  return next;
+  return migrateWorldCoordsToFrameLocal(next);
+}
+
+/**
+ * One-shot: artboard children become plate-local (00 = frame top-left).
+ * Dragging a frame then only moves `frames[].x/y` — child attrs stay put.
+ */
+function migrateWorldCoordsToFrameLocal(doc: SceneDocument): SceneDocument {
+  if (String(doc.coordSpace || '') === 'frameLocal') return doc;
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  const byId = new Map(
+    frames.filter(Boolean).map((f) => [String(f.id), f] as const)
+  );
+  let delta = doc.deltaSetLike;
+  let dirty = false;
+  if (byId.size) {
+    for (const [id, node] of Object.entries(delta || {})) {
+      if (!node || id === 'ROOT') continue;
+      const frameId = String(node.attrs?.frameId || '').trim();
+      if (!frameId) continue;
+      const frame = byId.get(frameId);
+      if (!frame) continue;
+      const fx = Number(frame.x) || 0;
+      const fy = Number(frame.y) || 0;
+      const nx = Number(node.x) || 0;
+      const ny = Number(node.y) || 0;
+      const lx = nx - fx;
+      const ly = ny - fy;
+      if (lx === nx && ly === ny && fx === 0 && fy === 0) continue;
+      if (!dirty) {
+        delta = { ...delta };
+        dirty = true;
+      }
+      delta[id] = { ...node, x: lx, y: ly };
+    }
+  }
+  return {
+    ...doc,
+    deltaSetLike: dirty ? delta : doc.deltaSetLike,
+    coordSpace: 'frameLocal',
+  };
 }
 
 /** Shift imported JSON so content sits in canvas-local coords (document origin cleared). */
@@ -711,7 +751,7 @@ export function updateNodesInDocument(
 
 export function listSceneNodes(doc: SceneDocument | null | undefined) {
   if (!doc) return [];
-  // Read-only: never mutate Redux/Immer state here
+  // Read-only: never mutate Immer state here
   const page = getActivePage(doc);
   const ids = page?.children || doc.deltaSetLike?.ROOT?.children || [];
   return ids

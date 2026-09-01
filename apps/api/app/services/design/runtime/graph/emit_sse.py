@@ -268,6 +268,20 @@ def _emit(ev: dict[str, Any]) -> None:
     except Exception:
         pass
 
+
+def _emit_chat_ui_done(rt: Any) -> None:
+    """Release chat caret / stop button before settle's slow side effects."""
+    flags = rt.flags if isinstance(getattr(rt, "flags", None), dict) else None
+    if flags is None:
+        _emit({"type": "chat_done"})
+        return
+    if flags.get("chat_ui_done"):
+        return
+    flags["chat_ui_done"] = True
+    rt.flags = flags
+    _emit({"type": "chat_done"})
+
+
 def _paint_user_reply(raw: str | None, *, limit: int = 280) -> str:
     """User-facing post-paint line — strip tool/schema dumps, keep designer voice.
 
@@ -352,6 +366,7 @@ __all__ = [
     '_emit_tool_ops_validation_ui',
     '_flush_host_events',
     '_emit',
+    '_emit_chat_ui_done',
     '_paint_user_reply',
     '_design_assistant_reply',
     '_emit_deferred_paint_reply',

@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /**
  * Browser-runtime canvas foundations (no app login / API).
  * Validates grid settle + boolean clipping in Chromium — same algorithms
- * the editor uses, exercised outside the Redux mount so CI can run headless
+ * the editor uses, exercised outside the editor mount so CI can run headless
  * without the Python API.
  */
 test.describe('canvas foundations (browser)', () => {

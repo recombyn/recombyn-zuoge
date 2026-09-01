@@ -8,10 +8,6 @@ vi.mock('@floating-ui/react', () => ({
   FloatingPortal: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-vi.mock('react-redux', () => ({
-  useSelector: (fn: (s: unknown) => unknown) => fn({ auth: { user: null } }),
-}));
-
 const navigate = vi.fn();
 vi.mock('react-router-dom', () => ({
   useNavigate: () => navigate,

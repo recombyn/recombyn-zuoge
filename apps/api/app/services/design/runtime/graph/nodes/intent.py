@@ -9,6 +9,7 @@ from langgraph.types import Command
 from app.services.design.runtime.graph.state import AgentRuntime, GraphState
 from app.services.design.runtime.graph.emit_sse import (
     _emit,
+    _emit_chat_ui_done,
     _emit_design_loading_artboard,
 )
 from app.services.design.runtime.graph.llm_io import (
@@ -329,6 +330,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
             _emit({"type": "token", "text": reply})
         _clear_ask_proposal_meta(str(pending.get("task_id") or ""))
         _drop_pending(rt)
+        _emit_chat_ui_done(rt)
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     # revise / no action — continue normal gate; drop pending so this run won't re-apply.
@@ -340,6 +342,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
             st.reply = reply
             _emit({"type": "token", "text": reply})
         _emit({"type": "session_control", "action": session_action})
+        _emit_chat_ui_done(rt)
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     if intent == "chat":
@@ -367,6 +370,8 @@ async def _node_intent_classify(state: GraphState) -> Command:
             _emit({"type": "token", "text": reply})
         elif reply and vision_streamed:
             st.reply = reply
+        # Reply is on screen — free UI before settle (episode / KG / memory).
+        _emit_chat_ui_done(rt)
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     if needs_clarification:
@@ -386,6 +391,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         }
         rt.flags["await_user"] = True
         _emit({"type": "token", "text": clarification})
+        _emit_chat_ui_done(rt)
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 
     # New design create without @ must not inherit memory/ambient FOCUS —

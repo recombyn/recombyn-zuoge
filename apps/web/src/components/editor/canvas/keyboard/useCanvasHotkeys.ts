@@ -74,7 +74,8 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
     cutSelected,
     duplicateSelected,
     onAddToChat,
-  } = args;  useEffect(() => {
+  } = args;
+  useEffect(() => {
     const isTypingTarget = (t: HTMLElement | null) =>
       Boolean(
         t &&

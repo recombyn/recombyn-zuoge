@@ -16,7 +16,8 @@ import {
  * Exchanges ?code= for a session, then navigates into the app.
  */
 function GoogleOAuthCallbackPage() {
-  const { t } = useTranslation();  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);

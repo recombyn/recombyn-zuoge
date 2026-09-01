@@ -302,7 +302,7 @@ export function rcbViewportSceneBounds(
 
 /**
  * Quantize zoom while the camera is moving.
- * Keeps cull / host budget stable across tiny wheel deltas; idle uses true zoom.
+ * Keeps cull stable across tiny wheel deltas; settled frames use true zoom.
  */
 export function rcbStepZoom(zoom: number, step = 0.05): number {
   const z = Math.max(0.05, zoom || 1);

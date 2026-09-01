@@ -37,14 +37,17 @@ import {
 import { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import { PIXEL_GRID_MIN_ZOOM } from '@/components/rcb/selection/alignGuides';
+import { setFrameClipRevealOverflowIds } from '@/components/rcb/frames/frameContentClip';
 import {
   createSceneRenderBuffer,
   getSharedSceneRenderBuffer,
   resetSharedSceneRenderBuffer,
   setSoaCanvasShapesEnabledForTests,
   syncSceneRenderBufferFromDocument,
+  applySoaHostInkFlags,
 } from '../sceneRenderBuffer';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import { setLiveCornerRadiusPreview } from '@/components/rcb/scene/document/sceneRadii';
 
 function emptyDoc(): SceneDocument {
   return {
@@ -213,6 +216,43 @@ describe('DirtyRegion helpers', () => {
       expect(region.box.width).toBeGreaterThanOrEqual(30);
       expect(region.box.height).toBeGreaterThanOrEqual(40);
     }
+  });
+
+  it('resolveSoaCanvasDirtyRegion is full while selection reveals frame overflow', () => {
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(
+      buf,
+      (() => {
+        let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+        doc = addNodeToDocument(doc, 'a', {
+          id: 'a',
+          key: 'shape',
+          x: 10,
+          y: 20,
+          width: 30,
+          height: 40,
+          attrs: { shapeType: 'rect', fill: '#fff' },
+          children: [],
+        });
+        return doc;
+      })()
+    );
+    setFrameClipRevealOverflowIds(['a']);
+    expect(resolveSoaCanvasDirtyRegion({ full: false, buf })).toEqual({ kind: 'full' });
+    setFrameClipRevealOverflowIds(null);
+    const region = resolveSoaCanvasDirtyRegion({ full: false, buf });
+    expect(region.kind).toBe('aabb');
+  });
+
+  it('resolveSoaCanvasDirtyRegion is full during live corner-radius preview', () => {
+    const buf = createSceneRenderBuffer();
+    setLiveCornerRadiusPreview({
+      nodeId: 'a',
+      display: 50,
+      radii: { tl: 50, tr: 50, br: 50, bl: 50 },
+    });
+    expect(resolveSoaCanvasDirtyRegion({ full: false, buf })).toEqual({ kind: 'full' });
+    setLiveCornerRadiusPreview(null);
   });
 });
 
@@ -513,6 +553,7 @@ describe('Canvas idle path / text / shape paint', () => {
       ],
     } as SceneDocument;
     const node = {
+      id: 'img1',
       key: 'image',
       x: -20,
       y: 40,
@@ -524,6 +565,39 @@ describe('Canvas idle path / text / shape paint', () => {
       true
     );
     expect(ops).toContain('clip');
+  });
+
+  it('clipCanvasIdleToOwningFrame skips clip for selection-revealed nodes', () => {
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    const doc = {
+      ...emptyDoc(),
+      frames: [
+        {
+          id: 'frame',
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 300,
+          clipContent: true,
+        },
+      ],
+    } as SceneDocument;
+    const node = {
+      id: 'shape1',
+      key: 'shape',
+      x: -20,
+      y: 40,
+      width: 120,
+      height: 80,
+      attrs: { frameId: 'frame' },
+    } as SceneNodeInput;
+    setFrameClipRevealOverflowIds(['shape1']);
+    expect(clipCanvasIdleToOwningFrame(ctx as unknown as CanvasRenderingContext2D, doc, node, 1)).toBe(
+      false
+    );
+    expect(ops).not.toContain('clip');
+    setFrameClipRevealOverflowIds(null);
   });
 
   it('canvasIdleIsStrokeOnly matches pencil / unfilled path; closed pen with fill is not stroke-only', () => {
@@ -753,7 +827,7 @@ describe('Canvas idle path / text / shape paint', () => {
     ).toBeNull();
   });
 
-  it('canIdlePaintOnCanvas allows gradient/image/media; rejects donut, poly, non-center stroke, blur', () => {
+  it('canIdlePaintOnCanvas allows gradient/image/media/poly; rejects donut/evenodd/non-center stroke/blur', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -836,11 +910,22 @@ describe('Canvas idle path / text / shape paint', () => {
         key: 'shape',
         attrs: { shapeType: 'polygon', sides: 6, 'stroke-enabled': false },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
         attrs: { shapeType: 'star', sides: 5, 'stroke-enabled': false },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'path',
+          path: 'M0 0 H10 V10 H0 Z M2 2 H8 V8 H2 Z',
+          'fill-rule': 'evenodd',
+          'stroke-enabled': false,
+        },
       } as SceneNodeInput)
     ).toBe(false);
     expect(
@@ -1212,5 +1297,66 @@ describe('hitTestWithSpatialIndex', () => {
         { x: 50, y: 50 }
       )
     ).toBe('soa-rect');
+  });
+
+  it('prefers topmost SVG host over larger canvas-idle rect underneath', () => {
+    setSoaCanvasShapesEnabledForTests(true);
+    let doc = createEmptyDocument({ width: 2400, height: 1800, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'back', {
+      id: 'back',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 2204,
+      height: 1637,
+      attrs: { shapeType: 'rect', 'fill-color': '#ffffff', 'stroke-enabled': false },
+      children: [],
+    });
+    doc = addNodeToDocument(doc, 'front', {
+      id: 'front',
+      key: 'shape',
+      x: 900,
+      y: 650,
+      width: 400,
+      height: 300,
+      attrs: { shapeType: 'rect', 'fill-color': '#ffffff', 'stroke-enabled': false },
+      children: [],
+    });
+    doc = {
+      ...doc,
+      stackOrder: ['node:back', 'node:front'],
+    };
+    const buf = getSharedSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    applySoaHostInkFlags(buf, new Set(['front']));
+    const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: ['back', 'front'],
+      reloadToken: 1,
+      aabbPad: 0,
+    });
+    const getNodeBox = (id: string) => {
+      const node = doc.deltaSetLike?.[id];
+      if (!node) return null;
+      return {
+        left: Number(node.x) || 0,
+        top: Number(node.y) || 0,
+        width: Math.max(1, Number(node.width) || 1),
+        height: Math.max(1, Number(node.height) || 1),
+      };
+    };
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['back', 'front'],
+          getNodeBox,
+        },
+        { x: 1100, y: 800 }
+      )
+    ).toBe('front');
   });
 });

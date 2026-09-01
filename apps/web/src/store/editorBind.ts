@@ -1,5 +1,5 @@
 /**
- * Bind editor case reducers to Zustand `set` via immer produce.
+ * Bind editor case mutators to Zustand `set` via immer produce.
  * Call `bindEditorStore` once from store/index.ts during create().
  */
 import { produce } from 'immer';

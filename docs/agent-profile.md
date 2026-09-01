@@ -145,7 +145,7 @@ paint_ops → action (tool_ops + scene_feedback_request)
 | Term | Meaning |
 |------|---------|
 | **Artboard** | A fixed design plate (`frames[]`: x/y/w/h). Does not move when the user pans/zooms. |
-| **Viewport** | The camera window currently visible on screen (`spatial_summary.viewport`). Changes with pan/zoom and can lag behind Yjs/Redux. |
+| **Viewport** | The camera window currently visible on screen (`spatial_summary.viewport`). Changes with pan/zoom and can lag behind Yjs/store. |
 
 - **Pre-apply paint gate**: placement prefers **artboard** bounds when a focus frame exists; falls back to viewport with a looser pad.
 - **Post-paint observe**: does **not** re-check “outside viewport” (camera lag caused false re-paints). Observe still flags **stacked creates** and empty-board structure when FE truth says ops failed or inventory is empty without successful create results.

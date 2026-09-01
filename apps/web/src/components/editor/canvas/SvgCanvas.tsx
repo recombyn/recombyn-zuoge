@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, memo } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  memo,
+  type RefObject,
+} from 'react';
 import { useSelector } from '@/store';
 import { useActiveFrameId, useSelectedFrameIds } from '@/store/editorSelectors';
 import {
@@ -35,6 +44,7 @@ import { createDragWriteCoalescer } from './dragWriteCoalescer';
 import {
   bindCreatedNodeToFrame,
   createCanvasSession,
+  type CanvasSession,
   layoutGeneratorPlateAtScene,
 } from './canvasSession';
 import { runCanvasCtxAction } from './runCanvasCtxAction';
@@ -59,6 +69,10 @@ import {
   rcbScreenToScene,
   type SvgBoardHandle,
 } from '@/components/rcb';
+import {
+  getSceneWorldRoot,
+  subscribeShapeHosts,
+} from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   clearLiveArtboardFrameGeometry,
   previewArtboardFrameGeometry,
@@ -137,7 +151,7 @@ import {
 } from './attachPick';
 import { ctxMenuTargetHasProcessing, resolveCtxMenuTargets } from './ctxMenuGuards';
 import { buildCanvasContextMenuProps } from './buildCanvasContextMenuProps';
-import { closedPenFillAttrs } from './penFillAttrs';
+import { closedPenFillAttrs, pathNodeHasSolidFill } from './penFillAttrs';
 import {
   resolveAnimationFrameId,
 } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
@@ -203,7 +217,7 @@ type SvgCanvasProps = {
   selectedNodeId?: string | null;
   selectedNodeIds?: string[];
   documentPatchToken?: number;
-  /** Nodes patched via Redux — refresh SVG even when selection is empty (e.g. agent busy). */
+  /** Nodes patched via the editor store — refresh SVG even when selection is empty (e.g. agent busy). */
   lastPatchedNodeIds?: string[];
   lastPatchTransformOnly?: boolean;
   onZoomIn?: () => void;
@@ -239,6 +253,18 @@ type SvgCanvasProps = {
    * to cover the camera frustum — do not slide the origin with pan/zoom.
    */
   viewRect?: { x: number; y: number; width: number; height: number } | null;
+  /** Parent frame-drag — same preview path as shape move (updates documentRef). */
+  geometryPreviewRef?: RefObject<CanvasSession['onGeometryPreview'] | null>;
+  getPreviewDocumentRef?: RefObject<() => SceneDocument | null>;
+  /**
+   * Title-label / workbench plate drag sets this synchronously on pointer-down.
+   * Without it, render syncs `documentRef` from the committed store doc and
+   * preview ink jumps against the live plate.
+   */
+  frameGestureActiveRef?: RefObject<boolean>;
+  resetFrameGestureRef?: RefObject<(() => void) | null>;
+  /** Reactive companion to frameGestureActiveRef (bumps spatial / patch guards). */
+  frameGestureActive?: boolean;
 };
 
 /**
@@ -267,7 +293,13 @@ function SvgCanvas({
   embedded = false,
   stageEl = null,
   viewRect = null,
-}: SvgCanvasProps) {  const { t } = useTranslation();
+  geometryPreviewRef,
+  getPreviewDocumentRef,
+  frameGestureActiveRef,
+  resetFrameGestureRef,
+  frameGestureActive = false,
+}: SvgCanvasProps) {
+  const { t } = useTranslation();
   const camera = useRcbCamera();
   const viewportEl = useRcbViewportEl();
   useSyncExternalStore(subscribeCollabView, getCollabViewEpoch, getCollabViewEpoch);
@@ -319,15 +351,15 @@ function SvgCanvas({
   const hitTestRef = useRef<(x: number, y: number, screen?: { clientX: number; clientY: number }) => string | null>(
     () => null
   );
-  const reduxCanUndo = useSelector((s: RootState) => (s.editor.historyPast?.length || 0) > 0);
-  const reduxCanRedo = useSelector((s: RootState) => (s.editor.historyFuture?.length || 0) > 0);
+  const storeCanUndo = useSelector((s: RootState) => (s.editor.historyPast?.length || 0) > 0);
+  const storeCanRedo = useSelector((s: RootState) => (s.editor.historyFuture?.length || 0) > 0);
   useSyncExternalStore(subscribeCollabUndo, getCollabUndoEpoch, getCollabUndoEpoch);
   // Collab prefers Yjs undo; if that stack is empty (pre-seed / sync lag), fall
-  // back to Redux so the menu and Ctrl+Z stay usable. View-only never undoes.
+  // back to the editor store so the menu and Ctrl+Z stay usable. View-only never undoes.
   const viewOnly = isCollabViewOnly();
   const collabActive = isCollabActive();
-  const canUndo = !viewOnly && (collabActive ? canCollabUndo() || reduxCanUndo : reduxCanUndo);
-  const canRedo = !viewOnly && (collabActive ? canCollabRedo() || reduxCanRedo : reduxCanRedo);
+  const canUndo = !viewOnly && (collabActive ? canCollabUndo() || storeCanUndo : storeCanUndo);
+  const canRedo = !viewOnly && (collabActive ? canCollabRedo() || storeCanRedo : storeCanRedo);
   const imageToolPanel = useSelector(
     (s: RootState) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
   );
@@ -389,7 +421,7 @@ function SvgCanvas({
   const resetFrameMoveOwnersRef = useRef<() => void>(() => undefined);
   const [geometryTransforming, setGeometryTransforming] = useState(false);
   const geometryTransformingRef = useRef(false);
-  /** Live video plate boxes while dragging — Redux only commits on gesture end. */
+  /** Live video plate boxes while dragging — editor store only commits on gesture end. */
   const [videoLiveGeom, setVideoLiveGeom] = useState<Record<string, VideoGeomOverride> | null>(
     null
   );
@@ -429,17 +461,23 @@ function SvgCanvas({
     onTransformingChange?.(next);
     if (!next) {
       dragWriteCoalesceRef.current.cancel();
-      // Clear live geom with the Redux document write in onGeometryCommit when
+      // Clear live geom with the editor store document write in onGeometryCommit when
       // possible. Soft-click / cancelled transforms still need a clear here.
       setVideoLiveGeom(null);
       clearFrameGeometryPreview();
       resetFrameMoveOwnersRef.current();
     }
   }, [clearFrameGeometryPreview, onTransformingChange]);
-  // Geometry previews update documentRef before Redux commits on pointer-up.
-  // Do not overwrite that live document with the previous Redux snapshot while
+  // Geometry previews update documentRef before the editor store commits on pointer-up.
+  // Do not overwrite that live document with the committed store snapshot while
   // a transform is active, otherwise cleared frame bindings reappear.
-  if (!geometryTransformingRef.current) {
+  function preserveLiveDocumentRef(): boolean {
+    if (geometryTransformingRef.current) return true;
+    if (frameGestureActiveRef?.current) return true;
+    if (frameGestureActive) return true;
+    return false;
+  }
+  if (!preserveLiveDocumentRef()) {
     documentRef.current = document;
   }
   selectedIdsRef.current = ctxMenuSeedNodeIds(selectedNodeIds || [], selectedNodeId);
@@ -475,11 +513,25 @@ function SvgCanvas({
     if (!infinite) return undefined;
     setSharedNodeEls(nodeElsRef.current);
     perShapeBoardRef.current.nodeEls = nodeElsRef.current;
+    // Clip defs / syncFrameContentClip need a real SVG root on infinite canvas.
+    const worldRoot = getSceneWorldRoot();
+    if (worldRoot) perShapeBoardRef.current.root = worldRoot;
     // Hosts that painted before shared map was set wrote into a throwaway Map.
     listShapeHosts().forEach((h) => {
       if (h.el) nodeElsRef.current.set(h.nodeId, h.el);
     });
     return () => setSharedNodeEls(null);
+  }, [infinite]);
+
+  // Scene world SVG mounts after first layout — keep board.root wired for clip sync.
+  useEffect(() => {
+    if (!infinite) return undefined;
+    function syncWorldRoot() {
+      const worldRoot = getSceneWorldRoot();
+      if (worldRoot) perShapeBoardRef.current.root = worldRoot;
+    }
+    syncWorldRoot();
+    return subscribeShapeHosts(syncWorldRoot);
   }, [infinite]);
 
   useEffect(() => {
@@ -533,7 +585,7 @@ function SvgCanvas({
   }, [document, reloadToken, boardEpoch, infinite, omitNonExportable, boardRef]);
 
   useEffect(() => {
-    if (!documentPatchToken || geometryTransforming) return;
+    if (!documentPatchToken || preserveLiveDocumentRef()) return;
     const board = boardRef.current;
     const doc = documentRef.current;
     if (!board || !doc) return;
@@ -547,7 +599,14 @@ function SvgCanvas({
       }
       void replaceShapePaint(doc, board.nodeEls, id, board.root ? board : null);
     });
-  }, [documentPatchToken, lastPatchTransformOnly, lastPatchedNodeIds, geometryTransforming, boardRef]);
+  }, [
+    documentPatchToken,
+    lastPatchTransformOnly,
+    lastPatchedNodeIds,
+    geometryTransforming,
+    frameGestureActive,
+    boardRef,
+  ]);
 
   const cameraZoomRef = useRef(camera.zoom);
   cameraZoomRef.current = camera.zoom;
@@ -584,7 +643,14 @@ function SvgCanvas({
         setDocumentLocal: (doc) => {
           documentRef.current = doc;
         },
-        getBoard: () => boardRefHolder.current.current,
+        getBoard: () => {
+          const board = boardRefHolder.current.current;
+          if (board && !board.root) {
+            const worldRoot = getSceneWorldRoot();
+            if (worldRoot) board.root = worldRoot;
+          }
+          return board;
+        },
         getZoom: () => cameraZoomRef.current,
         isReadOnly: () => readOnlyRef.current,
         spatial: spatialRuntimeRef.current,
@@ -628,6 +694,23 @@ function SvgCanvas({
     onAnglePreview,
   } = session;
 
+  useEffect(() => {
+    if (geometryPreviewRef) geometryPreviewRef.current = onGeometryPreview;
+    if (getPreviewDocumentRef) {
+      getPreviewDocumentRef.current = () => documentRef.current;
+    }
+    if (resetFrameGestureRef) {
+      resetFrameGestureRef.current = () => {
+        resetFrameMoveOwnersRef.current();
+      };
+    }
+    return () => {
+      if (geometryPreviewRef) geometryPreviewRef.current = null;
+      if (getPreviewDocumentRef) getPreviewDocumentRef.current = () => null;
+      if (resetFrameGestureRef) resetFrameGestureRef.current = null;
+    };
+  }, [geometryPreviewRef, getPreviewDocumentRef, resetFrameGestureRef, onGeometryPreview]);
+
   /**
    * ADR 0027 SceneRenderer — svg adapter owns hit; paint still via shape hosts.
    * Precise hit is Path2D / AABB only (no live SVG DOM lattice).
@@ -654,7 +737,7 @@ function SvgCanvas({
 
   const nodeSpatialIndex = useMemo(() => {
     const runtime = spatialRuntimeRef.current;
-    const doc = geometryTransforming ? documentRef.current : document;
+    const doc = preserveLiveDocumentRef() ? documentRef.current : document;
     if (!doc) {
       runtime.clear();
       return runtime.index;
@@ -675,7 +758,7 @@ function SvgCanvas({
       patchedNodeIds: lastPatchedNodeIds,
       aabbPad: 32,
     });
-  }, [document, reloadToken, lastPatchedNodeIds, geometryTransforming]);
+  }, [document, reloadToken, lastPatchedNodeIds, geometryTransforming, frameGestureActive]);
 
   useEffect(() => {
     setSceneHitTestBridge(hitTest);
@@ -1187,6 +1270,9 @@ function SvgCanvas({
         path: pathD,
         closed,
       });
+      if (closed) {
+        Object.assign(node.attrs, closedPenFillAttrs(penFillColor));
+      }
       const next = bindCreatedNodeToFrame(
         addNodeToDocument(doc, id, node),
         id,
@@ -1229,7 +1315,7 @@ function SvgCanvas({
               shapeType,
               path: payload.pathD,
               closed: payload.closed ? 'true' : 'false',
-              ...(payload.closed
+              ...(payload.closed && pathNodeHasSolidFill(prev?.attrs)
                 ? {
                     'fill-enabled': 'true',
                     'fill-visible': 'true',
@@ -1849,14 +1935,14 @@ function SvgCanvas({
     return out;
   }, [ids, editingTextId, editingPenId, processingNodeIds]);
 
-  /** Editors + selection + processing plates must stay full SVG so SoftGlow /
-   * transform preview and hit stay live. */
+  /** DOM hosts only: SoftGlow process + inline editors.
+   * Shape ink stays on the SoA/canvas surface — selection must not promote SVG hosts. */
   const forceFullIds = useMemo(() => {
-    const out = [...ids, ...processingNodeIds];
+    const out = [...processingNodeIds];
     if (editingTextId) out.push(editingTextId);
     if (editingPenId) out.push(editingPenId);
     return out;
-  }, [ids, editingTextId, editingPenId, processingNodeIds]);
+  }, [editingTextId, editingPenId, processingNodeIds]);
 
   // Path-edit stays open on empty selection (blank click must not dismiss).
   // Only leave when the user selects a *different* node.

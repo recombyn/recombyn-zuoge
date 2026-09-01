@@ -189,7 +189,8 @@ function AnimationTimelineDock({
   agentOpen: boolean;
   workspaceMode: 'design' | 'dev';
 }): ReactNode {
-  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();
+  const document = useEditorDocumentOnCommit();
   const panel = useSelector(
     (s: any) => s.editor.lottieTimelinePanel as null | { nodeId: string }
   );
@@ -812,7 +813,7 @@ function AnimationTimelineDock({
   }, [open, nodeId]);
 
   const playheadRef = useRef(playhead);
-  // While playing, ref holds continuous time (must not reset from snapped Redux).
+  // While playing, ref holds continuous time (must not reset from snapped store).
   useEffect(() => {
     if (playing) playheadRef.current = playhead;
     // Seed only when play starts — not on every snapped tick.

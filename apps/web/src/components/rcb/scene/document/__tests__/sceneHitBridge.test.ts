@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { hitTestSceneAtPoint } from '../sceneHitBridge';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { hitTestSceneAtPoint, isNodePickableAtPoint } from '../sceneHitBridge';
+import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
+import {
+  createSceneRenderBuffer,
+  SOA_FLAG_CANVAS_IDLE,
+  SOA_FLAG_VISIBLE,
+  SOA_KIND_LINE,
+  SOA_KIND_PATH,
+  syncSceneRenderBufferFromDocument,
+} from '@/components/rcb/render/sceneRenderBuffer';
+import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 
 function rectDoc(): SceneDocument {
   return {
@@ -184,5 +193,91 @@ describe('hitTestSceneAtPoint', () => {
     expect(
       hitTestSceneAtPoint({ document: doc, order: ['img'], x: 100, y: 100, zoom: 1, getNodeBox })
     ).toBe('img');
+  });
+
+  it('allows free pen/line pick outside a grazed clipContent artboard', () => {
+    const doc = {
+      frames: [{ id: 'frame', x: 0, y: 0, width: 100, height: 100, clipContent: true }],
+      deltaSetLike: {
+        ROOT: { children: ['ink'] },
+        ink: {
+          id: 'ink',
+          key: 'shape',
+          x: 40,
+          y: 40,
+          width: 100,
+          height: 40,
+          attrs: {
+            shapeType: 'pen',
+            path: 'M 0 20 L 100 20',
+            'fill-enabled': 'false',
+            'border-width': 2,
+          },
+        },
+      },
+    } as unknown as SceneDocument;
+    const ink = doc.deltaSetLike.ink as SceneNode;
+    // Rect fill overhang stays clipped; open strokes stay pickable in world space.
+    expect(isNodePickableAtPoint(doc, ink, 120, 60)).toBe(true);
+    expect(isNodePickableAtPoint(doc, ink, 80, 60)).toBe(true);
+
+    // SoA stroke samples (Path2D is unreliable in vitest) — still pick outside plate.
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const i = buf.indexById.get('ink')!;
+    expect(buf.kinds[i]).toBe(SOA_KIND_PATH);
+    buf.flags[i] = (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE) >>> 0;
+    buf.pathXY = new Float32Array([40, 60, 140, 60]);
+    buf.pathStart[i] = 0;
+    buf.pathLen[i] = 2;
+    buf.pathClosed[i] = 0;
+    const getNodeBox = () => ({ left: 40, top: 40, width: 100, height: 40 });
+    expect(
+      hitTestSceneAtPoint({
+        document: doc,
+        order: ['ink'],
+        x: 120,
+        y: 60,
+        zoom: 1,
+        getNodeBox,
+        soaBuf: buf,
+      })
+    ).toBe('ink');
+  });
+
+  it('falls through SoA LINE miss to segment hit (same path as pen Path2D fallthrough)', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'ln', {
+      id: 'ln',
+      key: 'shape',
+      x: 0,
+      y: 40,
+      width: 100,
+      height: 20,
+      attrs: { shapeType: 'line', 'border-width': 2 },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const i = buf.indexById.get('ln')!;
+    expect(buf.kinds[i]).toBe(SOA_KIND_LINE);
+    buf.flags[i] = (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE) >>> 0;
+    // Stale SoA box far from the document line → SoA miss; Path2D/segment fallthrough.
+    buf.positions[i * 4] = 0;
+    buf.positions[i * 4 + 1] = 0;
+    buf.positions[i * 4 + 2] = 10;
+    buf.positions[i * 4 + 3] = 10;
+    const getNodeBox = () => ({ left: 0, top: 40, width: 100, height: 20 });
+    expect(
+      hitTestSceneAtPoint({
+        document: doc,
+        order: ['ln'],
+        x: 50,
+        y: 50,
+        zoom: 1,
+        getNodeBox,
+        soaBuf: buf,
+      })
+    ).toBe('ln');
   });
 });

@@ -19,6 +19,12 @@ import {
   setAnimationWorkbenchTimelineFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import {
+  getSharedSceneRenderBuffer,
+  isSoaCanvasShapesEnabled,
+  refreshSoaOverlayVisibilityFromDocument,
+} from '@/components/rcb/render/sceneRenderBuffer';
+import { requestIdleCanvasFullRepaint } from '@/components/rcb/render/sceneRenderer';
+import {
   RCB_TIMELINE_CAMERA_FIT,
   RCB_TIMELINE_CAMERA_RELEASE,
 } from '@/components/editor/sceneEvents';
@@ -142,10 +148,14 @@ function AnimationTimelineFocusHost({
 
   useLayoutEffect(() => {
     setAnimationWorkbenchTimelineFocus(focusFrameId);
+    if (document && isSoaCanvasShapesEnabled()) {
+      refreshSoaOverlayVisibilityFromDocument(getSharedSceneRenderBuffer(), document);
+    }
+    requestIdleCanvasFullRepaint();
     return () => {
       if (!focusFrameId) setAnimationWorkbenchTimelineFocus(null);
     };
-  }, [focusFrameId]);
+  }, [focusFrameId, document]);
 
   useEffect(() => {
     let cancelled = false;

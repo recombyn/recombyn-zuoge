@@ -809,20 +809,169 @@ def build_official_agent(
 
 
 def _structured_output_methods(model_id: str) -> tuple[str, ...]:
-    """Pick structured-output methods the provider actually accepts.
+    """Preferred structured-output transport order for ``ainvoke_structured``.
 
-    Root issue: trying ``json_schema`` on DeepSeek reasoner / Doubao / Seed
-    burns a failed round-trip (400 / unsupported response_format) after
-    function_calling already worked or failed for validation reasons.
+    Tool-calling re-ask loop is primary. ``json_schema`` is a last-resort
+    provider path when tool loops still fail (not a silent local parse).
     """
     mid = (model_id or "").strip().lower()
     if not mid:
-        return ("function_calling",)
+        return ("tool_reask", "json_schema")
     if "reasoner" in mid or mid.endswith("-r1"):
-        return ("function_calling",)
-    if "doubao" in mid or "seed-" in mid or mid.startswith("seed"):
-        return ("function_calling",)
-    return ("function_calling", "json_schema")
+        return ("tool_reask",)
+    return ("tool_reask", "json_schema")
+
+
+def _message_text_content(raw: Any) -> str:
+    content = getattr(raw, "content", None)
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for p in content:
+            if isinstance(p, dict):
+                parts.append(str(p.get("text") or ""))
+            else:
+                parts.append(str(p or ""))
+        return "".join(parts).strip()
+    return ""
+
+
+def _tool_call_name_args(tc: Any) -> tuple[str, Any, str]:
+    """Return ``(name, args, tool_call_id)`` from a LangChain tool_call."""
+    import json as _json
+
+    if isinstance(tc, dict):
+        name = str(tc.get("name") or "")
+        tid = str(tc.get("id") or "")
+        args = tc.get("args") if "args" in tc else tc.get("arguments")
+    else:
+        name = str(getattr(tc, "name", "") or "")
+        tid = str(getattr(tc, "id", "") or "")
+        args = getattr(tc, "args", None)
+    if isinstance(args, str) and args.strip():
+        try:
+            args = _json.loads(args)
+        except Exception:
+            pass
+    return name, args, tid
+
+
+def _parse_ai_message_to_schema(
+    schema: type[Any], ai_msg: Any
+) -> tuple[Any | None, str | None]:
+    """Validate the model's tool call against ``schema``. No free-text scrape."""
+    schema_name = str(getattr(schema, "__name__", "StructuredOutput") or "StructuredOutput")
+    tcs = list(getattr(ai_msg, "tool_calls", None) or [])
+    if not tcs:
+        hint = _message_text_content(ai_msg)
+        extra = f" plain_text={hint[:240]!r}" if hint else ""
+        return None, f"missing tool call for {schema_name}{extra}"
+
+    chosen = None
+    for tc in tcs:
+        name, _args, _tid = _tool_call_name_args(tc)
+        if name == schema_name:
+            chosen = tc
+            break
+        if chosen is None:
+            chosen = tc
+    name, args, _tid = _tool_call_name_args(chosen)
+    if not isinstance(args, dict):
+        return None, f"tool {name!r} args are not an object: {type(args).__name__}"
+    try:
+        if hasattr(schema, "model_validate"):
+            return schema.model_validate(args), None  # type: ignore[misc]
+        return args, None
+    except Exception as err:
+        return None, f"schema validation failed for {schema_name}: {err}"
+
+
+def _structured_reask_feedback(
+    schema: type[Any], ai_msg: Any, error: str
+) -> list[Any]:
+    """Turn a structured-output failure into messages the model must answer."""
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    schema_name = str(getattr(schema, "__name__", "StructuredOutput") or "StructuredOutput")
+    tcs = list(getattr(ai_msg, "tool_calls", None) or [])
+    if tcs:
+        out: list[Any] = []
+        for tc in tcs:
+            name, _args, tid = _tool_call_name_args(tc)
+            if not tid:
+                continue
+            out.append(
+                ToolMessage(
+                    content=(
+                        f"Structured output error: {error}. "
+                        f"Fix the arguments and call `{schema_name}` again with "
+                        "valid fields only."
+                    ),
+                    tool_call_id=tid,
+                    name=name or schema_name,
+                )
+            )
+        if out:
+            return out
+    return [
+        HumanMessage(
+            content=(
+                f"Structured output error: {error}. "
+                f"You MUST call the tool `{schema_name}` with arguments that match "
+                "its schema. Do not reply with plain text."
+            )
+        )
+    ]
+
+
+async def _ainvoke_structured_tool_reask(
+    *,
+    llm: Any,
+    schema: type[Any],
+    lc_messages: list[Any],
+    cfg: Any,
+    max_rounds: int = 3,
+) -> Any:
+    """bind_tools loop: invalid/missing call → feed error back → model retries."""
+    schema_name = str(getattr(schema, "__name__", "StructuredOutput") or "StructuredOutput")
+    bound = None
+    bind_errors: list[str] = []
+    for tool_choice in (
+        {"type": "function", "function": {"name": schema_name}},
+        "required",
+        "any",
+        None,
+    ):
+        try:
+            if tool_choice is None:
+                bound = llm.bind_tools([schema])
+            else:
+                bound = llm.bind_tools([schema], tool_choice=tool_choice)
+            break
+        except Exception as err:
+            bind_errors.append(f"tool_choice={tool_choice!r}: {type(err).__name__}")
+            bound = None
+    if bound is None:
+        raise RuntimeError(
+            "tool_reask bind_tools failed: " + "; ".join(bind_errors or ["unknown"])
+        )
+    msgs = list(lc_messages)
+    last_err = "no attempt"
+    for _round in range(1, max_rounds + 1):
+        ai_msg = await bound.ainvoke(msgs, config=cfg)
+        parsed, err = _parse_ai_message_to_schema(schema, ai_msg)
+        if parsed is not None:
+            return parsed
+        last_err = err or "unknown structured failure"
+        _log.info(
+            "structured tool_reask round=%s schema=%s error=%s",
+            _round,
+            schema_name,
+            last_err[:240],
+        )
+        msgs = [*msgs, ai_msg, *_structured_reask_feedback(schema, ai_msg, last_err)]
+    raise RuntimeError(f"tool_reask exhausted ({max_rounds}): {last_err}")
 
 
 async def ainvoke_structured(
@@ -838,16 +987,16 @@ async def ainvoke_structured(
     timeout: float | None = None,
     stream_chunk_timeout: float | None = None,
 ) -> dict[str, Any]:
-    """Structured output via ``with_structured_output`` only — no silent downgrade.
+    """Structured output with model re-ask on validation / missing tool call.
 
-    ``timeout`` / ``stream_chunk_timeout`` bound request + inter-chunk stall so a
-    half-open stream cannot burn the full graph node budget (default chunk 120s).
+    Primary path binds the Pydantic schema as a tool. If the model skips the
+    tool or returns invalid args, the error is sent back (ToolMessage /
+    HumanMessage) and the model must call again — not a local JSON scrape.
     """
     endpoint = get_llm_endpoint(model)
     model_id = _agent_model_id(model, endpoint.model_id)
-    sys_text = _with_system_identity(system or "", model=model or model_id)
     lc_messages = to_lc_messages(
-        _prepare_agent_messages(messages, system=sys_text, model=model)
+        _prepare_agent_messages(messages, system=system, model=model)
     )
     cfg = merge_tracing_config(
         None,
@@ -862,8 +1011,6 @@ async def ainvoke_structured(
         else None
     )
 
-    # with_structured_output first — create_agent burns multiple round-trips
-    # for a simple schema fill (intent_classify hit 6×~4s).
     llm = build_chat_model(
         endpoint=endpoint,
         model_id_override=model_id,
@@ -876,13 +1023,51 @@ async def ainvoke_structured(
     )
     errors: list[str] = []
     for method in _structured_output_methods(model_id):
+        if method == "tool_reask":
+            try:
+                parsed = await _ainvoke_structured_tool_reask(
+                    llm=llm,
+                    schema=schema,
+                    lc_messages=lc_messages,
+                    cfg=cfg,
+                    max_rounds=3,
+                )
+                return {"structured": parsed, "text": "", "messages": lc_messages}
+            except Exception as err:
+                errors.append(f"tool_reask: {type(err).__name__}: {err}")
+                continue
         try:
-            structured_llm = llm.with_structured_output(schema, method=method)
+            # Provider-native structured path (e.g. json_schema) — still no local scrape.
+            structured_llm = llm.with_structured_output(
+                schema, method=method, include_raw=True
+            )
             got = await structured_llm.ainvoke(lc_messages, config=cfg)
-            if got is None:
+            parsed: Any = None
+            raw = None
+            if isinstance(got, dict) and ("parsed" in got or "raw" in got):
+                parsed = got.get("parsed")
+                raw = got.get("raw")
+                if parsed is None and raw is not None:
+                    # One re-ask via tool loop using the failed raw as context.
+                    try:
+                        parsed = await _ainvoke_structured_tool_reask(
+                            llm=llm,
+                            schema=schema,
+                            lc_messages=[*lc_messages, raw],
+                            cfg=cfg,
+                            max_rounds=2,
+                        )
+                    except Exception as reask_err:
+                        errors.append(
+                            f"{method}: parsed None then reask failed: {reask_err}"
+                        )
+                        continue
+            else:
+                parsed = got
+            if parsed is None:
                 errors.append(f"{method}: returned None")
                 continue
-            return {"structured": got, "text": "", "messages": lc_messages}
+            return {"structured": parsed, "text": "", "messages": lc_messages}
         except Exception as direct_err:
             errors.append(f"{method}: {type(direct_err).__name__}: {direct_err}")
 

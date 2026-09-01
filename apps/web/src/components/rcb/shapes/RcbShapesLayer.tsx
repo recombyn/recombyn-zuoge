@@ -20,19 +20,23 @@ import {
   stackZIndex
 } from '@/components/rcb/scene/document/sceneDocument';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
   clearSceneCanvasIdlePaint,
   canIdlePaintOnCanvas,
   canvasIdleIsStrokeOnly,
   bumpSceneCanvasIdlePaint,
+  requestIdleCanvasFullRepaint,
   setSceneCanvasIdlePaint,
 } from '@/components/rcb/render/sceneRenderer';
 import {
-  applySoaHostPromotion,
+  getLiveCornerRadiusPreviewNodeId,
+  subscribeLiveCornerRadiusPreview,
+} from '@/components/rcb/scene/document/sceneRadii';
+import { effectivePaintBox } from '@/components/rcb/core/transformPreview';
+import {
+  applySoaHostInkFlags,
   getSharedSceneRenderBuffer,
-  isSoaBasicGeomSufficient,
   isSoaCanvasShapesEnabled,
   markAllSoaDirty,
   syncSceneRenderBufferFromDocument,
@@ -47,6 +51,7 @@ import {
   setSharedSoaBake,
 } from '@/components/rcb/render/soaBakeLayer';
 import { RCB_SOA_AI_FLUSH } from '@/components/editor/sceneEvents';
+import { setFrameClipRevealOverflowIds } from '@/components/rcb/frames/frameContentClip';
 import RcbShapeHost from './RcbShapeHost';
 
 export { canvasIdleIsStrokeOnly, canIdlePaintOnCanvas };
@@ -60,8 +65,13 @@ function refreshSharedSpatialFromSoa(buf: SceneRenderBuffer) {
 }
 
 /**
- * Sync document → SoA buffer (+ promote + spatial). Used by the shapes layer and
+ * Sync document → SoA buffer (+ host ink flags + spatial). Used by the shapes layer and
  * AI flush. Prefer calling once per AI transaction commit, not per tool_op.
+ *
+ * Membership changes (boolean delete+add, paste, undo) must full-rebuild: callers
+ * like `setDocument` often leave `lastPatchedNodeIds` stale / omit deleted ids,
+ * and incremental-with-removeMissing:false left ghost rects that still painted
+ * but could not be selected.
  */
 export function syncSoaBufferFromDocumentNow(
   document: SceneDocument,
@@ -75,15 +85,18 @@ export function syncSoaBufferFromDocumentNow(
   if (!isSoaCanvasShapesEnabled()) return false;
   const buf = getSharedSceneRenderBuffer();
   const patchedList = (opts.lastPatchedNodeIds || []).filter(Boolean);
+  const liveIds = opts.ids.map(String).filter((id) => id && id !== 'ROOT');
+  const membershipChanged = soaBufferMembershipChanged(buf, liveIds);
   const canIncremental =
     !opts.fullRebuild &&
+    !membershipChanged &&
     buf.count > 0 &&
     patchedList.length > 0 &&
-    patchedList.length <= Math.max(32, Math.floor(opts.ids.length * 0.2));
+    patchedList.length <= Math.max(32, Math.floor(liveIds.length * 0.2 || 1));
   if (canIncremental) {
     syncSceneRenderBufferIncremental(buf, document, patchedList, {
-      allIds: opts.ids,
-      removeMissing: false,
+      allIds: liveIds,
+      removeMissing: true,
     });
   } else {
     syncSceneRenderBufferFromDocument(buf, document);
@@ -91,21 +104,51 @@ export function syncSoaBufferFromDocumentNow(
     resetSharedSoaBake();
     setSharedSoaBake(null);
   }
-  applySoaHostPromotion(buf, opts.forceFullIds);
+  applySoaHostInkFlags(buf, opts.forceFullIds);
   refreshSharedSpatialFromSoa(buf);
   return true;
 }
 
+/** HTML/SVG hosts only when canvas cannot own the pixels (media FO, text, effects). */
+export function nodeNeedsDomShapeHost(
+  node: SceneNodeInput | null | undefined,
+  forceFull = false
+): boolean {
+  if (forceFull) return true;
+  if (!node) return true;
+  if (isImageProcessRunning(node)) return true;
+  const key = String(node.key || '');
+  if (key === 'text' || key === 'lottie' || key === 'audio' || key === 'group') return true;
+  // Image/video keep a host for HTML foreignObject; canvas still paints posters.
+  if (key === 'image' || key === 'video') return true;
+  return !canIdlePaintOnCanvas(node);
+}
+
+/** True when SoA slot ids diverge from document ROOT children (add/remove). */
+export function soaBufferMembershipChanged(
+  buf: SceneRenderBuffer,
+  liveIds: readonly string[]
+): boolean {
+  const keep = new Set(liveIds.map(String).filter(Boolean));
+  if (keep.size !== buf.count) return true;
+  for (let i = 0; i < buf.count; i += 1) {
+    const id = buf.ids[i];
+    if (!id || !keep.has(id)) return true;
+  }
+  return false;
+}
+
 /**
- * Whether a full SVG host should drop artboard clip.
- * Processing SoftGlow hosts are forceFull for live paint, but must stay clipped
- * when bound (`attrs.frameId`) — follow the frame without spilling past it.
+ * Whether ink (DOM host or canvas) should drop artboard clip.
+ * Processing SoftGlow stays clipped. Selected / editing nodes reveal past
+ * clipContent so overflow matches unclipped selection chrome (editable).
  */
 export function shouldRevealShapeOverflow(
-  forceFull: boolean,
+  keepOrForceFull: boolean,
   node: SceneNodeInput | null | undefined
 ): boolean {
-  return forceFull && !isImageProcessRunning(node);
+  if (!keepOrForceFull || isImageProcessRunning(node)) return false;
+  return true;
 }
 
 type Props = {
@@ -118,7 +161,7 @@ type Props = {
   hiddenNodeId?: string | null;
   /** Never cull these (selection / inline editors) even if off-screen. */
   keepVisibleIds?: readonly string[];
-  /** Must stay as full SVG hosts (inline editors only — selection stays SVG). */
+  /** Must stay as full SVG hosts (SoftGlow / inline editors — selection stays on canvas ink). */
   forceFullIds?: readonly string[];
   /** Shared scene index from SvgCanvas — drives viewport visible set. */
   spatialIndex?: RcbSpatialIndex | null;
@@ -137,19 +180,8 @@ const EFFICIENT_ZOOM_SHAPE_THRESHOLD = 80;
 /** Prefer index.search over O(N) AABB walk once the scene is this large. */
 const INDEX_CULL_THRESHOLD = 64;
 
-/** Cap full SVG hosts; overflow paints as Canvas idle ink. */
-const MAX_FULL_HOSTS = 96;
-
-/**
- * Hard cap on Canvas underlay paint when SVG hosts overflow budget.
- * Off-viewport nodes are already culled — they never reach this list.
- */
-const MAX_CANVAS_IDLE_PAINT = 4096;
-
-function isHeavyPathNode(node: SceneNodeInput): boolean {
-  const d = String(node?.attrs?.path || '');
-  return d.length >= HEAVY_PATH_D_CHARS;
-}
+/** Cap on canvas ink ids after viewport cull. */
+const MAX_CANVAS_INK_PAINT = 4096;
 
 function screenAreaPx(node: SceneNodeInput, zoom: number): number {
   const w = Math.max(1, Number(node?.width) || 1);
@@ -158,128 +190,59 @@ function screenAreaPx(node: SceneNodeInput, zoom: number): number {
   return w * h * z * z;
 }
 
-function hostBudget(opts: {
-  moving: boolean;
-  visibleCount: number;
-}): number {
-  const { moving, visibleCount } = opts;
-  // Pan/zoom motion: slightly tighter SVG budget; idle keeps full host cap.
-  // Far zoom alone must NOT demote in-viewport ink (cull handles off-screen).
-  if (moving && visibleCount >= EFFICIENT_ZOOM_SHAPE_THRESHOLD) {
-    return Math.min(MAX_FULL_HOSTS, 56);
-  }
-  return MAX_FULL_HOSTS;
-}
-
-function trimCanvasIds(opts: {
+function trimCanvasInkIds(opts: {
   document: SceneDocument;
   canvasIds: string[];
   zoom: number;
-  maxCanvasIdle: number;
+  maxCanvasInk: number;
 }): string[] {
-  const { document, canvasIds, zoom, maxCanvasIdle } = opts;
-  if (canvasIds.length <= maxCanvasIdle) return canvasIds;
+  const { document, canvasIds, zoom, maxCanvasInk } = opts;
+  if (canvasIds.length <= maxCanvasInk) return canvasIds;
   const scored = canvasIds.map((id) => ({
     id,
     score: screenAreaPx(document?.deltaSetLike?.[id], zoom),
   }));
   scored.sort((a, b) => b.score - a.score);
-  const keep = new Set(scored.slice(0, maxCanvasIdle).map((s) => s.id));
-  // Preserve document z-order among survivors.
+  const keep = new Set(scored.slice(0, maxCanvasInk).map((s) => s.id));
   return canvasIds.filter((id) => keep.has(id));
 }
 
 /**
- * Split **in-viewport** ids into full SVG hosts vs Canvas2D underlay.
- *
- * Off-screen nodes are culled before this runs — that is the only skip path.
- * Far zoom must not demote visible ink to placeholders. Canvas underlay is an
- * overflow path when SVG hosts exceed budget (or during dense camera motion).
+ * Split in-viewport ids: DOM hosts vs SoA/canvas ink (one surface for vectors).
  */
 export function pickFullAndCanvasIds(opts: {
   document: SceneDocument;
   visibleIds: string[];
-  keepSet: Set<string>;
-  /** Only these force full SVG (editors + selection). keepSet is cull-only. */
+  /** Editors / SoftGlow only — not selection of canvas-ink shapes. */
   forceFullSet?: Set<string>;
   zoom: number;
-  moving: boolean;
-  maxCanvasIdle?: number;
-  /** Prefer SoA/Canvas for idle-eligible shapes even under SVG host budget. */
-  preferSoaCanvas?: boolean;
+  maxCanvasInk?: number;
 }): { fullIds: string[]; canvasIds: string[] } {
-  const { document, visibleIds, zoom, moving } = opts;
+  const { document, visibleIds, zoom } = opts;
   const forceFullSet = opts.forceFullSet ?? EMPTY_FORCE_FULL_SET;
-  const maxCanvasIdle = opts.maxCanvasIdle ?? MAX_CANVAS_IDLE_PAINT;
-  const preferSoa =
-    opts.preferSoaCanvas === true ||
-    (opts.preferSoaCanvas !== false && isSoaCanvasShapesEnabled());
-  const budget = hostBudget({ moving, visibleCount: visibleIds.length });
-  const motionOverflow =
-    moving && visibleIds.length >= EFFICIENT_ZOOM_SHAPE_THRESHOLD;
-
-  if (visibleIds.length <= budget && !motionOverflow && !preferSoa) {
-    // Under host budget: keep SVG hosts for every visible node.
-    // Canvas-idle must NOT drop hosts — selection / hit / chrome still need a
-    // mounted lattice (ADR 0027 phase 1).
-    return { fullIds: [...visibleIds], canvasIds: [] };
-  }
-
-  const scored: Array<{ id: string; score: number; force: boolean; canvasIdle: boolean }> = [];
+  const maxCanvasInk = opts.maxCanvasInk ?? MAX_CANVAS_INK_PAINT;
+  const fullIds: string[] = [];
+  const canvasRaw: string[] = [];
   for (const id of visibleIds) {
     const node = document?.deltaSetLike?.[id];
-    const force = forceFullSet.has(id);
-    const key = String(node?.key || '');
-    // SoA prefer: only BASIC_GEOM demotes off SVG. Stroke / gradient / poly /
-    // text / media stay hosts unless SVG budget overflow pushes them to canvasIds.
-    const mediaKeepHost = preferSoa && (key === 'image' || key === 'video');
-    const canvasIdle =
-      !force &&
-      !mediaKeepHost &&
-      (preferSoa ? isSoaBasicGeomSufficient(node) : canIdlePaintOnCanvas(node));
-    let score = screenAreaPx(node, zoom);
-    // Dense motion: demote heavy paths first when filling the SVG budget.
-    if (isHeavyPathNode(node) && motionOverflow) score *= 0.05;
-    scored.push({ id, score, force, canvasIdle });
+    if (isNodeStructurallyHiddenInDocument(document, node)) continue;
+    if (nodeNeedsDomShapeHost(node, forceFullSet.has(id))) fullIds.push(id);
+    else canvasRaw.push(id);
   }
-  scored.sort((a, b) => {
-    if (a.force !== b.force) return a.force ? -1 : 1;
-    // Prefer SVG budget for nodes Canvas cannot paint well; demote idle first.
-    if (a.canvasIdle !== b.canvasIdle) return a.canvasIdle ? 1 : -1;
-    return b.score - a.score;
-  });
-
-  const fullSet = new Set<string>();
-  for (const s of scored) {
-    if (s.force) {
-      fullSet.add(s.id);
-      continue;
-    }
-    // SoA / overflow / dense-motion: idle Canvas ink skips SVG hosts.
-    if (s.canvasIdle) continue;
-    if (fullSet.size < budget) fullSet.add(s.id);
-  }
-  // Preserve document z-order for both lists.
-  const fullIds = visibleIds.filter((id) => fullSet.has(id));
-  const canvasRaw = visibleIds.filter((id) => !fullSet.has(id));
-  const canvasIds = trimCanvasIds({
-    document,
-    canvasIds: canvasRaw,
-    zoom,
-    maxCanvasIdle: preferSoa ? Math.max(maxCanvasIdle, 16384) : maxCanvasIdle,
-  });
-  return { fullIds, canvasIds };
+  return {
+    fullIds,
+    canvasIds: trimCanvasInkIds({
+      document,
+      canvasIds: canvasRaw,
+      zoom,
+      maxCanvasInk,
+    }),
+  };
 }
 
 /**
- * Renders each ROOT child as its own SVG shape host (sharp under CSS camera zoom).
- * Canvas Path2D is only used by selection indicators / draw-tool overlays.
- * Off-viewport nodes are not mounted (lazy paint); selection/editing stay culled-alive.
- * Host overflow / dense camera motion: Canvas2D underlay paints eligible nodes
- * (`setSceneCanvasIdlePaint` → `paintCanvasIdleNode`). Off-viewport ids are not mounted.
- * Selected / editing ids are forceFull (SVG hosts) so transform preview can
- * update DOM; Canvas proxies also read `TransformPreview` via effectivePaintBox.
- * z-index comes from document.stackOrder so shapes can interleave with artboards.
+ * Mounts DOM hosts (text/media/editors). Vector ink is SoA canvas (single surface).
+ * Off-viewport nodes are culled; keepVisibleIds stay for selection chrome.
  */
 function RcbShapesLayer({
   document,
@@ -361,6 +324,10 @@ function RcbShapesLayer({
   const aiMutationLock = useSelector(
     (s) => (s.editor?.aiMutationLock as number) || 0
   );
+  /** Bumps pick/publish when 动画工作台 isolation toggles (document unchanged). */
+  const workbenchTimelineToken = useSelector(
+    (s) => String(s.editor?.lottieTimelinePanel?.nodeId || '')
+  );
 
   /** Mount only in-view (+ keep) ids — never `ids.filter` over 100k after spatial hits. */
   const visibleIds = useMemo(() => {
@@ -401,17 +368,15 @@ function RcbShapesLayer({
       pickFullAndCanvasIds({
         document,
         visibleIds,
-        keepSet,
         forceFullSet,
         zoom: cullCam.zoom || 1,
-        moving,
       }),
-    [document, visibleIds, keepSet, forceFullSet, cullCam.zoom, moving]
+    [document, visibleIds, forceFullSet, cullCam.zoom, workbenchTimelineToken]
   );
 
   // Keep SoA render buffer in sync with the authoring document.
   // AI lock: skip — `RCB_SOA_AI_FLUSH` / unlock remount does one full sync.
-  // Selection promote is a separate effect (do not rebuild buffer on select).
+  // Host ink flags are a separate effect (do not rebuild buffer on editor forceFull).
   const forceFullSetRef = useRef(forceFullSet);
   forceFullSetRef.current = forceFullSet;
   const idsRef = useRef(ids);
@@ -427,12 +392,12 @@ function RcbShapesLayer({
     });
   }, [document, documentPatchToken, reloadToken, ids, lastPatchedNodeIds, aiMutationLock]);
 
-  // Selection promote/demote — Canvas idle flags only (no document rebuild).
+  // Editors / SoftGlow off SoA canvas; selection stays on canvas ink.
   useLayoutEffect(() => {
-    if (!isSoaCanvasShapesEnabled() || aiMutationLock > 0) return;
+    if (!isSoaCanvasShapesEnabled() || aiMutationLock > 0 || !document) return;
     const buf = getSharedSceneRenderBuffer();
     if (buf.count === 0) return;
-    const flipped = applySoaHostPromotion(buf, forceFullSet);
+    const flipped = applySoaHostInkFlags(buf, forceFullSet);
     if (flipped > 0) {
       refreshSharedSpatialFromSoa(buf);
       const bake = getSharedSoaBake();
@@ -442,7 +407,27 @@ function RcbShapesLayer({
       }
       bumpSceneCanvasIdlePaint();
     }
-  }, [forceFullSet, aiMutationLock]);
+  }, [forceFullSet, aiMutationLock, document]);
+
+  // Corner-radius drag stays on SoA canvas (transparent SVG corners).
+  useLayoutEffect(() => {
+    if (!isSoaCanvasShapesEnabled() || aiMutationLock > 0) return;
+    const unsubRadius = subscribeLiveCornerRadiusPreview(() => {
+      const buf = getSharedSceneRenderBuffer();
+      if (buf.count === 0) return;
+      const hostIds = new Set(forceFullSetRef.current);
+      const radiusId = getLiveCornerRadiusPreviewNodeId();
+      if (radiusId) hostIds.delete(radiusId);
+      const flipped = applySoaHostInkFlags(buf, hostIds);
+      if (flipped > 0) {
+        refreshSharedSpatialFromSoa(buf);
+        bumpSceneCanvasIdlePaint();
+      }
+    });
+    return () => {
+      unsubRadius();
+    };
+  }, [aiMutationLock]);
 
   // AI transaction commit — one buffer sync + bake invalidate + idle paint bump.
   useEffect(() => {
@@ -460,37 +445,91 @@ function RcbShapesLayer({
     return () => window.removeEventListener(RCB_SOA_AI_FLUSH, onFlush);
   }, [document]);
 
-  // Freeze idle-paint publish during AI lock (buffer is stale until flush).
+  // Publish canvas-ink ids + selection reveal (skip artboard clip for selected ink).
+  // Reveal must NOT be cleared in this effect's cleanup — dep churn mid-drag would
+  // race TransformPreview paint and re-clip overflow for a frame.
+  const revealKeyRef = useRef('');
   useLayoutEffect(() => {
-    if (aiMutationLock > 0) return;
-    if (!document || !canvasIds.length) {
+    if (!document) {
+      setFrameClipRevealOverflowIds(null);
+      revealKeyRef.current = '';
       clearSceneCanvasIdlePaint();
-      return () => {
-        clearSceneCanvasIdlePaint();
-      };
+      return;
+    }
+    const revealIds: string[] = [];
+    for (const id of keepSet) {
+      const node = document.deltaSetLike?.[id];
+      if (node && shouldRevealShapeOverflow(true, node)) revealIds.push(id);
+    }
+    const revealKey = revealIds.slice().sort().join('\0');
+    const revealChanged = revealKey !== revealKeyRef.current;
+    revealKeyRef.current = revealKey;
+    setFrameClipRevealOverflowIds(revealIds);
+    // Selection reveal toggles clip skip — force a full idle clear so leftover
+    // dirty AABBs cannot hide overflow (or leave stale clipped bake pixels).
+    if (revealChanged) {
+      if (isSoaCanvasShapesEnabled()) {
+        markAllSoaDirty(getSharedSceneRenderBuffer());
+      }
+      requestIdleCanvasFullRepaint();
+    }
+
+    if (aiMutationLock > 0) return;
+    if (!canvasIds.length) {
+      clearSceneCanvasIdlePaint();
+      return;
     }
     const sceneDoc = document;
+    const paintCanvasIds = canvasIds.filter((id) => {
+      const node = sceneDoc.deltaSetLike?.[id];
+      return node && !isNodeStructurallyHiddenInDocument(sceneDoc, node);
+    });
     setSceneCanvasIdlePaint({
       document: sceneDoc,
-      canvasIds,
+      canvasIds: paintCanvasIds,
       hiddenNodeId: hiddenNodeId ?? null,
       getNodeBox: (id) => {
         const node = sceneDoc.deltaSetLike?.[id];
         // Structural only — playhead in/out is AnimationPlayheadSceneSync (DOM).
         if (!node || isNodeStructurallyHiddenInDocument(sceneDoc, node)) return null;
         const { left, top } = nodeLeftTop(sceneDoc, node);
+        const box = effectivePaintBox(
+          id,
+          {
+            left,
+            top,
+            width: Math.max(1, Number(node.width) || 1),
+            height: Math.max(1, Number(node.height) || 1),
+          },
+          Number(node.attrs?.angle) || 0
+        );
+        if (box.hidden) return null;
         return {
-          left,
-          top,
-          width: Math.max(1, Number(node.width) || 1),
-          height: Math.max(1, Number(node.height) || 1),
+          left: box.left,
+          top: box.top,
+          width: box.width,
+          height: box.height,
         };
       },
     });
     return () => {
       clearSceneCanvasIdlePaint();
     };
-  }, [document, canvasIds, hiddenNodeId, documentPatchToken, aiMutationLock]);
+  }, [
+    document,
+    canvasIds,
+    hiddenNodeId,
+    documentPatchToken,
+    aiMutationLock,
+    workbenchTimelineToken,
+    keepSet,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      setFrameClipRevealOverflowIds(null);
+    };
+  }, []);
 
   const patched = useMemo(() => new Set(lastPatchedNodeIds.filter(Boolean)), [lastPatchedNodeIds]);
 
@@ -516,7 +555,11 @@ function RcbShapesLayer({
             frameClipToken={frameClipToken}
             forceHidden={isNodeOverlayHidden(document, node, hiddenNodeId === id)}
             // SoftGlow plates stay forceFull (live SVG) but keep frame clip.
-            revealOverflow={shouldRevealShapeOverflow(forceFullSet.has(id), node)}
+            // Selected DOM hosts (images / editors) reveal via keepVisibleIds.
+            revealOverflow={shouldRevealShapeOverflow(
+              keepSet.has(id) || forceFullSet.has(id),
+              node
+            )}
           />
         );
       })}

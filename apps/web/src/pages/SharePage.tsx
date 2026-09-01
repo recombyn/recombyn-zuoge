@@ -139,7 +139,8 @@ function previewContentBounds(doc: SceneDocument, frames: ArtboardFrame[]): Scen
 function SharePage() {
   const { shareId = '' } = useParams();
   const { t } = useTranslation();
-  const location = useLocation();  const navigate = useNavigate();
+  const location = useLocation();
+  const navigate = useNavigate();
   const viewerId = useSelector((s: any) => s.auth?.user?.id as string | undefined);
   const document = useEditorDocument();
   const selectedNodeId = useSelectedNodeId();

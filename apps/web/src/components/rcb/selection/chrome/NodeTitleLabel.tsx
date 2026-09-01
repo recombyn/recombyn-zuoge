@@ -82,7 +82,7 @@ type Props = {
   titleSuffix?: string;
   /**
    * Prefer live host lattice (same as blue control box). When set, overrides
-   * `box` left/top/size from Redux so the title does not drift after sticky snap.
+   * `box` left/top/size from the editor store so the title does not drift after sticky snap.
    */
   nodeId?: string;
 };

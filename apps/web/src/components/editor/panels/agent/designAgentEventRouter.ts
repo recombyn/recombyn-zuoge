@@ -404,7 +404,6 @@ export function createDesignAgentEventRouter(opts: {
     if (ev.kind === 'tool' || ev.kind === 'added' || ev.kind === 'updated') {
       opts.mutable.designStarted = true;
     }
-    if (ev.kind === 'thought') return;
     const actStatus = normalizeActivityStatus(ev.status);
     const label = formatActivityLabel(opts.t, {
       kind: ev.kind,

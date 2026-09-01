@@ -140,7 +140,8 @@ function ShapeSelectionToolbar({
   document: SceneDocument;
   /** When true, parent renders Export after blend (unified toolbar order). */
   hideExport?: boolean;
-}) {  const { t } = useTranslation();
+}) {
+  const { t } = useTranslation();
   const [ratioOpen, setRatioOpen] = useState(false);
   // W is applied on every keystroke. Keep the original shaft start for the
   // entire edit session so intermediate values cannot move the fixed endpoint.
@@ -265,7 +266,7 @@ function ShapeSelectionToolbar({
 
   /**
    * Size fields are a direct geometry edit, not a resize gesture. Apply the exact
-   * same scene box to the mounted SVG before Redux publishes the document box.
+   * same scene box to the mounted SVG before the editor store publishes the document box.
    * This keeps the visual top-left and persisted top-left identical.
    */
   const commitBoxGeometry = (

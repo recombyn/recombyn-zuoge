@@ -9,7 +9,6 @@ import {
   HiOutlineComputerDesktop,
   HiOutlineExclamationTriangle,
   HiOutlinePlay,
-  HiOutlineQuestionMarkCircle,
   HiOutlineXCircle,
 } from 'react-icons/hi2';
 import ChatMarkdown from '@/components/editor/panels/ChatMarkdown';
@@ -17,6 +16,7 @@ import { ContextChipPill } from '@/components/editor/panels/AgentComposerInput';
 import {
   SoftGlowSurface,
   VirtualList,
+  LoadingDots,
   type VirtualListHandle,
 } from '@/components/base';
 import { message } from '@/components/base';
@@ -994,50 +994,30 @@ export function applyThinkingBodyToSteps(
   if (!text) return stepsIn;
 
   const steps = [...stepsIn];
-  let idx = steps.findIndex((s) => s.id === 'explore-pipeline');
+  const title = t('agent.thinkingTitle');
+  let idx = steps.findIndex((s) => s.id === 'thought-stream');
+  const prevBody =
+    idx >= 0 ? String(steps[idx].body || steps[idx].summary || '').trim() : '';
+  const merged = replace ? text : `${prevBody}${text}`.trim();
+  // Full replace = one complete thought snapshot from decide; otherwise still streaming.
+  const status: AssistantStep['status'] = replace ? 'done' : 'running';
+  const next: AssistantStep = {
+    id: 'thought-stream',
+    kind: 'thought',
+    name: title,
+    status,
+    body: merged,
+  };
   if (idx < 0) {
-    idx = steps.findIndex(
-      (s) => s.kind === 'explored' && s.id !== 'chat-process'
+    const exploreIdx = steps.findIndex(
+      (s) => s.kind === 'explored' || s.id === 'explore-pipeline'
     );
+    if (exploreIdx >= 0) steps.splice(exploreIdx, 0, next);
+    else steps.push(next);
+    return steps;
   }
-  if (idx < 0) {
-    steps.push({
-      id: 'explore-pipeline',
-      kind: 'explored',
-      name: t('agent.activityExplored'),
-      status: replace ? 'done' : 'running',
-      items: [{ id: 'thought-brief', name: text }],
-    });
-    return collapseExplorePipelineSteps(steps);
-  }
-  const prevStep = steps[idx];
-  const items = [...(prevStep.items || [])];
-  const prev = items.find((x) => x.id === 'thought-brief');
-  const merged = replace
-    ? text
-    : `${String(prev?.summary || prev?.name || '')}${text}`.trim();
-  const thoughtLine = {
-    id: 'thought-brief',
-    name: merged,
-  };
-  const ti = items.findIndex((x) => x.id === 'thought-brief');
-  if (ti >= 0) items[ti] = thoughtLine;
-  else items.push(thoughtLine);
-  // Gray nest line only — do not also mirror into body (that looked like a second copy).
-  const prevBody = (prevStep.body || '').trim();
-  const body =
-    prevBody && prevBody !== merged && !merged.startsWith(prevBody)
-      ? prevStep.body
-      : undefined;
-  steps[idx] = {
-    ...prevStep,
-    id: 'explore-pipeline',
-    kind: 'explored',
-    items,
-    body,
-    status: prevStep.status,
-  };
-  return collapseExplorePipelineSteps(steps);
+  steps[idx] = { ...steps[idx], ...next };
+  return steps;
 }
 
 /** True when assistant reply is the same essay already shown in the process fold. */
@@ -1048,6 +1028,15 @@ export function replyDuplicatesProcessThought(
   const reply = content.replace(/\s+/g, ' ').trim();
   if (reply.length < 24) return false;
   for (const s of steps || []) {
+    if (s.kind === 'thought' || s.id === 'thought-stream') {
+      const body = String(s.body || s.summary || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (body && (reply === body || (body.length >= 40 && reply.includes(body.slice(0, 40))))) {
+        return true;
+      }
+      if (body.length >= 40 && body.includes(reply.slice(0, 40))) return true;
+    }
     for (const it of s.items || []) {
       if (it.id !== 'thought-brief') continue;
       const thought = String(it.name || it.summary || '')
@@ -1499,8 +1488,7 @@ function AssistantProcessBody({
   const steps = raw.filter((s) => {
     const id = String(s.id || '');
     if (!id || seen.has(id)) return false;
-    // Intent/understanding rows ("要望を理解中…" / "已确认对话意图") — not shown in chat.
-    if (s.kind === 'thought' || id === 'thought-0') return false;
+    // Bare explore-only chrome (no nest) — skip empty shells.
     if (isBareExplorePipelineStep(s)) return false;
     seen.add(id);
     return true;
@@ -1725,14 +1713,12 @@ function AssistantTurn({
       data-assistant-id={assistant.id}
       className="flex w-full min-w-0 flex-col items-stretch gap-2.5 px-0.5"
     >
-      <div className="flex w-full items-center gap-1.5 text-[12px] leading-none text-[var(--ink)]/70">
-        <HiOutlineQuestionMarkCircle className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">
-          {streaming && (!assistant.content?.trim() || processRunning)
-            ? t('agent.working')
-            : t('agent.replied', { defaultValue: '已回复' })}
-        </span>
-      </div>
+      {streaming && (!assistant.content?.trim() || processRunning) ? (
+        <LoadingDots
+          className="h-3.5 justify-start px-0.5"
+          label={t('agent.working')}
+        />
+      ) : null}
 
       {/* Process first, then reply — matching product timeline order. */}
       {foldable ? <AssistantProcessBody assistant={assistant} /> : null}
@@ -1993,7 +1979,8 @@ function LottieGenGallery({
   assistant: ChatUiMessage;
   sending?: boolean;
 }): ReactNode {
-  const { t } = useTranslation();  const lotties = assistant.lotties || [];
+  const { t } = useTranslation();
+  const lotties = assistant.lotties || [];
   const pending = Math.max(0, Number(assistant.lottiePendingCount) || 0);
   const slots = Math.max(lotties.length, pending);
   if (slots <= 0) return null;

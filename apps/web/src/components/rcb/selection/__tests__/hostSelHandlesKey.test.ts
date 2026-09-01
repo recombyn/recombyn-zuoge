@@ -1,8 +1,17 @@
 /**
  * Pan/zoom must not tear down resize knobs when box/flags are unchanged.
+ * Path chrome geom must share TransformPreview with SoA ink (no stale host leaf).
  */
-import { describe, expect, it } from 'vitest';
-import { hostSelHandlesKey, type ShapeOutlineItem } from '../HostPathChrome';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  clearNodeTransformPreviews,
+  setNodeTransformPreviews,
+} from '@/components/rcb/core/transformPreview';
+import {
+  hostSelHandlesKey,
+  liveShapeGeomBox,
+  type ShapeOutlineItem,
+} from '../HostPathChrome';
 
 function item(partial: Partial<ShapeOutlineItem> = {}): ShapeOutlineItem {
   return {
@@ -36,5 +45,25 @@ describe('hostSelHandlesKey', () => {
     const c = hostSelHandlesKey(o, 0.1, 0.5, o.pathD);
     expect(a).not.toBe(b);
     expect(a).not.toBe(c);
+  });
+});
+
+describe('liveShapeGeomBox', () => {
+  afterEach(() => {
+    clearNodeTransformPreviews();
+  });
+
+  it('prefers TransformPreview over missing host (canvas-ink / marquee move lattice)', () => {
+    clearNodeTransformPreviews();
+    expect(liveShapeGeomBox('ink-1')).toBeNull();
+    setNodeTransformPreviews([
+      { nodeId: 'ink-1', left: 40, top: 50, width: 120, height: 80 },
+    ]);
+    expect(liveShapeGeomBox('ink-1')).toEqual({
+      left: 40,
+      top: 50,
+      width: 120,
+      height: 80,
+    });
   });
 });
