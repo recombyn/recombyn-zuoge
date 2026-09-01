@@ -11,6 +11,7 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 | SceneRenderer | Paint/hit backend (`svg` DOM hosts + `canvas2d` grid + SoA vector ink) | `rcb/render/sceneRenderer.ts` |
 | Product canvas | Tools, media overlays, store writes; hit via SceneRenderer | `editor/canvas/SvgCanvas.tsx` |
 | Shape paint | SoA canvas ink for vectors; DOM hosts for text / media FO / SoftGlow / editors | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx` |
+| SoA buffer + demotion | Derived paint/pick cache (`SceneRenderBuffer`); never writes back to SceneDocument | `rcb/render/sceneRenderBuffer.ts`, `renderDemotionScheduler.ts` |
 | Pixel grid + canvas ink | Grid `[data-rcb-scene-canvas]`; vector ink `[data-rcb-idle-ink-canvas]` | `RcbCanvas` + `createCanvasSceneRenderer` |
 | Selection chrome | Shared scene SVG camera group for AABB, path silhouette, shape knobs, guides, and drawing previews; HTML overlay only for screen UI/hit seats | `rcb/selection/SelectionChrome.tsx`, `HostPathChrome.tsx`, chrome overlays |
 | Transform gestures | `pointermove` → RAF-coalesced live preview into `TransformPreview` + transitional SVG DOM; `pointerup` commits SceneDocument and clears preview | `core/transformPreview.ts`, `SelectionFeature` coalescer, `canvasSession.onGeometryPreview/Commit` |
@@ -23,7 +24,7 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 | Undo | COW / patch history | `store/modules/editorHistory.ts` |
 | Collab | Yjs ↔ scene ↔ editor store | `editor/collab/sceneYBridge.ts`, `CollabRoomProvider.tsx` |
 
-**Fact layer (ADR 0027):** `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SVG/`sceneToSvg` is export + transitional live paint — not the interaction substrate.
+**Fact layer (ADR 0027):** `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SVG/`sceneToSvg` is export + transitional live paint — not the interaction substrate. SoA buffers are a **derived** paint/pick cache only.
 
 **Normative constraints (hit / camera):** [ADR 0027](./adr/0027-canvas-layered-runtime.md) — one CameraTransform, one hit pipeline, visual = hit = lattice.
 
@@ -34,6 +35,9 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 - **`deltaSetLike`**: flat `id → SceneNode` map; `ROOT.children` (or page children) lists top-level nodes
 - **`frames`**: **artboards** (fixed design plates). Not the camera **viewport**. Paint order unified in **`stackOrder`** (`frame:id` | `node:id`, bottom → top)
 - Node fields: `id`, `key`, `x/y/width/height`, `attrs`, `children[]`
+- **Canonical attrs (current writers):** `'fill-color'`, `'border-color'` / stroke via `resolveStroke`; blend via `blendMode`; skew via `skewX` + `skewAxis`. Do not reintroduce dual-key readers.
+- **Frame `kind`:** `'artboard'` | `'animation'` (动画工作台). Document load rewrites any leftover `lottie` plate kind to `'animation'`. Node `key: 'lottie'` remains the Lottie asset node type.
+- **Workbench host flag:** `attrs.animationFrameHost` only (load rewrites leftover `lottieFrameHost`).
 - **`coordSpace: 'frameLocal'`** (set by `normalizeDocument`): nodes with `attrs.frameId` store **plate-local** `x/y` (00 = frame top-left). Paint/hit use `nodeLeftTop` = live-or-doc frame origin + local. Moving a plate updates `frames[].x/y` (+ live artboard geom); child attrs do **not** co-move.
 
 There is **no hard max node count** on the document. Capacity is governed by paint/hit budgets below.
@@ -44,7 +48,21 @@ There is **no hard max node count** on the document. Capacity is governed by pai
 
 At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes stay on `gℤ` — same as `snapCoordToGrid` / pen tips; do **not** device-shift axes off the snap lattice). SVG no longer carries the grid `<path>`.
 
-**Single vector ink:** canvas-capable nodes (`canIdlePaintOnCanvas`) publish through `setSceneCanvasIdlePaint` and paint on the SoA ink canvas (above frame plates, below DOM hosts, frame-clipped). Selection does **not** promote basic shapes to SVG. DOM hosts stay for text, media FO, SoftGlow, path/text editors, heavy paths, non-center `strokeAlign`, blend/blur, and animation plates (`forceFullSet`). There is no far-zoom placeholder LOD and no `[data-rcb-lod-layer]`.
+**Single vector ink:** canvas-capable nodes (`canIdlePaintOnCanvas`) publish through `setSceneCanvasIdlePaint` and paint on the SoA ink canvas (above frame plates, below DOM hosts, frame-clipped). Selection does **not** promote basic shapes to SVG. DOM hosts stay for text, media FO, path/text editors, heavy paths, non-center `strokeAlign`, blend/blur, and SoftGlow / inline editors via `forceFullSet`. SoftGlow process chrome lives on shape hosts (`attrs.processStatus`), not a separate process SVG mount. There is no far-zoom placeholder LOD and no `[data-rcb-lod-layer]`.
+
+### SoA buffer + promote / demote
+
+| Piece | Role |
+|-------|------|
+| `SceneRenderBuffer` | Typed arrays + `idToIndex` / freeSlots; derived from SceneDocument |
+| `SoaQuadtree` (`buf.quadtree`) | Idle-ink broad-phase for paint / SoA hit / rect cull |
+| `SceneSpatialRuntime` | Shared product spatial (all nodes); large N patches AABBs from SoA on demotion wake |
+| `RenderDemotionScheduler` | Hints: `ACTIVE_SVG` → `CANDIDATE` → `DEPLOYED_SOA` |
+| `soaBakeLayer` | Tile bake + `elementToTiles` / `tileToElements` when count is large |
+
+**Demotion (current):** SoftGlow / editors enter `forceFull` → `ACTIVE_SVG`. Leaving forceFull starts `CANDIDATE`: SoA ink flags / QT / bake bind **immediately** while the DOM host is still held (~300ms quiet). Timer only releases the host hold → `DEPLOYED_SOA`. Paint skips SoA slots that still have a live `getShapeHost(id)?.el` (except live corner-radius preview). Selection alone never forces SVG hosts.
+
+**Sync:** full rebuild uses `skipQuad` then one `quadtree.replaceAll` (avoid O(n²) expand-rebuild). Incremental patches ≥8 ids use bulk insert / QT upsert. TransformPreview keeps QT cull with an expanded query pad (~512 scene units) instead of falling back to a full N scan.
 
 ### DOM hosts (text / media / editors)
 
@@ -123,7 +141,7 @@ Implemented in `RcbShapesLayer.tsx` (current constants):
 | `MAX_CANVAS_INK_PAINT` | **4096** | Cap on SoA canvas ink ids |
 | `HEAVY_PATH_D_CHARS` | 12_000 | Heavy path → DOM host / hit cost (`sceneShapes.ts`) |
 
-Spatial index: `SceneSpatialRuntime` / `RcbSpatialIndex` (cell size 256 in `SvgCanvas`). Large-scene hit helpers also use `SCENE_SPATIAL_LARGE_THRESHOLD` (48) in `spatialIndex.ts`.
+Spatial: `SceneSpatialRuntime` / `RcbSpatialIndex` are **quadtree-backed** (`SoaQuadtree`). The constructor `cellSize` argument is only a leaf-capacity hint (SvgCanvas still passes 256). Large-scene helpers also use `SCENE_SPATIAL_LARGE_THRESHOLD` (48) in `spatialIndex.ts`. Idle SoA paint/hit additionally uses `buf.quadtree`.
 
 **Rule of thumb:** document can hold thousands of light shapes (stress benches exercise 1k–10k); vectors paint on one SoA canvas ink surface; DOM hosts are for text/media/editors only. Off-screen nodes are culled (not mounted).
 
@@ -137,7 +155,7 @@ Spatial index: `SceneSpatialRuntime` / `RcbSpatialIndex` (cell size 256 in `SvgC
 
 ## Practical capacity
 
-- **Light vectors:** hundreds → low thousands with cull + SoA canvas ink
+- **Light vectors:** hundreds → low thousands with cull + SoA canvas ink + QT
 - **Dense scenes:** one ink surface (real paint), not host-overflow dual path
 - **Many videos / animations / generators:** DOM + decode dominate before node-count alone
 - **Huge path `d`:** hit-test / history pressure (`HEAVY_PATH_D_CHARS`)
@@ -146,18 +164,22 @@ Spatial index: `SceneSpatialRuntime` / `RcbSpatialIndex` (cell size 256 in `SvgC
 
 ```
 apps/web/src/components/rcb/
-  canvas/RcbCanvas.tsx           # stage layers: grid → frames → ink → hosts → chrome
-  shapes/RcbShapesLayer.tsx      # cull + DOM hosts vs SoA canvas ink
-  shapes/shapeHostRegistry.ts    # host registry + draw preview mount
-  scene/document/sceneShapes.ts  # Path2D cache + ribbon outline helpers
+  canvas/RcbCanvas.tsx                # stage layers: grid → frames → ink → hosts → chrome
+  shapes/RcbShapesLayer.tsx           # cull + DOM hosts vs SoA canvas ink + demotion wiring
+  shapes/shapeHostRegistry.ts         # host registry + draw / guides / selection mounts
+  render/sceneRenderBuffer.ts         # SoA typed arrays, paint, QT sync
+  render/renderDemotionScheduler.ts   # ACTIVE_SVG / CANDIDATE / DEPLOYED_SOA
+  render/soaBakeLayer.ts              # tile bake + element↔tile maps
+  core/soaQuadtree.ts                 # idle + spatial QT
+  core/spatialIndex.ts                # SceneSpatialRuntime (QT-backed)
+  scene/document/sceneShapes.ts       # Path2D cache + ribbon outline helpers
   scene/document/sceneHitBridge.ts
-  frames/frameContentClip.ts     # clip-content sync during artboard drag
+  frames/frameContentClip.ts          # clip-content sync during artboard drag
   tools/PenDrawFeature.tsx
-  tools/PenPathEditFeature.tsx   # path edit + flip bake
+  tools/PenPathEditFeature.tsx        # path edit + flip bake
   tools/PencilDrawFeature.tsx
   tools/pencilBrushes.ts
   tools/ShapeDrawFeature.tsx
-  core/spatialIndex.ts
 apps/web/src/components/editor/canvas/SvgCanvas.tsx
 apps/web/src/components/editor/canvas/canvasSession.ts
 apps/web/src/store/editorSelectors.ts

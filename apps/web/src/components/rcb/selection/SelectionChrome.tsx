@@ -1629,21 +1629,6 @@ export function pickChromeKnobHit(
   return best?.pick ?? null;
 }
 
-/**
- * Drop leftover hit-pad layers that are not under the live screen overlay.
- */
-export function disposeLegacyHitPadLayer(): void {
-  if (typeof document === 'undefined') return;
-  document.querySelectorAll(`[${RCB_HIT_LAYER_ATTR}]`).forEach((n) => {
-    if (n.closest('[data-rcb-overlay="1"]')) return;
-    try {
-      n.remove();
-    } catch {
-      /* ignore */
-    }
-  });
-}
-
 export function hitZoneFromEventTarget(
   target: EventTarget | null
 ): PaintedHitZonePick | null {

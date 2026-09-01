@@ -274,11 +274,8 @@ function HtmlArtboardFrame({
   const z = rcbCameraCssZoom(camera);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const layerRef = useRef<SVGGElement | null>(null);
-  const generating =
-    Boolean(aiGenerating) || String(frame.processStatus || '') === 'running';
-  const processLabel = String(
-    aiProcessLabel || frame.processLabel || 'Preparing…'
-  );
+  const generating = Boolean(aiGenerating);
+  const processLabel = String(aiProcessLabel || 'Preparing…');
   // Remount into shared world SVG when it appears (same as RcbShapeHost).
   // Private fallback SVGs stack via HTML z-index and cover shared shape paint.
   const [worldEpoch, setWorldEpoch] = useState(() => getSceneWorldEpoch());

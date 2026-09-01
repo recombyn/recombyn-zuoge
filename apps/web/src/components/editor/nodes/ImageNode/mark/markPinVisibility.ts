@@ -11,7 +11,7 @@ export type VisibleMarkPin = {
 
 export function listVisibleMarkPins(
   document: SceneDocument,
-  pins: Record<string, ImageMarkPin | ImageMarkPin[]>,
+  pins: Record<string, ImageMarkPin[]>,
   panel: ImageToolPanelState | null | undefined,
   selectedIds: string[],
   hidden = false

@@ -372,16 +372,58 @@ export function normalizeDocument(doc: unknown): SceneDocument {
   const delta = next.deltaSetLike;
   let normalizedDelta: SceneDeltaSet | null = null;
   for (const [id, node] of Object.entries(delta)) {
-    if (!node || node.key !== 'video') continue;
-    const x = Math.round(Number(node.x) || 0);
-    const y = Math.round(Number(node.y) || 0);
-    const width = Math.max(1, Math.round(Number(node.width) || 1));
-    const height = Math.max(1, Math.round(Number(node.height) || 1));
-    if (node.x === x && node.y === y && node.width === width && node.height === height) {
-      continue;
+    if (!node) continue;
+    let patched = node;
+    let dirty = false;
+    if (node.key === 'video') {
+      const x = Math.round(Number(node.x) || 0);
+      const y = Math.round(Number(node.y) || 0);
+      const width = Math.max(1, Math.round(Number(node.width) || 1));
+      const height = Math.max(1, Math.round(Number(node.height) || 1));
+      if (node.x !== x || node.y !== y || node.width !== width || node.height !== height) {
+        patched = { ...patched, x, y, width, height };
+        dirty = true;
+      }
     }
+    const attrs = patched.attrs as Record<string, unknown> | undefined;
+    if (attrs) {
+      let nextAttrs: Record<string, unknown> | null = null;
+      if (attrs.lottieFrameHost === true || attrs.lottieFrameHost === 'true') {
+        nextAttrs = { ...(nextAttrs || attrs), animationFrameHost: true };
+        delete nextAttrs.lottieFrameHost;
+      }
+      if (patched.key === 'text') {
+        const fill = String(attrs['fill-color'] ?? '').trim().toLowerCase();
+        if (
+          fill === 'var(--gen-empty)' ||
+          fill === '#e9eaee' ||
+          fill === 'var(--surface)' ||
+          fill === 'var(--rail)'
+        ) {
+          nextAttrs = { ...(nextAttrs || attrs), 'fill-color': '#FFFFFF' };
+        }
+        const tl = Math.max(0, Math.round(Number(attrs.radiusTL) || 0));
+        const tr = Math.max(0, Math.round(Number(attrs.radiusTR) || 0));
+        const br = Math.max(0, Math.round(Number(attrs.radiusBR) || 0));
+        const bl = Math.max(0, Math.round(Number(attrs.radiusBL) || 0));
+        if (tl === 16 && tr === 16 && br === 16 && bl === 16) {
+          nextAttrs = {
+            ...(nextAttrs || attrs),
+            radiusTL: 0,
+            radiusTR: 0,
+            radiusBR: 0,
+            radiusBL: 0,
+          };
+        }
+      }
+      if (nextAttrs) {
+        patched = { ...patched, attrs: nextAttrs };
+        dirty = true;
+      }
+    }
+    if (!dirty) continue;
     normalizedDelta ||= { ...delta };
-    normalizedDelta[id] = { ...node, x, y, width, height };
+    normalizedDelta[id] = patched;
   }
   if (normalizedDelta) next.deltaSetLike = normalizedDelta;
   next.width = Math.max(100, Math.round(Number(next.width) || DEFAULT_CANVAS.width));
@@ -394,17 +436,28 @@ export function normalizeDocument(doc: unknown): SceneDocument {
     const bg = String(f.backgroundColor || '').trim();
     let withBg: ArtboardFrame =
       !bg || bg === 'none' ? { ...f, backgroundColor: '#FFFFFF' } : { ...f };
-    // Legacy import briefly wrote transparent workbench plates when JSON had no bg.
-    if (
-      isAnimationArtboardKind(withBg.kind) &&
-      bg === 'transparent' &&
-      (withBg.backgroundOpacity == null || Number(withBg.backgroundOpacity) === 0)
-    ) {
-      withBg = { ...withBg, backgroundColor: '#FFFFFF', backgroundOpacity: 100 };
+    // One-shot: old docs used kind `lottie` for 动画工作台 plates.
+    if (String((withBg as { kind?: string }).kind || '') === 'lottie') {
+      withBg = { ...withBg, kind: 'animation' };
+    }
+    if (isAnimationArtboardKind(withBg.kind) && bg === 'transparent') {
+      const op = withBg.backgroundOpacity;
+      if (op == null || Number(op) === 0) {
+        withBg = { ...withBg, backgroundColor: '#FFFFFF', backgroundOpacity: 100 };
+      }
     }
     // Artboards clip their content by default; users can explicitly show overflow.
     if (withBg.clipContent === undefined) withBg.clipContent = true;
-    return withBg;
+    // Ephemeral AI chrome lives in editor aiOperationState — drop frame fields.
+    const cleaned = { ...withBg } as ArtboardFrame & {
+      processStatus?: unknown;
+      processLabel?: unknown;
+      processKind?: unknown;
+    };
+    delete cleaned.processStatus;
+    delete cleaned.processLabel;
+    delete cleaned.processKind;
+    return cleaned;
   });
   // Keep activeFrameId nullable — null means no frame selected (do not force frames[0]).
   if (next.activeFrameId != null) {

@@ -88,10 +88,7 @@ function BucketFillFeature({
     return () => {
       hitEl.removeEventListener('pointerdown', onDown, true);
     };
-  }, [enabled, paperEl, stageEl, viewportEl, artboard]);
-
-  // Keep fillColor in the dependency list for future cursor tint; unused for hit logic.
-  void fillColor;
+  }, [enabled, paperEl, stageEl, viewportEl, artboard, fillColor]);
 
   return null;
 }

@@ -11,10 +11,6 @@ type Props = {
   /** Cap height in px. */
   size?: number;
   className?: string;
-  /** @deprecated Ignored — brand is always the graphic wordmark (no leading icon). */
-  mark?: boolean;
-  /** @deprecated Ignored — graphic sheet has fixed casing. */
-  lowercase?: boolean;
 };
 
 /**

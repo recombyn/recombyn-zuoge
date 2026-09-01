@@ -178,7 +178,6 @@ function DesktopTitlebar() {
             {onHome ? null : (
               <AppBrandWordmark
                 size={13}
-                mark={false}
                 className="truncate text-[var(--ink)]/90"
               />
             )}

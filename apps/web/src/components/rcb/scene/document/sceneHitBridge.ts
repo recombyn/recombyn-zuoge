@@ -3,8 +3,8 @@ import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/
  * Scene pick / hit-test domain — shared by SvgCanvas and bridge consumers
  * (e.g. FrameMoveFeature via setSceneHitTestBridge).
  *
- * Spatial candidate order stays in SceneSpatialRuntime; this module owns
- * per-node ink tests (Path2D / AABB; optional SVG DOM behind allowSvgDomHit).
+ * Spatial candidate order stays in SceneSpatialRuntime (SoaQuadtree broad-phase);
+ * this module owns per-node ink tests (Path2D / AABB; optional SVG DOM behind allowSvgDomHit).
  */
 
 import { getShapeBaselineD } from '@/components/rcb/core/geometry';
@@ -345,14 +345,6 @@ function isPointVisibleForFrameClip(doc: SceneDocument, node: SceneNode, x: numb
   });
   if (!clipping.length) return true;
   return clipping.some((frame) => pointInRect(x, y, frameRect(frame)));
-}
-
-export function bridgeSceneHitTest(
-  x: number,
-  y: number,
-  screen?: { clientX: number; clientY: number }
-): string | null {
-  return hitFn?.(x, y, screen) ?? null;
 }
 
 function toNodeLocal(

@@ -18,15 +18,10 @@ import { getApiBaseUrl } from '@/utils/apiBase';
 import { getToken, setToken } from '@/utils/token';
 import { acceptLanguageHeader } from '@/i18n/apiLocale';
 
-/** HTTP status from oRPC or ky errors (replaces axios.isAxiosError). */
+/** HTTP status from oRPC or ky errors. */
 export function getHttpStatus(err: unknown): number | undefined {
   if (err instanceof ORPCError) return err.status;
   if (err instanceof HTTPError) return err.response.status;
-  // Legacy axios-shaped errors (pre-migration leftovers).
-  if (err && typeof err === 'object' && 'response' in err) {
-    const status = (err as { response?: { status?: unknown } }).response?.status;
-    if (typeof status === 'number') return status;
-  }
   return undefined;
 }
 
@@ -38,9 +33,6 @@ export function getHttpErrorBody(err: unknown): unknown {
       return (data as { body?: unknown }).body ?? data;
     }
     return data;
-  }
-  if (err && typeof err === 'object' && 'response' in err) {
-    return (err as { response?: { data?: unknown } }).response?.data;
   }
   return undefined;
 }

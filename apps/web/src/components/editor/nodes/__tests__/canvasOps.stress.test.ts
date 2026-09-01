@@ -347,10 +347,7 @@ describe('canvas ops store stress', () => {
     state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId });
     const hostId = Object.keys(state.document!.deltaSetLike || {}).find((id) => {
       const n = state.document!.deltaSetLike?.[id];
-      return (
-        n?.key === 'lottie' &&
-        (n.attrs?.animationFrameHost === true || n.attrs?.lottieFrameHost === true)
-      );
+      return n?.key === 'lottie' && n.attrs?.animationFrameHost === true;
     });
     expect(hostId).toBeTruthy();
     state = reduceEditor(state, editorReducers.openLottieTimelinePanel, { nodeId: String(hostId) });

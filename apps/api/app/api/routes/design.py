@@ -1,4 +1,4 @@
-"""Design run API — LangGraph canvas_ops (agent / single_model; partial → single_model)."""
+"""Design run API — LangGraph canvas_ops (agent / single_model)."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ def _sse_log_line(
 class DesignRunIn(BaseModel):
     run_mode: str = Field(
         ...,
-        description="agent | single_model | partial (legacy alias → single_model)",
+        description="agent | single_model",
     )
     prompt: str = Field(..., min_length=1)
     scene: str | None = None

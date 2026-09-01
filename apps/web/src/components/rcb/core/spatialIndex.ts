@@ -1,49 +1,42 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
- * Uniform-grid spatial index for scene AABBs (culling + hit candidate filter).
- * Dependency-free for the rcb core.
+ * Spatial index for scene AABBs (culling + hit candidate filter).
+ * Backed by {@link SoaQuadtree} (world units; pan/zoom only transforms queries).
  */
 
+import { SoaQuadtree, type SoaQuadItem } from './soaQuadtree';
 import { nodeLeftTop } from '../scene/paint/sceneToSvg';
 import { effectivePaintBox } from './transformPreview';
 
-export type RcbSpatialItem = {
-  id: string;
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-};
-
-function cellKey(cx: number, cy: number) {
-  return `${cx},${cy}`;
-}
+export type RcbSpatialItem = SoaQuadItem;
 
 export class RcbSpatialIndex {
-  private readonly cellSize: number;
-  private readonly cells = new Map<string, RcbSpatialItem[]>();
-  private readonly byId = new Map<string, RcbSpatialItem>();
+  private readonly tree: SoaQuadtree;
 
+  /**
+   * @param cellSize Leaf capacity hint from former grid cell size
+   * (larger → slightly fuller leaves before split).
+   */
   constructor(cellSize = 256) {
-    this.cellSize = Math.max(32, cellSize);
+    const maxItems = Math.max(8, Math.min(32, Math.round(Math.max(32, cellSize) / 16)));
+    this.tree = new SoaQuadtree({ maxItems });
   }
 
   get size() {
-    return this.byId.size;
+    return this.tree.size;
   }
 
   has(id: string) {
-    return this.byId.has(id);
+    return this.tree.has(id);
   }
 
   /** Indexed ids (unordered). Prefer for membership sync — not a cull hot path. */
   ids(): IterableIterator<string> {
-    return this.byId.keys();
+    return this.tree.ids();
   }
 
   clear() {
-    this.cells.clear();
-    this.byId.clear();
+    this.tree.clear();
   }
 
   /**
@@ -84,74 +77,20 @@ export class RcbSpatialIndex {
   }
 
   upsert(item: RcbSpatialItem) {
-    if (this.byId.has(item.id)) this.remove(item.id);
-    this.byId.set(item.id, item);
-    for (const key of this.keysFor(item)) {
-      const bucket = this.cells.get(key);
-      if (bucket) bucket.push(item);
-      else this.cells.set(key, [item]);
-    }
+    this.tree.upsert(item);
   }
 
   remove(id: string) {
-    const prev = this.byId.get(id);
-    if (!prev) return;
-    this.byId.delete(id);
-    for (const key of this.keysFor(prev)) {
-      const bucket = this.cells.get(key);
-      if (!bucket) continue;
-      const next = bucket.filter((x) => x.id !== id);
-      if (next.length) this.cells.set(key, next);
-      else this.cells.delete(key);
-    }
+    this.tree.remove(id);
   }
 
   /** All items whose AABB intersects the query rect. */
   search(minX: number, minY: number, maxX: number, maxY: number): RcbSpatialItem[] {
-    const out: RcbSpatialItem[] = [];
-    const seen = new Set<string>();
-    const x0 = Math.floor(minX / this.cellSize);
-    const y0 = Math.floor(minY / this.cellSize);
-    const x1 = Math.floor(maxX / this.cellSize);
-    const y1 = Math.floor(maxY / this.cellSize);
-    for (let cy = y0; cy <= y1; cy += 1) {
-      for (let cx = x0; cx <= x1; cx += 1) {
-        const bucket = this.cells.get(cellKey(cx, cy));
-        if (!bucket) continue;
-        for (const item of bucket) {
-          if (seen.has(item.id)) continue;
-          if (
-            item.maxX < minX ||
-            item.minX > maxX ||
-            item.maxY < minY ||
-            item.minY > maxY
-          ) {
-            continue;
-          }
-          seen.add(item.id);
-          out.push(item);
-        }
-      }
-    }
-    return out;
+    return this.tree.search(minX, minY, maxX, maxY);
   }
 
   searchPoint(x: number, y: number, pad = 0): RcbSpatialItem[] {
-    return this.search(x - pad, y - pad, x + pad, y + pad);
-  }
-
-  private keysFor(item: RcbSpatialItem): string[] {
-    const x0 = Math.floor(item.minX / this.cellSize);
-    const y0 = Math.floor(item.minY / this.cellSize);
-    const x1 = Math.floor(item.maxX / this.cellSize);
-    const y1 = Math.floor(item.maxY / this.cellSize);
-    const keys: string[] = [];
-    for (let cy = y0; cy <= y1; cy += 1) {
-      for (let cx = x0; cx <= x1; cx += 1) {
-        keys.push(cellKey(cx, cy));
-      }
-    }
-    return keys;
+    return this.tree.searchPoint(x, y, pad);
   }
 }
 
@@ -440,6 +379,48 @@ export class SceneSpatialRuntime {
       const maxX = Math.max(x, x + w) + pad;
       const maxY = Math.max(y, y + h) + pad;
       this.index.upsert({ id, minX, minY, maxX, maxY });
+      n += 1;
+    }
+    return n;
+  }
+
+  /**
+   * Patch a few SoA slot AABBs into the shared index (promote/demote wake).
+   * Avoids full-buffer upsertFromRenderBuffer on every flag flip.
+   */
+  upsertIdsFromRenderBuffer(
+    buf: {
+      indexById: Map<string, number>;
+      positions: Float32Array;
+      flags: Uint32Array;
+      ids: Array<string | undefined>;
+      count: number;
+    },
+    ids: readonly string[],
+    opts?: { pad?: number; visibleFlag?: number }
+  ): number {
+    const pad = opts?.pad ?? 0;
+    const visibleFlag = opts?.visibleFlag ?? 1;
+    const stride = 4;
+    let n = 0;
+    for (const raw of ids) {
+      const id = String(raw || '');
+      if (!id) continue;
+      const i = buf.indexById.get(id);
+      if (i == null || i < 0 || i >= buf.count) continue;
+      if (!(buf.flags[i] & visibleFlag)) continue;
+      const o = i * stride;
+      const x = buf.positions[o];
+      const y = buf.positions[o + 1];
+      const w = buf.positions[o + 2];
+      const h = buf.positions[o + 3];
+      this.index.upsert({
+        id,
+        minX: Math.min(x, x + w) - pad,
+        minY: Math.min(y, y + h) - pad,
+        maxX: Math.max(x, x + w) + pad,
+        maxY: Math.max(y, y + h) + pad,
+      });
       n += 1;
     }
     return n;

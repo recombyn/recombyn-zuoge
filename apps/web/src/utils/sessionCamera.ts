@@ -18,8 +18,6 @@ export type SessionCameraBandInsets = {
 export type SessionCameraFitOpts = {
   padding?: number;
   maxZoom?: number;
-  /** @deprecated Prefer `bandInsets.bottom`. */
-  viewportHeightInset?: number;
   /** Fit + center inside this free band (stage px). */
   bandInsets?: SessionCameraBandInsets;
   /** 0 = top of free band, 1 = bottom (default 0.5). */
@@ -31,7 +29,6 @@ export type SessionCameraPushDetail = {
   bounds: SessionCameraBounds;
   padding?: number;
   maxZoom?: number;
-  viewportHeightInset?: number;
   bandInsets?: SessionCameraBandInsets;
   bandAnchorY?: number;
 };
@@ -42,7 +39,6 @@ export type SessionCameraFitDetail = {
   bounds: SessionCameraBounds;
   padding?: number;
   maxZoom?: number;
-  viewportHeightInset?: number;
   bandInsets?: SessionCameraBandInsets;
   bandAnchorY?: number;
 };
@@ -70,7 +66,6 @@ export function pushSessionCamera(
         bounds,
         padding: opts?.padding,
         maxZoom: opts?.maxZoom,
-        viewportHeightInset: opts?.viewportHeightInset,
         bandInsets: opts?.bandInsets,
         bandAnchorY: opts?.bandAnchorY,
       },
@@ -90,7 +85,6 @@ export function fitSessionCamera(
         bounds,
         padding: opts?.padding,
         maxZoom: opts?.maxZoom,
-        viewportHeightInset: opts?.viewportHeightInset,
         bandInsets: opts?.bandInsets,
         bandAnchorY: opts?.bandAnchorY,
       },
