@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSceneRenderBuffer,
+  forEachVisibleInRect,
   paintSoaBufferBasic,
   resolveSoaPaintBox,
+  setSoaPaintDocument,
   syncSceneRenderBufferFromDocument,
   SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
@@ -26,11 +28,17 @@ import {
 import { applyAnimationPlayheadScenePose } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
 import { serializeLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import { clearShapeHosts, registerShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
+import {
+  clearLiveArtboardFrameGeometry,
+  previewArtboardFrameGeometry,
+} from '@/components/rcb/frames/HtmlArtboardFrame';
 
 afterEach(() => {
   clearNodeTransformPreviews();
   setLiveCornerRadiusPreview(null);
   clearShapeHosts();
+  clearLiveArtboardFrameGeometry();
+  setSoaPaintDocument(null);
 });
 
 describe('SoA TransformPreview sync', () => {
@@ -610,5 +618,54 @@ describe('SoA TransformPreview sync', () => {
     paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 }, { document: doc });
     expect(filled).toBe(false);
     expect(stroked).toBe(true);
+  });
+
+  it('forEachVisibleInRect rescues frameLocal children under live artboard plate', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    (doc as any).coordSpace = 'frameLocal';
+    (doc as any).frames = [{ id: 'f1', kind: 'artboard', x: 0, y: 0, width: 400, height: 400 }];
+    // 64 nodes so QT broadphase is active (>= 48).
+    for (let i = 0; i < 64; i += 1) {
+      const id = `c${i}`;
+      doc = addNodeToDocument(doc, id, {
+        id,
+        key: 'shape',
+        x: (i % 8) * 40,
+        y: Math.floor(i / 8) * 40,
+        width: 30,
+        height: 30,
+        attrs: {
+          shapeType: 'rect',
+          fill: '#fff',
+          'fill-color': '#fff',
+          'stroke-enabled': false,
+          frameId: 'f1',
+        },
+        children: [],
+      } as any);
+    }
+    const buf = createSceneRenderBuffer(128);
+    setSoaPaintDocument(doc);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.quadtree.size).toBe(64);
+
+    // Plate moves far away — stored QT AABBs are still near origin.
+    previewArtboardFrameGeometry({ id: 'f1', x: 2000, y: 2000, width: 400, height: 400 });
+
+    const seenNearOrigin: string[] = [];
+    forEachVisibleInRect(buf, { minX: 0, minY: 0, maxX: 100, maxY: 100 }, (_i, id) => {
+      seenNearOrigin.push(id);
+    });
+    expect(seenNearOrigin).toEqual([]);
+
+    const seenAtLive: string[] = [];
+    forEachVisibleInRect(
+      buf,
+      { minX: 1990, minY: 1990, maxX: 2050, maxY: 2050 },
+      (_i, id) => {
+        seenAtLive.push(id);
+      }
+    );
+    expect(seenAtLive).toContain('c0');
   });
 });

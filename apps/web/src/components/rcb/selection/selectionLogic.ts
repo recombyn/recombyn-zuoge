@@ -57,7 +57,7 @@ import {
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { nodeIdsInsideFrames } from '@/components/rcb/scene/document/sceneClipboard';
-import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
+import { buildNodeStackZMap } from '@/components/rcb/scene/document/sceneDocument';
 import {
   TEXT_SELECTION_PAD,
   deflateSelectionBox,
@@ -833,18 +833,6 @@ export function evaluateBrushGate(
   return { passed, box };
 }
 
-export function softSelectFrameAt(
-  toScene: (clientX: number, clientY: number) => { x: number; y: number },
-  hitTestFrame: ((x: number, y: number) => string | null) | undefined,
-  onSelectFrame: ((frameId: string | null) => void) | undefined,
-  clientX: number,
-  clientY: number
-) {
-  const abs = toScene(clientX, clientY);
-  const frameId = hitTestFrame?.(abs.x, abs.y);
-  if (frameId) onSelectFrame?.(frameId);
-}
-
 export function isSelectionOriginsLocked(
   document: SceneDocument,
   origins: Array<{ nodeId: string }> | null | undefined
@@ -988,9 +976,11 @@ export function fallbackVisibleNodeHit(
     width: Math.max(1, Number(frame.width) || 1),
     height: Math.max(1, Number(frame.height) || 1),
   });
-  const orderedNodeIds = [...nodeIds].sort((a, b) => {
-    return stackZIndex(document, 'node', String(b)) - stackZIndex(document, 'node', String(a));
-  });
+  const orderedNodeIds = (() => {
+    const ids = nodeIds.map(String);
+    const zMap = buildNodeStackZMap(document, ids);
+    return [...ids].sort((a, b) => (zMap.get(b) || 0) - (zMap.get(a) || 0));
+  })();
   for (const rawId of orderedNodeIds) {
     const id = String(rawId || '');
     const node = document?.deltaSetLike?.[id];
@@ -2096,12 +2086,6 @@ export function buildShapeOutlines(opts: {
   }
 
   return out;
-}
-
-/** Scene pad beyond the control box to outer stroke ink (same as rotate park). */
-export function resolveToolbarEdgePadScene(node: SceneNodeInput): number {
-  if (!node) return 0;
-  return Math.max(0, strokeOuterClearanceScene(node));
 }
 
 /**

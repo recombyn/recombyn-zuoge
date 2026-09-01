@@ -1,4 +1,4 @@
-import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 export function boolEffectAttr(v: unknown, fallback: boolean) {
   if (v == null) return fallback;
   return v === true || v === 'true';
@@ -70,6 +70,83 @@ export function resolveStrokeAlign(attrs: Record<string, unknown> | null | undef
   return 'center';
 }
 
+/**
+ * Outside stroke needs an opaque fill to cover the inward half (SVG underlay trick).
+ * Match {@link applyElementStroke} / {@link strokePaintMeta}.
+ */
+export function nodeHasOpaqueFillForStrokeAlign(node: SceneNodeInput): boolean {
+  const fillType = String(node.attrs?.['fill-type'] || 'solid');
+  if (fillType === 'solid' || fillType === '') {
+    const fill = resolveFillColor(node, '#FFFFFF');
+    if (!fill || fill === 'transparent' || fill === 'rgba(0,0,0,0)') return false;
+    if (/^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/i.test(fill)) return false;
+    return true;
+  }
+  // gradient / image / mesh still cover the inner half
+  return true;
+}
+
+/** Align used for Canvas/SVG paint after outside→center fallback when fill is transparent. */
+export function resolveStrokeAlignForPaint(node: SceneNodeInput): StrokeAlign {
+  let align = resolveStrokeAlign(node.attrs);
+  if (align === 'outside' && !nodeHasOpaqueFillForStrokeAlign(node)) {
+    return 'center';
+  }
+  return align;
+}
+
+/** Canvas `lineWidth` for a visual stroke under align (inside/outside use 2× + clip/fill). */
+export function canvasStrokeLineWidth(align: StrokeAlign, strokeWidth: number): number {
+  if (!(strokeWidth > 0)) return 0;
+  if (align === 'inside' || align === 'outside') return strokeWidth * 2;
+  return strokeWidth;
+}
+
+/**
+ * Figma/SVG-style stroke align on Canvas2D.
+ * - outside: stroke at 2× first, then fill (caller) covers the inward half
+ * - inside: clip to path, stroke at 2× (fill already painted)
+ * - center: normal stroke at width
+ */
+export function strokeCanvasAligned(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    align: StrokeAlign;
+    stroke: string;
+    strokeWidth: number;
+    /** Trace geometry (beginPath + path). For Path2D pass `() => {}` and use `path`. */
+    trace: () => void;
+    path?: Path2D;
+    fillRule?: CanvasFillRule;
+  }
+): void {
+  const { align, stroke, strokeWidth, trace, path, fillRule } = opts;
+  if (!(strokeWidth > 0) || !stroke || stroke === 'transparent') return;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = canvasStrokeLineWidth(align, strokeWidth);
+  if (align === 'inside') {
+    ctx.save();
+    if (path) {
+      if (fillRule) ctx.clip(path, fillRule);
+      else ctx.clip(path);
+      ctx.stroke(path);
+    } else {
+      trace();
+      ctx.clip();
+      trace();
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+  if (path) {
+    ctx.stroke(path);
+    return;
+  }
+  trace();
+  ctx.stroke();
+}
+
 function strokePaintMeta(node: SceneNodeInput): { align: StrokeAlign; strokeWidth: number } | null {
   if (!node) return null;
   const key = String(node.key || '');
@@ -85,22 +162,7 @@ function strokePaintMeta(node: SceneNodeInput): { align: StrokeAlign; strokeWidt
   if (!(strokeWidth > 0) || !stroke || stroke === 'transparent') return null;
   if (/rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*0\s*\)/i.test(stroke)) return null;
 
-  let align = resolveStrokeAlign(node.attrs);
-  // Match applyElementStroke: outside needs opaque fill to cover the inner half.
-  // Use the same white default as createShape paint — not 'transparent'.
-  if (align === 'outside') {
-    const fillType = String(node.attrs?.['fill-type'] || 'solid');
-    if (fillType === 'solid' || fillType === '') {
-      const fill = resolveFillColor(node, '#FFFFFF');
-      const opaque =
-        Boolean(fill) &&
-        fill !== 'transparent' &&
-        fill !== 'rgba(0,0,0,0)' &&
-        !/^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/i.test(fill);
-      if (!opaque) align = 'center';
-    }
-    // gradient / image / mesh still cover the inner half
-  }
+  const align = resolveStrokeAlignForPaint(node);
   return { align, strokeWidth };
 }
 
@@ -149,37 +211,6 @@ export function strokeOuterClearanceScene(node: SceneNodeInput): number {
  */
 export function strokeChromeOutset(_node: SceneNodeInput): number {
   return 0;
-}
-
-/**
- * Offset from the vector path to the **middle of the painted stroke band**.
- * Scales with real `border-width` — not a constant.
- * - outside → +sw/2 (band sits entirely outside the path)
- * - center  → 0 (SVG stroke already straddles the path)
- * - inside  → −sw/2
- */
-export function strokeIndicatorOutset(node: SceneNodeInput): number {
-  const meta = strokePaintMeta(node);
-  if (!meta) return 0;
-  const sw = meta.strokeWidth;
-  if (!(sw > 0)) return 0;
-  if (meta.align === 'inside') return -sw / 2;
-  if (meta.align === 'outside') return sw / 2;
-  return 0;
-}
-
-/**
- * Align / snap / spacing boxes — path geom for guides; chrome uses visual outer.
- */
-export type StrokeBandFace = 'inner' | 'path' | 'outer';
-
-export type StrokeBandBox<T extends { left: number; top: number; width: number; height: number }> =
-  T & { face: StrokeBandFace | 'any' };
-
-export function strokeBandGuideBoxes<
-  T extends { left: number; top: number; width: number; height: number },
->(geom: T, _node: SceneNodeInput): StrokeBandBox<T>[] {
-  return [{ ...geom, face: 'path' }];
 }
 
 function padBox<T extends { left: number; top: number; width: number; height: number }>(
@@ -351,9 +382,6 @@ export const TEXT_FRAME_PADDING = 15;
 
 /** Default corner radius for text-frame plates (artboard-sharp). */
 export const TEXT_FRAME_RADIUS = 0;
-
-/** Audio / media plate corner — independent of text-frame artboard chrome. */
-export const MEDIA_PLATE_RADIUS = 16;
 
 /**
  * Text-frame plate corners — artboard-sharp by default.

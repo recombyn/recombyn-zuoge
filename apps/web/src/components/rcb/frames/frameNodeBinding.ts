@@ -45,9 +45,6 @@ export function sceneBBox(box: {
   };
 }
 
-export const nodeBBox = sceneBBox;
-export const frameBBox = sceneBBox;
-
 export function boxesIntersect(a: BBox, b: BBox): boolean {
   return (
     a.left < b.left + b.width &&

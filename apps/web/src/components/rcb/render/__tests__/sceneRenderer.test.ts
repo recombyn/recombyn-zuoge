@@ -21,7 +21,11 @@ import {
   paintCanvasShapeInk,
   paintCanvasPathInk,
   paintCanvasTextInk,
+  clearIdleTextOutlineCache,
+  primeIdleTextOutlineCache,
   paintCanvasIdleNode,
+  nodeNeedsCanvasEffectBake,
+  canvasCompositeFromBlendMode,
   paintCanvasMediaInk,
   clipCanvasIdleToOwningFrame,
   paintStrokeCanvasIdle,
@@ -157,6 +161,7 @@ function mockCtx(ops: string[]) {
     lineWidth: 1,
     lineCap: 'butt' as CanvasLineCap,
     globalAlpha: 1,
+    filter: 'none',
     shadowColor: '',
     shadowBlur: 0,
     shadowOffsetX: 0,
@@ -513,6 +518,97 @@ describe('Canvas idle path / text / shape paint', () => {
     expect(ops).toContain('scale:-1,1');
   });
 
+  it('paintCanvasIdleNode bakes object blur via offscreen drawImage', () => {
+    const blurNode = {
+      key: 'shape',
+      attrs: {
+        shapeType: 'rect',
+        'fill-color': '#ff0000',
+        'border-width': 0,
+        'blur-enabled': true,
+        'blur-amount': 12,
+      },
+    } as SceneNodeInput;
+    expect(nodeNeedsCanvasEffectBake(blurNode)).toBe(true);
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
+      left: 10,
+      top: 20,
+      width: 40,
+      height: 30,
+      zoom: 1,
+      node: blurNode,
+    });
+    expect(ops).toContain('drawImage');
+    expect((ctx as { filter: string }).filter).toBe('none');
+  });
+
+  it('nodeNeedsCanvasEffectBake for inner-shadow; not for backdrop-only', () => {
+    expect(
+      nodeNeedsCanvasEffectBake({
+        key: 'shape',
+        attrs: {
+          'inner-shadow-enabled': true,
+          'inner-shadow-visible': true,
+          'inner-shadow-blur': 4,
+          'inner-shadow-y': 2,
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      nodeNeedsCanvasEffectBake({
+        key: 'shape',
+        attrs: { 'backdrop-blur-enabled': true, 'backdrop-blur-amount': 12 },
+      } as SceneNodeInput)
+    ).toBe(false);
+  });
+
+  it('canvasCompositeFromBlendMode maps CSS modes; normal/pass-through → null', () => {
+    expect(canvasCompositeFromBlendMode('multiply')).toBe('multiply');
+    expect(canvasCompositeFromBlendMode('screen')).toBe('screen');
+    expect(canvasCompositeFromBlendMode('overlay')).toBe('overlay');
+    expect(canvasCompositeFromBlendMode('normal')).toBeNull();
+    expect(canvasCompositeFromBlendMode('pass-through')).toBeNull();
+    expect(canvasCompositeFromBlendMode('passthrough')).toBeNull();
+    expect(canvasCompositeFromBlendMode('')).toBeNull();
+  });
+
+  it('paintCanvasIdleNode with multiply still draws (blend bake path)', () => {
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    const identity = {
+      a: 1,
+      b: 0,
+      c: 0,
+      d: 1,
+      e: 0,
+      f: 0,
+      inverse() {
+        return this;
+      },
+    };
+    (ctx as { getTransform?: () => typeof identity }).getTransform = () => identity;
+    (ctx as { canvas?: HTMLCanvasElement }).canvas = document.createElement('canvas');
+    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
+      left: 0,
+      top: 0,
+      width: 40,
+      height: 30,
+      zoom: 1,
+      node: {
+        key: 'shape',
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#ff0000',
+          'border-width': 0,
+          blendMode: 'multiply',
+        },
+      } as SceneNodeInput,
+    });
+    expect(ops).toContain('drawImage');
+  });
+
   it('paintCanvasMediaInk draws cached image with crop', () => {
     const ops: string[] = [];
     const ctx = mockCtx(ops);
@@ -653,12 +749,14 @@ describe('Canvas idle path / text / shape paint', () => {
   });
 
   it('paintCanvasTextInk draws fillText glyphs', () => {
+    clearIdleTextOutlineCache();
     const ops: string[] = [];
     const ctx = mockCtx(ops);
     (ctx as { fillText?: (...a: unknown[]) => void; textAlign?: string; textBaseline?: string; font?: string }).fillText =
       () => ops.push('fillText');
     paintCanvasTextInk(ctx as unknown as CanvasRenderingContext2D, {
       node: {
+        id: 't-fill',
         key: 'text',
         attrs: {
           ORIGIN_DATA: JSON.stringify([{ children: [{ text: 'Hello' }] }]),
@@ -674,6 +772,74 @@ describe('Canvas idle path / text / shape paint', () => {
       opacity: 1,
     });
     expect(ops).toContain('fillText');
+  });
+
+  it('paintCanvasTextInk fills primed outline Path2D instead of fillText', () => {
+    clearIdleTextOutlineCache();
+    const node = {
+      id: 't-outline',
+      key: 'text',
+      width: 80,
+      height: 24,
+      attrs: {
+        ORIGIN_DATA: JSON.stringify([{ children: [{ text: 'Hi' }] }]),
+        DATA: JSON.stringify([
+          { chars: [{ char: 'H', config: { SIZE: 14, COLOR: '#222', FAMILY: 'sans-serif' } }] },
+        ]),
+      },
+    } as SceneNodeInput;
+    primeIdleTextOutlineCache(node, 'M0 0 H10 V10 H0 Z');
+    const g = globalThis as { Path2D?: new (d?: string) => object };
+    const Prev = g.Path2D;
+    g.Path2D = class {
+      constructor(public d?: string) {}
+    } as never;
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    (ctx as { fillText?: (...a: unknown[]) => void }).fillText = () => ops.push('fillText');
+    try {
+      paintCanvasTextInk(ctx as unknown as CanvasRenderingContext2D, {
+        node,
+        width: 80,
+        height: 24,
+        opacity: 1,
+      });
+      expect(ops).toContain('fill');
+      expect(ops).not.toContain('fillText');
+    } finally {
+      if (Prev) g.Path2D = Prev;
+      else delete g.Path2D;
+      clearIdleTextOutlineCache();
+    }
+  });
+
+  it('paintCanvasTextInk keeps fillText for CJK until async outline is ready', () => {
+    clearIdleTextOutlineCache();
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    (ctx as { fillText?: (...a: unknown[]) => void }).fillText = () => ops.push('fillText');
+    paintCanvasTextInk(ctx as unknown as CanvasRenderingContext2D, {
+      node: {
+        id: 't-cjk',
+        key: 'text',
+        attrs: {
+          ORIGIN_DATA: JSON.stringify([{ children: [{ text: '你好' }] }]),
+          DATA: JSON.stringify([
+            {
+              chars: [
+                { char: '你', config: { SIZE: 16, COLOR: '#111', FAMILY: 'sans-serif' } },
+                { char: '好', config: { SIZE: 16, COLOR: '#111', FAMILY: 'sans-serif' } },
+              ],
+            },
+          ]),
+        },
+      } as SceneNodeInput,
+      width: 120,
+      height: 40,
+      opacity: 1,
+    });
+    expect(ops).toContain('fillText');
+    clearIdleTextOutlineCache();
   });
 
   it('paintCanvasPathInk respects evenodd fill-rule for boolean holes', () => {
@@ -827,7 +993,7 @@ describe('Canvas idle path / text / shape paint', () => {
     ).toBeNull();
   });
 
-  it('canIdlePaintOnCanvas allows gradient/image/media/poly; rejects donut/evenodd/non-center stroke/blur', () => {
+  it('canIdlePaintOnCanvas allows gradient/image/media/poly/evenodd/donut-arc/outside-stroke; rejects backdrop-blur', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -898,13 +1064,13 @@ describe('Canvas idle path / text / shape paint', () => {
         key: 'shape',
         attrs: { shapeType: 'circle', ellipseInnerRatio: 0.5, 'stroke-enabled': false },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
         attrs: { shapeType: 'circle', ellipseArcPercent: 40, 'stroke-enabled': false },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -927,7 +1093,19 @@ describe('Canvas idle path / text / shape paint', () => {
           'stroke-enabled': false,
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'path',
+          path: 'M0 0 H10 V10 H0 Z',
+          outlined: 'true',
+          'fill-rule': 'evenodd',
+          'stroke-enabled': false,
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -972,17 +1150,39 @@ describe('Canvas idle path / text / shape paint', () => {
           strokeAlign: 'outside',
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
-        attrs: { shapeType: 'rect', 'inner-shadow-enabled': true },
+        attrs: {
+          shapeType: 'rect',
+          'inner-shadow-enabled': true,
+          'inner-shadow-visible': true,
+          'inner-shadow-blur': 4,
+          'inner-shadow-y': 2,
+        },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
-        attrs: { shapeType: 'rect', 'backdrop-blur-enabled': true },
+        attrs: {
+          shapeType: 'rect',
+          'blur-enabled': true,
+          'blur-amount': 8,
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: { shapeType: 'rect', 'fill-color': '#f00', blendMode: 'multiply' },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: { shapeType: 'rect', 'backdrop-blur-enabled': true, 'backdrop-blur-amount': 12 },
       } as SceneNodeInput)
     ).toBe(false);
   });

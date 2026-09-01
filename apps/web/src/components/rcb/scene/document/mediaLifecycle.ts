@@ -641,23 +641,6 @@ export function applyLottieAnimationToNode(
   return next;
 }
 
-/** Same as applyLottieAnimationToNode — kept for finishLottieGenerator imports. */
-export function promoteLottieGeneratorToLottie(
-  doc: SceneDocument,
-  nodeId: string,
-  opts: {
-    animationData: unknown;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-    name?: string;
-    genPrompt?: string;
-  }
-) {
-  return applyLottieAnimationToNode(doc, nodeId, opts);
-}
-
 function looksLikeSvgSrc(src: string) {
   const s = String(src || '').trim();
   if (!s) return false;

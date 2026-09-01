@@ -170,15 +170,6 @@ export function setSceneHitTestBridge(fn: SceneHitFn | null) {
   }
 }
 
-/** Test/diag: last hit inputs when `__RCB_HIT_DEBUG__` is set. */
-export let lastHitDebug: {
-  x: number;
-  y: number;
-  orderLen: number;
-  orderHead: string[];
-  boxes: Array<{ id: string; box: SceneHitBox | null; hit: boolean }>;
-} | null = null;
-
 export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | null {
   const {
     document: doc,
@@ -193,26 +184,21 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     soaBuf = null,
   } = opts;
   const pad = sceneHitSlop(Math.max(0.05, zoom || 1));
-  const boxes: Array<{ id: string; box: SceneHitBox | null; hit: boolean }> = [];
   for (const id of order) {
     const node = doc?.deltaSetLike?.[id];
     if (!node || isNodeHiddenInDocument(doc, node)) {
-      boxes.push({ id, box: null, hit: false });
       continue;
     }
     // 动画工作台 invisible host is plate chrome — never steal picks from nested
     // Lottie / shape children underneath the full-bleed plate.
     if (isAnimationFrameHostNode(node, doc)) {
-      boxes.push({ id, box: null, hit: false });
       continue;
     }
     // Hidden / preview-only / playhead trim — not pickable.
     if (!isNodePickableInDocument(doc, node)) {
-      boxes.push({ id, box: null, hit: false });
       continue;
     }
     if (!isNodePickableAtPoint(doc, node, x, y)) {
-      boxes.push({ id, box: null, hit: false });
       continue;
     }
     const soaIndex = soaBuf?.indexById.get(id);
@@ -221,8 +207,6 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       soaIndex >= 0 &&
       (soaBuf!.flags[soaIndex] & SOA_FLAG_CANVAS_IDLE) !== 0;
     if (isSoaIdle && hitTestSoaSlot(soaBuf!, soaIndex, x, y)) {
-      boxes.push({ id, box: getNodeBox(id), hit: true });
-      lastHitDebug = { x, y, orderLen: order.length, orderHead: order.slice(0, 8), boxes };
       return id;
     }
     if (isSoaIdle) {
@@ -232,13 +216,11 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       const strokeInk =
         kind === SOA_KIND_PATH || kind === SOA_KIND_LINE || kind === SOA_KIND_POLY;
       if (!strokeInk) {
-        boxes.push({ id, box: getNodeBox(id), hit: false });
         continue;
       }
     }
     const box = getNodeBox(id);
     if (!box) {
-      boxes.push({ id, box: null, hit: false });
       continue;
     }
     const hit = hitTestSceneNodeAt({
@@ -253,13 +235,10 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       svgEl: allowSvgDomHit ? (nodeEls?.get(id) ?? null) : null,
       allowSvgDomHit,
     });
-    boxes.push({ id, box, hit });
     if (hit) {
-      lastHitDebug = { x, y, orderLen: order.length, orderHead: order.slice(0, 8), boxes };
       return id;
     }
   }
-  lastHitDebug = { x, y, orderLen: order.length, orderHead: [...order].slice(0, 8), boxes };
   return null;
 }
 

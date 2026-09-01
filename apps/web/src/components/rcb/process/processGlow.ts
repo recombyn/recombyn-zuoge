@@ -1,7 +1,6 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-/** Opaque underlay for SVG process plates — matches canvas process SoftGlow base. */
-export const PROCESS_PLATE_FILL = '#eef2f7';
+/** Stroke for SVG process plates — matches canvas process SoftGlow edge. */
 export const PROCESS_PLATE_STROKE = '#c5d3e4';
 
 /** Scene-unit bleed so foreignObject covers the plate during camera zoom (subpixel gaps). */

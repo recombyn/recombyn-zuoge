@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,7 +7,9 @@ import {
   memo,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { isVideoNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { usePlayableVideoSrc } from '@/components/editor/nodes/VideoNode/VideoJsPlayer';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 import VideoPlaybackBar, {
   videoMediaFromElement,
   videoChromeLayout,
@@ -99,6 +100,82 @@ type VideoHoverHost = {
 
 const videoHoverHosts = new Map<string, VideoHoverHost>();
 
+/** App-wide single HTML `<video>` decoder — reparented into the active plate FO. */
+let sharedVideoEl: HTMLVideoElement | null = null;
+let sharedVideoOwnerId: string | null = null;
+
+function createSharedVideoEl(): HTMLVideoElement {
+  const el = document.createElement('video');
+  el.className = 'pointer-events-none absolute block';
+  el.playsInline = true;
+  el.preload = 'auto';
+  el.muted = true;
+  el.draggable = false;
+  el.controls = false;
+  return el;
+}
+
+function attachSharedVideo(nodeId: string, wrap: HTMLElement): HTMLVideoElement {
+  if (!sharedVideoEl) sharedVideoEl = createSharedVideoEl();
+  const id = String(nodeId);
+  if (sharedVideoOwnerId && sharedVideoOwnerId !== id) {
+    try {
+      if (!sharedVideoEl.paused) sharedVideoEl.pause();
+    } catch {
+      /* ignore */
+    }
+  }
+  sharedVideoOwnerId = id;
+  if (sharedVideoEl.parentElement !== wrap) {
+    wrap.appendChild(sharedVideoEl);
+  }
+  return sharedVideoEl;
+}
+
+function detachSharedVideo(nodeId: string) {
+  if (sharedVideoOwnerId !== String(nodeId)) return;
+  try {
+    if (sharedVideoEl && !sharedVideoEl.paused) sharedVideoEl.pause();
+  } catch {
+    /* ignore */
+  }
+  sharedVideoEl?.remove();
+  sharedVideoOwnerId = null;
+}
+
+/** Which video node owns the sole HTML decoder (trim panel → last selected → sole on board). */
+export function resolveActiveVideoDecoderId(opts: {
+  document: SceneDocument | null | undefined;
+  selectedNodeIds: readonly string[];
+  videoToolPanel?: null | { nodeId: string; kind?: string };
+}): string | null {
+  const { document, selectedNodeIds, videoToolPanel } = opts;
+  const children: string[] = document?.deltaSetLike?.ROOT?.children || [];
+
+  const videoWithSrc = (id: string): boolean => {
+    const node = document?.deltaSetLike?.[id];
+    if (!isVideoNode(node)) return false;
+    return Boolean(String(node?.attrs?.src || '').trim());
+  };
+
+  const trimId = String(videoToolPanel?.nodeId || '').trim();
+  if (trimId && videoWithSrc(trimId)) return trimId;
+
+  const selectedVideos = selectedNodeIds.map(String).filter(Boolean).filter(videoWithSrc);
+  if (selectedVideos.length > 0) {
+    return selectedVideos[selectedVideos.length - 1];
+  }
+
+  const onBoard = children.filter(videoWithSrc);
+  if (onBoard.length === 1) return onBoard[0];
+  return null;
+}
+
+/** Test hook — confirms only one decoder element exists app-wide. */
+export function getSharedVideoElement(): HTMLVideoElement | null {
+  return sharedVideoEl;
+}
+
 /** Live plate host registered by VideoHoverPlayback (blob-backed `<video>`). */
 export function getVideoHoverHost(nodeId: string): VideoHoverHost | null {
   return videoHoverHosts.get(String(nodeId)) || null;
@@ -175,6 +252,8 @@ function VideoHoverPlayback({
   /** Track mount — public URLs set playSrc before the <video> ref exists. */
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const [media, setMedia] = useState<VideoMediaControl | null>(null);
+  const crop = readCropNorm({ cropX, cropY, cropW, cropH });
+  const cropStyle = mediaCropStyle(crop);
   const [barHovered, setBarHovered] = useState(false);
   const [plateHovered, setPlateHovered] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -196,11 +275,6 @@ function VideoHoverPlayback({
   const showUiRef = useRef(showUi);
   showUiRef.current = showUi;
 
-  const setVideoNodeRef = useCallback((el: HTMLVideoElement | null) => {
-    videoRef.current = el;
-    setVideoEl(el);
-  }, []);
-
   // Flip media pixels only — group flip is suppressed for HTML video FO so the
   // playback bar stays on the plate bottom (see hostIsolatesHtmlMediaFlip).
   const mediaFlip =
@@ -211,18 +285,44 @@ function VideoHoverPlayback({
   useEffect(() => {
     const id = String(nodeId);
     videoHoverHosts.set(id, {
-      getVideo: () => videoRef.current,
+      getVideo: () => (sharedVideoOwnerId === id ? videoRef.current : null),
       getWrap: () => videoWrapRef.current,
       getFreezeUrl: () => freezeUrlRef.current,
       getFreezeAt: () => freezeAtRef.current,
       getMediaTime: () => mediaTimeRef.current,
     });
     return () => {
-      if (videoHoverHosts.get(id)?.getVideo() === videoRef.current) {
-        videoHoverHosts.delete(id);
-      }
+      videoHoverHosts.delete(id);
     };
   }, [nodeId]);
+
+  // Single app-wide decoder — reparent into this plate's wrap when mounted.
+  useEffect(() => {
+    const wrap = videoWrapRef.current;
+    if (!wrap || !svgMount) return;
+    const el = attachSharedVideo(nodeId, wrap);
+    videoRef.current = el;
+    setVideoEl(el);
+    return () => {
+      detachSharedVideo(nodeId);
+      if (videoRef.current === el) videoRef.current = null;
+      setVideoEl(null);
+    };
+  }, [nodeId, svgMount]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || sharedVideoOwnerId !== String(nodeId)) return;
+    const flipStyle: CSSProperties = mediaFlip
+      ? { transform: mediaFlip, transformOrigin: 'center center' }
+      : {};
+    Object.assign(el.style, {
+      ...cropStyle,
+      background: '#111827',
+      colorScheme: 'only light',
+      ...flipStyle,
+    });
+  }, [nodeId, cropStyle, mediaFlip, cropX, cropY, cropW, cropH, flipX, flipY]);
 
   useEffect(() => {
     const next = String(poster || '').trim();
@@ -371,8 +471,6 @@ function VideoHoverPlayback({
   const screenW = Math.max(1, layoutW * z);
   const screenH = Math.max(1, layoutH * z);
   const chrome = videoChromeLayout(screenW, screenH);
-  const crop = readCropNorm({ cropX, cropY, cropW, cropH });
-  const cropStyle = mediaCropStyle(crop);
   const mediaFlipStyle: CSSProperties = mediaFlip
     ? { transform: mediaFlip, transformOrigin: 'center center' }
     : {};
@@ -415,25 +513,7 @@ function VideoHoverPlayback({
           transformOrigin: '0 0',
           visibility: showUi && showVideo ? 'visible' : 'hidden',
         }}
-      >
-        <video
-          ref={setVideoNodeRef}
-          className="pointer-events-none absolute block"
-          style={{
-            ...cropStyle,
-            background: '#111827',
-            // Root theme sets color-scheme:dark — Chromium then paints <video>
-            // black inside SVG foreignObject. Opt this surface back to light.
-            colorScheme: 'only light',
-            ...mediaFlipStyle,
-          }}
-          playsInline
-          preload="auto"
-          muted
-          controls={false}
-          draggable={false}
-        />
-      </div>
+      />
 
       {showUi && !hideChrome && chrome.visible ? (
         // Full plate + overflow visible so the vertical volume slider above mute isn’t clipped

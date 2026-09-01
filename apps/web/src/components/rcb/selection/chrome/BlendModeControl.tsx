@@ -80,10 +80,6 @@ export function parseBlendMode(raw: unknown, opts?: { allowPassThrough?: boolean
   return 'normal';
 }
 
-export function blendModeLabel(id: BlendModeId): string {
-  return id;
-}
-
 export function blendModeToCss(id: BlendModeId): string {
   if (id === 'pass-through') return '';
   return id;

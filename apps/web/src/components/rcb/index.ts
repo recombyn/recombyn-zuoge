@@ -2,7 +2,7 @@
  * @rcb — canvas UI: camera, tools, selection, frames.
  * Prefer `import { … } from '@/components/rcb'`.
  *
- * Layout: `rcbAlignInBox` / `rcbCenterInBox` / `rcbCenterOnPoint` / `rcbFitImageIntoViewport`.
+ * Layout: `rcbCenterOnPoint` / `rcbFitImageIntoViewport` / `rcbLayoutGeneratorPlate`.
  */
 
 export type { RcbBox, RcbCamera, RcbVec } from './core/types';
@@ -29,7 +29,6 @@ export {
 export {
   createCameraTransform,
   worldToScreen,
-  screenToWorld,
   stageLocalToWorld,
   screenDeltaToWorldDelta,
   worldBoxToScreen,
@@ -52,6 +51,8 @@ export {
   paintCanvasShapeInk,
   paintCanvasPathInk,
   paintCanvasTextInk,
+  clearIdleTextOutlineCache,
+  primeIdleTextOutlineCache,
   paintCanvasIdleNode,
   paintStrokeCanvasIdle,
   paintTextProxyLines,
@@ -105,8 +106,6 @@ export {
   soaPointToLocalBox,
   forEachVisibleInRect,
   applySoaHostInkFlags,
-  bulkDemoteSoaInk,
-  bulkPromoteSoaHosts,
   bulkRemoveSoaByIds,
   allocateSoaSlot,
   compactSoaFreeSlots,
@@ -159,7 +158,6 @@ export {
   getSoaBakeTileWorld,
   shouldUseSoaBake,
   ensureSoaBake,
-  blitSoaBake,
   blitSoaBakeForView,
   tilesForView,
   invalidateSoaBakeTilesForElements,
@@ -175,9 +173,23 @@ export {
 } from './render/renderDemotionScheduler';
 export {
   createWebglSceneRenderer,
-  isSoaWebglEnabled,
   collectSoaWebglInstances,
 } from './render/webglSceneRenderer';
+export { createWebgpuSceneRenderer } from './render/webgpuSceneRenderer';
+export {
+  getGpuDepthOfFieldParams,
+  setGpuDepthOfFieldParams,
+  resetGpuDepthOfFieldParams,
+  subscribeGpuDepthOfField,
+  isGpuDofEnvEnabled,
+  shouldRunGpuDepthOfField,
+  resolveGpuDofBackend,
+  circleOfConfusionPx,
+  buildNormalizedDepthLookup,
+  gpuDofSkipsSoaTileBake,
+  type GpuDepthOfFieldParams,
+  type GpuDofBackend,
+} from './render/gpuDepthOfField';
 export {
   RcbSpatialIndex,
   SceneSpatialRuntime,
@@ -203,8 +215,6 @@ export {
   type NodeTransformPreviewPatch,
 } from './core/transformPreview';
 export {
-  rcbAlignInBox,
-  rcbCenterInBox,
   rcbCenterOnPoint,
   rcbFitImageIntoViewport,
   rcbLayoutGeneratorPlate,
@@ -215,8 +225,6 @@ export {
   rcbPlaceTextFontSize,
   rcbPlaceStrokeWidth,
   GENERATOR_EMPTY_STROKE_OUTSET,
-  type RcbAlign,
-  type RcbBoxLike,
 } from './core/layout';
 
 export {
@@ -237,7 +245,6 @@ export {
 export type { RcbCameraMotion } from './camera/context';
 
 export {
-  nearestDprMultiple,
   snapCssToDevicePixel,
   snapSceneStrokeAxis,
   toDomPrecision,

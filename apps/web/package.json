@@ -85,6 +85,7 @@
     "@typescript-eslint/parser": "^8.66.0",
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.10",
+    "@webgpu/types": "^0.1.72",
     "autoprefixer": "^10.5.2",
     "eslint": "^10.8.1",
     "eslint-plugin-jsx-a11y": "^6.10.2",

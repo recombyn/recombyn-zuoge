@@ -18,11 +18,6 @@ export function processJobAttrPatch(jobIds: string[]): Record<string, string> {
   };
 }
 
-export function clearProcessJobAttrKeys(attrs: Record<string, unknown>): void {
-  delete attrs.processJobIds;
-  delete attrs.processStartedAt;
-}
-
 export function readProcessStartedAt(node: SceneNodeInput | null | undefined): number {
   const raw = Number(node?.attrs?.processStartedAt);
   return Number.isFinite(raw) && raw > 0 ? raw : 0;

@@ -205,10 +205,6 @@ export function getSoaAtlasStats(atlas: SoaWebglAtlas): SoaAtlasStats {
   return { ...atlas.stats };
 }
 
-export function resetSoaAtlasStats(atlas: SoaWebglAtlas) {
-  atlas.stats = createEmptySoaAtlasStats();
-}
-
 function allocateCell(atlas: SoaWebglAtlas): number | null {
   if (atlas.free.length > 0) return atlas.free.pop()!;
   if (!evictSoaAtlasOldest(atlas)) return null;
@@ -564,16 +560,7 @@ export function collectSoaBakeTilesIntoAtlas(
 
 let sharedAtlas: SoaWebglAtlas | null = null;
 
-export function getSharedSoaWebglAtlas(): SoaWebglAtlas | null {
-  return sharedAtlas;
-}
-
 export function ensureSharedSoaWebglAtlas(): SoaWebglAtlas | null {
   if (!sharedAtlas) sharedAtlas = createSoaWebglAtlas();
   return sharedAtlas;
-}
-
-export function resetSharedSoaWebglAtlas() {
-  if (sharedAtlas) resetSoaWebglAtlas(sharedAtlas);
-  else sharedAtlas = null;
 }

@@ -27,7 +27,7 @@ import {
   sampleLayerTransformAtFrame,
 } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
-import { isAnimationWorkbenchGeometryPreview } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { isPlayheadScenePoseBlocked } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 
@@ -455,10 +455,9 @@ export function applyAnimationPlayheadScenePose(opts: {
    */
   applyGeometry?: boolean;
 }): string {
-  // Plate drag owns child TransformPreview (+ SoA ink). Restoring document
-  // geometry here would snap linked children back to pre-drag coords while the
-  // live plate has already moved — looks like content "falling out" of 动画.
-  if (isAnimationWorkbenchGeometryPreview()) return '';
+  // Plate / selection gestures own child TransformPreview (+ SoA ink). Restoring
+  // document geometry here would snap linked children back to pre-drag coords.
+  if (isPlayheadScenePoseBlocked()) return '';
 
   const { document, hostNodeId } = opts;
   const applyGeometry = opts.applyGeometry !== false;

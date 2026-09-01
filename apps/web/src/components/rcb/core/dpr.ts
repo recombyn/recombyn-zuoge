@@ -7,27 +7,6 @@
  *    moving absolute scene content.
  */
 
-/** Greatest common divisor. */
-function gcd(a: number, b: number): number {
-  return b === 0 ? a : gcd(b, a % b);
-}
-
-/**
- * Smallest integer `m` such that `dpr * m` is (nearly) an integer.
- * Typical: dpr 2 → 1, 2.5 → 2, 2.25 → 4, 0.9 → 10.
- *
- * Important: use Math.round (not floor) — at 90% zoom Chrome reports
- * `0.899999976` which floor→0.89→multiple 100 (useless).
- */
-export function nearestDprMultiple(dpr: number): number {
-  const rounded = Math.round(dpr * 100) / 100;
-  const decimal = String(rounded).split('.')[1];
-  if (!decimal) return 1;
-  const denominator = 10 ** decimal.length;
-  const numerator = parseInt(decimal, 10);
-  return denominator / gcd(numerator, denominator);
-}
-
 /** Round CSS transform scalars (`toDomPrecision`). */
 export function toDomPrecision(v: number) {
   return Math.round(v * 1e4) / 1e4;
