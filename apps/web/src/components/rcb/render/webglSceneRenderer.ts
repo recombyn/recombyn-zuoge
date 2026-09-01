@@ -7,7 +7,6 @@ import { getNodeTransformPreview, hasNodeTransformPreviews } from '@/components/
 import {
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
-  isSoaWebglEnvEnabled,
   resolveSoaPaintBox,
   setSoaPaintDocument,
   SOA_FLAG_CANVAS_IDLE,
@@ -53,6 +52,16 @@ import {
   type SceneRenderer,
 } from '@/components/rcb/render/sceneRenderer';
 import { hasFrameClipRevealOverflow } from '@/components/rcb/frames/frameContentClip';
+import {
+  buildNormalizedDepthLookup,
+  gpuDofSkipsSoaTileBake,
+  shouldRunGpuDepthOfField,
+} from '@/components/rcb/render/gpuDepthOfField';
+import {
+  bindWebglDofSceneAttributes,
+  createWebglDepthOfFieldPass,
+  type WebglDepthOfFieldPass,
+} from '@/components/rcb/render/webglDepthOfFieldPass';
 
 const VS = `#version 300 es
 uniform vec2 uPan;
@@ -161,7 +170,9 @@ function pushLineInstance(
   colors: number[],
   kinds: number[],
   angles: number[],
-  uvs: number[]
+  uvs: number[],
+  depths: number[] | undefined,
+  depth: number
 ) {
   const dx = x1 - x0;
   const dy = y1 - y0;
@@ -172,6 +183,7 @@ function pushLineInstance(
   kinds.push(2);
   angles.push(Math.atan2(dy, dx));
   uvs.push(0, 0, 1, 1);
+  if (depths) depths.push(depth);
 }
 
 function countPathSegments(buf: SceneRenderBuffer, index: number): number {
@@ -211,6 +223,9 @@ export function soaPathPrefersAtlasStamp(closed: boolean, segCount: number): boo
 export type CollectSoaWebglOpts = {
   atlas?: SoaWebglAtlas | null;
   bufferRevision?: number;
+  /** Parallel depth [0,1] per instance when GPU DOF is active. */
+  depths?: number[];
+  depthForId?: (id: string) => number;
 };
 
 /**
@@ -228,6 +243,8 @@ export function collectSoaWebglInstances(
   opts?: CollectSoaWebglOpts
 ) {
   const atlas = opts?.atlas ?? null;
+  const depthOut = opts?.depths;
+  const depthForId = opts?.depthForId;
   const vl = view.left ?? view.x ?? 0;
   const vt = view.top ?? view.y ?? 0;
   const vr = vl + view.width;
@@ -251,6 +268,8 @@ export function collectSoaWebglInstances(
     const rgba = argbToRgba(buf.colors[i]);
     const lineW = soaStrokeWidth(buf, i);
     const forceStamp = (flags & SOA_FLAG_DIRTY) !== 0;
+    const nodeId = buf.ids[i] || '';
+    const slotDepth = depthForId ? depthForId(nodeId) : 0.5;
 
     if (kind === SOA_KIND_PATH) {
       const start = buf.pathStart[i];
@@ -278,6 +297,7 @@ export function collectSoaWebglInstances(
         );
         if (region) {
           pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs);
+          if (depthOut) depthOut.push(slotDepth);
           if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
           continue;
         }
@@ -303,7 +323,9 @@ export function collectSoaWebglInstances(
           colors,
           kinds,
           angles,
-          uvs
+          uvs,
+          depthOut,
+          slotDepth
         );
         emitted += 1;
       };
@@ -327,6 +349,49 @@ export function collectSoaWebglInstances(
     }
 
     if (kind === SOA_KIND_LINE) {
+      const start = buf.pathStart[i];
+      const len = buf.pathLen[i];
+      if (start >= 0 && len >= 2) {
+        const base = start * 2;
+        let lastFinite = -1;
+        let emitted = 0;
+        const emitSeg = (a: number, b: number) => {
+          if (emitted >= SOA_WEBGL_PATH_MAX_SEGS) return;
+          pushLineInstance(
+            buf.pathXY[a] + odx,
+            buf.pathXY[a + 1] + ody,
+            buf.pathXY[b] + odx,
+            buf.pathXY[b + 1] + ody,
+            rgba,
+            lineW,
+            rects,
+            colors,
+            kinds,
+            angles,
+            uvs,
+            depthOut,
+            slotDepth
+          );
+          emitted += 1;
+        };
+        for (let p = 0; p < len; p += 1) {
+          const fo = base + p * 2;
+          const px = buf.pathXY[fo];
+          const py = buf.pathXY[fo + 1];
+          if (!Number.isFinite(px) || !Number.isFinite(py)) {
+            lastFinite = -1;
+            continue;
+          }
+          if (lastFinite < 0) {
+            lastFinite = fo;
+            continue;
+          }
+          emitSeg(lastFinite, fo);
+          lastFinite = fo;
+        }
+        if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+        continue;
+      }
       const x1 = x + w;
       const y1 = y + h;
       const minX = Math.min(x, x1) - lineW;
@@ -334,7 +399,7 @@ export function collectSoaWebglInstances(
       const maxX = Math.max(x, x1) + lineW;
       const maxY = Math.max(y, y1) + lineW;
       if (maxX < vl || maxY < vt || minX > vr || minY > vb) continue;
-      pushLineInstance(x, y, x1, y1, rgba, lineW, rects, colors, kinds, angles, uvs);
+      pushLineInstance(x, y, x1, y1, rgba, lineW, rects, colors, kinds, angles, uvs, depthOut, slotDepth);
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;
     }
@@ -374,6 +439,7 @@ export function collectSoaWebglInstances(
             uvs,
             (rotDeg * Math.PI) / 180
           );
+          if (depthOut) depthOut.push(slotDepth);
           if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
           continue;
         }
@@ -385,12 +451,9 @@ export function collectSoaWebglInstances(
     kinds.push(kind === SOA_KIND_ELLIPSE ? 1 : 0);
     angles.push((rotDeg * Math.PI) / 180);
     uvs.push(0, 0, 1, 1);
+    if (depthOut) depthOut.push(slotDepth);
     if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
   }
-}
-
-export function isSoaWebglEnabled(): boolean {
-  return isSoaWebglEnvEnabled();
 }
 
 /** WebGL ink for SoA axis-aligned rects, ellipses, lines, and path stamps. */
@@ -410,11 +473,6 @@ export function createWebglSceneRenderer(
   const prog = vs && fs ? link(gl, vs, fs) : null;
   if (!prog || !vs || !fs) return null;
 
-  const uPan = gl.getUniformLocation(prog, 'uPan');
-  const uZoom = gl.getUniformLocation(prog, 'uZoom');
-  const uStage = gl.getUniformLocation(prog, 'uStage');
-  const uAtlas = gl.getUniformLocation(prog, 'uAtlas');
-
   const vao = gl.createVertexArray();
   const cornerBuf = gl.createBuffer();
   const rectBuf = gl.createBuffer();
@@ -422,11 +480,25 @@ export function createWebglSceneRenderer(
   const kindBuf = gl.createBuffer();
   const angleBuf = gl.createBuffer();
   const uvBuf = gl.createBuffer();
+  const depthBuf = gl.createBuffer();
   const atlasTex = gl.createTexture();
   let disposed = false;
   let instanceCap = 0;
   let atlasUploadedRevision = -1;
   let atlasBufferRevision = -1;
+  let dofPass: WebglDepthOfFieldPass | null = null;
+  let dofVao: WebGLVertexArrayObject | null = null;
+
+  function ensureDofPass(): WebglDepthOfFieldPass | null {
+    if (dofPass) return dofPass;
+    dofPass = createWebglDepthOfFieldPass(gl);
+    if (!dofPass) return null;
+    dofVao = gl.createVertexArray();
+    gl.bindVertexArray(dofVao);
+    bindWebglDofSceneAttributes(gl, cornerBuf, rectBuf, colorBuf, kindBuf, angleBuf, uvBuf, depthBuf);
+    gl.bindVertexArray(null);
+    return dofPass;
+  }
 
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
@@ -482,6 +554,8 @@ export function createWebglSceneRenderer(
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4 * 4, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, depthBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4, gl.DYNAMIC_DRAW);
   }
 
   return {
@@ -500,9 +574,17 @@ export function createWebglSceneRenderer(
       canvas.style.width = `${sw}px`;
       canvas.style.height = `${sh}px`;
 
-      gl.viewport(0, 0, bw, bh);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
+      const useDof = shouldRunGpuDepthOfField();
+      const dof = useDof ? ensureDofPass() : null;
+      if (dof) dof.resize(bw, bh);
+
+      if (dof) {
+        dof.bindSceneFbo();
+      } else {
+        gl.viewport(0, 0, bw, bh);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
@@ -524,11 +606,25 @@ export function createWebglSceneRenderer(
       const kinds: number[] = [];
       const angles: number[] = [];
       const uvs: number[] = [];
+      const depths: number[] = [];
+
+      let depthLookup: ReturnType<typeof buildNormalizedDepthLookup> | null = null;
+      if (useDof) {
+        const ids: string[] = [];
+        for (let i = 0; i < buf.count; i += 1) {
+          const id = buf.ids[i];
+          if (id) ids.push(id);
+        }
+        depthLookup = buildNormalizedDepthLookup(req.document, ids);
+      }
 
       let usedBakeAtlas = false;
+      const skipBake = gpuDofSkipsSoaTileBake();
       // Bake tiles stamp clipped ink — skip while selection reveals overflow
       // (same gate as canvas2d) or nodes are mid-TransformPreview.
+      // GPU DOF uses full-res FBO instead of CPU tile bake.
       if (
+        !skipBake &&
         atlas &&
         shouldUseSoaBake(buf) &&
         !hasNodeTransformPreviews() &&
@@ -591,10 +687,21 @@ export function createWebglSceneRenderer(
         collectSoaWebglInstances(buf, view, rects, colors, kinds, angles, uvs, {
           atlas,
           bufferRevision: buf.revision,
+          depths: useDof ? depths : undefined,
+          depthForId: depthLookup ? (id) => depthLookup!.depthForId(id) : undefined,
         });
       }
       const count = kinds.length;
-      if (!count) return;
+      if (!count) {
+        if (dof) {
+          dof.unbindSceneFbo();
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.viewport(0, 0, bw, bh);
+          gl.clearColor(0, 0, 0, 0);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+        return;
+      }
 
       ensureInstanceCapacity(count);
       gl.bindBuffer(gl.ARRAY_BUFFER, rectBuf);
@@ -607,6 +714,14 @@ export function createWebglSceneRenderer(
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(angles));
       gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(uvs));
+      if (useDof) {
+        const depthFill =
+          depths.length === count
+            ? depths
+            : Array.from({ length: count }, () => 0.5);
+        gl.bindBuffer(gl.ARRAY_BUFFER, depthBuf);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(depthFill));
+      }
 
       if (atlas && atlas.revision !== atlasUploadedRevision) {
         gl.bindTexture(gl.TEXTURE_2D, atlasTex);
@@ -615,22 +730,32 @@ export function createWebglSceneRenderer(
         atlasUploadedRevision = atlas.revision;
       }
 
-      gl.useProgram(prog);
-      gl.uniform2f(uPan, pan.x, pan.y);
-      gl.uniform1f(uZoom, z);
-      gl.uniform2f(uStage, sw, sh);
+      const drawProg = dof ? dof.sceneProgram : prog;
+      gl.useProgram(drawProg);
+      gl.uniform2f(gl.getUniformLocation(drawProg, 'uPan'), pan.x, pan.y);
+      gl.uniform1f(gl.getUniformLocation(drawProg, 'uZoom'), z);
+      gl.uniform2f(gl.getUniformLocation(drawProg, 'uStage'), sw, sh);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, atlasTex);
-      gl.uniform1i(uAtlas, 0);
-      gl.bindVertexArray(vao);
+      gl.uniform1i(gl.getUniformLocation(drawProg, 'uAtlas'), 0);
+      gl.bindVertexArray(useDof && dofVao ? dofVao : vao);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
       gl.bindVertexArray(null);
+
+      if (dof) {
+        dof.unbindSceneFbo();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, bw, bh);
+        dof.compositeToScreen();
+      }
     },
     hitTest(point, screen) {
       return hitTestWithSpatialIndex(deps, point, screen);
     },
     dispose() {
       disposed = true;
+      dofPass?.dispose();
+      dofPass = null;
       gl.deleteProgram(prog);
       gl.deleteShader(vs);
       gl.deleteShader(fs);
@@ -640,8 +765,10 @@ export function createWebglSceneRenderer(
       gl.deleteBuffer(kindBuf);
       gl.deleteBuffer(angleBuf);
       gl.deleteBuffer(uvBuf);
+      gl.deleteBuffer(depthBuf);
       gl.deleteTexture(atlasTex);
       gl.deleteVertexArray(vao);
+      if (dofVao) gl.deleteVertexArray(dofVao);
     },
   };
 }

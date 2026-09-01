@@ -50,7 +50,10 @@ const DRAG_DISTANCE_SQUARED = 16;
 const SIDES_DRAG_STEP_PX = 14;
 const KNOB_VIS_PX = CHROME_HANDLE_VIS_PX;
 const KNOB_STROKE_PX = CHROME_STROKE_PX;
-const RADIUS_MIN_INSET_PX = radiusHandleParkScreenPx();
+
+function radiusMinInsetPx(): number {
+  return radiusHandleParkScreenPx();
+}
 
 function liveNodeEl(nodeId: string): Element | null {
   return (
@@ -270,7 +273,7 @@ function PolygonShapeHandlesOverlay({
     w,
     h,
     z,
-    RADIUS_MIN_INSET_PX,
+    radiusMinInsetPx(),
     strokeInnerClearanceScene(node)
   );
   const insetFor = (r: number) => {

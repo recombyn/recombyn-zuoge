@@ -15,7 +15,7 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 | Pixel grid + canvas ink | Grid `[data-rcb-scene-canvas]`; vector ink `[data-rcb-idle-ink-canvas]` | `RcbCanvas` + `createCanvasSceneRenderer` |
 | Selection chrome | Shared scene SVG camera group for AABB, path silhouette, shape knobs, guides, and drawing previews; HTML overlay only for screen UI/hit seats | `rcb/selection/SelectionChrome.tsx`, `HostPathChrome.tsx`, chrome overlays |
 | Transform gestures | `pointermove` → RAF-coalesced live preview into `TransformPreview` + transitional SVG DOM; `pointerup` commits SceneDocument and clears preview | `core/transformPreview.ts`, `SelectionFeature` coalescer, `canvasSession.onGeometryPreview/Commit` |
-| Frame clip (live) | Artboard move: preview plate geom (+ live artboard map) → re-seat bound hosts via `nodeLeftTop` → `syncFrameContentClip` (no child TransformPreview under frameLocal) | `EditorStageWorld`, `canvasSession.onGeometryPreview` |
+| Frame clip (live) | Artboard move: preview plate geom (+ live artboard map) → re-seat bound hosts via `nodeLeftTop` → `syncFrameContentClip` (no child TransformPreview under frameLocal). SoA QT uses the same mid-gesture dirty + liveAabb rescue as TransformPreview so plate-bound ink is not culled with stale AABBs | `EditorStageWorld`, `canvasSession.onGeometryPreview`, `prepareSoaQuadtreeForQuery` |
 | Pointer hit | Overlay seats → chrome **geometry** → shared `SceneSpatialRuntime` → Path2D/AABB (SVG DOM off by default) | `pickSelectionInkAtClient`, `hitTestWithSpatialIndex`, `setSharedSceneSpatialRuntime` |
 | Document model | Types + Zod | `rcb/sceneNode.ts`, `packages/scene-schema` |
 | Mutations | normalize / stack / CRUD | `rcb/scene/document/sceneDocument.ts` |
@@ -48,7 +48,7 @@ There is **no hard max node count** on the document. Capacity is governed by pai
 
 At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes stay on `gℤ` — same as `snapCoordToGrid` / pen tips; do **not** device-shift axes off the snap lattice). SVG no longer carries the grid `<path>`.
 
-**Single vector ink:** canvas-capable nodes (`canIdlePaintOnCanvas`) publish through `setSceneCanvasIdlePaint` and paint on the SoA ink canvas (above frame plates, below DOM hosts, frame-clipped). Selection does **not** promote basic shapes to SVG. DOM hosts stay for text, media FO, path/text editors, heavy paths, non-center `strokeAlign`, blend/blur, and SoftGlow / inline editors via `forceFullSet`. SoftGlow process chrome lives on shape hosts (`attrs.processStatus`), not a separate process SVG mount. There is no far-zoom placeholder LOD and no `[data-rcb-lod-layer]`.
+**Single vector ink:** canvas-capable nodes (`canIdlePaintOnCanvas`) publish through `setSceneCanvasIdlePaint` and paint on the SoA ink canvas (above frame plates, below DOM hosts, frame-clipped). Selection does **not** promote basic shapes to SVG. DOM hosts stay for lottie/audio, path editors, heavy paths, **backdrop-blur**, SoftGlow via `forceFullSet`, and the **active** video decoder (≤1 HTML `<video>` FO). Object blur + inner-shadow bake on canvas idle (`paintLocalInkWithObjectEffects`). Non-normal **blendMode** idles via underlay + `globalCompositeOperation` (`paintLocalInkWithBlend`). Static **image** and idle **video** paint on canvas (`paintCanvasMediaInk` / poster). Static **text** paints on canvas ink (`paintCanvasTextInk`: fillText first, then Latin fontkit / CJK canvas-trace outline Path2D when ready); caret edit uses `TextInlineEditor` (`RcbOverlayPortal`) with `hiddenNodeId` — not a ShapeHost / text foreignObject. Donut / arc ellipses idle via rich canvas (`paintEllipseVariantNative` + evenodd), not SoA basic fill. SoftGlow process chrome lives on shape hosts (`attrs.processStatus`). strokeAlign inside/outside paints on canvas ink (SoA basic or rich idle).
 
 ### SoA buffer + promote / demote
 
@@ -62,7 +62,7 @@ At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen
 
 **Demotion (current):** SoftGlow / editors enter `forceFull` → `ACTIVE_SVG`. Leaving forceFull starts `CANDIDATE`: SoA ink flags / QT / bake bind **immediately** while the DOM host is still held. A single shared wake timer scans `Map<id, lastActive>` and batch-releases host holds after ~300ms quiet (not per-id `setTimeout`). Selection alone never forces SVG hosts.
 
-**Sync:** full rebuild uses `skipQuad` then one `quadtree.replaceAll` (avoid O(n²) expand-rebuild). Incremental patches ≥8 ids use bulk insert / QT upsert. TransformPreview marks QT dirty + live-AABB filter (threshold rebuild at 48 dirty); modest rotate pad (~32), not a full-N scan or fat 512 pad.
+**Sync:** full rebuild uses `skipQuad` then one `quadtree.replaceAll` (avoid O(n²) expand-rebuild). Incremental patches ≥8 ids use bulk insert / QT upsert. TransformPreview **and** live artboard plate mark QT dirty + live-AABB filter on query (**no mid-gesture rebuild** — that froze multi-drags); restamp once when previews / live plate clear. Modest rotate pad (~64).
 
 ### DOM hosts (text / media / editors)
 
@@ -153,6 +153,17 @@ Spatial: `SceneSpatialRuntime` / `RcbSpatialIndex` are **quadtree-backed** (`Soa
 | Undo bytes | 64 MiB | `HISTORY_MAX_BYTES` |
 | Agent inventory | ~120 nodes default | `runDesignAgent.ts` `maxNodes` — **prompt budget only**, not editor limit |
 
+## GPU depth-of-field (opt-in)
+
+Replaces CPU tile bake during interactive DOF (`VITE_GPU_DOF=1`). Does **not** change SceneDocument, SoA buffer layout, DOM host budget, or export.
+
+| Backend | Role |
+|---------|------|
+| **WebGL2** (`webglDepthOfFieldPass.ts`) | Color + depth MRT FBO → CoC separable blur → screen. Skips `soaBakeLayer` tile bake. Depth from `buildNodeStackZMap` normalized per frame. |
+| **WebGPU** (`webgpuSceneRenderer.ts`) | Full MRT scene + CoC blur on `navigator.gpu`. Prefer `VITE_GPU_DOF_BACKEND=webgpu`. |
+
+Runtime uniforms: `focalDepth`, `aperture`, `maxCoCPx`, `downsample`. Tunable in Effects panel (**Scene depth of field**) when the env flag is on. `setGpuDepthOfFieldParams` notifies subscribers → ink backend recreate + full repaint. Per-node object blur / backdrop blur unchanged.
+
 ## Practical capacity
 
 - **Light vectors:** hundreds → low thousands with cull + SoA canvas ink + QT
@@ -170,6 +181,9 @@ apps/web/src/components/rcb/
   render/sceneRenderBuffer.ts         # SoA typed arrays, paint, QT sync
   render/renderDemotionScheduler.ts   # ACTIVE_SVG / CANDIDATE / DEPLOYED_SOA
   render/soaBakeLayer.ts              # tile bake + element↔tile maps
+  render/gpuDepthOfField.ts           # DOF params + stack depth normalization
+  render/webglDepthOfFieldPass.ts     # WebGL2 FBO + CoC blur
+  render/webgpuSceneRenderer.ts       # WebGPU MRT scene + CoC DOF (async device)
   core/soaQuadtree.ts                 # idle + spatial QT
   core/spatialIndex.ts                # SceneSpatialRuntime (QT-backed)
   scene/document/sceneShapes.ts       # Path2D cache + ribbon outline helpers

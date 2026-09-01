@@ -1,8 +1,15 @@
-import { type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HiOutlineArrowsRightLeft } from 'react-icons/hi2';
 import { ColorPanelPopover } from '@/components/base/colorPanel';
 import Slider from '@/components/base/slider';
 import Switch from '@/components/base/switch';
+import {
+  getGpuDepthOfFieldParams,
+  isGpuDofEnvEnabled,
+  setGpuDepthOfFieldParams,
+  subscribeGpuDepthOfField,
+} from '@/components/rcb/render/gpuDepthOfField';
 
 type EffectPatch = Record<string, string | number | boolean>;
 
@@ -104,6 +111,74 @@ function ShadowSection({
   );
 }
 
+/**
+ * Scene-wide GPU DOF (stack-order depth). Runtime uniforms only — not node attrs.
+ * Visible when `VITE_GPU_DOF=1`.
+ */
+function GpuDepthOfFieldSection() {
+  const { t } = useTranslation();
+  const [params, setParams] = useState(() => getGpuDepthOfFieldParams());
+  useEffect(() => {
+    return subscribeGpuDepthOfField(() => {
+      setParams(getGpuDepthOfFieldParams());
+    });
+  }, []);
+
+  if (!isGpuDofEnvEnabled()) return null;
+
+  return (
+    <section className="border-b border-[var(--line)] px-2 py-2">
+      <div className="flex h-8 items-center justify-between gap-3">
+        <span className="min-w-0 text-[12px] leading-4 text-[var(--ink)]">
+          {t('editor.imageToolbar.sceneDepthOfField', { defaultValue: 'Scene depth of field' })}
+        </span>
+        <Switch
+          checked={params.enabled}
+          onChange={(next) => setGpuDepthOfFieldParams({ enabled: next })}
+          className="h-4 w-7 p-[2px] [&>span]:h-3 [&>span]:w-3"
+        />
+      </div>
+      {params.enabled ? (
+        <div className="mt-2 space-y-2.5">
+          <Slider
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(params.focalDepth * 100)}
+            onChange={(value) => setGpuDepthOfFieldParams({ focalDepth: value / 100 })}
+          />
+          <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+            <span>{t('editor.imageToolbar.dofFocalPlane', { defaultValue: 'Focal plane' })}</span>
+            <span className="tabular-nums text-[var(--ink)]">{Math.round(params.focalDepth * 100)}</span>
+          </div>
+          <Slider
+            min={0}
+            max={200}
+            step={5}
+            value={Math.round(params.aperture * 100)}
+            onChange={(value) => setGpuDepthOfFieldParams({ aperture: value / 100 })}
+          />
+          <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+            <span>{t('editor.imageToolbar.dofAperture', { defaultValue: 'Aperture' })}</span>
+            <span className="tabular-nums text-[var(--ink)]">{params.aperture.toFixed(2)}</span>
+          </div>
+          <Slider
+            min={0}
+            max={64}
+            step={1}
+            value={params.maxCoCPx}
+            onChange={(value) => setGpuDepthOfFieldParams({ maxCoCPx: value })}
+          />
+          <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+            <span>{t('editor.imageToolbar.dofMaxBlur', { defaultValue: 'Max blur' })}</span>
+            <span className="tabular-nums text-[var(--ink)]">{params.maxCoCPx}px</span>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function EffectsForm({ attrs, onChange }: Props) {
   const objectMode = String(attrs?.['blur-mode'] || 'backdrop') === 'object';
   const backdropEnabled = enabled(attrs, 'backdrop-blur-enabled');
@@ -170,6 +245,7 @@ export function EffectsForm({ attrs, onChange }: Props) {
 
   return (
     <>
+      <GpuDepthOfFieldSection />
       <ShadowSection title="内阴影" prefix="inner-shadow-" attrs={attrs} onChange={onChange} />
       <ShadowSection title="投影" prefix="shadow-" attrs={attrs} onChange={onChange} />
       <section className="px-2 py-2 last:border-b-0">

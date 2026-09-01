@@ -499,7 +499,3 @@ export function pathDLooksClosed(d: string, closedAttr: unknown): boolean {
   }
   return /[zZ]\s*$/.test(String(d || '').trim());
 }
-
-export function isSoaPathBreak(p: SoaPathPoint | undefined): boolean {
-  return !p || !Number.isFinite(p.x) || !Number.isFinite(p.y);
-}

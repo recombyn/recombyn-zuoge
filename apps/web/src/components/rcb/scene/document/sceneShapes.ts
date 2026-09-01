@@ -1,6 +1,6 @@
 /** Regular polygon / star / stroke (line·arrow) geometry helpers. */
 
-import { ARROW_HEAD as ARROW_HEAD_GEOM, arrowBaselinePath } from '@/components/rcb/core/geometry';
+import { ARROW_HEAD as ARROW_HEAD_GEOM } from '@/components/rcb/core/geometry';
 
 export const DEFAULT_SHAPE_SIDES = 5;
 export const MIN_SHAPE_SIDES = 3;
@@ -321,10 +321,6 @@ export function shapeVertexPoints(
   return [];
 }
 
-export function ptsAttr(pts: Array<[number, number]>) {
-  return pts.map(([x, y]) => `${x},${y}`).join(' ');
-}
-
 /** Hit/selection thickness for line & arrow nodes (world units). */
 export const STROKE_HIT = 24;
 /** Stored line/arrow thickness. Hit tolerance stays separate in STROKE_HIT. */
@@ -500,12 +496,6 @@ export function invalidateNodePath2D(nodeId: string) {
   nodePathFp.delete(id);
 }
 
-export function clearPath2DCache() {
-  path2dByD.clear();
-  path2dTouch.length = 0;
-  nodePathFp.clear();
-}
-
 export type Path2DHitOpts = {
   /** Test fill (closed shapes / pencil blobs). */
   fill?: boolean;
@@ -551,36 +541,6 @@ export function hitTestPath2DLocal(
     return false;
   }
   return false;
-}
-
-/** Stroke a cached Path2D onto a Canvas2D context (overlay / draft batch). */
-export function strokeCachedPath2D(
-  ctx: CanvasRenderingContext2D,
-  pathD: string,
-  style?: { strokeStyle?: string; lineWidth?: number; lineCap?: CanvasLineCap; lineJoin?: CanvasLineJoin }
-): boolean {
-  const path = getCachedPath2D(pathD);
-  if (!path) return false;
-  if (style?.strokeStyle) ctx.strokeStyle = style.strokeStyle;
-  if (style?.lineWidth != null) ctx.lineWidth = style.lineWidth;
-  if (style?.lineCap) ctx.lineCap = style.lineCap;
-  if (style?.lineJoin) ctx.lineJoin = style.lineJoin;
-  ctx.stroke(path);
-  return true;
-}
-
-/** Fill a cached Path2D (closed geo / pencil). */
-export function fillCachedPath2D(
-  ctx: CanvasRenderingContext2D,
-  pathD: string,
-  style?: { fillStyle?: string; fillRule?: CanvasFillRule }
-): boolean {
-  const path = getCachedPath2D(pathD);
-  if (!path) return false;
-  if (style?.fillStyle) ctx.fillStyle = style.fillStyle;
-  const rule = style?.fillRule === 'evenodd' ? 'evenodd' : 'nonzero';
-  ctx.fill(path, rule);
-  return true;
 }
 
 /** Reused off-DOM path for length sampling (Bezier pen / freehand). */
@@ -879,9 +839,4 @@ export function hitTestSvgNodeAtClient(
     }
   }
   return false;
-}
-
-/** Local SVG path for an open arrow — geometry kernel SoT. */
-export function arrowLocalPath(width: number, height: number, head = ARROW_HEAD) {
-  return arrowBaselinePath(width, height, head);
 }

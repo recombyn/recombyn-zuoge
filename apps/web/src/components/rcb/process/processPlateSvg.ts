@@ -265,29 +265,6 @@ export function syncProcessPlateGeometry(host: SVGElement, clipD: string): void 
   });
 }
 
-/** Pause SMIL drift while selection is transforming (matches legacy CSS behavior). */
-export function setProcessPlateDriftPaused(host: SVGElement | null | undefined, paused: boolean): void {
-  const root = host?.ownerSVGElement;
-  if (!root) return;
-  root.querySelectorAll('radialGradient animate').forEach((node) => {
-    if (node.tagName.toLowerCase() !== 'animate') return;
-    const animate = node as SVGAnimateElement;
-    if (paused) {
-      try {
-        animate.endElement();
-      } catch {
-        /* ignore */
-      }
-    } else {
-      try {
-        animate.beginElement();
-      } catch {
-        /* ignore */
-      }
-    }
-  });
-}
-
 /** Status pill foreignObject — gradient is SVG-only; FO is label chrome. */
 export function syncProcessPillForeignObject(
   host: SVGElement | null | undefined,

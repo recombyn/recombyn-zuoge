@@ -214,7 +214,7 @@ export function syncSoaBufferFromDocumentNow(
   return true;
 }
 
-/** HTML/SVG hosts only when canvas cannot own the pixels (media FO, text, effects). */
+/** HTML/SVG hosts only when canvas cannot own the pixels (effects / live HTML media). */
 export function nodeNeedsDomShapeHost(
   node: SceneNodeInput | null | undefined,
   forceFull = false
@@ -223,9 +223,10 @@ export function nodeNeedsDomShapeHost(
   if (!node) return true;
   if (isImageProcessRunning(node)) return true;
   const key = String(node.key || '');
-  if (key === 'text' || key === 'lottie' || key === 'audio' || key === 'group') return true;
-  // Image/video keep a host for HTML foreignObject; canvas still paints posters.
-  if (key === 'image' || key === 'video') return true;
+  // Static text → canvas ink; caret → TextInlineEditor overlay.
+  // Static image → paintCanvasMediaInk; SoftGlow process still forceFull above.
+  // Video idle → canvas poster; selected/playing video is forceFull (FO + HTML <video>).
+  if (key === 'lottie' || key === 'audio' || key === 'group') return true;
   return !canIdlePaintOnCanvas(node);
 }
 

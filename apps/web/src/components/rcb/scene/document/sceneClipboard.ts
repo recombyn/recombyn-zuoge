@@ -30,30 +30,6 @@ export function nodeIdsInsideFrames(
   return nodeIdsBoundToFrames(doc, frameIds);
 }
 
-/** Nodes explicitly bound to the requested frames. */
-export function nodeIdsIntersectingFrames(
-  doc: SceneDocument | null | undefined,
-  frameIds: string[]
-): string[] {
-  return nodeIdsBoundToFrames(doc, frameIds);
-}
-
-/** Snapshot of explicit frame ownership used while moving artboards. */
-export function nodeIdsOwnedByFrames(
-  doc: SceneDocument | null | undefined,
-  frameIds: string[]
-): string[] {
-  return nodeIdsBoundToFrames(doc, frameIds);
-}
-
-/** Stable ownership snapshot used for the duration of a frame drag. */
-export function nodeIdsOwnedByFrame(
-  doc: SceneDocument | null | undefined,
-  frameId: string
-): string[] {
-  return nodeIdsOwnedByFrames(doc, [frameId]);
-}
-
 /**
  * Nodes explicitly bound to an artboard.
  * Does not infer ownership from overlap or center containment.
