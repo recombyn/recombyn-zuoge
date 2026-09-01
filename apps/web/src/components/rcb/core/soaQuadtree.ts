@@ -1,0 +1,308 @@
+/**
+ * Axis-aligned quadtree for SoA / spatial broad-phase (world scene units).
+ *
+ * Items that span multiple quadrants are referenced in each overlapping leaf
+ * (same multi-bucket idea as the former uniform grid). Lookup is by id via
+ * {@link SoaQuadtree} — pan/zoom never rebuilds; queries transform the rect.
+ */
+
+export type SoaQuadItem = {
+  id: string;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+type QuadNode = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  /** Leaf storage; null when subdivided. */
+  items: SoaQuadItem[] | null;
+  /** NW, NE, SW, SE — null while leaf. */
+  kids: [QuadNode, QuadNode, QuadNode, QuadNode] | null;
+};
+
+function aabbIntersects(
+  aMinX: number,
+  aMinY: number,
+  aMaxX: number,
+  aMaxY: number,
+  bMinX: number,
+  bMinY: number,
+  bMaxX: number,
+  bMaxY: number
+): boolean {
+  return !(aMaxX < bMinX || aMinX > bMaxX || aMaxY < bMinY || aMinY > bMaxY);
+}
+
+function normalizeItem(item: SoaQuadItem): SoaQuadItem {
+  const minX = Math.min(item.minX, item.maxX);
+  const maxX = Math.max(item.minX, item.maxX);
+  const minY = Math.min(item.minY, item.maxY);
+  const maxY = Math.max(item.minY, item.maxY);
+  return { id: item.id, minX, minY, maxX, maxY };
+}
+
+function makeLeaf(minX: number, minY: number, maxX: number, maxY: number): QuadNode {
+  return { minX, minY, maxX, maxY, items: [], kids: null };
+}
+
+/** Root large enough to hold `item`, with padding so early splits stay useful. */
+function rootAround(item: SoaQuadItem): QuadNode {
+  const w = Math.max(64, item.maxX - item.minX);
+  const h = Math.max(64, item.maxY - item.minY);
+  const pad = Math.max(w, h) * 2;
+  const cx = (item.minX + item.maxX) * 0.5;
+  const cy = (item.minY + item.maxY) * 0.5;
+  return makeLeaf(cx - pad, cy - pad, cx + pad, cy + pad);
+}
+
+function containsItem(node: QuadNode, item: SoaQuadItem): boolean {
+  return (
+    item.minX >= node.minX &&
+    item.minY >= node.minY &&
+    item.maxX <= node.maxX &&
+    item.maxY <= node.maxY
+  );
+}
+
+/** Root AABB that covers every item (plus padding). */
+function rootFitting(items: Iterable<SoaQuadItem>): QuadNode {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const it of items) {
+    if (it.minX < minX) minX = it.minX;
+    if (it.minY < minY) minY = it.minY;
+    if (it.maxX > maxX) maxX = it.maxX;
+    if (it.maxY > maxY) maxY = it.maxY;
+  }
+  if (!Number.isFinite(minX)) return makeLeaf(-1024, -1024, 1024, 1024);
+  const w = Math.max(64, maxX - minX);
+  const h = Math.max(64, maxY - minY);
+  const pad = Math.max(w, h) * 0.5 + 64;
+  return makeLeaf(minX - pad, minY - pad, maxX + pad, maxY + pad);
+}
+
+function splitNode(node: QuadNode): void {
+  const midX = (node.minX + node.maxX) * 0.5;
+  const midY = (node.minY + node.maxY) * 0.5;
+  node.kids = [
+    makeLeaf(node.minX, node.minY, midX, midY), // NW
+    makeLeaf(midX, node.minY, node.maxX, midY), // NE
+    makeLeaf(node.minX, midY, midX, node.maxY), // SW
+    makeLeaf(midX, midY, node.maxX, node.maxY), // SE
+  ];
+  node.items = null;
+}
+
+function itemIntersectsNode(item: SoaQuadItem, node: QuadNode): boolean {
+  return aabbIntersects(
+    item.minX,
+    item.minY,
+    item.maxX,
+    item.maxY,
+    node.minX,
+    node.minY,
+    node.maxX,
+    node.maxY
+  );
+}
+
+function insert(
+  node: QuadNode,
+  item: SoaQuadItem,
+  depth: number,
+  maxItems: number,
+  maxDepth: number
+): void {
+  if (node.kids) {
+    for (let i = 0; i < 4; i += 1) {
+      const kid = node.kids[i];
+      if (!itemIntersectsNode(item, kid)) continue;
+      insert(kid, item, depth + 1, maxItems, maxDepth);
+    }
+    return;
+  }
+  const items = node.items!;
+  items.push(item);
+  if (items.length <= maxItems || depth >= maxDepth) return;
+  const spanX = node.maxX - node.minX;
+  const spanY = node.maxY - node.minY;
+  if (spanX <= 1e-6 || spanY <= 1e-6) return;
+  const pending = items.slice();
+  splitNode(node);
+  for (const it of pending) {
+    insert(node, it, depth + 1, maxItems, maxDepth);
+  }
+}
+
+function removeFromNode(node: QuadNode, id: string): boolean {
+  if (node.kids) {
+    let any = false;
+    for (let i = 0; i < 4; i += 1) {
+      if (removeFromNode(node.kids[i], id)) any = true;
+    }
+    return any;
+  }
+  const items = node.items;
+  if (!items?.length) return false;
+  let wrote = 0;
+  let removed = false;
+  for (let i = 0; i < items.length; i += 1) {
+    if (items[i].id === id) {
+      removed = true;
+      continue;
+    }
+    items[wrote] = items[i];
+    wrote += 1;
+  }
+  if (removed) items.length = wrote;
+  return removed;
+}
+
+function queryNode(
+  node: QuadNode,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+  seen: Set<string>,
+  out: SoaQuadItem[]
+): void {
+  if (!aabbIntersects(minX, minY, maxX, maxY, node.minX, node.minY, node.maxX, node.maxY)) {
+    return;
+  }
+  if (node.kids) {
+    for (let i = 0; i < 4; i += 1) {
+      queryNode(node.kids[i], minX, minY, maxX, maxY, seen, out);
+    }
+    return;
+  }
+  const items = node.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i += 1) {
+    const it = items[i];
+    if (seen.has(it.id)) continue;
+    if (!aabbIntersects(minX, minY, maxX, maxY, it.minX, it.minY, it.maxX, it.maxY)) {
+      continue;
+    }
+    seen.add(it.id);
+    out.push(it);
+  }
+}
+
+function rebuildRoot(
+  items: Iterable<SoaQuadItem>,
+  maxItems: number,
+  maxDepth: number
+): QuadNode {
+  const list = [...items];
+  const root = rootFitting(list);
+  for (const it of list) {
+    insert(root, it, 0, maxItems, maxDepth);
+  }
+  return root;
+}
+
+export class SoaQuadtree {
+  private root: QuadNode | null = null;
+  private readonly byId = new Map<string, SoaQuadItem>();
+  private readonly maxItems: number;
+  private readonly maxDepth: number;
+
+  constructor(opts?: { maxItems?: number; maxDepth?: number }) {
+    this.maxItems = Math.max(4, opts?.maxItems ?? 12);
+    this.maxDepth = Math.max(4, opts?.maxDepth ?? 14);
+  }
+
+  get size(): number {
+    return this.byId.size;
+  }
+
+  has(id: string): boolean {
+    return this.byId.has(id);
+  }
+
+  ids(): IterableIterator<string> {
+    return this.byId.keys();
+  }
+
+  clear(): void {
+    this.root = null;
+    this.byId.clear();
+  }
+
+  /** Insert or replace AABB for `item.id` (world scene units). */
+  upsert(item: SoaQuadItem): void {
+    if (this.byId.has(item.id)) this.remove(item.id);
+    const normalized = normalizeItem(item);
+    this.byId.set(normalized.id, normalized);
+    if (!this.root) {
+      this.root = rootAround(normalized);
+      insert(this.root, normalized, 0, this.maxItems, this.maxDepth);
+      return;
+    }
+    if (!containsItem(this.root, normalized)) {
+      this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
+      return;
+    }
+    insert(this.root, normalized, 0, this.maxItems, this.maxDepth);
+  }
+
+  /**
+   * Replace the whole tree in one rebuild (full SoA sync / large batch).
+   * Avoids O(n²) from repeated expand-rebuild during sequential upsert.
+   */
+  replaceAll(items: Iterable<SoaQuadItem>): void {
+    this.root = null;
+    this.byId.clear();
+    for (const raw of items) {
+      const normalized = normalizeItem(raw);
+      this.byId.set(normalized.id, normalized);
+    }
+    if (this.byId.size === 0) return;
+    this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
+  }
+
+  /**
+   * Merge `items` into the index, then rebuild the tree once.
+   * Prefer over many {@link upsert} calls when the batch is large or spread out.
+   */
+  bulkUpsert(items: Iterable<SoaQuadItem>): void {
+    let any = false;
+    for (const raw of items) {
+      const normalized = normalizeItem(raw);
+      this.byId.set(normalized.id, normalized);
+      any = true;
+    }
+    if (!any) return;
+    this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
+  }
+
+  remove(id: string): void {
+    if (!this.byId.has(id)) return;
+    this.byId.delete(id);
+    if (this.root) removeFromNode(this.root, id);
+  }
+
+  /** All items whose AABB intersects the query rect. */
+  search(minX: number, minY: number, maxX: number, maxY: number): SoaQuadItem[] {
+    const out: SoaQuadItem[] = [];
+    if (!this.root) return out;
+    const qMinX = Math.min(minX, maxX);
+    const qMaxX = Math.max(minX, maxX);
+    const qMinY = Math.min(minY, maxY);
+    const qMaxY = Math.max(minY, maxY);
+    queryNode(this.root, qMinX, qMinY, qMaxX, qMaxY, new Set(), out);
+    return out;
+  }
+
+  searchPoint(x: number, y: number, pad = 0): SoaQuadItem[] {
+    return this.search(x - pad, y - pad, x + pad, y + pad);
+  }
+}

@@ -6,9 +6,7 @@ function isFlaggedAnimationHost(node: any): boolean {
   return (
     node?.key === 'lottie' &&
     (node?.attrs?.animationFrameHost === true ||
-      node?.attrs?.animationFrameHost === 'true' ||
-      node?.attrs?.lottieFrameHost === true ||
-      node?.attrs?.lottieFrameHost === 'true')
+      node?.attrs?.animationFrameHost === 'true')
   );
 }
 

@@ -56,7 +56,7 @@ function makeDoc(): SceneDocument {
         y: 100,
         width: 400,
         height: 400,
-        kind: 'lottie',
+        kind: 'animation',
         name: '动画工作台',
         durationSec: 5,
         fps: 30,
@@ -72,7 +72,7 @@ function makeDoc(): SceneDocument {
         height: 400,
         attrs: {
           frameId,
-          lottieFrameHost: true,
+          animationFrameHost: true,
           animationData: JSON.stringify({
             v: '5.7.4',
             fr: 30,

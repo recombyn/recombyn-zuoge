@@ -103,9 +103,15 @@ export {
   hitSoaRoundedRectLocal,
   hitSoaPolylineFill,
   soaPointToLocalBox,
-  syncSpatialIndexFromSoaBuffer,
   forEachVisibleInRect,
   applySoaHostInkFlags,
+  bulkDemoteSoaInk,
+  bulkPromoteSoaHosts,
+  bulkRemoveSoaByIds,
+  allocateSoaSlot,
+  compactSoaFreeSlots,
+  bulkUpsertSoaQuadtree,
+  bulkInsertSoaFromDocument,
   markSoaDirty,
   markSoaDirtyById,
   upsertSoaGeom,
@@ -116,6 +122,7 @@ export {
   SOA_FLAG_VISIBLE,
   SOA_FLAG_CANVAS_IDLE,
   SOA_FLAG_BASIC_GEOM,
+  SOA_FLAG_FREE,
   SOA_KIND_RECT,
   SOA_KIND_ELLIPSE,
   SOA_KIND_LINE,
@@ -155,9 +162,17 @@ export {
   blitSoaBake,
   blitSoaBakeForView,
   tilesForView,
-  invalidateSoaBake,
+  invalidateSoaBakeTilesForElements,
+  bindSoaBakeElementTiles,
+  unbindSoaBakeElement,
   resetSharedSoaBake,
 } from './render/soaBakeLayer';
+export {
+  createRenderDemotionScheduler,
+  type RenderDemotionScheduler,
+  type RenderHint,
+  type RenderDemotionSink,
+} from './render/renderDemotionScheduler';
 export {
   createWebglSceneRenderer,
   isSoaWebglEnabled,
@@ -172,6 +187,7 @@ export {
   setSharedSceneSpatialRuntime,
   type RcbSpatialItem,
 } from './core/spatialIndex';
+export { SoaQuadtree, type SoaQuadItem } from './core/soaQuadtree';
 export {
   clearNodeTransformPreviews,
   effectivePaintBox,

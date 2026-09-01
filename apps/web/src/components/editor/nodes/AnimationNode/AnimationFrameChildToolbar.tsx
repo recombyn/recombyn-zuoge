@@ -1245,7 +1245,6 @@ function AnimationFrameChildToolbar({
     <>
       <AnimationAnchorMarker
         box={geom}
-        angle={rot}
         preset={anchor}
         hidden={!anchorVisible}
       />

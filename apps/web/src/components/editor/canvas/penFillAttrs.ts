@@ -15,7 +15,7 @@ export function pathNodeHasSolidFill(
   if (!attrs) return false;
   if (!boolEffectAttr(attrs['fill-enabled'], true)) return false;
   if (!boolEffectAttr(attrs['fill-visible'], true)) return false;
-  const fill = attrs.fill ?? attrs['fill-color'] ?? attrs.fillColor;
+  const fill = attrs['fill-color'];
   const s = String(fill || '')
     .trim()
     .toLowerCase();

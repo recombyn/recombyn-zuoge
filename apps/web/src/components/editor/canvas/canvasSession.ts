@@ -96,7 +96,7 @@ import {
 import { findFrameAnimationMediaId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   autoKeyAnimatedGeometry,
-  autoKeyAnimatedRotation,
+  autoKeyAnimatedProp,
 } from '@/components/editor/nodes/AnimationNode/animationAutoKey';
 import { getAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
 import { queueEnsureAnimationFramesForDocChange } from '@/components/editor/nodes/AnimationNode/queueEnsureAnimationFramesForDocChange';
@@ -1618,11 +1618,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       });
     // When rotation is already keyframed, write the live angle into the curve
     // at the playhead (frame sync skips animated `r`, so attrs-only would no-op).
-    const keyed = autoKeyAnimatedRotation({
+    const keyed = autoKeyAnimatedProp({
       document: deps.getDocument() || doc,
       nodeId,
-      angleDeg: nextAngle,
+      propKey: 'r',
       playheadSec: getAnimationPlayheadSec(),
+      value: nextAngle,
     });
     if (keyed) {
       patchDocumentNode({

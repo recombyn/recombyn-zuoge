@@ -357,7 +357,6 @@ export const MEDIA_PLATE_RADIUS = 16;
 
 /**
  * Text-frame plate corners — artboard-sharp by default.
- * Older converts stored uniform 16 (media plate); treat that as sharp now.
  */
 export function textFrameCornerRadii(
   attrs: Record<string, unknown> | null | undefined
@@ -366,9 +365,6 @@ export function textFrameCornerRadii(
   const tr = Math.max(0, Math.round(Number(attrs?.radiusTR) || 0));
   const br = Math.max(0, Math.round(Number(attrs?.radiusBR) || 0));
   const bl = Math.max(0, Math.round(Number(attrs?.radiusBL) || 0));
-  if (tl === 16 && tr === 16 && br === 16 && bl === 16) {
-    return { tl: 0, tr: 0, br: 0, bl: 0 };
-  }
   return {
     tl: tl > 0 ? tl : TEXT_FRAME_RADIUS,
     tr: tr > 0 ? tr : TEXT_FRAME_RADIUS,

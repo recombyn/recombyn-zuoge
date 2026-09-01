@@ -1054,21 +1054,13 @@ export function resolveGenPlateFill(raw: unknown): string {
 }
 
 /**
- * Fixed text-frame plate — artboard white, not generator gray.
- * Legacy `var(--gen-empty)` / `#e9eaee` stored on older frames paint as white.
+ * Fixed text-frame plate — artboard white when empty / white synonyms.
  */
 export function resolveTextFramePlateFill(raw: unknown): string {
   const s = String(raw ?? '').trim();
   if (!s) return '#FFFFFF';
   const lower = s.toLowerCase();
-  if (
-    lower === 'var(--gen-empty)' ||
-    lower === '#e9eaee' ||
-    lower === 'var(--surface)' ||
-    lower === 'var(--rail)' ||
-    lower === 'white' ||
-    /^#fff(fff)?$/i.test(s)
-  ) {
+  if (lower === 'white' || /^#fff(fff)?$/i.test(s)) {
     return '#FFFFFF';
   }
   return s;

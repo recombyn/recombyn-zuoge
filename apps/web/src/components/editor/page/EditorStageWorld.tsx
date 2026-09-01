@@ -165,7 +165,7 @@ function frameShowsAiOverlay(
   frame: ArtboardFrame,
   aiOp: AiOperationState | null
 ): boolean {
-  if (!aiOp?.active) return String(frame.processStatus || '') === 'running';
+  if (!aiOp?.active) return false;
   const fid = String(aiOp.frameId || '').trim();
   return Boolean(fid) && fid === frame.id;
 }
@@ -810,7 +810,7 @@ function EditorStageWorld({
               aiGenerating={frameShowsAiOverlay(frame, aiOperationState)}
               aiProcessLabel={
                 frameShowsAiOverlay(frame, aiOperationState)
-                  ? aiOperationState?.label || frame.processLabel
+                  ? aiOperationState?.label
                   : undefined
               }
             />

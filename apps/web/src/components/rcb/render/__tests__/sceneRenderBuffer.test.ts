@@ -23,23 +23,39 @@ describe('sceneRenderBuffer', () => {
   });
 
   it('syncs 1000 rects into SoA and hits the topmost', () => {
-    let doc = createEmptyDocument({ width: 4000, height: 4000, emptyWorld: true });
+    // Build deltaSetLike in one shot â€?avoid O(nÂ²) addNodeToDocument loops.
+    const children: string[] = [];
+    const deltaSetLike: Record<string, unknown> = { ROOT: { id: 'ROOT', children } };
     for (let i = 0; i < 1000; i += 1) {
       const id = `r${i}`;
-      doc = addNodeToDocument(doc, id, {
+      children.push(id);
+      deltaSetLike[id] = {
         id,
         key: 'shape',
         x: (i % 40) * 20,
         y: Math.floor(i / 40) * 20,
         width: 16,
         height: 16,
-        attrs: { shapeType: 'rect', fill: '#112233', 'stroke-enabled': false },
+        attrs: { shapeType: 'rect', 'fill-color': '#112233', 'stroke-enabled': false },
         children: [],
-      });
+      };
     }
+    const base = createEmptyDocument({ width: 4000, height: 4000, emptyWorld: true });
+    const doc = {
+      ...base,
+      deltaSetLike: {
+        ...base.deltaSetLike,
+        ...deltaSetLike,
+        ROOT: { ...base.deltaSetLike.ROOT, children },
+      },
+      stackOrder: children.map((id) => `node:${id}`),
+    };
     const buf = createSceneRenderBuffer();
-    syncSceneRenderBufferFromDocument(buf, doc);
+    const t0 = performance.now();
+    syncSceneRenderBufferFromDocument(buf, doc as never);
+    expect(performance.now() - t0).toBeLessThan(5_000);
     expect(buf.count).toBe(1000);
+    expect(buf.quadtree.size).toBe(1000);
     expect(buf.flags[0] & SOA_FLAG_VISIBLE).toBeTruthy();
     expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     const hit = hitTestSoaBuffer(buf, 8, 8);
@@ -55,7 +71,7 @@ describe('sceneRenderBuffer', () => {
       y: 10,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', fill: '#ff0000' },
+      attrs: { shapeType: 'rect', 'fill-color': '#ff0000' },
       children: [],
     });
     const buf = createSceneRenderBuffer();
@@ -151,7 +167,7 @@ describe('sceneRenderBuffer', () => {
       y: 10,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', fill: '#ff0000', 'stroke-enabled': false },
+      attrs: { shapeType: 'rect', 'fill-color': '#ff0000', 'stroke-enabled': false },
       children: [],
     });
     doc = addNodeToDocument(doc, 'b', {
@@ -161,7 +177,7 @@ describe('sceneRenderBuffer', () => {
       y: 10,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', fill: '#00ff00', 'stroke-enabled': false },
+      attrs: { shapeType: 'rect', 'fill-color': '#00ff00', 'stroke-enabled': false },
       children: [],
     });
     const buf = createSceneRenderBuffer();
@@ -206,7 +222,7 @@ describe('sceneRenderBuffer', () => {
         y: Math.floor(i / 400) * 40,
         width: 20,
         height: 20,
-        attrs: { shapeType: 'rect', fill: '#112233', 'stroke-enabled': false },
+        attrs: { shapeType: 'rect', 'fill-color': '#112233', 'stroke-enabled': false },
         children: [],
       };
     }

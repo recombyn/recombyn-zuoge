@@ -102,7 +102,7 @@ function LoginArtPanel() {
       </div>
       <div className="relative z-10 inline-flex shrink-0 items-center gap-2 self-start p-6 leading-none">
         <AppLogo size={22} scheme="light" />
-        <AppBrandWordmark size={15} mark={false} lowercase className="-translate-y-px text-white" />
+        <AppBrandWordmark size={15} className="-translate-y-px text-white" />
       </div>
     </div>
   );

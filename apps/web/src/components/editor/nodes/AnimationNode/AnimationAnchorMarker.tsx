@@ -20,8 +20,6 @@ type SceneBox = { left: number; top: number; width: number; height: number };
 
 type Props = {
   box: SceneBox;
-  /** Kept for call-site compat; marker orientation ignores node rotation. */
-  angle?: number;
   preset?: unknown;
   hidden?: boolean;
 };
