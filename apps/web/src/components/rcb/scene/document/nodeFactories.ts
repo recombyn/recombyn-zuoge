@@ -177,7 +177,7 @@ export function createShapeNode({
           shapeType === 'pencil'
             ? 'false'
             : shapeType === 'pen'
-              ? closed
+              ? closed && fill !== 'transparent' && fill !== 'none'
                 ? 'true'
                 : 'false'
               : fill === 'transparent'
@@ -187,7 +187,7 @@ export function createShapeNode({
           shapeType === 'pencil'
             ? 'false'
             : shapeType === 'pen'
-              ? closed
+              ? closed && fill !== 'transparent' && fill !== 'none'
                 ? 'true'
                 : 'false'
               : fill === 'transparent'
@@ -1037,7 +1037,7 @@ export function resolveThemeSurfaceFill(raw: unknown): string {
   return s;
 }
 
-/** Audio / text-frame plate — default wash matches generator (`--gen-empty`, light #e9eaee). */
+/** Audio / generator plate — default wash matches generator (`--gen-empty`, light #e9eaee). */
 export function resolveGenPlateFill(raw: unknown): string {
   const s = String(raw ?? '').trim();
   if (!s) return 'var(--gen-empty)';
@@ -1051,6 +1051,27 @@ export function resolveGenPlateFill(raw: unknown): string {
     return 'var(--gen-empty)';
   }
   return resolveThemeSurfaceFill(raw);
+}
+
+/**
+ * Fixed text-frame plate — artboard white, not generator gray.
+ * Legacy `var(--gen-empty)` / `#e9eaee` stored on older frames paint as white.
+ */
+export function resolveTextFramePlateFill(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '#FFFFFF';
+  const lower = s.toLowerCase();
+  if (
+    lower === 'var(--gen-empty)' ||
+    lower === '#e9eaee' ||
+    lower === 'var(--surface)' ||
+    lower === 'var(--rail)' ||
+    lower === 'white' ||
+    /^#fff(fff)?$/i.test(s)
+  ) {
+    return '#FFFFFF';
+  }
+  return s;
 }
 
 /**

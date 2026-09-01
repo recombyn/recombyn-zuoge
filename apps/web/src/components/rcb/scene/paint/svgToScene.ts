@@ -15,6 +15,7 @@ import {
 } from '../document/sceneDocument';
 import { isCustomPathShape, scalePathData } from '../document/pathScale';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { documentPointToNodeLocal } from '@/components/rcb/scene/paint/sceneToSvg';
 
 function num(v: unknown, fallback = 0) {
   const n = Number(v);
@@ -251,7 +252,8 @@ export function patchNodeGeometry(
   const next = normalizeDocument(document);
   const node = next.deltaSetLike?.[nodeId];
   if (!node) return next;
-  const { x, y } = sceneToDocumentCoords(next, geometry.left, geometry.top);
+  const abs = sceneToDocumentCoords(next, geometry.left, geometry.top);
+  const local = documentPointToNodeLocal(next, node, abs.x, abs.y);
   const oldW = Math.max(1, Number(node.width) || 1);
   const oldH = Math.max(1, Number(node.height) || 1);
   // Keep subpixel geometry. Integer rounding breaks flush visual snaps when stroke
@@ -259,8 +261,8 @@ export function patchNodeGeometry(
   const quantize = (n: number) => Math.round(n * 1000) / 1000;
   let newW = Math.max(1, quantize(geometry.width));
   let newH = Math.max(1, quantize(geometry.height));
-  const ix = quantize(x);
-  const iy = quantize(y);
+  const ix = quantize(local.x);
+  const iy = quantize(local.y);
 
   let attrs = node.attrs;
   const shapeType = String(node.attrs?.shapeType || '');

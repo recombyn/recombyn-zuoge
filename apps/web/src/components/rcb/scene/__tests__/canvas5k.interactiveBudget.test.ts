@@ -1,9 +1,9 @@
 /**
- * 5k-node canvas interactive budget — document scale + SVG host / Canvas idle cap.
+ * 5k-node canvas interactive budget — document scale + single canvas-ink path.
  *
  * Full DOM mount of 5k SVG hosts is intentionally not the product path;
- * this suite proves spatial cull + host budget stay within the ~96 full-host
- * rule while the document holds 5k nodes (see canvas-architecture.md).
+ * basic vectors stay on SoA canvas ink while spatial cull limits what paints
+ * (see canvas-architecture.md).
  *
  * Run: `npm run test:stress --workspace=apps/web -- canvas5k`
  */
@@ -51,7 +51,7 @@ function buildDoc(n: number): SceneDocument {
 }
 
 describe('canvas 5k interactive budget', () => {
-  it('builds 5k-node document and keeps SVG host / Canvas idle budget', () => {
+  it('builds 5k-node document and keeps canvas-ink budget', () => {
     const doc = buildDoc(N);
     const ids = (doc.deltaSetLike?.ROOT?.children || []).filter(Boolean);
     expect(ids.length).toBe(N);
@@ -70,12 +70,9 @@ describe('canvas 5k interactive budget', () => {
     const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: visible,
-      keepSet: new Set(visible.slice(0, 2)),
-      zoom: 0.15,
-      moving: false,
+      zoom: 0.15,
     });
-    expect(fullIds.length).toBeLessThanOrEqual(96);
-    expect(fullIds.length + canvasIds.length).toBe(visible.length);
-    expect(canvasIds.length).toBeGreaterThan(0);
+    expect(fullIds.length).toBe(0);
+    expect(canvasIds.length).toBe(visible.length);
   });
 });

@@ -68,7 +68,7 @@ function VideoZoomSync({ onZoom }: { onZoom: (zoom: number) => void }) {
 
  * `previewSvgNodeGeometry` transforms (same as audio). `geometryOverrides`
 
- * keeps plate width/height/angle chrome in sync while Redux is still pre-gesture.
+ * keeps plate width/height/angle chrome in sync while the editor store is still pre-gesture.
 
  */
 

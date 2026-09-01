@@ -847,10 +847,14 @@ export function polygonRadiiFromCorners(
 }
 
 /**
- * Live corner-radius while knob-dragging (DOM preview only — Redux stays idle
+ * Live corner-radius while knob-dragging (DOM preview only — editor store stays idle
  * mid-drag to avoid remount ghosts). Toolbars subscribe for the compact R label.
  */
-type LiveCornerRadiusPreview = { nodeId: string; display: number };
+type LiveCornerRadiusPreview = {
+  nodeId: string;
+  display: number;
+  radii: CornerRadii;
+};
 
 let liveCornerRadiusPreview: LiveCornerRadiusPreview | null = null;
 const liveCornerRadiusListeners = new Set<() => void>();
@@ -870,10 +874,32 @@ export function cornerRadiusDisplayFromRadii(radii: CornerRadii, linked: boolean
 
 export function setLiveCornerRadiusPreview(next: LiveCornerRadiusPreview | null) {
   const prev = liveCornerRadiusPreview;
-  if (prev?.nodeId === next?.nodeId && prev?.display === next?.display) return;
+  if (
+    prev?.nodeId === next?.nodeId &&
+    prev?.display === next?.display &&
+    prev?.radii.tl === next?.radii.tl &&
+    prev?.radii.tr === next?.radii.tr &&
+    prev?.radii.br === next?.radii.br &&
+    prev?.radii.bl === next?.radii.bl
+  ) {
+    return;
+  }
   if (prev == null && next == null) return;
   liveCornerRadiusPreview = next;
   liveCornerRadiusListeners.forEach((l) => l());
+}
+
+export function hasLiveCornerRadiusPreview(): boolean {
+  return liveCornerRadiusPreview != null;
+}
+
+export function getLiveCornerRadiusPreviewNodeId(): string | null {
+  return liveCornerRadiusPreview?.nodeId ?? null;
+}
+
+export function getLiveCornerRadiusPreviewRadii(nodeId: string): CornerRadii | null {
+  if (!nodeId || liveCornerRadiusPreview?.nodeId !== nodeId) return null;
+  return liveCornerRadiusPreview.radii;
 }
 
 export function getLiveCornerRadiusPreview(nodeId: string): number | null {

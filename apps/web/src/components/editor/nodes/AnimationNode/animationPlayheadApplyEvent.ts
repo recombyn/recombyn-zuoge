@@ -1,6 +1,6 @@
 /**
  * Imperative playhead → scene apply (event, not a document watcher).
- * Always deferred — safe to call from Redux reducers (no getState during reduce).
+ * Always deferred — safe to call from store mutators (no getState mid-write).
  */
 export const RCB_ANIMATION_PLAYHEAD_APPLY = 'rcb-animation-playhead-apply';
 
@@ -10,7 +10,7 @@ export function requestPlayheadSceneApply(opts?: { afterPaint?: boolean }) {
   const fire = () => {
     window.dispatchEvent(new CustomEvent(RCB_ANIMATION_PLAYHEAD_APPLY));
   };
-  // Never sync: listeners call store.getState(); Redux forbids that mid-reduce.
+  // Never sync: listeners call store.getState(); must not run mid-write.
   queueMicrotask(fire);
   if (opts?.afterPaint) {
     queueMicrotask(() => window.requestAnimationFrame(fire));

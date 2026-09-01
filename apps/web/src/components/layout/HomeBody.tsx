@@ -79,7 +79,7 @@ const homeQueryParser = parseAsString
   .withDefault('')
   .withOptions({ history: 'replace', clearOnDefault: true, throttleMs: 200 });
 
-/** List card shape for Home recent / Mine grid — mapped from Query, not Redux. */
+/** List card shape for Home recent / Mine grid — mapped from Query, not the editor store. */
 type ProjectListItem = {
   id: string;
   name: string;
@@ -747,9 +747,10 @@ function HomeTemplateList({
   onAgentSubmit,
   onOpenCase,
 }: Props) {
-  const { t } = useTranslation();  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const userId = useSelector((state: any) => state.auth?.user?.id) as string | undefined;
-  // Token is in localStorage only — Redux has no auth.token field.
+  // Token is in localStorage only — editor store has no auth.token field.
   const authed = Boolean(userId && getToken());
   const [skillsMountKey, setSkillsMountKey] = useState(0);
   /** Filter "我的项目" by team org (empty = all accessible). */
@@ -782,7 +783,7 @@ function HomeTemplateList({
     return Array.isArray(data?.orgs) ? data.orgs : [];
   })();
 
-  // List SoT: Query pages — do not mirror the full library into Redux.
+  // List SoT: Query pages — do not mirror the full library into the editor store.
   const projectsList = useHomeProjectsList(projectsListEnabled, showMine ? filterOrgId : '');
   const refetchProjects = projectsList.refetch;
   const projectsHasMore = projectsList.hasMore;

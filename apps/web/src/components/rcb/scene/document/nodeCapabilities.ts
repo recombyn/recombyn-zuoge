@@ -7,6 +7,7 @@ import {
   isHiddenByAnimationWorkbenchFocus,
   isInactiveAtAnimationPlayhead,
   isAnimationWorkbenchPreviewChild,
+  isBoundOutsideOwningClipPlate,
   isArtboardVisibleInDocument,
   canBindToArtboard,
   getWorkbenchToolPolicy,
@@ -134,6 +135,7 @@ export function isNodeStructurallyHiddenInDocument(
 ): boolean {
   if (!node || isNodeHidden(node)) return true;
   if (isHiddenByAnimationWorkbenchFocus(node)) return true;
+  if (isBoundOutsideOwningClipPlate(document, node)) return true;
   if (isHiddenByLottiePrecompEditFocus(resolveNodeId(document, node), node)) return true;
   const frameId = String(node.attrs?.frameId || '').trim();
   if (!frameId) return false;
@@ -143,7 +145,7 @@ export function isNodeStructurallyHiddenInDocument(
 /**
  * Editor visibility for hit / chrome / marquee.
  * Includes playhead out-of-range (same as hiding the layer for interaction).
- * Pass `playheadSec` from Redux during React render when needed for sync.
+ * Pass `playheadSec` from the editor store during React render when needed for sync.
  *
  * Do **not** use this to drive SVG/host paint opacity — playhead ink hide is
  * live DOM in AnimationPlayheadSceneSync; React hosts that skip playhead

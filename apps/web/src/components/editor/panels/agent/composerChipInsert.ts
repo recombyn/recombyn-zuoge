@@ -1,6 +1,6 @@
 import type { AgentComposerHandle, ComposerContext } from '@/components/editor/panels/AgentComposerInput';
 
-/** Chip staged via Redux (mark / agent) or built for canvas attach. */
+/** Chip staged via the editor store (mark / agent) or built for canvas attach. */
 export type PendingComposerChip = {
   key: string;
   label: string;

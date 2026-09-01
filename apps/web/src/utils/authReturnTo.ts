@@ -1,5 +1,5 @@
 /**
- * Post-login / settings return path lives in the URL (`?from=...`), not Redux / sessionStorage.
+ * Post-login / settings return path lives in the URL (`?from=...`), not the editor store / sessionStorage.
  */
 
 import { stripLocalePrefix } from '@/i18n/localePath';

@@ -353,7 +353,7 @@ export async function applyAgentToolOps(opts: {
   canvasUi?: CanvasUiBridge | null;
   /** DesignTransaction: skip history push when already grouped for this tx. */
   skipHistoryPush?: boolean;
-  /** Scene Mutation source — AI never writes Redux action shapes directly. */
+  /** Scene Mutation source — AI never writes store mutator shapes directly. */
   source?: 'ai' | 'human' | 'collab';
   transactionId?: string;
   baseRevision?: number;
@@ -3050,7 +3050,7 @@ export async function runDesignAgent(params: RunDesignAgentParams): Promise<void
         releaseAiMutationLock();
         return;
       }
-      // Let Redux (+ collab Y push) settle before snapshot — avoids empty-board false critique.
+      // Let store (+ collab Y push) settle before snapshot — avoids empty-board false critique.
       await waitSceneInventorySettled(params.getDocument, { timeoutMs: 480, stableFrames: 2 });
       if (params.signal?.aborted) {
         undoQueuedTransaction(aiQueueCancel(aiQueue));

@@ -2,22 +2,20 @@ import { useMemo, type CSSProperties, type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
 import { isNodeStructurallyHiddenInDocument, isTextFrameNode } from '@/components/rcb/scene/document/nodeCapabilities';
-import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS } from '@/components/rcb/scene/document/sceneEffects';
-import { resolveGenPlateFill } from '@/components/rcb/scene/document/nodeFactories';
-import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
+import { TEXT_FRAME_PADDING, textFrameCornerRadii } from '@/components/rcb/scene/document/sceneEffects';
+import { resolveTextFramePlateFill } from '@/components/rcb/scene/document/nodeFactories';
 import {
   parseNodeText,
   parseNodeTextStyle,
   toFabricFontFamily,
 } from '@/components/rcb/scene/document/sceneText';
+import { FRAME_PLATE_STROKE } from '@/components/rcb/frames/types';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /**
  * Scrollable text inside a fixed FO plate (same mount path as video/lottie).
- * Dual-tone like audio, inverted for readability: outer `--audio-wave-track` + inner `--gen-empty`.
- *
- * Padding lives on the inner content — not the overflow scroller — so the
- * scrollbar stays flush to the track edge.
+ * Artboard chrome: white fill + hairline plate stroke; content pad only so the
+ * scrollbar sits on the plate edge.
  */
 function TextFrameOverlay({
   document,
@@ -75,31 +73,22 @@ function TextFramePlate({
   const fontSize = Math.max(1, Number(style.fontSize) || 14);
   const lineH = Math.max(0.8, Number(style.lineHeight) || 1.4);
   const fillOpacity = Math.max(0, Math.min(100, Number(style.fillOpacity) || 100)) / 100;
-  const radii = radiiFromAttrs(node.attrs || {});
-  const rTl = radii.tl > 0 ? radii.tl : TEXT_FRAME_RADIUS;
-  const rTr = radii.tr > 0 ? radii.tr : TEXT_FRAME_RADIUS;
-  const rBr = radii.br > 0 ? radii.br : TEXT_FRAME_RADIUS;
-  const rBl = radii.bl > 0 ? radii.bl : TEXT_FRAME_RADIUS;
-  const trackR = Math.max(0, Math.min(rTl, rTr, rBr, rBl) - 4);
-
-  const plateFill = resolveGenPlateFill(node.attrs?.['fill-color']);
-  /** Default dual-tone: darker rim, lighter content well (swapped vs audio). */
-  const outerBg = plateFill === 'var(--gen-empty)' ? 'var(--audio-wave-track)' : plateFill;
-  const innerBg = 'var(--gen-empty)';
+  const { tl: rTl, tr: rTr, br: rBr, bl: rBl } = textFrameCornerRadii(node.attrs || {});
+  const plateFill = resolveTextFramePlateFill(node.attrs?.['fill-color']);
 
   const plateStyle: CSSProperties = {
     width: '100%',
     height: '100%',
     boxSizing: 'border-box',
     margin: 0,
-    padding: 20,
+    padding: 0,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
     pointerEvents: interactive ? 'auto' : 'none',
-    background: outerBg,
+    background: plateFill,
     borderRadius: `${rTl}px ${rTr}px ${rBr}px ${rBl}px`,
-    boxShadow: 'inset 0 0 0 1px var(--line)',
+    boxShadow: `inset 0 0 0 1px ${FRAME_PLATE_STROKE}`,
   };
 
   const trackStyle: CSSProperties = {
@@ -111,8 +100,7 @@ function TextFramePlate({
     padding: 0,
     overflow: 'auto',
     WebkitOverflowScrolling: 'touch',
-    background: innerBg,
-    borderRadius: trackR,
+    background: 'transparent',
   };
 
   const contentStyle: CSSProperties = {
@@ -145,6 +133,7 @@ function TextFramePlate({
     >
       <div
         data-text-frame-scroll=""
+        className="rcb-edge-scroll"
         style={trackStyle}
         onWheel={(e) => {
           // Ctrl/meta+wheel → let RcbCanvas (passive:false) prevent browser zoom + zoom canvas.

@@ -260,7 +260,8 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
     activeFrameIdRef,
     hitTest,
     setCtxMenu,
-  } = args;  /** Same CameraTransform path as SelectionFeature (DPR-snapped pan). */
+  } = args;
+  /** Same CameraTransform path as SelectionFeature (DPR-snapped pan). */
   const toScene = useRcbScreenToScene();
 
   const openedAtRef = useRef(0);

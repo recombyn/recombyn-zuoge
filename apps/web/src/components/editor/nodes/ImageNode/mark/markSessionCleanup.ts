@@ -4,6 +4,7 @@ import {
   closeImageToolPanel,
   consumePendingImageGenMarkContexts,
   consumePendingQuickEditMarkContexts,
+  consumePendingVideoGenMarkContexts,
   openImageToolPanel,
   setHoveredMarkPin,
   setSelectedNodeIds,
@@ -32,6 +33,16 @@ export function clearImageGenMarkSession(
   }
 }
 
+export function clearVideoGenMarkSession(
+  document: SceneDocument
+): void {
+  setHoveredMarkPin(null);
+  consumePendingVideoGenMarkContexts();
+  for (const { nodeId } of listCanvasImageNodes(document)) {
+    clearImageMarkPin(nodeId);
+  }
+}
+
 export function clearAgentMarkSession(nodeId: string): void {
   setHoveredMarkPin(null);
   clearImageMarkPin(nodeId);
@@ -52,6 +63,11 @@ export function dismissMarkToolSession(
     }
     if (panel.markSink === 'imageGen') {
       if (document) clearImageGenMarkSession(document);
+      closeImageToolPanel();
+      return true;
+    }
+    if (panel.markSink === 'videoGen') {
+      if (document) clearVideoGenMarkSession(document);
       closeImageToolPanel();
       return true;
     }

@@ -26,7 +26,8 @@ function AnimationPlayheadTransport({
   document,
 }: {
   document: any;
-}): ReactNode {  const playhead = useAnimationPlayheadSec();
+}): ReactNode {
+  const playhead = useAnimationPlayheadSec();
   const playing = useAnimationPlaying();
   const timelineOpen = useSelector((s: any) => Boolean(s.editor.lottieTimelinePanel?.nodeId));
   const hostNodeId = useSelector((s: any) => resolveLottiePlayheadHostId(s.editor));
@@ -71,7 +72,7 @@ function AnimationPlayheadTransport({
   }, [document, node]);
 
   const playheadRef = useRef(playhead);
-  // While playing, ref holds continuous time (must not reset from snapped Redux).
+  // While playing, ref holds continuous time (must not reset from snapped store).
   useEffect(() => {
     if (playing) playheadRef.current = playhead;
     // Seed only when play starts — not on every snapped tick.
@@ -100,7 +101,7 @@ function AnimationPlayheadTransport({
         const speed = Math.max(0.05, Number(host?.getSpeed?.()) || 1);
         const dt = Math.max(0, (now - lastTs) / 1000) * speed;
         lastTs = now;
-        // Continuous ref — snapped Redux time must not feed back or we stall
+        // Continuous ref — snapped store time must not feed back or we stall
         // one frame before workOut when the host has already paused.
         t = playheadRef.current + dt;
         if (host) {

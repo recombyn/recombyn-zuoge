@@ -114,6 +114,9 @@ export function registerShapeHost(handle: ShapeHostHandle) {
   if (handle.layer && sceneShapesMount && handle.layer.parentNode === sceneShapesMount) {
     syncSharedMountPaintOrder(sceneShapesMount);
   }
+  if (handle.layer && sceneFramesMount && handle.layer.parentNode === sceneFramesMount) {
+    syncFrameMountPaintOrder(sceneFramesMount);
+  }
   bumpHostEpoch(handle.nodeId);
 }
 
@@ -160,9 +163,12 @@ export function clearShapeHosts() {
   hosts.clear();
 }
 
-/** One screen-surface SVG — all shape layers share the canonical camera matrix. */
+/** One screen-surface SVG — shape layers share the canonical camera matrix. */
 let sceneWorldRoot: SVGSVGElement | null = null;
+/** Frame body plates mount below SoA canvas ink (separate SVG root). */
+let sceneFramesRoot: SVGSVGElement | null = null;
 let sceneShapesMount: SVGGElement | null = null;
+let sceneFramesMount: SVGGElement | null = null;
 let sceneProcessMount: SVGGElement | null = null;
 let sceneDrawPreviewMount: SVGGElement | null = null;
 let sceneSmartGuidesMount: SVGGElement | null = null;
@@ -175,10 +181,14 @@ export function setSceneWorldRoot(
   drawPreviewMount: SVGGElement | null = null,
   smartGuidesMount: SVGGElement | null = null,
   selectionChromeMount: SVGGElement | null = null,
-  processMount: SVGGElement | null = null
+  processMount: SVGGElement | null = null,
+  framesRoot: SVGSVGElement | null = null,
+  framesMount: SVGGElement | null = null
 ) {
   sceneWorldRoot = root;
   sceneShapesMount = shapesMount;
+  sceneFramesRoot = framesRoot;
+  sceneFramesMount = framesMount;
   sceneProcessMount = processMount;
   sceneDrawPreviewMount = drawPreviewMount;
   sceneSmartGuidesMount = smartGuidesMount;
@@ -191,13 +201,41 @@ export function getSceneWorldRoot() {
   return sceneWorldRoot;
 }
 
+export function getSceneFramesRoot() {
+  return sceneFramesRoot;
+}
+
 export function getSceneShapesMount() {
   return sceneShapesMount;
+}
+
+export function getSceneFramesMount() {
+  return sceneFramesMount;
 }
 
 /** Upload / process SoftGlow — above shapes, below selection chrome. */
 export function getSceneProcessMount() {
   return sceneProcessMount;
+}
+
+/** Frame body plates only — sorted by data-z on the frames mount. */
+export function syncFrameMountPaintOrder(mount?: SVGGElement | null) {
+  const root = mount ?? sceneFramesMount;
+  if (!root) return;
+  const siblings: Element[] = [];
+  for (let i = 0; i < root.children.length; i += 1) {
+    const child = root.children[i];
+    if (child instanceof Element && child.hasAttribute('data-rcb-frame-layer')) {
+      siblings.push(child);
+    }
+  }
+  if (siblings.length < 2) return;
+  siblings.sort((a, b) => {
+    const za = Number(a.getAttribute('data-z')) || 0;
+    const zb = Number(b.getAttribute('data-z')) || 0;
+    return za - zb;
+  });
+  for (const g of siblings) root.appendChild(g);
 }
 
 /** SVG paint order must follow data-z (stackOrder). New layers append at mount end. */
@@ -207,69 +245,38 @@ export function syncSharedMountPaintOrder(mount?: SVGGElement | null) {
   const siblings: Element[] = [];
   for (let i = 0; i < root.children.length; i += 1) {
     const child = root.children[i];
-    if (
-      child instanceof Element &&
-      (child.hasAttribute('data-rcb-shape-layer') || child.hasAttribute('data-rcb-frame-layer'))
-    ) {
+    if (child instanceof Element && child.hasAttribute('data-rcb-shape-layer')) {
       siblings.push(child);
     }
   }
   if (siblings.length < 2) return;
 
-  const zOf = (el: Element): number | null => {
-    if (!el.hasAttribute('data-z')) return null;
-    return Number(el.getAttribute('data-z')) || 0;
-  };
-  const frameBias = (el: Element) => (el.hasAttribute('data-rcb-frame-layer') ? -1 : 1);
+  const zOf = (el: Element): number => Number(el.getAttribute('data-z')) || 0;
 
   let ordered = true;
   for (let i = 1; i < siblings.length; i += 1) {
-    const za = zOf(siblings[i - 1]);
-    const zb = zOf(siblings[i]);
-    let cmp = 0;
-    if (za == null || zb == null) {
-      const fa = frameBias(siblings[i - 1]);
-      const fb = frameBias(siblings[i]);
-      if (fa !== fb) cmp = fa - fb;
-      else if (za == null && zb == null) cmp = 0;
-      else if (za == null) cmp = fa;
-      else cmp = -fb;
-    } else {
-      cmp = za - zb;
-    }
-    if (cmp > 0) {
+    if (zOf(siblings[i - 1]) > zOf(siblings[i])) {
       ordered = false;
       break;
     }
   }
   if (ordered) return;
 
-  siblings.sort((a, b) => {
-    const za = zOf(a);
-    const zb = zOf(b);
-    if (za == null || zb == null) {
-      const aFrame = a.hasAttribute('data-rcb-frame-layer');
-      const bFrame = b.hasAttribute('data-rcb-frame-layer');
-      if (aFrame !== bFrame) return aFrame ? -1 : 1;
-      if (za == null && zb == null) return 0;
-      if (za == null) return aFrame ? -1 : 1;
-      return bFrame ? 1 : -1;
-    }
-    return za - zb;
-  });
+  siblings.sort((a, b) => zOf(a) - zOf(b));
   for (const g of siblings) root.appendChild(g);
 }
 
+/** In-progress draw ink — chrome SVG above SoA canvas ink. */
 export function getSceneDrawPreviewMount() {
   return sceneDrawPreviewMount;
 }
 
-/** Align/gap guides — chrome SVG above idle Canvas ink; same CameraTransform. */
+/** Align/gap guides — chrome SVG; same CameraTransform. */
 export function getSceneSmartGuidesMount() {
   return sceneSmartGuidesMount;
 }
 
-/** Selection paint — chrome SVG above idle ink; same CameraTransform as scene. */
+/** Selection paint — chrome SVG; same CameraTransform as scene. */
 export function getSceneSelectionChromeMount() {
   return sceneSelectionChromeMount;
 }

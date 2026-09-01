@@ -16,8 +16,9 @@ import {
 } from '@/components/rcb/scene/document/sceneText';
 import { isTextFrameNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
-import { TEXT_FRAME_PADDING, TEXT_FRAME_RADIUS, TEXT_SELECTION_PAD } from '@/components/rcb/scene/document/sceneEffects';
-import { radiiFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
+import { TEXT_FRAME_PADDING, TEXT_SELECTION_PAD, textFrameCornerRadii } from '@/components/rcb/scene/document/sceneEffects';
+import { resolveTextFramePlateFill } from '@/components/rcb/scene/document/nodeFactories';
+import { FRAME_PLATE_STROKE } from '@/components/rcb/frames/types';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 type Props = {
@@ -67,6 +68,10 @@ function TextInlineEditor({
   const [autoSize, setAutoSize] = useState(autoSize0);
   const [textFrame] = useState(textFrame0);
   const committedRef = useRef(false);
+  /** Ignore outside pointerdown / blur races from the opening click & store remount. */
+  const openedAtRef = useRef(
+    typeof performance !== 'undefined' ? performance.now() : Date.now()
+  );
   const valueRef = useRef(value);
   valueRef.current = value;
   const styleRef = useRef(style);
@@ -139,7 +144,6 @@ function TextInlineEditor({
       );
   // Same pad as selection chrome (flush with glyphs).
   const pad = TEXT_SELECTION_PAD;
-  const framePad = textFrame ? TEXT_FRAME_PADDING : 0;
   const chromeLeft = left - pad;
   const chromeTop = top - pad;
   const chromeW = widthWorld + pad * 2;
@@ -181,13 +185,31 @@ function TextInlineEditor({
   const finishRef = useRef(finish);
   finishRef.current = finish;
 
-  useLayoutEffect(() => {
+  const focusCaret = () => {
     const el = textareaRef.current;
-    if (!el) return;
+    if (!el || committedRef.current) return;
     el.focus({ preventScroll: true });
     const len = el.value.length;
-    el.setSelectionRange(len, len);
-  }, [initial]);
+    try {
+      el.setSelectionRange(len, len);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  useLayoutEffect(() => {
+    openedAtRef.current =
+      typeof performance !== 'undefined' ? performance.now() : Date.now();
+    committedRef.current = false;
+    focusCaret();
+    // Document remount / dock focus can steal caret on the same tick as place.
+    const t0 = window.setTimeout(focusCaret, 0);
+    const t1 = window.setTimeout(focusCaret, 50);
+    return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+    };
+  }, [nodeId]);
 
   // Entering edit: sync node box to tight content metrics so chrome matches selection
   // without the old bottom-heavy pad (top edge stays put). Skip for scrollable text frames.
@@ -235,8 +257,11 @@ function TextInlineEditor({
   }, []);
 
   useEffect(() => {
+    const OPEN_GRACE_MS = 320;
     const onPointerDownCapture = (e: PointerEvent) => {
       if (committedRef.current) return;
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (now - openedAtRef.current < OPEN_GRACE_MS) return;
       const t = e.target as Element | null;
       if (t?.closest?.('[data-text-inline-editor]')) return;
       finishRef.current(valueRef.current);
@@ -299,21 +324,19 @@ function TextInlineEditor({
   const contentScreenW = Math.max(8, widthWorld * z);
   const contentScreenH = Math.max(fontSize * z, heightWorld * z);
   const padScreen = pad * z;
-  const framePadScreen = framePad * z;
-  /** Match TextFrameOverlay / audio plate shell inset. */
-  const shellPadScreen = textFrame ? 20 * z : 0;
-  const radii = radiiFromAttrs(node.attrs || {});
-  const frameRadius = textFrame
-    ? Math.max(
-        TEXT_FRAME_RADIUS,
-        radii.tl || radii.tr || radii.br || radii.bl || TEXT_FRAME_RADIUS
-      ) * z
+  // Artboard-like plate: scroll track flush to edge; content pad on the textarea.
+  const contentPadScreen = textFrame ? TEXT_FRAME_PADDING * z : 0;
+  const corner = textFrame ? textFrameCornerRadii(node.attrs || {}) : null;
+  const frameRadius = corner
+    ? Math.max(corner.tl, corner.tr, corner.br, corner.bl) * z
     : 0;
-  const trackRadius = textFrame ? Math.max(0, frameRadius - 4 * z) : 0;
-  const trackLeft = padScreen + shellPadScreen;
-  const trackTop = padScreen + shellPadScreen;
-  const trackW = Math.max(8, contentScreenW - shellPadScreen * 2);
-  const trackH = Math.max(fontSize * z, contentScreenH - shellPadScreen * 2);
+  const trackLeft = padScreen;
+  const trackTop = padScreen;
+  const trackW = Math.max(8, contentScreenW);
+  const trackH = Math.max(fontSize * z, contentScreenH);
+  const plateFill = textFrame
+    ? resolveTextFramePlateFill(node.attrs?.['fill-color'])
+    : undefined;
 
   const startEdgeDrag = (side: 'e' | 'w') => (e: React.PointerEvent) => {
     e.preventDefault();
@@ -349,24 +372,11 @@ function TextInlineEditor({
             borderStyle: 'solid',
             borderRadius: frameRadius || undefined,
             boxShadow: textFrame
-              ? `inset 0 0 0 1px var(--line), 0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`
+              ? `inset 0 0 0 1px ${FRAME_PLATE_STROKE}, 0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`
               : `0 0 0 ${BORDER_PX}px rgba(255,255,255,0.9)`,
-            background: textFrame ? 'var(--audio-wave-track)' : undefined,
+            background: plateFill,
           }}
         />
-        {textFrame ? (
-          <div
-            className="pointer-events-none absolute z-[1]"
-            style={{
-              left: trackLeft,
-              top: trackTop,
-              width: trackW,
-              height: trackH,
-              background: 'var(--gen-empty)',
-              borderRadius: trackRadius || undefined,
-            }}
-          />
-        ) : null}
         {/* L/R wrap handles — not for scrollable text frames (image-like scale). */}
         {!textFrame
           ? (['w', 'e'] as const).map((side) => (
@@ -402,7 +412,33 @@ function TextInlineEditor({
           ref={textareaRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          onBlur={() => finish(value)}
+          onBlur={(e) => {
+            const next = e.relatedTarget as Node | null;
+            if (next && e.currentTarget.closest('[data-text-inline-editor]')?.contains(next)) {
+              return;
+            }
+            // Defer: place/open remounts often blur then re-focus in the same frame.
+            window.requestAnimationFrame(() => {
+              if (committedRef.current) return;
+              const active = window.document.activeElement;
+              if (active === textareaRef.current) return;
+              if (
+                active &&
+                textareaRef.current
+                  ?.closest('[data-text-inline-editor]')
+                  ?.contains(active)
+              ) {
+                return;
+              }
+              const now =
+                typeof performance !== 'undefined' ? performance.now() : Date.now();
+              if (now - openedAtRef.current < 320) {
+                focusCaret();
+                return;
+              }
+              finishRef.current(valueRef.current);
+            });
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -421,7 +457,7 @@ function TextInlineEditor({
           data-text-frame-scroll={textFrame ? '' : undefined}
           className={
             textFrame
-              ? 'absolute z-[2] resize-none overflow-y-auto border-0 bg-transparent shadow-none outline-none ring-0'
+              ? 'rcb-edge-scroll absolute z-[2] resize-none overflow-y-auto border-0 bg-transparent shadow-none outline-none ring-0'
               : 'absolute z-[1] resize-none overflow-hidden border-0 bg-transparent p-0 shadow-none outline-none ring-0'
           }
           style={{
@@ -429,8 +465,8 @@ function TextInlineEditor({
             top: trackTop,
             width: trackW,
             height: trackH,
-            // Frame: pad text inside the track; scrollbar stays flush to the track edge.
-            padding: textFrame ? framePadScreen : 0,
+            // Frame: pad glyphs only — scrollbar stays on the plate edge.
+            padding: contentPadScreen || 0,
             fontSize: fontSize * z,
             // Unitless line-height matches SVG.js `leading` (fontSize × lineH).
             lineHeight: lineH,

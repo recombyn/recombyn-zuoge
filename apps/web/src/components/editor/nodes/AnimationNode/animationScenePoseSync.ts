@@ -1,5 +1,5 @@
 /**
- * Push a sampled Lottie layer transform onto the linked scene node (Redux).
+ * Push a sampled Lottie layer transform onto the linked scene node (store).
  * Used after editing a keyframe at the playhead so chrome / anchor track the pose.
  */
 import { lottieLocalToScenePoint } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';

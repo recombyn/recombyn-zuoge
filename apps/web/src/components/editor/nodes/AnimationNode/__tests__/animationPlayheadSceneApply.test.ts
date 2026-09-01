@@ -1,11 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 import { serializeLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import {
+  applyAnimationPlayheadScenePose,
   collectPrecompSessionDocumentPatches,
   resolvePrecompSessionShapePose,
 } from '../animationPlayheadSceneApply';
 import { PRECOMP_EDIT_SESSION_ATTR } from '../animationPrecompSession';
+import {
+  setAnimationWorkbenchGeometryPreview,
+} from '../animationWorkbenchFocus';
+import {
+  clearNodeTransformPreviews,
+  getNodeTransformPreview,
+  setNodeTransformPreviews,
+} from '@/components/rcb/core/transformPreview';
+
+afterEach(() => {
+  setAnimationWorkbenchGeometryPreview(false);
+  clearNodeTransformPreviews();
+});
 
 describe('collectPrecompSessionDocumentPatches', () => {
   it('writes playhead-sampled pose into document for keyed session shapes', () => {
@@ -102,7 +116,35 @@ describe('collectPrecompSessionDocumentPatches', () => {
       localAnimH: 240,
       raw: (anim.assets as any[])[0].layers[0],
       node: doc.deltaSetLike!.shape1,
+      document: doc,
     });
-    expect(pose?.top).toBeCloseTo(patches[0]!.patch.y, 1);
+    // Document stores plate-local y; pose is scene paint (world).
+    const plateY = Number(doc.frames?.[0]?.y) || 0;
+    expect(pose?.top).toBeCloseTo(plateY + patches[0]!.patch.y, 1);
+  });
+});
+
+describe('applyAnimationPlayheadScenePose during plate drag', () => {
+  it('no-ops while geometry preview is active so plate drag owns child paint', () => {
+    setAnimationWorkbenchGeometryPreview(true);
+    setNodeTransformPreviews([
+      { nodeId: 'shape1', left: 200, top: 200, width: 80, height: 80 },
+    ]);
+    const doc = createEmptyDocument({ emptyWorld: true });
+    const sig = applyAnimationPlayheadScenePose({
+      document: doc,
+      hostNodeId: 'missing',
+      playheadSec: 0,
+      applyGeometry: false,
+    });
+    expect(sig).toBe('');
+    expect(getNodeTransformPreview('shape1')).toEqual({
+      left: 200,
+      top: 200,
+      width: 80,
+      height: 80,
+      angle: undefined,
+      hidden: undefined,
+    });
   });
 });

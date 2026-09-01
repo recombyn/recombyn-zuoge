@@ -345,7 +345,11 @@ function PolygonShapeHandlesOverlay({
       const local = scenePointToLocal(sc.x, sc.y, box, angle);
       const rounded = Math.round(radiusAlongSite(d.site, local));
       setDragValue(rounded);
-      setLiveCornerRadiusPreview({ nodeId, display: rounded });
+      setLiveCornerRadiusPreview({
+        nodeId,
+        display: rounded,
+        radii: { tl: rounded, tr: rounded, br: rounded, bl: rounded },
+      });
       previewRadii(rounded, sides);
     };
 

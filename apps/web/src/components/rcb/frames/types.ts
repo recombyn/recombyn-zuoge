@@ -1,4 +1,4 @@
-/** Editor artboard frame (document.frames). Canvas domain — not Redux-specific. */
+/** Editor artboard frame (document.frames). Canvas domain — not the editor store-specific. */
 
 /**
  * Idle artboard plate chrome — screen-constant hairline (not closed-rect #333).

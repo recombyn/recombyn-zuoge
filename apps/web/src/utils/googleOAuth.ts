@@ -1,7 +1,7 @@
 /**
  * Full-page Google OAuth (authorization code + redirect).
  * Navigates the current tab to accounts.google.com — not popup / iframe.
- * Return intent is encoded in the OAuth `state` query (URL), not Redux.
+ * Return intent is encoded in the OAuth `state` query (URL), not the editor store.
  */
 
 import { sanitizeReturnTo } from '@/utils/authReturnTo';

@@ -8,7 +8,7 @@ import {
   hitTestSoaBuffer,
   hitTestSoaBufferOrdered,
   forEachVisibleInRect,
-  applySoaHostPromotion,
+  applySoaHostInkFlags,
   upsertSoaGeom,
   markSoaDirtyById,
   packCssColor,
@@ -88,6 +88,8 @@ describe('sceneRenderBuffer', () => {
         shapeType: 'pen',
         path: 'M 0 0 L 50 0 L 50 40',
         stroke: '#112233',
+        'border-color': '#112233',
+        'border-width': 2,
         closed: 'false',
       },
       children: [],
@@ -103,6 +105,41 @@ describe('sceneRenderBuffer', () => {
     expect(buf.pathXY[base + 1]).toBe(20);
     expect(buf.pathXY[base + 2]).toBe(60);
     expect(buf.pathXY[base + 3]).toBe(20);
+    // Open pen: stroke in strokeColors, no fill in colors.
+    expect(buf.colors[idx]).toBe(0);
+    expect(buf.strokeColors[idx] >>> 0).toBe(packCssColor('#112233') >>> 0);
+  });
+
+  it('closed pen with transparent fill stays stroke-only in SoA', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'closed', {
+      id: 'closed',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      attrs: {
+        shapeType: 'pen',
+        path: 'M 10 10 L 90 10 L 90 90 L 10 90 Z',
+        'fill-color': 'transparent',
+        'fill-enabled': 'false',
+        'fill-visible': 'false',
+        'border-color': '#333333',
+        'border-width': 2,
+        closed: 'true',
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const idx = buf.indexById.get('closed')!;
+    expect(buf.pathClosed[idx]).toBe(1);
+    expect(buf.colors[idx]).toBe(0);
+    expect(buf.strokeColors[idx] >>> 0).toBe(packCssColor('#333333') >>> 0);
+    // Interior must not hit (no fill); edge should.
+    expect(hitTestSoaBuffer(buf, 50, 50)).toBeNull();
+    expect(hitTestSoaBuffer(buf, 10, 10)).toBe('closed');
   });
 
   it('promotes selected hosts off SoA idle paint/pick', () => {
@@ -134,13 +171,13 @@ describe('sceneRenderBuffer', () => {
     expect(buf.flags[ia] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(buf.flags[ib] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
 
-    applySoaHostPromotion(buf, new Set(['a']));
+    applySoaHostInkFlags(buf, new Set(['a']));
     expect(buf.flags[ia] & SOA_FLAG_CANVAS_IDLE).toBeFalsy();
     expect(buf.flags[ib] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(hitTestSoaBufferOrdered(buf, 20, 20, ['a', 'b'])).toBeNull();
     expect(hitTestSoaBufferOrdered(buf, 110, 20, ['a', 'b'])).toBe('b');
 
-    applySoaHostPromotion(buf, new Set());
+    applySoaHostInkFlags(buf, new Set());
     expect(buf.flags[ia] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(hitTestSoaBufferOrdered(buf, 20, 20, ['a', 'b'])).toBe('a');
   });

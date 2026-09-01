@@ -18,12 +18,12 @@ describe('gesture preview sync surfaces', () => {
     previewSvgNodeGeometry(new Map(), 'n1', { left: 10, top: 20, width: 40, height: 50 }, {
       publishPreview: false,
     });
-    // Demoted / batch path: geom publish skipped — angle fact stays, box still from prior.
+    // Batch path: geom publish skipped — angle fact stays, box still from prior.
     expect(getNodeTransformPreview('n1')?.angle).toBe(30);
     expect(getNodeTransformPreview('n1')?.left).toBeNaN();
   });
 
-  it('default publish still writes box for demoted (no host) SoA path', () => {
+  it('default publish still writes box for canvas-ink (no host) SoA path', () => {
     const ok = previewSvgNodeGeometry(new Map(), 'soa-only', {
       left: 5,
       top: 6,

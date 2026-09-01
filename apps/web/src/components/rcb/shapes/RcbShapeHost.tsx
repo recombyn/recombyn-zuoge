@@ -150,8 +150,11 @@ function RcbShapeHost({
   const blendMode = parseBlendMode(node?.attrs?.blendMode, { allowPassThrough: false });
   const layerOpacity = parseLayerOpacity(node?.attrs?.opacity, 1);
   // Selected: drop mix-blend so paint can sit above artboard plates.
+  // Modest data-z boost keeps selected SVG hosts above sibling hosts in the
+  // same mount. Chrome lives on a sibling CSS layer (z-[4]), so this does not
+  // put ink above the control box (unlike a 2e9 mega-z).
   const activeBlendCss = revealOverflow ? '' : blendModeToCss(blendMode);
-  const paintZIndex = revealOverflow ? 2_000_000_000 + zIndex : zIndex;
+  const paintZIndex = revealOverflow ? 1_000_000 + zIndex : zIndex;
   // Remount when stroke/fill paint attrs change — not on every geometry nudge.
   const paintToken = [
     node?.attrs?.hidden,

@@ -10,7 +10,7 @@ import {
 } from '@/components/rcb/core/transformPreview';
 
 describe('frame content clipping', () => {
-  it('clips the untransformed paint layer and clears when the node leaves the frame', () => {
+  it('keeps plate clip while frameId is set, even when AABB is outside the plate', () => {
     const root = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     layer.setAttribute('data-rcb-shape-id', 'n1');
@@ -48,6 +48,10 @@ describe('frame content clipping', () => {
     expect(layer.getAttribute('clip-path') || '').toContain('url(');
     expect(node.hasAttribute('clip-path')).toBe(false);
 
+    const clipRef1 = layer.getAttribute('clip-path');
+    const clipId1 = layer.getAttribute('data-rcb-frame-clip');
+
+    // Still bound — clip stays (ink must not spill onto the pasteboard).
     applyFrameContentClip(
       root,
       node,
@@ -60,11 +64,27 @@ describe('frame content clipping', () => {
         attrs: { frameId: 'frame-1' },
       }
     );
+    expect(layer.getAttribute('clip-path') || '').toContain('url(');
+    // Same clipPath id — reminting url(#…) every call shakes the clipped edge.
+    expect(layer.getAttribute('clip-path')).toBe(clipRef1);
+    expect(layer.getAttribute('data-rcb-frame-clip')).toBe(clipId1);
+    expect(root.querySelectorAll('clipPath').length).toBe(1);
 
-    expect(node.parentElement).toBe(layer);
+    // Unbound — clip clears.
+    applyFrameContentClip(
+      root,
+      node,
+      { frames: [frame] },
+      {
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        attrs: {},
+      }
+    );
     expect(layer.hasAttribute('clip-path')).toBe(false);
     expect(node.hasAttribute('clip-path')).toBe(false);
-    expect(root.querySelector('[data-frame-clip-wrap="1"]')).toBeNull();
   });
 
   it('unwraps a legacy clip wrap so mix-blend-mode can composite again', () => {
@@ -140,6 +160,49 @@ describe('frame content clipping', () => {
 
     syncFrameContentClip(root, node, { frames: [frame] }, sceneNode, { revealOverflow: true });
     expect(layer.hasAttribute('clip-path')).toBe(false);
+  });
+
+  it('syncFrameContentClip still works when board.root is null via shared scene root', () => {
+    // Mirrors infinite canvas: session must clip through getSceneWorldRoot, not board.root.
+    const root = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    layer.setAttribute('data-rcb-shape-id', 'bool-1');
+    const node = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    root.append(layer);
+    layer.append(node);
+
+    const frame = {
+      id: 'frame-1',
+      name: 'Frame',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      clipContent: true,
+      hidden: false,
+      backgroundColor: '#fff',
+    };
+    const sceneNode = {
+      x: 40,
+      y: 40,
+      width: 80,
+      height: 80,
+      attrs: { frameId: 'frame-1', 'fill-rule': 'evenodd' },
+    };
+
+    // null board root — caller must pass shared world root (regression for clip runaway).
+    syncFrameContentClip(null, node, { frames: [frame] }, sceneNode, { revealOverflow: false });
+    expect(layer.hasAttribute('clip-path')).toBe(false);
+
+    syncFrameContentClip(root, node, { frames: [frame] }, sceneNode, { revealOverflow: false });
+    expect(layer.getAttribute('clip-path') || '').toContain('url(');
+
+    previewArtboardFrameGeometry({ id: 'frame-1', x: 50, y: 0, width: 100, height: 100 });
+    syncFrameContentClip(root, node, { frames: [frame] }, sceneNode, { revealOverflow: false });
+    const clipRect = root.querySelector('clipPath rect');
+    expect(Number(clipRect?.getAttribute('x'))).toBeGreaterThan(40);
+
+    clearLiveArtboardFrameGeometry(['frame-1']);
   });
 
   it('clips to live artboard + TransformPreview during frame move (no spill)', () => {

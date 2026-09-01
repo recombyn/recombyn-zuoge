@@ -131,6 +131,40 @@ describe('frameNodeBinding', () => {
     expect(Number(next.deltaSetLike['shape-1'].attrs?.frameOrder)).toBe(0);
   });
 
+  it('bindUnownedNodesToFrames converts world → plate-local under frameLocal', () => {
+    const doc = {
+      coordSpace: 'frameLocal',
+      frames: [
+        {
+          id: 'plate',
+          x: 100,
+          y: 200,
+          width: 300,
+          height: 300,
+          backgroundColor: '#fff',
+          clipContent: true,
+        },
+      ],
+      deltaSetLike: {
+        ROOT: { id: 'ROOT', children: ['shape-1'] },
+        'shape-1': {
+          id: 'shape-1',
+          key: 'shape',
+          x: 150,
+          y: 250,
+          width: 40,
+          height: 40,
+          attrs: {},
+        },
+      },
+    } as any as SceneDocument;
+
+    const next = bindUnownedNodesToFrames(doc, ['plate']);
+    expect(next.deltaSetLike['shape-1'].attrs?.frameId).toBe('plate');
+    expect(Number(next.deltaSetLike['shape-1'].x)).toBe(50);
+    expect(Number(next.deltaSetLike['shape-1'].y)).toBe(50);
+  });
+
   it('bindUnownedNodesToFrames skips already-owned nodes', () => {
     const doc = {
       frames: [

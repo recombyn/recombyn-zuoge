@@ -98,6 +98,7 @@ import {
   requestSyncNestedLotHosts,
   requestTimelineCameraFit,
   requestTimelineCameraRelease} from '@/components/editor/sceneEvents';
+import { queueEnsureAnimationFramesForDocChange } from '@/components/editor/nodes/AnimationNode/queueEnsureAnimationFramesForDocChange';
 import { notifyShapeHostGeometry } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   asHistoryEntry,
@@ -140,8 +141,8 @@ export type ImageToolPanelKind =
 export type ImageToolPanelState = {
   nodeId: string;
   kind: ImageToolPanelKind;
-  /** `quickEdit` / `imageGen` — mark regions land in the floating composer; default is agent chat. */
-  markSink?: 'agent' | 'quickEdit' | 'imageGen';
+  /** `quickEdit` / `imageGen` / `videoGen` — mark regions land in the floating composer; default is agent chat. */
+  markSink?: 'agent' | 'quickEdit' | 'imageGen' | 'videoGen';
 };
 
 export type PendingMarkContextChip = {
@@ -165,7 +166,7 @@ export type ImageMarkPin = {
   h: number;
   kind?: string;
   label?: string;
-  sink: 'agent' | 'quickEdit' | 'imageGen';
+  sink: 'agent' | 'quickEdit' | 'imageGen' | 'videoGen';
 };
 
 export function canvasAttachTargetForNode(nodeId: string): string {
@@ -188,7 +189,9 @@ export function isMultiImageMarkPanel(
 ): boolean {
   return (
     panel?.kind === 'mark' &&
-    (panel.markSink === 'quickEdit' || panel.markSink === 'imageGen')
+    (panel.markSink === 'quickEdit' ||
+      panel.markSink === 'imageGen' ||
+      panel.markSink === 'videoGen')
   );
 }
 
@@ -207,15 +210,16 @@ export function isQuickEditMarkPanel(
 
 export function markPanelSink(
   panel: ImageToolPanelState | null | undefined
-): 'agent' | 'quickEdit' | 'imageGen' {
+): 'agent' | 'quickEdit' | 'imageGen' | 'videoGen' {
   if (panel?.markSink === 'quickEdit') return 'quickEdit';
   if (panel?.markSink === 'imageGen') return 'imageGen';
+  if (panel?.markSink === 'videoGen') return 'videoGen';
   return 'agent';
 }
 
 function pruneMarkPinsBySink(
   pins: Record<string, ImageMarkPin | ImageMarkPin[]>,
-  sink: 'quickEdit' | 'imageGen'
+  sink: 'quickEdit' | 'imageGen' | 'videoGen'
 ): Record<string, ImageMarkPin[]> {
   const out: Record<string, ImageMarkPin[]> = {};
   for (const [nodeId, raw] of Object.entries(pins || {})) {
@@ -549,13 +553,14 @@ const initialState = {
   pendingAgentContexts: [] as PendingMarkContextChip[],
   pendingQuickEditMarkContexts: [] as PendingMarkContextChip[],
   pendingImageGenMarkContexts: [] as PendingMarkContextChip[],
+  pendingVideoGenMarkContexts: [] as PendingMarkContextChip[],
   /** One pinned mark per image node (compact badge after confirm). */
   imageMarkPins: {} as Record<string, ImageMarkPin[]>,
   /** Composer chip hover — highlights the matching canvas mark pin. */
   hoveredMarkPin: null as { nodeId: string; pinId: string } | null,
   agentOpenNonce: 0};
 
-/** Stage fill lives on Redux; SvgCanvas view docs force transparent paper for hosts. */
+/** Stage fill lives on the editor store; SvgCanvas view docs force transparent paper for hosts. */
 const STAGE_CANVAS_META_KEYS = [
   'backgroundColor',
   'backgroundFillType',
@@ -603,7 +608,7 @@ function clearSelection(state: typeof initialState) {
 
 /** Selecting scene elements while playing → pause (keep host so pose stays). */
 function pauseLottieIfPlaying(state: typeof initialState) {
-  // Dock/toolbar read transport via useAnimationPlaying — Redux alone does not stop RAF.
+  // Dock/toolbar read transport via useAnimationPlaying — the store alone does not stop RAF.
   if (!state.lottiePlaying && !getAnimationPlaying()) return;
   state.lottiePlaying = false;
   writeAnimationPlaying(false, { hostNodeId: state.lottiePlayingHostId });
@@ -657,7 +662,7 @@ function persistActivePrecompSession(state: typeof initialState) {
 }
 
 /**
- * LOT-tab: bake playhead-sampled poses into session shapes in-reducer.
+ * LOT-tab: bake playhead-sampled poses into session shapes in-mutator.
  * Called from enter / setLottiePlayhead — never from a document watcher.
  */
 function bakePrecompSessionDocumentPoses(state: typeof initialState) {
@@ -854,6 +859,10 @@ export const editorReducers = {
         preserveStageCanvasMeta(state.document, action.payload)
       );
       state.dirty = true;
+      // Full doc replace (boolean / paste / import) — do not reuse stale patch
+      // ids; SoA incremental sync would keep deleted operands as paint ghosts.
+      state.lastPatchedNodeIds = [];
+      state.documentPatchToken += 1;
       bumpSceneReloadIfUnlocked(state);
       // Deleted upload placeholder — drop pending id (caller aborts the HTTP request).
       if (
@@ -864,9 +873,14 @@ export const editorReducers = {
       }
       syncLibraryOnEdit(state);
       // Pencil / paste / agent may add workbench children without patchDocumentNode —
-      // bake them into the timeline host after this reducer exits (same as patches).
+      // bake them into the timeline host after this mutator exits (same as patches).
       const focusAfterSet = String(getAnimationWorkbenchTimelineFocus() || '').trim();
-      if (focusAfterSet) queueEnsureAnimationFrame(focusAfterSet, { skipHistory: true });
+      if (focusAfterSet && state.document) {
+        queueEnsureAnimationFramesForDocChange(null, state.document, {
+          forceFocus: true,
+          skipHistory: true,
+        });
+      }
     },
     /**
      * Delete nodes / artboards. In-flight process placeholders (upload / AI) are
@@ -977,6 +991,7 @@ export const editorReducers = {
       }
     },
     setDocumentFromCanvas(state, action) {
+      const prevDoc = state.document;
       state.document = normalizeDocument(
         preserveStageCanvasMeta(state.document, action.payload)
       );
@@ -994,13 +1009,13 @@ export const editorReducers = {
         persistActivePrecompSession(state);
       }
       syncLibraryOnEdit(state);
-      // Shape draw / text place use this path — not patchDocumentNode — so newly
-      // bound 动画工作台 children never reached the layer timeline without this sync.
-      // Defer via event (same as patchDocumentNode) — do not nest ensure in this
-      // immer produce (host geometry writes are not draft-safe when nested).
-      const focusAfterCanvas = String(getAnimationWorkbenchTimelineFocus() || '').trim();
-      if (focusAfterCanvas && !state.lottiePrecompEdit?.frameId) {
-        queueEnsureAnimationFrame(focusAfterCanvas, { skipHistory: true });
+      // Shape draw / text place / bind move: bake timeline from membership delta
+      // (not only open focus — move-out must refresh the plate that lost the child).
+      if (!state.lottiePrecompEdit?.frameId && state.document) {
+        queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
+          forceFocus: true,
+          skipHistory: true,
+        });
       }
     },
     /** Clear SoftGlow / process attrs and force host remount (no stuck overlay). */
@@ -1043,7 +1058,7 @@ export const editorReducers = {
         if (fid) queueEnsureAnimationFrame(fid);
       }
     },
-    /** Apply many node patches in one Redux write (align / distribute / flip). */
+    /** Apply many node patches in one store write (align / distribute / flip). */
     patchDocumentNodes(state, action) {
       const { patches, skipHistory } = action.payload || {};
       if (!state.document || !Array.isArray(patches) || !patches.length) return;
@@ -1056,6 +1071,14 @@ export const editorReducers = {
       if (!skipHistory && ids.length) pushNodePatchHistory(state, ids);
       const applied: string[] = [];
       let anyNonTransient = false;
+      // Capture prior frameIds before merge — unbind must refresh the plate that lost the child.
+      const priorFrameIds = new Set<string>();
+      for (const item of patches) {
+        const id = item?.nodeId ? String(item.nodeId) : '';
+        if (!id || !state.document.deltaSetLike?.[id]) continue;
+        const fid = resolveAnimationFrameId(state.document, state.document.deltaSetLike[id]);
+        if (fid) priorFrameIds.add(fid);
+      }
       for (const item of patches) {
         const id = item?.nodeId ? String(item.nodeId) : '';
         const patch = item?.patch;
@@ -1072,8 +1095,9 @@ export const editorReducers = {
       state.lastPatchTransformOnly = false;
       if (!skipHistory) persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
-      if (!skipHistory && state.document) {
-        const frames = new Set<string>();
+      // Bake timeline for before∪after plates (skipHistory geometry used to skip ensure).
+      if (state.document) {
+        const frames = new Set<string>(priorFrameIds);
         for (const nid of applied) {
           const fid = resolveAnimationFrameId(
             state.document,
@@ -1081,7 +1105,11 @@ export const editorReducers = {
           );
           if (fid) frames.add(fid);
         }
-        for (const fid of frames) queueEnsureAnimationFrame(fid);
+        const focus = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+        if (focus) frames.add(focus);
+        for (const fid of frames) {
+          queueEnsureAnimationFrame(fid, { skipHistory: true });
+        }
       }
     },
     setSelectedNodeId(state, action) {
@@ -1975,6 +2003,7 @@ export const editorReducers = {
     },
     undo(state) {
       if (!state.historyPast.length || !state.document) return;
+      const prevDoc = state.document;
       const entry = asHistoryEntry(state.historyPast.pop());
       if (entry.kind === 'nodes') {
         const after: Record<string, SceneNode> = {};
@@ -1998,6 +2027,10 @@ export const editorReducers = {
         state.lastPatchedNodeIds = [];
       }
       state.dirty = true;
+      // Timeline dock / LayerPanel use useEditorDocumentOnCommit (documentRevision).
+      // Without this bump, canvas remounts (sceneReloadToken) but 「图层」 stays stale
+      // after delete→undo (empty list while restored shapes are visible).
+      bumpDocumentRevision(state);
       // Drop selection that pointed at nodes removed by this undo (e.g. detach).
       const ds = state.document?.deltaSetLike || {};
       const ids = (state.selectedNodeIds || []).filter((id: string) => Boolean(ds[id]));
@@ -2005,9 +2038,16 @@ export const editorReducers = {
       state.selectedNodeId = ids[0] || null;
       clearPendingProcessIfNodeGone(state);
       syncLibraryOnEdit(state);
+      if (!state.lottiePrecompEdit?.frameId && state.document) {
+        queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
+          forceFocus: true,
+          skipHistory: true,
+        });
+      }
     },
     redo(state) {
       if (!state.historyFuture.length || !state.document) return;
+      const prevDoc = state.document;
       const entry = asHistoryEntry(state.historyFuture.shift());
       if (entry.kind === 'nodes') {
         const before: Record<string, SceneNode> = {};
@@ -2029,12 +2069,19 @@ export const editorReducers = {
         state.lastPatchedNodeIds = [];
       }
       state.dirty = true;
+      bumpDocumentRevision(state);
       const ds = state.document?.deltaSetLike || {};
       const ids = (state.selectedNodeIds || []).filter((id: string) => Boolean(ds[id]));
       state.selectedNodeIds = ids;
       state.selectedNodeId = ids[0] || null;
       clearPendingProcessIfNodeGone(state);
       syncLibraryOnEdit(state);
+      if (!state.lottiePrecompEdit?.frameId && state.document) {
+        queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
+          forceFocus: true,
+          skipHistory: true,
+        });
+      }
     },
     setActiveTool(state, action) {
       state.activeTool = action.payload;
@@ -2499,6 +2546,11 @@ export const editorReducers = {
       state.pendingImageSrc = null;
       state.activeTool = 'select';
       syncLibraryOnEdit(state);
+      const focus = getAnimationWorkbenchTimelineFocus();
+      const boundFid = String(state.document.deltaSetLike?.[id]?.attrs?.frameId || '').trim();
+      if (focus && boundFid === focus) {
+        queueEnsureAnimationFrame(focus, { skipHistory: true });
+      }
     },
     /** Convert Image Generator plate → normal image node (same id). */
     /** Pull one multi-gen variant out into a sibling image node (undoable). */
@@ -2899,7 +2951,8 @@ export const editorReducers = {
         nodeId,
         kind,
         ...(markSink === 'quickEdit' && { markSink: 'quickEdit' as const }),
-        ...(markSink === 'imageGen' && { markSink: 'imageGen' as const })};
+        ...(markSink === 'imageGen' && { markSink: 'imageGen' as const }),
+        ...(markSink === 'videoGen' && { markSink: 'videoGen' as const })};
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
@@ -2919,6 +2972,10 @@ export const editorReducers = {
       if (panel?.kind === 'mark' && panel.markSink === 'imageGen') {
         state.imageMarkPins = pruneMarkPinsBySink(state.imageMarkPins, 'imageGen');
         state.pendingImageGenMarkContexts = [];
+      }
+      if (panel?.kind === 'mark' && panel.markSink === 'videoGen') {
+        state.imageMarkPins = pruneMarkPinsBySink(state.imageMarkPins, 'videoGen');
+        state.pendingVideoGenMarkContexts = [];
       }
       // Puppet exit remounts selection chrome / SVG — re-bake Canvas 2D warp onto href.
       if (panel?.kind === 'puppet') {
@@ -3293,8 +3350,9 @@ export const editorReducers = {
         name: ''} as const;
 
       const applyHostGeometry = (host: SceneNode) => {
-        host.x = Number(frame.x) || 0;
-        host.y = Number(frame.y) || 0;
+        const localPlate = String(state.document?.coordSpace || '') === 'frameLocal';
+        host.x = localPlate ? 0 : Number(frame.x) || 0;
+        host.y = localPlate ? 0 : Number(frame.y) || 0;
         host.width = Math.max(1, Number(frame.width) || 1);
         host.height = Math.max(1, Number(frame.height) || 1);
       };
@@ -3366,6 +3424,10 @@ export const editorReducers = {
         state.document = next;
         state.dirty = true;
         state.documentPatchToken += 1;
+        // Timeline dock uses useEditorDocumentOnCommit (documentRevision only).
+        // skipHistory ensure still bakes layers — must bump or 「图层」 stays
+        // stale until the next touchDocumentRevision (e.g. a drag).
+        bumpDocumentRevision(state);
         state.lastPatchedNodeIds = [hostId, ...synced.childAttrPatches.map((p) => p.nodeId)];
         state.lastPatchTransformOnly = false;
         if (!skipHistory) persistActivePrecompSession(state);
@@ -3432,6 +3494,8 @@ export const editorReducers = {
         }
         state.dirty = true;
         state.documentPatchToken += 1;
+        // See finishSync — timeline dock is revision-gated, not patchToken-gated.
+        bumpDocumentRevision(state);
         state.lastPatchedNodeIds = [id];
         state.lastPatchTransformOnly = false;
         syncLibraryOnEdit(state);
@@ -3779,6 +3843,17 @@ export const editorReducers = {
     consumePendingImageGenMarkContexts(state) {
       state.pendingImageGenMarkContexts = [];
     },
+    enqueueVideoGenMarkContexts(
+      state,
+      action: PayloadAction<PendingMarkContextChip[]>
+    ) {
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      if (!list.length) return;
+      state.pendingVideoGenMarkContexts = [...state.pendingVideoGenMarkContexts, ...list];
+    },
+    consumePendingVideoGenMarkContexts(state) {
+      state.pendingVideoGenMarkContexts = [];
+    },
     setImageMarkPin(state, action: PayloadAction<ImageMarkPin>) {
       const pin = action.payload;
       if (!pin?.nodeId) return;
@@ -3931,6 +4006,8 @@ export const enqueueQuickEditMarkContexts = bindEditorMutator(editorReducers.enq
 export const consumePendingQuickEditMarkContexts = bindEditorMutator(editorReducers.consumePendingQuickEditMarkContexts);
 export const enqueueImageGenMarkContexts = bindEditorMutator(editorReducers.enqueueImageGenMarkContexts);
 export const consumePendingImageGenMarkContexts = bindEditorMutator(editorReducers.consumePendingImageGenMarkContexts);
+export const enqueueVideoGenMarkContexts = bindEditorMutator(editorReducers.enqueueVideoGenMarkContexts);
+export const consumePendingVideoGenMarkContexts = bindEditorMutator(editorReducers.consumePendingVideoGenMarkContexts);
 export const setImageMarkPin = bindEditorMutator(editorReducers.setImageMarkPin);
 export const removeImageMarkPin = bindEditorMutator(editorReducers.removeImageMarkPin);
 export const clearImageMarkPin = bindEditorMutator(editorReducers.clearImageMarkPin);
@@ -3941,7 +4018,7 @@ export { initialState as editorInitialState };
 export { applyEditorReducer };
 
 /**
- * Pure test helper: apply one case reducer without touching Zustand.
+ * Pure test helper: apply one case mutator without touching Zustand.
  * Prefer `applyEditorReducer(state, editorReducers.foo, payload)`.
  */
 export function reduceEditor(

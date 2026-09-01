@@ -212,6 +212,20 @@ async def _node_settle(state: GraphState) -> Command:
         gov = {}
     flags = rt.flags if isinstance(rt.flags, dict) else {}
     governance_failed = str(gov.get("status") or "") == "fail"
+    # Chat reply may already have emitted chat_done from intent; if not,
+    # release the UI before slow episode / KG / memory writes.
+    chat_ui_done = bool(flags.get("chat_ui_done"))
+    if (
+        not chat_ui_done
+        and not governance_failed
+        and not st.painted
+        and not st.proposed_ops
+        and bool((st.reply or rt.classified_reply or "").strip())
+    ):
+        _emit({"type": "chat_done"})
+        chat_ui_done = True
+        flags["chat_ui_done"] = True
+        rt.flags = flags
     # Outcome-aware Taste KG write (Private via Client; BasicLocal no-op).
     await _sync_intelligence_knowledge(rt)
     if governance_failed:
@@ -581,7 +595,7 @@ async def _node_settle(state: GraphState) -> Command:
             await asyncio.to_thread(
                 _persist_taste_notes_long_term, rt.user_id, taste_notes
             )
-    if not st.painted and not st.proposed_ops:
+    if not st.painted and not st.proposed_ops and not chat_ui_done:
         _emit({"type": "chat_done"})
     from app.services.design.runtime.session_log import log_turn_end
 

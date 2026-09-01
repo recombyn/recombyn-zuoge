@@ -84,7 +84,8 @@ function AudioGeneratorCard({
   sceneBox,
   disabled,
 }: Props): ReactNode {
-  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle | null>(null);
+  const { t } = useTranslation();
+  const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [prompt, setPrompt] = useState('');
