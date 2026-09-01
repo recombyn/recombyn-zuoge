@@ -595,6 +595,7 @@ function CornerRadiusHandlesOverlay({
         setLiveCornerRadiusPreview({
           nodeId,
           display: cornerRadiusDisplayFromRadii(previewRadii, !d.solo && d.linked),
+          radii: previewRadii,
         });
         preview(previewRadii, next);
         return;
@@ -623,6 +624,7 @@ function CornerRadiusHandlesOverlay({
         setLiveCornerRadiusPreview({
           nodeId,
           display: cornerRadiusDisplayFromRadii(next, !d.solo && d.linked),
+          radii: next,
         });
         preview(next);
         return;

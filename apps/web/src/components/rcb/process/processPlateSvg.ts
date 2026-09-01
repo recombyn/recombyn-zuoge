@@ -306,7 +306,7 @@ export function syncProcessPillForeignObject(
   fo.setAttribute('height', String(box.height));
 }
 
-/** Canvas idle underlay — static blooms (no SMIL on canvas). */
+/** Canvas ink — static process blooms (no SMIL on canvas). */
 export function paintProcessPlateCanvas(
   ctx: CanvasRenderingContext2D,
   width: number,

@@ -14,13 +14,13 @@ import { createSvgBoard } from '@/components/rcb/scene/paint/sceneToSvg';
 import { append, setAttrs, setFill, setStroke, svgEl } from '@/components/rcb/scene/paint/svgDom';
 import {
   getShapeHost,
-  getSceneShapesMount,
+  getSceneFramesMount,
+  getSceneFramesRoot,
   getSceneSelectionChromeMount,
   getSceneWorldEpoch,
-  getSceneWorldRoot,
   registerShapeHost,
   subscribeShapeHosts,
-  syncSharedMountPaintOrder,
+  syncFrameMountPaintOrder,
   unregisterShapeHost,
   updateShapeHostElement,
 } from '@/components/rcb/shapes/shapeHostRegistry';
@@ -70,6 +70,11 @@ export type ArtboardFrameGeometry = Pick<ArtboardFrame, 'id' | 'x' | 'y' | 'widt
  * plate from the blue selection box (and leave clipContent one frame behind).
  */
 const liveArtboardGeomById = new Map<string, ArtboardFrameGeometry>();
+const liveArtboardListeners = new Set<() => void>();
+
+function notifyLiveArtboardFrameGeometry() {
+  for (const fn of liveArtboardListeners) fn();
+}
 
 export function getLiveArtboardFrameGeometry(id: string): ArtboardFrameGeometry | null {
   const key = String(id || '').trim();
@@ -81,14 +86,23 @@ export function getLiveArtboardFrameGeometry(id: string): ArtboardFrameGeometry 
 export function clearLiveArtboardFrameGeometry(ids?: readonly string[]): void {
   if (!ids || !ids.length) {
     liveArtboardGeomById.clear();
-    return;
+  } else {
+    for (const id of ids) liveArtboardGeomById.delete(String(id || '').trim());
   }
-  for (const id of ids) liveArtboardGeomById.delete(String(id || '').trim());
+  notifyLiveArtboardFrameGeometry();
 }
 
 /** True while any artboard plate is at gesture-time geometry. */
 export function hasLiveArtboardFrameGeometry(): boolean {
   return liveArtboardGeomById.size > 0;
+}
+
+/** SoA / host ink must re-read `nodeLeftTop` when the live plate moves. */
+export function subscribeLiveArtboardFrameGeometry(listener: () => void): () => void {
+  liveArtboardListeners.add(listener);
+  return () => {
+    liveArtboardListeners.delete(listener);
+  };
 }
 
 function resolvePaintFrameGeometry(frame: ArtboardFrameGeometry): ArtboardFrameGeometry {
@@ -119,7 +133,16 @@ export function previewArtboardFrameGeometry(
   const width = Math.max(1, Number(frame.width) || 1);
   const height = Math.max(1, Number(frame.height) || 1);
   if (opts?.recordLive !== false) {
+    const prev = liveArtboardGeomById.get(id);
+    const same =
+      prev &&
+      prev.x === x &&
+      prev.y === y &&
+      prev.width === width &&
+      prev.height === height;
     liveArtboardGeomById.set(id, { id, x, y, width, height });
+    // Skip notify when the plate did not move — pointermove can repeat snaps.
+    if (!same) notifyLiveArtboardFrameGeometry();
   }
   const el = getShapeHost(id)?.el as SVGGElement | null | undefined;
   if (!el) return false;
@@ -275,13 +298,13 @@ function HtmlArtboardFrame({
     const host = hostRef.current;
     if (!host) return undefined;
 
-    const worldRoot = getSceneWorldRoot();
-    const shapesMount = getSceneShapesMount();
-    if (!worldRoot || !shapesMount) return undefined;
+    const worldRoot = getSceneFramesRoot();
+    const framesMount = getSceneFramesMount();
+    if (!worldRoot || !framesMount) return undefined;
     const { root, layer: sceneLayer, shared } = createSvgBoard(host, 1, 1, {
       infinite: true,
       sharedRoot: worldRoot,
-      sharedMount: shapesMount,
+      sharedMount: framesMount,
     });
     layerRef.current = sceneLayer;
     // createSvgBoard tags shared layers as shape; frames must not share that attr
@@ -294,8 +317,8 @@ function HtmlArtboardFrame({
     registerShapeHost({ nodeId: frame.id, root, layer: sceneLayer, el, kind: 'svg' });
     updateShapeHostElement(frame.id, el);
 
-    if (shared && shapesMount && sceneLayer.parentNode === shapesMount) {
-      syncSharedMountPaintOrder(shapesMount);
+    if (shared && framesMount && sceneLayer.parentNode === framesMount) {
+      syncFrameMountPaintOrder(framesMount);
     }
 
     return () => {
@@ -344,17 +367,33 @@ function HtmlArtboardFrame({
     }
     const paintFrame = { ...frame, ...resolvePaintFrameGeometry(frame) };
     const el = paintFramePlate(sceneLayer, paintFrame, selected, highlighted, generating, z);
-    updateShapeHostElement(frame.id, el);
-  }, [layer, selected, highlighted, generating, z, frame]);
+    // Avoid bumpHostEpoch on every parent render when only the frame object
+    // identity changed (SelectionFeature hostEpoch would thrash).
+    const prev = getShapeHost(frame.id)?.el;
+    if (prev !== el) updateShapeHostElement(frame.id, el);
+  }, [
+    layer,
+    selected,
+    highlighted,
+    generating,
+    z,
+    frame.id,
+    frame.x,
+    frame.y,
+    frame.width,
+    frame.height,
+    frame.backgroundColor,
+    frame.clipContent,
+  ]);
 
   // Same as RcbShapeHost: update data-z + reorder without remounting the plate.
   useLayoutEffect(() => {
     if (layer !== 'body') return;
     const sceneLayer = layerRef.current;
-    const shapesMount = getSceneShapesMount();
-    if (!sceneLayer || !shapesMount || sceneLayer.parentNode !== shapesMount) return;
+    const framesMount = getSceneFramesMount();
+    if (!sceneLayer || !framesMount || sceneLayer.parentNode !== framesMount) return;
     sceneLayer.setAttribute('data-z', String(zIndex));
-    syncSharedMountPaintOrder(shapesMount);
+    syncFrameMountPaintOrder(framesMount);
   }, [layer, zIndex]);
   if (layer === 'label') {
     const live = resolvePaintFrameGeometry(frame);

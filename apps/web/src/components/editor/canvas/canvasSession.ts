@@ -57,13 +57,26 @@ import {
   clearSceneDragPreview,
   dedupeSceneNode,
   nodeLeftTop,
+  isFrameLocalCoordSpace,
+  nodeDocumentLeftTop,
+  nodeLocalToDocumentPoint,
   previewSvgNodeAngle,
   previewSvgNodeGeometry,
   purgeOrphanSceneNodes,
 } from '@/components/rcb/scene/paint/sceneToSvg';
 import { patchNodesGeometry, sceneToDocumentCoords } from '@/components/rcb/scene/paint/svgToScene';
 import type { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
-import { getShapeHost, replaceShapePaint, shapeHostRevealsOverflow, type SvgBoardHandle } from '@/components/rcb';
+import {
+  getShapeHost,
+  getSharedNodeEls,
+  replaceShapePaint,
+  shapeHostRevealsOverflow,
+  type SvgBoardHandle,
+} from '@/components/rcb';
+import {
+  getSceneWorldRoot,
+  listShapeHosts,
+} from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   rcbCenterOnPoint,
   rcbPlaceTextFontSize,
@@ -106,6 +119,56 @@ import {
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 
 type DragWriteCoalescer = ReturnType<typeof createDragWriteCoalescer>;
+
+/** Infinite canvas leaves `board.root` null — clip defs live on the shared scene SVG. */
+function resolveBoardClipRoot(board: SvgBoardHandle | null | undefined): SVGSVGElement | null {
+  if (board?.root) return board.root;
+  return getSceneWorldRoot();
+}
+
+/** Merge live DOM hosts into board.nodeEls so frame-drag clip sync can find boolean paths. */
+function mergeLiveHostElsIntoBoard(board: SvgBoardHandle): void {
+  const shared = getSharedNodeEls();
+  for (const host of listShapeHosts()) {
+    if (!host.el) continue;
+    board.nodeEls.set(host.nodeId, host.el);
+    if (shared) shared.set(host.nodeId, host.el);
+  }
+}
+
+function syncOwnedFrameClipsOnBoard(
+  board: SvgBoardHandle,
+  document: SceneDocument,
+  opts: {
+    zoom: number;
+    nodeIds?: Iterable<string>;
+  }
+): void {
+  const root = resolveBoardClipRoot(board);
+  if (!root) return;
+  mergeLiveHostElsIntoBoard(board);
+  const ids = opts.nodeIds;
+  if (ids) {
+    for (const nodeId of ids) {
+      const node = document.deltaSetLike?.[nodeId];
+      const el = board.nodeEls.get(nodeId);
+      if (!node || !el) continue;
+      syncFrameContentClip(root, el, document, node as Record<string, unknown>, {
+        zoom: opts.zoom,
+        revealOverflow: shapeHostRevealsOverflow(nodeId),
+      });
+    }
+    return;
+  }
+  for (const [nodeId, el] of board.nodeEls.entries()) {
+    const node = document.deltaSetLike?.[nodeId];
+    if (!node) continue;
+    syncFrameContentClip(root, el, document, node as Record<string, unknown>, {
+      zoom: opts.zoom,
+      revealOverflow: shapeHostRevealsOverflow(nodeId),
+    });
+  }
+}
 
 export type SceneBox = { left: number; top: number; width: number; height: number };
 
@@ -335,17 +398,19 @@ export function applyNodeFrameBindings(
 ): SceneDocument {
   // LOT / precomp tab: canvas nodes are isolated; never rebind or drag-out.
   if (getLottiePrecompEditFocus().active) return doc;
-  const bindingPatches: Array<{ nodeId: string; patch: { attrs: Record<string, unknown> } }> = [];
+  const bindingPatches: Array<{
+    nodeId: string;
+    patch: { attrs: Record<string, unknown>; x?: number; y?: number };
+  }> = [];
   const focus = getAnimationWorkbenchTimelineFocus();
   for (const patch of patches) {
     const node = doc.deltaSetLike?.[patch.nodeId];
     if (!node) continue;
-    // Membership vs frame.x/y must use document AABB (node already geometry-patched).
-    // GeomPatch left/top are scene-local — comparing them to document frames inverts
-    // bind/unbind when document.x/y ≠ 0 (on-plate empties timeline; off-plate keeps layer).
+    // Membership vs frame.x/y must use document AABB (world absolute).
+    const abs = nodeDocumentLeftTop(doc, node);
     const rect = {
-      left: Number(node.x) || 0,
-      top: Number(node.y) || 0,
+      left: abs.left,
+      top: abs.top,
       width: Math.max(1, Number(node.width) || Number(patch.width) || 1),
       height: Math.max(1, Number(node.height) || Number(patch.height) || 1),
     };
@@ -367,6 +432,8 @@ export function applyNodeFrameBindings(
       continue;
     }
     let attrs = { ...(node.attrs || {}) } as Record<string, unknown>;
+    let nextX = Number(node.x) || 0;
+    let nextY = Number(node.y) || 0;
     if (nextId) {
       attrs.frameId = nextId;
       if (nextId !== currentId) {
@@ -377,15 +444,34 @@ export function applyNodeFrameBindings(
         attrs.frameOrder = orders.length ? Math.max(...orders) + 1 : 0;
       }
       attrs = syncWorkbenchSurroundOnFrameBind(attrs, nextId);
+      // World absolute → plate local when entering / switching frames.
+      if (isFrameLocalCoordSpace(doc)) {
+        const world = currentId
+          ? nodeLocalToDocumentPoint(doc, currentId, nextX, nextY)
+          : { x: nextX, y: nextY };
+        const origin = (Array.isArray(doc.frames) ? doc.frames : []).find(
+          (f) => String(f?.id) === nextId
+        );
+        const fx = Number(origin?.x) || 0;
+        const fy = Number(origin?.y) || 0;
+        nextX = world.x - fx;
+        nextY = world.y - fy;
+      }
     } else {
       delete attrs.frameId;
       delete attrs.frameOrder;
-      // Unowned under timeline focus → keep/restore surround so isolation does not
-      // paint-hide the plate (looks like it “vanished” onto the main canvas).
-      // When focus is closed, sync clears surround for everyone including LOT.
       attrs = syncWorkbenchSurroundOnFrameBind(attrs, null);
+      // Plate local → world absolute when leaving a frame.
+      if (isFrameLocalCoordSpace(doc) && currentId) {
+        const world = nodeLocalToDocumentPoint(doc, currentId, nextX, nextY);
+        nextX = world.x;
+        nextY = world.y;
+      }
     }
-    bindingPatches.push({ nodeId: patch.nodeId, patch: { attrs } });
+    bindingPatches.push({
+      nodeId: patch.nodeId,
+      patch: { attrs, x: nextX, y: nextY },
+    });
   }
   if (!bindingPatches.length) return doc;
 
@@ -393,7 +479,12 @@ export function applyNodeFrameBindings(
   for (const item of bindingPatches) {
     const node = doc.deltaSetLike?.[item.nodeId];
     if (!node) continue;
-    nodeReplacements[item.nodeId] = { ...node, attrs: item.patch.attrs };
+    nodeReplacements[item.nodeId] = {
+      ...node,
+      attrs: item.patch.attrs,
+      ...(item.patch.x != null ? { x: item.patch.x } : null),
+      ...(item.patch.y != null ? { y: item.patch.y } : null),
+    };
   }
   let next = {
     ...doc,
@@ -425,27 +516,40 @@ export function applyNodeFrameBindings(
   return next;
 }
 
-/** Insert a new node; honor create-time frameId, else auto-bind to a normal artboard. */
+/** Insert a new node; prefer create-time frameId, then reconcile against final AABB. */
 function insertCreatedNode(
   doc: SceneDocument,
   id: string,
   node: SceneNode,
   preferredFrameId?: string | null
 ): SceneDocument {
-  const frameId = acceptCreateFrameId(doc, preferredFrameId, node);
-  if (frameId) node.attrs.frameId = frameId;
+  const preferred = acceptCreateFrameId(doc, preferredFrameId, node);
+  if (preferred) {
+    node.attrs.frameId = preferred;
+    // Create tools place in world/scene; store plate-local when bound.
+    if (isFrameLocalCoordSpace(doc)) {
+      const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
+        (f) => String(f?.id) === preferred
+      );
+      if (frame) {
+        node.x = (Number(node.x) || 0) - (Number(frame.x) || 0);
+        node.y = (Number(node.y) || 0) - (Number(frame.y) || 0);
+      }
+    }
+  }
   const added = addNodeToDocument(doc, id, node);
-  const bound = frameId
-    ? added
-    : applyNodeFrameBindings(added, [
-        {
-          nodeId: id,
-          left: Number(node.x) || 0,
-          top: Number(node.y) || 0,
-          width: Math.max(1, Number(node.width) || 1),
-          height: Math.max(1, Number(node.height) || 1),
-        },
-      ]);
+  // Always reconcile — pointer-down may hit the plate while the finished
+  // box sits outside (kept frameId → timeline layer + unclipped “ghost” on
+  // the main canvas after the dock closes).
+  const bound = applyNodeFrameBindings(added, [
+    {
+      nodeId: id,
+      left: Number(node.x) || 0,
+      top: Number(node.y) || 0,
+      width: Math.max(1, Number(node.width) || 1),
+      height: Math.max(1, Number(node.height) || 1),
+    },
+  ]);
   return tagCreatedNodeForWorkbenchSurround(bound, id);
 }
 
@@ -458,20 +562,35 @@ export function bindCreatedNodeToFrame(
 ): SceneDocument {
   const node = doc.deltaSetLike?.[nodeId];
   if (!node) return doc;
-  const frameId = acceptCreateFrameId(doc, preferredFrameId ?? node.attrs?.frameId, node);
-  let next = doc;
-  if (frameId && String(node.attrs?.frameId || '').trim() !== frameId) {
-    next = updateNodesInDocument(doc, [
-      { nodeId, patch: { attrs: { ...(node.attrs || {}), frameId } } },
-    ]);
-  }
-  if (frameId || String(next.deltaSetLike?.[nodeId]?.attrs?.frameId || '').trim()) {
-    return tagCreatedNodeForWorkbenchSurround(next, nodeId);
-  }
-  return tagCreatedNodeForWorkbenchSurround(
-    applyNodeFrameBindings(next, [{ nodeId, ...rect }]),
-    nodeId
+  const preferred = acceptCreateFrameId(
+    doc,
+    preferredFrameId ?? (node.attrs?.frameId != null ? String(node.attrs.frameId) : null),
+    node
   );
+  let next = doc;
+  if (preferred && String(node.attrs?.frameId || '').trim() !== preferred) {
+    const patch: { attrs: Record<string, unknown>; x?: number; y?: number } = {
+      attrs: { ...(node.attrs || {}), frameId: preferred },
+    };
+    if (isFrameLocalCoordSpace(doc)) {
+      const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
+        (f) => String(f?.id) === preferred
+      );
+      if (frame) {
+        // `rect` is world/scene absolute from the create gesture.
+        const abs = {
+          x: (Number(doc.x) || 0) + rect.left,
+          y: (Number(doc.y) || 0) + rect.top,
+        };
+        patch.x = abs.x - (Number(frame.x) || 0);
+        patch.y = abs.y - (Number(frame.y) || 0);
+      }
+    }
+    next = updateNodesInDocument(doc, [{ nodeId, patch }]);
+  }
+  // Final AABB wins — drop preferred when the finished ink is off-plate.
+  next = applyNodeFrameBindings(next, [{ nodeId, ...rect }]);
+  return tagCreatedNodeForWorkbenchSurround(next, nodeId);
 }
 
 function promoteNodesToWorldTop(doc: SceneDocument, nodeIds: Iterable<string>): SceneDocument {
@@ -587,10 +706,25 @@ export type CanvasSessionDeps = {
   clearVideoLiveGeom: () => void;
 };
 
+function resolvePreviewHostEl(board: SvgBoardHandle, nodeId: string): SVGElement | null {
+  const cached = board.nodeEls.get(nodeId);
+  if (cached) return cached;
+  const fromHost = getShapeHost(nodeId)?.el;
+  if (fromHost) {
+    board.nodeEls.set(nodeId, fromHost);
+    return fromHost;
+  }
+  const fromShared = getSharedNodeEls()?.get(nodeId);
+  if (fromShared) {
+    board.nodeEls.set(nodeId, fromShared);
+    return fromShared;
+  }
+  return null;
+}
+
 /**
  * Gesture SVG DOM preview only when a host is mounted.
- * SoA-idle demoted nodes have no lattice — TransformPreview + SoA paint/hit own live pose.
- * `publishPreview: false` — caller batches setNodeTransformPreviews once (with angle).
+ * Canvas-ink nodes have no lattice — TransformPreview + SoA paint/hit own live pose.
  */
 function previewMountedHostGeometry(
   board: SvgBoardHandle,
@@ -602,11 +736,7 @@ function previewMountedHostGeometry(
     textStyle?: ReturnType<typeof parseNodeTextStyle>;
   }
 ): boolean {
-  if (!board.nodeEls.get(nodeId)) {
-    const hostEl = getShapeHost(nodeId)?.el;
-    if (hostEl) board.nodeEls.set(nodeId, hostEl);
-  }
-  if (!board.nodeEls.get(nodeId)) return false;
+  if (!resolvePreviewHostEl(board, nodeId)) return false;
   return previewSvgNodeGeometry(board.nodeEls, nodeId, box, {
     ...opts,
     publishPreview: false,
@@ -801,7 +931,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       doc,
       id,
       node,
-      deps.hitTestFrame(origin.x, origin.y)
+      hitTestFrame(origin.x, origin.y)
     );
     deps.setDocumentLocal(bound);
     // Match shape draw — setDocument remounts hosts and drops the caret.
@@ -809,8 +939,13 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     setDocumentFromCanvas(bound);
     setSelectedNodeIds([id]);
     setSelectedNodeId(id);
-    deps.setEditingTextId(id);
     finishToSelect();
+    // Open caret after the store write + tool switch settle (same-tick focus is stolen).
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(() => deps.setEditingTextId(id));
+    } else {
+      deps.setEditingTextId(id);
+    }
   };
 
   const imageSizeForViewport = (natural: { width: number; height: number }) => {
@@ -841,7 +976,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         latest,
         id,
         node,
-        deps.hitTestFrame(origin.x, origin.y)
+        hitTestFrame(origin.x, origin.y)
       );
       setDocument(bound);
       setSelectedNodeId(id);
@@ -884,30 +1019,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
 
   const translateFrameContent = (
     doc: SceneDocument,
-    frames: Array<{ id: string; x: number; y: number }>,
-    owners: Map<string, string[]> = frameMoveOwners
+    _frames: Array<{ id: string; x: number; y: number }>,
+    _owners: Map<string, string[]> = frameMoveOwners,
+    _skipNodeIds?: ReadonlySet<string>
   ) => {
-    const patches: Array<{ nodeId: string; patch: { x: number; y: number } }> = [];
-    for (const framePatch of frames) {
-      const frame = (doc.frames || []).find((item) => String(item.id) === String(framePatch.id));
-      if (!frame) continue;
-      const dx = framePatch.x - (Number(frame.x) || 0);
-      const dy = framePatch.y - (Number(frame.y) || 0);
-      if (dx === 0 && dy === 0) continue;
-      const owned = owners.get(framePatch.id) || nodeIdsBoundToFrames(doc, [framePatch.id]);
-      for (const nodeId of owned) {
-        const node = doc.deltaSetLike?.[nodeId];
-        if (!node) continue;
-        patches.push({
-          nodeId,
-          patch: {
-            x: (Number(node.x) || 0) + dx,
-            y: (Number(node.y) || 0) + dy,
-          },
-        });
-      }
-    }
-    return patches.length ? updateNodesInDocument(doc, patches) : doc;
+    // Plate-local children: frame move never rewrites child x/y.
+    return doc;
   };
 
   const onGeometryCommit = (
@@ -1003,9 +1120,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         if (!hostId) continue;
         const host = next.deltaSetLike?.[hostId];
         if (!host) continue;
+        const localPlate = String(next.coordSpace || '') === 'frameLocal';
         const patch: Record<string, unknown> = {
-          x: frame.x,
-          y: frame.y,
+          x: localPlate ? 0 : frame.x,
+          y: localPlate ? 0 : frame.y,
           width: frame.width,
           height: frame.height,
         };
@@ -1120,15 +1238,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     deps.clearVideoLiveGeom();
     deps.clearFrameGeometryPreview();
     clearNodeTransformPreviews();
-    if (frames.length && board?.root) {
-      for (const [nodeId, el] of board.nodeEls.entries()) {
-        const node = next.deltaSetLike?.[nodeId];
-        if (!node) continue;
-        syncFrameContentClip(board.root, el, next, node as Record<string, unknown>, {
-          zoom: deps.getZoom(),
-          revealOverflow: shapeHostRevealsOverflow(nodeId),
-        });
-      }
+    if (frames.length && board) {
+      syncOwnedFrameClipsOnBoard(board, next, { zoom: deps.getZoom() });
     }
     frameMoveOwners.clear();
     detachedNodeIds.clear();
@@ -1143,7 +1254,11 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     if (!doc || deps.isReadOnly() || !patches.length) return;
     const { nodePatches, frames } = applyFrameGeometryPatches(patches, { preview: true });
     if (!board) return;
-    if (frames.length) {
+    // Plate-only + frameLocal: skip binding owner scans — they are O(bound) and
+    // unused when children keep local x/y (animation workbench drag).
+    const plateOnlyFrameLocal =
+      frames.length > 0 && !nodePatches.length && isFrameLocalCoordSpace(doc);
+    if (frames.length && !plateOnlyFrameLocal) {
       for (const frame of frames) {
         if (!frameMoveOwners.has(frame.id)) {
           frameMoveOwners.set(frame.id, nodeIdsBoundToFrames(doc, [frame.id]));
@@ -1164,7 +1279,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       // Detach stays on documentRef until pointer-up commit — mid-drag store
       // writes re-render the whole editor and push Yjs on every move.
     }
-    const translated = translateFrameContent(next, frames, frameMoveOwners);
+    const translated = plateOnlyFrameLocal
+      ? next
+      : translateFrameContent(
+          next,
+          frames,
+          frameMoveOwners,
+          new Set(normalized.map((p) => String(p.nodeId || '').trim()).filter(Boolean))
+        );
     const framePatchById = frames.length
       ? new Map(frames.map((frame) => [frame.id, frame]))
       : null;
@@ -1253,36 +1375,103 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       }
     });
     if (frames.length) {
-      const movedIds = new Set(
-        frames.flatMap((frame) => frameMoveOwners.get(frame.id) || [])
-      );
-      for (const nodeId of movedIds) {
-        const before = next.deltaSetLike?.[nodeId];
-        const after = previewDocument.deltaSetLike?.[nodeId];
-        if (!before || !after || (before.x === after.x && before.y === after.y)) continue;
+      const movingFrameIds = new Set(frames.map((frame) => String(frame.id || '').trim()));
+      const frameLocal = isFrameLocalCoordSpace(previewDocument);
+      // Frame-local plate drag: children keep local x/y. SoA ink follows live plate
+      // via nodeLeftTop — do NOT spatial-patch / rewrite every bound child each move
+      // (animation workbench with hundreds of layers freezes the tab).
+      if (frameLocal && !normalized.length) {
+        // Only touch mounted DOM hosts — SoA shapes have no lattice entry.
+        if (board.nodeEls.size) {
+          mergeLiveHostElsIntoBoard(board);
+          const animHostByFrame = new Map<string, string | null>();
+          for (const frame of frames) {
+            if (!animHostByFrame.has(frame.id)) {
+              animHostByFrame.set(frame.id, findFrameAnimationMediaId(previewDocument, frame.id));
+            }
+            const hostId = animHostByFrame.get(frame.id);
+            if (!hostId) continue;
+            const host = previewDocument.deltaSetLike?.[hostId];
+            if (!host) continue;
+            // Host paints in world space under the plate; local attrs stay 0,0.
+            previewMountedHostGeometry(board, hostId, {
+              left: frame.x,
+              top: frame.y,
+              width: frame.width,
+              height: frame.height,
+            });
+            if (host.key === 'lottie' || host.key === 'video' || host.key === 'image') {
+              hasVideo = true;
+              videoOverrides[hostId] = {
+                left: frame.x,
+                top: frame.y,
+                width: frame.width,
+                height: frame.height,
+                angle: Number(host.attrs?.angle) || 0,
+              };
+            }
+          }
+          const clipIds: string[] = [];
+          for (const [nodeId] of board.nodeEls.entries()) {
+            const node = previewDocument.deltaSetLike?.[nodeId];
+            if (!node) continue;
+            const owner = String(
+              (node.attrs as Record<string, unknown> | undefined)?.frameId || ''
+            ).trim();
+            if (!owner || !movingFrameIds.has(owner)) continue;
+            if (animHostByFrame.get(owner) === nodeId) continue;
+            const { left, top } = nodeLeftTop(previewDocument, node);
+            previewMountedHostGeometry(board, nodeId, {
+              left,
+              top,
+              width: Math.max(1, Number(node.width) || 1),
+              height: Math.max(1, Number(node.height) || 1),
+            }, {
+              plainText: node.key === 'text' ? parseNodeText(node.attrs || {}) : undefined,
+              textStyle: node.key === 'text' ? parseNodeTextStyle(node.attrs || {}) : undefined,
+            });
+            clipIds.push(nodeId);
+          }
+          if (clipIds.length) {
+            syncOwnedFrameClipsOnBoard(board, previewDocument, {
+              zoom: deps.getZoom(),
+              nodeIds: clipIds,
+            });
+          }
+        }
+        if (hasVideo) {
+          deps.publishVideoLiveGeom({
+            ...(coalescer.getPendingVideoGeom() || {}),
+            ...videoOverrides,
+          });
+        }
+        return;
+      }
+      // Frame-local: re-seat DOM hosts from live plate + local attrs (no child x/y writes).
+      mergeLiveHostElsIntoBoard(board);
+      for (const [nodeId] of board.nodeEls.entries()) {
+        const node = previewDocument.deltaSetLike?.[nodeId];
+        if (!node) continue;
+        const owner = String(
+          (node.attrs as Record<string, unknown> | undefined)?.frameId || ''
+        ).trim();
+        if (!owner || !movingFrameIds.has(owner)) continue;
+        const { left, top } = nodeLeftTop(previewDocument, node);
         const box = {
-          left: Number(after.x) || 0,
-          top: Number(after.y) || 0,
-          width: Math.max(1, Number(after.width) || 1),
-          height: Math.max(1, Number(after.height) || 1),
+          left,
+          top,
+          width: Math.max(1, Number(node.width) || 1),
+          height: Math.max(1, Number(node.height) || 1),
         };
-        previewPatches.push({
-          nodeId,
-          left: box.left,
-          top: box.top,
-          width: box.width,
-          height: box.height,
-          angle: previewAngleDeg(nodeId, after),
-        });
         previewMountedHostGeometry(board, nodeId, box, {
-          plainText: after.key === 'text' ? parseNodeText(after.attrs || {}) : undefined,
-          textStyle: after.key === 'text' ? parseNodeTextStyle(after.attrs || {}) : undefined,
+          plainText: node.key === 'text' ? parseNodeText(node.attrs || {}) : undefined,
+          textStyle: node.key === 'text' ? parseNodeTextStyle(node.attrs || {}) : undefined,
         });
       }
-      // Animation frame host must track plate size during resize — otherwise the
-      // invisible Lottie FO / clip lattice lags the blue selection chrome.
+      // Animation frame host tracks plate size — local 0,0 under frameLocal.
       let hostDelta = previewDocument.deltaSetLike || {};
       let hostDeltaDirty = false;
+      const localPlate = String(previewDocument.coordSpace || '') === 'frameLocal';
       for (const frame of frames) {
         const hostId = findFrameAnimationMediaId(previewDocument, frame.id);
         if (!hostId) continue;
@@ -1305,14 +1494,24 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
             angle: Number(host.attrs?.angle) || 0,
           };
         }
+        const nextX = localPlate ? 0 : box.left;
+        const nextY = localPlate ? 0 : box.top;
+        if (
+          Number(host.x) === nextX &&
+          Number(host.y) === nextY &&
+          Number(host.width) === box.width &&
+          Number(host.height) === box.height
+        ) {
+          continue;
+        }
         if (!hostDeltaDirty) {
           hostDelta = { ...hostDelta };
           hostDeltaDirty = true;
         }
         hostDelta[hostId] = {
           ...host,
-          x: box.left,
-          y: box.top,
+          x: nextX,
+          y: nextY,
           width: box.width,
           height: box.height,
         };
@@ -1325,37 +1524,55 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     // TransformPreview before clip — findClippingFrameForNode prefers preview
     // over node x/y; stale preview + live plate = one-frame spill/jitter.
     setNodeTransformPreviews(previewPatches);
-    // Frame move/resize: one sweep over all hosts. Node-only drag: clip patched nodes.
-    if (board.root && frames.length) {
-      for (const [nodeId, el] of board.nodeEls.entries()) {
+    // Frame move/resize: clip only hosts bound to the moving plate(s).
+    // Infinite canvas: board.root is null — use shared scene world root.
+    if (frames.length) {
+      const movingFrameIds = new Set(frames.map((frame) => String(frame.id || '').trim()));
+      const clipIds: string[] = [];
+      mergeLiveHostElsIntoBoard(board);
+      for (const [nodeId] of board.nodeEls.entries()) {
         const node = previewDocument.deltaSetLike?.[nodeId];
         if (!node) continue;
-        syncFrameContentClip(board.root, el, previewDocument, node as Record<string, unknown>, {
-          zoom: deps.getZoom(),
-          revealOverflow: shapeHostRevealsOverflow(nodeId),
-        });
-      }
-    } else if (board.root && previewBoxes.size) {
-      for (const [nodeId, box] of previewBoxes) {
-        const node = previewDocument.deltaSetLike?.[nodeId];
-        const el = board.nodeEls.get(nodeId);
-        if (!node || !el) continue;
-        syncFrameContentClip(
-          board.root,
-          el,
-          previewDocument,
-          { ...node, x: box.left, y: box.top, width: box.width, height: box.height },
-          {
-            zoom: deps.getZoom(),
-            revealOverflow: shapeHostRevealsOverflow(nodeId),
-          }
+        const owner = String(
+          (node.attrs as Record<string, unknown> | undefined)?.frameId || ''
+        ).trim();
+        const coMoves = frames.some((frame) =>
+          (frameMoveOwners.get(frame.id) || []).includes(nodeId)
         );
+        if (!coMoves && (!owner || !movingFrameIds.has(owner))) continue;
+        clipIds.push(nodeId);
+      }
+      syncOwnedFrameClipsOnBoard(board, previewDocument, {
+        zoom: deps.getZoom(),
+        nodeIds: clipIds,
+      });
+    } else if (previewBoxes.size) {
+      const root = resolveBoardClipRoot(board);
+      if (root) {
+        mergeLiveHostElsIntoBoard(board);
+        for (const [nodeId, box] of previewBoxes) {
+          const node = previewDocument.deltaSetLike?.[nodeId];
+          const el = board.nodeEls.get(nodeId);
+          if (!node || !el) continue;
+          syncFrameContentClip(
+            root,
+            el,
+            previewDocument,
+            { ...node, x: box.left, y: box.top, width: box.width, height: box.height },
+            {
+              zoom: deps.getZoom(),
+              revealOverflow: shapeHostRevealsOverflow(nodeId),
+            }
+          );
+        }
       }
     }
     const spatialPatchIds = new Set<string>(
       normalized.map((p) => String(p.nodeId || '').trim()).filter(Boolean)
     );
-    if (frames.length) {
+    // Plate-only under frameLocal: child world boxes follow live plate — patching
+    // every bound id each pointermove freezes animation workbenches.
+    if (frames.length && !isFrameLocalCoordSpace(previewDocument)) {
       for (const frame of frames) {
         for (const nodeId of frameMoveOwners.get(frame.id) || []) {
           spatialPatchIds.add(String(nodeId || '').trim());
@@ -1435,9 +1652,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     });
     deps.spatial.patchNodes(deps.getDocument()!, [nodeId]);
     setNodeTransformAngles([{ nodeId, angle: nextAngle }]);
-    if (!board.nodeEls.get(nodeId)) {
-      const hostEl = getShapeHost(nodeId)?.el;
-      if (hostEl) board.nodeEls.set(nodeId, hostEl);
+    if (!resolvePreviewHostEl(board, nodeId)) {
+      return;
     }
     if (board.nodeEls.get(nodeId)) {
       const synced = previewSvgNodeAngle(

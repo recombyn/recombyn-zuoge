@@ -755,6 +755,11 @@ export type DragState = {
   frameMoveStarted?: boolean;
   /** Shift+move: lock to horizontal or vertical after first axis pick. */
   moveAxisLock?: 'h' | 'v';
+  /**
+   * Text was already the sole selection before this pointerdown.
+   * Soft-click then enters inline edit (no 450ms double-tap window).
+   */
+  textWasSelectedOnDown?: boolean;
 };
 
 /** Shared seed for blank / pointing_canvas / move / resize / rotate drags. */

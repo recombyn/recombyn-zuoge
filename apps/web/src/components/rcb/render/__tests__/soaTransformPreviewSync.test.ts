@@ -17,14 +17,20 @@ import {
   setNodeTransformPreviews,
 } from '@/components/rcb/core/transformPreview';
 import {
+  setLiveCornerRadiusPreview,
+} from '@/components/rcb/scene/document/sceneRadii';
+import {
   previewSvgNodeAngle,
   previewSvgNodeGeometry,
 } from '@/components/rcb/scene/paint/sceneToSvg';
 import { applyAnimationPlayheadScenePose } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
 import { serializeLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
+import { clearShapeHosts, registerShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
 
 afterEach(() => {
   clearNodeTransformPreviews();
+  setLiveCornerRadiusPreview(null);
+  clearShapeHosts();
 });
 
 describe('SoA TransformPreview sync', () => {
@@ -136,6 +142,125 @@ describe('SoA TransformPreview sync', () => {
 
     paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 });
     expect(calls.some((c) => c.x === 50 && c.y === 60)).toBe(true);
+  });
+
+  it('paintSoaBufferBasic skips SVG host during TransformPreview (SVG owns ink)', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r1', {
+      id: 'r1',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#ffffff',
+        'fill-color': '#ffffff',
+        'stroke-enabled': false,
+        frameId: '',
+      },
+      children: [],
+    } as any);
+    const buf = createSceneRenderBuffer(4);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    setNodeTransformPreviews([{ nodeId: 'r1', left: 50, top: 60, width: 10, height: 10 }]);
+    const hostEl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    registerShapeHost({
+      nodeId: 'r1',
+      root: hostEl as unknown as SVGSVGElement,
+      layer: hostEl as unknown as SVGGElement,
+      el: hostEl,
+      kind: 'svg',
+    });
+
+    let painted = false;
+    const ctx = {
+      fillStyle: '',
+      fillRect() {
+        painted = true;
+      },
+      beginPath() {},
+      ellipse() {},
+      fill() {
+        painted = true;
+      },
+      stroke() {},
+      moveTo() {},
+      lineTo() {},
+      closePath() {},
+      arcTo() {},
+      save() {},
+      restore() {},
+      translate() {},
+      rotate() {},
+      strokeStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 });
+    expect(painted).toBe(false);
+  });
+
+  it('paintSoaBufferBasic skips idle SVG host when not gesturing', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r1', {
+      id: 'r1',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#ffffff',
+        'fill-color': '#ffffff',
+        'stroke-enabled': false,
+        frameId: '',
+      },
+      children: [],
+    } as any);
+    const buf = createSceneRenderBuffer(4);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const hostEl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    registerShapeHost({
+      nodeId: 'r1',
+      root: hostEl as unknown as SVGSVGElement,
+      layer: hostEl as unknown as SVGGElement,
+      el: hostEl,
+      kind: 'svg',
+    });
+
+    let painted = false;
+    const ctx = {
+      fillStyle: '',
+      fillRect() {
+        painted = true;
+      },
+      beginPath() {},
+      ellipse() {},
+      fill() {
+        painted = true;
+      },
+      stroke() {},
+      moveTo() {},
+      lineTo() {},
+      closePath() {},
+      arcTo() {},
+      save() {},
+      restore() {},
+      translate() {},
+      rotate() {},
+      strokeStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 });
+    expect(painted).toBe(false);
   });
 
   it('paintSoaBufferBasic rotates when TransformPreview has angle', () => {
@@ -377,5 +502,113 @@ describe('SoA TransformPreview sync', () => {
       applyGeometry: false,
     });
     expect(getNodeTransformPreview('shape1')).toBeNull();
+  });
+
+  it('paintSoaBufferBasic paints live corner-radius preview on canvas idle', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r1', {
+      id: 'r1',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#000000',
+        'fill-color': '#000000',
+        cornerRadius: 8,
+        'stroke-enabled': false,
+        frameId: '',
+      },
+      children: [],
+    } as any);
+    const buf = createSceneRenderBuffer(4);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    setLiveCornerRadiusPreview({
+      nodeId: 'r1',
+      display: 80,
+      radii: { tl: 80, tr: 80, br: 80, bl: 80 },
+    });
+
+    let roundedFill = false;
+    const ctx = {
+      fillStyle: '',
+      fillRect() {},
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      arcTo() {},
+      closePath() {},
+      fill() {
+        roundedFill = true;
+      },
+      save() {},
+      restore() {},
+      translate() {},
+      rotate() {},
+      strokeStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 }, { document: doc });
+    expect(roundedFill).toBe(true);
+  });
+
+  it('paintSoaBufferBasic does not fill closed pen when fill is transparent', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = addNodeToDocument(doc, 'pen', {
+      id: 'pen',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 120,
+      attrs: {
+        shapeType: 'pen',
+        path: 'M 60 10 L 110 110 L 10 110 Z',
+        closed: 'true',
+        'fill-color': 'transparent',
+        'fill-enabled': 'false',
+        'fill-visible': 'false',
+        'border-color': '#333333',
+        'border-width': 2,
+      },
+      children: [],
+    } as any);
+    const buf = createSceneRenderBuffer(4);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+
+    let filled = false;
+    let stroked = false;
+    const ctx = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      closePath() {},
+      fill() {
+        filled = true;
+      },
+      stroke() {
+        stroked = true;
+      },
+      save() {},
+      restore() {},
+      translate() {},
+      rotate() {},
+    } as unknown as CanvasRenderingContext2D;
+
+    paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 }, { document: doc });
+    expect(filled).toBe(false);
+    expect(stroked).toBe(true);
   });
 });

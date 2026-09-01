@@ -208,6 +208,36 @@ import {
   resolveFramePlateTarget,
 } from '@/components/rcb/frames/framePlatePointer';
 
+function sceneBoxClose(
+  a: SceneBox | null | undefined,
+  b: SceneBox | null | undefined,
+  eps = 1e-3
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    Math.abs(a.left - b.left) <= eps &&
+    Math.abs(a.top - b.top) <= eps &&
+    Math.abs(a.width - b.width) <= eps &&
+    Math.abs(a.height - b.height) <= eps
+  );
+}
+
+function selectionOriginsClose(
+  a: Array<{ nodeId: string; box: SceneBox }> | null | undefined,
+  b: Array<{ nodeId: string; box: SceneBox }> | null | undefined,
+  eps = 1e-3
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return (a?.length ?? 0) === 0 && (b?.length ?? 0) === 0;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].nodeId !== b[i].nodeId) return false;
+    if (!sceneBoxClose(a[i].box, b[i].box, eps)) return false;
+  }
+  return true;
+}
+
 /** One frame of live transform chrome + paint (ADR 0027 — RAF preview). */
 export type TransformPreviewBatch = {
   union?: SceneBox | null;
@@ -637,23 +667,21 @@ function SelectionFeature({
       const node = document?.deltaSetLike?.[o.nodeId];
       return { nodeId: o.nodeId, box: inflateSelectionBox(live, node) };
     });
-    setLiveOrigins(origins);
+
+    let nextUnion: SceneBox | null = null;
+    let nextAngle = 0;
     const onlyNodeId =
       !frameIdsKey && idsKey && !idsKey.includes('|') ? idsKey : null;
     if (onlyNodeId) {
       multiChromeRef.current = null;
-      setLiveUnion(origins[0]?.box || selectionUnion);
-      setLiveAngle(readNodeAngle(document, onlyNodeId));
-      return;
-    }
-    if (!selectionUnion) {
+      nextUnion = origins[0]?.box || selectionUnion;
+      nextAngle = readNodeAngle(document, onlyNodeId);
+    } else if (!selectionUnion) {
       multiChromeRef.current = null;
-      setLiveUnion(null);
-      setLiveAngle(0);
-      return;
-    }
-    // Frame-only or multi without shared rotation — use current union.
-    if (!idsKey || Math.abs(selectionSharedRotation) < 0.01) {
+      nextUnion = null;
+      nextAngle = 0;
+    } else if (!idsKey || Math.abs(selectionSharedRotation) < 0.01) {
+      // Frame-only or multi without shared rotation — use current union.
       const prev = multiChromeRef.current;
       const selKey = `${idsKey}#${frameIdsKey}`;
       const membersKey = multiMembersKey(baseOrigins);
@@ -662,34 +690,42 @@ function SelectionFeature({
         Math.abs(prev.angle) > 0.01 &&
         prev.membersKey === membersKey
       ) {
-        setLiveUnion(prev.box);
-        setLiveAngle(prev.angle);
-        return;
+        nextUnion = prev.box;
+        nextAngle = prev.angle;
+      } else {
+        multiChromeRef.current = {
+          selKey,
+          box: { ...selectionUnion },
+          angle: 0,
+          membersKey,
+        };
+        nextUnion = !idsKey && origins[0]?.box ? origins[0].box : selectionUnion;
+        nextAngle = 0;
       }
+    } else {
+      const selKey = `${idsKey}#${frameIdsKey}`;
+      const membersKey = multiMembersKey(baseOrigins);
       multiChromeRef.current = {
         selKey,
         box: { ...selectionUnion },
-        angle: 0,
+        angle: selectionSharedRotation,
         membersKey,
       };
-      if (!idsKey && origins[0]?.box) {
-        setLiveUnion(origins[0].box);
-      } else {
-        setLiveUnion(selectionUnion);
-      }
-      setLiveAngle(0);
-      return;
+      nextUnion = selectionUnion;
+      nextAngle = selectionSharedRotation;
     }
-    const selKey = `${idsKey}#${frameIdsKey}`;
-    const membersKey = multiMembersKey(baseOrigins);
-    multiChromeRef.current = {
-      selKey,
-      box: { ...selectionUnion },
-      angle: selectionSharedRotation,
-      membersKey,
-    };
-    setLiveUnion(selectionUnion);
-    setLiveAngle(selectionSharedRotation);
+
+    // Unconditional setLiveOrigins([]) / new arrays re-render forever when a
+    // dep (hostEpoch / document) chatters — React compares by Object.is.
+    if (!selectionOriginsClose(liveOriginsRef.current, origins)) {
+      setLiveOrigins(origins);
+    }
+    if (!sceneBoxClose(liveUnionRef.current, nextUnion)) {
+      setLiveUnion(nextUnion);
+    }
+    if (Math.abs((liveAngleRef.current || 0) - nextAngle) > 1e-3) {
+      setLiveAngle(nextAngle);
+    }
   }, [
     baseOrigins,
     document,
@@ -922,10 +958,12 @@ function SelectionFeature({
     const TEXT_DBLCLICK_MS = 450;
 
     /**
-     * Second completed soft-click (pointerup, no drag) on the same text opens edit.
-     * Must not run on pointerdown — otherwise one click (down+up) looks like a double-tap.
+     * Soft-click on text: open edit when it was already selected before this
+     * gesture, or on a second soft-click within TEXT_DBLCLICK_MS.
+     * (Must not open on the first click that only selects — that gesture sets
+     * selection on pointerdown, so "already selected" must be captured then.)
      */
-    const tryOpenTextEdit = (id: string) => {
+    const tryOpenTextEdit = (id: string, wasSelectedOnDown = false) => {
       const { sceneDoc, onEditText, onSelect, readOnly } = getPointerCtx();
       if (readOnly) return false;
       const node = sceneDoc?.deltaSetLike?.[id];
@@ -935,7 +973,9 @@ function SelectionFeature({
       }
       const now = performance.now();
       const prev = lastTextClickRef.current;
-      if (prev && prev.id === id && now - prev.at < TEXT_DBLCLICK_MS) {
+      const doubleSoft =
+        Boolean(prev && prev.id === id && now - prev.at < TEXT_DBLCLICK_MS);
+      if (wasSelectedOnDown || doubleSoft) {
         lastTextClickRef.current = null;
         onSelect([id]);
         onEditText(id);
@@ -1118,9 +1158,12 @@ function SelectionFeature({
         e.preventDefault();
         e.stopPropagation();
         const origins = liveOriginsNow.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } }));
+        const soleId = origins.length === 1 ? origins[0].nodeId : '';
         dragRef.current = seed('move', e, p, {
           origins,
           union: { ...liveUnionNow },
+          textWasSelectedOnDown:
+            Boolean(soleId) && sceneDoc?.deltaSetLike?.[soleId]?.key === 'text',
         });
         setLiveOrigins(origins);
         setLiveUnion(liveUnionNow);
@@ -1298,7 +1341,14 @@ function SelectionFeature({
           capture(e.pointerId);
           return;
         }
-        dragRef.current = seed('move', e, p, { origins, union });
+        dragRef.current = seed('move', e, p, {
+          origins,
+          union,
+          textWasSelectedOnDown:
+            selectedIds.length === 1 &&
+            selectedIds[0] === hitId &&
+            sceneDoc?.deltaSetLike?.[hitId]?.key === 'text',
+        });
         setLiveOrigins(origins);
         setLiveUnion(union);
         setTransformingNotify(true);
@@ -1801,7 +1851,7 @@ function SelectionFeature({
             return;
           }
           const id = hitTest(p.x, p.y, { clientX, clientY });
-          if (id && tryOpenTextEdit(id)) {
+          if (id && tryOpenTextEdit(id, false)) {
             endTransform();
             return;
           }
@@ -1868,7 +1918,10 @@ function SelectionFeature({
           }
           setLiveUnion({ ...drag.union });
           setLiveOrigins(drag.origins.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })));
-          if (drag.origins.length === 1 && tryOpenTextEdit(drag.origins[0].nodeId)) {
+          if (
+            drag.origins.length === 1 &&
+            tryOpenTextEdit(drag.origins[0].nodeId, Boolean(drag.textWasSelectedOnDown))
+          ) {
             endTransform();
             return;
           }

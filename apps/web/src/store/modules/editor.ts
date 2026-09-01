@@ -141,8 +141,8 @@ export type ImageToolPanelKind =
 export type ImageToolPanelState = {
   nodeId: string;
   kind: ImageToolPanelKind;
-  /** `quickEdit` / `imageGen` — mark regions land in the floating composer; default is agent chat. */
-  markSink?: 'agent' | 'quickEdit' | 'imageGen';
+  /** `quickEdit` / `imageGen` / `videoGen` — mark regions land in the floating composer; default is agent chat. */
+  markSink?: 'agent' | 'quickEdit' | 'imageGen' | 'videoGen';
 };
 
 export type PendingMarkContextChip = {
@@ -166,7 +166,7 @@ export type ImageMarkPin = {
   h: number;
   kind?: string;
   label?: string;
-  sink: 'agent' | 'quickEdit' | 'imageGen';
+  sink: 'agent' | 'quickEdit' | 'imageGen' | 'videoGen';
 };
 
 export function canvasAttachTargetForNode(nodeId: string): string {
@@ -189,7 +189,9 @@ export function isMultiImageMarkPanel(
 ): boolean {
   return (
     panel?.kind === 'mark' &&
-    (panel.markSink === 'quickEdit' || panel.markSink === 'imageGen')
+    (panel.markSink === 'quickEdit' ||
+      panel.markSink === 'imageGen' ||
+      panel.markSink === 'videoGen')
   );
 }
 
@@ -208,15 +210,16 @@ export function isQuickEditMarkPanel(
 
 export function markPanelSink(
   panel: ImageToolPanelState | null | undefined
-): 'agent' | 'quickEdit' | 'imageGen' {
+): 'agent' | 'quickEdit' | 'imageGen' | 'videoGen' {
   if (panel?.markSink === 'quickEdit') return 'quickEdit';
   if (panel?.markSink === 'imageGen') return 'imageGen';
+  if (panel?.markSink === 'videoGen') return 'videoGen';
   return 'agent';
 }
 
 function pruneMarkPinsBySink(
   pins: Record<string, ImageMarkPin | ImageMarkPin[]>,
-  sink: 'quickEdit' | 'imageGen'
+  sink: 'quickEdit' | 'imageGen' | 'videoGen'
 ): Record<string, ImageMarkPin[]> {
   const out: Record<string, ImageMarkPin[]> = {};
   for (const [nodeId, raw] of Object.entries(pins || {})) {
@@ -550,6 +553,7 @@ const initialState = {
   pendingAgentContexts: [] as PendingMarkContextChip[],
   pendingQuickEditMarkContexts: [] as PendingMarkContextChip[],
   pendingImageGenMarkContexts: [] as PendingMarkContextChip[],
+  pendingVideoGenMarkContexts: [] as PendingMarkContextChip[],
   /** One pinned mark per image node (compact badge after confirm). */
   imageMarkPins: {} as Record<string, ImageMarkPin[]>,
   /** Composer chip hover — highlights the matching canvas mark pin. */
@@ -1999,6 +2003,7 @@ export const editorReducers = {
     },
     undo(state) {
       if (!state.historyPast.length || !state.document) return;
+      const prevDoc = state.document;
       const entry = asHistoryEntry(state.historyPast.pop());
       if (entry.kind === 'nodes') {
         const after: Record<string, SceneNode> = {};
@@ -2022,6 +2027,10 @@ export const editorReducers = {
         state.lastPatchedNodeIds = [];
       }
       state.dirty = true;
+      // Timeline dock / LayerPanel use useEditorDocumentOnCommit (documentRevision).
+      // Without this bump, canvas remounts (sceneReloadToken) but 「图层」 stays stale
+      // after delete→undo (empty list while restored shapes are visible).
+      bumpDocumentRevision(state);
       // Drop selection that pointed at nodes removed by this undo (e.g. detach).
       const ds = state.document?.deltaSetLike || {};
       const ids = (state.selectedNodeIds || []).filter((id: string) => Boolean(ds[id]));
@@ -2029,9 +2038,16 @@ export const editorReducers = {
       state.selectedNodeId = ids[0] || null;
       clearPendingProcessIfNodeGone(state);
       syncLibraryOnEdit(state);
+      if (!state.lottiePrecompEdit?.frameId && state.document) {
+        queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
+          forceFocus: true,
+          skipHistory: true,
+        });
+      }
     },
     redo(state) {
       if (!state.historyFuture.length || !state.document) return;
+      const prevDoc = state.document;
       const entry = asHistoryEntry(state.historyFuture.shift());
       if (entry.kind === 'nodes') {
         const before: Record<string, SceneNode> = {};
@@ -2053,12 +2069,19 @@ export const editorReducers = {
         state.lastPatchedNodeIds = [];
       }
       state.dirty = true;
+      bumpDocumentRevision(state);
       const ds = state.document?.deltaSetLike || {};
       const ids = (state.selectedNodeIds || []).filter((id: string) => Boolean(ds[id]));
       state.selectedNodeIds = ids;
       state.selectedNodeId = ids[0] || null;
       clearPendingProcessIfNodeGone(state);
       syncLibraryOnEdit(state);
+      if (!state.lottiePrecompEdit?.frameId && state.document) {
+        queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
+          forceFocus: true,
+          skipHistory: true,
+        });
+      }
     },
     setActiveTool(state, action) {
       state.activeTool = action.payload;
@@ -2928,7 +2951,8 @@ export const editorReducers = {
         nodeId,
         kind,
         ...(markSink === 'quickEdit' && { markSink: 'quickEdit' as const }),
-        ...(markSink === 'imageGen' && { markSink: 'imageGen' as const })};
+        ...(markSink === 'imageGen' && { markSink: 'imageGen' as const }),
+        ...(markSink === 'videoGen' && { markSink: 'videoGen' as const })};
       state.videoToolPanel = null;
       state.audioToolPanel = null;
       state.lottieComposePanel = null;
@@ -2948,6 +2972,10 @@ export const editorReducers = {
       if (panel?.kind === 'mark' && panel.markSink === 'imageGen') {
         state.imageMarkPins = pruneMarkPinsBySink(state.imageMarkPins, 'imageGen');
         state.pendingImageGenMarkContexts = [];
+      }
+      if (panel?.kind === 'mark' && panel.markSink === 'videoGen') {
+        state.imageMarkPins = pruneMarkPinsBySink(state.imageMarkPins, 'videoGen');
+        state.pendingVideoGenMarkContexts = [];
       }
       // Puppet exit remounts selection chrome / SVG — re-bake Canvas 2D warp onto href.
       if (panel?.kind === 'puppet') {
@@ -3322,8 +3350,9 @@ export const editorReducers = {
         name: ''} as const;
 
       const applyHostGeometry = (host: SceneNode) => {
-        host.x = Number(frame.x) || 0;
-        host.y = Number(frame.y) || 0;
+        const localPlate = String(state.document?.coordSpace || '') === 'frameLocal';
+        host.x = localPlate ? 0 : Number(frame.x) || 0;
+        host.y = localPlate ? 0 : Number(frame.y) || 0;
         host.width = Math.max(1, Number(frame.width) || 1);
         host.height = Math.max(1, Number(frame.height) || 1);
       };
@@ -3814,6 +3843,17 @@ export const editorReducers = {
     consumePendingImageGenMarkContexts(state) {
       state.pendingImageGenMarkContexts = [];
     },
+    enqueueVideoGenMarkContexts(
+      state,
+      action: PayloadAction<PendingMarkContextChip[]>
+    ) {
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      if (!list.length) return;
+      state.pendingVideoGenMarkContexts = [...state.pendingVideoGenMarkContexts, ...list];
+    },
+    consumePendingVideoGenMarkContexts(state) {
+      state.pendingVideoGenMarkContexts = [];
+    },
     setImageMarkPin(state, action: PayloadAction<ImageMarkPin>) {
       const pin = action.payload;
       if (!pin?.nodeId) return;
@@ -3966,6 +4006,8 @@ export const enqueueQuickEditMarkContexts = bindEditorMutator(editorReducers.enq
 export const consumePendingQuickEditMarkContexts = bindEditorMutator(editorReducers.consumePendingQuickEditMarkContexts);
 export const enqueueImageGenMarkContexts = bindEditorMutator(editorReducers.enqueueImageGenMarkContexts);
 export const consumePendingImageGenMarkContexts = bindEditorMutator(editorReducers.consumePendingImageGenMarkContexts);
+export const enqueueVideoGenMarkContexts = bindEditorMutator(editorReducers.enqueueVideoGenMarkContexts);
+export const consumePendingVideoGenMarkContexts = bindEditorMutator(editorReducers.consumePendingVideoGenMarkContexts);
 export const setImageMarkPin = bindEditorMutator(editorReducers.setImageMarkPin);
 export const removeImageMarkPin = bindEditorMutator(editorReducers.removeImageMarkPin);
 export const clearImageMarkPin = bindEditorMutator(editorReducers.clearImageMarkPin);

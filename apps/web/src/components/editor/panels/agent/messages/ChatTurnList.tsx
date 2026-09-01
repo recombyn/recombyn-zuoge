@@ -994,50 +994,30 @@ export function applyThinkingBodyToSteps(
   if (!text) return stepsIn;
 
   const steps = [...stepsIn];
-  let idx = steps.findIndex((s) => s.id === 'explore-pipeline');
+  const title = t('agent.thinkingTitle');
+  let idx = steps.findIndex((s) => s.id === 'thought-stream');
+  const prevBody =
+    idx >= 0 ? String(steps[idx].body || steps[idx].summary || '').trim() : '';
+  const merged = replace ? text : `${prevBody}${text}`.trim();
+  // Full replace = one complete thought snapshot from decide; otherwise still streaming.
+  const status: AssistantStep['status'] = replace ? 'done' : 'running';
+  const next: AssistantStep = {
+    id: 'thought-stream',
+    kind: 'thought',
+    name: title,
+    status,
+    body: merged,
+  };
   if (idx < 0) {
-    idx = steps.findIndex(
-      (s) => s.kind === 'explored' && s.id !== 'chat-process'
+    const exploreIdx = steps.findIndex(
+      (s) => s.kind === 'explored' || s.id === 'explore-pipeline'
     );
+    if (exploreIdx >= 0) steps.splice(exploreIdx, 0, next);
+    else steps.push(next);
+    return steps;
   }
-  if (idx < 0) {
-    steps.push({
-      id: 'explore-pipeline',
-      kind: 'explored',
-      name: t('agent.activityExplored'),
-      status: replace ? 'done' : 'running',
-      items: [{ id: 'thought-brief', name: text }],
-    });
-    return collapseExplorePipelineSteps(steps);
-  }
-  const prevStep = steps[idx];
-  const items = [...(prevStep.items || [])];
-  const prev = items.find((x) => x.id === 'thought-brief');
-  const merged = replace
-    ? text
-    : `${String(prev?.summary || prev?.name || '')}${text}`.trim();
-  const thoughtLine = {
-    id: 'thought-brief',
-    name: merged,
-  };
-  const ti = items.findIndex((x) => x.id === 'thought-brief');
-  if (ti >= 0) items[ti] = thoughtLine;
-  else items.push(thoughtLine);
-  // Gray nest line only — do not also mirror into body (that looked like a second copy).
-  const prevBody = (prevStep.body || '').trim();
-  const body =
-    prevBody && prevBody !== merged && !merged.startsWith(prevBody)
-      ? prevStep.body
-      : undefined;
-  steps[idx] = {
-    ...prevStep,
-    id: 'explore-pipeline',
-    kind: 'explored',
-    items,
-    body,
-    status: prevStep.status,
-  };
-  return collapseExplorePipelineSteps(steps);
+  steps[idx] = { ...steps[idx], ...next };
+  return steps;
 }
 
 /** True when assistant reply is the same essay already shown in the process fold. */
@@ -1048,6 +1028,15 @@ export function replyDuplicatesProcessThought(
   const reply = content.replace(/\s+/g, ' ').trim();
   if (reply.length < 24) return false;
   for (const s of steps || []) {
+    if (s.kind === 'thought' || s.id === 'thought-stream') {
+      const body = String(s.body || s.summary || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (body && (reply === body || (body.length >= 40 && reply.includes(body.slice(0, 40))))) {
+        return true;
+      }
+      if (body.length >= 40 && body.includes(reply.slice(0, 40))) return true;
+    }
     for (const it of s.items || []) {
       if (it.id !== 'thought-brief') continue;
       const thought = String(it.name || it.summary || '')
@@ -1499,8 +1488,7 @@ function AssistantProcessBody({
   const steps = raw.filter((s) => {
     const id = String(s.id || '');
     if (!id || seen.has(id)) return false;
-    // Intent/understanding rows ("要望を理解中…" / "已确认对话意图") — not shown in chat.
-    if (s.kind === 'thought' || id === 'thought-0') return false;
+    // Bare explore-only chrome (no nest) — skip empty shells.
     if (isBareExplorePipelineStep(s)) return false;
     seen.add(id);
     return true;

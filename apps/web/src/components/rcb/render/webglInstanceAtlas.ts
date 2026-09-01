@@ -282,6 +282,15 @@ function beginCellStamp(
   return region;
 }
 
+function atlasCssIsOpaque(c: string): boolean {
+  const s = String(c || '')
+    .trim()
+    .toLowerCase();
+  if (!s || s === 'none' || s === 'transparent') return false;
+  if (s === 'rgba(0,0,0,0)' || s.startsWith('rgba(0,0,0,0')) return false;
+  return true;
+}
+
 /**
  * Stamp a world-space polyline into a fixed atlas cell (LRU-evicts when full).
  */
@@ -291,10 +300,10 @@ export function stampSoaPathToAtlas(
   xy: Float32Array,
   startPoint: number,
   pointCount: number,
-  colorCss: string,
+  fillCss: string,
   closed: boolean,
   lineWidth = 2,
-  opts?: { force?: boolean }
+  opts?: { force?: boolean; strokeCss?: string }
 ): SoaAtlasRegion | null {
   const existing = atlas.regions.get(key);
   if (existing && !opts?.force) {
@@ -313,6 +322,8 @@ export function stampSoaPathToAtlas(
   const region = beginCellStamp(atlas, key, world);
   if (!region) return null;
 
+  const strokeCss = opts?.strokeCss ?? fillCss;
+  const hasFill = closed && atlasCssIsOpaque(fillCss);
   const inner = atlas.cell - SOA_ATLAS_PAD * 2;
   const scale = Math.min(1, inner / Math.max(world.width, world.height));
   const { ctx } = atlas;
@@ -328,8 +339,8 @@ export function stampSoaPathToAtlas(
     region.x - world.left * scale,
     region.y - world.top * scale
   );
-  ctx.strokeStyle = colorCss;
-  ctx.fillStyle = colorCss;
+  ctx.strokeStyle = strokeCss;
+  ctx.fillStyle = fillCss;
   ctx.lineWidth = lineWidth / Math.max(scale, 1e-3);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -354,9 +365,9 @@ export function stampSoaPathToAtlas(
   }
   if (pending && closed) {
     ctx.closePath();
-    ctx.fill();
+    if (hasFill) ctx.fill();
   }
-  if (pending) ctx.stroke();
+  if (pending && atlasCssIsOpaque(strokeCss)) ctx.stroke();
   ctx.restore();
   return region;
 }

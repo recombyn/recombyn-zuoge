@@ -5,6 +5,7 @@ import { useSelector } from '@/store';
 import { useEditorDocument } from '@/store/editorSelectors';
 import { FloatingPortal } from '@floating-ui/react';
 import { HiArrowUp, HiOutlineBolt, HiOutlineChevronDown } from 'react-icons/hi2';
+import { PiSelectionPlus } from 'react-icons/pi';
 import { generateVideo, createVideoJob, waitForVideoJob } from '@/service/chat';
 import { getHttpErrorMessage } from '@/service/client';
 import { useBillingEnabled } from '@/service/wallet';
@@ -27,6 +28,13 @@ import {
   ComposerFooterBar,
   ComposerPromptRegion,
 } from '@/components/editor/panels/agent/composer/CanvasMediaComposerShell';
+import {
+  composerAttachActionClass,
+} from '@/components/editor/panels/agent/composer/AgentComposerShell';
+import {
+  buildComposerChipPrompt,
+  collectComposerRefImages,
+} from '@/components/editor/panels/agent/agentSendPath';
 import MentionAttachPanel, {
   type MentionAttachItem,
 } from '@/components/editor/panels/agent/composer/MentionAttachPanel';
@@ -66,14 +74,24 @@ import {
 } from '@/components/rcb/scene/document/nodeFactories';
 import {
   clearCanvasAttachPick,
+  closeImageToolPanel,
   consumePendingCanvasAttach,
+  consumePendingVideoGenMarkContexts,
   finishVideoGenerator,
+  openImageToolPanel,
   patchDocumentNode,
   setSelectedNodeIds,
   startCanvasAttachPick,
   EMPTY_ID_LIST,
+  type PendingMarkContextChip,
 } from '@/store/modules/editor';
 import { noteCanvasFlyLand } from '@/components/editor/panels/agent/composer/flyToChat';
+import { insertPendingComposerChips } from '@/components/editor/panels/agent/composerChipInsert';
+import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/ImageNode/mark/markChipSync';
+import { clearVideoGenMarkSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
+import { listMarkSessionTargets } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
+import { isVideoGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
+import { useImageToolCapabilities } from '@/service/imageTools';
 import { cn } from '@/utils/classnames';
 import { estimateVideoCredits } from '@/utils/imageCredits';
 import { finishComposerAttachmentUpload, createFilePreviewUrl, revokeComposerPreviewUrls } from '@/utils/uploadImage';
@@ -129,7 +147,8 @@ function VideoGeneratorCard({
   sceneBox,
   disabled,
 }: Props): ReactNode {
-  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle | null>(null);
+  const { t } = useTranslation();
+  const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -158,6 +177,20 @@ function VideoGeneratorCard({
   const selectedFrameIds = useSelector(
     (state: any) => (state.editor?.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
+  const { data: imageToolCaps } = useImageToolCapabilities();
+  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
+  const pendingVideoGenMarks = useSelector(
+    (state: any) => (state.editor.pendingVideoGenMarkContexts || []) as PendingMarkContextChip[]
+  );
+  const imageToolPanel = useSelector(
+    (state: any) =>
+      state.editor.imageToolPanel as null | { nodeId: string; kind: string; markSink?: string }
+  );
+  const markActive =
+    imageToolPanel?.kind === 'mark' &&
+    imageToolPanel?.markSink === 'videoGen' &&
+    imageToolPanel?.nodeId === nodeId;
+  const pendingMarksLockRef = useRef<string | null>(null);
 
   const [prompt, setPrompt] = useState('');
   const [sending, setSending] = useState(false);
@@ -245,6 +278,23 @@ function VideoGeneratorCard({
     };
   }, [nodeId]);
 
+  useEffect(() => {
+    pendingMarksLockRef.current = null;
+  }, [nodeId]);
+
+  useEffect(() => {
+    if (!pendingVideoGenMarks.length) {
+      pendingMarksLockRef.current = null;
+      return;
+    }
+    const token = pendingVideoGenMarks.map((c) => c.key).join('|');
+    if (pendingMarksLockRef.current === token) return;
+    pendingMarksLockRef.current = token;
+    const list = pendingVideoGenMarks.slice();
+    consumePendingVideoGenMarkContexts();
+    insertPendingComposerChips(() => inputRef.current, list, { focus: 'caret' });
+  }, [pendingVideoGenMarks]);
+
   const attachments = useMemo(
     () => contexts.filter((c) => c.kind === 'attachment'),
     [contexts]
@@ -260,12 +310,58 @@ function VideoGeneratorCard({
   const creditCost = estimateVideoCredits(selectedModel);
   const settingsSummary = `${resolution} · ${aspectRatio} · ${duration}s`;
 
-  const removeContext = (key: string) =>
+  const removeContext = (key: string) => {
+    if (isMarkContextKey(key)) syncMarkPinRemoved(key);
     setContexts((prev) => {
       const removed = prev.find((c) => c.key === key);
       if (removed) revokeComposerPreviewUrls(removed);
       return prev.filter((c) => c.key !== key && chipBaseKey(c.key) !== chipBaseKey(key));
     });
+  };
+
+  const onInlineContextsChange = (next: ComposerContext[]) => {
+    const prevInline = contextsRef.current.filter((c) => c.kind !== 'attachment');
+    for (const c of prevInline) {
+      if (!next.some((item) => item.key === c.key) && isMarkContextKey(c.key)) {
+        syncMarkPinRemoved(c.key);
+      }
+    }
+    const attachmentsOnly = contextsRef.current.filter((c) => c.kind === 'attachment');
+    setContexts([...attachmentsOnly, ...next]);
+  };
+
+  // Mark draws on *other* canvas images as refs — never on the generator plate itself.
+  const markableRefCount = useMemo(() => {
+    const doc = editorDocument || (store.getState() as any).editor?.document;
+    if (!doc) return 0;
+    return listMarkSessionTargets(doc).filter(
+      (t) => !t.blocked && t.nodeId !== nodeId && !isVideoGeneratorNode(t.node)
+    ).length;
+  }, [editorDocument, nodeId]);
+
+  const markReady = ilpEnabled && !nodeProcessing && markableRefCount > 0;
+  const markTip = !ilpEnabled
+    ? t('editor.imageToolbar.markNeedsIntelligence')
+    : nodeProcessing
+      ? t('editor.imageToolbar.markBlockedProcessing')
+      : markableRefCount <= 0
+        ? t('editor.imageToolbar.markBlockedUnavailable')
+        : t('editor.imageToolbar.mark');
+
+  const onMark = () => {
+    if (!ilpEnabled) {
+      message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
+      return;
+    }
+    if (nodeProcessing || disabled || sending) return;
+    const doc = editorDocument || (store.getState() as any).editor?.document;
+    if (markActive) {
+      clearVideoGenMarkSession(doc);
+      closeImageToolPanel();
+      return;
+    }
+    openImageToolPanel({ nodeId, kind: 'mark', markSink: 'videoGen' });
+  };
 
   const onPickRef = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []).filter(
@@ -439,7 +535,8 @@ function VideoGeneratorCard({
 
   const onGenerate = async () => {
     const text = prompt.trim();
-    if (!text || sending || disabled || attachmentsUploading) return;
+    const canSendComposer = Boolean(text) || inlineContexts.length > 0;
+    if (!canSendComposer || sending || disabled || attachmentsUploading) return;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -461,19 +558,17 @@ function VideoGeneratorCard({
         },
       });
     try {
+      const promptForApi = buildComposerChipPrompt(contextsRef.current, text);
       const body: Parameters<typeof generateVideo>[0] = {
-        prompt: text,
+        prompt: promptForApi,
         model: modelId,
         aspect_ratio: aspectRatio,
         resolution,
         duration,
       };
-      // First-frame / style refs — video refs are attachable but never sent as body.images.
-      // Canvas 缂栫—lands as kind:'group' chips (not attachment strip).
-      const refImages = contextsRef.current
-        .filter((c) => c.kind === 'attachment' || c.kind === 'group')
-        .map((c) => String(c.dataUrl || c.thumbUrl || '').trim())
-        .filter((u) => Boolean(u) && !u.startsWith('data:video/'));
+      const refImages = collectComposerRefImages(contextsRef.current).filter(
+        (u) => Boolean(u) && !u.startsWith('data:video/')
+      );
       if (refImages.length) body.images = refImages;
 
       const jobId = await createVideoJob(body, { signal: ac.signal });
@@ -616,8 +711,9 @@ function VideoGeneratorCard({
           }}
           bare
           dock="below"
-          zIndexClassName="z-[32]"
+          zIndexClassName={markActive ? 'z-[40]' : 'z-[32]'}
           data-video-generator
+          {...(markActive ? { 'data-mark-composer': true } : {})}
           data-scene-node-id={nodeId}
         >
           <CanvasMediaComposerShell
@@ -636,11 +732,32 @@ function VideoGeneratorCard({
                   onChange: onPickRef,
                 }}
                 extraActions={
-                  <ComposerCanvasPickButton
-                    pickingFromCanvas={pickingFromCanvas}
-                    disabled={disabled || sending}
-                    onClick={onCanvasPick}
-                  />
+                  <>
+                    <Tooltip tip={markTip} placement="top">
+                      <button
+                        type="button"
+                        disabled={disabled || sending || !markReady}
+                        aria-label={t('editor.imageToolbar.mark')}
+                        aria-pressed={markActive}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.nativeEvent.stopImmediatePropagation?.();
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onMark();
+                        }}
+                        className={composerAttachActionClass(markActive)}
+                      >
+                        <PiSelectionPlus className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
+                    <ComposerCanvasPickButton
+                      pickingFromCanvas={pickingFromCanvas}
+                      disabled={disabled || sending}
+                      onClick={onCanvasPick}
+                    />
+                  </>
                 }
               />
             }
@@ -649,9 +766,7 @@ function VideoGeneratorCard({
                 <AgentComposerInput
                   ref={inputRef}
                   contexts={inlineContexts}
-                  onContextsChange={(next) => {
-                    setContexts([...attachments, ...next]);
-                  }}
+                  onContextsChange={onInlineContextsChange}
                   value={prompt}
                   onChange={(next) => {
                     setPrompt(next);

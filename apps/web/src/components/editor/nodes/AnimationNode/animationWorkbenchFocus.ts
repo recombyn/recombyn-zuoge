@@ -241,6 +241,56 @@ export function isHiddenByAnimationWorkbenchFocus(
   return Boolean(surround);
 }
 
+/**
+ * Bound to a clipContent plate but AABB fully outside — stale create bind
+ * (pointer-down on plate, finish off-plate). Hide so they cannot ghost on the
+ * main canvas as unselectable preview ink after the timeline closes.
+ */
+export function isBoundOutsideOwningClipPlate(
+  document:
+    | {
+        frames?: Array<{
+          id?: unknown;
+          x?: unknown;
+          y?: unknown;
+          width?: unknown;
+          height?: unknown;
+          clipContent?: unknown;
+          hidden?: unknown;
+        }> | null;
+      }
+    | null
+    | undefined,
+  node: {
+    x?: unknown;
+    y?: unknown;
+    width?: unknown;
+    height?: unknown;
+    attrs?: Record<string, unknown> | null;
+  } | null | undefined
+): boolean {
+  if (!document || !node) return false;
+  if (isAnimationFrameHostAttrs(node.attrs)) return false;
+  const frameId = String(node.attrs?.frameId || '').trim();
+  if (!frameId) return false;
+  const frame = (Array.isArray(document.frames) ? document.frames : []).find(
+    (f) => String(f?.id) === frameId
+  );
+  if (!frame || frame.hidden) return false;
+  if (frame.clipContent === false) return false;
+  const left = Number(node.x) || 0;
+  const top = Number(node.y) || 0;
+  const width = Math.max(1, Number(node.width) || 1);
+  const height = Math.max(1, Number(node.height) || 1);
+  const fx = Number(frame.x) || 0;
+  const fy = Number(frame.y) || 0;
+  const fw = Math.max(1, Number(frame.width) || 1);
+  const fh = Math.max(1, Number(frame.height) || 1);
+  const intersects =
+    left < fx + fw && left + width > fx && top < fy + fh && top + height > fy;
+  return !intersects;
+}
+
 export function shouldShowArtboardInWorkbenchFocus(
   frame: { id?: unknown } | null | undefined
 ): boolean {

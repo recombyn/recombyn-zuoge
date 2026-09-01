@@ -1,5 +1,12 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import {
+  createSceneRenderBuffer,
+  refreshSoaOverlayVisibilityFromDocument,
+  SOA_FLAG_VISIBLE,
+  syncSceneRenderBufferFromDocument,
+} from '@/components/rcb/render/sceneRenderBuffer';
+import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import {
   WORKBENCH_SURROUND_ATTR,
   CANVAS_MEDIA_FILE_ACCEPT,
   canBindToArtboard,
@@ -10,6 +17,7 @@ import {
   isArtboardVisibleInDocument,
   isAvBlockedByAnimationWorkbenchFocus,
   isHiddenByAnimationWorkbenchFocus,
+  isBoundOutsideOwningClipPlate,
   isInactiveAtAnimationPlayhead,
   isLottieJsonFile,
   mediaFileAcceptForWorkbenchTimeline,
@@ -360,6 +368,76 @@ describe('workbench focus isolation (minimap / canvas)', () => {
       isHiddenByAnimationWorkbenchFocus({ attrs: { frameId: 'af1' } })
     ).toBe(false);
     expect(shouldShowArtboardInWorkbenchFocus({ id: 'main' })).toBe(true);
+  });
+
+  it('hides clip-bound nodes whose AABB is fully outside the plate', () => {
+    const doc = {
+      frames: [
+        {
+          id: 'af1',
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          clipContent: true,
+        },
+      ],
+    };
+    expect(
+      isBoundOutsideOwningClipPlate(doc, {
+        x: 200,
+        y: 0,
+        width: 40,
+        height: 40,
+        attrs: { frameId: 'af1' },
+      })
+    ).toBe(true);
+    expect(
+      isBoundOutsideOwningClipPlate(doc, {
+        x: 20,
+        y: 20,
+        width: 40,
+        height: 40,
+        attrs: { frameId: 'af1' },
+      })
+    ).toBe(false);
+  });
+
+  it('refreshSoaOverlayVisibilityFromDocument hides other plates on canvas idle', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = addNodeToDocument(doc, 'mainShape', {
+      id: 'mainShape',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200,
+      attrs: { shapeType: 'rect', fill: '#ffffff', frameId: 'main', 'stroke-enabled': false },
+      children: [],
+    } as any);
+    doc = addNodeToDocument(doc, 'afShape', {
+      id: 'afShape',
+      key: 'shape',
+      x: 400,
+      y: 0,
+      width: 80,
+      height: 80,
+      attrs: { shapeType: 'rect', fill: '#ffffff', frameId: 'af1', 'stroke-enabled': false },
+      children: [],
+    } as any);
+
+    const buf = createSceneRenderBuffer(4);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const mainIdx = buf.indexById.get('mainShape')!;
+    const afIdx = buf.indexById.get('afShape')!;
+    expect(buf.flags[mainIdx] & SOA_FLAG_VISIBLE).toBeTruthy();
+    expect(buf.flags[afIdx] & SOA_FLAG_VISIBLE).toBeTruthy();
+
+    setAnimationWorkbenchTimelineFocus('af1');
+    const changed = refreshSoaOverlayVisibilityFromDocument(buf, doc);
+    expect(changed).toBeGreaterThan(0);
+    expect(buf.flags[mainIdx] & SOA_FLAG_VISIBLE).toBe(0);
+    expect(buf.flags[afIdx] & SOA_FLAG_VISIBLE).toBeTruthy();
   });
 });
 

@@ -105,7 +105,7 @@ export {
   soaPointToLocalBox,
   syncSpatialIndexFromSoaBuffer,
   forEachVisibleInRect,
-  applySoaHostPromotion,
+  applySoaHostInkFlags,
   markSoaDirty,
   markSoaDirtyById,
   upsertSoaGeom,
