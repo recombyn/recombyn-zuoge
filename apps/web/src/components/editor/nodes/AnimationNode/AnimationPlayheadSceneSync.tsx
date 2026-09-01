@@ -16,7 +16,7 @@ import {
   getAnimationPlayingHostId,
 } from '@/components/editor/nodes/AnimationNode/animationTransport';
 import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
-import { isAnimationWorkbenchGeometryPreview } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { isPlayheadScenePoseBlocked } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import store from '@/store';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
@@ -35,7 +35,7 @@ function listAnimationFrameHostIds(document: SceneDocument | null | undefined): 
 }
 
 function applyFromStore() {
-  if (isAnimationWorkbenchGeometryPreview()) return;
+  if (isPlayheadScenePoseBlocked()) return;
   const editor = (store.getState() as { editor?: any }).editor;
   if (!editor) return;
   const document = editor.document as SceneDocument | null | undefined;

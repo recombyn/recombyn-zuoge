@@ -619,16 +619,6 @@ export function blitSoaBakeForView(
   bake.valid = true;
 }
 
-export function blitSoaBake(
-  ctx: CanvasRenderingContext2D,
-  bake: SoaBakeLayer,
-  view: { left?: number; top?: number; x?: number; y?: number; width: number; height: number }
-) {
-  if (bake.tiles.length === 1) {
-    blitOneTile(ctx, bake.tiles[0], view);
-  }
-}
-
 let sharedBake: SoaBakeLayer | null = null;
 let sharedCache: SoaBakeCache | null = null;
 

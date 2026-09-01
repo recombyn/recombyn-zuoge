@@ -8,7 +8,7 @@ How to capture a performance baseline (canvas, API, collab, Agent). Tools alread
 |---------|---------|------------------|
 | Canvas store + E2E stress | `npm run test:canvas:stress` | Console + Playwright/HTML; optional JSON under `e2e/tests/*.results.json` (local, gitignored if untracked) |
 | Canvas product E2E only | `npm run test:canvas:product` | Same (ops + deep + tools in one spec) |
-| Vitest canvas stress | `npm run test:stress --workspace=apps/web` | Vitest (local) |
+| Vitest canvas stress | `npm run test:stress --workspace=apps/web` | `soa-mixed-10k.bench.json`, `soa-shape-paint.bench.json`, `canvasStress.results.json` |
 | API k6 smoke | `npm run perf:k6:smoke` | k6 summary; CI: `perf-k6.yml` |
 | API CRUD load | `PERF_TOKEN=… npm run perf:k6:api` | k6 |
 | Collab WS | `COLLAB_WS_URL=ws://127.0.0.1:1234 npm run perf:k6:collab` | k6 |
@@ -29,5 +29,17 @@ How to capture a performance baseline (canvas, API, collab, Agent). Tools alread
 - Full 5k SVG host DOM mount (product uses SoA canvas ink + cull — covered by `canvas5k.interactiveBudget`)
 
 Dual-client Yjs concurrent merge: `npm run test:collab:merge` (also Gate B `perf-k6.yml`).
+
+### Headless 10k mixed (2026-09, Vitest)
+
+| Metric | Target | Typical |
+|--------|--------|---------|
+| Buffer sync + path samples | < 1.5 s | ~800 ms |
+| Pan dirty-stripe ink / frame | < 16 ms | ~6 ms |
+| Full viewport ink / frame (idle) | < 20 ms | ~15–19 ms |
+| DOM hosts in 960² view (mixed) | ≤ 96 | ~42 (heavy path only) |
+| Canvas ink in view | > 0 | ~399 |
+
+Homogeneous stroked rect / polygon 10k SoA paint stays **~2.5–3.3 ms/frame** (`soa-shape-paint.bench.json`).
 
 See [quality-gates.md](./quality-gates.md) Gate A/B and [platform.md](./roadmap/platform.md) Phase 5–6.

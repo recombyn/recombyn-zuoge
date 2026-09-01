@@ -623,6 +623,9 @@ function EditorStageWorld({
       if (movedFrames.length) {
         frameGestureActiveRef.current = true;
         frameMoveDocumentRef.current = document;
+        // Drop playhead / selection TransformPreviews so frameLocal children
+        // follow live plate via nodeLeftTop (preview left/top would pin ink).
+        clearNodeTransformPreviews();
         // Only gate animation ensure/sync during 动画工作台 plate drags.
         if (movedFrames.some((f) => isAnimationArtboardKind(f.kind))) {
           setAnimationWorkbenchGeometryPreview(true);

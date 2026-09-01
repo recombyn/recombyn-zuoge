@@ -9,6 +9,7 @@ import {
 import { PRECOMP_EDIT_SESSION_ATTR } from '../animationPrecompSession';
 import {
   setAnimationWorkbenchGeometryPreview,
+  setSceneGeometryGestureActive,
 } from '../animationWorkbenchFocus';
 import {
   clearNodeTransformPreviews,
@@ -18,6 +19,7 @@ import {
 
 afterEach(() => {
   setAnimationWorkbenchGeometryPreview(false);
+  setSceneGeometryGestureActive(false);
   clearNodeTransformPreviews();
 });
 
@@ -124,8 +126,8 @@ describe('collectPrecompSessionDocumentPatches', () => {
   });
 });
 
-describe('applyAnimationPlayheadScenePose during plate drag', () => {
-  it('no-ops while geometry preview is active so plate drag owns child paint', () => {
+describe('applyAnimationPlayheadScenePose during geometry gestures', () => {
+  it('no-ops while plate geometry preview is active so plate drag owns child paint', () => {
     setAnimationWorkbenchGeometryPreview(true);
     setNodeTransformPreviews([
       { nodeId: 'shape1', left: 200, top: 200, width: 80, height: 80 },
@@ -146,5 +148,21 @@ describe('applyAnimationPlayheadScenePose during plate drag', () => {
       angle: undefined,
       hidden: undefined,
     });
+  });
+
+  it('no-ops while selection geometry gesture is active', () => {
+    setSceneGeometryGestureActive(true);
+    setNodeTransformPreviews([
+      { nodeId: 'shape1', left: 10, top: 10, width: 40, height: 40 },
+    ]);
+    const doc = createEmptyDocument({ emptyWorld: true });
+    const sig = applyAnimationPlayheadScenePose({
+      document: doc,
+      hostNodeId: 'missing',
+      playheadSec: 0,
+      applyGeometry: true,
+    });
+    expect(sig).toBe('');
+    expect(getNodeTransformPreview('shape1')?.left).toBe(10);
   });
 });

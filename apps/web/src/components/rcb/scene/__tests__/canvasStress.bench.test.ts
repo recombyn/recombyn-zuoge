@@ -447,8 +447,8 @@ describe('canvas stress bench (post-opt)', () => {
         expect(row.cowCloneMs).toBeLessThan(c.n >= 10000 ? 4000 : 2000);
         expect(row.indexCullMs).toBeLessThan(c.n >= 10000 ? 50 : 20);
         expect(row.indexBuildMs).toBeLessThan(c.n >= 10000 ? 500 : 200);
-        // Dense motion must not mount every visible node as a full SVG host.
-        if (row.indexCullVisible > 96) {
+        // Dense motion must not mount every visible vector as a DOM host (rect/mixed → canvas ink).
+        if (row.indexCullVisible > 96 && row.kind !== 'heavyPath') {
           expect(row.hostFullAtMotion).toBeLessThanOrEqual(96);
           expect(row.hostCanvasAtFar).toBeGreaterThan(0);
         }

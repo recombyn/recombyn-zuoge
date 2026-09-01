@@ -37,6 +37,7 @@ import {
   resolveIdleInkBackend,
   resolveSoaCanvasDirtyRegion,
   subscribeSceneCanvasIdlePaint,
+  subscribeGpuDepthOfField,
   consumeIdleCanvasFullRepaintPending,
   type SceneRenderer,
 } from '../render/sceneRenderer';
@@ -550,8 +551,23 @@ function RcbCanvas({
     return () => setSceneWorldRoot(null, null, null, null, null, null, null);
   }, []);
 
+  const paintCameraKeyRef = useRef('');
+  const paintStageKeyRef = useRef('');
+  /** TransformPreview (incl. playhead angle) must full-repaint — dirty AABB may be empty. */
+  const transformPreviewFullPaintRef = useRef(false);
+
   // Stage: grid → frame plates → SoA canvas ink → DOM hosts (ADR 0027).
   // Prefer the product SceneSpatialRuntime when SvgCanvas has published it.
+  // Recreate ink backend when GPU DOF toggles webgl ↔ webgpu ↔ canvas2d.
+  const [inkBackendKey, setInkBackendKey] = useState(() => resolveIdleInkBackend());
+  useEffect(() => {
+    return subscribeGpuDepthOfField(() => {
+      setInkBackendKey(resolveIdleInkBackend());
+      transformPreviewFullPaintRef.current = true;
+      setCanvasIdlePaintEpoch((n) => n + 1);
+    });
+  }, []);
+
   useEffect(() => {
     const gridCanvas = paintCanvasRef.current;
     const inkCanvas = inkCanvasRef.current;
@@ -577,7 +593,7 @@ function RcbCanvas({
       paintGrid: true,
       drawCanvasIdle: false,
     });
-    const inkRenderer = createSceneRenderer(resolveIdleInkBackend(), {
+    const inkRenderer = createSceneRenderer(inkBackendKey, {
       ...sharedDeps,
       canvas: inkCanvas,
       paintGrid: false,
@@ -585,13 +601,14 @@ function RcbCanvas({
     });
     paintRendererRef.current = gridRenderer;
     inkRendererRef.current = inkRenderer;
+    transformPreviewFullPaintRef.current = true;
     return () => {
       gridRenderer.dispose();
       inkRenderer.dispose();
       paintRendererRef.current = null;
       inkRendererRef.current = null;
     };
-  }, []);
+  }, [inkBackendKey]);
 
   useEffect(() => {
     return subscribeSceneCanvasIdlePaint(() => {
@@ -599,10 +616,6 @@ function RcbCanvas({
     });
   }, []);
 
-  const paintCameraKeyRef = useRef('');
-  const paintStageKeyRef = useRef('');
-  /** TransformPreview (incl. playhead angle) must full-repaint — dirty AABB may be empty. */
-  const transformPreviewFullPaintRef = useRef(false);
   const stageSizeRef = useRef({ w: stageW, h: stageH });
   stageSizeRef.current = { w: stageW, h: stageH };
   const showPixelGridRef = useRef(showPixelGrid);

@@ -145,7 +145,7 @@ describe('canvas functional stress (可用性)', () => {
     const box = { left: 100.5, top: 40, width: 5, height: 3 };
     expect(sceneChromeBodyTransform(box, 0)).toBe('translate(100.5 40)');
     expect(sceneChromeBodyTransform(box, 12)).toBe(
-      'translate(100.5 40) rotate(12 2.5 1.5)'
+      'translate(100.5 40) translate(2.5 1.5) rotate(12) translate(-2.5 -1.5)'
     );
     const hit = chromeHandleHitRadiusScene(RCB_MAX_ZOOM, CHROME_HANDLE_HIT_PX, 1);
     expect(hit * RCB_MAX_ZOOM).toBeCloseTo(CHROME_HANDLE_HIT_PX / 2, 6);

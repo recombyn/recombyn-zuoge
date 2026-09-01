@@ -157,11 +157,13 @@ export function createRenderDemotionScheduler(opts: {
       if (dueAt < soonest) soonest = dueAt;
     }
     if (!Number.isFinite(soonest)) return;
+    // Never schedule 0ms tight loops if a due candidate fails to clear.
+    const wait = Math.max(16, soonest - ts);
     wakeTimer = setTimeout(() => {
       wakeTimer = null;
       flushExpiredCandidates(nowFn());
       ensureWake();
-    }, Math.max(0, soonest - ts));
+    }, wait);
   }
 
   function armCandidate(id: string): void {

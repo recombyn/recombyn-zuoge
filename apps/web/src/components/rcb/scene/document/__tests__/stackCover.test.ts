@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addNodeToDocument,
+  buildNodeStackZMap,
   createBareDocument,
   reorderNodesInDocument,
   stackZIndex
@@ -49,6 +50,11 @@ describe('unified HTML media stack (foreignObject)', () => {
     expect(doc.deltaSetLike.a0.attrs.frameOrder).toBe(0);
     expect(doc.deltaSetLike.a1.attrs.frameOrder).toBe(1);
     expect(stackZIndex(doc, 'node', 'a1')).toBeGreaterThan(stackZIndex(doc, 'node', 'a0'));
+    const zMap = buildNodeStackZMap(doc, ['a0', 'a1', 'world']);
+    expect(zMap.get('a1')!).toBeGreaterThan(zMap.get('a0')!);
+    expect(zMap.get('a0')).toBe(stackZIndex(doc, 'node', 'a0'));
+    expect(zMap.get('a1')).toBe(stackZIndex(doc, 'node', 'a1'));
+    expect(zMap.get('world')).toBe(stackZIndex(doc, 'node', 'world'));
 
     doc = reorderNodesInDocument(doc, ['a0'], 'front');
     expect(doc.deltaSetLike.a0.attrs.frameOrder).toBe(1);

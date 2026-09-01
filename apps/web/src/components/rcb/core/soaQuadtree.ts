@@ -251,10 +251,6 @@ export class SoaQuadtree {
     return this.byId.has(id);
   }
 
-  isDirty(id: string): boolean {
-    return this.dirtyIds.has(id);
-  }
-
   ids(): IterableIterator<string> {
     return this.byId.keys();
   }
@@ -266,8 +262,8 @@ export class SoaQuadtree {
   }
 
   /**
-   * Mark id dirty without tree surgery. Search uses live AABB for dirty ids;
-   * call {@link rebuildIfDirty} after many moves.
+   * Mark id dirty without tree surgery. Search uses `liveAabb` for dirty ids;
+   * restamp via upsert / replaceAll / bulkUpsert when the gesture ends.
    */
   markDirty(id: string): void {
     if (!id || !this.byId.has(id)) return;
@@ -276,40 +272,6 @@ export class SoaQuadtree {
 
   markDirtyMany(ids: Iterable<string>): void {
     for (const id of ids) this.markDirty(id);
-  }
-
-  /**
-   * Rebuild the tree from current `byId` when dirty count ≥ threshold.
-   * Returns true if a rebuild ran.
-   */
-  rebuildIfDirty(threshold = 48): boolean {
-    if (this.dirtyIds.size < threshold) return false;
-    this.rebuildFromById();
-    return true;
-  }
-
-  /** Force one rebuild from `byId` and clear dirty. */
-  rebuildFromById(): void {
-    this.dirtyIds.clear();
-    if (this.byId.size === 0) {
-      this.root = null;
-      return;
-    }
-    this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
-  }
-
-  /**
-   * Update stored AABB only (no remove/insert). Marks dirty for lazy tree repair.
-   * Prefer during TransformPreview micro-moves.
-   */
-  patchBoundsLazy(item: SoaQuadItem): void {
-    const normalized = normalizeItem(item);
-    if (!this.byId.has(normalized.id)) {
-      this.upsert(normalized);
-      return;
-    }
-    this.byId.set(normalized.id, normalized);
-    this.dirtyIds.add(normalized.id);
   }
 
   /** Insert or replace AABB for `item.id` (world scene units). */

@@ -142,11 +142,6 @@ export function setInfiniteSvgPaintCamera(
   }
 }
 
-/** Last camera pushed from RcbCanvas (for fly-to-chat / off-tree callers). */
-export function getInfiniteSvgPaintCamera(): RcbCamera | null {
-  return paintCamera;
-}
-
 /** Current editor CSS zoom (for outline sparsify etc.). Falls back to 1. */
 export function getInfiniteSvgPaintZoom(): number {
   if (!paintCamera) return 1;
@@ -2242,24 +2237,6 @@ function readSurfaceIntent(root: SVGSVGElement): ViewportBox | null {
   return { minX, minY, w, h };
 }
 
-/** Apply a known scene AABB as the infinite SVG CSS box + viewBox (pre-paint). */
-export function seedInfiniteSvgViewport(
-  root: SVGSVGElement,
-  box: { left: number; top: number; width: number; height: number },
-  pad = INFINITE_SVG_PAD
-) {
-  if (!isInfiniteSvgRoot(root)) return;
-  const intent: ViewportBox = {
-    minX: box.left - pad,
-    minY: box.top - pad,
-    w: Math.max(1, box.width) + pad * 2,
-    h: Math.max(1, box.height) + pad * 2,
-  };
-  const seeded = snapSurfaceBox(intent);
-  // Seed owns the viewport — getBBox fit must not nudge *.5 → integer.
-  writeInfiniteViewport(root, seeded, { lock: true, intent });
-}
-
 /**
  * Pan an infinite host SVG with a live node translate (no getBBox refit).
  * No-op for shared world-surface hosts — ink moves via element transform;
@@ -2295,7 +2272,7 @@ export function fitInfiniteSvgToContent(root: SVGSVGElement, layer?: SVGElement 
   if (!isInfiniteSvgRoot(root)) return;
   // Shared world surface — never shrink to content bbox (would desync from grid).
   if (root.getAttribute('data-rcb-shared-scene-surface') === '1') return;
-  // Locked after seedInfiniteSvgViewport — preserve half-pixel origins for
+  // Locked after seed — preserve half-pixel origins for
   // odd center strokes (visual outer on integer grid). getBBox often reports
   // 269.5 as ~270 and used to rewrite CSS left, which browser zoom amplifies.
   if (root.getAttribute('data-rcb-viewport-locked') === '1') return;
@@ -2624,15 +2601,6 @@ export function readScenePaintLocalSize(
 
 function isProcessPlateHost(el: SVGElement): boolean {
   return el.getAttribute('data-rcb-process-plate') === '1';
-}
-
-/** Pill-only foreignObject — gradient is SVG-native on the process plate. */
-export function syncProcessGlowForeignObject(
-  host: SVGElement | null | undefined,
-  width: number,
-  height: number
-): void {
-  syncProcessPillForeignObject(host, width, height);
 }
 
 function syncTextFrameForeignObject(

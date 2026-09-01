@@ -198,6 +198,104 @@ describe('sceneRenderBuffer', () => {
     expect(hitTestSoaBufferOrdered(buf, 20, 20, ['a', 'b'])).toBe('a');
   });
 
+  it('incremental sync only resamples touched polygons', () => {
+    let doc = createEmptyDocument({ width: 2000, height: 2000, emptyWorld: true });
+    const children: string[] = [];
+    for (let i = 0; i < 80; i += 1) {
+      const id = `poly${i}`;
+      children.push(id);
+      doc = addNodeToDocument(doc, id, {
+        id,
+        key: 'shape',
+        x: (i % 10) * 40,
+        y: Math.floor(i / 10) * 40,
+        width: 30,
+        height: 30,
+        attrs: { shapeType: 'polygon', sides: 6, 'fill-color': '#336699' },
+        children: [],
+      });
+    }
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.count).toBe(80);
+    const keptId = 'poly0';
+    const keptIdx = buf.indexById.get(keptId)!;
+    const keptStart = buf.pathStart[keptIdx];
+    const keptLen = buf.pathLen[keptIdx];
+    expect(keptLen).toBeGreaterThanOrEqual(3);
+    const keptXY = Array.from(
+      buf.pathXY.subarray(keptStart * 2, keptStart * 2 + keptLen * 2)
+    );
+
+    doc = {
+      ...doc,
+      deltaSetLike: {
+        ...doc.deltaSetLike,
+        poly79: {
+          ...doc.deltaSetLike.poly79,
+          x: 900,
+          y: 900,
+        },
+      },
+    };
+    syncSceneRenderBufferIncremental(buf, doc, ['poly79']);
+    const keptIdx2 = buf.indexById.get(keptId)!;
+    const keptStart2 = buf.pathStart[keptIdx2];
+    const keptLen2 = buf.pathLen[keptIdx2];
+    expect(keptLen2).toBe(keptLen);
+    expect(
+      Array.from(buf.pathXY.subarray(keptStart2 * 2, keptStart2 * 2 + keptLen2 * 2))
+    ).toEqual(keptXY);
+
+    const moved = buf.indexById.get('poly79')!;
+    expect(buf.positions[moved * 4]).toBe(900);
+    expect(buf.pathStart[moved]).toBeGreaterThanOrEqual(0);
+    expect(buf.pathXY[buf.pathStart[moved] * 2]).toBeGreaterThan(900);
+  });
+
+  it('samples arrow shaft + head into SoA pathXY (not AABB diagonal only)', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'arr', {
+      id: 'arr',
+      key: 'shape',
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 40,
+      attrs: {
+        shapeType: 'arrow',
+        'fill-color': '#333333',
+        'stroke-enabled': true,
+        'stroke-width': 4,
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const i = buf.indexById.get('arr')!;
+    expect(buf.pathStart[i]).toBeGreaterThanOrEqual(0);
+    expect(buf.pathLen[i]).toBeGreaterThanOrEqual(4);
+    const start = buf.pathStart[i];
+    const len = buf.pathLen[i];
+    let breaks = 0;
+    let finite = 0;
+    for (let p = 0; p < len; p += 1) {
+      const x = buf.pathXY[(start + p) * 2];
+      const y = buf.pathXY[(start + p) * 2 + 1];
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        breaks += 1;
+        continue;
+      }
+      finite += 1;
+    }
+    // arrowBaselinePath is shaft + V (two subpaths) ? NaN break between them.
+    expect(breaks).toBeGreaterThanOrEqual(1);
+    expect(finite).toBeGreaterThanOrEqual(4);
+    // Tip of shaft sits near right mid of the box (not only the AABB diagonal).
+    const tipX = buf.pathXY[(start + 1) * 2];
+    expect(tipX).toBeGreaterThan(100 + 150);
+  });
+
   it('upsertSoaGeom + markSoaDirty update an existing slot', () => {
     const buf = createSceneRenderBuffer();
     const i = upsertSoaGeom(buf, 'x', { x: 1, y: 2, w: 10, h: 12, color: 0xff112233 });

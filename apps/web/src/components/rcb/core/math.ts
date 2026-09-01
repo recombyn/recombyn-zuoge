@@ -129,31 +129,6 @@ export function rcbSnapSceneAxis(
   return rcbSnapSceneSurfaceOrigin(scene, zoom, camSnapped, dpr ?? readDevicePixelRatio());
 }
 
-/** Snap surface origin (CSS === viewBox); size unchanged. */
-export function rcbSnapSceneBox(
-  box: { left: number; top: number; width: number; height: number },
-  camera?: RcbCamera,
-  dpr?: number
-): { left: number; top: number; width: number; height: number } {
-  const d = dpr ?? readDevicePixelRatio();
-  if (!camera || !rcbDprIsFractional(d)) {
-    return {
-      left: box.left,
-      top: box.top,
-      width: Math.max(1e-4, box.width),
-      height: Math.max(1e-4, box.height),
-    };
-  }
-  const z = rcbCameraCssZoom(camera);
-  const { x: camX, y: camY } = rcbCameraScreenOffset(camera, d);
-  return {
-    left: rcbSnapSceneSurfaceOrigin(box.left, z, camX, d),
-    top: rcbSnapSceneSurfaceOrigin(box.top, z, camY, d),
-    width: Math.max(1e-4, box.width),
-    height: Math.max(1e-4, box.height),
-  };
-}
-
 /**
  * Screen/client -> scene (page/world).
  * viewportEl is the unscaled stage root.

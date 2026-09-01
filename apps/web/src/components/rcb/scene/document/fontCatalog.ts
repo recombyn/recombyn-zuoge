@@ -243,11 +243,6 @@ export function getBaseFontFamily(fontFamily: string, catalog = getFontCatalogSy
   return key || 'Alibaba PuHuiTi';
 }
 
-export function getFontDisplayName(fontFamily: string, catalog = getFontCatalogSync()): string {
-  const base = getBaseFontFamily(fontFamily, catalog);
-  return catalog.find((f) => f.family === base)?.displayName || base;
-}
-
 /** Preview face for list rows (first child or base). */
 export function getPreviewFontFamily(font: FontFamilyNode): string {
   if (font.children?.length) return font.children[0].family;
@@ -303,11 +298,6 @@ export function weightOptionsForFamily(
     label: c.displayName,
     weight: c.weight,
   }));
-}
-
-/** True when the family has a Bold (≈700) face with a file. */
-export function familyHasBoldFace(fontFamily: string, catalog = getFontCatalogSync()): boolean {
-  return getFontChildren(fontFamily, catalog).some((c) => (c.weight ?? 0) >= 600);
 }
 
 export function resolveWeightSelectValue(

@@ -72,12 +72,24 @@ describe('SoA canvas ink (single surface)', () => {
     clearNodeTransformPreviews();
   });
 
-  it('basic rects do not need DOM hosts; text does', () => {
+  it('basic rects and static text use canvas ink; lottie needs DOM host', () => {
     expect(nodeNeedsDomShapeHost(whiteRect('r', 0, 0) as never)).toBe(false);
     expect(
       nodeNeedsDomShapeHost({
         id: 't',
         key: 'text',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        attrs: {},
+        children: [],
+      } as never)
+    ).toBe(false);
+    expect(
+      nodeNeedsDomShapeHost({
+        id: 'l',
+        key: 'lottie',
         x: 0,
         y: 0,
         width: 10,

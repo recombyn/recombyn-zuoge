@@ -154,32 +154,6 @@ export function nodeTitleLabelWorldPlacement(
   };
 }
 
-/**
- * HTML title under camera `scale(zoom)` — keep CSS offsets small.
- * Never place children at `±(boxSize * zoom)` then `scale(1/zoom)`: at 10000%
- * that creates tens of thousands of CSS px and the compositor drifts the label.
- */
-export function nodeTitleHtmlAnchor(
-  box: NodeTitleLabelBox,
-  zoom: number,
-  angle = 0
-) {
-  const z = Math.max(0.05, zoom || 1);
-  const w = Math.max(1, box.width);
-  const h = Math.max(1, box.height);
-  return {
-    inv: 1 / z,
-    outerLeft: box.left + w / 2,
-    outerTop: box.top + h / 2,
-    rotateDeg: Math.abs(angle) > 0.001 ? angle : 0,
-    midLeft: -w / 2,
-    midTop: -h / 2,
-    titleTopPx: -NODE_TITLE_LABEL_GAP_PX,
-    titleLeftPx: NODE_TITLE_LABEL_INSET_PX,
-    maxWidthPx: Math.max(1, w * z - NODE_TITLE_LABEL_INSET_PX),
-  };
-}
-
 /** Stage layout px from plate top → title bottom. */
 export function nodeTitleScreenGapPx(
   place: { labelBottomScene: number },
