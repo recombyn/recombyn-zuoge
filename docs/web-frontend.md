@@ -29,7 +29,7 @@ useInfiniteQuery({
 });
 ```
 
-**Source of truth for lists is Query cache**, not a Redux library mirror. On fetch error, home projects render empty (same idea as Me published: do not keep showing stale cards). Logout / 401 clears project + wallet query caches.
+**Source of truth for lists is Query cache**, not a editor store library mirror. On fetch error, home projects render empty (same idea as Me published: do not keep showing stale cards). Logout / 401 clears project + wallet query caches.
 
 ## Wallet & billing UI
 
@@ -77,9 +77,9 @@ Prompt / attachments are **not** put in the URL.
 3. Boot JSON lives in **`sessionStorage`** (`recombyn-home-agent-boot`); new tab: seed that tab’s storage then navigate
 4. `EditorPage` / `AgentDock` `peekHomeAgentBoot` → fill composer; then `clearHomeAgentBoot`
 
-## Redux still owns
+## Editor store still owns
 
-Editor **document**, selection, tools, camera-ish UI — local canvas SoT. Do not mirror full project lists into Redux for home/mine.
+Editor **document**, selection, tools, camera-ish UI — local canvas SoT. Do not mirror full project lists into the editor store for home/mine.
 
 ## Related
 

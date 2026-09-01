@@ -177,7 +177,7 @@ export function createShapeNode({
           shapeType === 'pencil'
             ? 'false'
             : shapeType === 'pen'
-              ? closed
+              ? closed && fill !== 'transparent' && fill !== 'none'
                 ? 'true'
                 : 'false'
               : fill === 'transparent'
@@ -187,7 +187,7 @@ export function createShapeNode({
           shapeType === 'pencil'
             ? 'false'
             : shapeType === 'pen'
-              ? closed
+              ? closed && fill !== 'transparent' && fill !== 'none'
                 ? 'true'
                 : 'false'
               : fill === 'transparent'

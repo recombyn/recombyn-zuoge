@@ -62,6 +62,11 @@ function refreshSharedSpatialFromSoa(buf: SceneRenderBuffer) {
 /**
  * Sync document → SoA buffer (+ promote + spatial). Used by the shapes layer and
  * AI flush. Prefer calling once per AI transaction commit, not per tool_op.
+ *
+ * Membership changes (boolean delete+add, paste, undo) must full-rebuild: callers
+ * like `setDocument` often leave `lastPatchedNodeIds` stale / omit deleted ids,
+ * and incremental-with-removeMissing:false left ghost rects that still painted
+ * but could not be selected.
  */
 export function syncSoaBufferFromDocumentNow(
   document: SceneDocument,
@@ -75,15 +80,18 @@ export function syncSoaBufferFromDocumentNow(
   if (!isSoaCanvasShapesEnabled()) return false;
   const buf = getSharedSceneRenderBuffer();
   const patchedList = (opts.lastPatchedNodeIds || []).filter(Boolean);
+  const liveIds = opts.ids.map(String).filter((id) => id && id !== 'ROOT');
+  const membershipChanged = soaBufferMembershipChanged(buf, liveIds);
   const canIncremental =
     !opts.fullRebuild &&
+    !membershipChanged &&
     buf.count > 0 &&
     patchedList.length > 0 &&
-    patchedList.length <= Math.max(32, Math.floor(opts.ids.length * 0.2));
+    patchedList.length <= Math.max(32, Math.floor(liveIds.length * 0.2 || 1));
   if (canIncremental) {
     syncSceneRenderBufferIncremental(buf, document, patchedList, {
-      allIds: opts.ids,
-      removeMissing: false,
+      allIds: liveIds,
+      removeMissing: true,
     });
   } else {
     syncSceneRenderBufferFromDocument(buf, document);
@@ -96,16 +104,39 @@ export function syncSoaBufferFromDocumentNow(
   return true;
 }
 
+/** True when SoA slot ids diverge from document ROOT children (add/remove). */
+export function soaBufferMembershipChanged(
+  buf: SceneRenderBuffer,
+  liveIds: readonly string[]
+): boolean {
+  const keep = new Set(liveIds.map(String).filter(Boolean));
+  if (keep.size !== buf.count) return true;
+  for (let i = 0; i < buf.count; i += 1) {
+    const id = buf.ids[i];
+    if (!id || !keep.has(id)) return true;
+  }
+  return false;
+}
+
 /**
  * Whether a full SVG host should drop artboard clip.
- * Processing SoftGlow hosts are forceFull for live paint, but must stay clipped
- * when bound (`attrs.frameId`) — follow the frame without spilling past it.
+ * Processing SoftGlow hosts stay clipped. Nodes bound to a clipContent plate
+ * (动画工作台 / artboard) also stay clipped — selection must not spill ink.
  */
 export function shouldRevealShapeOverflow(
   forceFull: boolean,
-  node: SceneNodeInput | null | undefined
+  node: SceneNodeInput | null | undefined,
+  document?: SceneDocument | null
 ): boolean {
-  return forceFull && !isImageProcessRunning(node);
+  if (!forceFull || isImageProcessRunning(node)) return false;
+  const frameId = String(node?.attrs?.frameId || '').trim();
+  if (!frameId) return true;
+  const frame = Array.isArray(document?.frames)
+    ? document!.frames.find((f) => String(f?.id) === frameId)
+    : undefined;
+  // Explicitly non-clipping plates may reveal; everything else stays clipped.
+  if (frame && frame.clipContent === false) return true;
+  return false;
 }
 
 type Props = {
@@ -230,8 +261,8 @@ export function pickFullAndCanvasIds(opts: {
     const node = document?.deltaSetLike?.[id];
     const force = forceFullSet.has(id);
     const key = String(node?.key || '');
-    // SoA prefer: only BASIC_GEOM demotes off SVG. Stroke / gradient / poly /
-    // text / media stay hosts unless SVG budget overflow pushes them to canvasIds.
+    // SoA prefer: BASIC_GEOM demotes off SVG (solid / center-stroke / poly on Canvas2D).
+    // Gradient / text / media stay hosts unless SVG budget overflow pushes them to canvasIds.
     const mediaKeepHost = preferSoa && (key === 'image' || key === 'video');
     const canvasIdle =
       !force &&
@@ -516,7 +547,7 @@ function RcbShapesLayer({
             frameClipToken={frameClipToken}
             forceHidden={isNodeOverlayHidden(document, node, hiddenNodeId === id)}
             // SoftGlow plates stay forceFull (live SVG) but keep frame clip.
-            revealOverflow={shouldRevealShapeOverflow(forceFullSet.has(id), node)}
+            revealOverflow={shouldRevealShapeOverflow(forceFullSet.has(id), node, document)}
           />
         );
       })}

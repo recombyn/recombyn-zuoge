@@ -1,6 +1,6 @@
 /**
  * PR7 — Scene Mutation Pipeline: validate → permission → revision → apply.
- * AI writes must not skip this gate (no Redux-shaped patches).
+ * AI writes must not skip this gate (no editor-store-shaped patches).
  */
 import { describe, expect, it, vi } from 'vitest';
 import {

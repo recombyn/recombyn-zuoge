@@ -468,7 +468,8 @@ function CornerRadiusHandlesOverlay({
   /** False while moving/resizing so dots follow chrome without stealing pointers. */
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();  const camera = useRcbCamera();
+  const { t } = useTranslation();
+  const camera = useRcbCamera();
   const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [dragValue, setDragValue] = useState<number | null>(null);
@@ -498,7 +499,7 @@ function CornerRadiusHandlesOverlay({
   const skipRadiusHandles = shouldSkipRadiusHandles(node, shapeType);
 
   // Prefer live host geom so park inset shares the same lattice as resize knobs
-  // (Redux box drifts after high-zoom sticky re-align — R-dot lands on the corner).
+  // (store box drifts after high-zoom sticky re-align — R-dot lands on the corner).
   const seatBox = liveShapeGeomBox(nodeId) || box;
   chromeDeferRef.current = {
     box: seatBox,
@@ -757,7 +758,7 @@ function CornerRadiusHandlesOverlay({
     badgeVal = Math.round(baseRadii[activeKey as CornerKey]);
   }
 
-  // Live radii while dragging so dots track the pointer before Redux catches up.
+  // Live radii while dragging so dots track the pointer before the editor store catches up.
   const drag = dragRef.current;
   let liveBoxRadii = baseRadii;
   let livePathVertices = pathVertices;

@@ -1,5 +1,5 @@
 /**
- * Wallet Query SoT — balance / plan / billing flag live in TanStack Query, not Redux.
+ * Wallet Query SoT — balance / plan / billing flag live in TanStack Query, not the editor store.
  */
 
 import { useQuery } from '@tanstack/react-query';

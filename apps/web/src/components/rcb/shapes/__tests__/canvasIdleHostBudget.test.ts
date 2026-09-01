@@ -232,7 +232,7 @@ describe('pickFullAndCanvasIds', () => {
     expect(canvasIds).toHaveLength(0);
   });
 
-  it('preferSoa only demotes BASIC_GEOM; stroke/grad/poly/text/media stay SVG under budget', () => {
+  it('preferSoa demotes BASIC_GEOM including center-stroke and poly; grad/text/media stay SVG', () => {
     const doc = makeDoc({
       basic: rect('basic'),
       stroke: {
@@ -248,6 +248,7 @@ describe('pickFullAndCanvasIds', () => {
           'stroke-enabled': true,
           'border-width': 2,
           'border-color': '#000',
+          strokeAlign: 'center',
         },
       },
       grad: {
@@ -284,8 +285,8 @@ describe('pickFullAndCanvasIds', () => {
       moving: false,
       preferSoaCanvas: true,
     });
-    expect(canvasIds).toEqual(['basic']);
-    expect(fullIds.sort()).toEqual(['grad', 'i0', 'poly', 'stroke', 't0']);
+    expect(canvasIds.sort()).toEqual(['basic', 'poly', 'stroke']);
+    expect(fullIds.sort()).toEqual(['grad', 'i0', 't0']);
   });
 
   it('prefer SVG budget for non-idle over canvas-idle media when over budget', () => {

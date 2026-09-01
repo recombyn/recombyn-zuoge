@@ -86,6 +86,7 @@ import {
   autoKeyAnimatedRotation,
 } from '@/components/editor/nodes/AnimationNode/animationAutoKey';
 import { getAnimationPlayheadSec } from '@/components/editor/nodes/AnimationNode/animationTransport';
+import { queueEnsureAnimationFramesForDocChange } from '@/components/editor/nodes/AnimationNode/queueEnsureAnimationFramesForDocChange';
 import type { VideoGeomOverride } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
 import type { createDragWriteCoalescer } from './dragWriteCoalescer';
 import type { ArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
@@ -230,7 +231,7 @@ export function toGeometryPatches(doc: SceneDocument | null | undefined, patches
 }
 
 /**
- * Merge live preview angles from documentRef into the committed Redux base.
+ * Merge live preview angles from documentRef into the committed store base.
  * Line/arrow endpoint drags update angle only on the live doc until commit.
  */
 export function mergeLiveAnglesIntoDoc(
@@ -528,7 +529,13 @@ function geometryCommitNeedsFullDocumentWrite(
   return false;
 }
 
-function nodePatchFromGeometryDiff(
+/**
+ * Build an editor-store node patch from before→after.
+ * Callers must pass the **store head** as `before` (not a doc that already
+ * baked live preview attrs). Diffing against a merged live angle hides the
+ * angle change and line/arrow endpoint release keeps the pre-drag angle.
+ */
+export function nodePatchFromGeometryDiff(
   before: SceneNode | undefined,
   after: SceneNode | undefined
 ): Record<string, unknown> | null {
@@ -867,8 +874,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       }
     }
     if (!frames.length) return { nodePatches, frames };
-    // Live paint is imperative, just like node SVG geometry. Redux only receives
-    // the final document on commit so frame and content cannot alternate frames.
+    // Live paint is imperative, just like node SVG geometry. The store only
+    // receives the final document on commit so frame and content cannot alternate.
     if (opts?.preview) {
       deps.previewFrameGeometry(frames);
     }
@@ -909,9 +916,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
   ) => {
     // Drop coalesced media previews — frame paint is committed below.
     deps.getDragWriteCoalescer().cancel();
-    // Base geometry on the committed Redux doc. During a transform, documentRef
-    // is intentionally not synced from Redux — writing it back would revive
-    // attrs cleared mid-drag (e.g. processStatus after upload finishes).
+    // Base geometry on the committed editor-store doc. During a transform,
+    // documentRef is intentionally not synced from the store — writing it
+    // back would revive attrs cleared mid-drag (e.g. processStatus after
+    // upload finishes).
     const committed = deps.getCommittedDocument?.() ?? null;
     const live = deps.getDocument();
     const board = deps.getBoard();
@@ -920,7 +928,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     const touchedNodeIds = nodePatches
       .map((p) => String(p.nodeId || '').trim())
       .filter(Boolean);
-    const doc = mergeLiveAnglesIntoDoc(committed || live!, live, touchedNodeIds);
+    // Store head before baking live preview angles — incremental patches must
+    // diff against this, or endpoint-drag angle never lands in the store.
+    const committedBase = committed || live!;
+    const doc = mergeLiveAnglesIntoDoc(committedBase, live, touchedNodeIds);
     let next = doc;
     if (nodePatches.length) {
       const normalized = normalizeGeomPatches(doc, toGeometryPatches(doc, nodePatches));
@@ -1049,7 +1060,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
       const ids = Object.keys(next.deltaSetLike || {});
       for (const id of ids) {
         if (id === 'ROOT') continue;
-        const patch = nodePatchFromGeometryDiff(doc.deltaSetLike?.[id], next.deltaSetLike?.[id]);
+        const patch = nodePatchFromGeometryDiff(
+          committedBase.deltaSetLike?.[id],
+          next.deltaSetLike?.[id]
+        );
         if (patch) nodeWrites.push({ nodeId: id, patch });
       }
       if (nodeWrites.length) {
@@ -1068,6 +1082,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         touchDocumentRevision();
       }
     }
+    // skipHistory geometry patches skip store ensure — refresh timeline when
+    // bind/unbind changed 动画工作台 children (create/move-in/move-out).
+    queueEnsureAnimationFramesForDocChange(committedBase, next, {
+      nodeIds: touchedNodeIds,
+      skipHistory: true,
+    });
     // Auto-key animated p/s when moving/resizing on a 动画工作台.
     const playheadSec = getAnimationPlayheadSec();
     for (const id of touchedNodeIds) {
@@ -1095,8 +1115,8 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           skipHistory: Boolean(options?.skipHistory),
         });
     }
-    // Same React turn as Redux doc — HTML plates must not fall back to stale
-    // coords between commit and onTransformingChange(false).
+    // Same React turn as the store doc — HTML plates must not fall back to
+    // stale coords between commit and onTransformingChange(false).
     deps.clearVideoLiveGeom();
     deps.clearFrameGeometryPreview();
     clearNodeTransformPreviews();
@@ -1141,7 +1161,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     if (normalized.length) {
       next = applyNodeFrameBindings(next, normalized, detachedNodeIds);
       next = promoteNodesToWorldTop(next, detachedNodeIds);
-      // Detach stays on documentRef until pointer-up commit — mid-drag Redux
+      // Detach stays on documentRef until pointer-up commit — mid-drag store
       // writes re-render the whole editor and push Yjs on every move.
     }
     const translated = translateFrameContent(next, frames, frameMoveOwners);
@@ -1345,7 +1365,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     if (spatialPatchIds.size) {
       deps.spatial.patchNodes(previewDocument, [...spatialPatchIds]);
     }
-    // Keep HTML <video> plates glued to chrome (Redux doc is still pre-gesture).
+    // Keep HTML <video> plates glued to chrome (store doc is still pre-gesture).
     if (hasVideo) {
       deps.publishVideoLiveGeom({
         ...(coalescer.getPendingVideoGeom() || {}),
@@ -1436,7 +1456,7 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
         );
       }
     }
-    // HTML video / lottie / audio / image SoftGlow plates read Redux doc —
+    // HTML video / lottie / audio / image SoftGlow plates read store doc —
     // push live angle so rotate tracks chrome.
     if (
       isVideoNode(node) ||

@@ -59,7 +59,8 @@ function VideoQuickEditComposer({
   nodeId: string;
   box: SceneBox;
 }): ReactNode {
-  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle>(null);
+  const { t } = useTranslation();
+  const inputRef = useRef<AgentComposerHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 

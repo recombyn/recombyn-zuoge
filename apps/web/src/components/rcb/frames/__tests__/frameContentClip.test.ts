@@ -10,7 +10,7 @@ import {
 } from '@/components/rcb/core/transformPreview';
 
 describe('frame content clipping', () => {
-  it('clips the untransformed paint layer and clears when the node leaves the frame', () => {
+  it('keeps plate clip while frameId is set, even when AABB is outside the plate', () => {
     const root = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     layer.setAttribute('data-rcb-shape-id', 'n1');
@@ -48,6 +48,7 @@ describe('frame content clipping', () => {
     expect(layer.getAttribute('clip-path') || '').toContain('url(');
     expect(node.hasAttribute('clip-path')).toBe(false);
 
+    // Still bound — clip stays (ink must not spill onto the pasteboard).
     applyFrameContentClip(
       root,
       node,
@@ -60,11 +61,23 @@ describe('frame content clipping', () => {
         attrs: { frameId: 'frame-1' },
       }
     );
+    expect(layer.getAttribute('clip-path') || '').toContain('url(');
 
-    expect(node.parentElement).toBe(layer);
+    // Unbound — clip clears.
+    applyFrameContentClip(
+      root,
+      node,
+      { frames: [frame] },
+      {
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        attrs: {},
+      }
+    );
     expect(layer.hasAttribute('clip-path')).toBe(false);
     expect(node.hasAttribute('clip-path')).toBe(false);
-    expect(root.querySelector('[data-frame-clip-wrap="1"]')).toBeNull();
   });
 
   it('unwraps a legacy clip wrap so mix-blend-mode can composite again', () => {

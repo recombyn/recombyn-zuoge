@@ -1,5 +1,5 @@
 /**
- * Yjs room lifecycle: mint token → IndexedDB (offline) + WebsocketProvider → bridge scene → Redux.
+ * Yjs room lifecycle: mint token → IndexedDB (offline) + WebsocketProvider → bridge scene → store.
  * Presence (selection / cursors) via Awareness. Persist via debounced cloud PATCH (or PUT).
  * Offline: y-indexeddb keeps the room locally; reconnect merges with peers / server.
  * @see https://docs.yjs.dev/getting-started/allowing-offline-editing
@@ -984,7 +984,7 @@ export function CollabRoomProvider({
     if (documentRevision === lastPushedRevisionRef.current) return;
     applyLocalSceneToY(ydoc, document);
     lastPushedRevisionRef.current = documentRevision;
-    // Hash the Y snapshot (not Redux JSON) so websocket echoes compare equal.
+    // Hash the Y snapshot (not the editor store JSON) so websocket echoes compare equal.
     lastPushedHashRef.current = sceneHash(sceneFromYDoc(ydoc));
   }, [enabled, role, documentRevision]);
 

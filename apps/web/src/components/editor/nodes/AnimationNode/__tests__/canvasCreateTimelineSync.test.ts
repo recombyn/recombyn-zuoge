@@ -92,7 +92,15 @@ describe('canvas create → animation timeline layers', () => {
     expect(queued).toContain(frameId);
 
     // Same as AnimationFrameWorkbenchHost listener.
-    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId, skipHistory: true });
+    const revBeforeEnsure = Number(state.documentRevision) || 0;
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+
+    // useEditorDocumentOnCommit only re-reads on documentRevision — bake must bump it
+    // even with skipHistory, or 「图层」 stays stale until the next drag touch.
+    expect(Number(state.documentRevision) || 0).toBeGreaterThan(revBeforeEnsure);
 
     const after = parseLottieAnimationData(
       state.document!.deltaSetLike![hostId!].attrs?.animationData

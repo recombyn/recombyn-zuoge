@@ -278,7 +278,7 @@ function hostSelHandlesKey(
   inv: number,
   outlineD: string
 ): string {
-  // Live host lattice (not Redux alone) — at 5000%+ even 0.01 scene is a screen px.
+  // Live host lattice (not the editor store alone) — at 5000%+ even 0.01 scene is a screen px.
   const live = liveShapeGeomBox(o.id);
   const origin = liveHostPaintOrigin(liveNodeEl(o.id));
   const left = live?.left ?? origin?.left ?? o.box.left;

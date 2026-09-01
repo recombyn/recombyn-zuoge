@@ -753,7 +753,8 @@ function FrameLayerRow({
   onStartFrameRename?: (frameId: string) => void;
   onCommitFrameRename?: (frameId: string, name: string | null) => void;
 }) {
-  const { t } = useTranslation();  const titleEditRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useTranslation();
+  const titleEditRef = useRef<HTMLDivElement | null>(null);
   const editingTitleRef = useRef(false);
   const locked = Boolean(frame.locked);
   const hidden = Boolean(frame.hidden);
@@ -876,7 +877,8 @@ function NodeLayerRow({
   selected: boolean;
   onSelectNode?: (nodeId: string) => void;
 }) {
-  const { t } = useTranslation();  const hidden = isNodeHidden(node);
+  const { t } = useTranslation();
+  const hidden = isNodeHidden(node);
   const locked = isNodeLocked(node);
   const generator = isGeneratorNode(node);
 
@@ -1003,19 +1005,20 @@ function LayerPanel({
   mobile = false,
 }: {
   onClose?: () => void;
-  /** Optional override when selecting from the layer list (default: Redux select only). */
+  /** Optional override when selecting from the layer list (default: store select only). */
   onSelectNode?: (nodeId: string) => void;
-  /** Optional override when selecting a frame row (default: Redux select only). */
+  /** Optional override when selecting a frame row (default: store select only). */
   onSelectFrame?: (frameId: string) => void;
   mobile?: boolean;
 } = {}) {
-  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();
+  const document = useEditorDocumentOnCommit();
   const selectedNodeId = useSelectedNodeId();
   const selectedNodeIds = useSelectedNodeIds();
   const activeFrameId = useActiveFrameId();
   const selectedFrameIds = useSelectedFrameIds();
   const historyPast = useSelector((state: any) => state.editor.historyPast as any[]);
-  /** Recompute layer rows when timeline edit focus toggles (module flag + Redux). */
+  /** Recompute layer rows when timeline edit focus toggles (module flag + store). */
   const workbenchEditOpen = useSelector((state: any) =>
     Boolean(state.editor.lottieTimelinePanel?.nodeId)
   );

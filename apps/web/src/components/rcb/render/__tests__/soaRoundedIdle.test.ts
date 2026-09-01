@@ -64,7 +64,7 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.radii[1]).toBeGreaterThan(0);
   });
 
-  it('polygon can idle-paint but is never SoA-basic', () => {
+  it('polygon is SoA-basic on Canvas2D path (samples into pathXY)', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'p', {
       id: 'p',
@@ -73,11 +73,45 @@ describe('SoA basic geom vs rounded / poly', () => {
       y: 0,
       width: 80,
       height: 80,
-      attrs: { shapeType: 'polygon', sides: 6, fill: '#fff', 'fill-color': '#fff' },
+      attrs: { shapeType: 'polygon', sides: 6, fill: '#fff', 'fill-color': '#fff', 'stroke-enabled': false },
       children: [],
     });
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.p)).toBe(true);
-    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.p)).toBe(false);
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.p)).toBe(true);
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+    expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
+    expect(buf.pathLen[0]).toBeGreaterThanOrEqual(3);
+    expect(buf.pathClosed[0]).toBe(1);
+  });
+
+  it('center outline stroke on solid rect is SoA-basic', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 's', {
+      id: 's',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#fff',
+        'fill-color': '#fff',
+        'stroke-enabled': true,
+        'border-width': 2,
+        'border-color': '#000',
+        strokeAlign: 'center',
+      },
+      children: [],
+    });
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.s)).toBe(true);
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+    expect(buf.strokeWidths[0]).toBe(2);
+    expect(buf.strokeColors[0]).toBeTruthy();
   });
 
   it('flipped rect stays idle-capable but not SoA-basic', () => {
@@ -135,13 +169,13 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeFalsy();
   });
 
-  it('stroke / gradient / poly / text / media never enter SoA basic idle', () => {
+  it('gradient / outside-stroke / text / media never enter SoA basic idle', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     const cases: Array<{ id: string; node: Parameters<typeof addNodeToDocument>[2] }> = [
       {
-        id: 'stroke',
+        id: 'outside',
         node: {
-          id: 'stroke',
+          id: 'outside',
           key: 'shape',
           x: 0,
           y: 0,
@@ -154,6 +188,7 @@ describe('SoA basic geom vs rounded / poly', () => {
             'stroke-enabled': true,
             'border-width': 2,
             'border-color': '#000',
+            strokeAlign: 'outside',
           },
           children: [],
         },
@@ -173,19 +208,6 @@ describe('SoA basic geom vs rounded / poly', () => {
             'fill-gradient': '{}',
             'stroke-enabled': false,
           },
-          children: [],
-        },
-      },
-      {
-        id: 'poly',
-        node: {
-          id: 'poly',
-          key: 'shape',
-          x: 100,
-          y: 0,
-          width: 40,
-          height: 40,
-          attrs: { shapeType: 'polygon', sides: 5, 'fill-color': '#abc', 'stroke-enabled': false },
           children: [],
         },
       },
@@ -229,16 +251,10 @@ describe('SoA basic geom vs rounded / poly', () => {
       expect(buf.flags[i!] & SOA_FLAG_BASIC_GEOM, c.id).toBeFalsy();
       expect(buf.flags[i!] & SOA_FLAG_CANVAS_IDLE, c.id).toBeFalsy();
     }
-    // Rects with stroke/gradient + polys stay SoA-eligible but never BASIC_GEOM idle.
-    expect(isSoaCanvasEligible(doc.deltaSetLike.stroke)).toBe(true);
+    expect(isSoaCanvasEligible(doc.deltaSetLike.outside)).toBe(true);
     expect(isSoaCanvasEligible(doc.deltaSetLike.grad)).toBe(true);
-    expect(isSoaCanvasEligible(doc.deltaSetLike.poly)).toBe(true);
-    // Text / media are not SoA-eligible at all.
     expect(isSoaCanvasEligible(doc.deltaSetLike.txt)).toBe(false);
     expect(isSoaCanvasEligible(doc.deltaSetLike.img)).toBe(false);
-    // Poly/stroke/grad can still rich-idle on Canvas overflow; text stays SVG-only.
-    expect(canIdlePaintOnCanvas(doc.deltaSetLike.poly)).toBe(true);
-    expect(canIdlePaintOnCanvas(doc.deltaSetLike.stroke)).toBe(true);
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.grad)).toBe(true);
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.txt)).toBe(false);
   });

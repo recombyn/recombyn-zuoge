@@ -1,7 +1,11 @@
 /**
- * 动画工作—session host — ensure playback media on explicit request.
+ * 动画工作台 session host — ensure playback media on explicit request.
  * Timeline opens only via explicit UI. Drawing tools stay on the bottom
  * EditorToolStrip. AI edits use the right-side Agent chat.
+ *
+ * The ensure listener must stay registered during selection transforms.
+ * Hiding/tearing it down dropped `queueEnsureAnimationFrame` microtasks from
+ * draw/drop/bind commits, so 「图层」 only caught up after the next drag.
  */
 import { memo, useEffect, type ReactNode } from 'react';
 
@@ -39,27 +43,33 @@ function resolveWorkbenchFrameIdFromStore(): string | null {
 }
 
 function AnimationFrameWorkbenchHost({
+  document,
   hidden = false,
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {  useEffect(() => {
-    if (hidden) return;
+}): ReactNode {
+  // Process-lifetime listener — never gate on `hidden` / selectionTransforming.
+  useEffect(() => {
     const onEnsure = (e: Event) => {
       const detail = (e as CustomEvent<{ frameId?: string; skipHistory?: boolean }>).detail;
       const frameId = String(detail?.frameId || '').trim();
       if (!frameId) return;
       ensureAnimationFrameMedia({
-          frameId,
-          skipHistory: Boolean(detail?.skipHistory),
-        });
+        frameId,
+        skipHistory: Boolean(detail?.skipHistory),
+      });
     };
     window.addEventListener(RCB_ENSURE_ANIMATION_FRAME, onEnsure);
-    // Initial apply for current selection (same pattern as playhead sync).
+    return () => window.removeEventListener(RCB_ENSURE_ANIMATION_FRAME, onEnsure);
+  }, []);
+
+  // When the host becomes visible again (or document swaps), re-apply focus.
+  useEffect(() => {
+    if (hidden) return;
     const initial = resolveWorkbenchFrameIdFromStore();
     if (initial) requestEnsureAnimationFrame(initial);
-    return () => window.removeEventListener(RCB_ENSURE_ANIMATION_FRAME, onEnsure);
-  }, [hidden]);
+  }, [hidden, document]);
 
   return null;
 }

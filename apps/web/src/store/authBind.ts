@@ -1,5 +1,5 @@
 /**
- * Bind auth case reducers to Zustand.
+ * Bind auth case mutators to Zustand.
  */
 import { produce } from 'immer';
 

@@ -1612,8 +1612,15 @@ export function strokeEndpointBox(
   }
 
   if (!isStrokeShapeType(shapeType)) return null;
+  // Endpoint math must use the shaft geometry box — painted chrome unions are
+  // stroke-inflated and would move the "fixed" end away from the visible knob.
+  const originBox = drag.origins.find((o) => o.nodeId === strokeId)?.box;
+  const node = document.deltaSetLike?.[strokeId];
+  const geomBox = originBox
+    ? { ...originBox }
+    : deflateSelectionBox({ ...drag.union }, node);
   const placed = resizeStrokeByEndpoint(
-    drag.union,
+    geomBox,
     drag.angle0 || 0,
     drag.handle,
     sceneX,
@@ -1820,7 +1827,7 @@ export function buildShapeOutlines(opts: {
   multiUnionBox?: SceneBox | null;
   multiUnionAngle?: number;
   getNodeBox: (id: string) => SceneBox | null;
-  /** Redux playhead — same hide gate as selection chrome / hit-test. */
+  /** store playhead — same hide gate as selection chrome / hit-test. */
   playheadSec?: number;
 }): ShapeOutlineItem[] {
   if (!opts.enabled || opts.suppressChrome) return [];
@@ -2094,7 +2101,7 @@ export function resolveToolbarEdgePadScene(node: SceneNodeInput): number {
 
 /**
  * Control box for painted chrome — must match HostPathChrome / SelectionChrome ink.
- * Prefer live host `__sceneLeft` lattice; Redux `liveUnion` alone drifts after sticky re-align.
+ * Prefer live host `__sceneLeft` lattice; store `liveUnion` alone drifts after sticky re-align.
  */
 export function resolvePaintedControlChrome(
   document: SceneDocument,
@@ -2132,7 +2139,7 @@ export function resolvePaintedControlChrome(
 }
 
 /**
- * Idle selection bounds update in the same paint as Redux; liveUnion lags one
+ * Idle selection bounds update in the same paint as store; liveUnion lags one
  * effect tick and used to flash empty chrome when switching frames in preview.
  */
 export function resolveChromeUnion(opts: {
@@ -2157,7 +2164,7 @@ export function resolveChromeUnion(opts: {
   if (!base) return opts.liveUnion;
   // Prefer live host → path chrome (single + multi) so the box tracks remounts.
   // No scene-unit drift gate: at 6000% zoom, 0.1 scene = 6px and sticky re-align
-  // routinely exceeds the old 2-unit threshold, which forced Redux while paint
+  // routinely exceeds the old 2-unit threshold, which forced editor store while paint
   // stayed on the host — chrome looked right but picks missed.
   if (opts.selectedFrameIds.length === 0 && opts.selectedNodeIds.length >= 1) {
     const lives: SceneBox[] = [];
@@ -2173,7 +2180,7 @@ export function resolveChromeUnion(opts: {
     }
   }
   // Frames: title uses live `__sceneLeft` / sticky transform; chrome must too —
-  // Redux frame.x alone drifts at 10000% so the label looks off the left edge.
+  // editor store frame.x alone drifts at 10000% so the label looks off the left edge.
   if (opts.selectedNodeIds.length === 0 && opts.selectedFrameIds.length >= 1) {
     const lives: SceneBox[] = [];
     for (const id of opts.selectedFrameIds) {

@@ -23,7 +23,8 @@ import {
 } from '@/store/modules/editor';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-function UploadJobWatcher() {  const pendingId = useSelector(
+function UploadJobWatcher() {
+  const pendingId = useSelector(
     (s: { editor?: { pendingImageProcessId?: string | null } }) =>
       s.editor?.pendingImageProcessId ?? null
   );
