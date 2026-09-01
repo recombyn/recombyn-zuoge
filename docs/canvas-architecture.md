@@ -60,9 +60,9 @@ At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen
 | `RenderDemotionScheduler` | Hints: `ACTIVE_SVG` → `CANDIDATE` → `DEPLOYED_SOA` |
 | `soaBakeLayer` | Tile bake + `elementToTiles` / `tileToElements` when count is large |
 
-**Demotion (current):** SoftGlow / editors enter `forceFull` → `ACTIVE_SVG`. Leaving forceFull starts `CANDIDATE`: SoA ink flags / QT / bake bind **immediately** while the DOM host is still held (~300ms quiet). Timer only releases the host hold → `DEPLOYED_SOA`. Paint skips SoA slots that still have a live `getShapeHost(id)?.el` (except live corner-radius preview). Selection alone never forces SVG hosts.
+**Demotion (current):** SoftGlow / editors enter `forceFull` → `ACTIVE_SVG`. Leaving forceFull starts `CANDIDATE`: SoA ink flags / QT / bake bind **immediately** while the DOM host is still held. A single shared wake timer scans `Map<id, lastActive>` and batch-releases host holds after ~300ms quiet (not per-id `setTimeout`). Selection alone never forces SVG hosts.
 
-**Sync:** full rebuild uses `skipQuad` then one `quadtree.replaceAll` (avoid O(n²) expand-rebuild). Incremental patches ≥8 ids use bulk insert / QT upsert. TransformPreview keeps QT cull with an expanded query pad (~512 scene units) instead of falling back to a full N scan.
+**Sync:** full rebuild uses `skipQuad` then one `quadtree.replaceAll` (avoid O(n²) expand-rebuild). Incremental patches ≥8 ids use bulk insert / QT upsert. TransformPreview marks QT dirty + live-AABB filter (threshold rebuild at 48 dirty); modest rotate pad (~32), not a full-N scan or fat 512 pad.
 
 ### DOM hosts (text / media / editors)
 

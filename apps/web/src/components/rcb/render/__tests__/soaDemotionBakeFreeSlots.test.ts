@@ -59,6 +59,7 @@ describe('createRenderDemotionScheduler', () => {
 
   it('promotes adds immediately; demotes ink on CANDIDATE; releases host after delay', () => {
     vi.useFakeTimers();
+    vi.setSystemTime(0);
     const promoted: string[][] = [];
     const demoted: string[][] = [];
     const after: string[][] = [];
@@ -79,7 +80,7 @@ describe('createRenderDemotionScheduler', () => {
     expect(sched.pendingDemoteIds()).toEqual(['b']);
     expect(sched.getHint('b')).toBe('CANDIDATE');
     expect(sched.heldHostIds().has('b')).toBe(true);
-    // Ink demote runs immediately; host stay held until quiet timer.
+    // Ink demote runs immediately; host stay held until quiet wake.
     expect(demoted).toEqual([['b']]);
 
     vi.advanceTimersByTime(300);
@@ -87,14 +88,13 @@ describe('createRenderDemotionScheduler', () => {
     expect(sched.getHint('b')).toBe('DEPLOYED_SOA');
     expect(sched.heldHostIds().has('b')).toBe(false);
 
-    vi.advanceTimersByTime(0);
-    // rAF afterFlips — flush with fake timers
     vi.runOnlyPendingTimers();
     sched.dispose();
   });
 
-  it('noteElementActive restarts quiet host-release for CANDIDATE', () => {
+  it('noteElementActive bumps quiet lastActive without re-demoting ink', () => {
     vi.useFakeTimers();
+    vi.setSystemTime(0);
     const demoted: string[] = [];
     const sched = createRenderDemotionScheduler({
       demoteDelayMs: 300,
@@ -112,14 +112,34 @@ describe('createRenderDemotionScheduler', () => {
     sched.noteElementActive('x');
     expect(sched.pendingDemoteIds()).toEqual(['x']);
     expect(sched.getHint('x')).toBe('CANDIDATE');
-    // Restart re-prepares ink (idempotent demote) and resets the host-hold timer.
-    expect(demoted).toEqual(['x', 'x']);
+    // Pulse only extends quiet window — ink demote stays once.
+    expect(demoted).toEqual(['x']);
     vi.advanceTimersByTime(200);
     expect(sched.getHint('x')).toBe('CANDIDATE');
     expect(sched.heldHostIds().has('x')).toBe(true);
     vi.advanceTimersByTime(100);
     expect(sched.getHint('x')).toBe('DEPLOYED_SOA');
     expect(sched.heldHostIds().has('x')).toBe(false);
+    sched.dispose();
+  });
+
+  it('uses a single wake for many candidates (not per-id timers)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const sched = createRenderDemotionScheduler({
+      demoteDelayMs: 300,
+      sink: {
+        promote: () => undefined,
+        demote: () => undefined,
+      },
+    });
+    const ids = Array.from({ length: 40 }, (_, i) => `n${i}`);
+    sched.setForceHosts(ids);
+    sched.setForceHosts([]);
+    expect(sched.pendingDemoteIds()).toHaveLength(40);
+    vi.advanceTimersByTime(300);
+    expect(sched.pendingDemoteIds()).toHaveLength(0);
+    for (const id of ids) expect(sched.getHint(id)).toBe('DEPLOYED_SOA');
     sched.dispose();
   });
 

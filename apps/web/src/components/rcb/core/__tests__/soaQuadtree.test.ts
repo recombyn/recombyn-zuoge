@@ -76,6 +76,31 @@ describe('SoaQuadtree', () => {
     expect(tree.searchPoint(8, 8).map((h) => h.id)).toEqual(['g0']);
     expect(tree.searchPoint(40 * 49 + 8, 40 * 39 + 8).some((h) => h.id === 'g1999')).toBe(true);
   });
+
+  it('dirty + liveAabb rescues moves without per-frame upsert', () => {
+    const tree = new SoaQuadtree({ maxItems: 8 });
+    tree.upsert({ id: 'a', minX: 0, minY: 0, maxX: 10, maxY: 10 });
+    tree.markDirty('a');
+    tree.patchBoundsLazy({ id: 'a', minX: 500, minY: 500, maxX: 510, maxY: 510 });
+    expect(tree.dirtySize).toBe(1);
+    // Stale tree still thinks a is near origin — live filter drops false positive.
+    expect(
+      tree.search(0, 0, 20, 20, {
+        liveAabb: () => ({ id: 'a', minX: 500, minY: 500, maxX: 510, maxY: 510 }),
+      })
+    ).toEqual([]);
+    // Rescue into new viewport.
+    expect(
+      tree
+        .search(490, 490, 520, 520, {
+          liveAabb: () => ({ id: 'a', minX: 500, minY: 500, maxX: 510, maxY: 510 }),
+        })
+        .map((h) => h.id)
+    ).toEqual(['a']);
+    expect(tree.rebuildIfDirty(1)).toBe(true);
+    expect(tree.dirtySize).toBe(0);
+    expect(tree.searchPoint(505, 505).map((h) => h.id)).toEqual(['a']);
+  });
 });
 
 describe('RcbSpatialIndex (quadtree backend)', () => {
