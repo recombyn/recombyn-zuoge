@@ -114,6 +114,112 @@ describe('canvas create → animation timeline layers', () => {
     expect(Number(state.document!.deltaSetLike![id].attrs?.lottieLayerInd)).toBeGreaterThan(0);
   });
 
+  it('ensureAnimationFrameMedia is idempotent after open (no revision storm)', () => {
+    let state = seed();
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, {
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+    });
+    const frameId = String(state.selectedFrameIds[0] || '');
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+    const hostId = findFrameAnimationMediaId(state.document, frameId)!;
+    state = reduceEditor(state, editorReducers.openLottieTimelinePanel, { nodeId: hostId });
+
+    // Drain the open bake once.
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+    const rev = Number(state.documentRevision) || 0;
+    const json = String(
+      state.document!.deltaSetLike![hostId].attrs?.animationData || ''
+    );
+
+    // Second ensure must no-op — WorkbenchHost used to re-fire on every document
+    // swap and freeze Keyframes open for large LOT JSON.
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+    expect(Number(state.documentRevision) || 0).toBe(rev);
+    expect(String(state.document!.deltaSetLike![hostId].attrs?.animationData || '')).toBe(
+      json
+    );
+  });
+
+  it('frameLocal plate move + ensure does not grow timeline layers', () => {
+    let state = seed();
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, {
+      x: 80,
+      y: 60,
+      width: 360,
+      height: 360,
+    });
+    const frameId = String(state.selectedFrameIds[0] || '');
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+    const hostId = findFrameAnimationMediaId(state.document, frameId)!;
+
+    const { id, node } = createShapeNode({
+      x: 40,
+      y: 40,
+      width: 80,
+      height: 60,
+      shapeType: 'rect',
+      fill: '#ff3366',
+    });
+    node.attrs = { ...(node.attrs || {}), frameId, name: 'shape' };
+    let nextDoc = addNodeToDocument(state.document!, id, node);
+    // Host is 0,0 under frameLocal after ensure.
+    const host = nextDoc.deltaSetLike![hostId];
+    if (host && String(nextDoc.coordSpace) === 'frameLocal') {
+      nextDoc = {
+        ...nextDoc,
+        deltaSetLike: {
+          ...nextDoc.deltaSetLike,
+          [hostId]: { ...host, x: 0, y: 0 },
+        },
+      };
+    }
+    state = reduceEditor(state, editorReducers.setDocumentFromCanvas, nextDoc);
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+
+    const layersBefore = parseLottieAnimationData(
+      state.document!.deltaSetLike![hostId].attrs?.animationData
+    )!.layers as any[];
+    const countBefore = layersBefore.length;
+
+    // Move only the plate (world x/y). Host stays at 0,0 under frameLocal.
+    state = reduceEditor(state, editorReducers.updateArtboardFrames, {
+      patches: [{ id: frameId, patch: { x: 200, y: 180 } }],
+      skipHistory: true,
+    });
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+    state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, {
+      frameId,
+      skipHistory: true,
+    });
+
+    const layersAfter = parseLottieAnimationData(
+      state.document!.deltaSetLike![hostId].attrs?.animationData
+    )!.layers as any[];
+    expect(layersAfter.length).toBe(countBefore);
+    expect(layersAfter.filter((l) => String(l.nm) === 'shape').length).toBe(1);
+  });
+
   it('delete → undo bumps documentRevision so timeline layers restore', async () => {
     let state = seed();
     state = reduceEditor(state, editorReducers.spawnAnimationBoard, { x: 0, y: 0, width: 400, height: 400 });

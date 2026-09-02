@@ -51,7 +51,7 @@ import {
   type SceneRenderRequest,
   type SceneRenderer,
 } from '@/components/rcb/render/sceneRenderer';
-import { hasFrameClipRevealOverflow } from '@/components/rcb/frames/frameContentClip';
+import { hasFrameClipRevealOverflow, hasSelectionPaintRaise } from '@/components/rcb/frames/frameContentClip';
 import {
   buildNormalizedDepthLookup,
   gpuDofSkipsSoaTileBake,
@@ -620,15 +620,14 @@ export function createWebglSceneRenderer(
 
       let usedBakeAtlas = false;
       const skipBake = gpuDofSkipsSoaTileBake();
-      // Bake tiles stamp clipped ink — skip while selection reveals overflow
-      // (same gate as canvas2d) or nodes are mid-TransformPreview.
-      // GPU DOF uses full-res FBO instead of CPU tile bake.
+      // Bake tiles stamp locked z-order — skip while selection raise / reveal.
       if (
         !skipBake &&
         atlas &&
         shouldUseSoaBake(buf) &&
         !hasNodeTransformPreviews() &&
-        !hasFrameClipRevealOverflow()
+        !hasFrameClipRevealOverflow() &&
+        !hasSelectionPaintRaise()
       ) {
         let cache = getSharedSoaBakeCache();
         if (!cache || cache.bufferRevision !== buf.revision) {

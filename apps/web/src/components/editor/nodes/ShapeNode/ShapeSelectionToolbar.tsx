@@ -58,6 +58,8 @@ import {
   starInnerRatioFromAttrs,
   ellipseInnerRatioFromAttrs,
   ellipseArcPercentFromAttrs,
+  getLiveShapeParamsPreview,
+  subscribeLiveShapeParamsPreview,
   strokeEndpointsFromBox,
   strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
@@ -161,13 +163,23 @@ function ShapeSelectionToolbar({
     shapeType === 'star'
       ? t('editor.selectionToolbar.pointPrefix')
       : t('editor.selectionToolbar.sidePrefix');
-  const sides = sidesFromAttrs(node?.attrs);
+  const liveShapeParams = useSyncExternalStore(
+    subscribeLiveShapeParamsPreview,
+    () => getLiveShapeParamsPreview(nodeId),
+    () => null
+  );
+  const sides = liveShapeParams?.sides ?? sidesFromAttrs(node?.attrs);
   const showStarInnerRadius = shapeType === 'star';
-  const starInnerRadiusPct = Math.round(starInnerRatioFromAttrs(node?.attrs) * 100);
+  const starInnerRadiusPct = Math.round(
+    (liveShapeParams?.starInnerRatio ?? starInnerRatioFromAttrs(node?.attrs)) * 100
+  );
   const showEllipseControls =
     shapeType === 'circle' || shapeType === 'ellipse' || node.key === 'ellipse';
-  const ellipseInnerRadiusPct = Math.round(ellipseInnerRatioFromAttrs(node?.attrs) * 100);
-  const ellipseArcPercent = ellipseArcPercentFromAttrs(node?.attrs);
+  const ellipseInnerRadiusPct = Math.round(
+    (liveShapeParams?.ellipseInnerRatio ?? ellipseInnerRatioFromAttrs(node?.attrs)) * 100
+  );
+  const ellipseArcPercent =
+    liveShapeParams?.ellipseArcPercent ?? ellipseArcPercentFromAttrs(node?.attrs);
   const aspectLocked = readAspectLocked(node?.attrs);
   const isOpenStroke = shapeType === 'line' || shapeType === 'arrow';
   const isFreehandStroke = shapeType === 'pen' || shapeType === 'pencil';

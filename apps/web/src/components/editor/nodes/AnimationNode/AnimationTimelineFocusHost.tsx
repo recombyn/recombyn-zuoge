@@ -146,16 +146,20 @@ function AnimationTimelineFocusHost({
       ? resolveAnimationFrameId(document, document.deltaSetLike?.[timelineNodeId])
       : null;
 
+  // Focus only — do not depend on `document`. Open/ensure/playhead all swap the
+  // document ref; re-running SOA visibility + full idle repaint on each swap
+  // froze Keyframes open for large LOT plates.
   useLayoutEffect(() => {
     setAnimationWorkbenchTimelineFocus(focusFrameId);
-    if (document && isSoaCanvasShapesEnabled()) {
-      refreshSoaOverlayVisibilityFromDocument(getSharedSceneRenderBuffer(), document);
+    const doc = documentRef.current;
+    if (doc && isSoaCanvasShapesEnabled()) {
+      refreshSoaOverlayVisibilityFromDocument(getSharedSceneRenderBuffer(), doc);
     }
     requestIdleCanvasFullRepaint();
     return () => {
       if (!focusFrameId) setAnimationWorkbenchTimelineFocus(null);
     };
-  }, [focusFrameId, document]);
+  }, [focusFrameId]);
 
   useEffect(() => {
     let cancelled = false;

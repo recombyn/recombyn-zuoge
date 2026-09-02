@@ -24,7 +24,7 @@
 
 # zuoge
 
-An open-source AI design workspace. Infinite vector canvas, LangGraph Design Agent, and an MCP server so tools like Codex can read and edit the same projects — self-host with Docker Compose.
+An open-source AI design workspace. Document-derived **SoA** infinite artboard, LangGraph Design Agent, and an MCP server so tools like Codex can read and edit the same projects — self-host with Docker Compose.
 
 **Make it — design has never been this simple.**
 
@@ -32,7 +32,7 @@ An open-source AI design workspace. Infinite vector canvas, LangGraph Design Age
 
 ## ✨ Features
 
-🎨 **Infinite canvas** — Vector scenes (`SceneDocument`) with zoom from 5% to 10000%, SVG nodes, Path2D hit testing, and Canvas2D LOD.
+🎨 **Infinite SoA artboard** — `SceneDocument` is the only truth; paint/pick use a document-derived Structure-of-Arrays buffer (`SceneRenderBuffer` + quadtree) on Canvas2D vector ink. Zoom 5%–10000%. Geometry hit (Path2D / SoA samples) — not an SVG-DOM editor runtime. DOM hosts stay for text caret, media FO, SoftGlow, and path editors. See [canvas-architecture.md](docs/canvas-architecture.md) / [ADR 0027](docs/adr/0027-canvas-layered-runtime.md).
 
 🤖 **Design Agent** — Streaming chat on the same canvas: plan → Skills → `tool_ops` → apply. Fixed LangGraph kernel; behavior from AgentProfile YAML, stage prompts, Skills, and the tool registry.
 

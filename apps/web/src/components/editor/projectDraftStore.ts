@@ -80,20 +80,111 @@ function idbReq<T>(req: IDBRequest<T>): Promise<T> {
   });
 }
 
+function fnv1aUpdate(h: number, s: string): number {
+  let next = h;
+  for (let i = 0; i < s.length; i += 1) {
+    next ^= s.charCodeAt(i);
+    next = Math.imul(next, 16777619);
+  }
+  return next;
+}
+
+function fnv1aFinish(h: number, approxLen: number): string {
+  return `${(h >>> 0).toString(36)}:${approxLen}`;
+}
+
+/**
+ * Stream-hash a scene document without `JSON.stringify` of the whole tree.
+ * Full stringify froze paste/autosave at 2k–10k nodes (multi-MB strings).
+ */
+function hashSceneDocument(doc: SceneDocument): string {
+  let h = 2166136261;
+  let approxLen = 64;
+  const meta = [
+    String(doc.width ?? ''),
+    String(doc.height ?? ''),
+    String(doc.backgroundColor ?? ''),
+    String(doc.activeFrameId ?? ''),
+    String(doc.coordSpace ?? ''),
+    String(doc.gridSize ?? ''),
+  ].join('\0');
+  h = fnv1aUpdate(h, meta);
+  approxLen += meta.length;
+
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  h = fnv1aUpdate(h, `f:${frames.length}`);
+  for (const f of frames) {
+    if (!f || typeof f !== 'object') continue;
+    const row = `${f.id}\0${f.x}\0${f.y}\0${f.width}\0${f.height}\0${f.kind ?? ''}`;
+    h = fnv1aUpdate(h, row);
+    approxLen += row.length;
+  }
+
+  const order = Array.isArray(doc.stackOrder) ? doc.stackOrder : [];
+  h = fnv1aUpdate(h, `o:${order.length}`);
+  for (let i = 0; i < order.length; i += 1) {
+    h = fnv1aUpdate(h, String(order[i] ?? ''));
+  }
+  approxLen += order.length * 8;
+
+  const delta = doc.deltaSetLike && typeof doc.deltaSetLike === 'object' ? doc.deltaSetLike : {};
+  // Order-independent mix — avoid Object.keys().sort() on 10k ids (autosave/paste).
+  let nodeCount = 0;
+  for (const id of Object.keys(delta)) {
+    nodeCount += 1;
+    const node = delta[id] as
+      | {
+          key?: unknown;
+          x?: unknown;
+          y?: unknown;
+          width?: unknown;
+          height?: unknown;
+          attrs?: Record<string, unknown>;
+        }
+      | null
+      | undefined;
+    if (!node || typeof node !== 'object') {
+      h = (h ^ fnv1aUpdate(2166136261, id)) >>> 0;
+      continue;
+    }
+    const attrs = node.attrs;
+    const row = [
+      id,
+      String(node.key ?? ''),
+      String(node.x ?? ''),
+      String(node.y ?? ''),
+      String(node.width ?? ''),
+      String(node.height ?? ''),
+      String(attrs?.frameId ?? ''),
+      String(attrs?.frameOrder ?? ''),
+      String(attrs?.['fill-color'] ?? attrs?.fill ?? ''),
+      String(attrs?.shapeType ?? ''),
+    ].join('\0');
+    h = (h ^ fnv1aUpdate(2166136261, row)) >>> 0;
+    approxLen += row.length;
+  }
+  h = fnv1aUpdate(h, `n:${nodeCount}`);
+  approxLen += nodeCount * 8;
+  return fnv1aFinish(h, approxLen);
+}
+
 /** Cheap stable fingerprint for skip-upload (not cryptographic). */
 export function hashDocument(document: unknown): string {
+  if (
+    document &&
+    typeof document === 'object' &&
+    document !== null &&
+    'deltaSetLike' in document
+  ) {
+    return hashSceneDocument(document as SceneDocument);
+  }
   let s = '';
   try {
     s = JSON.stringify(document) || '';
   } catch {
     s = String(document);
   }
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return `${(h >>> 0).toString(36)}:${s.length}`;
+  return fnv1aFinish(fnv1aUpdate(2166136261, s), s.length);
 }
 
 const CANVAS_META_KEYS = [

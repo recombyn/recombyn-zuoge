@@ -1,6 +1,7 @@
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 /**
  * HTML audio plates over SVG hit-targets (same lattice as Video/Lottie overlays).
+ * Idle (unselected) audio paints as canvas plates — no ShapeHost / FO.
  * Title lives on selection chrome only — plate shows waveform + transport.
  * Stays visible during move/resize (geometryOverrides) — SVG underlay has no real poster.
  */
@@ -15,6 +16,7 @@ import {
   memo,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useSelector } from '@/store';
 import { useRcbCamera } from '@/components/rcb';
 import {
   isAudioNode,
@@ -55,6 +57,34 @@ const audioHosts = new Map<string, AudioHostApi>();
 
 export function getAudioHost(nodeId: string): AudioHostApi | null {
   return audioHosts.get(String(nodeId)) || null;
+}
+
+/** Which audio node owns the sole HTML player (tool panel → last selected → sole on board). */
+export function resolveActiveAudioPlayerId(opts: {
+  document: SceneDocument | null | undefined;
+  selectedNodeIds: readonly string[];
+  audioToolPanel?: null | { nodeId?: string; kind?: string };
+}): string | null {
+  const { document, selectedNodeIds, audioToolPanel } = opts;
+  const children: string[] = document?.deltaSetLike?.ROOT?.children || [];
+
+  const audioWithSrc = (id: string): boolean => {
+    const node = document?.deltaSetLike?.[id];
+    if (!isAudioNode(node)) return false;
+    return Boolean(String(node?.attrs?.src || '').trim());
+  };
+
+  const toolId = String(audioToolPanel?.nodeId || '').trim();
+  if (toolId && audioWithSrc(toolId)) return toolId;
+
+  const selected = selectedNodeIds.map(String).filter(Boolean).filter(audioWithSrc);
+  if (selected.length > 0) {
+    return selected[selected.length - 1] || null;
+  }
+
+  const onBoard = children.filter(audioWithSrc);
+  if (onBoard.length === 1) return onBoard[0] || null;
+  return null;
 }
 
 function clampSpeed(value: unknown): number {
@@ -399,8 +429,10 @@ function AudioPlate({
 }
 
 /**
- * Idle = HTML waveform portaled into the SVG foreignObject mount (unified stack).
- * Stays mounted/visible during move — `geometryOverrides` tracks the chrome.
+ * Active audio player: one HTML plate portaled into the SVG foreignObject.
+ * Idle (unselected) audio paints as canvas plates — no ShapeHost / FO.
+ * Stays mounted during move — FO is inside the SVG group that
+ * `previewSvgNodeGeometry` transforms (same as video).
  */
 function AudioNodeOverlay({
   document,
@@ -418,30 +450,35 @@ function AudioNodeOverlay({
       return z;
     });
   }, []);
-  const ids = useMemo(() => {
-    const children: string[] = document?.deltaSetLike?.ROOT?.children || [];
-    return children.filter((id) => {
-      const node = document?.deltaSetLike?.[id];
-      if (!isAudioNode(node)) return false;
-      return Boolean(String(node?.attrs?.src || '').trim());
-    });
-  }, [document]);
+  const audioToolPanel = useSelector(
+    (state: any) => state.editor.audioToolPanel as null | { nodeId?: string; kind?: string }
+  );
+  const selectedNodeIds = useSelector(
+    (state: any) => (state.editor.selectedNodeIds as string[] | undefined) || []
+  );
+  const playerNodeId = useMemo(
+    () =>
+      resolveActiveAudioPlayerId({
+        document,
+        selectedNodeIds,
+        audioToolPanel,
+      }),
+    [document, selectedNodeIds, audioToolPanel]
+  );
 
-  if (!ids.length) return null;
+  if (!playerNodeId) return null;
 
   return (
     <>
       <AudioZoomSync onZoom={onZoom} />
-      {ids.map((nodeId) => (
-        <AudioPlateHost
-          key={nodeId}
-          nodeId={nodeId}
-          document={document}
-          zoom={zoom}
-          hidden={hidden}
-          geometryOverrides={geometryOverrides}
-        />
-      ))}
+      <AudioPlateHost
+        key={playerNodeId}
+        nodeId={playerNodeId}
+        document={document}
+        zoom={zoom}
+        hidden={hidden}
+        geometryOverrides={geometryOverrides}
+      />
     </>
   );
 }

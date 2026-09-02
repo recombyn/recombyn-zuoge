@@ -7,7 +7,8 @@
 import * as Y from 'yjs';
 import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
 import {
-  normalizeDocument
+  normalizeDocument,
+  uniqueStringIds,
 } from '@/components/rcb/scene/document/sceneDocument';
 
 export const Y_ORIGIN_LOCAL = 'local';
@@ -119,7 +120,7 @@ function readPageChildren(scene: any): string[] {
     (Array.isArray(scene?.pages?.[0]?.children) && scene.pages[0].children) ||
     (Array.isArray(delta.ROOT?.children) && delta.ROOT.children) ||
     [];
-  return fromPage.filter(Boolean).map(String);
+  return uniqueStringIds(fromPage);
 }
 
 function readStackOrder(scene: any): string[] {
@@ -189,7 +190,7 @@ export function sceneFromYDoc(doc: Y.Doc): any {
   const stackOrder = yStackOrder(doc);
 
   const deltaSetLike: Record<string, any> = {
-    ROOT: { children: pageChildren.toArray().map(String) },
+    ROOT: { children: uniqueStringIds(pageChildren.toArray()) },
   };
   nodes.forEach((node, id) => {
     deltaSetLike[String(id)] = cloneJson(node);
@@ -213,7 +214,7 @@ export function sceneFromYDoc(doc: Y.Doc): any {
     activeFrameId: meta.get('activeFrameId') ?? null,
     activePageId: pageId,
     frames: frameList,
-    pages: [{ id: pageId, children: pageChildren.toArray().map(String) }],
+    pages: [{ id: pageId, children: uniqueStringIds(pageChildren.toArray()) }],
     deltaSetLike,
     stackOrder: stackOrder.toArray().map(String),
   };

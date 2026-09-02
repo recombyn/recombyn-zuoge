@@ -7,7 +7,7 @@ import {
   snapCoordToGrid,
 } from '@/components/rcb/selection/alignGuides';
 import {
-  addNodeToDocument,
+  addNodesToDocument,
   cloneSceneValue,
   getActivePage,
   listSceneNodes,
@@ -19,6 +19,7 @@ import { strokeVisualOutset } from './sceneEffects';
 import {
   SceneNodeSchema,
   type SceneDocument,
+  type SceneNode,
 } from '@/components/rcb/sceneNode';
 
 /** Copy / cut / paste / artboard selection expansion. */
@@ -235,28 +236,66 @@ export function snapshotFramesForClipboard(
   return out;
 }
 
+/** Shallow COW shell for trusted paste — share node objects, exclusive containers. */
+function shallowDocumentShell(doc: SceneDocument): SceneDocument {
+  return {
+    ...doc,
+    deltaSetLike: { ...(doc.deltaSetLike || {}) },
+    frames: Array.isArray(doc.frames) ? doc.frames.slice() : [],
+    pages: Array.isArray(doc.pages)
+      ? doc.pages.map((p) =>
+          p && typeof p === 'object'
+            ? {
+                ...p,
+                children: Array.isArray(p.children) ? [...p.children] : p.children,
+              }
+            : p
+        )
+      : doc.pages,
+    stackOrder: Array.isArray(doc.stackOrder) ? [...doc.stackOrder] : doc.stackOrder,
+  };
+}
+
 /**
  * Paste clipboard nodes + artboards with new ids.
  * - Default: nudge by offset (keyboard paste).
  * - `anchor`: place union top-left at that scene point (context-menu paste).
+ * - `trusted`: skip Zod (internal memory clip already validated at copy).
  * Final path/artboard origins snap to the document grid (same lattice as move).
  */
 export function pasteClipboardIntoDocument(
   doc: SceneDocument,
   clipboard: SceneClipboardPayload | null | undefined,
-  opts?: { offsetX?: number; offsetY?: number; anchor?: { x: number; y: number } }
-): { document: SceneDocument; ids: string[]; frameIds: string[] } {
-  const checked = validateSceneClipboard(clipboard);
-  if (!checked.valid) {
-    return { document: doc, ids: [], frameIds: [] };
+  opts?: {
+    offsetX?: number;
+    offsetY?: number;
+    anchor?: { x: number; y: number };
+    trusted?: boolean;
   }
-  const clip = checked.data;
+): { document: SceneDocument; ids: string[]; frameIds: string[] } {
+  let clip: SceneClipboardPayload;
+  if (opts?.trusted) {
+    if (!clipboard || (!(clipboard.nodes?.length) && !(clipboard.frames?.length))) {
+      return { document: doc, ids: [], frameIds: [] };
+    }
+    clip = clipboard;
+  } else {
+    const checked = validateSceneClipboard(clipboard);
+    if (!checked.valid) {
+      return { document: doc, ids: [], frameIds: [] };
+    }
+    clip = checked.data;
+  }
   const hasNodes = Boolean(clip.nodes?.length);
   const hasFrames = Boolean(clip.frames?.length);
   if (!doc || (!hasNodes && !hasFrames)) {
     return { document: doc, ids: [], frameIds: [] };
   }
-  let next = normalizeDocument(doc);
+  // Live store docs are already normalized (frameLocal). Full normalizeDocument
+  // walks every node twice via addNodesToDocument — skip on trusted paste.
+  const liveTrusted =
+    Boolean(opts?.trusted) && String(doc.coordSpace || '') === 'frameLocal';
+  let next = liveTrusted ? shallowDocumentShell(doc) : normalizeDocument(doc);
   const gridSize = getDocumentGridSize(next);
   const idMap = new Map<string, string>();
   const groupMap = new Map<string, string>();
@@ -274,6 +313,7 @@ export function pasteClipboardIntoDocument(
     }
   }
 
+  const prepared: Array<{ id: string; node: SceneNode }> = [];
   const newIds: string[] = [];
   (clip.nodes || []).forEach(({ id, node: raw }) => {
     const node = cloneSceneValue(raw);
@@ -311,9 +351,12 @@ export function pasteClipboardIntoDocument(
         ...(mappedFrameId ? { frameId: mappedFrameId } : { frameId: undefined }),
       };
     }
-    next = addNodeToDocument(next, newId, node);
+    prepared.push({ id: newId, node });
     newIds.push(newId);
   });
+  if (prepared.length) {
+    next = addNodesToDocument(next, prepared, liveTrusted ? { skipNormalize: true } : undefined);
+  }
 
   const newFrameIds: string[] = [];
   if (clip.frames?.length) {

@@ -89,7 +89,7 @@ export async function openBlankEditor(page: Page, namePrefix = 'canvas-product')
     throw new Error('editor behind login');
   }
   await expect(
-    page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
+    page.getByRole('button', { name: /Image generator|图像生成器/i }).first()
   ).toBeVisible({ timeout: 45_000 });
   const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
   await expect(stage).toBeVisible({ timeout: 45_000 });
@@ -116,6 +116,70 @@ export async function openLayers(page: Page) {
     await layersBtn.click({ force: true });
     await sleep(200);
   }
+}
+
+export async function waitForEditorToolbar(page: Page) {
+  await expect(
+    page.getByRole('button', { name: /Smart frame|智能画板/i }).first()
+  ).toBeVisible({ timeout: 45_000 });
+  await sleep(300);
+}
+
+export function stageIdleCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const ink =
+      document.querySelector('[data-rcb-idle-ink-canvas="1"]') ||
+      document.querySelector('[data-rcb-shapes-layer="1"]') ||
+      document.querySelector('[data-rcb-canvas="1"]');
+    const raw = ink?.getAttribute('data-rcb-canvas-idle-count') || '0';
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  });
+}
+
+export function documentShapeCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const layer = document.querySelector('[data-rcb-shapes-layer="1"]');
+    const idle = Number(
+      document.querySelector('[data-rcb-idle-ink-canvas="1"]')?.getAttribute('data-rcb-canvas-idle-count') ||
+        layer?.getAttribute('data-rcb-canvas-idle-count') ||
+        '0'
+    );
+    const visible = Number(layer?.getAttribute('data-rcb-visible-count') || '0');
+    const fullHost = Number(layer?.getAttribute('data-rcb-full-host-count') || '0');
+    const hosts = document.querySelectorAll('[data-rcb-shape-host]').length;
+    const svgNodes = document.querySelectorAll('[data-scene-node-id]').length;
+    const wBox = document.querySelector('[role="textbox"][name="W"], input[aria-label="W"]') as
+      | HTMLInputElement
+      | null;
+    const toolbarShape = wBox?.value && Number(wBox.value) > 0 ? 1 : 0;
+    return Math.max(idle, visible, fullHost, hosts, svgNodes, toolbarShape);
+  });
+}
+
+export async function shapeInkSignals(page: Page): Promise<number> {
+  return documentShapeCount(page);
+}
+
+export async function expectShapeInk(page: Page, min = 1, timeout = 15_000) {
+  await expect
+    .poll(async () => shapeInkSignals(page), { timeout, intervals: [200, 400, 800, 1200] })
+    .toBeGreaterThanOrEqual(min);
+}
+
+/** Selection chrome may use data-sel-box (current) or legacy data-rcb-sel-box probes. */
+export const CHROME_SEL =
+  '[data-sel-box], [data-rcb-sel-box], [data-rcb-sel-chrome], [data-rcb-screen-chrome="1"], [data-rcb-sel-knob], [data-sel-handle]';
+
+export async function selectionChromeCount(page: Page): Promise<number> {
+  return page.locator(CHROME_SEL).count();
+}
+
+export async function clearSelection(page: Page) {
+  await page.keyboard.press('Escape');
+  await sleep(120);
+  await page.keyboard.press('Escape');
+  await sleep(200);
 }
 
 export async function expectLayerLabel(page: Page, re: RegExp, timeout = 12_000) {

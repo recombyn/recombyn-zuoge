@@ -14,13 +14,13 @@ import { createSvgBoard } from '@/components/rcb/scene/paint/sceneToSvg';
 import { append, setAttrs, setFill, setStroke, svgEl } from '@/components/rcb/scene/paint/svgDom';
 import {
   getShapeHost,
-  getSceneFramesMount,
-  getSceneFramesRoot,
   getSceneSelectionChromeMount,
+  getSceneShapesMount,
   getSceneWorldEpoch,
+  getSceneWorldRoot,
   registerShapeHost,
   subscribeShapeHosts,
-  syncFrameMountPaintOrder,
+  syncSharedMountPaintOrder,
   unregisterShapeHost,
   updateShapeHostElement,
 } from '@/components/rcb/shapes/shapeHostRegistry';
@@ -95,6 +95,11 @@ export function clearLiveArtboardFrameGeometry(ids?: readonly string[]): void {
 /** True while any artboard plate is at gesture-time geometry. */
 export function hasLiveArtboardFrameGeometry(): boolean {
   return liveArtboardGeomById.size > 0;
+}
+
+/** Frame ids with live plate geometry (plate drag repaint scope). */
+export function getLiveArtboardFrameIds(): readonly string[] {
+  return [...liveArtboardGeomById.keys()];
 }
 
 /** SoA / host ink must re-read `nodeLeftTop` when the live plate moves. */
@@ -295,13 +300,14 @@ function HtmlArtboardFrame({
     const host = hostRef.current;
     if (!host) return undefined;
 
-    const worldRoot = getSceneFramesRoot();
-    const framesMount = getSceneFramesMount();
-    if (!worldRoot || !framesMount) return undefined;
+    // Plates share the shapes mount with all node hosts — one data-z stack.
+    const worldRoot = getSceneWorldRoot();
+    const shapesMount = getSceneShapesMount();
+    if (!worldRoot || !shapesMount) return undefined;
     const { root, layer: sceneLayer, shared } = createSvgBoard(host, 1, 1, {
       infinite: true,
       sharedRoot: worldRoot,
-      sharedMount: framesMount,
+      sharedMount: shapesMount,
     });
     layerRef.current = sceneLayer;
     // createSvgBoard tags shared layers as shape; frames must not share that attr
@@ -314,8 +320,8 @@ function HtmlArtboardFrame({
     registerShapeHost({ nodeId: frame.id, root, layer: sceneLayer, el, kind: 'svg' });
     updateShapeHostElement(frame.id, el);
 
-    if (shared && framesMount && sceneLayer.parentNode === framesMount) {
-      syncFrameMountPaintOrder(framesMount);
+    if (shared && shapesMount && sceneLayer.parentNode === shapesMount) {
+      syncSharedMountPaintOrder(shapesMount);
     }
 
     return () => {
@@ -387,10 +393,10 @@ function HtmlArtboardFrame({
   useLayoutEffect(() => {
     if (layer !== 'body') return;
     const sceneLayer = layerRef.current;
-    const framesMount = getSceneFramesMount();
-    if (!sceneLayer || !framesMount || sceneLayer.parentNode !== framesMount) return;
+    const shapesMount = getSceneShapesMount();
+    if (!sceneLayer || !shapesMount || sceneLayer.parentNode !== shapesMount) return;
     sceneLayer.setAttribute('data-z', String(zIndex));
-    syncFrameMountPaintOrder(framesMount);
+    syncSharedMountPaintOrder(shapesMount);
   }, [layer, zIndex]);
   if (layer === 'label') {
     const live = resolvePaintFrameGeometry(frame);

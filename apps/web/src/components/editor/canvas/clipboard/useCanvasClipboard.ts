@@ -25,11 +25,18 @@ import {
 import { getDocumentGridSize, snapCoordToGrid } from '@/components/rcb/selection/alignGuides';
 import { rcbPlaceTextFontSize } from '@/components/rcb/core/layout';
 import {
+  commitPastedDocument,
   setDocument,
   setMixedSelection,
   setSelectedNodeId,
   setSelectedNodeIds,
+  touchDocumentRevision,
 } from '@/store/modules/editor';
+import {
+  beginPastePerf,
+  endPastePerfAfterPaint,
+  markPastePerf,
+} from '@/components/editor/sceneEvents';
 import {
   decodeClipboardSvgText,
   fileLooksLikeSvg,
@@ -40,6 +47,62 @@ import {
   readSystemPastePayload,
   type SystemPastePayload,
 } from '../systemPaste';
+
+/** Multi-select chrome + SoA in one sync commit froze 64× paste at 2k+. */
+const DEFER_PASTE_SELECTION_AT = 24;
+
+/** Coalesce dock wakes across rapid Ctrl+V — LayerPanel rebuild must not stack. */
+let pasteChromeRaf = 0;
+let pasteChromeSelect: { nodeIds: string[]; frameIds: string[] } | null = null;
+
+function schedulePasteChromeAfterPaint(sel: {
+  nodeIds: string[];
+  frameIds: string[];
+  applySelect: boolean;
+}): void {
+  if (sel.applySelect) {
+    pasteChromeSelect = { nodeIds: sel.nodeIds, frameIds: sel.frameIds };
+  }
+  if (pasteChromeRaf) return;
+  pasteChromeRaf = requestAnimationFrame(() => {
+    pasteChromeRaf = 0;
+    const pending = pasteChromeSelect;
+    pasteChromeSelect = null;
+    touchDocumentRevision();
+    if (pending) setMixedSelection(pending);
+  });
+}
+
+function commitPasteThenSelect(opts: {
+  document: unknown;
+  newIds: string[];
+  newFrameIds: string[];
+  sel: { nodeIds: string[]; frameIds: string[] };
+}): void {
+  const large =
+    opts.newIds.length + opts.newFrameIds.length >= DEFER_PASTE_SELECTION_AT;
+  commitPastedDocument({
+    document: opts.document as never,
+    patchedNodeIds: opts.newIds,
+    addedFrameIds: opts.newFrameIds,
+    // Clear prior multi-select during the SoA commit — keep 64 chrome off the
+    // critical path, then apply the new selection after paint.
+    selectedNodeIds: large ? [] : opts.sel.nodeIds,
+    selectedFrameIds: large ? [] : opts.sel.frameIds,
+  });
+  markPastePerf('commitPastedDocument', {
+    patched: opts.newIds.length,
+    selectedNodes: large ? 0 : opts.sel.nodeIds.length,
+    selectedFrames: large ? 0 : opts.sel.frameIds.length,
+    deferSelect: large,
+  });
+  endPastePerfAfterPaint();
+  schedulePasteChromeAfterPaint({
+    nodeIds: opts.sel.nodeIds,
+    frameIds: opts.sel.frameIds,
+    applySelect: large,
+  });
+}
 
 export type CanvasClipboardApi = {
   copySelected: (nodeIds?: string[], frameIds?: string[]) => boolean;
@@ -102,7 +165,8 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     onAudioFile,
     onLottiePaste,
     getPasteAnchor,
-  } = args;  const copySelected = useCallback(
+  } = args;
+  const copySelected = useCallback(
     (nodeIds?: string[], frameIds?: string[]) => {
       const doc = documentRef.current;
       if (!doc) return false;
@@ -124,12 +188,18 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         ...(frameSnap.length ? { frames: frameSnap } : {}),
       };
       internalClipboardAtRef.current = performance.now();
-      // OS clipboard: JSON clip for cross-tab paste (Zod-validated on paste).
-      try {
-        void navigator.clipboard?.writeText(JSON.stringify(clipboardRef.current));
-      } catch {
-        /* ignore — memory clipboard still works */
+      // Memory clip is ready for paste; OS JSON write is async so Ctrl+X/C
+      // with hundreds of nodes is not blocked on stringify + clipboard IPC.
+      const osPayload = clipboardRef.current;
+      async function writeOsClipboard() {
+        try {
+          if (!navigator.clipboard?.writeText) return;
+          await navigator.clipboard.writeText(JSON.stringify(osPayload));
+        } catch {
+          /* ignore — memory clipboard still works */
+        }
       }
+      writeOsClipboard();
       return true;
     },
     [
@@ -165,6 +235,9 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     (clip: SceneClipboardPayload, opts?: { anchor?: { x: number; y: number } }) => {
       const doc = documentRef.current;
       if (!doc || readOnly) return false;
+      const clipN = clip.nodes?.length || 0;
+      const liveN = Object.keys(doc.deltaSetLike || {}).length;
+      beginPastePerf(`paste clip=${clipN} live≈${liveN}`);
       const g = getDocumentGridSize(doc);
       const nudge = Math.max(10, snapCoordToGrid(10, g));
       const { document: next, ids: newIds, frameIds: newFrameIds } = pasteClipboardIntoDocument(
@@ -174,13 +247,26 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
           offsetX: nudge,
           offsetY: nudge,
           anchor: opts?.anchor,
+          trusted: true,
         }
       );
-      if (!newIds.length && !newFrameIds.length) return false;
+      markPastePerf('pasteClipboardIntoDocument', {
+        newIds: newIds.length,
+        newFrames: newFrameIds.length,
+        nextNodes: Object.keys(next.deltaSetLike || {}).length,
+      });
+      if (!newIds.length && !newFrameIds.length) {
+        endPastePerfAfterPaint();
+        return false;
+      }
       documentRef.current = next;
-      setDocument(next);
       const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
-      setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds });
+      commitPasteThenSelect({
+        document: next,
+        newIds,
+        newFrameIds,
+        sel,
+      });
       return true;
     },
     [documentRef, readOnly]
@@ -209,9 +295,18 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       }
       const expanded = resolveSelectionNodeIds(doc, nodes, frames);
       if (selectionMutationBlocked(doc, expanded.length ? expanded : nodes, frames)) return;
+      const liveN = Object.keys(doc.deltaSetLike || {}).length;
+      beginPastePerf(`dupe sel=${nodes.length} live≈${liveN}`);
       const nodeSnap = nodes.length ? snapshotNodesForClipboard(doc, nodes) : null;
       const frameSnap = snapshotFramesForClipboard(doc, frames);
-      if (!nodeSnap?.nodes?.length && !frameSnap.length) return;
+      markPastePerf('snapshot', {
+        snapNodes: nodeSnap?.nodes?.length || 0,
+        snapFrames: frameSnap.length,
+      });
+      if (!nodeSnap?.nodes?.length && !frameSnap.length) {
+        endPastePerfAfterPaint();
+        return;
+      }
       const snap: SceneClipboardPayload = {
         nodes: nodeSnap?.nodes || [],
         ...(frameSnap.length ? { frames: frameSnap } : {}),
@@ -227,13 +322,26 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         {
           offsetX,
           offsetY: 0,
+          trusted: true,
         }
       );
-      if (!newIds.length && !newFrameIds.length) return;
+      markPastePerf('pasteClipboardIntoDocument', {
+        newIds: newIds.length,
+        newFrames: newFrameIds.length,
+        nextNodes: Object.keys(next.deltaSetLike || {}).length,
+      });
+      if (!newIds.length && !newFrameIds.length) {
+        endPastePerfAfterPaint();
+        return;
+      }
       documentRef.current = next;
-      setDocument(next);
       const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
-      setMixedSelection({ nodeIds: sel.nodeIds, frameIds: sel.frameIds });
+      commitPasteThenSelect({
+        document: next,
+        newIds,
+        newFrameIds,
+        sel,
+      });
     },
     [
       activeFrameIdRef, documentRef,

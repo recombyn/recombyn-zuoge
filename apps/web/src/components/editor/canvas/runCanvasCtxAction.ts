@@ -31,6 +31,7 @@ import {
   spawnImageGenerator,
   spawnVideoGenerator,
   spawnAnimationBoard,
+  spawnLottieGeneratorPlate,
   spawnAudioGenerator,
   undo,
   redo,
@@ -174,6 +175,7 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
     action === 'spawnImageGenerator' ||
     action === 'spawnVideoGenerator' ||
     action === 'spawnAnimationBoard' ||
+    action === 'spawnLottieGenerator' ||
     action === 'spawnAudioGenerator'
   ) {
     if (
@@ -202,6 +204,12 @@ export function runCanvasCtxAction(action: CtxAction, deps: RunCanvasCtxActionDe
         fit: { minRatio: 0.22, maxRatio: 0.42 },
         nameKey: 'editor.tools.animationBoard' as const,
         spawn: spawnAnimationBoard,
+      },
+      spawnLottieGenerator: {
+        natural: { width: 512, height: 512 },
+        fit: { minRatio: 0.22, maxRatio: 0.4 },
+        nameKey: 'editor.tools.lottieGenerator' as const,
+        spawn: spawnLottieGeneratorPlate,
       },
       spawnAudioGenerator: {
         natural: { ...MEDIA_PLACE_DEFAULT },

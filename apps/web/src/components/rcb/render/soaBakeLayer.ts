@@ -216,6 +216,143 @@ export function unionSoaDirtyAabb(buf: SceneRenderBuffer): SoaWorldBounds | null
   };
 }
 
+/** Cross-frame dirty union so preview moves toward origin still erase prior ink. */
+let gestureInkDirtyAccum: SoaWorldBounds | null = null;
+
+function unionWorldBounds(
+  a: SoaWorldBounds | null,
+  b: SoaWorldBounds | null
+): SoaWorldBounds | null {
+  if (!a) return b;
+  if (!b) return a;
+  const left = Math.min(a.left, b.left);
+  const top = Math.min(a.top, b.top);
+  const right = Math.max(a.left + a.width, b.left + b.width);
+  const bottom = Math.max(a.top + a.height, b.top + b.height);
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+/** Fold current SoA dirty AABB into the gesture accum (call after markSoaDirty*). */
+export function accumulateSoaGestureDirtyFromBuffer(buf: SceneRenderBuffer): void {
+  gestureInkDirtyAccum = unionWorldBounds(gestureInkDirtyAccum, unionSoaDirtyAabb(buf));
+}
+
+export function peekSoaGestureDirtyAccum(): SoaWorldBounds | null {
+  return gestureInkDirtyAccum;
+}
+
+export function clearSoaGestureDirtyAccum(): void {
+  gestureInkDirtyAccum = null;
+}
+
+/** Replace gesture accum (e.g. pan reveal strips) without reading SoA slots. */
+export function seedSoaGestureDirtyAccum(bounds: SoaWorldBounds | null): void {
+  gestureInkDirtyAccum = bounds;
+}
+
+function clearCanvasEdgeStrip(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  dx: number,
+  dy: number
+): void {
+  if (dx > 0) ctx.clearRect(0, 0, dx, h);
+  if (dx < 0) ctx.clearRect(w + dx, 0, -dx, h);
+  if (dy > 0) ctx.clearRect(0, 0, w, dy);
+  if (dy < 0) ctx.clearRect(0, h + dy, w, -dy);
+}
+
+/**
+ * Shift an HTML canvas bitmap by CSS-px pan delta, then clear the uncovered
+ * edge strips. Used so camera pan need not full-clear idle ink.
+ */
+export function blitHtmlCanvasCssOffset(
+  canvas: HTMLCanvasElement | null | undefined,
+  dxCss: number,
+  dyCss: number,
+  dpr: number
+): boolean {
+  if (!canvas) return false;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+  const scale = dpr > 0 ? dpr : 1;
+  const dx = Math.round(dxCss * scale);
+  const dy = Math.round(dyCss * scale);
+  if (dx === 0 && dy === 0) return true;
+  const w = canvas.width;
+  const h = canvas.height;
+  if (w < 1 || h < 1) return false;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'copy';
+  ctx.drawImage(canvas, dx, dy);
+  ctx.globalCompositeOperation = 'source-over';
+  clearCanvasEdgeStrip(ctx, w, h, dx, dy);
+  ctx.restore();
+  return true;
+}
+
+function absorbSceneRect(
+  into: { left: number; top: number; right: number; bottom: number; any: boolean },
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): void {
+  if (w < 1e-6 || h < 1e-6) return;
+  into.any = true;
+  into.left = Math.min(into.left, x);
+  into.top = Math.min(into.top, y);
+  into.right = Math.max(into.right, x + w);
+  into.bottom = Math.max(into.bottom, y + h);
+}
+
+/**
+ * Scene AABB covering strips newly exposed by a screen-space pan
+ * (`dxCss`/`dyCss` = newCamOffset − oldCamOffset).
+ */
+export function panRevealSceneAabb(opts: {
+  dxCss: number;
+  dyCss: number;
+  view: { x: number; y: number; width: number; height: number };
+  zoom: number;
+}): SoaWorldBounds | null {
+  const z = Math.max(0.05, opts.zoom || 1);
+  const { view } = opts;
+  const dx = opts.dxCss;
+  const dy = opts.dyCss;
+  const box = {
+    left: Number.POSITIVE_INFINITY,
+    top: Number.POSITIVE_INFINITY,
+    right: Number.NEGATIVE_INFINITY,
+    bottom: Number.NEGATIVE_INFINITY,
+    any: false,
+  };
+  if (Math.abs(dx) > 0.5) {
+    const wScene = Math.abs(dx) / z + 2 / z;
+    if (dx > 0) absorbSceneRect(box, view.x, view.y, wScene, view.height);
+    else absorbSceneRect(box, view.x + view.width - wScene, view.y, wScene, view.height);
+  }
+  if (Math.abs(dy) > 0.5) {
+    const hScene = Math.abs(dy) / z + 2 / z;
+    if (dy > 0) absorbSceneRect(box, view.x, view.y, view.width, hScene);
+    else absorbSceneRect(box, view.x, view.y + view.height - hScene, view.width, hScene);
+  }
+  if (!box.any || !Number.isFinite(box.left)) return null;
+  return {
+    left: box.left,
+    top: box.top,
+    width: Math.max(1, box.right - box.left),
+    height: Math.max(1, box.bottom - box.top),
+  };
+}
+
 export function getSoaBakeCountThreshold(): number {
   try {
     const raw = Number(import.meta.env.VITE_SOA_BAKE_THRESHOLD);

@@ -223,6 +223,21 @@ function sceneOrigin(document: SceneDocument | null | undefined) {
   return { ox: num(document?.x, 0), oy: num(document?.y, 0) };
 }
 
+/** Artboard plate bounds in scene space (matches pointer / nodeLeftTop). */
+export function frameSceneBounds(
+  document: SceneDocument | null | undefined,
+  frame: { x?: unknown; y?: unknown; width?: unknown; height?: unknown },
+  live?: { x?: number; y?: number; width?: number; height?: number } | null
+): { left: number; top: number; width: number; height: number } {
+  const { ox, oy } = sceneOrigin(document);
+  return {
+    left: num(live?.x ?? frame.x, 0) - ox,
+    top: num(live?.y ?? frame.y, 0) - oy,
+    width: Math.max(1, num(live?.width ?? frame.width, 1)),
+    height: Math.max(1, num(live?.height ?? frame.height, 1)),
+  };
+}
+
 /** Bound artboard children store x/y relative to the plate (00 = frame top-left). */
 export const FRAME_LOCAL_COORD_SPACE = 'frameLocal';
 

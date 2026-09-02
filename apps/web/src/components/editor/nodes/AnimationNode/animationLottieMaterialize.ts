@@ -14,7 +14,10 @@ import {
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import { lottieLocalToScenePoint } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import { sampleLayerTransformAtFrame } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import {
+  isFrameLocalCoordSpace,
+  nodeLeftTop,
+} from '@/components/rcb/scene/paint/sceneToSvg';
 
 const LINK_KEY = 'ln';
 
@@ -128,12 +131,20 @@ export function materializeRootShapeLayers(opts: {
 
   const animW = Math.max(1, num(root.w, opts.plate.width));
   const animH = Math.max(1, num(root.h, opts.plate.height));
-  const plate = {
-    left: Number(opts.plate.x) || 0,
-    top: Number(opts.plate.y) || 0,
-    width: Math.max(1, Number(opts.plate.width) || 1),
-    height: Math.max(1, Number(opts.plate.height) || 1),
-  };
+  // frameLocal children store plate-local x/y — map Lottie with a 0,0 plate.
+  const plate = isFrameLocalCoordSpace(opts.document)
+    ? {
+        left: 0,
+        top: 0,
+        width: Math.max(1, Number(opts.plate.width) || 1),
+        height: Math.max(1, Number(opts.plate.height) || 1),
+      }
+    : {
+        left: Number(opts.plate.x) || 0,
+        top: Number(opts.plate.y) || 0,
+        width: Math.max(1, Number(opts.plate.width) || 1),
+        height: Math.max(1, Number(opts.plate.height) || 1),
+      };
 
   const layers = (root.layers as unknown[]).map((row) =>
     row && typeof row === 'object' ? { ...(row as object) } : row
