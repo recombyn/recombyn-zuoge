@@ -43,6 +43,7 @@ export {
   resolveIdleInkBackend,
   hitTestWithSpatialIndex,
   isFullDirty,
+  isNoopSoaDirtyRegion,
   dirtyTouchesNode,
   sceneBoxToScreenRect,
   resolveSoaCanvasDirtyRegion,

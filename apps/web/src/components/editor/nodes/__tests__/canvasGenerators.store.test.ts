@@ -73,6 +73,23 @@ describe('canvas generators (store)', () => {
     }
   });
 
+  it('spawnImageGenerator clears frame selection so generator chrome can mount', () => {
+    let state = seed();
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, {
+      x: 10,
+      y: 20,
+      width: 300,
+      height: 300,
+    });
+    expect(state.selectedFrameIds.length).toBe(1);
+    state = reduceEditor(state, editorReducers.spawnImageGenerator, { x: 40, y: 40 });
+    expect(state.selectedFrameIds).toEqual([]);
+    expect(state.document?.activeFrameId).toBeNull();
+    expect(String(state.selectedNodeId || '').length).toBeGreaterThan(2);
+    const node = state.document!.deltaSetLike[String(state.selectedNodeId)];
+    expect(Boolean((node.attrs as any)?.imageGenerator)).toBe(true);
+  });
+
   it('spawnAnimationBoard creates a 动画工作台 artboard', () => {
     let state = seed();
     state = reduceEditor(state, editorReducers.spawnAnimationBoard, { x: 10, y: 20, width: 300, height: 300 });
@@ -104,6 +121,29 @@ describe('canvas generators (store)', () => {
     const order = (state.document!.stackOrder || []).map(String);
     expect(order[order.length - 1]).toBe(`frame:${frameId}`);
     expect(order.indexOf(`node:${nodeId}`)).toBeLessThan(order.length - 1);
+  });
+
+  it('second spawnAnimationBoard is max layer + 1 over the first', () => {
+    let state = seed();
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, {
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200,
+    });
+    const firstId = String(state.selectedFrameIds[0] || '');
+    state = reduceEditor(state, editorReducers.spawnAnimationBoard, {
+      x: 40,
+      y: 40,
+      width: 200,
+      height: 200,
+    });
+    const secondId = String(state.selectedFrameIds[0] || '');
+    expect(secondId).toBeTruthy();
+    expect(secondId).not.toBe(firstId);
+    const order = (state.document!.stackOrder || []).map(String);
+    expect(order.indexOf(`frame:${firstId}`)).toBeLessThan(order.indexOf(`frame:${secondId}`));
+    expect(order[order.length - 1]).toBe(`frame:${secondId}`);
   });
 
   it('factory helpers produce distinct generator kinds', () => {

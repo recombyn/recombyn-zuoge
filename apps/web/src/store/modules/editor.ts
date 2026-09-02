@@ -13,7 +13,8 @@ import {
   mergeImportedIntoDocument,
   ensureDocumentContentOnCanvas,
   addNodeToDocument,
-  removeNodesFromDocument
+  removeNodesFromDocument,
+  type DocumentCanvasMetaPatch,
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
   clearImageProcessAttrs,
@@ -55,6 +56,7 @@ import { frameIsEmpty } from '@/components/rcb/frames/framePlatePointer';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import { coerceSceneDocumentInput } from '@/components/rcb/sceneNode';
 import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
+import { isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
 import { createBlankLottieAnimation } from '@/components/editor/nodes/AnimationNode/animationComposeLayers';
 import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/AnimationNode/animationFrameSync';
 import { materializeRootShapeLayers } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
@@ -92,22 +94,30 @@ import {
   writeAnimationPlaying} from '@/components/editor/nodes/AnimationNode/animationTransport';
 import {
   queueEnsureAnimationFrame,
+  queueIdleAnimationHostJson,
   requestPrecompCameraFit,
   requestPrecompCameraRelease,
   requestSoaAiFlush,
   requestSyncNestedLotHosts,
   requestTimelineCameraFit,
-  requestTimelineCameraRelease} from '@/components/editor/sceneEvents';
-import { queueEnsureAnimationFramesForDocChange } from '@/components/editor/nodes/AnimationNode/queueEnsureAnimationFramesForDocChange';
+  requestTimelineCameraRelease,
+  markPastePerf,
+} from '@/components/editor/sceneEvents';
+import { queueEnsureAnimationFramesForDocChange, nodePatchNeedsTimelineBake, frameBakeSignature } from '@/components/editor/nodes/AnimationNode/queueEnsureAnimationFramesForDocChange';
 import { notifyShapeHostGeometry } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   asHistoryEntry,
   cloneDocument,
   cloneNodeForHistory,
+  pushAddHistory as snapshotAddHistory,
   pushHistory as snapshotEditorHistory,
   pushNodePatchHistory as snapshotNodePatchHistory,
+  pushRemoveHistory as snapshotRemoveHistory,
+  redoAddHistoryEntry,
   restoreNodesIntoDocument,
   scrubNodeIdsFromHistory,
+  trimHistoryPast,
+  undoAddHistoryEntry,
   type HistoryEntry} from './editorHistory';
 
 export type { ArtboardFrame } from '@/components/rcb/frames/types';
@@ -288,16 +298,28 @@ function isTransientNodePatch(patch: unknown): boolean {
   return keys.length > 0 && keys.every((key) => TRANSIENT_NODE_ATTR_KEYS.has(key));
 }
 
-/** Flip / rotate toolbar — transform host only, do not rebuild path ink. */
-function isTransformOnlyAttrsPatch(patch: unknown): boolean {
+const GEOMETRY_NODE_KEYS = new Set(['x', 'y', 'width', 'height', 'attrs']);
+const GEOMETRY_ATTR_KEYS = new Set(['angle', 'flipX', 'flipY']);
+
+/**
+ * Pure geometry / transform commit — SoA + previewSvgNodeTransform only.
+ * Must not bump sceneReloadToken or remount RcbShapeHost.
+ */
+function isGeometryOnlyNodePatch(patch: unknown): boolean {
   if (!patch || typeof patch !== 'object') return false;
-  const attrs = (patch as { attrs?: unknown }).attrs;
-  if (!attrs || typeof attrs !== 'object') return false;
-  const keys = Object.keys(attrs as Record<string, unknown>);
-  return (
-    keys.length > 0 &&
-    keys.every((key) => key === 'angle' || key === 'flipX' || key === 'flipY')
-  );
+  const p = patch as Record<string, unknown>;
+  const keys = Object.keys(p);
+  if (!keys.length || !keys.every((k) => GEOMETRY_NODE_KEYS.has(k))) return false;
+  const hasGeom = keys.some((k) => k === 'x' || k === 'y' || k === 'width' || k === 'height');
+  if (p.attrs == null) return hasGeom;
+  if (typeof p.attrs !== 'object') return false;
+  const attrKeys = Object.keys(p.attrs as Record<string, unknown>);
+  if (!attrKeys.every((k) => GEOMETRY_ATTR_KEYS.has(k))) return false;
+  return hasGeom || attrKeys.length > 0;
+}
+
+function patchSkipsHostRemount(patch: unknown): boolean {
+  return isGeometryOnlyNodePatch(patch);
 }
 
 function isTransientFramePatch(patch: unknown): boolean {
@@ -308,6 +330,81 @@ function isTransientFramePatch(patch: unknown): boolean {
 
 function shouldSkipPatchHostReload(skipHostReload: unknown, patch: unknown): boolean {
   return Boolean(skipHostReload) || isTransientNodePatch(patch);
+}
+
+function rootChildrenIds(doc: SceneDocument | null | undefined): string[] {
+  return (doc?.deltaSetLike?.ROOT?.children || []).map(String);
+}
+
+function listChangedChildIds(
+  prevDoc: SceneDocument | null | undefined,
+  nextDoc: SceneDocument | null | undefined,
+  ids: readonly string[]
+): string[] {
+  const prevMap = prevDoc?.deltaSetLike || {};
+  const nextMap = nextDoc?.deltaSetLike || {};
+  const patched: string[] = [];
+  for (const id of ids) {
+    if (prevMap[id] !== nextMap[id]) patched.push(id);
+  }
+  return patched;
+}
+
+/** Frame ids whose plate x/y/w/h changed (frameLocal children need SoA rewrite). */
+function listMovedArtboardFrameIds(
+  prevDoc: SceneDocument | null | undefined,
+  nextDoc: SceneDocument | null | undefined
+): string[] {
+  const prevFrames = Array.isArray(prevDoc?.frames) ? prevDoc!.frames : [];
+  const nextFrames = Array.isArray(nextDoc?.frames) ? nextDoc!.frames : [];
+  if (!nextFrames.length) return [];
+  const prevById = new Map(prevFrames.map((f) => [String(f?.id), f]));
+  const out: string[] = [];
+  for (const frame of nextFrames) {
+    const id = String(frame?.id || '').trim();
+    if (!id) continue;
+    const prev = prevById.get(id);
+    if (!prev) continue;
+    if (
+      Math.round(Number(prev.x) || 0) !== Math.round(Number(frame.x) || 0) ||
+      Math.round(Number(prev.y) || 0) !== Math.round(Number(frame.y) || 0) ||
+      Math.round(Number(prev.width) || 0) !== Math.round(Number(frame.width) || 0) ||
+      Math.round(Number(prev.height) || 0) !== Math.round(Number(frame.height) || 0)
+    ) {
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+function applyCanvasDocPatchTokens(
+  state: typeof initialState,
+  prevDoc: SceneDocument | null | undefined
+): void {
+  const prevKids = rootChildrenIds(prevDoc);
+  const nextKids = rootChildrenIds(state.document);
+  const membershipChanged =
+    prevKids.length !== nextKids.length || prevKids.some((id, i) => id !== nextKids[i]);
+  if (membershipChanged) {
+    state.sceneReloadToken += 1;
+    state.lastPatchedNodeIds = [];
+    state.lastPatchTransformOnly = false;
+    return;
+  }
+  let patched = listChangedChildIds(prevDoc, state.document, nextKids);
+  // Plate-only commits leave child node identity unchanged, but frameLocal
+  // world paint boxes move — refresh those SoA slots or QT culls stale ink.
+  if (isFrameLocalCoordSpace(state.document)) {
+    const movedFrames = listMovedArtboardFrameIds(prevDoc, state.document);
+    if (movedFrames.length) {
+      const bound = nodeIdsBoundToFrames(state.document, movedFrames);
+      if (bound.length) {
+        patched = [...new Set([...patched, ...bound])];
+      }
+    }
+  }
+  state.lastPatchedNodeIds = patched;
+  state.lastPatchTransformOnly = true;
 }
 
 export function shouldClearImageToolPanelOnSelect(
@@ -392,8 +489,9 @@ function syncLibraryOnEdit(state: typeof initialState, claim = true) {
   if (String(state.currentId).startsWith('share_')) return;
   if (!(claim && isSessionTemplate(item))) return;
   item.source = 'user' as TemplateSource;
-  item.document = cloneDocument(state.document) ?? state.document;
   item.updatedAt = Date.now();
+  // Do not cloneDocument here — O(doc) on every first-edit claim froze paste
+  // at 2k–10k. Cloud/local drafts read store.document via useProjectCloudSync.
   saveTemplates(state.templates);
 }
 
@@ -742,6 +840,34 @@ function pushHistory(state: typeof initialState) {
   bumpSceneRevisionIfUnlocked(state);
 }
 
+/** Paste/dupe: O(paste) history instead of O(doc) full snap. */
+function pushAddHistory(
+  state: typeof initialState,
+  opts: {
+    nodeIds: readonly string[];
+    frameIds?: readonly string[];
+    fromDocument?: SceneDocument | null;
+  }
+) {
+  snapshotAddHistory(state, opts);
+  // Do not bump sceneRevision / documentRevision here. Both wake
+  // useEditorDocumentOnCommit (LayerPanel / AgentDock / timeline). Rebuilding
+  // docks in the same turn as SoA paste dominated paste #2+ at 2k+.
+  // Callers schedule touchDocumentRevision after paint.
+}
+
+/** Cut / delete: O(removed) history instead of O(doc) full snap. */
+function pushRemoveHistory(
+  state: typeof initialState,
+  opts: {
+    nodeIds: readonly string[];
+    frameIds?: readonly string[];
+    fromDocument?: SceneDocument | null;
+  }
+) {
+  snapshotRemoveHistory(state, opts);
+}
+
 /** Insert + select a generator plate without remounting the whole scene. */
 function commitSpawnedGenerator(
   state: typeof initialState,
@@ -758,6 +884,9 @@ function commitSpawnedGenerator(
   state.lastPatchTransformOnly = false;
   state.selectedNodeId = id;
   state.selectedNodeIds = [id];
+  // Generator chrome requires single-node selection (frame chrome otherwise wins).
+  state.selectedFrameIds = [];
+  if (state.document) state.document.activeFrameId = null;
   state.pendingImageSrc = null;
   state.activeTool = 'select';
 }
@@ -818,6 +947,7 @@ export const editorReducers = {
       state.historyPast = [];
       state.historyFuture = [];
       state.sceneReloadToken += 1;
+      bumpDocumentRevision(state);
       saveTemplates(state.templates);
     },
     openTemplate(state, action) {
@@ -835,6 +965,7 @@ export const editorReducers = {
       state.historyPast = [];
       state.historyFuture = [];
       state.sceneReloadToken += 1;
+      bumpDocumentRevision(state);
       touchOpened(item);
       saveTemplates(state.templates);
     },
@@ -853,7 +984,7 @@ export const editorReducers = {
       if (item) item.document = doc;
       state.sceneReloadToken += 1;
     },
-    setDocument(state, action) {
+    setDocument(state, action: PayloadAction<SceneDocument>) {
       pushHistory(state);
       state.document = normalizeDocument(
         preserveStageCanvasMeta(state.document, action.payload)
@@ -877,9 +1008,116 @@ export const editorReducers = {
       const focusAfterSet = String(getAnimationWorkbenchTimelineFocus() || '').trim();
       if (focusAfterSet && state.document) {
         queueEnsureAnimationFramesForDocChange(null, state.document, {
-          forceFocus: true,
+          includeFocus: true,
           skipHistory: true,
         });
+      }
+    },
+    /**
+     * Paste / duplicate commit: membership grew with known new ids.
+     * Sets `lastPatchedNodeIds` so SoA can bulk-insert instead of full remount,
+     * and skips `sceneReloadToken` (same idea as generator spawn).
+     * History stores only inserted nodes (not a full-doc snap).
+     */
+    commitPastedDocument(
+      state,
+      action: PayloadAction<{
+        document: SceneDocument;
+        patchedNodeIds?: string[];
+        /** Frames inserted with this paste (artboard clipboard). */
+        addedFrameIds?: string[];
+        /** Apply selection in the same mutator — avoids a second render that
+         * used to rewrite `document` via setMixedSelection+normalizeDocument. */
+        selectedNodeIds?: string[];
+        selectedFrameIds?: string[];
+      }>
+    ) {
+      const payload = action.payload;
+      if (!payload?.document) return;
+      const prevDoc = state.document;
+      const patched = (payload.patchedNodeIds || [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      const addedFrames = (payload.addedFrameIds || [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      // pasteClipboardIntoDocument already normalizeDocument'd — only restore
+      // stage meta if the embedded canvas forced transparent background.
+      const nextDoc = preserveStageCanvasMeta(state.document, payload.document);
+      pushAddHistory(state, {
+        nodeIds: patched,
+        frameIds: addedFrames,
+        fromDocument: nextDoc,
+      });
+      markPastePerf('pushHistory', {
+        kind: 'add',
+        nodes: patched.length,
+        frames: addedFrames.length,
+      });
+      state.document = nextDoc;
+      markPastePerf('normalizeDocument', {
+        skipped: true,
+        nodes: Object.keys(state.document.deltaSetLike || {}).length,
+      });
+      state.dirty = true;
+      state.lastPatchedNodeIds = patched;
+      state.lastPatchTransformOnly = false;
+      state.documentPatchToken += 1;
+      if (
+        state.pendingImageProcessId &&
+        !state.document?.deltaSetLike?.[state.pendingImageProcessId]
+      ) {
+        state.pendingImageProcessId = null;
+      }
+      if (payload.selectedNodeIds || payload.selectedFrameIds) {
+        const nodeIds = (payload.selectedNodeIds || [])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean);
+        const frameIdsRaw = (payload.selectedFrameIds || [])
+          .map((id) => String(id || '').trim())
+          .filter(Boolean);
+        const doc = state.document;
+        const valid = new Set(
+          (Array.isArray(doc.frames) ? doc.frames : [])
+            .map((f) => String(f?.id || ''))
+            .filter(Boolean)
+        );
+        const frameIds = Array.from(
+          new Set(frameIdsRaw.filter((id) => valid.has(id)))
+        );
+        let active = frameIds[0] || null;
+        if (!active && nodeIds.length) {
+          const bound = String(
+            doc.deltaSetLike?.[nodeIds[0]]?.attrs?.frameId || ''
+          ).trim();
+          if (bound && valid.has(bound)) active = bound;
+          else if (doc.activeFrameId && valid.has(String(doc.activeFrameId))) {
+            active = String(doc.activeFrameId);
+          }
+        }
+        const curActive =
+          doc.activeFrameId == null ? null : String(doc.activeFrameId);
+        if (curActive !== active) doc.activeFrameId = active;
+        state.selectedNodeIds = Array.from(new Set(nodeIds));
+        state.selectedNodeId = state.selectedNodeIds[0] || null;
+        state.selectedFrameIds = frameIds;
+        state.frameChromeMode = 'soft';
+        if (nodeIds.length) pauseLottieIfPlaying(state);
+        markPastePerf('selectionInCommit', {
+          selectedNodes: state.selectedNodeIds.length,
+          selectedFrames: frameIds.length,
+        });
+      }
+      syncLibraryOnEdit(state);
+      markPastePerf('syncLibraryOnEdit');
+      const focusAfterPaste = String(getAnimationWorkbenchTimelineFocus() || '').trim();
+      if (focusAfterPaste && state.document) {
+        queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
+          nodeIds: patched,
+          includeFocus: true,
+          skipHistory: true,
+        });
+        markPastePerf('queueEnsureAnimationFrames', { patched: patched.length });
       }
     },
     /**
@@ -897,8 +1135,8 @@ export const editorReducers = {
         .filter(Boolean);
       const frameIdSet = new Set(frameIds);
       const frameNodeIds = Object.values(state.document.deltaSetLike || {})
-        .filter((node) => frameIdSet.has(String(node?.attrs?.frameId || '').trim()))
-        .map((node) => String(node?.id || '').trim())
+        .filter((node: SceneNode) => frameIdSet.has(String(node?.attrs?.frameId || '').trim()))
+        .map((node: SceneNode) => String(node?.id || '').trim())
         .filter(Boolean);
       const nodeIds = [...new Set([...requestedNodeIds, ...frameNodeIds])];
       if (!nodeIds.length && !frameIds.length) return;
@@ -926,7 +1164,13 @@ export const editorReducers = {
       const undoableNodeIds = nodeIds.filter((id: string) => !ephemeralIds.includes(id));
       const hasUndoableChange = undoableNodeIds.length > 0 || frameIds.length > 0;
 
-      if (hasUndoableChange) pushHistory(state);
+      if (hasUndoableChange) {
+        pushRemoveHistory(state, {
+          nodeIds: undoableNodeIds,
+          frameIds,
+          fromDocument: state.document,
+        });
+      }
 
       let next: SceneDocument | null | undefined = state.document;
       if (nodeIds.length) next = removeNodesFromDocument(next, nodeIds);
@@ -953,7 +1197,9 @@ export const editorReducers = {
         }
       }
 
-      state.document = normalizeDocument(next);
+      // Bulk remove already reconciled stack / ROOT — skip a second normalizeDocument
+      // walk over the surviving map (that dominated Ctrl+X at a few hundred nodes).
+      state.document = next;
       if (ephemeralIds.length) scrubNodeIdsFromHistory(state, ephemeralIds);
 
       const gone = new Set(nodeIds);
@@ -981,6 +1227,8 @@ export const editorReducers = {
       // survivor (audio WaveSurfer flash on delete / select-clear).
       state.documentPatchToken += 1;
       state.lastPatchedNodeIds = nodeIds;
+      // LayerPanel / docks (not sceneReloadToken remount).
+      bumpDocumentRevision(state);
       syncLibraryOnEdit(state);
 
       if (!state.lottiePrecompEdit?.frameId) {
@@ -990,13 +1238,15 @@ export const editorReducers = {
         }
       }
     },
-    setDocumentFromCanvas(state, action) {
+    setDocumentFromCanvas(state, action: PayloadAction<SceneDocument>) {
       const prevDoc = state.document;
       state.document = normalizeDocument(
         preserveStageCanvasMeta(state.document, action.payload)
       );
       state.dirty = true;
       bumpDocumentRevision(state);
+      state.documentPatchToken += 1;
+      applyCanvasDocPatchTokens(state, prevDoc);
       if (
         state.pendingImageProcessId &&
         !state.document?.deltaSetLike?.[state.pendingImageProcessId]
@@ -1013,7 +1263,7 @@ export const editorReducers = {
       // (not only open focus — move-out must refresh the plate that lost the child).
       if (!state.lottiePrecompEdit?.frameId && state.document) {
         queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
-          forceFocus: true,
+          includeFocus: true,
           skipHistory: true,
         });
       }
@@ -1029,7 +1279,15 @@ export const editorReducers = {
       if (state.pendingImageProcessId === nodeId) state.pendingImageProcessId = null;
       syncLibraryOnEdit(state);
     },
-    patchDocumentNode(state, action) {
+    patchDocumentNode(
+      state,
+      action: PayloadAction<{
+        nodeId: string;
+        patch: Record<string, unknown> | object;
+        skipHistory?: boolean;
+        skipHostReload?: boolean;
+      }>
+    ) {
       const { nodeId, patch, skipHistory, skipHostReload } = action.payload || {};
       if (!state.document || !nodeId) return;
       const id = String(nodeId);
@@ -1048,14 +1306,17 @@ export const editorReducers = {
       // teardown that would briefly repaint the old centre-anchored box.
       const skipHost = shouldSkipPatchHostReload(skipHostReload, patch);
       state.lastPatchedNodeIds = skipHost ? [] : [id];
-      state.lastPatchTransformOnly = !skipHost && isTransformOnlyAttrsPatch(patch);
+      state.lastPatchTransformOnly = !skipHost && patchSkipsHostRemount(patch);
       // Playhead bake uses skipHistory — must not persist/autoKey or LOT tab freezes
       // (pose patch → JSON rewrite → pose differs → infinite layout loop).
       if (!skipHistory && !transientOnly) persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
       if (!skipHistory && !transientOnly && state.document) {
-        const fid = resolveAnimationFrameId(state.document, state.document.deltaSetLike?.[id]);
-        if (fid) queueEnsureAnimationFrame(fid);
+        const node = state.document.deltaSetLike?.[id];
+        if (nodePatchNeedsTimelineBake(patch, node, state.document)) {
+          const fid = resolveAnimationFrameId(state.document, node);
+          if (fid) queueEnsureAnimationFrame(fid, { skipHistory: true });
+        }
       }
     },
     /** Apply many node patches in one store write (align / distribute / flip). */
@@ -1071,19 +1332,28 @@ export const editorReducers = {
       if (!skipHistory && ids.length) pushNodePatchHistory(state, ids);
       const applied: string[] = [];
       let anyNonTransient = false;
-      // Capture prior frameIds before merge — unbind must refresh the plate that lost the child.
+      // Capture prior frameIds + bake signatures before merge.
       const priorFrameIds = new Set<string>();
+      const priorSig = new Map<string, string>();
       for (const item of patches) {
         const id = item?.nodeId ? String(item.nodeId) : '';
         if (!id || !state.document.deltaSetLike?.[id]) continue;
         const fid = resolveAnimationFrameId(state.document, state.document.deltaSetLike[id]);
         if (fid) priorFrameIds.add(fid);
       }
+      for (const fid of priorFrameIds) {
+        priorSig.set(fid, frameBakeSignature(state.document, fid));
+      }
+      let anyBakePatch = false;
       for (const item of patches) {
         const id = item?.nodeId ? String(item.nodeId) : '';
         const patch = item?.patch;
         if (!id || !patch || !state.document.deltaSetLike?.[id]) continue;
         if (!isTransientNodePatch(patch)) anyNonTransient = true;
+        const beforeNode = state.document.deltaSetLike[id];
+        if (nodePatchNeedsTimelineBake(patch, beforeNode, state.document)) {
+          anyBakePatch = true;
+        }
         state.document.deltaSetLike[id] = mergeNodePatch(state.document.deltaSetLike[id], patch);
         applied.push(id);
       }
@@ -1092,11 +1362,16 @@ export const editorReducers = {
       state.documentPatchToken += 1;
       if (!skipHistory && anyNonTransient) bumpDocumentRevision(state);
       state.lastPatchedNodeIds = applied;
-      state.lastPatchTransformOnly = false;
+      state.lastPatchTransformOnly =
+        applied.length > 0 &&
+        patches.every((item: { patch?: unknown }) => {
+          if (!item?.patch) return true;
+          return isTransientNodePatch(item.patch) || patchSkipsHostRemount(item.patch);
+        });
       if (!skipHistory) persistActivePrecompSession(state);
       syncLibraryOnEdit(state);
-      // Bake timeline for before∪after plates (skipHistory geometry used to skip ensure).
-      if (state.document) {
+      // Bake only frames whose signature actually changed (not every focus tick).
+      if (anyBakePatch && state.document) {
         const frames = new Set<string>(priorFrameIds);
         for (const nid of applied) {
           const fid = resolveAnimationFrameId(
@@ -1105,14 +1380,14 @@ export const editorReducers = {
           );
           if (fid) frames.add(fid);
         }
-        const focus = String(getAnimationWorkbenchTimelineFocus() || '').trim();
-        if (focus) frames.add(focus);
         for (const fid of frames) {
+          const before = priorSig.get(fid) ?? '';
+          if (before === frameBakeSignature(state.document, fid)) continue;
           queueEnsureAnimationFrame(fid, { skipHistory: true });
         }
       }
     },
-    setSelectedNodeId(state, action) {
+    setSelectedNodeId(state, action: PayloadAction<string | null | undefined>) {
       const id = action.payload ? String(action.payload) : null;
       // Preview / host: promote to parent 动画工作台 (workbench stays selectable).
       if (id && state.document) {
@@ -1165,7 +1440,7 @@ export const editorReducers = {
         state.shapeStylePanel = null;
       }
     },
-    setSelectedNodeIds(state, action) {
+    setSelectedNodeIds(state, action: PayloadAction<string[]>) {
       let ids = Array.isArray(action.payload) ? action.payload.filter(Boolean).map(String) : [];
       // 动画工作台内部播放宿主 / 预览态子元素：点到时改选父画板。
       if (ids.length === 1 && state.document) {
@@ -1199,8 +1474,8 @@ export const editorReducers = {
             )
         );
       }
-      state.selectedNodeIds = ids;
-      state.selectedNodeId = ids[0] || null;
+      state.selectedNodeIds = Array.from(new Set(ids));
+      state.selectedNodeId = state.selectedNodeIds[0] || null;
       // Do not clear selectedFrameIds here — marquee may select frames + nodes together.
       // Callers that want nodes-only should also call setSelectedFrameIds([]).
       if (ids.length) pauseLottieIfPlaying(state);
@@ -1223,7 +1498,10 @@ export const editorReducers = {
         ids.every((id) => panelIds.includes(id));
       if (!same) state.shapeStylePanel = null;
     },
-    addArtboardFrame(state, action) {
+    addArtboardFrame(
+      state,
+      action: PayloadAction<Partial<ArtboardFrame> & { activate?: boolean }>
+    ) {
       if (!state.document) return;
       // Timeline focus: only the current 动画工作台 is visible — a new world
       // artboard would steal activeFrameId and vanish under focus.
@@ -1232,22 +1510,15 @@ export const editorReducers = {
       const next = normalizeDocument(state.document);
       const frames = Array.isArray(next.frames) ? [...next.frames] : [];
       const payload = action.payload || {};
-      const { activate, ...framePartial } = payload as {
-        activate?: boolean;
-      } & Partial<ArtboardFrame>;
+      const { activate, ...framePartial } = payload;
       const frame = createFrame(framePartial);
       frames.push(frame);
       next.frames = frames;
       const key = `frame:${frame.id}`;
       const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
       if (!order.includes(key)) {
-        // Keep new plates with other frames (under existing nodes). Appending on
-        // top makes a remounted white/black plate cover sibling content until sync.
-        let insertAt = 0;
-        for (let i = 0; i < order.length; i += 1) {
-          if (order[i].startsWith('frame:')) insertAt = i + 1;
-        }
-        next.stackOrder = [...order.slice(0, insertAt), key, ...order.slice(insertAt)];
+        // Current max layer + 1 (5 items → new is 6).
+        next.stackOrder = [...order, key];
       }
       reconcileStackOrder(next);
       // Draw-commit = bind + clip: assign frameId to unowned overlaps so SVG
@@ -1265,12 +1536,16 @@ export const editorReducers = {
       state.sceneReloadToken += 1;
       syncLibraryOnEdit(state);
     },
-    setActiveFrameId(state, action) {
+    setActiveFrameId(state, action: PayloadAction<string | null | undefined>) {
       if (!state.document) return;
-      const next = normalizeDocument(state.document);
       const id = action.payload ? String(action.payload) : null;
-      next.activeFrameId = id;
-      state.document = next;
+      // Selection-only: do not normalizeDocument — that minted a new document
+      // identity every click and re-ran SoA sync / idle full-clear (paste freeze).
+      const cur =
+        state.document.activeFrameId == null
+          ? null
+          : String(state.document.activeFrameId);
+      if (cur !== id) state.document.activeFrameId = id;
       state.selectedFrameIds = id ? [id] : [];
       if (id) {
         state.selectedNodeId = null;
@@ -1283,23 +1558,27 @@ export const editorReducers = {
     setFrameChromeMode(state, action: PayloadAction<'soft' | 'full'>) {
       state.frameChromeMode = action.payload === 'full' ? 'full' : 'soft';
     },
-    setSelectedFrameIds(state, action) {
+    setSelectedFrameIds(state, action: PayloadAction<string[]>) {
       if (!state.document) return;
       const ids = Array.isArray(action.payload)
         ? [...new Set(action.payload.filter(Boolean).map(String))]
         : [];
-      const next = normalizeDocument(state.document);
+      const doc = state.document;
       const valid = new Set(
-        (Array.isArray(next.frames) ? next.frames : []).map((f) => f?.id).filter(Boolean)
+        (Array.isArray(doc.frames) ? doc.frames : [])
+          .map((f) => String(f?.id || ''))
+          .filter(Boolean)
       );
       const filtered = ids.filter((id) => valid.has(id));
-      next.activeFrameId = filtered[0] || null;
-      state.document = next;
+      const nextActive = filtered[0] || null;
+      const cur =
+        doc.activeFrameId == null ? null : String(doc.activeFrameId);
+      if (cur !== nextActive) doc.activeFrameId = nextActive;
       state.selectedFrameIds = filtered;
       if (filtered.length) state.frameChromeMode = 'full';
       state.dirty = true;
       for (const fid of filtered) {
-        const frame = (Array.isArray(next.frames) ? next.frames : []).find(
+        const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
           (f) => String(f?.id) === fid
         );
         if (frame && isAnimationArtboardKind(frame.kind)) {
@@ -1315,24 +1594,25 @@ export const editorReducers = {
       if (!state.document) return;
       let nodeIds = (action.payload?.nodeIds || []).filter(Boolean).map(String);
       const frameIdsRaw = (action.payload?.frameIds || []).filter(Boolean).map(String);
-      const next = normalizeDocument(state.document);
+      const doc = state.document;
       const valid = new Set(
-        (Array.isArray(next.frames) ? next.frames : [])
+        (Array.isArray(doc.frames) ? doc.frames : [])
           .map((f) => String(f?.id || ''))
           .filter(Boolean)
       );
       // Solo 动画工作台 host → select parent frame only.
       if (nodeIds.length === 1 && !frameIdsRaw.length) {
-        const host = next.deltaSetLike?.[nodeIds[0]!];
-        if (isAnimationFrameHostNode(host, next)) {
+        const host = doc.deltaSetLike?.[nodeIds[0]!];
+        if (isAnimationFrameHostNode(host, doc)) {
           const fid = String(host?.attrs?.frameId || '').trim();
           if (fid && valid.has(fid)) {
-            next.activeFrameId = fid;
-            state.document = next;
+            const cur =
+              doc.activeFrameId == null ? null : String(doc.activeFrameId);
+            if (cur !== fid) doc.activeFrameId = fid;
             state.selectedNodeIds = [];
             state.selectedNodeId = null;
             state.selectedFrameIds = [fid];
-            state.frameChromeMode = frameIsEmpty(next, fid) ? 'full' : 'soft';
+            state.frameChromeMode = frameIsEmpty(doc, fid) ? 'full' : 'soft';
             pauseLottieIfPlaying(state);
             queueEnsureAnimationFrame(fid);
             return;
@@ -1342,16 +1622,17 @@ export const editorReducers = {
       const frameIds = Array.from(new Set(frameIdsRaw.filter((id) => valid.has(id))));
       let active = frameIds[0] || null;
       if (!active && nodeIds.length) {
-        const bound = String(next.deltaSetLike?.[nodeIds[0]]?.attrs?.frameId || '').trim();
+        const bound = String(doc.deltaSetLike?.[nodeIds[0]]?.attrs?.frameId || '').trim();
         if (bound && valid.has(bound)) active = bound;
-        else if (next.activeFrameId && valid.has(String(next.activeFrameId))) {
-          active = String(next.activeFrameId);
+        else if (doc.activeFrameId && valid.has(String(doc.activeFrameId))) {
+          active = String(doc.activeFrameId);
         }
       }
-      next.activeFrameId = active;
-      state.document = next;
-      state.selectedNodeIds = nodeIds;
-      state.selectedNodeId = nodeIds[0] || null;
+      const curActive =
+        doc.activeFrameId == null ? null : String(doc.activeFrameId);
+      if (curActive !== active) doc.activeFrameId = active;
+      state.selectedNodeIds = Array.from(new Set(nodeIds));
+      state.selectedNodeId = state.selectedNodeIds[0] || null;
       state.selectedFrameIds = frameIds;
       // Marquee / interior work stays soft — title / layer panel set full explicitly.
       state.frameChromeMode = 'soft';
@@ -1384,7 +1665,12 @@ export const editorReducers = {
       const ephemeralIds = nodeIds.filter((id) =>
         isEphemeralUploadNode(state.document?.deltaSetLike?.[id])
       );
-      pushHistory(state);
+      const undoableNodeIds = nodeIds.filter((id) => !ephemeralIds.includes(id));
+      pushRemoveHistory(state, {
+        nodeIds: undoableNodeIds,
+        frameIds: ids,
+        fromDocument: state.document,
+      });
 
       let next = removeNodesFromDocument(state.document, nodeIds);
       next = normalizeDocument(next);
@@ -1449,7 +1735,10 @@ export const editorReducers = {
       state.lastPatchedNodeIds = nodeIds;
       syncLibraryOnEdit(state);
     },
-    renameArtboardFrame(state, action) {
+    renameArtboardFrame(
+      state,
+      action: PayloadAction<{ id: string; name: string; skipHistory?: boolean }>
+    ) {
       if (!state.document) return;
       const { id, name, skipHistory } = action.payload || {};
       if (!id) return;
@@ -1527,6 +1816,7 @@ export const editorReducers = {
         'processKind',
       ]);
       let needsReload = false;
+      const geomMovedIds: string[] = [];
       for (const item of patches) {
         const id = item?.id;
         const patch = item?.patch;
@@ -1535,6 +1825,14 @@ export const editorReducers = {
         if (!frame) continue;
         Object.assign(frame, patch);
         const keys = Object.keys(patch);
+        if (
+          keys.includes('x') ||
+          keys.includes('y') ||
+          keys.includes('width') ||
+          keys.includes('height')
+        ) {
+          geomMovedIds.push(String(id));
+        }
         const onlyChrome =
           keys.length > 0 &&
           keys.every((k) => chromeKeys.has(k)) &&
@@ -1550,6 +1848,16 @@ export const editorReducers = {
       state.dirty = true;
       if (!skipHistory && hasUndoablePatch) bumpDocumentRevision(state);
       if (needsReload) state.sceneReloadToken += 1;
+      // skipHistory plate drag: child nodes are unchanged but world paint boxes
+      // move under frameLocal — mark bound ids so SoA / QT refresh.
+      if (geomMovedIds.length && isFrameLocalCoordSpace(next)) {
+        const bound = nodeIdsBoundToFrames(next, geomMovedIds);
+        if (bound.length) {
+          state.lastPatchedNodeIds = bound;
+          state.documentPatchToken += 1;
+          state.lastPatchTransformOnly = true;
+        }
+      }
       syncLibraryOnEdit(state);
     },
     /** Snapshot history without changing the document (e.g. before a live frame drag). */
@@ -1598,7 +1906,11 @@ export const editorReducers = {
       if (!state.currentId || !state.document) return;
       const item = state.templates.find((t) => t.id === state.currentId);
       if (!item) return;
-      item.document = cloneDocument(state.document) ?? state.document;
+      // Autosave (keepDirty) flush already snapshots store.document into IDB —
+      // skip a second O(doc) clone that raced paste paint at 2k+ nodes.
+      if (!action.payload?.keepDirty) {
+        item.document = cloneDocument(state.document) ?? state.document;
+      }
       item.updatedAt = Date.now();
       if (isSessionTemplate(item)) item.source = 'user';
       // keepDirty: cloud push not ACKed yet — stay dirty so refresh-before-upload retries.
@@ -1741,7 +2053,17 @@ export const editorReducers = {
       bumpSceneRevisionForRemoteCollab(state);
       syncLibraryOnEdit(state);
     },
-    importDocument(state, action) {
+    importDocument(
+      state,
+      action: PayloadAction<{
+        id?: string;
+        name?: string;
+        document?: unknown;
+        source?: TemplateSource | string;
+        originCaseId?: string;
+        dirty?: boolean;
+      } | null | undefined>
+    ) {
       const payload = action.payload || {};
       const source: TemplateSource =
         payload.source === 'case' ||
@@ -1774,6 +2096,7 @@ export const editorReducers = {
           state.historyPast = [];
           state.historyFuture = [];
           state.sceneReloadToken += 1;
+          bumpDocumentRevision(state);
           saveTemplates(state.templates);
           return;
         }
@@ -1796,6 +2119,7 @@ export const editorReducers = {
         state.historyPast = [];
         state.historyFuture = [];
         state.sceneReloadToken += 1;
+        bumpDocumentRevision(state);
         saveTemplates(state.templates);
         return;
       }
@@ -1815,6 +2139,7 @@ export const editorReducers = {
       state.historyPast = [];
       state.historyFuture = [];
       state.sceneReloadToken += 1;
+      bumpDocumentRevision(state);
       saveTemplates(state.templates);
     },
     /** Spawn blank loading plate for file import (image). */
@@ -2015,6 +2340,20 @@ export const editorReducers = {
         state.document = restoreNodesIntoDocument(state.document, entry.before);
         state.documentPatchToken += 1;
         state.lastPatchedNodeIds = Object.keys(entry.before);
+      } else if (entry.kind === 'add') {
+        // Redo re-inserts the same add payload (no O(doc) snap).
+        state.historyFuture.unshift(entry);
+        const removedIds = Object.keys(entry.nodes || {});
+        state.document = undoAddHistoryEntry(state.document, entry);
+        state.documentPatchToken += 1;
+        state.lastPatchedNodeIds = removedIds;
+        // Surgical remove — do not remount survivors (audio / hosts flash).
+      } else if (entry.kind === 'remove') {
+        // Undo cut/delete: restore removed nodes (same payload as paste-add redo).
+        state.historyFuture.unshift(entry);
+        state.document = redoAddHistoryEntry(state.document, entry);
+        state.documentPatchToken += 1;
+        state.lastPatchedNodeIds = Object.keys(entry.nodes || {});
       } else {
         const currentSnap = cloneDocument(state.document);
         if (currentSnap) {
@@ -2040,7 +2379,7 @@ export const editorReducers = {
       syncLibraryOnEdit(state);
       if (!state.lottiePrecompEdit?.frameId && state.document) {
         queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
-          forceFocus: true,
+          includeFocus: true,
           skipHistory: true,
         });
       }
@@ -2059,6 +2398,20 @@ export const editorReducers = {
         state.document = restoreNodesIntoDocument(state.document, entry.before);
         state.documentPatchToken += 1;
         state.lastPatchedNodeIds = Object.keys(entry.before);
+      } else if (entry.kind === 'add') {
+        state.historyPast.push(entry);
+        trimHistoryPast(state);
+        state.document = redoAddHistoryEntry(state.document, entry);
+        state.documentPatchToken += 1;
+        state.lastPatchedNodeIds = Object.keys(entry.nodes || {});
+      } else if (entry.kind === 'remove') {
+        // Redo cut/delete: drop the nodes again.
+        state.historyPast.push(entry);
+        trimHistoryPast(state);
+        const removedIds = Object.keys(entry.nodes || {});
+        state.document = undoAddHistoryEntry(state.document, entry);
+        state.documentPatchToken += 1;
+        state.lastPatchedNodeIds = removedIds;
       } else {
         const currentSnap = cloneDocument(state.document);
         if (currentSnap) {
@@ -2078,12 +2431,12 @@ export const editorReducers = {
       syncLibraryOnEdit(state);
       if (!state.lottiePrecompEdit?.frameId && state.document) {
         queueEnsureAnimationFramesForDocChange(prevDoc, state.document, {
-          forceFocus: true,
+          includeFocus: true,
           skipHistory: true,
         });
       }
     },
-    setActiveTool(state, action) {
+    setActiveTool(state, action: PayloadAction<string>) {
       state.activeTool = action.payload;
       if (action.payload !== 'image') state.pendingImageSrc = null;
     },
@@ -2110,7 +2463,7 @@ export const editorReducers = {
       state.dirty = true;
       state.sceneReloadToken += 1;
     },
-    setCanvasMeta(state, action) {
+    setCanvasMeta(state, action: PayloadAction<DocumentCanvasMetaPatch>) {
       if (!state.document) return;
       pushHistory(state);
       state.document = setDocumentCanvasMeta(state.document, action.payload || {});
@@ -2171,7 +2524,7 @@ export const editorReducers = {
       next.frames = frames;
       const key = `frame:${frame.id}`;
       const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
-      // New 动画工作台 goes on top of the current stack (highest layer).
+      // Current max layer + 1 (5 items → new is 6).
       if (!order.includes(key)) {
         next.stackOrder = [...order, key];
       }
@@ -3043,7 +3396,10 @@ export const editorReducers = {
     closeLottieComposePanel(state) {
       state.lottieComposePanel = null;
     },
-    openLottieTimelinePanel(state, action) {
+    openLottieTimelinePanel(
+      state,
+      action: PayloadAction<{ nodeId: string; play?: boolean }>
+    ) {
       let nodeId = String(action.payload?.nodeId || '').trim();
       if (!nodeId || !state.document) return;
       let host = state.document.deltaSetLike?.[nodeId];
@@ -3096,11 +3452,16 @@ export const editorReducers = {
       host = state.document?.deltaSetLike?.[nodeId];
       const frameId = resolveAnimationFrameId(state.document, host);
       if (frameId && state.document) {
-        state.document = { ...state.document, activeFrameId: frameId };
+        // Avoid a needless document identity swap when already focused —
+        // WorkbenchHost / FocusHost used to re-ensure/repaint on every swap.
+        if (String(state.document.activeFrameId || '') !== frameId) {
+          state.document = { ...state.document, activeFrameId: frameId };
+        }
         state.selectedFrameIds = [frameId];
         // Sync module focus immediately (do not wait for React paint).
         setAnimationWorkbenchTimelineFocus(frameId);
-        queueEnsureAnimationFrame(frameId);
+        // Bake layers without history — opening the dock is not an undo step.
+        queueEnsureAnimationFrame(frameId, { skipHistory: true });
       }
       if (state.lottiePrecompEdit?.hostNodeId !== nodeId) {
         clearLottiePrecompEdit(state);
@@ -3331,7 +3692,10 @@ export const editorReducers = {
      * Syncs artboard children (shapes / images) into animationData layers.
      * Does not change selection.
      */
-    ensureAnimationFrameMedia(state, action) {
+    ensureAnimationFrameMedia(
+      state,
+      action: PayloadAction<{ frameId: string; skipHistory?: boolean }>
+    ) {
       if (!state.document) return;
       if (isAnimationWorkbenchGeometryPreview()) return;
       const frameId = String(action.payload?.frameId || '').trim();
@@ -3364,9 +3728,12 @@ export const editorReducers = {
         const hostBefore = state.document.deltaSetLike?.[hostId];
         const prevJson = String(hostBefore?.attrs?.animationData || '');
         const hasHostFlag = hostBefore?.attrs?.animationFrameHost === true;
+        const localPlate = String(state.document?.coordSpace || '') === 'frameLocal';
+        const expectX = localPlate ? 0 : Math.round(Number(frame.x) || 0);
+        const expectY = localPlate ? 0 : Math.round(Number(frame.y) || 0);
         const geomNeed =
-          Math.round(Number(hostBefore?.x) || 0) !== Math.round(Number(frame.x) || 0) ||
-          Math.round(Number(hostBefore?.y) || 0) !== Math.round(Number(frame.y) || 0) ||
+          Math.round(Number(hostBefore?.x) || 0) !== expectX ||
+          Math.round(Number(hostBefore?.y) || 0) !== expectY ||
           Math.round(Number(hostBefore?.width) || 0) !== Math.round(Number(frame.width) || 0) ||
           Math.round(Number(hostBefore?.height) || 0) !== Math.round(Number(frame.height) || 0);
         const attrsNeedHost =
@@ -3406,18 +3773,29 @@ export const editorReducers = {
         const host = next.deltaSetLike?.[hostId];
         if (!host) return;
         applyHostGeometry(host);
+        // Large LOT JSON: apply geom/child attrs now (dock can open), defer host
+        // animationData to idle so ensure does not freeze the main thread.
+        const LARGE_LOT_JSON_CHARS = 120_000;
+        const deferHostJson =
+          synced.animationJson !== prevJson &&
+          synced.animationJson.length >= LARGE_LOT_JSON_CHARS;
+        let animationData = synced.animationJson;
+        if (deferHostJson) animationData = prevJson;
         host.attrs = {
           ...(host.attrs || {}),
           ...hostAttrs,
-          animationData: synced.animationJson};
+          animationData,
+        };
         for (const p of synced.childAttrPatches) {
           const child = next.deltaSetLike?.[p.nodeId];
           if (!child) continue;
-          child.attrs = {
+          const nextAttrs: Record<string, unknown> = {
             ...(child.attrs || {}),
             lottieLayerInd: p.lottieLayerInd,
-            ...(p.lottieInFrame != null ? { lottieInFrame: p.lottieInFrame } : null),
-            ...(p.lottieOutFrame != null ? { lottieOutFrame: p.lottieOutFrame } : null)};
+          };
+          if (p.lottieInFrame != null) nextAttrs.lottieInFrame = p.lottieInFrame;
+          if (p.lottieOutFrame != null) nextAttrs.lottieOutFrame = p.lottieOutFrame;
+          child.attrs = nextAttrs;
         }
         state.document = next;
         state.dirty = true;
@@ -3425,11 +3803,19 @@ export const editorReducers = {
         // Timeline dock uses useEditorDocumentOnCommit (documentRevision only).
         // skipHistory ensure still bakes layers — must bump or 「图层」 stays
         // stale until the next touchDocumentRevision (e.g. a drag).
+        // Do not bump sceneReloadToken — host JSON is patch-only (Phase 4).
         bumpDocumentRevision(state);
         state.lastPatchedNodeIds = [hostId, ...synced.childAttrPatches.map((p) => p.nodeId)];
         state.lastPatchTransformOnly = false;
         if (!skipHistory) persistActivePrecompSession(state);
         syncLibraryOnEdit(state);
+        if (deferHostJson) {
+          queueIdleAnimationHostJson({
+            hostId,
+            animationJson: synced.animationJson,
+            skipHistory: true,
+          });
+        }
       };
 
       const bound = nodeIdsBoundToFrames(state.document, [frameId]);
@@ -3751,7 +4137,7 @@ export const editorReducers = {
     setPencilPressureEnabled(state, action) {
       state.pencilPressureEnabled = Boolean(action.payload);
     },
-    setWorkspaceMode(state, action) {
+    setWorkspaceMode(state, action: PayloadAction<'design' | 'dev'>) {
       const mode = action.payload;
       if (mode === 'design' || mode === 'dev') {
         state.workspaceMode = mode;
@@ -3890,11 +4276,20 @@ export const editorReducers = {
 export const createTemplate = bindEditorMutator(editorReducers.createTemplate);
 export const openTemplate = bindEditorMutator(editorReducers.openTemplate);
 export const setDocument = bindEditorMutator(editorReducers.setDocument);
+export const commitPastedDocument = bindEditorMutator(editorReducers.commitPastedDocument);
 export const setDocumentFromCanvas = bindEditorMutator(editorReducers.setDocumentFromCanvas);
 export const bakeDocumentOrigin = bindEditorMutator(editorReducers.bakeDocumentOrigin);
 export const removeDocumentNodes = bindEditorMutator(editorReducers.removeDocumentNodes);
 export const clearImageProcess = bindEditorMutator(editorReducers.clearImageProcess);
-export const patchDocumentNode = bindEditorMutator(editorReducers.patchDocumentNode);
+export const patchDocumentNode = bindEditorMutator<
+  typeof initialState,
+  {
+    nodeId: string;
+    patch: Record<string, unknown> | object;
+    skipHistory?: boolean;
+    skipHostReload?: boolean;
+  }
+>(editorReducers.patchDocumentNode);
 export const patchDocumentNodes = bindEditorMutator(editorReducers.patchDocumentNodes);
 export const setSelectedNodeId = bindEditorMutator(editorReducers.setSelectedNodeId);
 export const setSelectedNodeIds = bindEditorMutator(editorReducers.setSelectedNodeIds);

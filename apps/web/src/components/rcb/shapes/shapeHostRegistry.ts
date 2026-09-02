@@ -110,9 +110,6 @@ export function registerShapeHost(handle: ShapeHostHandle) {
   if (handle.layer && sceneShapesMount && handle.layer.parentNode === sceneShapesMount) {
     syncSharedMountPaintOrder(sceneShapesMount);
   }
-  if (handle.layer && sceneFramesMount && handle.layer.parentNode === sceneFramesMount) {
-    syncFrameMountPaintOrder(sceneFramesMount);
-  }
   bumpHostEpoch(handle.nodeId);
 }
 
@@ -206,34 +203,21 @@ export function getSceneFramesMount() {
   return sceneFramesMount;
 }
 
-/** Frame body plates only — sorted by data-z on the frames mount. */
-export function syncFrameMountPaintOrder(mount?: SVGGElement | null) {
-  const root = mount ?? sceneFramesMount;
-  if (!root) return;
-  const siblings: Element[] = [];
-  for (let i = 0; i < root.children.length; i += 1) {
-    const child = root.children[i];
-    if (child instanceof Element && child.hasAttribute('data-rcb-frame-layer')) {
-      siblings.push(child);
-    }
-  }
-  if (siblings.length < 2) return;
-  siblings.sort((a, b) => {
-    const za = Number(a.getAttribute('data-z')) || 0;
-    const zb = Number(b.getAttribute('data-z')) || 0;
-    return za - zb;
-  });
-  for (const g of siblings) root.appendChild(g);
-}
-
-/** SVG paint order must follow data-z (stackOrder). New layers append at mount end. */
+/**
+ * One content mount: frame plates + node hosts, sorted by data-z (`stackOrder`).
+ * Split CSS layers cannot express a unified stack — keep both layer kinds here.
+ */
 export function syncSharedMountPaintOrder(mount?: SVGGElement | null) {
   const root = mount ?? sceneShapesMount;
   if (!root) return;
   const siblings: Element[] = [];
   for (let i = 0; i < root.children.length; i += 1) {
     const child = root.children[i];
-    if (child instanceof Element && child.hasAttribute('data-rcb-shape-layer')) {
+    if (!(child instanceof Element)) continue;
+    if (
+      child.hasAttribute('data-rcb-frame-layer') ||
+      child.hasAttribute('data-rcb-shape-layer')
+    ) {
       siblings.push(child);
     }
   }

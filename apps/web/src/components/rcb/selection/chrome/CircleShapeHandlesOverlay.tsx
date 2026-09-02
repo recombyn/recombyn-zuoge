@@ -17,6 +17,8 @@ import {
   ellipseArcPercentFromAttrs,
   ellipseInnerRatioFromAttrs,
   ellipseStartDegFromAttrs,
+  patchLiveShapeParamsPreview,
+  setLiveShapeParamsPreview,
   snapEllipseInnerRatio,
 } from '@/components/rcb/scene/document/sceneShapes';
 import { patchDocumentNode } from '@/store/modules/editor';
@@ -153,7 +155,8 @@ function CircleShapeHandlesOverlay({
   stageEl: HTMLElement | null;
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();  const camera = useRcbCamera();
+  const { t } = useTranslation();
+  const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const k = 1 / z;
 
@@ -257,6 +260,7 @@ function CircleShapeHandlesOverlay({
         d.current = next;
         setDragValue(Math.round(next * 100));
         setLiveInner(next);
+        patchLiveShapeParamsPreview(nodeId, { ellipseInnerRatio: next });
         preview({ inner: next });
         return;
       }
@@ -274,6 +278,7 @@ function CircleShapeHandlesOverlay({
       d.current = next;
       setDragValue(Math.round(next * 10) / 10);
       setLiveArc(next);
+      patchLiveShapeParamsPreview(nodeId, { ellipseArcPercent: next });
       preview({ arc: next });
     };
 
@@ -286,6 +291,7 @@ function CircleShapeHandlesOverlay({
       setDragValue(null);
       setLiveInner(null);
       setLiveArc(null);
+      setLiveShapeParamsPreview(null);
 
       if (soft) {
         preview({ inner: baseInner, arc: baseArc });
@@ -308,6 +314,7 @@ function CircleShapeHandlesOverlay({
       setDragValue(null);
       setLiveInner(null);
       setLiveArc(null);
+      setLiveShapeParamsPreview(null);
       preview({ inner: baseInner, arc: baseArc });
     };
 
@@ -318,6 +325,7 @@ function CircleShapeHandlesOverlay({
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('keydown', onKey, true);
+      setLiveShapeParamsPreview(null);
     };
   }, [
     interactive,

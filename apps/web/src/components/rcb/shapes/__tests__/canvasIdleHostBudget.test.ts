@@ -83,6 +83,50 @@ function heavy(id: string) {
 }
 
 describe('pickFullAndCanvasIds (single ink path)', () => {
+  it('150 stroked rects stay on canvas ink (full-host ≈ 0)', () => {
+    const nodes: Record<string, any> = {};
+    for (let i = 0; i < 150; i += 1) {
+      nodes[`s${i}`] = {
+        id: `s${i}`,
+        key: 'shape',
+        x: (i % 15) * 50,
+        y: Math.floor(i / 15) * 50,
+        width: 40,
+        height: 40,
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#fff',
+          'stroke-enabled': true,
+          'border-color': '#111',
+          'border-width': 2,
+          strokeAlign: 'center',
+          angle: i % 3 === 0 ? 12 : 0,
+        },
+      };
+    }
+    const doc = makeDoc(nodes);
+    const ids = Object.keys(nodes);
+    // Selection of light shapes must not promote DOM hosts.
+    const selected = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ids,
+      forceFullSet: new Set(ids.slice(0, 5)),
+      zoom: 1,
+    });
+    // forceFullSet is SoftGlow/editors only in product; if misused for selection,
+    // those five become hosts — assert the other 145 stay on canvas.
+    expect(selected.fullIds.length).toBe(5);
+    expect(selected.canvasIds.length).toBe(145);
+
+    const idle = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ids,
+      zoom: 1,
+    });
+    expect(idle.fullIds).toHaveLength(0);
+    expect(idle.canvasIds).toHaveLength(150);
+  });
+
   it('puts basic rects on canvas ink, not DOM hosts', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 20; i += 1) nodes[`n${i}`] = rect(`n${i}`);
@@ -125,6 +169,33 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(fullIds).toEqual(['n0']);
     expect(canvasIds).not.toContain('n0');
     expect(canvasIds.length).toBe(39);
+  });
+
+  it('paintRaiseIds promote a world node onto the shared plate mount', () => {
+    const doc = makeDoc({ n0: rect('n0'), n1: rect('n1') });
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['n0', 'n1'],
+      paintRaiseIds: ['n0'],
+      zoom: 1,
+    });
+    expect(fullIds).toEqual(['n0']);
+    expect(canvasIds).toEqual(['n1']);
+  });
+
+  it('world node above an artboard leaves SoA for shared data-z stacking', () => {
+    const doc = makeDoc({ n0: rect('n0') });
+    doc.frames = [
+      { id: 'anim', name: 'Animation', backgroundColor: '#fff', x: 0, y: 0, width: 100, height: 100 },
+    ];
+    doc.stackOrder = ['frame:anim', 'node:n0'];
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['n0'],
+      zoom: 1,
+    });
+    expect(fullIds).toEqual(['n0']);
+    expect(canvasIds).toEqual([]);
   });
 
   it('holdHostIds keeps demote-candidate as DOM host', () => {
@@ -237,6 +308,34 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(selected.canvasIds).toEqual(['n0']);
   });
 
+  it('forceFull selected audio stays DOM host; idle audio on canvas plate', () => {
+    const audio = {
+      id: 'a0',
+      key: 'audio',
+      x: 0,
+      y: 0,
+      width: 180,
+      height: 100,
+      attrs: { src: 'https://example.com/a.mp3', audioGenerator: true },
+    };
+    const doc = makeDoc({ a0: audio, n0: rect('n0') });
+    const idle = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['a0', 'n0'],
+      zoom: 1,
+    });
+    expect(idle.fullIds).toEqual([]);
+    expect(idle.canvasIds.sort()).toEqual(['a0', 'n0']);
+    const selected = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['a0', 'n0'],
+      forceFullSet: new Set(['a0']),
+      zoom: 1,
+    });
+    expect(selected.fullIds).toEqual(['a0']);
+    expect(selected.canvasIds).toEqual(['n0']);
+  });
+
   it('multi-select videos: only the active decoder is a DOM host', () => {
     const mkVideo = (id: string) => ({
       id,
@@ -282,6 +381,17 @@ describe('canIdlePaintOnCanvas', () => {
   it('accepts solid rects and static text; rejects lottie', () => {
     expect(canIdlePaintOnCanvas(rect('n0'))).toBe(true);
     expect(canIdlePaintOnCanvas(textNode('t0'))).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        id: 'a0',
+        key: 'audio',
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 80,
+        attrs: { audioGenerator: true },
+      } as never)
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         id: 'l0',
@@ -429,3 +539,4 @@ describe('canIdlePaintOnCanvas', () => {
     ).toBe(false);
   });
 });
+

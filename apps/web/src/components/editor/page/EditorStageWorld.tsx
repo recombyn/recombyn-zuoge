@@ -48,7 +48,7 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import type { FillPanelValue } from '@/components/editor/panels/FillPanel';
 import {
-  stackZIndex,
+  selectionPaintZIndex,
 } from '@/components/rcb/scene/document/sceneDocument';
 import {
   smartSnapThreshold,
@@ -56,6 +56,7 @@ import {
 } from '@/components/rcb/selection/alignGuides';
 import {
   computeMovedUnion,
+  shouldSkipSmartGuidesForFramePlateDrag,
   smartGuideTargetsForDrag,
 } from '@/components/rcb/selection/selectionLogic';
 import { unionOfBoxes } from '@/components/rcb/selection/resizeGeometry';
@@ -474,35 +475,7 @@ function EditorStageWorld({
       const rawDy = y - baseY;
 
       const movedFrameIds = new Set(movedFrames.map((item) => item.id));
-      const isAnimPlate = movedFrames.some((item) => isAnimationArtboardKind(item.kind));
-      const dx0 = Math.round(rawDx);
-      const dy0 = Math.round(rawDy);
-
-      // Animation workbench: plate-only (frame-local). Skip O(n) snap scans — they
-      // freeze the tab when the workbench has hundreds of bound layers.
-      if (isAnimPlate) {
-        setFrameSmartGuides((prev) => (prev.length ? [] : prev));
-        if (dx0 !== 0 || dy0 !== 0) {
-          const geomPatches = movedFrames.map((moved) => ({
-            nodeId: frameSelId(moved.id),
-            left: moved.startX + dx0,
-            top: moved.startY + dy0,
-            width: moved.width,
-            height: moved.height,
-          }));
-          geometryPreviewRef.current?.(geomPatches);
-        }
-        const nextDocument = {
-          ...document,
-          frames: frames.map((item) => {
-            const moved = movedFrames.find((entry) => entry.id === item.id);
-            if (!moved) return item;
-            return { ...item, x: moved.startX + dx0, y: moved.startY + dy0 };
-          }),
-        };
-        frameMoveDocumentRef.current = getPreviewDocumentRef.current?.() ?? nextDocument;
-        return;
-      }
+      const skipPlateSnap = shouldSkipSmartGuidesForFramePlateDrag(document);
 
       const threshold = smartSnapThreshold(camera.zoom);
       const movedChildIds = new Set(nodeIdsBoundToFrames(document, [...movedFrameIds]));
@@ -531,35 +504,37 @@ function EditorStageWorld({
         document,
         dx: rawDx,
         dy: rawDy,
-        disableSnap: false,
+        disableSnap: Boolean(opts?.skipGrid) || skipPlateSnap,
         gridSize: opts?.skipGrid ? 0 : gridSize,
         axisLock: opts?.axisLock,
-        targets: smartGuideTargetsForDrag({
-          document,
-          listNodeIds,
-          getNodeBox,
-          excludeIds,
-          nearBox: {
-            left: startUnion.left + rawDx,
-            top: startUnion.top + rawDy,
-            width: startUnion.width,
-            height: startUnion.height,
-          },
-          threshold,
-          queryNodeIdsInRect: (area) =>
-            listNodeIds().filter((nodeId) => {
-              const box = getNodeBox(nodeId);
-              if (!box) return false;
-              const right = box.left + box.width;
-              const bottom = box.top + box.height;
-              return !(
-                right < area.left ||
-                box.left > area.left + area.width ||
-                bottom < area.top ||
-                box.top > area.top + area.height
-              );
+        targets: skipPlateSnap
+          ? []
+          : smartGuideTargetsForDrag({
+              document,
+              listNodeIds,
+              getNodeBox,
+              excludeIds,
+              nearBox: {
+                left: startUnion.left + rawDx,
+                top: startUnion.top + rawDy,
+                width: startUnion.width,
+                height: startUnion.height,
+              },
+              threshold,
+              queryNodeIdsInRect: (area) =>
+                listNodeIds().filter((nodeId) => {
+                  const box = getNodeBox(nodeId);
+                  if (!box) return false;
+                  const right = box.left + box.width;
+                  const bottom = box.top + box.height;
+                  return !(
+                    right < area.left ||
+                    box.left > area.left + area.width ||
+                    bottom < area.top ||
+                    box.top > area.top + area.height
+                  );
+                }),
             }),
-        }),
         threshold,
       });
 
@@ -755,7 +730,14 @@ function EditorStageWorld({
             <HtmlArtboardFrame
               key={`body-${frame.id}`}
               frame={frame}
-              zIndex={stackZIndex(document, 'frame', frame.id)}
+              zIndex={selectionPaintZIndex(
+                document,
+                'frame',
+                frame.id,
+                selectedFrameIds.length === 1 &&
+                  selectedNodeIds.length === 0 &&
+                  selectedFrameIds[0] === frame.id
+              )}
               selected={
                 !isDevMode &&
                 !movingFrameIdSet.has(frame.id) &&

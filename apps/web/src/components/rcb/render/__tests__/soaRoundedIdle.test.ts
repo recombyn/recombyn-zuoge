@@ -89,6 +89,26 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.pathLen[0]).toBeGreaterThan(5);
   });
 
+  it('angled line/arrow stay SoA-basic (idle ink + click-hit after demote)', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'ln', {
+      id: 'ln',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 1,
+      attrs: { shapeType: 'line', angle: 40, 'border-width': 2, 'border-color': '#111' },
+      children: [],
+    });
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.ln)).toBe(true);
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+    expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
+    expect(buf.pathLen[0]).toBeGreaterThanOrEqual(2);
+  });
+
   it('polygon is SoA-basic on Canvas2D path (samples into pathXY)', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'p', {

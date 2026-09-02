@@ -1,4 +1,4 @@
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { nodeLeftTop, isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
 import { frameIdAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
@@ -52,6 +52,7 @@ import {
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
+  getAnimationWorkbenchTimelineFocus,
   isAnimationWorkbenchFrameInPreview,
   isAnimationWorkbenchPreviewChild,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
@@ -1539,6 +1540,32 @@ export function collectSmartGuideTargets(
     out.push({ left, top, width, height, guideKind: 'frame' });
   }
   return out;
+}
+
+/**
+ * Frame-local plate drag: children keep local x/y; only `frames[].x/y` moves.
+ * Smart-guide scans over hundreds of in-plate siblings freeze the tab — same
+ * pipeline as any other artboard plate move, just skip O(n) snap here.
+ */
+export function shouldSkipSmartGuidesForFramePlateDrag(document: SceneDocument): boolean {
+  return isFrameLocalCoordSpace(document);
+}
+
+/**
+ * Timeline-open workbench child drag: skip O(n) sibling snap.
+ */
+export function shouldSkipSmartGuidesForAnimationWorkbenchDrag(
+  document: SceneDocument,
+  originNodeIds: readonly string[]
+): boolean {
+  const focus = getAnimationWorkbenchTimelineFocus();
+  if (!focus || !originNodeIds.length) return false;
+  for (const id of originNodeIds) {
+    const node = document.deltaSetLike?.[id];
+    if (!node) return false;
+    if (String(node.attrs?.frameId || '').trim() !== focus) return false;
+  }
+  return true;
 }
 
 export function smartGuideTargetsForDrag(opts: {

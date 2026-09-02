@@ -36,6 +36,7 @@ import {
   putProjectDraft,
 } from '@/components/editor/projectDraftStore';
 import { isCollabCloudPersistOwned } from '@/components/editor/collab/collabRuntime';
+import { isInteractionPerfSessionActive } from '@/components/editor/sceneEvents';
 import { message } from '@/components/base';
 import {
   isProjectDeleted,
@@ -46,6 +47,9 @@ import { normalizeProjectIds } from '@/utils/normalizeProjectId';
 import { probeProjectOpenElsewhere } from '@/utils/openProjectSessions';
 
 const DEBOUNCE_MS = 800;
+/** Large scenes: give paste/select paint room before IDB/hash work. */
+const LARGE_DOC_DEBOUNCE_MS = 2500;
+const LARGE_DOC_NODE_THRESHOLD = 800;
 /** Coalesce rapid Ctrl/⌘S into one flush. */
 const MANUAL_SAVE_DEBOUNCE_MS = 300;
 /** Delete / structural edits should hit the cloud ASAP (refresh must not restore old nodes). */
@@ -66,6 +70,16 @@ function cloudFailRetryDelayMs(failCount: number): number {
 
 function shouldPauseCloudAutoRetry(failCount: number): boolean {
   return failCount >= CLOUD_FAIL_BACKOFF_MS.length;
+}
+
+function editorFlushDelayMs(document: unknown): number {
+  const delta =
+    document &&
+    typeof document === 'object' &&
+    (document as { deltaSetLike?: Record<string, unknown> }).deltaSetLike;
+  const n = delta && typeof delta === 'object' ? Object.keys(delta).length : 0;
+  if (n >= LARGE_DOC_NODE_THRESHOLD) return LARGE_DOC_DEBOUNCE_MS;
+  return DEBOUNCE_MS;
 }
 
 /** Latest in-flight / queued editor flush — Home awaits this before re-listing projects. */
@@ -586,6 +600,20 @@ export function useProjectCloudSync() {
   const flush = useCallback(async (opts?: FlushProjectOptions): Promise<FlushProjectResult> => {
     // Read editor store directly — requestProjectFlush may fire before this hook re-renders.
     const force = Boolean(opts?.force);
+    const w = typeof window !== 'undefined' ? window : null;
+    const skipFlush =
+      Boolean((w as Window & { __RCB_SKIP_PROJECT_FLUSH__?: boolean })?.__RCB_SKIP_PROJECT_FLUSH__) ||
+      Boolean((w as Window & { __RCB_PASTE_PERF__?: boolean })?.__RCB_PASTE_PERF__);
+    // Paste perf / stress: IDB structured-clone of 2k+ docs blocked the next Ctrl+V.
+    if (!force && skipFlush) {
+      scheduleFlush(LARGE_DOC_DEBOUNCE_MS);
+      return 'skipped';
+    }
+    // Paste/select paint must finish before O(doc) draft hash / IDB write.
+    if (!force && isInteractionPerfSessionActive()) {
+      scheduleFlush(LARGE_DOC_DEBOUNCE_MS);
+      return 'skipped';
+    }
     const ed = store.getState().editor as {
       dirty: boolean;
       document: unknown;
@@ -699,18 +727,24 @@ export function useProjectCloudSync() {
       return 'failed';
     } finally {
       flushingRef.current = false;
-      const still = store.getState().editor as { dirty: boolean; currentId: string | null };
+      const still = store.getState().editor as {
+        dirty: boolean;
+        currentId: string | null;
+        document: unknown;
+      };
       const queued = pendingFlushRef.current;
       pendingFlushRef.current = false;
       // No `return` in finally — eslint no-unsafe-finally.
       if (still.currentId === id) {
         if (queued) {
-          scheduleFlush(0);
+          // Never scheduleFlush(0) on large docs — immediate re-hash/IDB after a
+          // paste-interrupted flush is what stacked paste #2+ to multi-second stalls.
+          scheduleFlush(editorFlushDelayMs(still.document));
         } else if (still.dirty && !pauseAutoRetry) {
           if (cloudAttempted && !cloudOk && cloudFailCountRef.current > 0) {
             scheduleFlush(cloudFailRetryDelayMs(cloudFailCountRef.current));
           } else {
-            scheduleFlush(DEBOUNCE_MS);
+            scheduleFlush(editorFlushDelayMs(still.document));
           }
         }
       }
@@ -723,7 +757,7 @@ export function useProjectCloudSync() {
     if (!dirty || !document || !currentId || !template) return;
     if (String(currentId).startsWith('share_')) return;
     if (!isOwnedTemplate(template)) return;
-    scheduleFlush(DEBOUNCE_MS);
+    scheduleFlush(editorFlushDelayMs(document));
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };

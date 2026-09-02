@@ -20,6 +20,7 @@ type CtxAction =
   | 'spawnImageGenerator'
   | 'spawnVideoGenerator'
   | 'spawnAnimationBoard'
+  | 'spawnLottieGenerator'
   | 'spawnAudioGenerator'
   | 'undo'
   | 'redo'
@@ -46,6 +47,7 @@ type GeneratorPickAction =
   | 'spawnImageGenerator'
   | 'spawnVideoGenerator'
   | 'spawnAnimationBoard'
+  | 'spawnLottieGenerator'
   | 'spawnAudioGenerator';
 
 export type ContextMenuState = {
@@ -198,6 +200,7 @@ const GENERATOR_MENU_SHORTCUT: Record<GeneratorPickAction, string> = {
   spawnImageGenerator: 'A',
   spawnVideoGenerator: 'Shift A',
   spawnAnimationBoard: 'M',
+  spawnLottieGenerator: '',
   spawnAudioGenerator: 'U',
 };
 
@@ -221,6 +224,10 @@ function GeneratorFlyoutButtons({
       label: t('editor.tools.animationBoard', { defaultValue: '动画' }),
     },
     {
+      action: 'spawnLottieGenerator',
+      label: t('editor.tools.lottieGenerator'),
+    },
+    {
       action: 'spawnAudioGenerator',
       label: t('editor.tools.audioGenerator'),
     },
@@ -231,7 +238,7 @@ function GeneratorFlyoutButtons({
         <MenuItem
           key={row.action}
           label={row.label}
-          shortcut={GENERATOR_MENU_SHORTCUT[row.action]}
+          shortcut={GENERATOR_MENU_SHORTCUT[row.action] || undefined}
           onClick={() => onPick(row.action)}
         />
       ))}
@@ -592,6 +599,7 @@ function CanvasContextMenu({
         <div
           ref={panelRef}
           data-ctx-menu
+          data-ctx-menu-panel
           className="fixed z-[70] min-w-[200px] overflow-hidden rounded-xl bg-[var(--surface)] py-1 shadow-lg ring-1 ring-[var(--line)]"
           style={{
             left: pos?.left ?? menu.clientX,

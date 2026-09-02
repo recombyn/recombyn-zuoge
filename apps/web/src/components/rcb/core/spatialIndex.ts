@@ -80,6 +80,30 @@ export class RcbSpatialIndex {
     this.tree.upsert(item);
   }
 
+  /** Update AABB without tree surgery — paste grow-only path. */
+  restamp(item: RcbSpatialItem) {
+    this.tree.restamp(item);
+  }
+
+  get dirtySize() {
+    return this.tree.dirtySize;
+  }
+
+  /** Rebuild leaf structure from current byId (after a restamp storm). */
+  compact() {
+    this.tree.compact();
+  }
+
+  /** One-rebuild merge — prefer over many {@link upsert} when adding a spread batch. */
+  bulkUpsert(items: Iterable<RcbSpatialItem>) {
+    this.tree.bulkUpsert(items);
+  }
+
+  /** Replace the whole index in one rebuild (full sync / reload). */
+  replaceAll(items: Iterable<RcbSpatialItem>) {
+    this.tree.replaceAll(items);
+  }
+
   remove(id: string) {
     this.tree.remove(id);
   }
@@ -233,8 +257,11 @@ export type SceneSpatialSyncInput = {
 export class SceneSpatialRuntime {
   readonly index: RcbSpatialIndex;
   private reloadToken: number | string | null = null;
-  private childrenRef: readonly string[] | null = null;
+  /** Length-only membership fingerprint — page.children is a new array every paste. */
+  private childrenLen = -1;
   private rank = new Map<string, number>();
+  /** Skip StrictMode double-invoke with the same membership + patch set. */
+  private lastSyncKey = '';
 
   constructor(cellSize = 256) {
     this.index = new RcbSpatialIndex(cellSize);
@@ -251,8 +278,9 @@ export class SceneSpatialRuntime {
   clear() {
     this.index.clear();
     this.reloadToken = null;
-    this.childrenRef = null;
+    this.childrenLen = -1;
     this.rank = new Map();
+    this.lastSyncKey = '';
   }
 
   sync(input: SceneSpatialSyncInput): RcbSpatialIndex {
@@ -264,35 +292,77 @@ export class SceneSpatialRuntime {
     const childrenSrc = input.childrenIds;
     const pad = input.aabbPad ?? 32;
     const patched = input.patchedNodeIds || [];
+    const syncKey = `${input.reloadToken}:${childrenSrc.length}:${patched.length}:${patched[0] || ''}:${patched[patched.length - 1] || ''}`;
+    if (syncKey === this.lastSyncKey && this.index.size > 0) {
+      return this.index;
+    }
+    this.lastSyncKey = syncKey;
 
     const tokenChanged = this.reloadToken !== input.reloadToken;
-    const childrenChanged = this.childrenRef !== childrenSrc;
-    if (tokenChanged || childrenChanged || this.index.size === 0) {
+    const lenChanged = this.childrenLen !== childrenSrc.length;
+    if (tokenChanged || lenChanged || this.index.size === 0) {
       this.rank = buildIdRankMap(childrenSrc);
-      this.childrenRef = childrenSrc;
+      this.childrenLen = childrenSrc.length;
     }
 
     if (tokenChanged || this.index.size === 0) {
-      this.index.clear();
+      // One replaceAll — sequential upsert rebuilds the tree on every out-of-root
+      // paste offset and went O(n²) once the scene grew past a few dozen nodes.
+      const items: RcbSpatialItem[] = [];
       for (const id of childrenSrc) {
         const box = nodeSceneAabb(doc, id, pad);
         if (!box) continue;
-        this.index.upsert({ id, ...box });
+        items.push({ id, ...box });
       }
+      this.index.replaceAll(items);
       this.reloadToken = input.reloadToken;
       return this.index;
     }
 
-    if (childrenChanged) {
-      const idSet = new Set(childrenSrc);
-      for (const id of [...this.index.ids()]) {
-        if (!idSet.has(id)) this.index.remove(id);
+    if (lenChanged) {
+      const grewOnly =
+        childrenSrc.length >= this.index.size &&
+        patched.length > 0 &&
+        patched.length <= 512;
+      const idSet = grewOnly ? null : new Set(childrenSrc);
+      if (idSet) {
+        for (const id of [...this.index.ids()]) {
+          if (!idSet.has(id)) this.index.remove(id);
+        }
       }
-      for (const id of childrenSrc) {
-        if (this.index.has(id)) continue;
+      const added: RcbSpatialItem[] = [];
+      const addedIds = new Set<string>();
+      const tryAdd = (id: string) => {
+        if (!id || this.index.has(id) || addedIds.has(id)) return;
+        if (idSet && !idSet.has(id)) return;
         const box = nodeSceneAabb(doc, id, pad);
-        if (box) this.index.upsert({ id, ...box });
+        if (!box) return;
+        addedIds.add(id);
+        added.push({ id, ...box });
+      };
+      // Paste / dupe: patched ids are the membership delta — skip O(n) AABB walk.
+      if (patched.length > 0 && patched.length <= 512) {
+        for (const raw of patched) tryAdd(String(raw || ''));
       }
+      const expectedAdds = Math.max(0, childrenSrc.length - this.index.size);
+      if (added.length < expectedAdds) {
+        for (const id of childrenSrc) tryAdd(id);
+      }
+      if (added.length === 1) {
+        this.index.restamp(added[0]!);
+      } else if (added.length > 1) {
+        // Grow-only paste: restamp into byId + dirty set. Full bulkUpsert/rebuild
+        // of 2k+ overlapping paste stacks dominated paste #2+ (seconds).
+        for (const item of added) this.index.restamp(item);
+        if (this.index.dirtySize > 512) this.index.compact();
+      }
+      // Adds already stamped AABBs — skip patchNodes for ids we just inserted.
+      const geomOnly = patched.filter((id) => {
+        const key = String(id || '');
+        return key && !addedIds.has(key);
+      });
+      if (geomOnly.length) this.patchNodes(doc, geomOnly, pad);
+      return this.index;
     }
 
     this.patchNodes(doc, patched, pad);
@@ -305,6 +375,20 @@ export class SceneSpatialRuntime {
     patchedNodeIds: readonly string[],
     aabbPad = 32
   ): void {
+    if (!patchedNodeIds.length) return;
+    if (patchedNodeIds.length === 1) {
+      const id = String(patchedNodeIds[0] || '').trim();
+      if (!id) return;
+      if (!document.deltaSetLike?.[id]) {
+        this.index.remove(id);
+        return;
+      }
+      const box = nodeSceneAabb(document, id, aabbPad);
+      if (!box) this.index.remove(id);
+      else this.index.upsert({ id, ...box });
+      return;
+    }
+    const upserts: RcbSpatialItem[] = [];
     for (const raw of patchedNodeIds) {
       const id = String(raw || '').trim();
       if (!id) continue;
@@ -314,8 +398,10 @@ export class SceneSpatialRuntime {
       }
       const box = nodeSceneAabb(document, id, aabbPad);
       if (!box) this.index.remove(id);
-      else this.index.upsert({ id, ...box });
+      else upserts.push({ id, ...box });
     }
+    if (upserts.length === 1) this.index.upsert(upserts[0]!);
+    else if (upserts.length > 1) this.index.bulkUpsert(upserts);
   }
 
   /** Bottom→top ids intersecting rect (rank-sorted hits only). */
@@ -364,7 +450,7 @@ export class SceneSpatialRuntime {
     const pad = opts?.pad ?? 0;
     const visibleFlag = opts?.visibleFlag ?? 1;
     const stride = 4;
-    let n = 0;
+    const items: RcbSpatialItem[] = [];
     for (let i = 0; i < buf.count; i += 1) {
       if (!(buf.flags[i] & visibleFlag)) continue;
       const id = buf.ids[i];
@@ -374,14 +460,18 @@ export class SceneSpatialRuntime {
       const y = buf.positions[o + 1];
       const w = buf.positions[o + 2];
       const h = buf.positions[o + 3];
-      const minX = Math.min(x, x + w) - pad;
-      const minY = Math.min(y, y + h) - pad;
-      const maxX = Math.max(x, x + w) + pad;
-      const maxY = Math.max(y, y + h) + pad;
-      this.index.upsert({ id, minX, minY, maxX, maxY });
-      n += 1;
+      items.push({
+        id,
+        minX: Math.min(x, x + w) - pad,
+        minY: Math.min(y, y + h) - pad,
+        maxX: Math.max(x, x + w) + pad,
+        maxY: Math.max(y, y + h) + pad,
+      });
     }
-    return n;
+    // One rebuild — sequential upsert expands/rebuilds O(n²) at 2k+.
+    if (items.length === 1) this.index.upsert(items[0]!);
+    else if (items.length > 1) this.index.replaceAll(items);
+    return items.length;
   }
 
   /**
@@ -402,7 +492,7 @@ export class SceneSpatialRuntime {
     const pad = opts?.pad ?? 0;
     const visibleFlag = opts?.visibleFlag ?? 1;
     const stride = 4;
-    let n = 0;
+    const items: RcbSpatialItem[] = [];
     for (const raw of ids) {
       const id = String(raw || '');
       if (!id) continue;
@@ -414,16 +504,17 @@ export class SceneSpatialRuntime {
       const y = buf.positions[o + 1];
       const w = buf.positions[o + 2];
       const h = buf.positions[o + 3];
-      this.index.upsert({
+      items.push({
         id,
         minX: Math.min(x, x + w) - pad,
         minY: Math.min(y, y + h) - pad,
         maxX: Math.max(x, x + w) + pad,
         maxY: Math.max(y, y + h) + pad,
       });
-      n += 1;
     }
-    return n;
+    if (items.length === 1) this.index.upsert(items[0]!);
+    else if (items.length > 1) this.index.bulkUpsert(items);
+    return items.length;
   }
 }
 

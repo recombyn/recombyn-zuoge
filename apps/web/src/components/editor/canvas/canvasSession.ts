@@ -60,6 +60,7 @@ import {
   isFrameLocalCoordSpace,
   nodeDocumentLeftTop,
   nodeLocalToDocumentPoint,
+  frameSceneBounds,
   previewSvgNodeAngle,
   previewSvgNodeGeometry,
   purgeOrphanSceneNodes,
@@ -345,11 +346,8 @@ export function hitTestFrameInDoc(doc: SceneDocument | null | undefined, x: numb
   for (let i = frames.length - 1; i >= 0; i -= 1) {
     const frame = frames[i];
     if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
-    const fx = Number(frame.x) || 0;
-    const fy = Number(frame.y) || 0;
-    const fw = Math.max(1, Number(frame.width) || 1);
-    const fh = Math.max(1, Number(frame.height) || 1);
-    if (x >= fx && x <= fx + fw && y >= fy && y <= fy + fh) {
+    const box = frameSceneBounds(doc, frame);
+    if (x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height) {
       return String(frame.id);
     }
   }
@@ -1393,7 +1391,12 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
             if (!hostId) continue;
             const host = previewDocument.deltaSetLike?.[hostId];
             if (!host) continue;
-            // Host paints in world space under the plate; local attrs stay 0,0.
+            // Invisible animationFrameHost FO: skip geometry + videoLiveGeom.
+            // Updating the FO every move reflows lottie-web and freezes the tab.
+            const isAnimHost =
+              host.attrs?.animationFrameHost === true ||
+              host.attrs?.animationFrameHost === 'true';
+            if (isAnimHost) continue;
             previewMountedHostGeometry(board, hostId, {
               left: frame.x,
               top: frame.y,
@@ -1483,6 +1486,13 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           width: frame.width,
           height: frame.height,
         };
+        const isAnimHost =
+          host.attrs?.animationFrameHost === true ||
+          host.attrs?.animationFrameHost === 'true';
+        if (isAnimHost) {
+          // Invisible host — do not re-seat FO or rewrite geom mid-drag.
+          continue;
+        }
         previewMountedHostGeometry(board, hostId, box);
         if (host.key === 'lottie' || host.key === 'video' || host.key === 'image') {
           hasVideo = true;

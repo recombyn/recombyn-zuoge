@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-01T18:26:05.578Z",
+  "generatedAt": "2026-09-01T18:45:26.159Z",
   "row": {
     "n": 10000,
-    "syncMs": 795.8,
-    "paint60Ms": 488.3,
-    "dirtyStripePaintFrameMs": 8.14,
-    "fullViewportPaintFrameMs": 17.48,
+    "syncMs": 765.2,
+    "paint60Ms": 439.2,
+    "dirtyStripePaintFrameMs": 7.32,
+    "fullViewportPaintFrameMs": 15.8,
     "visibleInView": 441,
     "basicGeomCount": 7000,
     "hostFullAt1x": 42,

@@ -28,6 +28,19 @@ describe('hashDocument', () => {
   it('changes when content changes', () => {
     expect(hashDocument({ a: 1 })).not.toBe(hashDocument({ a: 2 }));
   });
+
+  it('hashes scene docs without full JSON stringify cost shape', () => {
+    const a = sampleDoc({
+      ROOT: { id: 'ROOT', children: ['n1'] },
+      n1: { id: 'n1', key: 'shape', x: 1, y: 2, width: 10, height: 10, attrs: {} },
+    });
+    const b = sampleDoc({
+      ROOT: { id: 'ROOT', children: ['n1'] },
+      n1: { id: 'n1', key: 'shape', x: 1, y: 3, width: 10, height: 10, attrs: {} },
+    });
+    expect(hashDocument(a)).toBe(hashDocument(a));
+    expect(hashDocument(a)).not.toBe(hashDocument(b));
+  });
 });
 
 function sampleDoc(nodes: Record<string, unknown>, children?: string[]) {

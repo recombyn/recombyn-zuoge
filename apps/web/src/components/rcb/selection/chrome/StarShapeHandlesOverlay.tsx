@@ -20,6 +20,8 @@ import {
 import {
   clampShapeSides,
   clampStarInnerRatio,
+  patchLiveShapeParamsPreview,
+  setLiveShapeParamsPreview,
   shapeVertexPoints,
   sidesFromAttrs,
   starInnerRatioFromAttrs,
@@ -215,7 +217,8 @@ function StarShapeHandlesOverlay({
   stageEl: HTMLElement | null;
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();  const camera = useRcbCamera();
+  const { t } = useTranslation();
+  const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const k = 1 / z;
 
@@ -330,6 +333,7 @@ function StarShapeHandlesOverlay({
         const next = clampShapeSides(d.startSides + delta, d.startSides);
         setDragValue(next);
         setLiveSides(next);
+        patchLiveShapeParamsPreview(nodeId, { sides: next });
         preview({ sides: next });
         return;
       }
@@ -341,6 +345,7 @@ function StarShapeHandlesOverlay({
         const next = clampStarInnerRatio(dist / Math.max(1e-3, d.outerDist), d.startRatio);
         setDragValue(Math.round(next * 100));
         setLiveInner(next);
+        patchLiveShapeParamsPreview(nodeId, { starInnerRatio: next });
         preview({ inner: next });
         return;
       }
@@ -362,39 +367,43 @@ function StarShapeHandlesOverlay({
       const d = dragRef.current;
       if (!d) return;
       const soft = !d.moved;
+      if (soft) {
+        dragRef.current = null;
+        setActiveKey(null);
+        setDragValue(null);
+        setLiveSides(null);
+        setLiveInner(null);
+        setLiveCornerRadiusPreview(null);
+        setLiveShapeParamsPreview(null);
+        preview({ r: baseR, sides: baseSides, inner: baseInner });
+        return;
+      }
+
+      // Commit before clearing live preview so idle ink is not left on stale radii.
+      if (d.mode === 'sides') {
+        const delta = Math.round((d.startY - e.clientY) / SIDES_DRAG_STEP_PX);
+        const next = clampShapeSides(d.startSides + delta, d.startSides);
+        patchDocumentNode({ nodeId, patch: { attrs: { sides: next } } });
+      } else if (d.mode === 'inner') {
+        const sc = toScene(e.clientX, e.clientY);
+        const local = scenePointToLocal(sc.x, sc.y, box, angle);
+        const dist = Math.hypot(local.x - d.cx, local.y - d.cy);
+        const next = clampStarInnerRatio(dist / Math.max(1e-3, d.outerDist), d.startRatio);
+        patchDocumentNode({ nodeId, patch: { attrs: { starInnerRatio: next } } });
+      } else {
+        const sc = toScene(e.clientX, e.clientY);
+        const local = scenePointToLocal(sc.x, sc.y, box, angle);
+        const along = (local.x - d.site.x) * d.site.ix + (local.y - d.site.y) * d.site.iy;
+        const rounded = Math.max(0, Math.min(maxR, Math.round(along)));
+        commitUniformRadius({ nodeId, node, radius: rounded });
+      }
       dragRef.current = null;
       setActiveKey(null);
       setDragValue(null);
       setLiveSides(null);
       setLiveInner(null);
       setLiveCornerRadiusPreview(null);
-
-      if (soft) {
-        preview({ r: baseR, sides: baseSides, inner: baseInner });
-        return;
-      }
-
-      if (d.mode === 'sides') {
-        const delta = Math.round((d.startY - e.clientY) / SIDES_DRAG_STEP_PX);
-        const next = clampShapeSides(d.startSides + delta, d.startSides);
-        patchDocumentNode({ nodeId, patch: { attrs: { sides: next } } });
-        return;
-      }
-
-      if (d.mode === 'inner') {
-        const sc = toScene(e.clientX, e.clientY);
-        const local = scenePointToLocal(sc.x, sc.y, box, angle);
-        const dist = Math.hypot(local.x - d.cx, local.y - d.cy);
-        const next = clampStarInnerRatio(dist / Math.max(1e-3, d.outerDist), d.startRatio);
-        patchDocumentNode({ nodeId, patch: { attrs: { starInnerRatio: next } } });
-        return;
-      }
-
-      const sc = toScene(e.clientX, e.clientY);
-      const local = scenePointToLocal(sc.x, sc.y, box, angle);
-      const along = (local.x - d.site.x) * d.site.ix + (local.y - d.site.y) * d.site.iy;
-      const rounded = Math.max(0, Math.min(maxR, Math.round(along)));
-      commitUniformRadius({ nodeId, node, radius: rounded });
+      setLiveShapeParamsPreview(null);
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -405,6 +414,7 @@ function StarShapeHandlesOverlay({
       setLiveSides(null);
       setLiveInner(null);
       setLiveCornerRadiusPreview(null);
+      setLiveShapeParamsPreview(null);
       preview({ r: baseR, sides: baseSides, inner: baseInner });
     };
 
@@ -418,6 +428,7 @@ function StarShapeHandlesOverlay({
       window.removeEventListener('pointercancel', onUp);
       window.removeEventListener('keydown', onKey);
       setLiveCornerRadiusPreview(null);
+      setLiveShapeParamsPreview(null);
     };
   }, [
     interactive, nodeId,

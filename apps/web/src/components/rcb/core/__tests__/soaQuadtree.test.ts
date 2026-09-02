@@ -19,6 +19,17 @@ describe('SoaQuadtree', () => {
     expect(tree.search(180, 180, 190, 190)).toEqual([]);
   });
 
+  it('restamp finds new ids without tree rebuild', () => {
+    const tree = new SoaQuadtree({ maxItems: 8 });
+    tree.upsert({ id: 'a', minX: 0, minY: 0, maxX: 10, maxY: 10 });
+    tree.restamp({ id: 'b', minX: 100, minY: 100, maxX: 110, maxY: 110 });
+    expect(tree.dirtySize).toBe(1);
+    expect(tree.search(95, 95, 115, 115).map((x) => x.id).sort()).toEqual(['b']);
+    tree.compact();
+    expect(tree.dirtySize).toBe(0);
+    expect(tree.searchPoint(105, 105).map((x) => x.id)).toEqual(['b']);
+  });
+
   it('upsert replaces bounds without duplicate ids', () => {
     const tree = new SoaQuadtree({ maxItems: 4 });
     tree.upsert({ id: 'a', minX: 0, minY: 0, maxX: 10, maxY: 10 });

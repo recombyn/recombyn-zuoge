@@ -274,6 +274,17 @@ export class SoaQuadtree {
     for (const id of ids) this.markDirty(id);
   }
 
+  /**
+   * Update AABB in `byId` without tree surgery. Search rescues dirty ids from
+   * `byId` (or `liveAabb`). Prefer over {@link upsert} during paste/flag storms.
+   */
+  restamp(item: SoaQuadItem): void {
+    if (!item?.id) return;
+    const normalized = normalizeItem(item);
+    this.byId.set(normalized.id, normalized);
+    this.dirtyIds.add(normalized.id);
+  }
+
   /** Insert or replace AABB for `item.id` (world scene units). */
   upsert(item: SoaQuadItem): void {
     if (this.byId.has(item.id)) this.remove(item.id);
@@ -286,6 +297,7 @@ export class SoaQuadtree {
       return;
     }
     if (!containsItem(this.root, normalized)) {
+      this.root = null;
       this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
       return;
     }
@@ -320,6 +332,16 @@ export class SoaQuadtree {
       any = true;
     }
     if (!any) return;
+    this.compact();
+  }
+
+  /** Rebuild the tree from `byId` and clear dirty marks. */
+  compact(): void {
+    this.root = null;
+    if (this.byId.size === 0) {
+      this.dirtyIds.clear();
+      return;
+    }
     this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
     this.dirtyIds.clear();
   }
@@ -357,25 +379,38 @@ export class SoaQuadtree {
     if (this.root) {
       queryNode(this.root, qMinX, qMinY, qMaxX, qMaxY, seen, out);
     }
-    if (!liveAabb || this.dirtyIds.size === 0) return out;
+    if (this.dirtyIds.size === 0) return out;
 
-    const kept: SoaQuadItem[] = [];
-    for (const hit of out) {
-      if (!this.dirtyIds.has(hit.id)) {
-        kept.push(hit);
-        continue;
+    if (liveAabb) {
+      const kept: SoaQuadItem[] = [];
+      for (const hit of out) {
+        if (!this.dirtyIds.has(hit.id)) {
+          kept.push(hit);
+          continue;
+        }
+        const live = resolveLiveInQuery(hit.id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
+        if (live) kept.push(live);
       }
-      const live = resolveLiveInQuery(hit.id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
-      if (live) kept.push(live);
+      for (const id of this.dirtyIds) {
+        if (seen.has(id)) continue;
+        const live = resolveLiveInQuery(id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
+        if (!live) continue;
+        seen.add(id);
+        kept.push(live);
+      }
+      return kept;
     }
+
+    // No liveAabb — rescue from byId (restamp path).
     for (const id of this.dirtyIds) {
       if (seen.has(id)) continue;
-      const live = resolveLiveInQuery(id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
-      if (!live) continue;
+      const box = this.byId.get(id);
+      if (!box) continue;
+      if (!itemIntersectsQuery(box, qMinX, qMinY, qMaxX, qMaxY)) continue;
       seen.add(id);
-      kept.push(live);
+      out.push(box);
     }
-    return kept;
+    return out;
   }
 
   searchPoint(

@@ -174,6 +174,7 @@ import {
   resizeDragNearBox,
   collectSmartGuideTargets,
   smartGuideTargetsForDrag,
+  shouldSkipSmartGuidesForAnimationWorkbenchDrag,
   computeRotateDelta,
   strokeEndpointBox,
   resizeOpenPathByEndpoint,
@@ -249,6 +250,12 @@ export type TransformPreviewBatch = {
   geom?: GeometryPatch[];
   geomOpts?: { textResizeMode?: TextResizeMode };
   angles?: Array<{ nodeId: string; angle: number }>;
+  frameMove?: {
+    frameId: string;
+    left: number;
+    top: number;
+    opts?: { skipGrid?: boolean; axisLock?: 'h' | 'v' };
+  };
 };
 
 /**
@@ -268,6 +275,9 @@ export function createTransformPreviewCoalescer(handlers: {
     opts?: { textResizeMode?: TextResizeMode }
   ) => void;
   applyAngles: (angles: Array<{ nodeId: string; angle: number }>) => void;
+  applyFrameMove?: (
+    move: NonNullable<TransformPreviewBatch['frameMove']>
+  ) => void;
 }): TransformPreviewCoalescer {
   let raf = 0;
   let pending: TransformPreviewBatch | null = null;
@@ -281,6 +291,7 @@ export function createTransformPreviewCoalescer(handlers: {
     // Stroke endpoint drag: angle before box so both ends don't jump.
     if (batch.angles?.length) handlers.applyAngles(batch.angles);
     if (batch.geom?.length) handlers.applyGeom(batch.geom, batch.geomOpts);
+    if (batch.frameMove) handlers.applyFrameMove?.(batch.frameMove);
   };
 
   return {
@@ -293,6 +304,7 @@ export function createTransformPreviewCoalescer(handlers: {
             geomOpts: patch.geomOpts !== undefined ? patch.geomOpts : pending.geomOpts,
             angles: patch.angles !== undefined ? patch.angles : pending.angles,
             guides: patch.guides !== undefined ? patch.guides : pending.guides,
+            frameMove: patch.frameMove !== undefined ? patch.frameMove : pending.frameMove,
           }
         : { ...patch };
       if (!raf) raf = requestAnimationFrame(flush);
@@ -920,6 +932,9 @@ function SelectionFeature({
           onAnglePreviewRef.current?.(a.nodeId, a.angle);
         }
       },
+      applyFrameMove: (move) => {
+        onFrameMoveRef.current?.(move.frameId, move.left, move.top, move.opts);
+      },
     });
 
     /** Sync hit refs immediately; paint/chrome flush on rAF (ADR 0027). */
@@ -1505,15 +1520,20 @@ function SelectionFeature({
           width: drag.frameWidth ?? drag.union.width,
           height: drag.frameHeight ?? drag.union.height,
         };
-        onFrameMoveRef.current?.(drag.frameId, box.left, box.top, {
-          skipGrid: e.ctrlKey || e.metaKey,
-          axisLock: drag.moveAxisLock,
-        });
         const origins = [{ nodeId: frameSelId(drag.frameId), box }];
-        liveUnionRef.current = box;
-        liveOriginsRef.current = origins;
-        setLiveUnion(box);
-        setLiveOrigins(origins);
+        queuePreview({
+          union: box,
+          origins,
+          frameMove: {
+            frameId: drag.frameId,
+            left: box.left,
+            top: box.top,
+            opts: {
+              skipGrid: e.ctrlKey || e.metaKey,
+              axisLock: drag.moveAxisLock,
+            },
+          },
+        });
         return;
       }
 
@@ -1565,28 +1585,34 @@ function SelectionFeature({
         const { dx: cdx, dy: cdy } = shiftConstrainedMoveDelta(drag, dx, dy, e.shiftKey);
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
         const threshold = smartSnapThreshold(zoom);
+        const skipWorkbenchSnap = shouldSkipSmartGuidesForAnimationWorkbenchDrag(
+          sceneDoc,
+          drag.origins.map((o) => o.nodeId)
+        );
         const { nextUnion, sdx, sdy, guides } = computeMovedUnion({
           union: drag.union,
           origins: drag.origins,
           document: sceneDoc,
           dx: cdx,
           dy: cdy,
-          disableSnap: e.ctrlKey || e.metaKey,
+          disableSnap: e.ctrlKey || e.metaKey || skipWorkbenchSnap,
           gridSize,
           axisLock: drag.moveAxisLock,
-          targets: smartGuideTargetsForDrag({
-            document: sceneDoc,
-            listNodeIds,
-            getNodeBox,
-            excludeIds: exclude,
-            nearBox: {
-              ...drag.union,
-              left: drag.union.left + cdx,
-              top: drag.union.top + cdy,
-            },
-            threshold,
-            queryNodeIdsInRect: queryIdsInRect,
-          }),
+          targets: skipWorkbenchSnap
+            ? []
+            : smartGuideTargetsForDrag({
+                document: sceneDoc,
+                listNodeIds,
+                getNodeBox,
+                excludeIds: exclude,
+                nearBox: {
+                  ...drag.union,
+                  left: drag.union.left + cdx,
+                  top: drag.union.top + cdy,
+                },
+                threshold,
+                queryNodeIdsInRect: queryIdsInRect,
+              }),
           threshold,
         });
         const nextOrigins = drag.origins.map((o) => ({
@@ -1773,8 +1799,18 @@ function SelectionFeature({
           screenDistSq < DRAG_DISTANCE_SQUARED
             ? hitTestFrame?.(p.x, p.y) ?? null
             : null;
+        // Re-pick on up: thin pen/line hits can miss on down (stale spatial /
+        // promote race) then succeed a frame later — same point, no drag.
+        const nodeHit =
+          !platePick && screenDistSq < DRAG_DISTANCE_SQUARED
+            ? hitTest(p.x, p.y, { clientX, clientY })
+            : null;
         if (pin) {
           handlePinnedImageToolBlankClick(pin);
+        } else if (nodeHit) {
+          onSelect(expandSelectionWithGroups(sceneDoc, [nodeHit]), {
+            additive: shiftKey,
+          });
         } else if (platePick && drag.frameId) {
           onSelectFrame?.(drag.frameId, {
             chrome: drag.framePlateChrome === 'full' ? 'full' : 'soft',
