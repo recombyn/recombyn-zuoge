@@ -68,8 +68,10 @@ export function useEditorDocument() {
 }
 
 /**
- * Committed scene document — refreshes on documentRevision / sceneRevision only.
+ * Committed scene document — refreshes on documentRevision / sceneRevision.
  * Skips playhead bake and other transient patches that bump documentPatchToken alone.
+ * Paste/dupe deliberately delay documentRevision (and skip sceneRevision) so docks
+ * do not rebuild during the SoA commit; collab still bumps sceneRevision.
  */
 export function useEditorDocumentOnCommit() {
   const documentRevision = useDocumentRevision();

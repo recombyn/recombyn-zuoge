@@ -81,6 +81,124 @@ describe('patch undo history', () => {
     expect(s3.document.deltaSetLike[id].attrs['fill-color']).toBe('#00ff00');
   });
 
+  it('paste history stores add entry (not full snap) and undoes by remove', () => {
+    let doc = createEmptyDocument({ emptyWorld: true, width: 800, height: 600 });
+    // Seed a large-ish base so a full snap would be expensive.
+    for (let i = 0; i < 40; i += 1) {
+      const { id, node } = createShapeNode({
+        x: (i % 8) * 30,
+        y: Math.floor(i / 8) * 30,
+        width: 20,
+        height: 20,
+        shapeType: 'rect',
+        fill: '#cccccc',
+      });
+      doc = addNodeToDocument(doc, id, node);
+    }
+    let state = reduceEditor(undefined, () => {});
+    state = reduceEditor(state, editorReducers.createTemplate, {
+      name: 'paste-add',
+      document: doc,
+      emptyWorld: true,
+      source: 'user',
+    });
+    const baseCount = Object.keys(state.document!.deltaSetLike || {}).length;
+
+    const pasted: Array<{ id: string; node: ReturnType<typeof createShapeNode>['node'] }> = [];
+    let next = state.document!;
+    for (let i = 0; i < 5; i += 1) {
+      const { id, node } = createShapeNode({
+        x: 400 + i * 10,
+        y: 400,
+        width: 24,
+        height: 24,
+        shapeType: 'rect',
+        fill: '#ff0000',
+      });
+      next = addNodeToDocument(next, id, node);
+      pasted.push({ id, node });
+    }
+    const patchedIds = pasted.map((p) => p.id);
+    state = reduceEditor(state, editorReducers.commitPastedDocument, {
+      document: next,
+      patchedNodeIds: patchedIds,
+      selectedNodeIds: patchedIds,
+    });
+
+    expect(state.historyPast).toHaveLength(1);
+    const past0 = state.historyPast[0];
+    expect(past0.kind).toBe('add');
+    if (past0.kind !== 'add') throw new Error('expected add history');
+    expect(Object.keys(past0.nodes).sort()).toEqual([...patchedIds].sort());
+    // Must not stash a full-doc clone of the 40+ node base.
+    expect(Object.keys(past0.nodes).length).toBe(5);
+
+    const afterPasteCount = Object.keys(state.document!.deltaSetLike || {}).length;
+    expect(afterPasteCount).toBe(baseCount + 5);
+
+    const reloadBefore = state.sceneReloadToken;
+    state = reduceEditor(state, editorReducers.undo);
+    expect(Object.keys(state.document!.deltaSetLike || {}).length).toBe(baseCount);
+    for (const id of patchedIds) {
+      expect(state.document!.deltaSetLike![id]).toBeUndefined();
+    }
+    expect(state.sceneReloadToken).toBe(reloadBefore);
+    expect(state.lastPatchedNodeIds).toEqual(expect.arrayContaining(patchedIds));
+
+    state = reduceEditor(state, editorReducers.redo);
+    expect(Object.keys(state.document!.deltaSetLike || {}).length).toBe(baseCount + 5);
+    for (const id of patchedIds) {
+      expect(state.document!.deltaSetLike![id]).toBeTruthy();
+    }
+  });
+
+  it('cut/delete history stores remove entry (not full snap) and undoes by restore', () => {
+    let doc = createEmptyDocument({ emptyWorld: true, width: 800, height: 600 });
+    const cutIds: string[] = [];
+    for (let i = 0; i < 40; i += 1) {
+      const { id, node } = createShapeNode({
+        x: (i % 8) * 30,
+        y: Math.floor(i / 8) * 30,
+        width: 20,
+        height: 20,
+        shapeType: 'rect',
+        fill: '#cccccc',
+      });
+      doc = addNodeToDocument(doc, id, node);
+      if (i < 8) cutIds.push(id);
+    }
+    let state = reduceEditor(undefined, () => {});
+    state = reduceEditor(state, editorReducers.createTemplate, {
+      name: 'cut-remove',
+      document: doc,
+      emptyWorld: true,
+      source: 'user',
+    });
+    const baseCount = Object.keys(state.document!.deltaSetLike || {}).length;
+    const reloadBefore = state.sceneReloadToken;
+
+    state = reduceEditor(state, editorReducers.removeDocumentNodes, { nodeIds: cutIds });
+    expect(state.historyPast).toHaveLength(1);
+    const past0 = state.historyPast[0];
+    expect(past0.kind).toBe('remove');
+    if (past0.kind !== 'remove') throw new Error('expected remove history');
+    expect(Object.keys(past0.nodes).sort()).toEqual([...cutIds].sort());
+    expect(Object.keys(state.document!.deltaSetLike || {}).length).toBe(baseCount - 8);
+    expect(state.sceneReloadToken).toBe(reloadBefore);
+
+    state = reduceEditor(state, editorReducers.undo);
+    expect(Object.keys(state.document!.deltaSetLike || {}).length).toBe(baseCount);
+    for (const id of cutIds) {
+      expect(state.document!.deltaSetLike![id]).toBeTruthy();
+    }
+
+    state = reduceEditor(state, editorReducers.redo);
+    expect(Object.keys(state.document!.deltaSetLike || {}).length).toBe(baseCount - 8);
+    for (const id of cutIds) {
+      expect(state.document!.deltaSetLike![id]).toBeUndefined();
+    }
+  });
+
   it('does not add an upload placeholder to undo history', () => {
     const { state: s0 } = seedWithPathNode();
     const s1 = reduceEditor(s0, editorReducers.startImageUploadPlaceholder, {

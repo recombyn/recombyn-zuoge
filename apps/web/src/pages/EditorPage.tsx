@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo, useDeferredValue } from 'react';
 import { useSelector } from '@/store';
 import {
   useCurrentProjectId,
   useDocumentPatchToken,
   useEditorDocument,
+  useEditorDocumentOnCommit,
   useLastPatchedNodeIds,
   useLastPatchTransformOnly,
   useSceneReloadToken,
@@ -616,6 +617,11 @@ function EditorPage() {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageEl, setStageEl] = useState<HTMLElement | null>(null);
   const document = useEditorDocument();
+  // Docks / HUD lag until documentRevision (paste defers that bump). Do not
+  // useDeferredValue(live document) — that still rebuilt BottomHud on every
+  // Ctrl+V and blocked paste #2+ at 2k+.
+  const committedDocument = useEditorDocumentOnCommit();
+  const deferredDocument = useDeferredValue(committedDocument);
   useProjectCloudSync();
   const sceneReloadToken = useSceneReloadToken();
   const documentPatchToken = useDocumentPatchToken();
@@ -1701,13 +1707,13 @@ function EditorPage() {
             />
 
             <AnimationTimelineFocusHost
-              document={document}
+              document={deferredDocument}
               stageEl={stageEl}
               bandLeftPx={toolsLeftDockPx}
               bandRightPx={toolsRightDockPx}
             />
             <AnimationPrecompEditFocusHost
-              document={document}
+              document={deferredDocument}
               stageEl={stageEl}
               bandLeftPx={toolsLeftDockPx}
               bandRightPx={toolsRightDockPx}
@@ -1780,7 +1786,7 @@ function EditorPage() {
             </div>
 
             <EditorBottomHud
-              document={document}
+              document={deferredDocument}
               frames={frames}
               camera={camera}
               stageEl={stageEl}

@@ -400,36 +400,6 @@ export function sharpCornerSitesForNode(node: SceneNodeInput): SharpCornerSite[]
 }
 
 /**
- * Expand sharp-corner radii onto a full polyline (soft verts → 0).
- */
-export function radiiForPolylineRing(
-  attrs: Record<string, unknown> | null | undefined,
-  ring: Array<[number, number]>,
-  fallbackCorners?: CornerRadii
-): number[] {
-  const sharp = sharpCornerIndices(ring);
-  const full = ring.map(() => 0);
-  let effective: Record<string, unknown> | null | undefined = attrs;
-  if (!effective && fallbackCorners) {
-    effective = {
-      radiusTL: fallbackCorners.tl,
-      radiusTR: fallbackCorners.tr,
-      radiusBR: fallbackCorners.br,
-      radiusBL: fallbackCorners.bl,
-      radiusLinked: 'true',
-    };
-  }
-  if (!sharp.length) {
-    return vertexRadiiFromAttrs(effective, ring.length, 'path');
-  }
-  const sharpRadii = vertexRadiiFromAttrs(effective, sharp.length, 'path');
-  for (let i = 0; i < sharp.length; i += 1) {
-    full[sharp[i]] = sharpRadii[i] ?? 0;
-  }
-  return full;
-}
-
-/**
  * Per-vertex radii for polygon / path fillet.
  * Prefers `radiusVertices` when present; otherwise maps the 4 rect corners.
  */
@@ -521,14 +491,6 @@ export function roundedRectPath(w: number, h: number, r: CornerRadii) {
     tl ? `A ${tl} ${tl} 0 0 1 ${tl} 0` : `L 0 0`,
     'Z',
   ].join(' ');
-}
-
-export function radiiEqual(r: CornerRadii, epsilon = 0.5) {
-  return (
-    Math.abs(r.tl - r.tr) <= epsilon &&
-    Math.abs(r.tr - r.br) <= epsilon &&
-    Math.abs(r.br - r.bl) <= epsilon
-  );
 }
 
 export function maxRadius(r: CornerRadii) {
@@ -900,6 +862,29 @@ export function getLiveCornerRadiusPreviewNodeId(): string | null {
 export function getLiveCornerRadiusPreviewRadii(nodeId: string): CornerRadii | null {
   if (!nodeId || liveCornerRadiusPreview?.nodeId !== nodeId) return null;
   return liveCornerRadiusPreview.radii;
+}
+
+/**
+ * Overlay live corner-radius preview onto attrs for baseline / Path2D paint.
+ * Document attrs stay idle mid-drag; paint callers merge here.
+ */
+export function mergeLiveCornerRadiiIntoAttrs(
+  nodeId: string,
+  attrs: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const base = attrs ? { ...attrs } : {};
+  const live = getLiveCornerRadiusPreviewRadii(nodeId);
+  if (!live) return base;
+  const avg = (live.tl + live.tr + live.br + live.bl) / 4;
+  return {
+    ...base,
+    radiusTL: live.tl,
+    radiusTR: live.tr,
+    radiusBR: live.br,
+    radiusBL: live.bl,
+    radius: avg,
+    cornerRadius: avg,
+  };
 }
 
 export function getLiveCornerRadiusPreview(nodeId: string): number | null {

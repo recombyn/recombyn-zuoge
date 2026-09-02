@@ -24,6 +24,7 @@ import {
   rcbClientToStageLocal,
   rcbFitCamera,
   rcbStepZoom,
+  rcbViewportSceneBounds,
   rcbZoomAtPoint,
 } from '../core/math';
 import { SceneSpatialRuntime, getSharedSceneSpatialRuntime } from '../core/spatialIndex';
@@ -35,8 +36,10 @@ import {
   getSceneCanvasIdlePaint,
   listSceneCanvasIdlePaintIds,
   resolveIdleInkBackend,
+  isNoopSoaDirtyRegion,
   resolveSoaCanvasDirtyRegion,
   subscribeSceneCanvasIdlePaint,
+  subscribeGpuDepthOfField,
   consumeIdleCanvasFullRepaintPending,
   type SceneRenderer,
 } from '../render/sceneRenderer';
@@ -45,19 +48,41 @@ import {
   isSoaCanvasShapesEnabled,
   markSoaDirtyById,
   markAllSoaDirty,
+  markSoaDirtyForFrameIds,
 } from '../render/sceneRenderBuffer';
-import { subscribeTransformPreview } from '../core/transformPreview';
-import { subscribeLiveArtboardFrameGeometry } from '../frames/HtmlArtboardFrame';
+import {
+  accumulateSoaGestureDirtyFromBuffer,
+  blitHtmlCanvasCssOffset,
+  clearSoaGestureDirtyAccum,
+  panRevealSceneAabb,
+  seedSoaGestureDirtyAccum,
+} from '../render/soaBakeLayer';
+import {
+  hasNodeTransformPreviews,
+  listNodeTransformPreviewIds,
+  subscribeTransformPreview,
+} from '../core/transformPreview';
+import {
+  getLiveArtboardFrameIds,
+  subscribeLiveArtboardFrameGeometry,
+} from '../frames/HtmlArtboardFrame';
 import {
   getLiveCornerRadiusPreviewNodeId,
+  hasLiveCornerRadiusPreview,
   subscribeLiveCornerRadiusPreview,
 } from '../scene/document/sceneRadii';
+import {
+  getLiveShapeParamsPreviewNodeId,
+  hasLiveShapeParamsPreview,
+  subscribeLiveShapeParamsPreview,
+} from '../scene/document/sceneShapes';
 import type { SceneDocument } from '../sceneNode';
 import { setInfiniteSvgPaintCamera } from '../scene/paint/sceneToSvg';
 import { notifyShapeHostGeometry, setSceneWorldRoot } from '../shapes/shapeHostRegistry';
 import { DEFAULT_GRID_SIZE, shouldShowPixelGrid } from '../selection/alignGuides';
 import { textFrameBlocksBrowserZoom, wheelShouldStayLocal } from './wheelScrollOwners';
 import { tryConsumeLottieTimelineSpace } from '@/components/editor/nodes/AnimationNode/animationTimelineHotkeys';
+import { markInteractionPerf } from '@/components/editor/sceneEvents';
 
 const EMPTY_SCENE_DOC: SceneDocument = {
   deltaSetLike: {
@@ -73,6 +98,59 @@ const EMPTY_SCENE_DOC: SceneDocument = {
     },
   },
 };
+
+/** Canvas2D pan: blit retained ink, seed edge-strip dirty. Returns whether forceFull is needed. */
+function applyCanvas2dPanBlit(opts: {
+  prevOffset: { x: number; y: number };
+  nextOffset: { x: number; y: number };
+  cam: RcbCamera;
+  dpr: number;
+  stageW: number;
+  stageH: number;
+  inkCanvas: HTMLCanvasElement | null;
+  gridCanvas: HTMLCanvasElement | null;
+}): boolean {
+  const dx = opts.nextOffset.x - opts.prevOffset.x;
+  const dy = opts.nextOffset.y - opts.prevOffset.y;
+  if (Math.abs(dx) <= 0.01 && Math.abs(dy) <= 0.01) return false;
+  const inkOk = blitHtmlCanvasCssOffset(opts.inkCanvas, dx, dy, opts.dpr);
+  const gridOk = blitHtmlCanvasCssOffset(opts.gridCanvas, dx, dy, opts.dpr);
+  if (!inkOk || !gridOk) return true;
+  const view = rcbViewportSceneBounds(
+    opts.cam,
+    { width: opts.stageW, height: opts.stageH },
+    opts.dpr
+  );
+  seedSoaGestureDirtyAccum(
+    panRevealSceneAabb({
+      dxCss: dx,
+      dyCss: dy,
+      view,
+      zoom: rcbCameraCssZoom(opts.cam),
+    })
+  );
+  return false;
+}
+
+function markGestureSoaDirty(opts: {
+  previewIds: readonly string[];
+  liveFrameIds: readonly string[];
+  plateOrParamGesture: boolean;
+}): void {
+  if (!isSoaCanvasShapesEnabled()) return;
+  const buf = getSharedSceneRenderBuffer();
+  if (opts.previewIds.length) {
+    for (const id of opts.previewIds) markSoaDirtyById(buf, id);
+    accumulateSoaGestureDirtyFromBuffer(buf);
+    return;
+  }
+  if (opts.liveFrameIds.length) {
+    const idleDoc = getSceneCanvasIdlePaint()?.document ?? EMPTY_SCENE_DOC;
+    markSoaDirtyForFrameIds(buf, idleDoc, new Set(opts.liveFrameIds));
+    return;
+  }
+  if (opts.plateOrParamGesture) markAllSoaDirty(buf);
+}
 
 export type { RcbCamera };
 export { RCB_DEFAULT_CAMERA };
@@ -208,7 +286,9 @@ function RcbCanvas({
   const paintRendererRef = useRef<SceneRenderer | null>(null);
   const inkRendererRef = useRef<SceneRenderer | null>(null);
   const gridSizeRef = useRef(gridSize);
-  const [canvasIdlePaintEpoch, setCanvasIdlePaintEpoch] = useState(0);
+  const paintStageSurfacesNowRef = useRef<(opts?: { forceFull?: boolean }) => void>(
+    () => undefined
+  );
 
   cameraRef.current = camera;
   gridSizeRef.current = gridSize;
@@ -550,8 +630,28 @@ function RcbCanvas({
     return () => setSceneWorldRoot(null, null, null, null, null, null, null);
   }, []);
 
+  const paintCameraKeyRef = useRef('');
+  const paintStageKeyRef = useRef('');
+  /** Zoom/DPR/stage changes need full ink; pan uses blit + edge strips (Phase 2). */
+  const paintCameraZoomRef = useRef(Number.NaN);
+  const paintCameraOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  /** Backend recreate / idle-list identity still forces one full ink pass. */
+  const transformPreviewFullPaintRef = useRef(false);
+
   // Stage: grid → frame plates → SoA canvas ink → DOM hosts (ADR 0027).
   // Prefer the product SceneSpatialRuntime when SvgCanvas has published it.
+  // Recreate ink backend when GPU DOF toggles webgl ↔ webgpu ↔ canvas2d.
+  const [inkBackendKey, setInkBackendKey] = useState(() => resolveIdleInkBackend());
+  const inkBackendKeyRef = useRef(inkBackendKey);
+  inkBackendKeyRef.current = inkBackendKey;
+  useEffect(() => {
+    return subscribeGpuDepthOfField(() => {
+      setInkBackendKey(resolveIdleInkBackend());
+      transformPreviewFullPaintRef.current = true;
+      paintStageSurfacesNowRef.current({ forceFull: true });
+    });
+  }, []);
+
   useEffect(() => {
     const gridCanvas = paintCanvasRef.current;
     const inkCanvas = inkCanvasRef.current;
@@ -577,7 +677,7 @@ function RcbCanvas({
       paintGrid: true,
       drawCanvasIdle: false,
     });
-    const inkRenderer = createSceneRenderer(resolveIdleInkBackend(), {
+    const inkRenderer = createSceneRenderer(inkBackendKey, {
       ...sharedDeps,
       canvas: inkCanvas,
       paintGrid: false,
@@ -585,24 +685,24 @@ function RcbCanvas({
     });
     paintRendererRef.current = gridRenderer;
     inkRendererRef.current = inkRenderer;
+    transformPreviewFullPaintRef.current = true;
     return () => {
       gridRenderer.dispose();
       inkRenderer.dispose();
       paintRendererRef.current = null;
       inkRendererRef.current = null;
     };
-  }, []);
+  }, [inkBackendKey]);
 
   useEffect(() => {
     return subscribeSceneCanvasIdlePaint(() => {
-      setCanvasIdlePaintEpoch((n) => n + 1);
+      // Paint immediately from the subscription. setState here used to nest a full
+      // RcbCanvas→SvgCanvas re-render inside RcbShapesLayer's layout reveal and
+      // froze multi-paste once the React tree + history got heavy.
+      paintStageSurfacesNowRef.current();
     });
   }, []);
 
-  const paintCameraKeyRef = useRef('');
-  const paintStageKeyRef = useRef('');
-  /** TransformPreview (incl. playhead angle) must full-repaint — dirty AABB may be empty. */
-  const transformPreviewFullPaintRef = useRef(false);
   const stageSizeRef = useRef({ w: stageW, h: stageH });
   stageSizeRef.current = { w: stageW, h: stageH };
   const showPixelGridRef = useRef(showPixelGrid);
@@ -622,23 +722,67 @@ function RcbCanvas({
     const idleDoc = getSceneCanvasIdlePaint()?.document ?? EMPTY_SCENE_DOC;
     const cameraKey = `${cam.x},${cam.y},${cam.zoom}`;
     const stageKey = `${sw}x${sh}@${dpr}|g${grid > 0 ? grid : DEFAULT_GRID_SIZE}|pg${showPixelGridRef.current ? 1 : 0}`;
-    const cameraOrStageChanged =
-      paintCameraKeyRef.current !== cameraKey || paintStageKeyRef.current !== stageKey;
+    const prevZoom = paintCameraZoomRef.current;
+    const zoomOrStageChanged =
+      paintStageKeyRef.current !== stageKey ||
+      !Number.isFinite(prevZoom) ||
+      Math.abs(prevZoom - cam.zoom) > 1e-9;
+    const cameraPanOnly =
+      paintCameraKeyRef.current !== cameraKey &&
+      !zoomOrStageChanged &&
+      Number.isFinite(prevZoom);
     paintCameraKeyRef.current = cameraKey;
     paintStageKeyRef.current = stageKey;
+    paintCameraZoomRef.current = cam.zoom;
 
-    const fromTransformPreview =
+    const nextOffset = rcbCameraScreenOffset(cam, dpr);
+    const prevOffset = paintCameraOffsetRef.current;
+    paintCameraOffsetRef.current = nextOffset;
+
+    let forceFull =
       opts?.forceFull === true ||
       transformPreviewFullPaintRef.current ||
-      consumeIdleCanvasFullRepaintPending();
+      consumeIdleCanvasFullRepaintPending() ||
+      zoomOrStageChanged;
     transformPreviewFullPaintRef.current = false;
+
+    const soaOn = isSoaCanvasShapesEnabled();
+    const canPanBlit =
+      cameraPanOnly && !forceFull && soaOn && Boolean(prevOffset);
+    if (canPanBlit && inkBackendKeyRef.current === 'canvas2d' && prevOffset) {
+      if (
+        applyCanvas2dPanBlit({
+          prevOffset,
+          nextOffset,
+          cam,
+          dpr,
+          stageW: sw,
+          stageH: sh,
+          inkCanvas: inkCanvasRef.current,
+          gridCanvas: paintCanvasRef.current,
+        })
+      ) {
+        forceFull = true;
+      }
+    } else if (canPanBlit) {
+      forceFull = true;
+    }
+
     const dirty = resolveSoaCanvasDirtyRegion({
-      full:
-        cameraOrStageChanged ||
-        fromTransformPreview ||
-        !isSoaCanvasShapesEnabled(),
-      buf: isSoaCanvasShapesEnabled() ? getSharedSceneRenderBuffer() : null,
+      full: forceFull || !soaOn,
+      buf: soaOn ? getSharedSceneRenderBuffer() : null,
     });
+    // Second bump after dirty flags cleared must not wipe retained ink.
+    if (isNoopSoaDirtyRegion(dirty)) {
+      markInteractionPerf('idle-paint', {
+        dirty: 'skip-empty',
+        forceFull,
+        cameraPanOnly,
+        zoomOrStageChanged,
+        soaOn,
+      });
+      return;
+    }
 
     const req = {
       document: idleDoc,
@@ -649,19 +793,44 @@ function RcbCanvas({
     };
     paintRendererRef.current?.render(req);
     inkRendererRef.current?.render(req);
+    // Keep cross-frame dirty union while TransformPreview is live. Clearing every
+    // paint left S-curve / wave trails: each frame only unions doc-base↔current,
+    // so mid-path peaks outside that AABB never erase (幻影).
+    // Full clear already wiped the surface — accum can drop. Preview end clears
+    // on the following paint (hasNodeTransformPreviews → false).
+    if (forceFull || dirty.kind === 'full' || !hasNodeTransformPreviews()) {
+      clearSoaGestureDirtyAccum();
+    }
+    markInteractionPerf('idle-paint', {
+      dirty: dirty.kind,
+      forceFull,
+      cameraPanOnly,
+      zoomOrStageChanged,
+      soaOn,
+    });
   }, []);
+  paintStageSurfacesNowRef.current = paintStageSurfacesNow;
 
   const gestureInkRafRef = useRef(0);
   const scheduleGestureInkRepaint = useCallback(() => {
     if (gestureInkRafRef.current) return;
     gestureInkRafRef.current = requestAnimationFrame(() => {
       gestureInkRafRef.current = 0;
-      if (isSoaCanvasShapesEnabled()) {
-        // Full idle repaint — restore underlap after plate/nodes leave old pixels.
-        markAllSoaDirty(getSharedSceneRenderBuffer());
+      const previewIds = listNodeTransformPreviewIds();
+      const liveFrameIds = getLiveArtboardFrameIds();
+      // Selection reveal dirties entered/left ids only — see RcbShapesLayer.
+      const plateOrParamGesture =
+        liveFrameIds.length > 0 ||
+        hasLiveCornerRadiusPreview() ||
+        hasLiveShapeParamsPreview();
+      markGestureSoaDirty({ previewIds, liveFrameIds, plateOrParamGesture });
+      // Plate-local / radius / params still full-clear (frameLocal ink).
+      if (plateOrParamGesture) {
+        transformPreviewFullPaintRef.current = true;
+        paintStageSurfacesNow({ forceFull: true });
+        return;
       }
-      transformPreviewFullPaintRef.current = true;
-      paintStageSurfacesNow({ forceFull: true });
+      paintStageSurfacesNow();
     });
   }, [paintStageSurfacesNow]);
 
@@ -699,9 +868,20 @@ function RcbCanvas({
     });
   }, [paintStageSurfacesNow]);
 
+  useEffect(() => {
+    return subscribeLiveShapeParamsPreview(() => {
+      if (isSoaCanvasShapesEnabled()) {
+        const nodeId = getLiveShapeParamsPreviewNodeId();
+        if (nodeId) markSoaDirtyById(getSharedSceneRenderBuffer(), nodeId);
+      }
+      transformPreviewFullPaintRef.current = true;
+      paintStageSurfacesNow({ forceFull: true });
+    });
+  }, [paintStageSurfacesNow]);
+
   useLayoutEffect(() => {
     paintStageSurfacesNow();
-  }, [camera, devicePixelRatio, stageW, stageH, g, showPixelGrid, canvasIdlePaintEpoch, paintStageSurfacesNow]);
+  }, [camera, devicePixelRatio, stageW, stageH, g, showPixelGrid, paintStageSurfacesNow]);
 
   const sceneCameraTransform = cameraSvgTransform(
     createCameraTransform(camera, devicePixelRatio)

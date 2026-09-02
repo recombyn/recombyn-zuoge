@@ -9,6 +9,7 @@ import {
   getSceneCanvasIdlePaint,
   hitTestWithSpatialIndex,
   isFullDirty,
+  isNoopSoaDirtyRegion,
   listSceneCanvasIdlePaintIds,
   canvasIdleIsStrokeOnly,
   canIdlePaintOnCanvas,
@@ -21,7 +22,11 @@ import {
   paintCanvasShapeInk,
   paintCanvasPathInk,
   paintCanvasTextInk,
+  clearIdleTextOutlineCache,
+  primeIdleTextOutlineCache,
   paintCanvasIdleNode,
+  nodeNeedsCanvasEffectBake,
+  canvasCompositeFromBlendMode,
   paintCanvasMediaInk,
   clipCanvasIdleToOwningFrame,
   paintStrokeCanvasIdle,
@@ -37,17 +42,24 @@ import {
 import { SceneSpatialRuntime } from '@/components/rcb/core/spatialIndex';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import { PIXEL_GRID_MIN_ZOOM } from '@/components/rcb/selection/alignGuides';
-import { setFrameClipRevealOverflowIds } from '@/components/rcb/frames/frameContentClip';
+import {
+  setFrameClipRevealOverflowIds,
+  setSelectionPaintRaiseIds,
+} from '@/components/rcb/frames/frameContentClip';
 import {
   createSceneRenderBuffer,
   getSharedSceneRenderBuffer,
+  markAllSoaDirty,
+  paintSoaIdleSlot,
   resetSharedSceneRenderBuffer,
   setSoaCanvasShapesEnabledForTests,
   syncSceneRenderBufferFromDocument,
   applySoaHostInkFlags,
+  SOA_FLAG_DIRTY,
 } from '../sceneRenderBuffer';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 import { setLiveCornerRadiusPreview } from '@/components/rcb/scene/document/sceneRadii';
+import { setLiveShapeParamsPreview } from '@/components/rcb/scene/document/sceneShapes';
 
 function emptyDoc(): SceneDocument {
   return {
@@ -157,6 +169,7 @@ function mockCtx(ops: string[]) {
     lineWidth: 1,
     lineCap: 'butt' as CanvasLineCap,
     globalAlpha: 1,
+    filter: 'none',
     shadowColor: '',
     shadowBlur: 0,
     shadowOffsetX: 0,
@@ -175,6 +188,45 @@ describe('DirtyRegion helpers', () => {
     expect(dirtyTouchesNode(nodes, 'z')).toBe(false);
   });
 
+  it('isNoopSoaDirtyRegion is empty nodes only', () => {
+    expect(isNoopSoaDirtyRegion({ kind: 'nodes', ids: [] })).toBe(true);
+    expect(isNoopSoaDirtyRegion({ kind: 'nodes', ids: ['a'] })).toBe(false);
+    expect(isNoopSoaDirtyRegion({ kind: 'full' })).toBe(false);
+    expect(
+      isNoopSoaDirtyRegion({
+        kind: 'aabb',
+        box: { x: 0, y: 0, width: 1, height: 1 },
+      })
+    ).toBe(false);
+  });
+
+  it('resolveSoaCanvasDirtyRegion is noop when no dirty AABB (not full wipe)', () => {
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(
+      buf,
+      (() => {
+        let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+        doc = addNodeToDocument(doc, 'a', {
+          id: 'a',
+          key: 'shape',
+          x: 10,
+          y: 20,
+          width: 30,
+          height: 40,
+          attrs: { shapeType: 'rect', fill: '#fff' },
+          children: [],
+        });
+        return doc;
+      })()
+    );
+    for (let i = 0; i < buf.count; i += 1) {
+      buf.flags[i] = (buf.flags[i]! & ~SOA_FLAG_DIRTY) >>> 0;
+    }
+    const region = resolveSoaCanvasDirtyRegion({ full: false, buf });
+    expect(region).toEqual({ kind: 'nodes', ids: [] });
+    expect(isNoopSoaDirtyRegion(region)).toBe(true);
+  });
+
   it('sceneBoxToScreenRect maps scene AABB through camera', () => {
     const scr = sceneBoxToScreenRect(
       { x: 10, y: 20, width: 40, height: 30 },
@@ -186,6 +238,45 @@ describe('DirtyRegion helpers', () => {
     expect(scr.y).toBe(20 * 2 + 50);
     expect(scr.width).toBe(80);
     expect(scr.height).toBe(60);
+  });
+
+  it('resolveSoaCanvasDirtyRegion stays AABB during TransformPreview (not full)', async () => {
+    const { setNodeTransformPreviews, clearNodeTransformPreviews } = await import(
+      '@/components/rcb/core/transformPreview'
+    );
+    const {
+      clearSoaGestureDirtyAccum,
+      accumulateSoaGestureDirtyFromBuffer,
+    } = await import('../soaBakeLayer');
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(
+      buf,
+      (() => {
+        let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+        doc = addNodeToDocument(doc, 'a', {
+          id: 'a',
+          key: 'shape',
+          x: 10,
+          y: 20,
+          width: 30,
+          height: 40,
+          attrs: { shapeType: 'rect', fill: '#fff' },
+          children: [],
+        });
+        return doc;
+      })()
+    );
+    setNodeTransformPreviews([{ nodeId: 'a', left: 80, top: 90, width: 30, height: 40 }]);
+    markAllSoaDirty(buf);
+    accumulateSoaGestureDirtyFromBuffer(buf);
+    const region = resolveSoaCanvasDirtyRegion({ full: false, buf });
+    expect(region.kind).toBe('aabb');
+    if (region.kind === 'aabb') {
+      expect(region.box.width).toBeGreaterThanOrEqual(30);
+      expect(region.box.height).toBeGreaterThanOrEqual(40);
+    }
+    clearNodeTransformPreviews();
+    clearSoaGestureDirtyAccum();
   });
 
   it('resolveSoaCanvasDirtyRegion uses dirty AABB when not full', () => {
@@ -218,7 +309,7 @@ describe('DirtyRegion helpers', () => {
     }
   });
 
-  it('resolveSoaCanvasDirtyRegion is full while selection reveals frame overflow', () => {
+  it('resolveSoaCanvasDirtyRegion stays AABB while selection reveals (full only on reveal change)', () => {
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(
       buf,
@@ -237,11 +328,12 @@ describe('DirtyRegion helpers', () => {
         return doc;
       })()
     );
+    markAllSoaDirty(buf);
     setFrameClipRevealOverflowIds(['a']);
-    expect(resolveSoaCanvasDirtyRegion({ full: false, buf })).toEqual({ kind: 'full' });
-    setFrameClipRevealOverflowIds(null);
+    // Steady-state selection must not force full — that froze multi-dupe paste.
     const region = resolveSoaCanvasDirtyRegion({ full: false, buf });
     expect(region.kind).toBe('aabb');
+    setFrameClipRevealOverflowIds(null);
   });
 
   it('resolveSoaCanvasDirtyRegion is full during live corner-radius preview', () => {
@@ -253,6 +345,129 @@ describe('DirtyRegion helpers', () => {
     });
     expect(resolveSoaCanvasDirtyRegion({ full: false, buf })).toEqual({ kind: 'full' });
     setLiveCornerRadiusPreview(null);
+  });
+
+  it('paintSoaIdleSlot applies live polygon corner radius (not baked samples)', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'poly1', {
+      id: 'poly1',
+      key: 'shape',
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 120,
+      attrs: {
+        shapeType: 'polygon',
+        sides: 5,
+        radius: 0,
+        'fill-color': '#ffffff',
+        'border-width': 0,
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const si = buf.indexById.get('poly1');
+    expect(si).toBeTypeOf('number');
+    const sharpOps: string[] = [];
+    paintSoaIdleSlot(
+      mockCtx(sharpOps) as unknown as CanvasRenderingContext2D,
+      buf,
+      si!,
+      { left: 0, top: 0, right: 400, bottom: 400 },
+      doc
+    );
+    const sharpArcTo = sharpOps.filter((o) => o === 'arcTo').length;
+
+    setLiveCornerRadiusPreview({
+      nodeId: 'poly1',
+      display: 30,
+      radii: { tl: 30, tr: 30, br: 30, bl: 30 },
+    });
+    const liveOps: string[] = [];
+    paintSoaIdleSlot(
+      mockCtx(liveOps) as unknown as CanvasRenderingContext2D,
+      buf,
+      si!,
+      { left: 0, top: 0, right: 400, bottom: 400 },
+      doc
+    );
+    setLiveCornerRadiusPreview(null);
+
+    // Rounded polygon baseline uses arc segments (Path2D) or arcTo samples.
+    const liveHasCurves =
+      liveOps.some((o) => o.startsWith('fill')) &&
+      (liveOps.filter((o) => o === 'arcTo').length > sharpArcTo ||
+        liveOps.includes('fill') ||
+        liveOps.some((o) => o.startsWith('fill:')));
+    expect(liveHasCurves).toBe(true);
+    // Live path must differ from sharp baked samples (more geometry ops or Path2D fill).
+    expect(liveOps.length).toBeGreaterThan(0);
+    expect(JSON.stringify(liveOps)).not.toEqual(JSON.stringify(sharpOps));
+  });
+
+  it('paintSoaIdleSlot applies live ellipse inner ratio (donut hole)', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'circ1', {
+      id: 'circ1',
+      key: 'shape',
+      x: 20,
+      y: 20,
+      width: 100,
+      height: 100,
+      attrs: {
+        shapeType: 'circle',
+        'fill-color': '#ffffff',
+        'border-width': 0,
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const si = buf.indexById.get('circ1');
+    expect(si).toBeTypeOf('number');
+
+    setLiveShapeParamsPreview({ nodeId: 'circ1', ellipseInnerRatio: 0.41 });
+    const ops: string[] = [];
+    paintSoaIdleSlot(
+      mockCtx(ops) as unknown as CanvasRenderingContext2D,
+      buf,
+      si!,
+      { left: 0, top: 0, right: 400, bottom: 400 },
+      doc
+    );
+    setLiveShapeParamsPreview(null);
+
+    expect(ops).toContain('fill:evenodd');
+  });
+
+  it('resolveSoaCanvasDirtyRegion is full while live artboard plate is moving', async () => {
+    const { previewArtboardFrameGeometry, clearLiveArtboardFrameGeometry } = await import(
+      '@/components/rcb/frames/HtmlArtboardFrame'
+    );
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(
+      buf,
+      (() => {
+        let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+        doc = addNodeToDocument(doc, 'a', {
+          id: 'a',
+          key: 'shape',
+          x: 10,
+          y: 20,
+          width: 30,
+          height: 40,
+          attrs: { shapeType: 'rect', fill: '#fff' },
+          children: [],
+        });
+        return doc;
+      })()
+    );
+    previewArtboardFrameGeometry({ id: 'f1', x: 40, y: 50, width: 200, height: 160 });
+    expect(resolveSoaCanvasDirtyRegion({ full: false, buf })).toEqual({ kind: 'full' });
+    clearLiveArtboardFrameGeometry();
+    const region = resolveSoaCanvasDirtyRegion({ full: false, buf });
+    expect(region.kind).toBe('aabb');
   });
 });
 
@@ -421,7 +636,7 @@ describe('scene grid (Canvas underlay)', () => {
       stage: { width: 200, height: 150 },
       dpr: 1,
     });
-    // padScene=4 → clearRect expands by 4 on each side in screen px at zoom 1
+    // padScene=0: clearRect matches aabbDirty exactly (no ring past clip).
     expect(ops.some((o) => o.startsWith('clearRect:') && !o.endsWith('0,0,200,150'))).toBe(
       true
     );
@@ -511,6 +726,97 @@ describe('Canvas idle path / text / shape paint', () => {
     });
     expect(ops.some((o) => o.startsWith('rotate:'))).toBe(true);
     expect(ops).toContain('scale:-1,1');
+  });
+
+  it('paintCanvasIdleNode bakes object blur via offscreen drawImage', () => {
+    const blurNode = {
+      key: 'shape',
+      attrs: {
+        shapeType: 'rect',
+        'fill-color': '#ff0000',
+        'border-width': 0,
+        'blur-enabled': true,
+        'blur-amount': 12,
+      },
+    } as SceneNodeInput;
+    expect(nodeNeedsCanvasEffectBake(blurNode)).toBe(true);
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
+      left: 10,
+      top: 20,
+      width: 40,
+      height: 30,
+      zoom: 1,
+      node: blurNode,
+    });
+    expect(ops).toContain('drawImage');
+    expect((ctx as { filter: string }).filter).toBe('none');
+  });
+
+  it('nodeNeedsCanvasEffectBake for inner-shadow; not for backdrop-only', () => {
+    expect(
+      nodeNeedsCanvasEffectBake({
+        key: 'shape',
+        attrs: {
+          'inner-shadow-enabled': true,
+          'inner-shadow-visible': true,
+          'inner-shadow-blur': 4,
+          'inner-shadow-y': 2,
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      nodeNeedsCanvasEffectBake({
+        key: 'shape',
+        attrs: { 'backdrop-blur-enabled': true, 'backdrop-blur-amount': 12 },
+      } as SceneNodeInput)
+    ).toBe(false);
+  });
+
+  it('canvasCompositeFromBlendMode maps CSS modes; normal/pass-through → null', () => {
+    expect(canvasCompositeFromBlendMode('multiply')).toBe('multiply');
+    expect(canvasCompositeFromBlendMode('screen')).toBe('screen');
+    expect(canvasCompositeFromBlendMode('overlay')).toBe('overlay');
+    expect(canvasCompositeFromBlendMode('normal')).toBeNull();
+    expect(canvasCompositeFromBlendMode('pass-through')).toBeNull();
+    expect(canvasCompositeFromBlendMode('passthrough')).toBeNull();
+    expect(canvasCompositeFromBlendMode('')).toBeNull();
+  });
+
+  it('paintCanvasIdleNode with multiply still draws (blend bake path)', () => {
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    const identity = {
+      a: 1,
+      b: 0,
+      c: 0,
+      d: 1,
+      e: 0,
+      f: 0,
+      inverse() {
+        return this;
+      },
+    };
+    (ctx as { getTransform?: () => typeof identity }).getTransform = () => identity;
+    (ctx as { canvas?: HTMLCanvasElement }).canvas = document.createElement('canvas');
+    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
+      left: 0,
+      top: 0,
+      width: 40,
+      height: 30,
+      zoom: 1,
+      node: {
+        key: 'shape',
+        attrs: {
+          shapeType: 'rect',
+          'fill-color': '#ff0000',
+          'border-width': 0,
+          blendMode: 'multiply',
+        },
+      } as SceneNodeInput,
+    });
+    expect(ops).toContain('drawImage');
   });
 
   it('paintCanvasMediaInk draws cached image with crop', () => {
@@ -653,12 +959,14 @@ describe('Canvas idle path / text / shape paint', () => {
   });
 
   it('paintCanvasTextInk draws fillText glyphs', () => {
+    clearIdleTextOutlineCache();
     const ops: string[] = [];
     const ctx = mockCtx(ops);
     (ctx as { fillText?: (...a: unknown[]) => void; textAlign?: string; textBaseline?: string; font?: string }).fillText =
       () => ops.push('fillText');
     paintCanvasTextInk(ctx as unknown as CanvasRenderingContext2D, {
       node: {
+        id: 't-fill',
         key: 'text',
         attrs: {
           ORIGIN_DATA: JSON.stringify([{ children: [{ text: 'Hello' }] }]),
@@ -674,6 +982,74 @@ describe('Canvas idle path / text / shape paint', () => {
       opacity: 1,
     });
     expect(ops).toContain('fillText');
+  });
+
+  it('paintCanvasTextInk fills primed outline Path2D instead of fillText', () => {
+    clearIdleTextOutlineCache();
+    const node = {
+      id: 't-outline',
+      key: 'text',
+      width: 80,
+      height: 24,
+      attrs: {
+        ORIGIN_DATA: JSON.stringify([{ children: [{ text: 'Hi' }] }]),
+        DATA: JSON.stringify([
+          { chars: [{ char: 'H', config: { SIZE: 14, COLOR: '#222', FAMILY: 'sans-serif' } }] },
+        ]),
+      },
+    } as SceneNodeInput;
+    primeIdleTextOutlineCache(node, 'M0 0 H10 V10 H0 Z');
+    const g = globalThis as { Path2D?: new (d?: string) => object };
+    const Prev = g.Path2D;
+    g.Path2D = class {
+      constructor(public d?: string) {}
+    } as never;
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    (ctx as { fillText?: (...a: unknown[]) => void }).fillText = () => ops.push('fillText');
+    try {
+      paintCanvasTextInk(ctx as unknown as CanvasRenderingContext2D, {
+        node,
+        width: 80,
+        height: 24,
+        opacity: 1,
+      });
+      expect(ops).toContain('fill');
+      expect(ops).not.toContain('fillText');
+    } finally {
+      if (Prev) g.Path2D = Prev;
+      else delete g.Path2D;
+      clearIdleTextOutlineCache();
+    }
+  });
+
+  it('paintCanvasTextInk keeps fillText for CJK until async outline is ready', () => {
+    clearIdleTextOutlineCache();
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    (ctx as { fillText?: (...a: unknown[]) => void }).fillText = () => ops.push('fillText');
+    paintCanvasTextInk(ctx as unknown as CanvasRenderingContext2D, {
+      node: {
+        id: 't-cjk',
+        key: 'text',
+        attrs: {
+          ORIGIN_DATA: JSON.stringify([{ children: [{ text: '你好' }] }]),
+          DATA: JSON.stringify([
+            {
+              chars: [
+                { char: '你', config: { SIZE: 16, COLOR: '#111', FAMILY: 'sans-serif' } },
+                { char: '好', config: { SIZE: 16, COLOR: '#111', FAMILY: 'sans-serif' } },
+              ],
+            },
+          ]),
+        },
+      } as SceneNodeInput,
+      width: 120,
+      height: 40,
+      opacity: 1,
+    });
+    expect(ops).toContain('fillText');
+    clearIdleTextOutlineCache();
   });
 
   it('paintCanvasPathInk respects evenodd fill-rule for boolean holes', () => {
@@ -827,7 +1203,7 @@ describe('Canvas idle path / text / shape paint', () => {
     ).toBeNull();
   });
 
-  it('canIdlePaintOnCanvas allows gradient/image/media/poly; rejects donut/evenodd/non-center stroke/blur', () => {
+  it('canIdlePaintOnCanvas allows gradient/image/media/poly/evenodd/donut-arc/outside-stroke; rejects backdrop-blur', () => {
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -898,13 +1274,13 @@ describe('Canvas idle path / text / shape paint', () => {
         key: 'shape',
         attrs: { shapeType: 'circle', ellipseInnerRatio: 0.5, 'stroke-enabled': false },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
         attrs: { shapeType: 'circle', ellipseArcPercent: 40, 'stroke-enabled': false },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -927,7 +1303,19 @@ describe('Canvas idle path / text / shape paint', () => {
           'stroke-enabled': false,
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: {
+          shapeType: 'path',
+          path: 'M0 0 H10 V10 H0 Z',
+          outlined: 'true',
+          'fill-rule': 'evenodd',
+          'stroke-enabled': false,
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
@@ -964,6 +1352,18 @@ describe('Canvas idle path / text / shape paint', () => {
     ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
+        key: 'audio',
+        attrs: { src: '', audioGenerator: true },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'audio',
+        attrs: { src: 'https://example.com/a.mp3' },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
         key: 'shape',
         attrs: {
           shapeType: 'rect',
@@ -972,17 +1372,39 @@ describe('Canvas idle path / text / shape paint', () => {
           strokeAlign: 'outside',
         },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
-        attrs: { shapeType: 'rect', 'inner-shadow-enabled': true },
+        attrs: {
+          shapeType: 'rect',
+          'inner-shadow-enabled': true,
+          'inner-shadow-visible': true,
+          'inner-shadow-blur': 4,
+          'inner-shadow-y': 2,
+        },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'shape',
-        attrs: { shapeType: 'rect', 'backdrop-blur-enabled': true },
+        attrs: {
+          shapeType: 'rect',
+          'blur-enabled': true,
+          'blur-amount': 8,
+        },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: { shapeType: 'rect', 'fill-color': '#f00', blendMode: 'multiply' },
+      } as SceneNodeInput)
+    ).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'shape',
+        attrs: { shapeType: 'rect', 'backdrop-blur-enabled': true, 'backdrop-blur-amount': 12 },
       } as SceneNodeInput)
     ).toBe(false);
   });
@@ -1066,12 +1488,15 @@ describe('Canvas idle path / text / shape paint', () => {
     expect(ops).toContain('fill');
   });
 
-  it('bumpSceneCanvasIdlePaint notifies subscribers', () => {
+  it('bumpSceneCanvasIdlePaint notifies subscribers', async () => {
     let n = 0;
     const unsub = subscribeSceneCanvasIdlePaint(() => {
       n += 1;
     });
     bumpSceneCanvasIdlePaint();
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
     unsub();
     expect(n).toBe(1);
   });
@@ -1150,6 +1575,55 @@ describe('SceneCanvasIdlePaint registry', () => {
     expect(ticks).toBe(2);
     unsub();
   });
+
+  it('attr-only document replace does not wake idle paint (needs bump after SoA sync)', async () => {
+    clearSceneCanvasIdlePaint();
+    let ticks = 0;
+    const unsub = subscribeSceneCanvasIdlePaint(() => {
+      ticks += 1;
+    });
+    const box = () => ({ left: 0, top: 0, width: 100, height: 50 });
+    const docA = rectDoc();
+    setSceneCanvasIdlePaint({
+      document: docA,
+      canvasIds: ['n1'],
+      hiddenNodeId: null,
+      getNodeBox: box,
+    });
+    expect(ticks).toBe(1);
+    const docB = {
+      ...docA,
+      deltaSetLike: {
+        ...docA.deltaSetLike,
+        n1: {
+          ...docA.deltaSetLike.n1,
+          attrs: {
+            ...(docA.deltaSetLike.n1 as { attrs?: Record<string, unknown> }).attrs,
+            cornerRadius: 24,
+            radiusTL: 24,
+            radiusTR: 24,
+            radiusBR: 24,
+            radiusBL: 24,
+          },
+        },
+      },
+    };
+    setSceneCanvasIdlePaint({
+      document: docB as typeof docA,
+      canvasIds: ['n1'],
+      hiddenNodeId: null,
+      getNodeBox: box,
+    });
+    // Membership fingerprint unchanged — corner-radius commit must bump explicitly.
+    expect(ticks).toBe(1);
+    bumpSceneCanvasIdlePaint();
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+    expect(ticks).toBe(2);
+    clearSceneCanvasIdlePaint();
+    unsub();
+  });
 });
 
 describe('createCanvasSceneRenderer', () => {
@@ -1196,6 +1670,7 @@ describe('createCanvasSceneRenderer', () => {
 describe('hitTestWithSpatialIndex', () => {
   afterEach(() => {
     setSoaCanvasShapesEnabledForTests(null);
+    setSelectionPaintRaiseIds(null);
     resetSharedSceneRenderBuffer();
   });
 
@@ -1261,6 +1736,64 @@ describe('hitTestWithSpatialIndex', () => {
         { x: 30, y: 30 }
       )
     ).toBe('front');
+  });
+
+  it('hit keeps permanent stackOrder — selection paint raise does not steal clicks', () => {
+    const doc = {
+      stackOrder: ['node:back', 'node:front'],
+      deltaSetLike: {
+        ROOT: { children: ['front', 'back'] },
+        front: {
+          id: 'front',
+          key: 'shape',
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', 'fill-color': '#fff' },
+        },
+        back: {
+          id: 'back',
+          key: 'shape',
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 80,
+          attrs: {
+            shapeType: 'rect',
+            'fill-color': 'transparent',
+            'fill-enabled': 'false',
+          },
+        },
+      },
+    } as unknown as SceneDocument;
+    const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: ['front', 'back'],
+      reloadToken: 1,
+      aabbPad: 0,
+    });
+    setSelectionPaintRaiseIds(['back']);
+    try {
+      expect(
+        hitTestWithSpatialIndex(
+          {
+            getDocument: () => doc,
+            getSpatial: () => spatial,
+            getZoom: () => 1,
+            listNodeIds: () => ['front', 'back'],
+            getNodeBox: (id) => {
+              const node = doc.deltaSetLike[id];
+              return { left: node.x, top: node.y, width: node.width, height: node.height };
+            },
+          },
+          { x: 30, y: 30 }
+        )
+      ).toBe('front');
+    } finally {
+      setSelectionPaintRaiseIds(null);
+    }
   });
 
   it('picks canvas-idle shapes from SoA buffer when flag is on', () => {

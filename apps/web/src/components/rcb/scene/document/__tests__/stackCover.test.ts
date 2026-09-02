@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   addNodeToDocument,
+  buildNodeStackZMap,
   createBareDocument,
+  maxDocumentStackZ,
   reorderNodesInDocument,
-  stackZIndex
+  selectionPaintZIndex,
+  listSingleSelectionPaintRaiseNodeIds,
+  stackZIndex,
+  worldNodeStacksAboveAnyFrame,
 } from '../sceneDocument';
 import {
   createImageGeneratorNode
@@ -49,11 +54,129 @@ describe('unified HTML media stack (foreignObject)', () => {
     expect(doc.deltaSetLike.a0.attrs.frameOrder).toBe(0);
     expect(doc.deltaSetLike.a1.attrs.frameOrder).toBe(1);
     expect(stackZIndex(doc, 'node', 'a1')).toBeGreaterThan(stackZIndex(doc, 'node', 'a0'));
+    const zMap = buildNodeStackZMap(doc, ['a0', 'a1', 'world']);
+    expect(zMap.get('a1')!).toBeGreaterThan(zMap.get('a0')!);
+    expect(zMap.get('a0')).toBe(stackZIndex(doc, 'node', 'a0'));
+    expect(zMap.get('a1')).toBe(stackZIndex(doc, 'node', 'a1'));
+    expect(zMap.get('world')).toBe(stackZIndex(doc, 'node', 'world'));
 
     doc = reorderNodesInDocument(doc, ['a0'], 'front');
     expect(doc.deltaSetLike.a0.attrs.frameOrder).toBe(1);
     expect(doc.deltaSetLike.a1.attrs.frameOrder).toBe(0);
     expect(doc.stackOrder).not.toContain('node:a0');
+  });
+
+  it('selection paint raise uses current canvas max + 1 without mutating stackOrder', () => {
+    let doc = createBareDocument();
+    doc.frames = [
+      { id: 'low', name: 'L', backgroundColor: '#fff', x: 0, y: 0, width: 100, height: 100 },
+      { id: 'high', name: 'H', backgroundColor: '#fff', x: 50, y: 50, width: 100, height: 100 },
+    ];
+    doc.stackOrder = ['frame:low', 'frame:high'];
+    doc = addNodeToDocument(doc, 'back', {
+      id: 'back',
+      key: 'rect',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      attrs: {},
+      children: [],
+    });
+    const maxZ = maxDocumentStackZ(doc);
+    expect(maxZ).toBeGreaterThan(0);
+    const raised = selectionPaintZIndex(doc, 'frame', 'low', true);
+    expect(raised).toBe(maxZ + 1);
+    expect(selectionPaintZIndex(doc, 'frame', 'low', false)).toBe(stackZIndex(doc, 'frame', 'low'));
+    expect(selectionPaintZIndex(doc, 'node', 'back', true)).toBe(maxZ + 1);
+    expect(doc.stackOrder).toEqual(['frame:low', 'frame:high', 'node:back']);
+  });
+
+  it('raised frame children stay above the raised plate (in-frame local slots)', () => {
+    let doc = createBareDocument();
+    doc.frames = [
+      { id: 'f1', name: 'F', backgroundColor: '#fff', x: 0, y: 0, width: 200, height: 200 },
+    ];
+    doc.stackOrder = ['frame:f1'];
+    doc = addNodeToDocument(doc, 'c0', {
+      id: 'c0',
+      key: 'rect',
+      x: 10,
+      y: 10,
+      width: 40,
+      height: 40,
+      attrs: { frameId: 'f1', frameOrder: 0 },
+      children: [],
+    });
+    doc = addNodeToDocument(doc, 'c1', {
+      id: 'c1',
+      key: 'rect',
+      x: 20,
+      y: 20,
+      width: 40,
+      height: 40,
+      attrs: { frameId: 'f1', frameOrder: 1 },
+      children: [],
+    });
+    const plateRaised = selectionPaintZIndex(doc, 'frame', 'f1', true);
+    const c0Raised = selectionPaintZIndex(doc, 'node', 'c0', true);
+    const c1Raised = selectionPaintZIndex(doc, 'node', 'c1', true);
+    expect(c0Raised).toBeGreaterThan(plateRaised);
+    expect(c1Raised).toBeGreaterThan(c0Raised);
+  });
+
+  it('single-selection paint raise lists only one node or one frame children', () => {
+    let doc = createBareDocument();
+    doc.frames = [
+      { id: 'f1', name: 'F', backgroundColor: '#fff', x: 0, y: 0, width: 100, height: 100 },
+    ];
+    doc.stackOrder = ['frame:f1'];
+    doc = addNodeToDocument(doc, 'c1', {
+      id: 'c1',
+      key: 'rect',
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 20,
+      attrs: { frameId: 'f1' },
+      children: [],
+    });
+    doc = addNodeToDocument(doc, 'w1', {
+      id: 'w1',
+      key: 'rect',
+      x: 200,
+      y: 0,
+      width: 20,
+      height: 20,
+      attrs: {},
+      children: [],
+    });
+    expect(listSingleSelectionPaintRaiseNodeIds(doc, ['w1'], [])).toEqual(['w1']);
+    expect(listSingleSelectionPaintRaiseNodeIds(doc, ['w1', 'c1'], [])).toEqual([]);
+    expect(listSingleSelectionPaintRaiseNodeIds(doc, [], ['f1'])).toEqual(['c1']);
+    expect(listSingleSelectionPaintRaiseNodeIds(doc, [], ['f1', 'f2'])).toEqual([]);
+    // World node after the artboard in stackOrder must leave SoA (under plates).
+    expect(worldNodeStacksAboveAnyFrame(doc, 'w1')).toBe(true);
+    expect(worldNodeStacksAboveAnyFrame(doc, 'c1')).toBe(false);
+  });
+
+  it('world node below all frames can stay on SoA', () => {
+    let doc = createBareDocument();
+    doc = addNodeToDocument(doc, 'under', {
+      id: 'under',
+      key: 'rect',
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 20,
+      attrs: {},
+      children: [],
+    });
+    doc.frames = [
+      { id: 'top', name: 'T', backgroundColor: '#fff', x: 0, y: 0, width: 100, height: 100 },
+    ];
+    doc.stackOrder = ['node:under', 'frame:top'];
+    expect(worldNodeStacksAboveAnyFrame(doc, 'under')).toBe(false);
   });
 
   it('addNodeToDocument appends new nodes on top of stackOrder', () => {

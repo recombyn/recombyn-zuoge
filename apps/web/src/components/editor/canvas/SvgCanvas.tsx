@@ -12,6 +12,7 @@ import { useSelector } from '@/store';
 import { useActiveFrameId, useSelectedFrameIds } from '@/store/editorSelectors';
 import {
   addNodeToDocument,
+  listSingleSelectionPaintRaiseNodeIds,
   removeNodesFromDocument,
   reorderNodesInDocument,
   listSceneNodes,
@@ -127,6 +128,12 @@ import {
   isImageToolSidePanelKind,
   isImageToolCropSessionKind,
 } from '@/store/modules/editor';
+import {
+  beginSelectPerf,
+  endSelectPerfAfterPaint,
+  markInteractionPerf,
+  markSelectPerf,
+} from '@/components/editor/sceneEvents';
 import { requestProjectFlush } from '@/components/editor/useProjectCloudSync';
 import {
   canCollabRedo,
@@ -157,8 +164,11 @@ import {
 } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
   getWorkbenchToolPolicy,
+  setSceneGeometryGestureActive,
   warnIfAvBlockedByAnimationWorkbenchFocus,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
+import { requestPlayheadSceneApply } from '@/components/editor/nodes/AnimationNode/animationPlayheadApplyEvent';
+import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import {
   useCanvasClipboard,
   type CanvasClipboardApi,
@@ -182,11 +192,13 @@ import {
   snapCoordToGrid,
 } from '@/components/rcb';
 import AudioNodeOverlay, {
+  resolveActiveAudioPlayerId,
   type AudioGeomOverride,
 } from '@/components/editor/nodes/AudioNode/AudioNodeOverlay';
 import VideoNodeOverlay, {
   type VideoGeomOverride,
 } from '@/components/editor/nodes/VideoNode/VideoNodeOverlay';
+import { resolveActiveVideoDecoderId } from '@/components/editor/nodes/VideoNode/VideoHoverPlayback';
 import AnimationPlayheadSceneSync from '@/components/editor/nodes/AnimationNode/AnimationPlayheadSceneSync';
 import AnimationNodeOverlay, {
   type LottieGeomOverride,
@@ -377,9 +389,15 @@ function SvgCanvas({
   const videoToolPanelKind = useSelector(
     (s: RootState) => s.editor.videoToolPanel?.kind as string | undefined
   );
+  const videoToolPanel = useSelector(
+    (s: RootState) => s.editor.videoToolPanel as null | { nodeId: string; kind: string }
+  );
   const videoToolOpen = videoToolPanelKind === 'trim';
   const audioToolPanelKind = useSelector(
     (s: RootState) => s.editor.audioToolPanel?.kind as string | undefined
+  );
+  const audioToolPanel = useSelector(
+    (s: RootState) => s.editor.audioToolPanel as null | { nodeId: string; kind: string }
   );
   const audioToolOpen =
     audioToolPanelKind === 'trim' || audioToolPanelKind === 'speed';
@@ -454,9 +472,17 @@ function SvgCanvas({
 
   const onGeometryTransformingChange = useCallback((next: boolean) => {
     geometryTransformingRef.current = next;
-    // Do NOT flip `setAnimationWorkbenchGeometryPreview` here — that gate is
-    // only for 动画工作台 *plate* drags (EditorStageWorld). Any shape transform
-    // used to stick the gate and block ensureAnimationFrameMedia / collab sync.
+    // Plate drag uses `setAnimationWorkbenchGeometryPreview` (blocks ensure/collab).
+    // Selection transforms use a separate gate so playhead stops fighting child
+    // TransformPreview without sticking the plate-only ensure/collab path.
+    setSceneGeometryGestureActive(next);
+    if (next) {
+      // Drop playhead-owned previews so drag coalescer owns only moved ids
+      // (avoids QT markDirtyMany across every linked workbench child each frame).
+      clearNodeTransformPreviews();
+    } else {
+      requestPlayheadSceneApply({ afterPaint: true });
+    }
     setGeometryTransforming(next);
     onTransformingChange?.(next);
     if (!next) {
@@ -736,6 +762,7 @@ function SvgCanvas({
   );
 
   const nodeSpatialIndex = useMemo(() => {
+    const tMemo0 = performance.now();
     const runtime = spatialRuntimeRef.current;
     const doc = preserveLiveDocumentRef() ? documentRef.current : document;
     if (!doc) {
@@ -751,13 +778,20 @@ function SvgCanvas({
     } else if (Array.isArray(doc?.deltaSetLike?.ROOT?.children)) {
       childrenSrc = doc.deltaSetLike.ROOT.children;
     }
-    return runtime.sync({
+    const index = runtime.sync({
       document: doc,
       childrenIds: childrenSrc,
       reloadToken,
       patchedNodeIds: lastPatchedNodeIds,
       aabbPad: 32,
     });
+    markInteractionPerf('spatial-sync-memo', {
+      ms: Number((performance.now() - tMemo0).toFixed(2)),
+      children: childrenSrc.length,
+      patched: lastPatchedNodeIds.length,
+      indexSize: index.size,
+    });
+    return index;
   }, [document, reloadToken, lastPatchedNodeIds, geometryTransforming, frameGestureActive]);
 
   useEffect(() => {
@@ -913,7 +947,16 @@ function SvgCanvas({
         });
         nextFrames = [...curFrames];
       }
+      const liveN = Object.keys(documentRef.current?.deltaSetLike || {}).length;
+      beginSelectPerf(
+        `mixed nodes=${nextNodes.length} frames=${nextFrames.length} live≈${liveN}`
+      );
       setMixedSelection({ nodeIds: nextNodes, frameIds: nextFrames });
+      markSelectPerf('setMixedSelection', {
+        selectedNodes: nextNodes.length,
+        selectedFrames: nextFrames.length,
+      });
+      endSelectPerfAfterPaint();
     },
     [ completeCanvasAttachPick]
   );
@@ -959,15 +1002,20 @@ function SvgCanvas({
       if (!opts?.additive && ids.length === 1) {
         const plateFrame = frameForFullBleedPlate(doc, ids[0]);
         if (plateFrame) {
+          const liveN = Object.keys(doc?.deltaSetLike || {}).length;
+          beginSelectPerf(`plate-frame live≈${liveN}`);
           setSelectedNodeIds([]);
           setActiveFrameId(plateFrame.id);
           setFrameChromeMode('soft');
+          markSelectPerf('plate-frame-dispatch');
+          endSelectPerfAfterPaint();
           return;
         }
       }
       // Clicking any grouped member selects the whole group.
       let seed = expandSelectionWithGroups(doc, ids);
       let next = seed;
+      const liveN = Object.keys(doc?.deltaSetLike || {}).length;
       if (opts?.additive) {
         const cur = new Set(selectedIdsRef.current);
         seed.forEach((id) => {
@@ -975,12 +1023,18 @@ function SvgCanvas({
           else cur.add(id);
         });
         next = [...cur];
+        beginSelectPerf(`additive n=${next.length} live≈${liveN}`);
         // Keep frames when shift-adding nodes.
         setSelectedNodeIds(next);
+        markSelectPerf('setSelectedNodeIds', { selectedNodes: next.length });
+        endSelectPerfAfterPaint();
         return;
       }
+      beginSelectPerf(`select n=${next.length} live≈${liveN}`);
       // Prefer setSelectedNodeIds only — setSelectedNodeId clears multi-select to [id].
       setMixedSelection({ nodeIds: next, frameIds: [] });
+      markSelectPerf('setMixedSelection', { selectedNodes: next.length });
+      endSelectPerfAfterPaint();
     },
     [ completeCanvasAttachPick]
   );
@@ -1059,28 +1113,8 @@ function SvgCanvas({
     }
   }, [ editingTextId]);
 
-  // Hide SVG text glyph while the caret editor is open (avoid double text).
-  // Native SVGElement has no SVG.js `.opacity()` — use style/attribute.
-  useEffect(() => {
-    if (!editingTextId) return undefined;
-    const applyHidden = (hidden: boolean) => {
-      const el = boardRef.current?.nodeEls.get(editingTextId) as SVGElement | undefined;
-      if (!el) return false;
-      const v = hidden ? '0' : '1';
-      el.style.opacity = v;
-      el.setAttribute('opacity', v);
-      const wrap = el as SVGElement & { opacity?: (n: number) => void };
-      if (typeof wrap.opacity === 'function') wrap.opacity(hidden ? 0 : 1);
-      return true;
-    };
-    applyHidden(true);
-    // Host remounts on width/height paintToken — keep forcing hide while editing.
-    const timer = window.setInterval(() => applyHidden(true), 48);
-    return () => {
-      window.clearInterval(timer);
-      applyHidden(false);
-    };
-  }, [editingTextId, reloadToken, boardEpoch, boardRef]);
+  // Text edit: canvas ink is skipped via hiddenNodeId (listSceneCanvasIdlePaintIds).
+  // No ShapeHost opacity toggle — static text no longer mounts RcbShapeHost.
 
   /**
    * Size an incoming image against what is actually on screen, so the same file
@@ -1932,17 +1966,59 @@ function SvgCanvas({
     const out = [...ids, ...processingNodeIds];
     if (editingTextId) out.push(editingTextId);
     if (editingPenId) out.push(editingPenId);
+    // Keep single-selected frame children mounted/cull-safe with the plate.
+    // Reveal/unclip is separate — selecting the frame must not show overflow.
+    if (document && selectedFrameIds.length === 1 && ids.length === 0) {
+      const frameId = String(selectedFrameIds[0] || '');
+      const pageKids = document.pages?.[0]?.children;
+      let kids: unknown[] = [];
+      if (Array.isArray(pageKids)) kids = pageKids;
+      else if (Array.isArray(document.deltaSetLike?.ROOT?.children)) {
+        kids = document.deltaSetLike.ROOT.children;
+      }
+      for (const raw of kids) {
+        const id = String(raw || '');
+        if (!id) continue;
+        if (String(document.deltaSetLike?.[id]?.attrs?.frameId || '').trim() === frameId) {
+          out.push(id);
+        }
+      }
+    }
     return out;
-  }, [ids, editingTextId, editingPenId, processingNodeIds]);
+  }, [ids, editingTextId, editingPenId, processingNodeIds, document, selectedFrameIds]);
 
-  /** DOM hosts only: SoftGlow process + inline editors.
-   * Shape ink stays on the SoA/canvas surface — selection must not promote SVG hosts. */
-  const forceFullIds = useMemo(() => {
-    const out = [...processingNodeIds];
+  /** Unclip overflow only for selected shapes (not frame-selected children). */
+  const revealOverflowIds = useMemo(() => {
+    const out = [...ids, ...processingNodeIds];
     if (editingTextId) out.push(editingTextId);
     if (editingPenId) out.push(editingPenId);
     return out;
-  }, [editingTextId, editingPenId, processingNodeIds]);
+  }, [ids, editingTextId, editingPenId, processingNodeIds]);
+
+  const paintRaiseIds = useMemo(
+    () => listSingleSelectionPaintRaiseNodeIds(document, ids, selectedFrameIds),
+    [document, ids, selectedFrameIds]
+  );
+
+  /** DOM hosts: SoftGlow process + pen path-edit + active video/audio FO (≤1 each).
+   * Text edit → TextInlineEditor overlay. Idle image/video/audio → canvas ink / plate. */
+  const forceFullIds = useMemo(() => {
+    const out = [...processingNodeIds];
+    if (editingPenId) out.push(editingPenId);
+    const decoderId = resolveActiveVideoDecoderId({
+      document,
+      selectedNodeIds: ids,
+      videoToolPanel,
+    });
+    if (decoderId) out.push(decoderId);
+    const audioPlayerId = resolveActiveAudioPlayerId({
+      document,
+      selectedNodeIds: ids,
+      audioToolPanel,
+    });
+    if (audioPlayerId) out.push(audioPlayerId);
+    return out;
+  }, [editingPenId, processingNodeIds, ids, document, videoToolPanel, audioToolPanel]);
 
   // Path-edit stays open on empty selection (blank click must not dismiss).
   // Only leave when the user selects a *different* node.
@@ -2034,8 +2110,11 @@ function SvgCanvas({
             reloadToken={reloadToken}
             documentPatchToken={documentPatchToken}
             lastPatchedNodeIds={lastPatchedNodeIds}
+            lastPatchTransformOnly={lastPatchTransformOnly}
             hiddenNodeId={editingTextId || editingPenId}
             keepVisibleIds={keepVisibleIds}
+            revealOverflowIds={revealOverflowIds}
+            paintRaiseIds={paintRaiseIds}
             forceFullIds={forceFullIds}
             spatialIndex={nodeSpatialIndex}
           />

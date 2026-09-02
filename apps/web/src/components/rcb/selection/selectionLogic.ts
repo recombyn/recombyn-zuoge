@@ -1,4 +1,4 @@
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { nodeLeftTop, isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
 import { frameIdAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
@@ -52,12 +52,13 @@ import {
   supportsShapeSides,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
+  getAnimationWorkbenchTimelineFocus,
   isAnimationWorkbenchFrameInPreview,
   isAnimationWorkbenchPreviewChild,
 } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { listImageVariantUrls } from '@/components/rcb/scene/document/mediaLifecycle';
 import { nodeIdsInsideFrames } from '@/components/rcb/scene/document/sceneClipboard';
-import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
+import { buildNodeStackZMap } from '@/components/rcb/scene/document/sceneDocument';
 import {
   TEXT_SELECTION_PAD,
   deflateSelectionBox,
@@ -833,18 +834,6 @@ export function evaluateBrushGate(
   return { passed, box };
 }
 
-export function softSelectFrameAt(
-  toScene: (clientX: number, clientY: number) => { x: number; y: number },
-  hitTestFrame: ((x: number, y: number) => string | null) | undefined,
-  onSelectFrame: ((frameId: string | null) => void) | undefined,
-  clientX: number,
-  clientY: number
-) {
-  const abs = toScene(clientX, clientY);
-  const frameId = hitTestFrame?.(abs.x, abs.y);
-  if (frameId) onSelectFrame?.(frameId);
-}
-
 export function isSelectionOriginsLocked(
   document: SceneDocument,
   origins: Array<{ nodeId: string }> | null | undefined
@@ -988,9 +977,11 @@ export function fallbackVisibleNodeHit(
     width: Math.max(1, Number(frame.width) || 1),
     height: Math.max(1, Number(frame.height) || 1),
   });
-  const orderedNodeIds = [...nodeIds].sort((a, b) => {
-    return stackZIndex(document, 'node', String(b)) - stackZIndex(document, 'node', String(a));
-  });
+  const orderedNodeIds = (() => {
+    const ids = nodeIds.map(String);
+    const zMap = buildNodeStackZMap(document, ids);
+    return [...ids].sort((a, b) => (zMap.get(b) || 0) - (zMap.get(a) || 0));
+  })();
   for (const rawId of orderedNodeIds) {
     const id = String(rawId || '');
     const node = document?.deltaSetLike?.[id];
@@ -1551,6 +1542,32 @@ export function collectSmartGuideTargets(
   return out;
 }
 
+/**
+ * Frame-local plate drag: children keep local x/y; only `frames[].x/y` moves.
+ * Smart-guide scans over hundreds of in-plate siblings freeze the tab — same
+ * pipeline as any other artboard plate move, just skip O(n) snap here.
+ */
+export function shouldSkipSmartGuidesForFramePlateDrag(document: SceneDocument): boolean {
+  return isFrameLocalCoordSpace(document);
+}
+
+/**
+ * Timeline-open workbench child drag: skip O(n) sibling snap.
+ */
+export function shouldSkipSmartGuidesForAnimationWorkbenchDrag(
+  document: SceneDocument,
+  originNodeIds: readonly string[]
+): boolean {
+  const focus = getAnimationWorkbenchTimelineFocus();
+  if (!focus || !originNodeIds.length) return false;
+  for (const id of originNodeIds) {
+    const node = document.deltaSetLike?.[id];
+    if (!node) return false;
+    if (String(node.attrs?.frameId || '').trim() !== focus) return false;
+  }
+  return true;
+}
+
 export function smartGuideTargetsForDrag(opts: {
   document: SceneDocument;
   listNodeIds: () => readonly string[];
@@ -2096,12 +2113,6 @@ export function buildShapeOutlines(opts: {
   }
 
   return out;
-}
-
-/** Scene pad beyond the control box to outer stroke ink (same as rotate park). */
-export function resolveToolbarEdgePadScene(node: SceneNodeInput): number {
-  if (!node) return 0;
-  return Math.max(0, strokeOuterClearanceScene(node));
 }
 
 /**

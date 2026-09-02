@@ -12,7 +12,7 @@ export type PayloadAction<P = void, T extends string = string> = {
 };
 
 export type Dispatch<A extends AnyAction = AnyAction> = (action: A) => A;
-a
+
 type CaseReducer<S, A extends AnyAction = AnyAction> = (
   state: S,
   action: A

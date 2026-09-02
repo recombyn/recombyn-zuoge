@@ -16,6 +16,12 @@ let timelineFocusFrameId: string | null = null;
 let timelinePlayheadSec = 0;
 /** True while 动画工作台 plate is mid-drag (blocks ensure/sync / collab). */
 let geometryPreviewActive = false;
+/**
+ * True while any selection node transform is mid-gesture.
+ * Gates playhead TransformPreview storm only — does NOT block ensure/collab
+ * (those stay on {@link isAnimationWorkbenchGeometryPreview} / plate drag).
+ */
+let sceneGeometryGestureActive = false;
 
 export function setAnimationWorkbenchGeometryPreview(active: boolean) {
   geometryPreviewActive = Boolean(active);
@@ -23,6 +29,20 @@ export function setAnimationWorkbenchGeometryPreview(active: boolean) {
 
 export function isAnimationWorkbenchGeometryPreview(): boolean {
   return geometryPreviewActive;
+}
+
+/** Selection move/resize/rotate — pause playhead scene pose apply. */
+export function setSceneGeometryGestureActive(active: boolean) {
+  sceneGeometryGestureActive = Boolean(active);
+}
+
+export function isSceneGeometryGestureActive(): boolean {
+  return sceneGeometryGestureActive;
+}
+
+/** Playhead must not fight plate or selection TransformPreview ownership. */
+export function isPlayheadScenePoseBlocked(): boolean {
+  return geometryPreviewActive || sceneGeometryGestureActive;
 }
 
 export function setAnimationWorkbenchTimelineFocus(frameId: string | null) {
@@ -272,12 +292,18 @@ export function isBoundOutsideOwningClipPlate(
   );
   if (!frame || frame.hidden) return false;
   if (frame.clipContent === false) return false;
-  const left = Number(node.x) || 0;
-  const top = Number(node.y) || 0;
-  const width = Math.max(1, Number(node.width) || 1);
-  const height = Math.max(1, Number(node.height) || 1);
   const fx = Number(frame.x) || 0;
   const fy = Number(frame.y) || 0;
+  const localX = Number(node.x) || 0;
+  const localY = Number(node.y) || 0;
+  // frameLocal stores plate-local x/y; compare in document/world space.
+  const frameLocal = String(
+    (document as { coordSpace?: unknown } | null | undefined)?.coordSpace || ''
+  ) === 'frameLocal';
+  const left = frameLocal ? fx + localX : localX;
+  const top = frameLocal ? fy + localY : localY;
+  const width = Math.max(1, Number(node.width) || 1);
+  const height = Math.max(1, Number(node.height) || 1);
   const fw = Math.max(1, Number(frame.width) || 1);
   const fh = Math.max(1, Number(frame.height) || 1);
   const intersects =

@@ -1547,7 +1547,7 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   const simplifyMaxPts = isCjk ? 360 : 720;
 
   const measureCtx = document.createElement('canvas').getContext('2d');
-  if (!measureCtx) return null;
+  if (!measureCtx || typeof measureCtx.measureText !== 'function') return null;
   measureCtx.font = fontCss;
 
   const measureLine = (line: string) => {
@@ -1636,6 +1636,25 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
     fillColor: String(style.fill || '#333333'),
     fillRule: 'evenodd',
   };
+}
+
+/**
+ * Canvas alpha trace for idle ink (CJK). Yields before sync contour work so the
+ * first paint frame stays on fillText; same vectors as Outline UI fallback.
+ */
+export async function outlineTextLocalAsync(
+  node: SceneNodeInput
+): Promise<OutlineResult | null> {
+  if (typeof document === 'undefined') return null;
+  await ensureTextFontsLoaded(node);
+  return new Promise((resolve) => {
+    const finish = () => resolve(outlineTextLocal(node));
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(finish, { timeout: 2500 });
+      return;
+    }
+    setTimeout(finish, 0);
+  });
 }
 
 /** Normalize outline into node-local top-left space + tight bounds. */

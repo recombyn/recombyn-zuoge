@@ -1,6 +1,6 @@
 /**
  * SceneRenderer — paint/hit backend (ADR 0027).
- * SoA/canvas owns vector ink; DOM hosts cover text/media/editors.
+ * SoA/canvas owns vector + idle text/media ink; DOM hosts for FO media / SoftGlow / editors.
  */
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import type { RcbBox, RcbCamera, RcbVec } from '@/components/rcb/core/types';
@@ -8,10 +8,14 @@ import {
   SceneSpatialRuntime,
 } from '@/components/rcb/core/spatialIndex';
 import { rcbCameraCssZoom, rcbCameraScreenOffset, rcbViewportSceneBounds } from '@/components/rcb/core/math';
-import { createCameraTransform, worldToScreen } from '@/components/rcb/camera/transform';
 import { getShapeBaseline } from '@/components/rcb/core/geometry';
 import { effectivePaintBox, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
-import { hasLiveCornerRadiusPreview } from '@/components/rcb/scene/document/sceneRadii';
+import {
+  clampCornerRadii,
+  hasLiveCornerRadiusPreview,
+  mergeLiveCornerRadiiIntoAttrs,
+  radiiFromAttrs,
+} from '@/components/rcb/scene/document/sceneRadii';
 import { getShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
 import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
@@ -21,23 +25,45 @@ import {
   type SceneHitBox,
 } from '@/components/rcb/scene/document/sceneHitBridge';
 import {
+  effectiveEllipseArcPercentFromAttrs,
+  effectiveEllipseInnerRatioFromAttrs,
+  effectiveSidesFromAttrs,
+  effectiveStarInnerRatioFromAttrs,
   ellipseArcEndAngles,
-  ellipseArcPercentFromAttrs,
-  ellipseInnerRatioFromAttrs,
   ellipseStartDegFromAttrs,
+  hasLiveShapeParamsPreview,
   HEAVY_PATH_D_CHARS,
+  mergeLiveShapeParamsIntoAttrs,
   sceneHitSlop,
   shapeVertexPoints,
-  sidesFromAttrs,
-  starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
-import { resolveFillColor, resolveStroke, resolveStrokeAlign, resolveShadow, hexWithOpacity, boolEffectAttr, TEXT_FRAME_PADDING, textFrameCornerRadii } from '@/components/rcb/scene/document/sceneEffects';
+import {
+  resolveFillColor,
+  resolveStroke,
+  resolveStrokeAlign,
+  resolveStrokeAlignForPaint,
+  strokeCanvasAligned,
+  resolveShadow,
+  resolveInnerShadow,
+  resolveObjectBlur,
+  resolveBackdropBlur,
+  hexWithOpacity,
+  boolEffectAttr,
+  TEXT_FRAME_PADDING,
+  textFrameCornerRadii,
+  type InnerShadowSpec,
+} from '@/components/rcb/scene/document/sceneEffects';
 import { resolveTextFramePlateFill } from '@/components/rcb/scene/document/nodeFactories';
-import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  buildNodeStackZMap,
+  maxDocumentStackZ,
+} from '@/components/rcb/scene/document/sceneDocument';
 import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
   hasFrameClipRevealOverflow,
+  hasSelectionPaintRaise,
+  selectionPaintRaises,
 } from '@/components/rcb/frames/frameContentClip';
 import { hasLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
@@ -69,10 +95,6 @@ import {
   normalizeMeshPoints,
 } from '@/components/rcb/scene/document/sceneDiffuseMesh';
 import {
-  clampCornerRadii,
-  radiiFromAttrs,
-} from '@/components/rcb/scene/document/sceneRadii';
-import {
   parseNodeText,
   parseNodeTextStyle,
   wrapPlainTextLines,
@@ -83,8 +105,10 @@ import {
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
   isSoaBasicGeomSufficient,
+  isSoaWebglEnvEnabled,
   paintSoaBufferBasic,
   paintSoaIdleSlot,
+  resolveSoaPaintBox,
   setSoaPaintDocument,
   SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
@@ -100,12 +124,19 @@ import {
   ensureSoaBake,
   getSharedSoaBake,
   patchSoaBakeDirty,
+  peekSoaGestureDirtyAccum,
   setSharedSoaBake,
   setSoaBakeClipDocument,
   shouldUseSoaBake,
   unionSoaDirtyAabb,
 } from '@/components/rcb/render/soaBakeLayer';
-import { createWebglSceneRenderer, isSoaWebglEnabled } from '@/components/rcb/render/webglSceneRenderer';
+import { createWebglSceneRenderer } from '@/components/rcb/render/webglSceneRenderer';
+import { createWebgpuSceneRenderer } from '@/components/rcb/render/webgpuSceneRenderer';
+import {
+  resolveGpuDofBackend,
+  shouldRunGpuDepthOfField,
+  gpuDofSkipsSoaTileBake,
+} from '@/components/rcb/render/gpuDepthOfField';
 
 /** Cap centerline samples when stroking a dense pencil/path as canvas ink. */
 export const CANVAS_IDLE_STROKE_MAX_PTS = 64;
@@ -126,7 +157,7 @@ export type SceneRenderRequest = {
   dpr?: number;
 };
 
-export type SceneRendererBackend = 'svg' | 'canvas2d' | 'webgl';
+export type SceneRendererBackend = 'svg' | 'canvas2d' | 'webgl' | 'webgpu';
 
 export type SceneRenderer = {
   readonly backend: SceneRendererBackend;
@@ -174,10 +205,18 @@ export function hitTestWithSpatialIndex(
       })
     : [];
   const hitOrder = doc
-    ? order.slice().sort((a, b) => {
-        const zDiff = stackZIndex(doc, 'node', b) - stackZIndex(doc, 'node', a);
-        return zDiff || order.indexOf(b) - order.indexOf(a);
-      })
+    ? (() => {
+        const zMap = buildNodeStackZMap(doc, order);
+        const rank = new Map(order.map((id, i) => [id, i]));
+        return order.slice().sort((a, b) => {
+          // Hit uses permanent stackOrder only. Selection paint raise (max+1) is
+          // paint-only — otherwise a raised empty/back node steals clicks from
+          // visible strokes (pen / line / pencil) drawn above it.
+          const za = zMap.get(a) || 0;
+          const zb = zMap.get(b) || 0;
+          return zb - za || (rank.get(b) || 0) - (rank.get(a) || 0);
+        });
+      })()
     : order;
   const allowSvgDomHit = deps.allowSvgDomHit === true;
   const buf =
@@ -220,6 +259,15 @@ export function isFullDirty(dirty: DirtyRegion): boolean {
   return dirty.kind === 'full';
 }
 
+/**
+ * Empty node dirty = "nothing to clear / nothing to paint".
+ * Must not fall through to a full clearRect — that wiped idle ink after draw/paste
+ * whenever a second bump arrived with dirty flags already cleared.
+ */
+export function isNoopSoaDirtyRegion(dirty: DirtyRegion): boolean {
+  return dirty.kind === 'nodes' && dirty.ids.length === 0;
+}
+
 export function dirtyTouchesNode(dirty: DirtyRegion, nodeId: string): boolean {
   if (dirty.kind === 'full') return true;
   if (dirty.kind === 'nodes') return dirty.ids.includes(nodeId);
@@ -247,28 +295,38 @@ export function sceneBoxToScreenRect(
 }
 
 /**
- * Prefer SoA dirty AABB for idle/promote repaints; fall back to full when the
- * camera/stage changed or no dirty slots are pending.
+ * Prefer SoA dirty AABB for idle/promote / TransformPreview repaints.
+ * Full clear only when callers pass `full`, or for live corner/params / plate
+ * geometry (frameLocal children need a full erase — see RcbCanvas).
+ *
+ * Selection reveal must NOT force full here: any selected ink sets reveal, and
+ * that would turn every paste/drag paint into a full wipe (freeze on multi-dupe).
+ * Reveal *changes* call `requestIdleCanvasFullRepaint` in RcbShapesLayer instead.
  */
 export function resolveSoaCanvasDirtyRegion(opts: {
   full: boolean;
   buf?: Parameters<typeof unionSoaDirtyAabb>[0] | null;
 }): DirtyRegion {
-  // Selection reveal must full-clear: a leftover dirty AABB clips ctx and can
-  // erase / omit overflow past clipContent (selected fill looks missing).
   if (
     opts.full ||
-    hasNodeTransformPreviews() ||
+    hasLiveArtboardFrameGeometry() ||
     hasLiveCornerRadiusPreview() ||
-    hasFrameClipRevealOverflow()
+    hasLiveShapeParamsPreview()
   ) {
     return { kind: 'full' };
   }
   const buf = opts.buf;
   if (!buf || buf.count <= 0) return { kind: 'full' };
-  const aabb = unionSoaDirtyAabb(buf);
-  if (!aabb) return { kind: 'full' };
-  const pad = 4;
+  const slotAabb = unionSoaDirtyAabb(buf);
+  const accum = peekSoaGestureDirtyAccum();
+  const aabb = mergeDirtyWorldAabb(slotAabb, accum);
+  // No dirty slots (e.g. second blank-click after first paint cleared flags):
+  // do NOT fall through to full — that re-wiped the whole idle canvas on every
+  // duplicate select and felt like a freeze after long paste sessions.
+  if (!aabb) return { kind: 'nodes', ids: [] };
+  // Pad covers center-stroke outset + Canvas AA. clearRect + clip must use the
+  // same box — a larger clear than clip leaves a transparent ring (漏出背景).
+  const pad = 16;
   return {
     kind: 'aabb',
     box: {
@@ -277,6 +335,24 @@ export function resolveSoaCanvasDirtyRegion(opts: {
       width: aabb.width + pad * 2,
       height: aabb.height + pad * 2,
     },
+  };
+}
+
+function mergeDirtyWorldAabb(
+  slot: { left: number; top: number; width: number; height: number } | null,
+  accum: { left: number; top: number; width: number; height: number } | null
+): { left: number; top: number; width: number; height: number } | null {
+  if (!slot) return accum;
+  if (!accum) return slot;
+  const left = Math.min(slot.left, accum.left);
+  const top = Math.min(slot.top, accum.top);
+  const right = Math.max(slot.left + slot.width, accum.left + accum.width);
+  const bottom = Math.max(slot.top + slot.height, accum.top + accum.height);
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
   };
 }
 
@@ -360,12 +436,15 @@ function sortIdsByDocumentZ(
   doc: SceneDocument | null | undefined,
   ids: readonly string[]
 ): string[] {
+  if (!doc || ids.length < 2) return ids.slice();
+  const zMap = buildNodeStackZMap(doc, ids);
+  const raisedZ = maxDocumentStackZ(doc) + 1;
+  const rank = new Map(ids.map((id, i) => [id, i]));
   return ids.slice().sort((a, b) => {
-    if (!doc) return 0;
-    return (
-      stackZIndex(doc, 'node', a) - stackZIndex(doc, 'node', b) ||
-      ids.indexOf(a) - ids.indexOf(b)
-    );
+    // Selection temporary raise → current canvas max + 1 (single-select only).
+    const za = selectionPaintRaises(a) ? raisedZ : zMap.get(a) || 0;
+    const zb = selectionPaintRaises(b) ? raisedZ : zMap.get(b) || 0;
+    return za - zb || (zMap.get(a) || 0) - (zMap.get(b) || 0) || (rank.get(a) || 0) - (rank.get(b) || 0);
   });
 }
 
@@ -433,6 +512,26 @@ function paintZOrderedCanvasInk(opts: {
     if (!node) continue;
     const si = soaBuf?.indexById.get(id);
     if (soaBuf && si != null && soaSlotIsBasicInk(soaBuf, si)) {
+      if (aabbDirty) {
+        const { x, y, w, h } = resolveSoaPaintBox(soaBuf, si, doc);
+        // Include outline stroke so neighbors overlapping the cleared AABB by
+        // stroke fringe still repaint (avoids transparent seams / 漏出背景).
+        const sw = Math.max(0, soaBuf.strokeWidths[si] || 0);
+        const outset = sw > 0 ? sw : 0;
+        if (
+          paintBoxMissesAabb(
+            {
+              left: x - outset,
+              top: y - outset,
+              width: w + outset * 2,
+              height: h + outset * 2,
+            },
+            aabbDirty
+          )
+        ) {
+          continue;
+        }
+      }
       paintSoaIdleSlot(ctx, soaBuf, si, viewBox, doc);
       continue;
     }
@@ -527,13 +626,18 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+      // Empty dirty: leave the retained canvas alone (see isNoopSoaDirtyRegion).
+      if (isNoopSoaDirtyRegion(req.dirty)) return;
+
       const z = rcbCameraCssZoom(req.camera);
       const pan = rcbCameraScreenOffset(req.camera, dpr);
       const aabbDirty = req.dirty.kind === 'aabb' ? req.dirty.box : null;
       const usePartialClear = Boolean(aabbDirty) && !isFullDirty(req.dirty);
 
       if (usePartialClear && aabbDirty) {
-        const scr = sceneBoxToScreenRect(aabbDirty, req.camera, dpr, 4);
+        // padScene=0: aabbDirty already includes stroke/AA pad. Extra screen pad
+        // here used to clear past the clip rect and leave transparent seams.
+        const scr = sceneBoxToScreenRect(aabbDirty, req.camera, dpr, 0);
         ctx.clearRect(scr.x, scr.y, scr.width, scr.height);
       } else {
         ctx.clearRect(0, 0, sw, sh);
@@ -571,16 +675,18 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       setSoaBakeClipDocument(doc);
       setSoaPaintDocument(doc);
 
-      // Bake tiles clip at paint time — skip bake while selection reveals overflow
-      // so live SoA ink can paint past clipContent without a stale clipped blit.
+      // Bake tiles lock z-order — skip while selection raise / reveal so live
+      // SoA ink can re-sort (max+1) without a stale blit covering front siblings.
       const useBake =
         Boolean(soaBuf) &&
         (drawIdle || drawBasic) &&
         allInkIdsAreSoaBasicOrHosted(ids, soaBuf!) &&
         shouldUseSoaBake(soaBuf!) &&
+        !gpuDofSkipsSoaTileBake() &&
         !hasNodeTransformPreviews() &&
         !hasLiveArtboardFrameGeometry() &&
-        !hasFrameClipRevealOverflow();
+        !hasFrameClipRevealOverflow() &&
+        !hasSelectionPaintRaise();
 
       if (useBake && soaBuf) {
         paintSoaBakePath(ctx, soaBuf, doc, view, dirtyOnly);
@@ -783,47 +889,31 @@ function isTransparentCssColor(c: string): boolean {
 /**
  * Vectors that paint on the SoA / canvas ink surface (ADR 0027).
  *
- * Allowed: solid / linear / radial / angular / image / diffuse fills,
- * center-aligned stroke, drop shadow, rect/ellipse/line/light path/polygon/star,
- * and image / video media (poster or decoded src).
+ * Allowed: fills, strokeAlign, object blur, inner-shadow, blend modes,
+ * rect/ellipse (incl. donut/arc)/line/path/poly/star, static text, image/video.
  *
- * DOM hosts: lottie/audio/group/text, non-center strokeAlign, inner/backdrop/blur,
- * heavy paths, donut·arc ellipses, evenodd boolean compounds, outlined paths,
- * blend modes other than normal, SoftGlow / editors.
- *
- * Rounded rects / polys / center stroke use SoA-basic via
- * {@link isSoaBasicGeomSufficient} + {@link paintSoaBufferBasic}.
+ * DOM hosts: lottie/audio/group, backdrop-blur, heavy paths, SoftGlow / editors.
  */
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   if (isImageProcessRunning(node)) return false;
+  // Frame-bound ink stays on the shared SVG mount with plates so stackOrder
+  // data-z can cover artboards / 动画工作台 / generators. SoA sits under that SVG.
+  if (String(node.attrs?.frameId || '').trim()) return false;
   const key = String(node.key || '');
-  if (key === 'lottie' || key === 'audio' || key === 'group' || key === 'text') {
+  if (key === 'lottie' || key === 'group') {
     return false;
   }
 
   const attrs = node.attrs || {};
-  const blend = String(attrs.blendMode || 'normal')
-    .trim()
-    .toLowerCase();
-  if (blend && blend !== 'normal' && blend !== 'pass-through' && blend !== 'passthrough') {
+
+  if (resolveBackdropBlur(node)) {
     return false;
   }
 
-  if (
-    boolEffectAttr(attrs['inner-shadow-enabled'], false) ||
-    boolEffectAttr(attrs['backdrop-blur-enabled'], false) ||
-    boolEffectAttr(attrs['blur-enabled'], false)
-  ) {
-    return false;
-  }
-
-  // Canvas stroke is centered; outside/inside stay on SVG until strokeAlign paint lands.
-  if (resolveStrokeAlign(attrs) !== 'center') return false;
-
-  if (key === 'image' || key === 'video') {
-    return true;
-  }
+  if (key === 'text') return true;
+  // Idle image / video poster / audio plate — selected media keeps one HTML FO host.
+  if (key === 'image' || key === 'video' || key === 'audio') return true;
 
   const fillType = String(attrs['fill-type'] || 'solid').toLowerCase();
   if (
@@ -840,12 +930,7 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
 
   const t = String(attrs.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
   if (t === 'rect' || t === 'roundrect' || t === '') return true;
-  if (t === 'circle' || t === 'ellipse' || t === 'oval') {
-    if (ellipseInnerRatioFromAttrs(attrs) > 1e-6) return false;
-    const arc = ellipseArcPercentFromAttrs(attrs);
-    if (arc > 0 && arc < 100 - 1e-6) return false;
-    return true;
-  }
+  if (t === 'circle' || t === 'ellipse' || t === 'oval') return true;
   if (t === 'line' || t === 'arrow') return true;
   if (t === 'triangle' || t === 'polygon' || t === 'star') return true;
 
@@ -853,15 +938,179 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
     const d = String(attrs.path || '').trim();
     if (!d) return false;
     if (d.length >= HEAVY_PATH_D_CHARS) return false;
-    // Boolean / donut compounds need SVG Path2D evenodd — transparent holes on the
-    // ink canvas sit above the frame plate and flash `--canvas` during zoom clears.
-    const fillRule = String(attrs['fill-rule'] || '').toLowerCase();
-    if (fillRule === 'evenodd') return false;
-    if (attrs.outlined === true || attrs.outlined === 'true') return false;
     return true;
   }
 
   return false;
+}
+
+/** True when idle paint must bake object blur / inner-shadow offscreen. */
+export function nodeNeedsCanvasEffectBake(node: SceneNodeInput | null | undefined): boolean {
+  if (!node) return false;
+  if (resolveObjectBlur(node)) return true;
+  if (resolveInnerShadow(node)) return true;
+  return false;
+}
+
+const BLEND_COMPOSITE: Record<string, GlobalCompositeOperation> = {
+  multiply: 'multiply',
+  screen: 'screen',
+  overlay: 'overlay',
+  darken: 'darken',
+  lighten: 'lighten',
+  'color-dodge': 'color-dodge',
+  'color-burn': 'color-burn',
+  'hard-light': 'hard-light',
+  'soft-light': 'soft-light',
+  difference: 'difference',
+  exclusion: 'exclusion',
+  hue: 'hue',
+  saturation: 'saturation',
+  color: 'color',
+  luminosity: 'luminosity',
+};
+
+/** Map CSS blendMode → Canvas2D composite; null for normal / pass-through. */
+export function canvasCompositeFromBlendMode(
+  mode: string | null | undefined
+): GlobalCompositeOperation | null {
+  const m = String(mode || 'normal')
+    .trim()
+    .toLowerCase();
+  if (!m || m === 'normal' || m === 'pass-through' || m === 'passthrough') return null;
+  return BLEND_COMPOSITE[m] || null;
+}
+
+const idleTextOutlineByKey = new Map<string, string>();
+
+function idleTextOutlineKey(node: SceneNodeInput): string {
+  const id = String(node.id || '').trim();
+  if (id) return `id:${id}`;
+  return `anon:${parseNodeText(node.attrs || {})}`;
+}
+
+export function clearIdleTextOutlineCache(): void {
+  idleTextOutlineByKey.clear();
+}
+
+export function primeIdleTextOutlineCache(node: SceneNodeInput, d: string): void {
+  const pathD = String(d || '').trim();
+  if (!pathD) return;
+  idleTextOutlineByKey.set(idleTextOutlineKey(node), pathD);
+}
+
+function getIdleTextOutlinePath(node: SceneNodeInput): Path2D | null {
+  if (typeof Path2D === 'undefined') return null;
+  const d = idleTextOutlineByKey.get(idleTextOutlineKey(node));
+  if (!d) return null;
+  try {
+    return new Path2D(d);
+  } catch {
+    return null;
+  }
+}
+
+function paintLocalInkWithObjectEffects(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    node: SceneNodeInput;
+    width: number;
+    height: number;
+    paintCore: (c: CanvasRenderingContext2D) => void;
+  }
+): void {
+  const blur = resolveObjectBlur(opts.node);
+  const inner = resolveInnerShadow(opts.node);
+  if (!blur && !inner) {
+    opts.paintCore(ctx);
+    return;
+  }
+  const pad = Math.ceil((blur?.blur || 0) + (inner?.blur || 0) + 8);
+  const tw = Math.max(1, Math.ceil(opts.width + pad * 2));
+  const th = Math.max(1, Math.ceil(opts.height + pad * 2));
+  const off =
+    typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(tw, th)
+      : document.createElement('canvas');
+  off.width = tw;
+  off.height = th;
+  const octx = off.getContext('2d') as CanvasRenderingContext2D | null;
+  if (!octx) {
+    opts.paintCore(ctx);
+    return;
+  }
+  octx.translate(pad, pad);
+  opts.paintCore(octx);
+
+  if (inner) {
+    octx.save();
+    octx.globalCompositeOperation = 'source-atop';
+    octx.shadowColor = inner.color;
+    octx.shadowBlur = inner.blur;
+    octx.shadowOffsetX = inner.offsetX;
+    octx.shadowOffsetY = inner.offsetY;
+    octx.fillStyle = '#000';
+    octx.fillRect(-pad, -pad, tw, th);
+    octx.restore();
+  }
+
+  ctx.save();
+  if (blur && blur.blur > 0) {
+    ctx.filter = `blur(${blur.blur / 2}px)`;
+  }
+  ctx.drawImage(off as CanvasImageSource, -pad, -pad);
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
+function paintLocalInkWithBlend(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    node: SceneNodeInput;
+    width: number;
+    height: number;
+    paintCore: (c: CanvasRenderingContext2D) => void;
+  }
+): void {
+  const composite = canvasCompositeFromBlendMode(String(opts.node.attrs?.blendMode || ''));
+  if (!composite) {
+    paintLocalInkWithObjectEffects(ctx, opts);
+    return;
+  }
+  const tw = Math.max(1, Math.ceil(opts.width));
+  const th = Math.max(1, Math.ceil(opts.height));
+  const off =
+    typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(tw, th)
+      : document.createElement('canvas');
+  off.width = tw;
+  off.height = th;
+  const octx = off.getContext('2d') as CanvasRenderingContext2D | null;
+  if (!octx) {
+    paintLocalInkWithObjectEffects(ctx, opts);
+    return;
+  }
+  paintLocalInkWithObjectEffects(octx, { ...opts, paintCore: opts.paintCore });
+  ctx.save();
+  try {
+    const sample = ctx.getImageData(0, 0, tw, th);
+    const under =
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(tw, th)
+        : document.createElement('canvas');
+    under.width = tw;
+    under.height = th;
+    const uctx = under.getContext('2d') as CanvasRenderingContext2D | null;
+    if (uctx) {
+      uctx.putImageData(sample, 0, 0);
+      ctx.drawImage(under as CanvasImageSource, 0, 0);
+    }
+  } catch {
+    /* tainted / security — skip underlay sample */
+  }
+  ctx.globalCompositeOperation = composite;
+  ctx.drawImage(off as CanvasImageSource, 0, 0);
+  ctx.restore();
 }
 
 function addCanvasGradientStops(
@@ -1277,6 +1526,64 @@ function clearCanvasDropShadow(ctx: CanvasRenderingContext2D): void {
 }
 
 /**
+ * Fill then stroke with strokeAlign (center|inside|outside).
+ * Outside: stroke first at 2×, then fill covers inward half.
+ */
+function paintCanvasFillAndAlignedStroke(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    node: SceneNodeInput;
+    width: number;
+    height: number;
+    stroke: string;
+    strokeWidth: number;
+    path?: Path2D;
+    fillRule?: CanvasFillRule;
+    trace?: () => void;
+  }
+): void {
+  const { node, width: w, height: h, stroke, strokeWidth, path, fillRule, trace } = opts;
+  const align = resolveStrokeAlignForPaint(node);
+  const doStroke = strokeWidth > 0 && !isTransparentCssColor(stroke);
+  const traceFn =
+    trace ||
+    (() => {
+      /* Path2D-only callers */
+    });
+
+  if (doStroke && align === 'outside') {
+    strokeCanvasAligned(ctx, {
+      align,
+      stroke,
+      strokeWidth,
+      trace: traceFn,
+      path,
+      fillRule,
+    });
+  }
+
+  fillCanvasShapeGeometry(ctx, {
+    node,
+    width: w,
+    height: h,
+    path,
+    fillRule,
+    trace,
+  });
+
+  if (doStroke && align !== 'outside') {
+    strokeCanvasAligned(ctx, {
+      align,
+      stroke,
+      strokeWidth,
+      trace: traceFn,
+      path,
+      fillRule,
+    });
+  }
+}
+
+/**
  * Trace donut / arc / polygon / star / triangle from the same baseline `d` as SVG
  * when Path2D is available; otherwise a Canvas-native fallback (happy-dom / older engines).
  * Returns true when geo ink was painted.
@@ -1300,7 +1607,13 @@ function paintCanvasShapeInkViaBaseline(
   if (!isEllipse && !isPolyStar) return false;
 
   const baselineShapeType = isEllipse ? 'circle' : shapeType;
-  const useEvenodd = isEllipse && ellipseInnerRatioFromAttrs(node.attrs) > 1e-4;
+  const nodeId = String(node.id || '');
+  const mergedAttrs = mergeLiveCornerRadiiIntoAttrs(
+    nodeId,
+    mergeLiveShapeParamsIntoAttrs(nodeId, node.attrs)
+  );
+  const useEvenodd =
+    isEllipse && effectiveEllipseInnerRatioFromAttrs(nodeId, node.attrs) > 1e-4;
 
   if (typeof Path2D !== 'undefined') {
     const baseline = getShapeBaseline(
@@ -1308,7 +1621,7 @@ function paintCanvasShapeInkViaBaseline(
         key: 'shape',
         width: w,
         height: h,
-        attrs: { ...(node.attrs || {}), shapeType: baselineShapeType },
+        attrs: { ...mergedAttrs, shapeType: baselineShapeType },
       } as SceneNodeInput,
       { width: w, height: h }
     );
@@ -1316,18 +1629,15 @@ function paintCanvasShapeInkViaBaseline(
     if (d) {
       try {
         const path = new Path2D(d);
-        fillCanvasShapeGeometry(ctx, {
+        paintCanvasFillAndAlignedStroke(ctx, {
           node,
           width: w,
           height: h,
+          stroke,
+          strokeWidth,
           path,
           fillRule: useEvenodd ? 'evenodd' : undefined,
         });
-        if (strokeWidth > 0 && !isTransparentCssColor(stroke)) {
-          ctx.strokeStyle = stroke;
-          ctx.lineWidth = strokeWidth;
-          ctx.stroke(path);
-        }
         return true;
       } catch {
         /* fall through to native */
@@ -1370,8 +1680,9 @@ function paintEllipseVariantNative(
   const cy = h / 2;
   const rx = Math.max(0.5, w / 2);
   const ry = Math.max(0.5, h / 2);
-  const inner = ellipseInnerRatioFromAttrs(node.attrs);
-  const arcPct = ellipseArcPercentFromAttrs(node.attrs);
+  const nodeId = String(node.id || '');
+  const inner = effectiveEllipseInnerRatioFromAttrs(nodeId, node.attrs);
+  const arcPct = effectiveEllipseArcPercentFromAttrs(nodeId, node.attrs);
   const startDeg = ellipseStartDegFromAttrs(node.attrs);
   const full = Math.abs(arcPct) >= 99.5;
   const hasHole = inner > 1e-4;
@@ -1398,19 +1709,15 @@ function paintEllipseVariantNative(
     }
   };
 
-  fillCanvasShapeGeometry(ctx, {
+  paintCanvasFillAndAlignedStroke(ctx, {
     node,
     width: w,
     height: h,
+    stroke,
+    strokeWidth,
     fillRule: hasHole ? 'evenodd' : undefined,
     trace: traceEllipse,
   });
-  if (strokeWidth > 0 && !isTransparentCssColor(stroke)) {
-    traceEllipse();
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = strokeWidth;
-    ctx.stroke();
-  }
   return true;
 }
 
@@ -1427,12 +1734,13 @@ function paintPolyStarNative(
   }
 ): boolean {
   const { node, width: w, height: h, shapeType, stroke, strokeWidth } = opts;
+  const nodeId = String(node.id || '');
   const pts = shapeVertexPoints(
     shapeType,
     w,
     h,
-    sidesFromAttrs(node.attrs),
-    starInnerRatioFromAttrs(node.attrs)
+    effectiveSidesFromAttrs(nodeId, node.attrs),
+    effectiveStarInnerRatioFromAttrs(nodeId, node.attrs)
   );
   if (pts.length < 3) return false;
 
@@ -1445,18 +1753,14 @@ function paintPolyStarNative(
     ctx.closePath();
   };
 
-  fillCanvasShapeGeometry(ctx, {
+  paintCanvasFillAndAlignedStroke(ctx, {
     node,
     width: w,
     height: h,
+    stroke,
+    strokeWidth,
     trace: tracePoly,
   });
-  if (strokeWidth > 0 && !isTransparentCssColor(stroke)) {
-    tracePoly();
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = strokeWidth;
-    ctx.stroke();
-  }
   return true;
 }
 
@@ -1505,19 +1809,14 @@ export function paintCanvasShapeInk(
     }
   };
 
-  fillCanvasShapeGeometry(ctx, {
+  paintCanvasFillAndAlignedStroke(ctx, {
     node,
     width: w,
     height: h,
+    stroke,
+    strokeWidth,
     trace,
   });
-  // Stroke without shadow so the outline stays sharp.
-  if (strokeWidth > 0 && !isTransparentCssColor(stroke)) {
-    trace();
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = strokeWidth;
-    ctx.stroke();
-  }
   ctx.restore();
 }
 
@@ -1547,8 +1846,12 @@ export function paintCanvasPathInk(
   const w = Math.max(1, opts.width);
   const h = Math.max(1, opts.height);
   const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
-  const d = String(node.attrs?.path || '');
   const t = String(node.attrs?.shapeType || node.key || '').toLowerCase();
+  let d = String(node.attrs?.path || '').trim();
+  if (!d && (t === 'line' || t === 'arrow')) {
+    const baseline = getShapeBaseline(node, { width: w, height: h });
+    d = String(baseline?.d || '').trim();
+  }
   const isPencil = t === 'pencil';
   const strokeOnly = canvasIdleIsStrokeOnly(node);
   const paintColor = resolveNodeProxyFill(node);
@@ -1561,7 +1864,7 @@ export function paintCanvasPathInk(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  if (typeof Path2D !== 'undefined' && d.trim()) {
+  if (typeof Path2D !== 'undefined' && d) {
     try {
       const path = new Path2D(d);
       const fillRule = canvasFillRuleFromAttr(node.attrs?.['fill-rule']);
@@ -1570,17 +1873,15 @@ export function paintCanvasPathInk(
         if (fillRule) ctx.fill(path, fillRule);
         else ctx.fill(path);
       } else if (!strokeOnly) {
-        const fill = resolveFillColor(node, '#FFFFFF');
-        if (!isTransparentCssColor(fill)) {
-          ctx.fillStyle = fill;
-          if (fillRule) ctx.fill(path, fillRule);
-          else ctx.fill(path);
-        }
-        if (lineW > 0 && !isTransparentCssColor(stroke)) {
-          ctx.strokeStyle = stroke;
-          ctx.lineWidth = lineW;
-          ctx.stroke(path);
-        }
+        paintCanvasFillAndAlignedStroke(ctx, {
+          node,
+          width: w,
+          height: h,
+          stroke,
+          strokeWidth: lineW,
+          path,
+          fillRule,
+        });
       } else if (lineW > 0) {
         ctx.strokeStyle = !isTransparentCssColor(stroke) ? stroke : paintColor;
         ctx.lineWidth = lineW;
@@ -1651,6 +1952,14 @@ export function paintCanvasTextInk(
   ctx.font = `${italic}${weight} ${fontSize}px "${style.fontFamily}"`;
   ctx.fillStyle = style.fill || '#333333';
   ctx.textBaseline = 'top';
+
+  const outline = getIdleTextOutlinePath(node);
+  if (outline) {
+    ctx.fill(outline);
+    clearCanvasDropShadow(ctx);
+    ctx.restore();
+    return;
+  }
 
   const align = String(style.textAlign || 'left');
   let x = framePad;
@@ -1819,6 +2128,59 @@ export function paintTextProxyLines(
     ctx.globalAlpha = opacity * 0.72;
     ctx.fillRect(0, li * lineH + (lineH - barH) / 2, barW, barH);
   }
+}
+
+/**
+ * Idle audio plate (gen-empty wash + waveform bars). Interactive transport stays
+ * on the single selected HTML FO — same split as idle video posters.
+ */
+export function paintCanvasAudioInk(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    node: SceneNodeInput;
+    width: number;
+    height: number;
+    opacity?: number;
+  }
+): void {
+  const w = Math.max(1, opts.width);
+  const h = Math.max(1, opts.height);
+  const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
+  const attrs = opts.node.attrs || {};
+  const isGen =
+    attrs.audioGenerator === true || String(attrs.audioGenerator || '') === 'true';
+  const r = clampCornerRadii(
+    isGen ? { tl: 0, tr: 0, br: 0, bl: 0 } : radiiFromAttrs(attrs),
+    w,
+    h
+  );
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  traceRoundedRectLocal(ctx, w, h, r);
+  ctx.fillStyle = '#e9eaee';
+  ctx.fill();
+  if (isGen) {
+    ctx.strokeStyle = '#c5c9d2';
+    ctx.lineWidth = Math.max(0.75, Math.min(1.5, Math.min(w, h) * 0.01));
+    ctx.stroke();
+  }
+  const barN = 7;
+  const padX = Math.max(6, w * 0.12);
+  const padY = Math.max(6, h * 0.22);
+  const railW = Math.max(1, w - padX * 2);
+  const railH = Math.max(1, h - padY * 2);
+  const gap = railW / (barN * 1.6);
+  const barW = Math.max(1.5, gap * 0.55);
+  const midY = padY + railH / 2;
+  ctx.fillStyle = '#9aa3b2';
+  for (let i = 0; i < barN; i += 1) {
+    const t = i / Math.max(1, barN - 1);
+    const amp = 0.35 + 0.55 * Math.abs(Math.sin(t * Math.PI * 1.4 + w * 0.01));
+    const bh = Math.max(2, railH * amp);
+    const x = padX + i * (barW + gap);
+    ctx.fillRect(x, midY - bh / 2, barW, bh);
+  }
+  ctx.restore();
 }
 
 /** Minimal image/video/lottie placeholder (mountain + sun) at local (0,0). */
@@ -2013,32 +2375,49 @@ export function paintCanvasIdleNode(
   const strokeOnly = canvasIdleIsStrokeOnly(node);
   const pathD = String(node.attrs?.path || '');
   const key = String(node.key || '');
-  const isMedia = key === 'image' || key === 'video' || key === 'lottie';
+  const isMedia = key === 'image' || key === 'video' || key === 'lottie' || key === 'audio';
 
-  const paintAtLocalOrigin = () => {
+  const paintAtLocalOrigin = (c: CanvasRenderingContext2D) => {
     if (key === 'text') {
-      if (canIdlePaintOnCanvas(node)) {
-        paintCanvasTextInk(ctx, { node, width: w, height: h, opacity });
+      const fontPx = Math.max(1, Number(node.attrs?.fontSize) || 14);
+      const screenFont = fontPx * Math.max(0.05, opts.zoom || 1);
+      // Far / dense: greeking bars — full glyphs only when readable on screen.
+      if (screenFont < 7 || !canIdlePaintOnCanvas(node)) {
+        c.save();
+        c.globalAlpha = opacity;
+        paintTextProxyLines(c, { node, width: w, height: h, fill, opacity });
+        c.restore();
       } else {
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        paintTextProxyLines(ctx, { node, width: w, height: h, fill, opacity });
-        ctx.restore();
+        paintCanvasTextInk(c, { node, width: w, height: h, opacity });
       }
       return;
     }
     if (isMedia) {
       if (isImageProcessRunning(node)) {
-        paintProcessPlateCanvas(ctx, w, h, opacity, String(node.id || ''));
+        paintProcessPlateCanvas(c, w, h, opacity, String(node.id || ''));
+        return;
+      }
+      if (key === 'audio') {
+        const screenH = h * Math.max(0.05, opts.zoom || 1);
+        if (screenH < 18) {
+          // Tiny audio plates: solid wash only (no per-bar path work × thousands).
+          c.save();
+          c.globalAlpha = opacity;
+          c.fillStyle = '#e9eaee';
+          c.fillRect(0, 0, w, h);
+          c.restore();
+          return;
+        }
+        paintCanvasAudioInk(c, { node, width: w, height: h, opacity });
         return;
       }
       if (key === 'image' || key === 'video') {
-        paintCanvasMediaInk(ctx, { node, width: w, height: h, opacity });
+        paintCanvasMediaInk(c, { node, width: w, height: h, opacity });
       } else {
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        paintMediaProxyIcon(ctx, w, h, opacity);
-        ctx.restore();
+        c.save();
+        c.globalAlpha = opacity;
+        paintMediaProxyIcon(c, w, h, opacity);
+        c.restore();
       }
       return;
     }
@@ -2052,35 +2431,45 @@ export function paintCanvasIdleNode(
       shapeType === 'arrow' ||
       key === 'path';
     if (isPathLike) {
+      // Path `d` is in document-local coords. Scale into the live preview box so
+      // resize handles update ink in real time (not only translate).
+      const baseW = Math.max(1, Number(node.width) || w);
+      const baseH = Math.max(1, Number(node.height) || h);
+      const sx = w / baseW;
+      const sy = h / baseH;
+      const needsScale = Math.abs(sx - 1) > 1e-6 || Math.abs(sy - 1) > 1e-6;
+      if (needsScale) c.save();
+      if (needsScale) c.scale(sx, sy);
       if (canIdlePaintOnCanvas(node)) {
-        paintCanvasPathInk(ctx, {
+        paintCanvasPathInk(c, {
           node,
-          width: w,
-          height: h,
+          width: baseW,
+          height: baseH,
           opacity,
           zoom: opts.zoom,
         });
       } else {
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        paintStrokeCanvasIdle(ctx, {
+        c.save();
+        c.globalAlpha = opacity;
+        paintStrokeCanvasIdle(c, {
           pathD,
-          width: w,
-          height: h,
+          width: baseW,
+          height: baseH,
           stroke: fill,
           lineWidth: canvasIdleStrokeWidth(node, opts.zoom),
         });
-        ctx.restore();
+        c.restore();
       }
+      if (needsScale) c.restore();
       return;
     }
     if (canIdlePaintOnCanvas(node)) {
-      paintCanvasShapeInk(ctx, { node, width: w, height: h, opacity });
+      paintCanvasShapeInk(c, { node, width: w, height: h, opacity });
       return;
     }
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    paintBasicShapeFill(ctx, {
+    c.save();
+    c.globalAlpha = opacity;
+    paintBasicShapeFill(c, {
       left: 0,
       top: 0,
       width: w,
@@ -2089,7 +2478,7 @@ export function paintCanvasIdleNode(
       shapeType: String(node.attrs?.shapeType || key || ''),
       opacity,
     });
-    ctx.restore();
+    c.restore();
   };
 
   ctx.save();
@@ -2107,7 +2496,12 @@ export function paintCanvasIdleNode(
   } else {
     ctx.translate(left, top);
   }
-  paintAtLocalOrigin();
+  paintLocalInkWithBlend(ctx, {
+    node,
+    width: w,
+    height: h,
+    paintCore: paintAtLocalOrigin,
+  });
   ctx.restore();
 }
 
@@ -2125,7 +2519,14 @@ export type SceneCanvasIdlePaintSnapshot = {
 let sceneCanvasIdlePaint: SceneCanvasIdlePaintSnapshot | null = null;
 const sceneCanvasIdlePaintListeners = new Set<() => void>();
 let sceneCanvasIdlePaintFp = '';
+/** Prior canvas-ink count — avoid split() of a multi-KB join fingerprint. */
+let sceneCanvasIdlePaintLen = 0;
 
+/**
+ * Membership fingerprint without `canvasIds.join` (that allocated ~N×id
+ * strings on every paste and dominated grow-only wake at 2k+).
+ * Hash is order-sensitive over the cull list; rootLen catches doc grows.
+ */
 function sceneCanvasIdlePaintFingerprint(
   next: SceneCanvasIdlePaintSnapshot | null
 ): string {
@@ -2136,32 +2537,74 @@ function sceneCanvasIdlePaintFingerprint(
     ? doc.deltaSetLike!.ROOT!.children!.length
     : 0;
   const coord = String((doc as { coordSpace?: string } | null)?.coordSpace || '');
-  return `${next.hiddenNodeId || ''}\0${next.canvasIds.join('\0')}\0${coord}\0${framesLen}\0${rootLen}`;
+  let hash = 2166136261 >>> 0;
+  const ids = next.canvasIds;
+  for (let i = 0; i < ids.length; i += 1) {
+    const id = String(ids[i] || '');
+    for (let j = 0; j < id.length; j += 1) {
+      hash ^= id.charCodeAt(j);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    hash ^= 1;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return `${next.hiddenNodeId || ''}\0${ids.length}\0${hash.toString(36)}\0${coord}\0${framesLen}\0${rootLen}`;
 }
 
 export function getSceneCanvasIdlePaint(): SceneCanvasIdlePaintSnapshot | null {
   return sceneCanvasIdlePaint;
 }
 
-export function setSceneCanvasIdlePaint(next: SceneCanvasIdlePaintSnapshot | null): void {
+export function setSceneCanvasIdlePaint(next: SceneCanvasIdlePaintSnapshot | null): boolean {
   const fp = sceneCanvasIdlePaintFingerprint(next);
   // Always replace snapshot (getNodeBox may close over fresher geometry) but
   // only wake listeners when membership / doc identity changes — otherwise
   // every parent re-render during frame drag bumps canvasIdlePaintEpoch and
   // stacks full SoA paints until the tab hangs.
   sceneCanvasIdlePaint = next;
-  if (fp === sceneCanvasIdlePaintFp) return;
+  if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    (window as Window & { __RCB_E2E_SCENE_DOC__?: unknown }).__RCB_E2E_SCENE_DOC__ =
+      next?.document ?? null;
+  }
+  if (fp === sceneCanvasIdlePaintFp) return false;
   sceneCanvasIdlePaintFp = fp;
+  // Shrink / clear (delete, cull): must full-clear stale ink.
+  // Grow-only (paste add): dirty AABB on new slots is enough — full wipe on
+  // every Ctrl+V is what made ~12 rect pastes feel like a freeze.
+  // Empty → first ink: still force full so a deferred bump cannot no-op-skip
+  // before dirty flags land (draw-then-blank regression).
+  const prevLen = sceneCanvasIdlePaintLen;
+  const nextLen = next?.canvasIds.length ?? 0;
+  sceneCanvasIdlePaintLen = nextLen;
+  if (next == null || nextLen < prevLen || (prevLen === 0 && nextLen > 0)) {
+    idleCanvasFullRepaintPending = true;
+  }
   for (const fn of sceneCanvasIdlePaintListeners) {
     fn();
   }
+  return true;
 }
 
 /** Re-paint idle ink without changing the id set (e.g. fill-image decode finished). */
+let idlePaintBumpRaf = 0;
+
 export function bumpSceneCanvasIdlePaint(): void {
-  for (const fn of sceneCanvasIdlePaintListeners) {
-    fn();
+  // Coalesce to rAF — calling setState from a child useLayoutEffect (reveal /
+  // demotion) otherwise nests a full RcbCanvas→SvgCanvas re-render inside layout
+  // and freezes select after long paste sessions (history + 100+ nodes).
+  if (typeof requestAnimationFrame !== 'function') {
+    for (const fn of sceneCanvasIdlePaintListeners) {
+      fn();
+    }
+    return;
   }
+  if (idlePaintBumpRaf) return;
+  idlePaintBumpRaf = requestAnimationFrame(() => {
+    idlePaintBumpRaf = 0;
+    for (const fn of sceneCanvasIdlePaintListeners) {
+      fn();
+    }
+  });
 }
 
 let idleCanvasFullRepaintPending = false;
@@ -2199,19 +2642,7 @@ export function listSceneCanvasIdlePaintIds(): readonly string[] {
   return snap.canvasIds.filter((id) => id !== hidden);
 }
 
-/**
- * World point → stage-local screen (for chrome / canvas overlays that share
- * CameraTransform with the renderer).
- */
-export function scenePointToStageLocal(
-  camera: RcbCamera,
-  point: RcbVec,
-  dpr = 1
-): RcbVec {
-  return worldToScreen(createCameraTransform(camera, dpr), point.x, point.y);
-}
-
-/** Default factory — DOM hosts on svg; vector ink on canvas2d / webgl. */
+/** Default factory — DOM hosts on svg; vector ink on canvas2d / webgl / webgpu. */
 export function createSceneRenderer(
   backend: SceneRendererBackend,
   deps: CanvasSceneRendererDeps | SceneRendererHitDeps
@@ -2221,10 +2652,27 @@ export function createSceneRenderer(
     if (!canvasDeps.canvas) {
       throw new Error('createSceneRenderer(webgl) requires deps.canvas');
     }
-    if (!isSoaWebglEnabled() || !isSoaCanvasShapesEnabled()) {
+    if (!isSoaCanvasShapesEnabled()) {
+      return createCanvasSceneRenderer(canvasDeps);
+    }
+    if (!isSoaWebglEnvEnabled() && !shouldRunGpuDepthOfField()) {
       return createCanvasSceneRenderer(canvasDeps);
     }
     return createWebglSceneRenderer(canvasDeps) ?? createCanvasSceneRenderer(canvasDeps);
+  }
+  if (backend === 'webgpu') {
+    const canvasDeps = deps as CanvasSceneRendererDeps;
+    if (!canvasDeps.canvas) {
+      throw new Error('createSceneRenderer(webgpu) requires deps.canvas');
+    }
+    if (!isSoaCanvasShapesEnabled()) {
+      return createCanvasSceneRenderer(canvasDeps);
+    }
+    return (
+      createWebgpuSceneRenderer(canvasDeps) ??
+      createWebglSceneRenderer(canvasDeps) ??
+      createCanvasSceneRenderer(canvasDeps)
+    );
   }
   if (backend === 'canvas2d') {
     const canvasDeps = deps as CanvasSceneRendererDeps;
@@ -2236,11 +2684,28 @@ export function createSceneRenderer(
   return createSvgSceneRenderer(deps);
 }
 
-/** Pick ink backend from flags (WebGL → Canvas2D). */
+/** Pick ink backend from flags (WebGPU DOF → WebGL DOF → Canvas2D). */
 export function resolveIdleInkBackend(): SceneRendererBackend {
-  if (isSoaWebglEnabled() && isSoaCanvasShapesEnabled()) return 'webgl';
+  if (shouldRunGpuDepthOfField() && isSoaCanvasShapesEnabled()) {
+    const dofBackend = resolveGpuDofBackend();
+    if (dofBackend === 'webgpu') return 'webgpu';
+    return 'webgl';
+  }
+  if (isSoaWebglEnvEnabled() && isSoaCanvasShapesEnabled()) return 'webgl';
   return 'canvas2d';
 }
+
+export {
+  getGpuDepthOfFieldParams,
+  setGpuDepthOfFieldParams,
+  resetGpuDepthOfFieldParams,
+  subscribeGpuDepthOfField,
+  isGpuDofEnvEnabled,
+  shouldRunGpuDepthOfField,
+  resolveGpuDofBackend,
+  circleOfConfusionPx,
+  buildNormalizedDepthLookup,
+} from '@/components/rcb/render/gpuDepthOfField';
 
 // Re-export bake invalidate for AI flush listeners.
 export { resetSharedSoaBake } from '@/components/rcb/render/soaBakeLayer';

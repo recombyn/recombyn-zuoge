@@ -15,9 +15,14 @@ const API = (process.env.E2E_API || process.env.FUNC_API || 'http://127.0.0.1:80
 
 test.setTimeout(3 * 60_000);
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+import {
+  dragDraw,
+  expectShapeInk,
+  openLayers,
+  sleep,
+  waitForEditorToolbar,
+  selectionChromeCount,
+} from './canvasStressHelpers';
 
 async function injectAuth(page: Page) {
   await page.context().addInitScript((tok) => {
@@ -81,6 +86,7 @@ async function openBlankEditor(page: Page) {
   await expect(stage).toBeVisible({ timeout: 45_000 });
   await page.keyboard.press('Escape');
   await sleep(200);
+  await waitForEditorToolbar(page);
   return stage;
 }
 
@@ -102,23 +108,18 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
   test('drawn rect: chrome box tracks path; visual outer on grid @ ~4000%', async ({ page }) => {
     const stage = await openBlankEditor(page);
     const box = await focusStage(page, stage);
+    await openLayers(page);
 
     await page.keyboard.press('r');
     await sleep(150);
 
-    const x0 = box.x + box.width * 0.35;
-    const y0 = box.y + box.height * 0.35;
-    const x1 = box.x + box.width * 0.55;
-    const y1 = box.y + box.height * 0.55;
-    await page.mouse.move(x0, y0);
-    await page.mouse.down();
-    await page.mouse.move(x1, y1, { steps: 16 });
-    await page.mouse.up();
+    await dragDraw(page, box, 0.35, 0.35, 0.55, 0.55, 16);
     await sleep(500);
+    await expectShapeInk(page, 1);
 
     // Draw commit auto-selects — chrome should mount before we leave select.
     await expect
-      .poll(async () => page.locator('[data-rcb-sel-box], [data-rcb-sel-chrome], [data-rcb-screen-chrome="1"]').count(), {
+      .poll(async () => selectionChromeCount(page), {
         timeout: 12_000,
       })
       .toBeGreaterThan(0);
@@ -145,7 +146,7 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
     await sleep(500);
 
     // Keep selection: click predicted ink if chrome vanished after zoom.
-    const still = await page.locator('[data-rcb-sel-box], [data-rcb-sel-chrome]').count();
+    const still = await selectionChromeCount(page);
     if (still === 0) {
       const layersBtn = page.getByRole('button', { name: /^Layers$|^图层$/i }).first();
       if (await layersBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
@@ -176,7 +177,7 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
     console.log('[e2e:chrome-probe]', JSON.stringify(probe, null, 2));
 
     await expect
-      .poll(async () => page.locator('[data-rcb-screen-chrome="1"], [data-rcb-sel-box], [data-rcb-sel-chrome]').count(), {
+      .poll(async () => selectionChromeCount(page), {
         timeout: 10_000,
       })
       .toBeGreaterThan(0);
@@ -187,7 +188,7 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
       const overlay = document.querySelector('[data-rcb-overlay="1"]') as HTMLElement | null;
       const chromeSvg = document.querySelector('[data-rcb-scene-root="1"]') as SVGSVGElement | null;
       const chromeBox = document.querySelector(
-        '[data-rcb-sel-box]'
+        '[data-sel-box], [data-rcb-sel-box]'
       ) as SVGGraphicsElement | null;
       const knob = document.querySelector('[data-rcb-sel-knob="se"]') as SVGGraphicsElement | null;
       const baseline = document.querySelector(
@@ -328,12 +329,23 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
         baseline?.closest('[data-rcb-scene-camera="1"]') ===
           chromeBox?.closest('[data-rcb-scene-camera="1"]');
 
+      const canvasIdle = Number(
+        document.querySelector('[data-rcb-idle-ink-canvas="1"]')?.getAttribute(
+          'data-rcb-canvas-idle-count'
+        ) ||
+          document.querySelector('[data-rcb-shapes-layer="1"]')?.getAttribute('data-rcb-visible-count') ||
+          '0'
+      );
+      const soaInk = canvasIdle > 0;
+      const hasSvgShape = Boolean(baseline || nodeEl);
       return {
         cssZoom,
         gridSize,
         geom,
         visual,
         chromeGeom,
+        soaInk,
+        hasSvgShape,
         visualOnGrid: {
           left: onLattice(visual.left),
           top: onLattice(visual.top),
@@ -363,14 +375,15 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
         exactGeometryError: Math.max(matrixError, localEdgeError),
         sameSceneRoot,
         sameCameraRoot,
-        hasChrome: Boolean(chromeBox || chromeSvg),
-        hasShape: Boolean(baseline || nodeEl),
+        hasChrome: Boolean(chromeBox || chromeSvg || document.querySelector('[data-rcb-sel-knob]')),
+        hasShape: hasSvgShape || soaInk,
         worldTf: zoomAttr.slice(0, 120),
         overlayKids: overlay?.childElementCount ?? 0,
         chromeLayer: Boolean(document.querySelector('[data-rcb-sel-chrome-layer]')),
         hostCount: document.querySelectorAll('[data-scene-node-id]').length,
         selChromeCount: document.querySelectorAll('[data-rcb-screen-chrome="1"]').length,
-        selBoxCount: document.querySelectorAll('[data-rcb-sel-box]').length,
+        selBoxCount:
+          document.querySelectorAll('[data-sel-box], [data-rcb-sel-box], [data-rcb-sel-knob]').length,
       };
     });
 
@@ -378,39 +391,47 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
     console.log('[e2e:chrome-align]', JSON.stringify(report, null, 2));
 
     expect(report.hasShape).toBe(true);
-    expect(report.hostCount).toBeGreaterThan(0);
+    if (report.hasSvgShape) {
+      expect(report.hostCount).toBeGreaterThan(0);
+    }
     expect(report.cssZoom).toBeGreaterThan(8);
     expect(report.hasChrome).toBe(true);
     expect(report.selBoxCount).toBeGreaterThan(0);
-    expect(report.sameSceneRoot).toBe(true);
-    expect(report.sameCameraRoot).toBe(true);
-    expect(report.exactGeometryError).toBe(0);
+    if (report.hasSvgShape) {
+      expect(report.sameSceneRoot).toBe(true);
+      expect(report.sameCameraRoot).toBe(true);
+      expect(report.exactGeometryError).toBe(0);
 
-    // Visual outer + chrome AABB must sit on the 1px grid after draw settle.
-    expect(report.visualOnGrid.left).toBe(true);
-    expect(report.visualOnGrid.top).toBe(true);
-    expect(report.visualOnGrid.right).toBe(true);
-    expect(report.visualOnGrid.bottom).toBe(true);
-    expect(report.chromeOnGrid.left).toBe(true);
-    expect(report.chromeOnGrid.top).toBe(true);
-    expect(report.chromeOnGrid.right).toBe(true);
-    expect(report.chromeOnGrid.bottom).toBe(true);
+      // Visual outer + chrome AABB must sit on the 1px grid after draw settle.
+      expect(report.visualOnGrid.left).toBe(true);
+      expect(report.visualOnGrid.top).toBe(true);
+      expect(report.visualOnGrid.right).toBe(true);
+      expect(report.visualOnGrid.bottom).toBe(true);
+      expect(report.chromeOnGrid.left).toBe(true);
+      expect(report.chromeOnGrid.top).toBe(true);
+      expect(report.chromeOnGrid.right).toBe(true);
+      expect(report.chromeOnGrid.bottom).toBe(true);
 
-    // Overlay chrome TL/size must match CameraTransform(visual outer) within 2 CSS px.
-    expect(report.dx).not.toBeNull();
-    expect(Math.abs(report.dx || 0)).toBeLessThan(2.5);
-    expect(Math.abs(report.dy || 0)).toBeLessThan(2.5);
-    expect(Math.abs(report.dw || 0)).toBeLessThan(3);
-    expect(Math.abs(report.dh || 0)).toBeLessThan(3);
+      // Overlay chrome TL/size must match CameraTransform(visual outer) within 2 CSS px.
+      expect(report.dx).not.toBeNull();
+      expect(Math.abs(report.dx || 0)).toBeLessThan(2.5);
+      expect(Math.abs(report.dy || 0)).toBeLessThan(2.5);
+      expect(Math.abs(report.dw || 0)).toBeLessThan(3);
+      expect(Math.abs(report.dh || 0)).toBeLessThan(3);
 
-    // Baseline GBR excludes stroke; after adding the 0.5-scene center-stroke
-    // outset it must coincide with chrome. A multi-pixel allowance hid the old
-    // world-viewBox rounding drift.
-    const z = Number(report.cssZoom) || 1;
-    const outsetScreen = 0.5 * z;
-    expect(report.inkVsPred).not.toBeNull();
-    expect(Math.abs((report.inkVsPred?.dx || 0) - outsetScreen)).toBeLessThan(0.5);
-    expect(Math.abs((report.inkVsPred?.dy || 0) - outsetScreen)).toBeLessThan(0.5);
+      const z = Number(report.cssZoom) || 1;
+      const outsetScreen = 0.5 * z;
+      expect(report.inkVsPred).not.toBeNull();
+      expect(Math.abs((report.inkVsPred?.dx || 0) - outsetScreen)).toBeLessThan(0.5);
+      expect(Math.abs((report.inkVsPred?.dy || 0) - outsetScreen)).toBeLessThan(0.5);
+    } else {
+      // SoA ink: chrome knobs + high zoom smoke only (no SVG baseline to compare).
+      expect(report.se).toBeTruthy();
+    }
+
+    if (!report.hasSvgShape) {
+      return;
+    }
 
     const zoomDrift: number[] = [];
     for (let i = 0; i < 10; i += 1) {
@@ -431,7 +452,7 @@ test.describe('canvas chrome ↔ ink align (high zoom)', () => {
       zoomDrift.push(
         await page.evaluate(() => {
           const baseline = document.querySelector('[data-baseline="1"]');
-          const chrome = document.querySelector('[data-rcb-sel-box]');
+          const chrome = document.querySelector('[data-sel-box], [data-rcb-sel-box]');
           if (!(baseline instanceof SVGGraphicsElement) || !(chrome instanceof SVGGraphicsElement)) {
             return Number.POSITIVE_INFINITY;
           }

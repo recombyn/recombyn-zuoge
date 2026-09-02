@@ -2,18 +2,15 @@ import {
   memo,
   useEffect,
   useLayoutEffect,
-  useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import {
   RcbOverlayPortal,
   useRcbCamera,
-  useRcbDevicePixelRatio,
 } from '../camera/context';
-import { cameraZoom, createCameraTransform, worldToScreen } from '../camera/transform';
+import { createCameraTransform, worldToScreen } from '../camera/transform';
 import { rcbCameraCssZoom } from '../core/math';
 import {
   getSceneSelectionChromeMount,
@@ -97,7 +94,6 @@ export const CHROME_ROTATE_GAP_PX = 8;
 /** Line / arrow endpoint chrome (screen px). */
 export const CHROME_LINE_ENDPOINT_VIS_PX = 8;
 export const CHROME_LINE_ENDPOINT_HALO_PX = 22;
-export const CHROME_LINE_ENDPOINT_HIT_PX = CHROME_HANDLE_HIT_PX;
 export const CHROME_LINE_SHAFT_HIT_PX = 28;
 /**
  * Rotate L-bracket arm length (screen px) — outside the white corner knob.
@@ -133,28 +129,6 @@ export function strokeInnerForRadiusParkScene(
   zoom: number
 ): number {
   return strokeOuterForRotateLScene(strokeInnerScene, zoom);
-}
-
-/**
- * Local seat for a rotate-L HTML hit pad (outside the corner, center of the L).
- */
-export function rotateLHitLocal(
-  handle: ResizeHandle,
-  boxW: number,
-  boxH: number,
-  clear: number,
-  thick: number
-): { lx: number; ly: number } | null {
-  const c = Math.max(0, clear);
-  const t = Math.max(1e-6, thick);
-  const o = c + t / 2;
-  const w = Math.max(1, boxW);
-  const h = Math.max(1, boxH);
-  if (handle === 'nw') return { lx: -o, ly: -o };
-  if (handle === 'ne') return { lx: w + o, ly: -o };
-  if (handle === 'se') return { lx: w + o, ly: h + o };
-  if (handle === 'sw') return { lx: -o, ly: h + o };
-  return null;
 }
 
 const SEL_BASELINE = '#3388ff';
@@ -541,9 +515,9 @@ export function WorldSvgFrame({
 
   return createPortal(
     <g
-      key={localChrome ? hostEpoch : undefined}
       data-rcb-scene-svg-frame={nodeId || 'scene'}
       data-rcb-chrome-class={zClass}
+      data-rcb-chrome-host-epoch={hostEpoch}
       style={{ pointerEvents }}
       aria-hidden
     >
@@ -986,17 +960,6 @@ export function syncOverlayHandleHoverAtClient(
   }
 }
 
-export function selectionInkFromEventTarget(
-  target: EventTarget | null,
-  opts?: ChromeHandlePickOpts
-): SelectionInkPick | null {
-  const overlay = overlayHandleFromEventTarget(target);
-  if (overlay) return { layer: 'overlay', pick: overlay };
-  const chrome = chromeHandleFromEventTarget(target, opts);
-  if (chrome) return { layer: 'chrome', pick: chrome };
-  return null;
-}
-
 /**
  * Single hit path for resize / rotate / radius / shape ink (ADR 0027):
  * 1. Overlay seats (radius / poly / star / circle) via **scene geometry** registry
@@ -1109,8 +1072,6 @@ export function pickOverlayHandleAtClient(
 
 /** One HTML div hotzone per control (pick + debug paint). */
 export const RCB_HIT_ZONE_ATTR = 'data-rcb-hit-zone';
-/** Invisible SVG (or knob) center this div follows; prefer scene attrs. */
-export const RCB_HIT_ANCHOR_ATTR = 'data-rcb-hit-anchor';
 export const RCB_HIT_OWNER_ATTR = 'data-rcb-hit-owner';
 export const RCB_HIT_PAD_ATTR = 'data-rcb-hit-pad';
 export const RCB_HIT_SIZE_ATTR = 'data-rcb-hit-size';
@@ -1118,13 +1079,8 @@ export const RCB_HIT_SIZE_ATTR = 'data-rcb-hit-size';
 export const RCB_HIT_SCENE_X_ATTR = 'data-rcb-hit-scene-x';
 /** Scene (board) Y. */
 export const RCB_HIT_SCENE_Y_ATTR = 'data-rcb-hit-scene-y';
-/**
- * Imperative HostPathChrome / path-edit pads only. React {@link ChromeHitPad}
- * portals must never be removed by DOM code - that races React unmount
- * (`removeChild` crash).
- */
+/** Imperative HostPathChrome / path-edit pads only (DOM-owned, not React portals). */
 export const RCB_HIT_DOM_ATTR = 'data-rcb-hit-dom';
-export const RCB_HIT_REACT_ATTR = 'data-rcb-hit-react';
 /** HTML hit-pad layer under `[data-rcb-overlay]` (screen space, ADR 0027). */
 export const RCB_HIT_LAYER_ATTR = 'data-rcb-hit-pad-layer';
 
@@ -1154,32 +1110,6 @@ export function chromeHitPadOverlayRoot(): HTMLElement | null {
   }
   layer.style.pointerEvents = 'none';
   return layer;
-}
-
-/** Alias of {@link chromeHitPadOverlayRoot}. */
-export function chromeHitPadWorldRoot(): HTMLElement | null {
-  return chromeHitPadOverlayRoot();
-}
-
-function paintHitPadLook(
-  pad: HTMLElement,
-  opts: { cursor: string; dashed?: boolean; visibleKnob?: boolean; color?: string }
-) {
-  pad.style.cursor = opts.cursor;
-  pad.style.boxSizing = 'border-box';
-  pad.style.pointerEvents = 'auto';
-  pad.style.zIndex = '2';
-  if (opts.visibleKnob) {
-    // HTML ink + hit (same box). SVG pe/GBR under camera scale drifts from paint.
-    const color = opts.color || '#3388ff';
-    pad.style.borderRadius = '0';
-    pad.style.background = '#ffffff';
-    pad.style.border = `1.5px solid ${color}`;
-    return;
-  }
-  pad.style.borderRadius = '50%';
-  pad.style.background = 'transparent';
-  pad.style.border = 'none';
 }
 
 /**
@@ -1219,33 +1149,6 @@ export function placeHitPadAtScene(
   return true;
 }
 
-/**
- * Axis-aligned rect: scene to screen via CameraTransform (rotate-L bars).
- */
-export function placeChromeRectAtScene(
-  pad: HTMLElement,
-  sceneX: number,
-  sceneY: number,
-  sceneW: number,
-  sceneH: number,
-  camera: RcbCamera = { x: 0, y: 0, zoom: 1 },
-  dpr = 1
-): boolean {
-  if (![sceneX, sceneY, sceneW, sceneH].every(Number.isFinite)) return false;
-  const cam = createCameraTransform(camera, dpr);
-  const z = cameraZoom(cam);
-  const tl = worldToScreen(cam, sceneX, sceneY);
-  pad.style.position = 'absolute';
-  pad.style.left = `${tl.x}px`;
-  pad.style.top = `${tl.y}px`;
-  pad.style.width = `${Math.max(1e-6, sceneW * z)}px`;
-  pad.style.height = `${Math.max(1e-6, sceneH * z)}px`;
-  pad.style.transform = 'none';
-  pad.setAttribute(RCB_HIT_SCENE_X_ATTR, String(sceneX));
-  pad.setAttribute(RCB_HIT_SCENE_Y_ATTR, String(sceneY));
-  return true;
-}
-
 export function clearChromeHitPads(ownerId: string) {
   const layer = chromeHitPadOverlayRoot();
   if (!layer) return;
@@ -1261,234 +1164,6 @@ export function clearChromeHitPads(ownerId: string) {
       }
     });
 }
-
-/**
- * Re-place each div from stored scene coords + current camera
- * (screen size stays sizePx; left/top via worldToScreen).
- */
-export function syncChromeHitPads(
-  camera: RcbCamera,
-  opts?: { ownerId?: string; dpr?: number }
-) {
-  const layer = chromeHitPadOverlayRoot();
-  if (!layer) return;
-  const ownerId = opts?.ownerId;
-  const pads = ownerId
-    ? layer.querySelectorAll(
-        `[${RCB_HIT_PAD_ATTR}][${RCB_HIT_OWNER_ATTR}="${CSS.escape(ownerId)}"]`
-      )
-    : layer.querySelectorAll(`[${RCB_HIT_PAD_ATTR}]`);
-  for (let i = 0; i < pads.length; i += 1) {
-    const pad = pads[i] as HTMLElement;
-    const sx = Number(pad.getAttribute(RCB_HIT_SCENE_X_ATTR));
-    const sy = Number(pad.getAttribute(RCB_HIT_SCENE_Y_ATTR));
-    if (![sx, sy].every(Number.isFinite)) continue;
-    const size =
-      Number(pad.getAttribute(RCB_HIT_SIZE_ATTR)) || CHROME_HANDLE_HIT_PX;
-    placeHitPadAtScene(pad, sx, sy, size, camera, layer, opts?.dpr);
-  }
-}
-
-/**
- * Imperative: one overlay div for a control at board (scene) coords.
- * Call {@link syncChromeHitPads} after camera updates.
- */
-export function mountChromeHitPad(opts: {
-  ownerId: string;
-  zoneKey: string;
-  sizePx: number;
-  cursor: string;
-  dashed?: boolean;
-  visibleKnob?: boolean;
-  color?: string;
-  ariaLabel?: string;
-  sceneX: number;
-  sceneY: number;
-  camera: RcbCamera;
-  dpr?: number;
-  /** DOM attrs for SelectionFeature chromeHandleFromEventTarget. */
-  knobDir?: string;
-  rotateCorner?: string;
-}): HTMLElement | null {
-  const layer = chromeHitPadOverlayRoot();
-  if (!layer) return null;
-
-  // Only replace imperative pads ? never React portal nodes.
-  layer
-    .querySelectorAll(
-      `[${RCB_HIT_DOM_ATTR}][${RCB_HIT_OWNER_ATTR}="${CSS.escape(opts.ownerId)}"][${RCB_HIT_ZONE_ATTR}="${CSS.escape(opts.zoneKey)}"]`
-    )
-    .forEach((n) => n.remove());
-
-  const pad = document.createElement('div');
-  pad.setAttribute(RCB_HIT_PAD_ATTR, '1');
-  pad.setAttribute(RCB_HIT_DOM_ATTR, '1');
-  pad.setAttribute(RCB_HIT_ZONE_ATTR, opts.zoneKey);
-  pad.setAttribute(RCB_HIT_OWNER_ATTR, opts.ownerId);
-  pad.setAttribute('role', 'button');
-  if (opts.ariaLabel) pad.setAttribute('aria-label', opts.ariaLabel);
-  if (opts.knobDir) pad.setAttribute('data-rcb-sel-knob', opts.knobDir);
-  if (opts.rotateCorner) pad.setAttribute('data-rcb-sel-rotate-l', opts.rotateCorner);
-  paintHitPadLook(pad, opts);
-  layer.appendChild(pad);
-  placeHitPadAtScene(
-    pad,
-    opts.sceneX,
-    opts.sceneY,
-    opts.sizePx,
-    opts.camera,
-    layer,
-    opts.dpr
-  );
-  return pad;
-}
-
-/** Imperative rotate-L bar — screen-space HTML ink + hit. */
-export function mountChromeRectPad(opts: {
-  ownerId: string;
-  zoneKey: string;
-  cursor: string;
-  color?: string;
-  sceneX: number;
-  sceneY: number;
-  sceneW: number;
-  sceneH: number;
-  rotateCorner: string;
-  camera: RcbCamera;
-  dpr?: number;
-}): HTMLElement | null {
-  const layer = chromeHitPadOverlayRoot();
-  if (!layer) return null;
-  layer
-    .querySelectorAll(
-      `[${RCB_HIT_DOM_ATTR}][${RCB_HIT_OWNER_ATTR}="${CSS.escape(opts.ownerId)}"][${RCB_HIT_ZONE_ATTR}="${CSS.escape(opts.zoneKey)}"]`
-    )
-    .forEach((n) => n.remove());
-
-  const pad = document.createElement('div');
-  pad.setAttribute(RCB_HIT_PAD_ATTR, '1');
-  pad.setAttribute(RCB_HIT_DOM_ATTR, '1');
-  pad.setAttribute(RCB_HIT_ZONE_ATTR, opts.zoneKey);
-  pad.setAttribute(RCB_HIT_OWNER_ATTR, opts.ownerId);
-  pad.setAttribute('data-rcb-sel-rotate-l', opts.rotateCorner);
-  pad.setAttribute('role', 'button');
-  pad.setAttribute('aria-label', 'Rotate');
-  pad.style.cursor = opts.cursor;
-  pad.style.boxSizing = 'border-box';
-  pad.style.pointerEvents = 'auto';
-  pad.style.zIndex = '1';
-  // Keep the hit pad transparent; rotation is picked by geometry.
-  pad.style.background = 'transparent';
-  pad.style.border = 'none';
-  pad.style.borderRadius = '0';
-  layer.appendChild(pad);
-  placeChromeRectAtScene(
-    pad,
-    opts.sceneX,
-    opts.sceneY,
-    opts.sceneW,
-    opts.sceneH,
-    opts.camera,
-    opts.dpr
-  );
-  return pad;
-}
-
-export function ChromeHitPad({
-  sceneX,
-  sceneY,
-  sizePx,
-  zoneKey,
-  ownerId = '',
-  cursor,
-  dashed = false,
-  onPointerDown,
-  onDoubleClick,
-  onPointerEnter,
-  onPointerLeave,
-}: {
-  /** Board / world scene X (placed via worldToScreen). */
-  sceneX: number;
-  /** Board / world scene Y. */
-  sceneY: number;
-  /** Screen-px diameter (constant under zoom). */
-  sizePx: number;
-  zoneKey: string;
-  ownerId?: string;
-  cursor: string;
-  dashed?: boolean;
-  onPointerDown?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onDoubleClick?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerEnter?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerLeave?: (e: ReactPointerEvent<HTMLDivElement>) => void;
-}): ReactNode {
-  const camera = useRcbCamera();
-  const dpr = useRcbDevicePixelRatio();
-  const padRef = useRef<HTMLDivElement | null>(null);
-  const layer = chromeHitPadOverlayRoot();
-
-  useLayoutEffect(() => {
-    const sync = () => {
-      const p = padRef.current;
-      const root = chromeHitPadOverlayRoot();
-      if (!p || !root) return;
-      placeHitPadAtScene(p, sceneX, sceneY, sizePx, camera, root, dpr);
-    };
-    sync();
-    const raf = requestAnimationFrame(sync);
-    const unsub = subscribeShapeHosts(sync);
-    return () => {
-      cancelAnimationFrame(raf);
-      unsub();
-    };
-  }, [
-    sizePx,
-    zoneKey,
-    ownerId,
-    sceneX,
-    sceneY,
-    camera.x,
-    camera.y,
-    camera.zoom,
-    dpr,
-  ]);
-
-  if (layer == null) return null;
-  return createPortal(
-    <div
-      ref={padRef}
-      {...{
-        [RCB_HIT_PAD_ATTR]: '1',
-        [RCB_HIT_REACT_ATTR]: '1',
-        [RCB_HIT_ZONE_ATTR]: zoneKey,
-        [RCB_HIT_OWNER_ATTR]: ownerId,
-        [RCB_HIT_SIZE_ATTR]: String(Math.max(1, sizePx)),
-        [RCB_HIT_SCENE_X_ATTR]: String(sceneX),
-        [RCB_HIT_SCENE_Y_ATTR]: String(sceneY),
-      }}
-      role="button"
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onDoubleClick={onDoubleClick}
-      onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
-      style={{
-        position: 'absolute',
-        boxSizing: 'border-box',
-        borderRadius: '50%',
-        pointerEvents: 'auto',
-        zIndex: 2,
-        cursor,
-        background: 'transparent',
-        border: 'none',
-      }}
-    />,
-    layer
-  );
-}
-
-/** Alias of ChromeHitPad. */
-export const ChromeSvgHitPad = ChromeHitPad;
 
 function parseHitZoneKey(key: string): PaintedHitZonePick | null {
   const k = String(key || '');

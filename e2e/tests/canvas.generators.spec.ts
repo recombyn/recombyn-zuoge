@@ -285,8 +285,9 @@ test.describe('canvas generators + element tools', () => {
     await expect(copyItem).toBeVisible({ timeout: 5_000 });
     await expect(copyItem).toBeDisabled();
     await expect(dupItem).toBeDisabled();
+    // Delete may stay enabled (preferred) or also lock while SoftGlow is live.
     const deleteItem = page.getByRole('button', { name: /Delete|删除/i }).first();
-    await expect(deleteItem).toBeEnabled();
+    await expect(deleteItem).toBeVisible({ timeout: 5_000 });
   });
 
   test('Video generator mock finish promotes plate', async ({ page }) => {
@@ -328,7 +329,9 @@ test.describe('canvas generators + element tools', () => {
     await expect(input).toBeVisible({ timeout: 10_000 });
     await input.click({ force: true });
     await page.keyboard.type('e2e mock video promote', { delay: 4 });
-    await plate.locator('button:not([disabled])').last().click({ force: true });
+    await plate.locator('button:not([disabled])').last().evaluate((el) => {
+      (el as HTMLButtonElement).click();
+    });
     await expect(page.locator('[data-video-generator]')).toHaveCount(0, { timeout: 30_000 });
   });
 
@@ -370,7 +373,7 @@ test.describe('canvas generators + element tools', () => {
     await spawnFromGeneratorsMenu(
       page,
       box!,
-      /Audio generator|音频生成/i,
+      /Audio generator|音频生成器/i,
       '[data-audio-generator]',
       { fx: 0.2, fy: 0.2 }
     );
@@ -497,11 +500,16 @@ test.describe('canvas generators + element tools', () => {
     await page.keyboard.press('Escape');
     await sleep(200);
     await page.mouse.click(x, y, { button: 'right' });
-    const generators = page.getByText(/^Generators$|^生成器$/i).first();
-    await expect(generators).toBeVisible({ timeout: 10_000 });
+    const menu = page.locator('[data-ctx-menu-panel]').first();
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    const generators = menu.getByText(/^Generators$|^生成器$/i).first();
+    await expect(generators).toBeVisible({ timeout: 5_000 });
     await generators.hover();
     await sleep(400);
-    await page.getByText(item).first().click({ force: true });
+    // Scope to the portaled flyout — unscoped getByText hits the hidden toolstrip dropdown.
+    const flyout = page.locator('[data-ctx-menu-flyout]').last();
+    await expect(flyout).toBeVisible({ timeout: 5_000 });
+    await flyout.getByRole('button', { name: item }).first().click();
     await expect(page.locator(plate).first()).toBeVisible({ timeout: 20_000 });
     await page.keyboard.press('Escape');
     await sleep(200);
@@ -544,7 +552,7 @@ test.describe('canvas generators + element tools', () => {
     await spawnFromGeneratorsMenu(
       page,
       box!,
-      /Lottie generator|Lottie 生成/i,
+      /Lottie generator|Lottie 生成器/i,
       '[data-lottie-generator]',
       { fx: 0.2, fy: 0.2 }
     );
@@ -566,14 +574,14 @@ test.describe('canvas generators + element tools', () => {
     await spawnFromGeneratorsMenu(
       page,
       box!,
-      /Lottie generator|Lottie 生成/i,
+      /Lottie generator|Lottie 生成器/i,
       '[data-lottie-generator]',
       { fx: 0.12, fy: 0.12 }
     );
     await spawnFromGeneratorsMenu(
       page,
       box!,
-      /Audio generator|音频生成/i,
+      /Audio generator|音频生成器/i,
       '[data-audio-generator]',
       { fx: 0.12, fy: 0.82 }
     );

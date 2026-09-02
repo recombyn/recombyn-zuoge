@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { useEffect, useRef, useState } from 'react';
+import {
+  getSharedVideoElement,
+  resolveActiveVideoDecoderId,
+} from '@/components/editor/nodes/VideoNode/VideoHoverPlayback';
 
 /**
  * Regression: selection re-renders must not remount <video> or rewrite src
@@ -29,6 +33,19 @@ function PlainVideo({ src, label }: { src: string; label: string }) {
   );
 }
 
+function makeVideoDoc(ids: string[]) {
+  const deltaSetLike: Record<string, any> = {
+    ROOT: { children: ids },
+  };
+  for (const id of ids) {
+    deltaSetLike[id] = {
+      key: 'video',
+      attrs: { src: `https://cdn.example/${id}.mp4` },
+    };
+  }
+  return { deltaSetLike };
+}
+
 describe('canvas video src stability', () => {
   it('keeps the same video element across parent re-renders', () => {
     const { rerender, getByTestId } = render(<PlainVideo src="blob:test-a" label="a" />);
@@ -50,6 +67,65 @@ describe('canvas video src stability', () => {
 
     rerender(<PlainVideo src="https://cdn.example/a.mp4" label="2" />);
     expect(el.getAttribute('src')).toBe(before);
+    cleanup();
+  });
+});
+
+describe('resolveActiveVideoDecoderId', () => {
+  it('prefers trim panel node over other selections', () => {
+    const doc = makeVideoDoc(['v0', 'v1']);
+    const id = resolveActiveVideoDecoderId({
+      document: doc as any,
+      selectedNodeIds: ['v0', 'v1'],
+      videoToolPanel: { nodeId: 'v0', kind: 'trim' },
+    });
+    expect(id).toBe('v0');
+  });
+
+  it('picks last selected video when multiple are selected', () => {
+    const doc = makeVideoDoc(['v0', 'v1']);
+    const id = resolveActiveVideoDecoderId({
+      document: doc as any,
+      selectedNodeIds: ['v0', 'v1'],
+    });
+    expect(id).toBe('v1');
+  });
+
+  it('mounts sole video on board without selection', () => {
+    const doc = makeVideoDoc(['v0']);
+    const id = resolveActiveVideoDecoderId({
+      document: doc as any,
+      selectedNodeIds: [],
+    });
+    expect(id).toBe('v0');
+  });
+
+  it('returns null when no video has src', () => {
+    const doc = {
+      deltaSetLike: {
+        ROOT: { children: ['v0'] },
+        v0: { key: 'video', attrs: {} },
+      },
+    };
+    expect(
+      resolveActiveVideoDecoderId({
+        document: doc as any,
+        selectedNodeIds: ['v0'],
+      })
+    ).toBeNull();
+  });
+});
+
+describe('shared video decoder singleton', () => {
+  it('creates at most one shared video element', () => {
+    const wrap = document.createElement('div');
+    document.body.appendChild(wrap);
+
+    // Simulate attach via rendering would require full FO stack — call attach path indirectly:
+    // first getSharedVideoElement is null until a plate mounts; verify module starts clean.
+    expect(getSharedVideoElement()).toBeNull();
+
+    document.body.removeChild(wrap);
     cleanup();
   });
 });

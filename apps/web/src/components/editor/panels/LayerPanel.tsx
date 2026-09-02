@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, useDeferredValue, type ComponentType, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, memo } from 'react';
 import { useSelector } from '@/store';
 import {
   useActiveFrameId,
@@ -1012,12 +1012,18 @@ function LayerPanel({
   mobile?: boolean;
 } = {}) {
   const { t } = useTranslation();
-  const document = useEditorDocumentOnCommit();
+  const documentCommitted = useEditorDocumentOnCommit();
+  // Paste bumps documentRevision / sceneRevision — defer layer-list rebuild so the
+  // canvas SoA paint stays ahead of the dock at 2k–10k nodes.
+  // canvas commit is not blocked by dock work while history snaps accumulate.
+  const document = useDeferredValue(documentCommitted);
   const selectedNodeId = useSelectedNodeId();
   const selectedNodeIds = useSelectedNodeIds();
   const activeFrameId = useActiveFrameId();
   const selectedFrameIds = useSelectedFrameIds();
-  const historyPast = useSelector((state: any) => state.editor.historyPast as any[]);
+  const historyPastLen = useSelector(
+    (state: any) => (state.editor.historyPast as any[])?.length || 0
+  );
   /** Recompute layer rows when timeline edit focus toggles (module flag + store). */
   const workbenchEditOpen = useSelector((state: any) =>
     Boolean(state.editor.lottieTimelinePanel?.nodeId)
@@ -1185,12 +1191,13 @@ function LayerPanel({
   };
 
   const historyItems = useMemo(() => {
-    // Newest first — length is enough for a simple step list.
-    return historyPast.map((_: unknown, i: number) => ({
-      id: `h-${i}`,
-      label: t('editor.historyStep', { n: historyPast.length - i }),
+    // Newest first — length only (never subscribe to full snap docs).
+    if (!historyPastLen) return [];
+    return Array.from({ length: historyPastLen }, (_, i) => ({
+      id: `h-${historyPastLen - i}`,
+      label: t('editor.historyStep', { n: historyPastLen - i }),
     }));
-  }, [historyPast, t]);
+  }, [historyPastLen, t]);
 
   return (
     <aside

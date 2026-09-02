@@ -14,15 +14,29 @@ export function bindEditorStore(run: EditorDraftFn) {
   runEditor = run;
 }
 
-/** Wrap a (state, action) case reducer as a direct Zustand mutator. */
-export function bindEditorMutator<S, P = void>(
+/**
+ * Wrap a (state, action) case reducer as a direct Zustand mutator.
+ * - Untyped / inferred-unknown payload → `(payload?: any) => void` so call sites
+ *   that pass args stay valid until the reducer is annotated.
+ * - `[P] extends [void]` (not bare `P extends void`) so string unions like
+ *   `'soft' | 'full'` do not distribute into `never`.
+ */
+export function bindEditorMutator<S, P = unknown>(
   reducer: (state: S, action: { payload: P }) => void
-): P extends void ? () => void : (payload: P) => void {
+): unknown extends P
+  ? (payload?: any) => void
+  : [P] extends [void]
+    ? () => void
+    : (payload: P) => void {
   return ((payload?: P) => {
     runEditor((draft) => {
       reducer(draft, { payload: payload as P });
     });
-  }) as P extends void ? () => void : (payload: P) => void;
+  }) as unknown extends P
+    ? (payload?: any) => void
+    : [P] extends [void]
+      ? () => void
+      : (payload: P) => void;
 }
 
 /** Pure apply for unit tests (no Zustand). */

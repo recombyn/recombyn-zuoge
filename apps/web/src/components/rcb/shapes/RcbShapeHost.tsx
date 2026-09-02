@@ -45,13 +45,22 @@ type Props = {
   revealOverflow?: boolean;
 };
 
-function sameProcessingPaintNode(prev: unknown, next: unknown): boolean {
+/** Geometry / angle commits may replace the node record — keep host mounted. */
+function hostNodePaintIdentityEqual(prev: unknown, next: unknown): boolean {
+  if (prev === next) return true;
   if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return false;
-  const a = prev as { key?: string; attrs?: { processStatus?: string } };
-  const b = next as { key?: string; attrs?: { processStatus?: string } };
-  if (a.attrs !== b.attrs) return false;
-  if (String(a.attrs?.processStatus || '') !== 'running') return false;
-  return a.key === b.key;
+  const a = prev as { key?: string; attrs?: Record<string, unknown> | null };
+  const b = next as { key?: string; attrs?: Record<string, unknown> | null };
+  if (String(a.key || '') !== String(b.key || '')) return false;
+  if (a.attrs === b.attrs) return true;
+  const pa = a.attrs || {};
+  const pb = b.attrs || {};
+  const keys = new Set([...Object.keys(pa), ...Object.keys(pb)]);
+  for (const k of keys) {
+    if (k === 'angle' || k === 'flipX' || k === 'flipY') continue;
+    if (pa[k] !== pb[k]) return false;
+  }
+  return true;
 }
 
 /**
@@ -61,23 +70,15 @@ function sameProcessingPaintNode(prev: unknown, next: unknown): boolean {
  * dense pencil strokes to visibly shake. A host only needs its own node.
  */
 export function shapeHostPropsEqual(previous: Props, next: Props): boolean {
+  if (previous.nodeId !== next.nodeId) return false;
+  if (previous.zIndex !== next.zIndex) return false;
+  if (previous.reloadToken !== next.reloadToken) return false;
+  if (previous.frameClipToken !== next.frameClipToken) return false;
+  if (previous.forceHidden !== next.forceHidden) return false;
+  if (previous.revealOverflow !== next.revealOverflow) return false;
   const prevNode = previous.document?.deltaSetLike?.[previous.nodeId];
   const nextNode = next.document?.deltaSetLike?.[next.nodeId];
-  const sameNode =
-    prevNode === nextNode ||
-    (prevNode && nextNode && sameProcessingPaintNode(prevNode, nextNode));
-  return (
-    previous.nodeId === next.nodeId &&
-    previous.zIndex === next.zIndex &&
-    previous.reloadToken === next.reloadToken &&
-    previous.frameClipToken === next.frameClipToken &&
-    previous.forceHidden === next.forceHidden &&
-    previous.revealOverflow === next.revealOverflow &&
-    sameNode &&
-    // clearImageProcessAttrs replaces attrs on the same node record — compare attrs
-    // so upload/AI shimmer unmounts even when geometry commits skip sceneReloadToken.
-    prevNode?.attrs === nextNode?.attrs
-  );
+  return hostNodePaintIdentityEqual(prevNode, nextNode);
 }
 
 function setHostPaintOpacity(el: Element | null | undefined, hidden: boolean) {
@@ -154,7 +155,8 @@ function RcbShapeHost({
   // same mount. Chrome lives on a sibling CSS layer (z-[4]), so this does not
   // put ink above the control box (unlike a 2e9 mega-z).
   const activeBlendCss = revealOverflow ? '' : blendModeToCss(blendMode);
-  const paintZIndex = revealOverflow ? 1_000_000 + zIndex : zIndex;
+  // revealOverflow clears clipContent so selection matches unclipped chrome.
+  const paintZIndex = zIndex;
   // Remount when stroke/fill paint attrs change — not on every geometry nudge.
   const paintToken = [
     node?.attrs?.hidden,
@@ -259,6 +261,7 @@ function RcbShapeHost({
     const seq = ++bootRef.current;
     const n = document.deltaSetLike?.[nodeId];
     let cancelled = false;
+    // Plates + all hosts share shapes mount (one data-z stack).
     const sharedRoot = getSceneWorldRoot();
     const sharedMount = getSceneShapesMount();
     if (!sharedRoot || !sharedMount) return undefined;

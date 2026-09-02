@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSceneRenderBuffer,
+  forEachVisibleInRect,
+  mapSoaPathSampleToLive,
   paintSoaBufferBasic,
   resolveSoaPaintBox,
+  setSoaPaintDocument,
+  soaPathLiveMapFromSlot,
   syncSceneRenderBufferFromDocument,
   SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
@@ -26,11 +30,17 @@ import {
 import { applyAnimationPlayheadScenePose } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
 import { serializeLottieAnimationData } from '@/components/rcb/scene/document/nodeFactories';
 import { clearShapeHosts, registerShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
+import {
+  clearLiveArtboardFrameGeometry,
+  previewArtboardFrameGeometry,
+} from '@/components/rcb/frames/HtmlArtboardFrame';
 
 afterEach(() => {
   clearNodeTransformPreviews();
   setLiveCornerRadiusPreview(null);
   clearShapeHosts();
+  clearLiveArtboardFrameGeometry();
+  setSoaPaintDocument(null);
 });
 
 describe('SoA TransformPreview sync', () => {
@@ -142,6 +152,37 @@ describe('SoA TransformPreview sync', () => {
 
     paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 });
     expect(calls.some((c) => c.x === 50 && c.y === 60)).toBe(true);
+  });
+
+  it('mapSoaPathSampleToLive scales path samples with TransformPreview resize', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = addNodeToDocument(doc, 'p1', {
+      id: 'p1',
+      key: 'path',
+      x: 10,
+      y: 20,
+      width: 100,
+      height: 50,
+      attrs: {
+        path: 'M0 0 L100 0 L100 50 L0 50 Z',
+        closed: true,
+        'fill-color': '#ffffff',
+        'stroke-enabled': false,
+      },
+      children: [],
+    } as any);
+    const buf = createSceneRenderBuffer(4);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const i = buf.indexById.get('p1')!;
+    setNodeTransformPreviews([{ nodeId: 'p1', left: 10, top: 20, width: 200, height: 100 }]);
+    const live = resolveSoaPaintBox(buf, i);
+    expect(live.w).toBe(200);
+    expect(live.h).toBe(100);
+    const map = soaPathLiveMapFromSlot(buf, i, live);
+    // Document sample at far corner (10+100, 20+50) → live (10+200, 20+100).
+    const mapped = mapSoaPathSampleToLive(110, 70, map);
+    expect(mapped.x).toBeCloseTo(210, 5);
+    expect(mapped.y).toBeCloseTo(120, 5);
   });
 
   it('paintSoaBufferBasic skips SVG host during TransformPreview (SVG owns ink)', () => {
@@ -610,5 +651,54 @@ describe('SoA TransformPreview sync', () => {
     paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 }, { document: doc });
     expect(filled).toBe(false);
     expect(stroked).toBe(true);
+  });
+
+  it('forEachVisibleInRect rescues frameLocal children under live artboard plate', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    (doc as any).coordSpace = 'frameLocal';
+    (doc as any).frames = [{ id: 'f1', kind: 'artboard', x: 0, y: 0, width: 400, height: 400 }];
+    // 64 nodes so QT broadphase is active (>= 48).
+    for (let i = 0; i < 64; i += 1) {
+      const id = `c${i}`;
+      doc = addNodeToDocument(doc, id, {
+        id,
+        key: 'shape',
+        x: (i % 8) * 40,
+        y: Math.floor(i / 8) * 40,
+        width: 30,
+        height: 30,
+        attrs: {
+          shapeType: 'rect',
+          fill: '#fff',
+          'fill-color': '#fff',
+          'stroke-enabled': false,
+          frameId: 'f1',
+        },
+        children: [],
+      } as any);
+    }
+    const buf = createSceneRenderBuffer(128);
+    setSoaPaintDocument(doc);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.quadtree.size).toBe(64);
+
+    // Plate moves far away — stored QT AABBs are still near origin.
+    previewArtboardFrameGeometry({ id: 'f1', x: 2000, y: 2000, width: 400, height: 400 });
+
+    const seenNearOrigin: string[] = [];
+    forEachVisibleInRect(buf, { minX: 0, minY: 0, maxX: 100, maxY: 100 }, (_i, id) => {
+      seenNearOrigin.push(id);
+    });
+    expect(seenNearOrigin).toEqual([]);
+
+    const seenAtLive: string[] = [];
+    forEachVisibleInRect(
+      buf,
+      { minX: 1990, minY: 1990, maxX: 2050, maxY: 2050 },
+      (_i, id) => {
+        seenAtLive.push(id);
+      }
+    );
+    expect(seenAtLive).toContain('c0');
   });
 });

@@ -89,6 +89,26 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.pathLen[0]).toBeGreaterThan(5);
   });
 
+  it('angled line/arrow stay SoA-basic (idle ink + click-hit after demote)', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'ln', {
+      id: 'ln',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 1,
+      attrs: { shapeType: 'line', angle: 40, 'border-width': 2, 'border-color': '#111' },
+      children: [],
+    });
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.ln)).toBe(true);
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+    expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
+    expect(buf.pathLen[0]).toBeGreaterThanOrEqual(2);
+  });
+
   it('polygon is SoA-basic on Canvas2D path (samples into pathXY)', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'p', {
@@ -166,7 +186,7 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeFalsy();
   });
 
-  it('boolean evenodd / outlined paths stay off SoA basic (need Path2D fill-rule)', () => {
+  it('boolean evenodd / outlined stay off SoA basic but can idle on canvas Path2D', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'b', {
       id: 'b',
@@ -186,7 +206,7 @@ describe('SoA basic geom vs rounded / poly', () => {
       },
       children: [],
     });
-    expect(canIdlePaintOnCanvas(doc.deltaSetLike.b)).toBe(false);
+    expect(canIdlePaintOnCanvas(doc.deltaSetLike.b)).toBe(true);
     expect(isSoaBasicGeomSufficient(doc.deltaSetLike.b)).toBe(false);
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
@@ -194,7 +214,7 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeFalsy();
   });
 
-  it('gradient / outside-stroke / text / media never enter SoA basic idle', () => {
+  it('gradient / text / media stay off SoA basic; outside-stroke enters basic idle', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     const cases: Array<{ id: string; node: Parameters<typeof addNodeToDocument>[2] }> = [
       {
@@ -268,19 +288,25 @@ describe('SoA basic geom vs rounded / poly', () => {
     }
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
-    for (const c of cases) {
-      const node = doc.deltaSetLike[c.id];
-      expect(isSoaBasicGeomSufficient(node), c.id).toBe(false);
-      const i = buf.indexById.get(c.id);
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.outside)).toBe(true);
+    expect(buf.flags[buf.indexById.get('outside')!] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+    expect(buf.flags[buf.indexById.get('outside')!] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
+    expect(buf.strokeWidths[buf.indexById.get('outside')!]).toBe(2);
+    for (const id of ['grad', 'txt', 'img'] as const) {
+      const node = doc.deltaSetLike[id];
+      expect(isSoaBasicGeomSufficient(node), id).toBe(false);
+      const i = buf.indexById.get(id);
       expect(i).toBeDefined();
-      expect(buf.flags[i!] & SOA_FLAG_BASIC_GEOM, c.id).toBeFalsy();
-      expect(buf.flags[i!] & SOA_FLAG_CANVAS_IDLE, c.id).toBeFalsy();
+      expect(buf.flags[i!] & SOA_FLAG_BASIC_GEOM, id).toBeFalsy();
+      expect(buf.flags[i!] & SOA_FLAG_CANVAS_IDLE, id).toBeFalsy();
     }
     expect(isSoaCanvasEligible(doc.deltaSetLike.outside)).toBe(true);
     expect(isSoaCanvasEligible(doc.deltaSetLike.grad)).toBe(true);
     expect(isSoaCanvasEligible(doc.deltaSetLike.txt)).toBe(false);
     expect(isSoaCanvasEligible(doc.deltaSetLike.img)).toBe(false);
+    expect(canIdlePaintOnCanvas(doc.deltaSetLike.outside)).toBe(true);
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.grad)).toBe(true);
-    expect(canIdlePaintOnCanvas(doc.deltaSetLike.txt)).toBe(false);
+    // Text idle paints via rich canvas (not SoA BASIC_GEOM); still no ShapeHost.
+    expect(canIdlePaintOnCanvas(doc.deltaSetLike.txt)).toBe(true);
   });
 });

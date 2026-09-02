@@ -251,10 +251,6 @@ export class SoaQuadtree {
     return this.byId.has(id);
   }
 
-  isDirty(id: string): boolean {
-    return this.dirtyIds.has(id);
-  }
-
   ids(): IterableIterator<string> {
     return this.byId.keys();
   }
@@ -266,8 +262,8 @@ export class SoaQuadtree {
   }
 
   /**
-   * Mark id dirty without tree surgery. Search uses live AABB for dirty ids;
-   * call {@link rebuildIfDirty} after many moves.
+   * Mark id dirty without tree surgery. Search uses `liveAabb` for dirty ids;
+   * restamp via upsert / replaceAll / bulkUpsert when the gesture ends.
    */
   markDirty(id: string): void {
     if (!id || !this.byId.has(id)) return;
@@ -279,35 +275,12 @@ export class SoaQuadtree {
   }
 
   /**
-   * Rebuild the tree from current `byId` when dirty count ≥ threshold.
-   * Returns true if a rebuild ran.
+   * Update AABB in `byId` without tree surgery. Search rescues dirty ids from
+   * `byId` (or `liveAabb`). Prefer over {@link upsert} during paste/flag storms.
    */
-  rebuildIfDirty(threshold = 48): boolean {
-    if (this.dirtyIds.size < threshold) return false;
-    this.rebuildFromById();
-    return true;
-  }
-
-  /** Force one rebuild from `byId` and clear dirty. */
-  rebuildFromById(): void {
-    this.dirtyIds.clear();
-    if (this.byId.size === 0) {
-      this.root = null;
-      return;
-    }
-    this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
-  }
-
-  /**
-   * Update stored AABB only (no remove/insert). Marks dirty for lazy tree repair.
-   * Prefer during TransformPreview micro-moves.
-   */
-  patchBoundsLazy(item: SoaQuadItem): void {
+  restamp(item: SoaQuadItem): void {
+    if (!item?.id) return;
     const normalized = normalizeItem(item);
-    if (!this.byId.has(normalized.id)) {
-      this.upsert(normalized);
-      return;
-    }
     this.byId.set(normalized.id, normalized);
     this.dirtyIds.add(normalized.id);
   }
@@ -324,6 +297,7 @@ export class SoaQuadtree {
       return;
     }
     if (!containsItem(this.root, normalized)) {
+      this.root = null;
       this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
       return;
     }
@@ -358,6 +332,16 @@ export class SoaQuadtree {
       any = true;
     }
     if (!any) return;
+    this.compact();
+  }
+
+  /** Rebuild the tree from `byId` and clear dirty marks. */
+  compact(): void {
+    this.root = null;
+    if (this.byId.size === 0) {
+      this.dirtyIds.clear();
+      return;
+    }
     this.root = rebuildRoot(this.byId.values(), this.maxItems, this.maxDepth);
     this.dirtyIds.clear();
   }
@@ -395,25 +379,38 @@ export class SoaQuadtree {
     if (this.root) {
       queryNode(this.root, qMinX, qMinY, qMaxX, qMaxY, seen, out);
     }
-    if (!liveAabb || this.dirtyIds.size === 0) return out;
+    if (this.dirtyIds.size === 0) return out;
 
-    const kept: SoaQuadItem[] = [];
-    for (const hit of out) {
-      if (!this.dirtyIds.has(hit.id)) {
-        kept.push(hit);
-        continue;
+    if (liveAabb) {
+      const kept: SoaQuadItem[] = [];
+      for (const hit of out) {
+        if (!this.dirtyIds.has(hit.id)) {
+          kept.push(hit);
+          continue;
+        }
+        const live = resolveLiveInQuery(hit.id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
+        if (live) kept.push(live);
       }
-      const live = resolveLiveInQuery(hit.id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
-      if (live) kept.push(live);
+      for (const id of this.dirtyIds) {
+        if (seen.has(id)) continue;
+        const live = resolveLiveInQuery(id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
+        if (!live) continue;
+        seen.add(id);
+        kept.push(live);
+      }
+      return kept;
     }
+
+    // No liveAabb — rescue from byId (restamp path).
     for (const id of this.dirtyIds) {
       if (seen.has(id)) continue;
-      const live = resolveLiveInQuery(id, liveAabb, qMinX, qMinY, qMaxX, qMaxY);
-      if (!live) continue;
+      const box = this.byId.get(id);
+      if (!box) continue;
+      if (!itemIntersectsQuery(box, qMinX, qMinY, qMaxX, qMaxY)) continue;
       seen.add(id);
-      kept.push(live);
+      out.push(box);
     }
-    return kept;
+    return out;
   }
 
   searchPoint(

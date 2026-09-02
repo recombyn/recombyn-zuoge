@@ -313,12 +313,3 @@ export async function outlineTextFromFont(node: SceneNodeInput): Promise<Outline
 
   return null;
 }
-
-/** Warm catalog + resolve url (for UI / diagnostics). */
-export async function canOutlineTextFromFont(node: SceneNodeInput): Promise<boolean> {
-  if (!node || node.key !== 'text') return false;
-  await loadFontCatalog();
-  const style = parseNodeTextStyle(node.attrs || {});
-  const family = toFabricFontFamily(style.fontFamily);
-  return outlineFontCandidateUrls(family, parseWeight(style.fontWeight)).length > 0;
-}

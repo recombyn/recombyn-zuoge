@@ -5,15 +5,13 @@
  * viewBox mirrors — to map world ↔ stage-local screen space.
  *
  * Thin wrappers over `rcb/core/math.ts` so call sites share one vocabulary:
- * `worldToScreen` / `screenToWorld` / `screenDeltaToWorldDelta`.
+ * `worldToScreen` / `stageLocalToWorld` / `screenDeltaToWorldDelta`.
  */
 import {
   rcbCameraCssZoom,
   rcbCameraScreenOffset,
   rcbClientDeltaToScene,
-  rcbClientToStageLocal,
   rcbSceneToScreen,
-  rcbScreenToScene,
 } from '@/components/rcb/core/math';
 import type { RcbBox, RcbCamera, RcbVec } from '@/components/rcb/core/types';
 
@@ -69,19 +67,6 @@ export function stageLocalToWorld(
   };
 }
 
-/**
- * Client (viewport) → world.
- * `viewportEl` is the unscaled stage root (`[data-rcb-canvas]`).
- */
-export function screenToWorld(
-  t: CameraTransform,
-  viewportEl: HTMLElement,
-  clientX: number,
-  clientY: number
-): RcbVec {
-  return rcbScreenToScene(t.camera, viewportEl, clientX, clientY, t.dpr);
-}
-
 /** Client gesture delta → world delta (pass viewport scale from gesture start). */
 export function screenDeltaToWorldDelta(
   t: CameraTransform,
@@ -91,16 +76,6 @@ export function screenDeltaToWorldDelta(
   scaleY = 1
 ): RcbVec {
   return rcbClientDeltaToScene(cameraZoom(t), clientDx, clientDy, scaleX, scaleY);
-}
-
-/** Client → stage-local (pre-camera), including layout/visual scale. */
-export function clientToStageLocal(
-  viewportEl: HTMLElement,
-  clientX: number,
-  clientY: number
-): RcbVec {
-  const local = rcbClientToStageLocal(viewportEl, clientX, clientY);
-  return { x: local.x, y: local.y };
 }
 
 /** Axis-aligned world box → stage-local screen box (ignores node rotation). */
@@ -116,14 +91,6 @@ export function worldBoxToScreen(
     width: Math.max(0, box.width) * z,
     height: Math.max(0, box.height) * z,
   };
-}
-
-/**
- * Screen-space control size: keep N screen px (no `1/zoom` under an overlay
- * that is outside the world CSS scale).
- */
-export function screenConstantPx(px: number): number {
-  return Math.max(0, Number(px) || 0);
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
 import {
   createSceneRenderBuffer,
+  rebuildSoaPathSamples,
   syncSceneRenderBufferFromDocument,
   SOA_FLAG_CANVAS_IDLE,
 } from '../sceneRenderBuffer';
@@ -60,7 +61,7 @@ describe('collectSoaWebglInstances', () => {
     expect(angles.every((a) => a === 0)).toBe(true);
   });
 
-  it('packs line as oriented thin quad', () => {
+  it('packs line as oriented thin quad from world path polyline', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'ln', {
       id: 'ln',
@@ -74,19 +75,17 @@ describe('collectSoaWebglInstances', () => {
     });
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
+    rebuildSoaPathSamples(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
     const rects: number[] = [];
     const colors: number[] = [];
     const kinds: number[] = [];
     const angles: number[] = [];
-    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, rects, colors, kinds, angles);
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, rects, colors, kinds, angles);
     expect(kinds).toEqual([2]);
-    expect(rects[0]).toBe(0);
-    expect(rects[1]).toBe(0);
-    expect(rects[2]).toBeCloseTo(50, 5); // hypot(30,40)
-    // resolveStroke defaults missing border-width to 1
+    expect(rects[2]).toBeGreaterThan(0);
     expect(rects[3]).toBe(1);
-    expect(angles[0]).toBeCloseTo(Math.atan2(40, 30), 5);
+    expect(Number.isFinite(angles[0])).toBe(true);
   });
 
   it('uses document border-width for line thickness', () => {

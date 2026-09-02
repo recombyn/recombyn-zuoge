@@ -1,0 +1,77 @@
+{
+  "generatedAt": "2026-09-02T14:37:36.584Z",
+  "rows": [
+    {
+      "kind": "strokedRect",
+      "n": 150,
+      "syncMs": 3.3,
+      "paint60Ms": 181.6,
+      "paintFrameMs": 3.03,
+      "incrementalOneMs": 0.65,
+      "basicGeomCount": 150
+    },
+    {
+      "kind": "strokedRect",
+      "n": 1000,
+      "syncMs": 16.6,
+      "paint60Ms": 516.3,
+      "paintFrameMs": 8.61,
+      "incrementalOneMs": 0.13,
+      "basicGeomCount": 1000
+    },
+    {
+      "kind": "strokedRect",
+      "n": 5000,
+      "syncMs": 142.6,
+      "paint60Ms": 658.4,
+      "paintFrameMs": 10.97,
+      "incrementalOneMs": 0.12,
+      "basicGeomCount": 5000
+    },
+    {
+      "kind": "strokedRect",
+      "n": 10000,
+      "syncMs": 144.6,
+      "paint60Ms": 679.6,
+      "paintFrameMs": 11.33,
+      "incrementalOneMs": 0.16,
+      "basicGeomCount": 10000
+    },
+    {
+      "kind": "polygon",
+      "n": 150,
+      "syncMs": 20.9,
+      "paint60Ms": 124.5,
+      "paintFrameMs": 2.07,
+      "incrementalOneMs": 0.91,
+      "basicGeomCount": 150
+    },
+    {
+      "kind": "polygon",
+      "n": 1000,
+      "syncMs": 63.7,
+      "paint60Ms": 471.3,
+      "paintFrameMs": 7.85,
+      "incrementalOneMs": 3.17,
+      "basicGeomCount": 1000
+    },
+    {
+      "kind": "polygon",
+      "n": 5000,
+      "syncMs": 210.5,
+      "paint60Ms": 693.1,
+      "paintFrameMs": 11.55,
+      "incrementalOneMs": 8.1,
+      "basicGeomCount": 5000
+    },
+    {
+      "kind": "polygon",
+      "n": 10000,
+      "syncMs": 354.4,
+      "paint60Ms": 558.2,
+      "paintFrameMs": 9.3,
+      "incrementalOneMs": 17.66,
+      "basicGeomCount": 10000
+    }
+  ]
+}

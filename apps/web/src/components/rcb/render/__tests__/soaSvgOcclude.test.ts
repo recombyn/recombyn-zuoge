@@ -14,7 +14,7 @@ import {
 import { clearShapeHosts, registerShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
 import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import { pickFullAndCanvasIds, nodeNeedsDomShapeHost } from '@/components/rcb/shapes/RcbShapesLayer';
-import { setFrameClipRevealOverflowIds } from '@/components/rcb/frames/frameContentClip';
+import { setSelectionPaintRaiseIds } from '@/components/rcb/frames/frameContentClip';
 
 function whiteRect(id: string, x: number, y: number) {
   return {
@@ -72,12 +72,24 @@ describe('SoA canvas ink (single surface)', () => {
     clearNodeTransformPreviews();
   });
 
-  it('basic rects do not need DOM hosts; text does', () => {
+  it('basic rects and static text use canvas ink; lottie needs DOM host', () => {
     expect(nodeNeedsDomShapeHost(whiteRect('r', 0, 0) as never)).toBe(false);
     expect(
       nodeNeedsDomShapeHost({
         id: 't',
         key: 'text',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        attrs: {},
+        children: [],
+      } as never)
+    ).toBe(false);
+    expect(
+      nodeNeedsDomShapeHost({
+        id: 'l',
+        key: 'lottie',
         x: 0,
         y: 0,
         width: 10,
@@ -146,7 +158,7 @@ describe('SoA canvas ink (single surface)', () => {
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
     applySoaHostInkFlags(buf, new Set());
-    setFrameClipRevealOverflowIds(['back']);
+    setSelectionPaintRaiseIds(['back']);
     const fillOrder: string[] = [];
     const ctx = mockCtx({
       onFillRect: (x) => {
@@ -158,7 +170,7 @@ describe('SoA canvas ink (single surface)', () => {
       // Selected (back) paints last so it is not covered by front.
       expect(fillOrder).toEqual(['front', 'back']);
     } finally {
-      setFrameClipRevealOverflowIds(null);
+      setSelectionPaintRaiseIds(null);
     }
   });
 

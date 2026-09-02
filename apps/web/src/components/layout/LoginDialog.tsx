@@ -378,7 +378,8 @@ type LoginDialogProps = {
 };
 
 function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
-  const { t } = useTranslation();  const [email, setEmail] = useState('');
+  const { t } = useTranslation();
+  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [resendLeft, setResendLeft] = useState(0);

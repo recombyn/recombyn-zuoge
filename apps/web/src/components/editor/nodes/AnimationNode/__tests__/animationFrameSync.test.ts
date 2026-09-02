@@ -262,6 +262,75 @@ describe('syncArtboardChildrenIntoAnimation', () => {
     expect(layers.some((l) => String(l.ln || '') === 'shape_rect')).toBe(false);
     expect(layers.some((l) => String(l.ln || '') === 'img_can')).toBe(true);
   });
+
+  it('frameLocal: plate move does not shift baked child transforms', () => {
+    const doc = makeDoc();
+    doc.coordSpace = 'frameLocal';
+    // Children are plate-local; host sits at 0,0 under frameLocal.
+    const host = doc.deltaSetLike!.host_lottie as any;
+    host.x = 0;
+    host.y = 0;
+    const rect = doc.deltaSetLike!.shape_rect as any;
+    rect.x = 40;
+    rect.y = 50;
+    const frame = doc.frames![0] as any;
+
+    const syncedA = syncArtboardChildrenIntoAnimation(doc, 'frame_lottie', 'host_lottie');
+    expect(syncedA).toBeTruthy();
+    const layersA = parseLottieAnimationData(syncedA!.animationJson)!.layers as any[];
+    const rectA = layersA.find((l) => String(l.ln) === 'shape_rect');
+    expect(rectA).toBeTruthy();
+    const pA = (rectA.ks?.p?.k as number[]) || [];
+
+    frame.x = 300;
+    frame.y = 250;
+    const syncedB = syncArtboardChildrenIntoAnimation(doc, 'frame_lottie', 'host_lottie');
+    expect(syncedB).toBeTruthy();
+    const layersB = parseLottieAnimationData(syncedB!.animationJson)!.layers as any[];
+    const rectB = layersB.find((l) => String(l.ln) === 'shape_rect');
+    const pB = (rectB.ks?.p?.k as number[]) || [];
+    expect(pB[0]).toBeCloseTo(pA[0], 3);
+    expect(pB[1]).toBeCloseTo(pA[1], 3);
+    expect(syncedB!.animationJson).toBe(syncedA!.animationJson);
+  });
+
+  it('reclaims layers that lost ln via lottieLayerInd (no duplicate on re-bake)', () => {
+    const doc = makeDoc();
+    const host = doc.deltaSetLike!.host_lottie as any;
+    const rect = doc.deltaSetLike!.shape_rect as any;
+    rect.attrs.lottieLayerInd = 7;
+    host.attrs.animationData = JSON.stringify({
+      v: '5.7.4',
+      fr: 30,
+      ip: 0,
+      op: 150,
+      w: 400,
+      h: 400,
+      layers: [
+        {
+          ind: 7,
+          ty: 4,
+          nm: 'shape',
+          // ln stripped (idle / lottie-web rewrite)
+          ip: 0,
+          op: 60,
+          st: 0,
+          ks: { p: { a: 0, k: [100, 100, 0] }, s: { a: 0, k: [100, 100, 100] } },
+          shapes: [],
+        },
+      ],
+      assets: [],
+    });
+
+    const synced = syncArtboardChildrenIntoAnimation(doc, 'frame_lottie', 'host_lottie');
+    expect(synced).toBeTruthy();
+    const layers = (parseLottieAnimationData(synced!.animationJson)!.layers as any[]) || [];
+    const rectLayers = layers.filter((l) => String(l.ln || '') === 'shape_rect' || Number(l.ind) === 7);
+    // One layer for the rect — orphan without ln reclaimed, not kept + duplicated.
+    expect(rectLayers.length).toBe(1);
+    expect(String(rectLayers[0].ln)).toBe('shape_rect');
+    expect(Number(rectLayers[0].ind)).toBe(7);
+  });
 });
 
 describe('animationHostHasUnlinkedInk', () => {

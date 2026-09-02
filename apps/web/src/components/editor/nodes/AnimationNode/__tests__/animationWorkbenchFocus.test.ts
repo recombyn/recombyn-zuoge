@@ -403,6 +403,42 @@ describe('workbench focus isolation (minimap / canvas)', () => {
     ).toBe(false);
   });
 
+  it('frameLocal compares plate-local children against world plate AABB', () => {
+    const doc = {
+      coordSpace: 'frameLocal',
+      frames: [
+        {
+          id: 'af1',
+          x: 400,
+          y: 300,
+          width: 200,
+          height: 160,
+          clipContent: true,
+        },
+      ],
+    };
+    // Local (20,20) → world (420,320) still on-plate.
+    expect(
+      isBoundOutsideOwningClipPlate(doc, {
+        x: 20,
+        y: 20,
+        width: 40,
+        height: 40,
+        attrs: { frameId: 'af1' },
+      })
+    ).toBe(false);
+    // Local far outside plate → world off-plate.
+    expect(
+      isBoundOutsideOwningClipPlate(doc, {
+        x: 900,
+        y: 900,
+        width: 40,
+        height: 40,
+        attrs: { frameId: 'af1' },
+      })
+    ).toBe(true);
+  });
+
   it('refreshSoaOverlayVisibilityFromDocument hides other plates on canvas idle', () => {
     let doc = createEmptyDocument({ emptyWorld: true });
     doc = addNodeToDocument(doc, 'mainShape', {

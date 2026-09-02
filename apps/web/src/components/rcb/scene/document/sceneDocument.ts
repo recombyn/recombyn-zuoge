@@ -80,9 +80,22 @@ export function parseStackKey(
 function listRootNodeIds(doc: SceneDocument): string[] {
   const page = Array.isArray(doc?.pages) ? doc.pages[0] : null;
   const fromPage = page?.children;
-  if (Array.isArray(fromPage)) return fromPage.filter(Boolean).map(String);
+  if (Array.isArray(fromPage)) return uniqueStringIds(fromPage);
   const fromRoot = doc?.deltaSetLike?.ROOT?.children;
-  return Array.isArray(fromRoot) ? fromRoot.filter(Boolean).map(String) : [];
+  return Array.isArray(fromRoot) ? uniqueStringIds(fromRoot) : [];
+}
+
+/** Stable unique ids — duplicate ROOT/page children break React keys + SoA sync. */
+export function uniqueStringIds(ids: readonly unknown[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of ids) {
+    const id = String(raw || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 function isNodeBoundToFrame(doc: SceneDocument, nodeId: string): boolean {
@@ -164,6 +177,78 @@ export function reconcileStackOrder(doc: SceneDocument): string[] {
 /** 1-based CSS z-index from unified stack (0 if missing). */
 const STACK_GROUP_STRIDE = 100000;
 
+/**
+ * Batch node z-index for paint/hit sorts. Avoids O(N²) from calling
+ * {@link stackZIndex} inside a comparator (each call rescans frame siblings).
+ */
+export function buildNodeStackZMap(
+  doc: SceneDocument | null | undefined,
+  ids: readonly string[]
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!doc || !ids.length) return out;
+  const order = Array.isArray(doc.stackOrder) ? doc.stackOrder : [];
+  const rootIds = listRootNodeIds(doc);
+  const siblingsByFrame = new Map<string, Array<SceneNode | undefined>>();
+  for (const nodeId of rootIds) {
+    const node = doc.deltaSetLike?.[nodeId];
+    const frameId = String(node?.attrs?.frameId || '').trim();
+    if (!frameId) continue;
+    let list = siblingsByFrame.get(frameId);
+    if (!list) {
+      list = [];
+      siblingsByFrame.set(frameId, list);
+    }
+    list.push(node);
+  }
+  const frameIndexById = new Map<string, number>();
+  for (const id of ids) {
+    const key = String(id || '');
+    if (!key || out.has(key)) continue;
+    const node = doc.deltaSetLike?.[key];
+    const frameId = String(node?.attrs?.frameId || '').trim();
+    if (!frameId) {
+      const nodeIndex = order.indexOf(stackNodeKey(key));
+      out.set(
+        key,
+        nodeIndex < 0
+          ? 0
+          : (nodeIndex + 1) * STACK_GROUP_STRIDE + Math.floor(STACK_GROUP_STRIDE / 2)
+      );
+      continue;
+    }
+    let frameIndex = frameIndexById.get(frameId);
+    if (frameIndex == null) {
+      frameIndex = order.indexOf(stackFrameKey(frameId));
+      frameIndexById.set(frameId, frameIndex);
+    }
+    if (frameIndex < 0) {
+      const nodeIndex = order.indexOf(stackNodeKey(key));
+      out.set(
+        key,
+        nodeIndex < 0
+          ? 0
+          : (nodeIndex + 1) * STACK_GROUP_STRIDE + Math.floor(STACK_GROUP_STRIDE / 2)
+      );
+      continue;
+    }
+    const siblings = siblingsByFrame.get(frameId) || [];
+    const explicitOrder = Number(node?.attrs?.frameOrder);
+    const localIndex = Number.isFinite(explicitOrder)
+      ? explicitOrder
+      : Math.max(
+          0,
+          siblings.findIndex((item) => item?.id === key)
+        );
+    const localSlot = Math.min(
+      STACK_GROUP_STRIDE - 2,
+      Math.max(1, Math.round(localIndex) + 1)
+    );
+    out.set(key, (frameIndex + 1) * STACK_GROUP_STRIDE + localSlot);
+  }
+  return out;
+}
+
 export function stackZIndex(doc: SceneDocument, kind: 'frame' | 'node', id: string): number {
   const order = Array.isArray(doc?.stackOrder) ? doc.stackOrder : [];
   if (kind === 'frame') {
@@ -196,6 +281,105 @@ export function stackZIndex(doc: SceneDocument, kind: 'frame' | 'node', id: stri
     Math.max(1, Math.round(localIndex) + 1)
   );
   return (frameIndex + 1) * STACK_GROUP_STRIDE + localSlot;
+}
+
+/** Highest permanent paint z on the canvas (from `stackOrder`). */
+export function maxDocumentStackZ(doc: SceneDocument | null | undefined): number {
+  if (!doc) return 0;
+  const order = Array.isArray(doc.stackOrder) ? doc.stackOrder : [];
+  let max = 0;
+  for (const key of order) {
+    const parsed = parseStackKey(String(key));
+    if (!parsed) continue;
+    const z = stackZIndex(doc, parsed.kind, parsed.id);
+    if (z > max) max = z;
+  }
+  return max;
+}
+
+/**
+ * Selection temporary paint z. Does not mutate `stackOrder`.
+ * - World node / frame plate → max + 1
+ * - Frame-bound child → max + 1 + localSlot so the raised plate cannot cover ink
+ *   (in-frame order stays plate-relative; only the whole group lifts vs the world).
+ */
+export function selectionPaintZIndex(
+  doc: SceneDocument | null | undefined,
+  kind: 'frame' | 'node',
+  id: string,
+  raised: boolean
+): number {
+  if (!doc) return 0;
+  const natural = stackZIndex(doc, kind, id);
+  if (!raised) return natural;
+  const base = maxDocumentStackZ(doc) + 1;
+  if (kind === 'frame') return base;
+  const node = doc.deltaSetLike?.[id];
+  const frameId = String(node?.attrs?.frameId || '').trim();
+  if (!frameId) return base;
+  const plateZ = stackZIndex(doc, 'frame', frameId);
+  const localSlot = Math.max(1, natural - plateZ);
+  return base + localSlot;
+}
+
+/**
+ * World (unbound) node whose stack z is above at least one artboard plate.
+ * Those must paint as SVG hosts on the shared shapes mount — SoA canvas sits
+ * under that SVG, so idle ink can never cover 动画工作台 / artboard plates.
+ */
+export function worldNodeStacksAboveAnyFrame(
+  doc: SceneDocument | null | undefined,
+  nodeId: string
+): boolean {
+  if (!doc || !nodeId) return false;
+  const node = doc.deltaSetLike?.[nodeId];
+  if (!node) return false;
+  if (String(node.attrs?.frameId || '').trim()) return false;
+  const nodeZ = stackZIndex(doc, 'node', nodeId);
+  if (nodeZ <= 0) return false;
+  const order = Array.isArray(doc.stackOrder) ? doc.stackOrder : [];
+  for (const key of order) {
+    const parsed = parseStackKey(String(key));
+    if (!parsed || parsed.kind !== 'frame') continue;
+    if (nodeZ > stackZIndex(doc, 'frame', parsed.id)) return true;
+  }
+  return false;
+}
+
+/** Single-select only: one node and no frames, or one frame and no nodes. */
+export function isSingleStackSelection(
+  selectedNodeIds: readonly string[],
+  selectedFrameIds: readonly string[]
+): boolean {
+  const nodes = selectedNodeIds.map(String).filter(Boolean);
+  const frames = selectedFrameIds.map(String).filter(Boolean);
+  if (nodes.length === 1 && frames.length === 0) return true;
+  if (frames.length === 1 && nodes.length === 0) return true;
+  return false;
+}
+
+/**
+ * Node ids that temporarily paint at max+1 with a single selection.
+ * Multi-select → empty (no raise). Single frame → that frame's bound children
+ * (raise for stacking only — clip reveal is owned by selected *nodes*).
+ */
+export function listSingleSelectionPaintRaiseNodeIds(
+  doc: SceneDocument | null | undefined,
+  selectedNodeIds: readonly string[],
+  selectedFrameIds: readonly string[]
+): string[] {
+  if (!doc || !isSingleStackSelection(selectedNodeIds, selectedFrameIds)) return [];
+  const nodes = [...new Set(selectedNodeIds.map(String).filter(Boolean))];
+  if (nodes.length === 1) return [nodes[0]];
+  const frameId = String(selectedFrameIds[0] || '');
+  if (!frameId) return [];
+  const out: string[] = [];
+  for (const id of listRootNodeIds(doc)) {
+    if (String(doc.deltaSetLike?.[id]?.attrs?.frameId || '').trim() === frameId) {
+      out.push(id);
+    }
+  }
+  return out;
 }
 
 function reorderKeysInList(
@@ -357,7 +541,9 @@ export function normalizeDocument(doc: unknown): SceneDocument {
           p && typeof p === 'object'
             ? {
                 ...p,
-                children: Array.isArray(p.children) ? [...p.children] : p.children,
+                children: Array.isArray(p.children)
+                  ? uniqueStringIds(p.children)
+                  : p.children,
               }
             : p
         )
@@ -468,12 +654,12 @@ export function normalizeDocument(doc: unknown): SceneDocument {
   // Collapse multi-page docs into one canvas
   if (!Array.isArray(next.pages) || !next.pages.length) {
     const page = createPage();
-    page.children = [...(next.deltaSetLike?.ROOT?.children || [])];
+    page.children = uniqueStringIds(next.deltaSetLike?.ROOT?.children || []);
     next.pages = [page];
   } else if (next.pages.length > 1) {
     const merged = next.pages.flatMap((p) => p.children || []);
     const page = createPage(next.pages[0].id);
-    page.children = [...new Set(merged)];
+    page.children = uniqueStringIds(merged);
     next.pages = [page];
   }
   next.activePageId = next.pages[0].id;
@@ -625,12 +811,21 @@ export function syncRootChildren(doc: SceneDocument) {
   const page = doc.pages?.find((p) => p.id === doc.activePageId) || doc.pages?.[0];
   if (!doc.deltaSetLike?.ROOT || !page) return doc;
   const root = doc.deltaSetLike.ROOT;
-  doc.deltaSetLike = patchDeltaSetLike(doc.deltaSetLike, {
-    ROOT: {
-      ...root,
-      children: [...(page.children || [])],
-    },
-  });
+  const children = uniqueStringIds(page.children || []);
+  if (page.children !== children) page.children = children;
+  // Always write a deduped list — Yjs / paste can leave duplicate slots.
+  if (
+    !Array.isArray(root.children) ||
+    root.children.length !== children.length ||
+    children.some((id, i) => String(root.children?.[i] || '') !== id)
+  ) {
+    doc.deltaSetLike = patchDeltaSetLike(doc.deltaSetLike, {
+      ROOT: {
+        ...root,
+        children,
+      },
+    });
+  }
   return doc;
 }
 
@@ -673,36 +868,83 @@ export function addNodeToDocument(
   nodeId: string,
   node: SceneNodeInput | Record<string, unknown>
 ) {
-  const next = normalizeDocument(doc);
-  const incoming = node as SceneNode;
-  const frameId = String(incoming.attrs?.frameId || '').trim();
-  let storedNode = incoming;
-  if (frameId) {
-    const orders = listRootNodeIds(next)
-      .map((id) => next.deltaSetLike?.[id])
-      .filter((item) => String(item?.attrs?.frameId || '').trim() === frameId)
-      .map((item) => Number(item?.attrs?.frameOrder))
-      .filter(Number.isFinite);
-    storedNode = {
-      ...incoming,
-      attrs: {
-        ...(incoming.attrs || {}),
-        frameId,
-        frameOrder: orders.length ? Math.max(...orders) + 1 : 0,
-      },
-    };
+  return addNodesToDocument(doc, [{ id: nodeId, node }]);
+}
+
+/**
+ * Insert many nodes with one normalize / ROOT sync / stack reconcile.
+ * Paste / import of hundreds of nodes must use this — looping
+ * {@link addNodeToDocument} is O(N×M) and freezes the tab.
+ *
+ * `skipNormalize`: caller already produced an exclusive COW shell (trusted paste).
+ */
+export function addNodesToDocument(
+  doc: SceneDocument | null | undefined,
+  entries: ReadonlyArray<{ id: string; node: SceneNodeInput | Record<string, unknown> }>,
+  opts?: { skipNormalize?: boolean }
+) {
+  const list = (entries || []).filter((e) => e && String(e.id || '').trim());
+  if (!list.length) {
+    if (opts?.skipNormalize && doc && typeof doc === 'object') return doc;
+    return normalizeDocument(doc);
   }
-  next.deltaSetLike[nodeId] = storedNode;
+  const next = opts?.skipNormalize && doc && typeof doc === 'object'
+    ? doc
+    : normalizeDocument(doc);
   const page = getActivePage(next);
-  if (page && !page.children.includes(nodeId)) {
-    page.children.push(nodeId);
+  const frameMaxOrder = new Map<string, number>();
+  for (const id of listRootNodeIds(next)) {
+    const item = next.deltaSetLike?.[id];
+    const frameId = String(item?.attrs?.frameId || '').trim();
+    if (!frameId) continue;
+    const ord = Number(item?.attrs?.frameOrder);
+    if (!Number.isFinite(ord)) continue;
+    const prev = frameMaxOrder.get(frameId);
+    if (prev == null || ord > prev) frameMaxOrder.set(frameId, ord);
   }
+
+  const children = page ? [...(page.children || [])] : [];
+  const childSet = new Set(children.map(String));
+  let order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
+  const orderSet = new Set(order);
+
+  for (const entry of list) {
+    const nodeId = String(entry.id);
+    const incoming = entry.node as SceneNode;
+    const frameId = String(incoming.attrs?.frameId || '').trim();
+    let storedNode = incoming;
+    if (frameId) {
+      const maxOrd = frameMaxOrder.has(frameId) ? frameMaxOrder.get(frameId)! : -1;
+      const nextOrd = maxOrd + 1;
+      frameMaxOrder.set(frameId, nextOrd);
+      storedNode = {
+        ...incoming,
+        attrs: {
+          ...(incoming.attrs || {}),
+          frameId,
+          frameOrder: nextOrd,
+        },
+      };
+    }
+    next.deltaSetLike[nodeId] = storedNode;
+    if (!childSet.has(nodeId)) {
+      children.push(nodeId);
+      childSet.add(nodeId);
+    }
+    if (!frameId) {
+      const key = stackNodeKey(nodeId);
+      if (!orderSet.has(key)) {
+        order.push(key);
+        orderSet.add(key);
+      }
+    }
+  }
+
+  if (page) page.children = children;
+  next.stackOrder = order;
+  // Dedupe before sync — paste / Yjs can leave duplicate child slots.
+  if (page) page.children = uniqueStringIds(page.children || []);
   syncRootChildren(next);
-  if (!frameId) {
-    const key = stackNodeKey(nodeId);
-    const order = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
-    if (!order.includes(key)) next.stackOrder = [...order, key];
-  }
   reconcileStackOrder(next);
   return next;
 }
@@ -722,6 +964,7 @@ export function mergeImportedIntoDocument(
   const idMap = new Map<string, string>();
   children.forEach((oldId) => idMap.set(oldId, nanoid(10)));
 
+  const prepared: Array<{ id: string; node: SceneNode }> = [];
   children.forEach((oldId) => {
     const raw = src.deltaSetLike?.[oldId];
     if (!raw) return;
@@ -730,8 +973,11 @@ export function mergeImportedIntoDocument(
     node.id = newId;
     node.x = (Number(node.x) || 0) + ox;
     node.y = (Number(node.y) || 0) + oy;
-    next = addNodeToDocument(next, newId, node);
+    prepared.push({ id: newId, node });
   });
+  if (prepared.length) {
+    next = addNodesToDocument(next, prepared);
+  }
 
   // Import artboard frames if present (offset too).
   if (Array.isArray(src.frames) && src.frames.length) {
@@ -760,15 +1006,31 @@ export function removeNodesFromDocument(
   doc: SceneDocument | null | undefined,
   nodeIds: string[]
 ) {
-  const ids = Array.isArray(nodeIds) ? nodeIds.filter(Boolean) : [];
-  if (!ids.length) return doc;
-  let next = normalizeDocument(doc);
-  ids.forEach((nodeId) => {
-    delete next.deltaSetLike[nodeId];
-    (next.pages || []).forEach((page) => {
-      page.children = page.children.filter((id: string) => id !== nodeId);
-    });
-  });
+  const ids = Array.isArray(nodeIds) ? nodeIds.filter(Boolean).map(String) : [];
+  if (!ids.length || !doc) return doc;
+  const gone = new Set(ids);
+  // O(N+M) COW — do not filter page.children once per deleted id (that was
+  // O(deleted × children) and froze Ctrl+X / Delete at a few hundred nodes).
+  const next: SceneDocument = {
+    ...doc,
+    deltaSetLike: { ...(doc.deltaSetLike || {}) },
+    pages: Array.isArray(doc.pages)
+      ? doc.pages.map((p) =>
+          p && typeof p === 'object'
+            ? {
+                ...p,
+                children: Array.isArray(p.children)
+                  ? p.children.filter((id: string) => !gone.has(String(id)))
+                  : p.children,
+              }
+            : p
+        )
+      : doc.pages,
+    stackOrder: Array.isArray(doc.stackOrder) ? [...doc.stackOrder] : doc.stackOrder,
+  };
+  for (const id of gone) {
+    delete next.deltaSetLike[id];
+  }
   syncRootChildren(next);
   reconcileStackOrder(next);
   return next;
@@ -871,51 +1133,6 @@ export function reorderNodesInDocument(
   const stack = Array.isArray(next.stackOrder) ? next.stackOrder.map(String) : [];
   if (selectedKeys.length) {
     next.stackOrder = reorderKeysInList(stack, selectedKeys, action);
-  }
-  reconcileStackOrder(next);
-  return next;
-}
-
-/** Reorder world frames/nodes and route bound nodes to their local frame stack. */
-export function reorderStackInDocument(
-  doc: SceneDocument,
-  entries: Array<{ kind: 'frame' | 'node'; id: string }>,
-  action: 'front' | 'back' | 'forward' | 'backward'
-) {
-  const next = normalizeDocument(doc);
-  const boundGroups = new Map<string, string[]>();
-  const worldEntries = entries.filter((entry) => {
-    if (entry.kind === 'frame') return true;
-    const frameId = String(next.deltaSetLike?.[entry.id]?.attrs?.frameId || '').trim();
-    if (!frameId) return true;
-    const group = boundGroups.get(frameId) || [];
-    group.push(entry.id);
-    boundGroups.set(frameId, group);
-    return false;
-  });
-  boundGroups.forEach((group, frameId) => {
-    reorderFrameChildrenInDocument(next, frameId, group, action);
-  });
-  const selectedKeys = worldEntries
-    .map((e) => (e.kind === 'frame' ? stackFrameKey(e.id) : stackNodeKey(e.id)))
-    .filter((key) => (next.stackOrder || []).includes(key));
-  if (!selectedKeys.length) return next;
-  next.stackOrder = reorderKeysInList(
-    (next.stackOrder || []).map(String),
-    selectedKeys,
-    action
-  );
-
-  const page = getActivePage(next);
-  if (page) {
-    const nodeSelected = worldEntries
-      .filter((e) => e.kind === 'node')
-      .map((e) => e.id)
-      .filter((id) => (page.children || []).includes(id));
-    if (nodeSelected.length) {
-      page.children = reorderKeysInList([...(page.children || [])], nodeSelected, action);
-      syncRootChildren(next);
-    }
   }
   reconcileStackOrder(next);
   return next;

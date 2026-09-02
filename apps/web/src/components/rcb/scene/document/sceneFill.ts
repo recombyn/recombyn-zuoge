@@ -100,15 +100,6 @@ export const FILL_PANEL_TYPES: FillType[] = [
   'image',
 ];
 
-export const FILL_TYPES: FillType[] = [
-  'solid',
-  'linear',
-  'radial',
-  'angular',
-  'image',
-  'diffuse',
-];
-
 function clamp01(n: number) {
   return Math.min(1, Math.max(0, n));
 }

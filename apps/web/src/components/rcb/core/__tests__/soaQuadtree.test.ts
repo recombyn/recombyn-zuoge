@@ -19,6 +19,17 @@ describe('SoaQuadtree', () => {
     expect(tree.search(180, 180, 190, 190)).toEqual([]);
   });
 
+  it('restamp finds new ids without tree rebuild', () => {
+    const tree = new SoaQuadtree({ maxItems: 8 });
+    tree.upsert({ id: 'a', minX: 0, minY: 0, maxX: 10, maxY: 10 });
+    tree.restamp({ id: 'b', minX: 100, minY: 100, maxX: 110, maxY: 110 });
+    expect(tree.dirtySize).toBe(1);
+    expect(tree.search(95, 95, 115, 115).map((x) => x.id).sort()).toEqual(['b']);
+    tree.compact();
+    expect(tree.dirtySize).toBe(0);
+    expect(tree.searchPoint(105, 105).map((x) => x.id)).toEqual(['b']);
+  });
+
   it('upsert replaces bounds without duplicate ids', () => {
     const tree = new SoaQuadtree({ maxItems: 4 });
     tree.upsert({ id: 'a', minX: 0, minY: 0, maxX: 10, maxY: 10 });
@@ -81,23 +92,20 @@ describe('SoaQuadtree', () => {
     const tree = new SoaQuadtree({ maxItems: 8 });
     tree.upsert({ id: 'a', minX: 0, minY: 0, maxX: 10, maxY: 10 });
     tree.markDirty('a');
-    tree.patchBoundsLazy({ id: 'a', minX: 500, minY: 500, maxX: 510, maxY: 510 });
     expect(tree.dirtySize).toBe(1);
+    const live = (): { id: string; minX: number; minY: number; maxX: number; maxY: number } => ({
+      id: 'a',
+      minX: 500,
+      minY: 500,
+      maxX: 510,
+      maxY: 510,
+    });
     // Stale tree still thinks a is near origin — live filter drops false positive.
-    expect(
-      tree.search(0, 0, 20, 20, {
-        liveAabb: () => ({ id: 'a', minX: 500, minY: 500, maxX: 510, maxY: 510 }),
-      })
-    ).toEqual([]);
+    expect(tree.search(0, 0, 20, 20, { liveAabb: live })).toEqual([]);
     // Rescue into new viewport.
-    expect(
-      tree
-        .search(490, 490, 520, 520, {
-          liveAabb: () => ({ id: 'a', minX: 500, minY: 500, maxX: 510, maxY: 510 }),
-        })
-        .map((h) => h.id)
-    ).toEqual(['a']);
-    expect(tree.rebuildIfDirty(1)).toBe(true);
+    expect(tree.search(490, 490, 520, 520, { liveAabb: live }).map((h) => h.id)).toEqual(['a']);
+    // Gesture end restamps stored AABB (same as bulkUpsertSoaQuadtree).
+    tree.upsert(live());
     expect(tree.dirtySize).toBe(0);
     expect(tree.searchPoint(505, 505).map((h) => h.id)).toEqual(['a']);
   });
