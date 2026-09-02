@@ -97,6 +97,16 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Local Playwright / agent scratch logs (never publish)
+e2e/*.log
+e2e/**/*.log
+e2e/scripts/soa-browser-*.json
+e2e/scripts/soa-browser-*.png
+e2e/tests/*.browser.png
+
+# Local one-off VPS remote helpers
+deploy/vps/_remote-*.sh
+
 apps/docs/dist/
 
 # Local agent tooling / scratch — track official Design Skill packs only
