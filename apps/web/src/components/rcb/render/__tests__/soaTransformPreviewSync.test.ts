@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSceneRenderBuffer,
   forEachVisibleInRect,
+  mapSoaPathSampleToLive,
   paintSoaBufferBasic,
   resolveSoaPaintBox,
   setSoaPaintDocument,
+  soaPathLiveMapFromSlot,
   syncSceneRenderBufferFromDocument,
   SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
@@ -150,6 +152,37 @@ describe('SoA TransformPreview sync', () => {
 
     paintSoaBufferBasic(ctx, buf, { left: 0, top: 0, width: 200, height: 200 });
     expect(calls.some((c) => c.x === 50 && c.y === 60)).toBe(true);
+  });
+
+  it('mapSoaPathSampleToLive scales path samples with TransformPreview resize', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = addNodeToDocument(doc, 'p1', {
+      id: 'p1',
+      key: 'path',
+      x: 10,
+      y: 20,
+      width: 100,
+      height: 50,
+      attrs: {
+        path: 'M0 0 L100 0 L100 50 L0 50 Z',
+        closed: true,
+        'fill-color': '#ffffff',
+        'stroke-enabled': false,
+      },
+      children: [],
+    } as any);
+    const buf = createSceneRenderBuffer(4);
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const i = buf.indexById.get('p1')!;
+    setNodeTransformPreviews([{ nodeId: 'p1', left: 10, top: 20, width: 200, height: 100 }]);
+    const live = resolveSoaPaintBox(buf, i);
+    expect(live.w).toBe(200);
+    expect(live.h).toBe(100);
+    const map = soaPathLiveMapFromSlot(buf, i, live);
+    // Document sample at far corner (10+100, 20+50) → live (10+200, 20+100).
+    const mapped = mapSoaPathSampleToLive(110, 70, map);
+    expect(mapped.x).toBeCloseTo(210, 5);
+    expect(mapped.y).toBeCloseTo(120, 5);
   });
 
   it('paintSoaBufferBasic skips SVG host during TransformPreview (SVG owns ink)', () => {

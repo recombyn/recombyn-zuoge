@@ -23,6 +23,7 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { frameSceneBounds } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
@@ -202,20 +203,28 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
       continue;
     }
     const soaIndex = soaBuf?.indexById.get(id);
+    const kind = soaIndex != null && soaIndex >= 0 ? soaBuf!.kinds[soaIndex] : -1;
+    const strokeSoa =
+      kind === SOA_KIND_PATH || kind === SOA_KIND_LINE || kind === SOA_KIND_POLY;
     const isSoaIdle =
       soaIndex != null &&
       soaIndex >= 0 &&
       (soaBuf!.flags[soaIndex] & SOA_FLAG_CANVAS_IDLE) !== 0;
-    if (isSoaIdle && hitTestSoaSlot(soaBuf!, soaIndex, x, y)) {
+    // Stroke polylines stay pickable after selection paint-raise clears CANVAS_IDLE
+    // (host promote). Fill shapes still require idle ink.
+    if (
+      soaIndex != null &&
+      soaIndex >= 0 &&
+      hitTestSoaSlot(soaBuf!, soaIndex, x, y, {
+        requireCanvasIdle: !strokeSoa,
+      })
+    ) {
       return id;
     }
     if (isSoaIdle) {
       // Stroke ink: SoA polylines undersample curves / can go stale vs paint.
       // Fall through to Path2D / segment hit (same path line/arrow hosts use).
-      const kind = soaBuf!.kinds[soaIndex];
-      const strokeInk =
-        kind === SOA_KIND_PATH || kind === SOA_KIND_LINE || kind === SOA_KIND_POLY;
-      if (!strokeInk) {
+      if (!strokeSoa) {
         continue;
       }
     }
@@ -253,11 +262,8 @@ export function frameIdAtPoint(
     const frame = frames[i];
     if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
     const live = getLiveArtboardFrameGeometry(String(frame.id || ''));
-    const fx = Number(live?.x ?? frame.x) || 0;
-    const fy = Number(live?.y ?? frame.y) || 0;
-    const fw = Math.max(1, Number(live?.width ?? frame.width) || 1);
-    const fh = Math.max(1, Number(live?.height ?? frame.height) || 1);
-    if (x >= fx && x <= fx + fw && y >= fy && y <= fy + fh) {
+    const box = frameSceneBounds(doc, frame, live);
+    if (x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height) {
       return String(frame.id);
     }
   }
@@ -389,6 +395,24 @@ function isGeoShapeNode(node: SceneNodeInput, shapeType: string): boolean {
   );
 }
 
+/** Non-rectangular geo / custom path — AABB fill steals empty frame clicks (L-hole). */
+function shapeRequiresPrecisePathHit(shapeType: string, node: SceneNodeInput): boolean {
+  if (
+    shapeType === 'triangle' ||
+    shapeType === 'star' ||
+    shapeType === 'polygon' ||
+    shapeType === 'pen' ||
+    shapeType === 'pencil' ||
+    shapeType === 'path' ||
+    shapeType === 'line' ||
+    shapeType === 'arrow'
+  ) {
+    return true;
+  }
+  const d = String(node.attrs?.path || '').trim();
+  return Boolean(d);
+}
+
 function hitTestLineOrArrow(opts: {
   id: string;
   node: SceneNodeInput;
@@ -419,8 +443,8 @@ function hitTestLineOrArrow(opts: {
       return true;
     }
   }
-  const ep = strokeEndpointsFromBox(box, angle);
-  return distPointToSegment(x, y, ep.x0, ep.y0, ep.x1, ep.y1) <= pad;
+  const ep = strokeEndpointsFromBox(geom, angle);
+  return distPointToSegment(x, y, ep.x0, ep.y0, ep.x1, ep.y1) <= Math.max(pad, 4);
 }
 
 function hitTestPathLike(opts: {
@@ -441,18 +465,22 @@ function hitTestPathLike(opts: {
     Number(node.attrs?.['border-width'] ?? 2) || 2
   );
   const pathPad = sw / 2 + sceneHitSlop(zoom, 10);
-  const fillHit = supportsFill(node);
+  // Pencil ink is a closed filled silhouette; supportsFill is false (stroke panel)
+  // but pick must use fill against attrs.path, not only the outline edge.
+  const fillHit = supportsFill(node) || shapeType === 'pencil';
+  // Selection chrome box may be inflated — path `d` is stored in geom-local space.
+  const geom = deflateSelectionBox(box, node);
   const inLooseBox =
-    x >= box.left - pathPad &&
-    x <= box.left + box.width + pathPad &&
-    y >= box.top - pathPad &&
-    y <= box.top + box.height + pathPad;
+    x >= geom.left - pathPad &&
+    x <= geom.left + geom.width + pathPad &&
+    y >= geom.top - pathPad &&
+    y <= geom.top + geom.height + pathPad;
   if (!inLooseBox) return false;
 
   const d = String(node.attrs?.path || '');
   const heavyPath = d.length >= HEAVY_PATH_D_CHARS;
   const angle = Number(node.attrs?.angle) || 0;
-  const { lx, ly } = toNodeLocal(x, y, box.left, box.top, box.width, box.height, angle);
+  const { lx, ly } = toNodeLocal(x, y, geom.left, geom.top, geom.width, geom.height, angle);
 
   if (!heavyPath && d) {
     rememberNodePath2D(id, d);
@@ -487,7 +515,7 @@ function hitTestPathLike(opts: {
   }
 
   if (heavyPath) {
-    return Boolean(fillHit && lx >= 0 && ly >= 0 && lx <= box.width && ly <= box.height);
+    return Boolean(fillHit && lx >= 0 && ly >= 0 && lx <= geom.width && ly <= geom.height);
   }
   if (fillHit) {
     const rule = String(node.attrs?.['fill-rule'] || 'nonzero');
@@ -510,6 +538,7 @@ function hitTestGeoShape(opts: {
   const gh = Math.max(1, geom.height);
   const d = getShapeBaselineD(node, { width: gw, height: gh });
   const angle = Number(node.attrs?.angle) || 0;
+  const shapeType = String(node.attrs?.shapeType || '');
   if (d) {
     const { lx, ly } = toNodeLocal(x, y, geom.left, geom.top, gw, gh, angle);
     const { stroke, strokeWidth: sw } = resolveStroke(node, '#333333');
@@ -523,12 +552,17 @@ function hitTestGeoShape(opts: {
       hitTestPath2DLocal(d, lx, ly, {
         fill: supportsFill(node),
         strokeWidth: strokeHit,
+        fillRule:
+          String(node.attrs?.['fill-rule'] || 'nonzero') === 'evenodd' ? 'evenodd' : 'nonzero',
         lineCap: 'butt',
         lineJoin: 'miter',
       })
     ) {
       return true;
     }
+    // L / star / boolean path: Path2D miss must not fall through to AABB —
+    // that selected overflow children when clicking empty artboard plate.
+    if (shapeRequiresPrecisePathHit(shapeType, node)) return false;
   }
   const hitBox = inflateBoxByVisualOutset(geom, node);
   return hitsRotatedAabb(x, y, hitBox, angle, pad);
@@ -566,11 +600,13 @@ export function hitTestSceneNodeAt(opts: {
   if (shapeType === 'line' || shapeType === 'arrow') {
     return hitTestLineOrArrow({ id, node, box, x, y, pad });
   }
-  if (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'path') {
+  const customPath = String(node.attrs?.path || '').trim();
+  // Freehand / boolean / outline silhouette — never solid baseline AABB.
+  if (shapeType === 'pen' || shapeType === 'pencil' || shapeType === 'path' || customPath) {
     return hitTestPathLike({
       id,
       node,
-      shapeType,
+      shapeType: shapeType === 'pen' || shapeType === 'pencil' ? shapeType : 'path',
       box,
       x,
       y,

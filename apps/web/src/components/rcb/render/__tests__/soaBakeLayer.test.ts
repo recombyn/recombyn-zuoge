@@ -15,11 +15,14 @@ import {
 } from '../sceneRenderBuffer';
 import {
   SOA_BAKE_COUNT_THRESHOLD,
+  accumulateSoaGestureDirtyFromBuffer,
+  clearSoaGestureDirtyAccum,
   computeSoaIdleBounds,
   createSoaBakeCache,
   ensureSoaBake,
   ensureSoaBakeTile,
   invalidateSoaBakeTilesForDirty,
+  peekSoaGestureDirtyAccum,
   shouldUseSoaBake,
   tileKey,
   tilesForView,
@@ -28,6 +31,7 @@ import {
 
 afterEach(() => {
   clearNodeTransformPreviews();
+  clearSoaGestureDirtyAccum();
 });
 
 describe('soa dirty + bake helpers', () => {
@@ -97,6 +101,36 @@ describe('soa dirty + bake helpers', () => {
     expect(box?.top).toBe(20);
     expect(box?.width).toBeGreaterThanOrEqual(120);
     expect(box?.height).toBeGreaterThanOrEqual(40);
+  });
+
+  it('gesture dirty accum keeps S-curve mid peaks across frames', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'a', {
+      id: 'a',
+      key: 'shape',
+      x: 10,
+      y: 200,
+      width: 40,
+      height: 30,
+      attrs: { shapeType: 'rect', fill: '#fff' },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    // Peak above both endpoints — single-frame base↔current AABB misses it.
+    setNodeTransformPreviews([{ nodeId: 'a', left: 100, top: 40, width: 40, height: 30 }]);
+    markAllSoaDirty(buf);
+    accumulateSoaGestureDirtyFromBuffer(buf);
+    setNodeTransformPreviews([{ nodeId: 'a', left: 200, top: 200, width: 40, height: 30 }]);
+    markAllSoaDirty(buf);
+    accumulateSoaGestureDirtyFromBuffer(buf);
+    const accum = peekSoaGestureDirtyAccum();
+    expect(accum).not.toBeNull();
+    expect(accum!.top).toBeLessThanOrEqual(40);
+    expect(accum!.left + accum!.width).toBeGreaterThanOrEqual(240);
+    // Single-frame union at the end alone would start near y=200 and miss y=40.
+    const endOnly = unionSoaDirtyAabb(buf);
+    expect(endOnly!.top).toBeGreaterThan(40);
   });
 
   it('shouldUseSoaBake respects threshold', () => {

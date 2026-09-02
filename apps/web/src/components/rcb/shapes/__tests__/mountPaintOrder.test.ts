@@ -32,4 +32,17 @@ describe('syncSharedMountPaintOrder', () => {
       [...mount.children].map((el) => el.getAttribute('data-z'))
     ).toEqual(['1', '2', '3']);
   });
+
+  it('interleaves plates and hosts on one mount by data-z', () => {
+    const mount = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const plateB = layer(200000, 'frame');
+    const hostA = layer(100001, 'shape');
+    const plateA = layer(100000, 'frame');
+    const hostB = layer(200001, 'shape');
+    mount.append(plateB, hostA, plateA, hostB);
+    syncSharedMountPaintOrder(mount as SVGGElement);
+    expect(
+      [...mount.children].map((el) => el.getAttribute('data-id'))
+    ).toEqual(['frame-100000', 'shape-100001', 'frame-200000', 'shape-200001']);
+  });
 });

@@ -11,6 +11,7 @@ import {
   focusStage,
   openLayers,
   expectLayerLabel,
+  expectShapeInk,
   dragDraw,
   toolBtn,
   sleep,
@@ -18,6 +19,12 @@ import {
   uploadPng,
   makeWebmBuffer,
 } from './canvasStressHelpers';
+
+const IMAGE_GEN_BTN = /Image generator|图像生成器/i;
+const ALIGN_GROUP = /^对齐$|^Align$/i;
+const ALIGN_LEFT = /^左对齐$|^Align left$/i;
+const BOOLEAN_BTN = /^布尔运算$|^Boolean$/i;
+const BOOL_UNION = /^并集$|^Union$/i;
 
 test.setTimeout(6 * 60_000);
 
@@ -136,9 +143,10 @@ test.describe('canvas product stress', () => {
       await sleep(200);
       await page.keyboard.press('v');
       await sleep(100);
+      await focusStage(page, stage, 0.6);
 
-      const genBtn = page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first();
-      await genBtn.click({ force: true });
+      // Prefer hotkey — toolbar click can miss when the strip is busy after pen.
+      await page.keyboard.press('a');
       await expect(page.locator('[data-image-generator]').first()).toBeVisible({ timeout: 15_000 });
       await page.keyboard.press('Escape');
       await sleep(200);
@@ -167,7 +175,10 @@ test.describe('canvas product stress', () => {
       await page.mouse.click(box.x + box.width * 0.62, box.y + box.height * 0.62, {
         button: 'right',
       });
-      const lock = page.getByText(/^锁定$|^Lock$/i).first();
+      const lock = page
+        .locator('[data-ctx-menu-panel]')
+        .getByText(/^锁定$|^Lock$/i)
+        .first();
       if (await lock.isVisible({ timeout: 5_000 }).catch(() => false)) {
         await lock.click({ force: true });
         await sleep(200);
@@ -353,17 +364,11 @@ test.describe('canvas product stress', () => {
       await sleep(400);
       await page.keyboard.press('v');
       await sleep(200);
-      const penHit =
-        (await page.getByText(/^钢笔$|^Pen$|^路径$|^Path$/i).count()) > 0 ||
-        (await page.getByRole('textbox', { name: /^W$/i }).first().isVisible().catch(() => false));
-      if (!penHit) {
-        await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.35);
-        await sleep(250);
-      }
+      await expectShapeInk(page, 1);
       await expect(
         page
           .getByRole('textbox', { name: /^W$/i })
-          .or(page.getByText(/^钢笔$|^Pen$|^路径$|^Path$|^矩形$/i))
+          .or(page.getByText(/^钢笔$|^Pen$|^路径$|^Path$|^矩形$|^Rectangle$/i))
           .first()
       ).toBeAttached({ timeout: 10_000 });
 
@@ -382,6 +387,7 @@ test.describe('canvas product stress', () => {
       await sleep(500);
       await page.keyboard.press('v');
       await sleep(200);
+      await expectShapeInk(page, 1);
       await expect(page.locator('[data-rcb-canvas="1"]').first()).toBeVisible();
     });
 
@@ -402,12 +408,28 @@ test.describe('canvas product stress', () => {
         page.locator('[data-text-inline-editor], [contenteditable="true"]').first()
       ).toBeVisible({ timeout: 10_000 });
       await page.keyboard.type('deep-stress', { delay: 6 });
-      await page.mouse.click(box.x + box.width * 0.2, box.y + box.height * 0.2);
-      await sleep(200);
+      await page.keyboard.press('Escape');
+      await sleep(150);
+      await page.keyboard.press('v');
+      await sleep(100);
+      // Deselect the frame — generator chrome needs single-node selection.
+      await page.mouse.click(box.x + 12, box.y + 12);
+      await sleep(100);
+      await focusStage(page, stage, 0.2);
+      await sleep(100);
 
-      await page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first().click({
-        force: true,
-      });
+      // SplitToolButton primary click only opens the menu; spawn via hotkey / menu row.
+      await page.keyboard.press('a');
+      const plate = page.locator('[data-image-generator]').first();
+      if (!(await plate.isVisible({ timeout: 3_000 }).catch(() => false))) {
+        const genBtn = page.getByRole('button', { name: IMAGE_GEN_BTN }).first();
+        await genBtn.click({ force: true });
+        await page
+          .getByRole('menu', { name: IMAGE_GEN_BTN })
+          .getByRole('button', { name: IMAGE_GEN_BTN })
+          .first()
+          .click({ force: true });
+      }
       await expect(page.locator('[data-image-generator]').first()).toBeVisible({ timeout: 12_000 });
       await expect(page).toHaveURL(/\/editor\//);
     });
@@ -456,9 +478,7 @@ test.describe('canvas product stress', () => {
       }
       expect(opened).toBeGreaterThanOrEqual(1);
       await expect(page).toHaveURL(/\/editor\//);
-      await expect(
-        page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: IMAGE_GEN_BTN }).first()).toBeVisible();
     });
 
     test('multi-select align + boolean union hard asserts', async ({ page }) => {
@@ -484,25 +504,26 @@ test.describe('canvas product stress', () => {
       await page.mouse.up();
       await sleep(400);
 
-      const alignGroup = page.getByRole('group', { name: /^对齐$/i }).first();
+      const alignGroup = page.getByRole('group', { name: ALIGN_GROUP }).first();
       await expect(alignGroup).toBeVisible({ timeout: 10_000 });
-      const alignLeft = page.getByRole('button', { name: /^左对齐$/i }).first();
+      const alignLeft = page.getByRole('button', { name: ALIGN_LEFT }).first();
       await expect(alignLeft).toBeVisible({ timeout: 5_000 });
       await alignLeft.click({ force: true });
       await sleep(250);
 
-      const boolBtn = page.getByRole('button', { name: /^布尔运算$/i }).first();
+      const boolBtn = page.getByRole('button', { name: BOOLEAN_BTN }).first();
       await expect(boolBtn).toBeVisible({ timeout: 8_000 });
       await boolBtn.click({ force: true });
       await sleep(200);
-      const union = page.getByText(/^并集$/i).first();
+      const union = page.getByText(BOOL_UNION).first();
       await expect(union).toBeVisible({ timeout: 5_000 });
       await union.click({ force: true });
       await sleep(500);
 
       await expect(page).toHaveURL(/\/editor\//);
+      await expectShapeInk(page, 1);
       await expect(
-        page.getByRole('textbox', { name: 'W' }).or(page.getByText(/^矩形$|^路径$|^Path$/i)).first()
+        page.getByRole('textbox', { name: 'W' }).or(page.getByText(/^矩形$|^Rectangle$|^路径$|^Path$/i)).first()
       ).toBeAttached({ timeout: 10_000 });
     });
 
@@ -516,9 +537,8 @@ test.describe('canvas product stress', () => {
       await page.keyboard.press('r');
       await sleep(80);
       await dragDraw(page, box, 0.25, 0.25, 0.38, 0.38);
-      await expect(page.getByText(/^矩形$|^Rectangle$/i).first()).toBeAttached({
-        timeout: 12_000,
-      });
+      await expectLayerLabel(page, /^矩形$|^Rectangle$/i);
+      await expectShapeInk(page, 1);
 
       await page.keyboard.press('v');
       await sleep(80);
@@ -536,13 +556,11 @@ test.describe('canvas product stress', () => {
       await sleep(80);
       await page.keyboard.press('Control+a');
       await sleep(400);
-      await expect(page.getByRole('group', { name: /^对齐$/i }).first()).toBeVisible({
+      await expect(page.getByRole('group', { name: ALIGN_GROUP }).first()).toBeVisible({
         timeout: 12_000,
       });
       await expect(page).toHaveURL(/\/editor\//);
-      await expect(
-        page.locator('[aria-label="Image generator"], [aria-label="图像生成器"]').first()
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: IMAGE_GEN_BTN }).first()).toBeVisible();
     });
 
     test('video upload opens trim toolbar', async ({ page }) => {

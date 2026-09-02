@@ -864,6 +864,29 @@ export function getLiveCornerRadiusPreviewRadii(nodeId: string): CornerRadii | n
   return liveCornerRadiusPreview.radii;
 }
 
+/**
+ * Overlay live corner-radius preview onto attrs for baseline / Path2D paint.
+ * Document attrs stay idle mid-drag; paint callers merge here.
+ */
+export function mergeLiveCornerRadiiIntoAttrs(
+  nodeId: string,
+  attrs: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const base = attrs ? { ...attrs } : {};
+  const live = getLiveCornerRadiusPreviewRadii(nodeId);
+  if (!live) return base;
+  const avg = (live.tl + live.tr + live.br + live.bl) / 4;
+  return {
+    ...base,
+    radiusTL: live.tl,
+    radiusTR: live.tr,
+    radiusBR: live.br,
+    radiusBL: live.bl,
+    radius: avg,
+    cornerRadius: avg,
+  };
+}
+
 export function getLiveCornerRadiusPreview(nodeId: string): number | null {
   if (!nodeId || liveCornerRadiusPreview?.nodeId !== nodeId) return null;
   return liveCornerRadiusPreview.display;

@@ -16,9 +16,12 @@ function nextClipId(prefix: string) {
 const EMPTY_REVEAL_OVERFLOW = new Set<string>();
 let revealOverflowNodeIds: ReadonlySet<string> = EMPTY_REVEAL_OVERFLOW;
 
+const EMPTY_PAINT_RAISE = new Set<string>();
+let paintRaiseNodeIds: ReadonlySet<string> = EMPTY_PAINT_RAISE;
+
 /**
- * Selection / editor hosts that must paint past clipContent (Figma-like).
- * SoftGlow processing stays out of this set via {@link shouldRevealShapeOverflow}.
+ * Optional registry for hosts that temporarily paint past clipContent.
+ * Selection no longer fills this set — clip stays on for select / drag.
  */
 export function setFrameClipRevealOverflowIds(ids: Iterable<string> | null | undefined): void {
   if (!ids) {
@@ -36,6 +39,29 @@ export function setFrameClipRevealOverflowIds(ids: Iterable<string> | null | und
 export function frameClipRevealsOverflow(nodeId: string | null | undefined): boolean {
   if (!nodeId) return false;
   return revealOverflowNodeIds.has(nodeId);
+}
+
+/** Single-select temporary paint raise (max+1). Multi-select leaves this empty. */
+export function setSelectionPaintRaiseIds(ids: Iterable<string> | null | undefined): void {
+  if (!ids) {
+    paintRaiseNodeIds = EMPTY_PAINT_RAISE;
+    return;
+  }
+  const next = new Set<string>();
+  for (const id of ids) {
+    const s = String(id || '').trim();
+    if (s) next.add(s);
+  }
+  paintRaiseNodeIds = next.size ? next : EMPTY_PAINT_RAISE;
+}
+
+export function selectionPaintRaises(nodeId: string | null | undefined): boolean {
+  if (!nodeId) return false;
+  return paintRaiseNodeIds.has(nodeId);
+}
+
+export function hasSelectionPaintRaise(): boolean {
+  return paintRaiseNodeIds.size > 0;
 }
 
 export function hasFrameClipRevealOverflow(): boolean {

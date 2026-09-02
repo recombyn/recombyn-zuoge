@@ -662,19 +662,23 @@ function CornerRadiusHandlesOverlay({
         return;
       }
       const softClick = !d.moved;
-      finishUi();
-      endDragSession();
       if (softClick) {
+        finishUi();
+        endDragSession();
         restoreDrag(d);
         return;
       }
+      // Commit before clearing live preview — otherwise idle ink repaints from
+      // stale SoA radii (sharp) and attr-only patches do not re-wake paint.
       const sc = toScene(e.clientX, e.clientY);
       const local = scenePointToLocal(sc.x, sc.y, seatBox, angle);
       if (d.mode === 'path') {
         applyPathDragLocal(d, local, { preview: false });
-        return;
+      } else {
+        applyBoxDragLocal(d, local, { preview: false });
       }
-      applyBoxDragLocal(d, local, { preview: false });
+      finishUi();
+      endDragSession();
     };
 
     const onKey = (e: KeyboardEvent) => {

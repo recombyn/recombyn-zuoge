@@ -22,6 +22,8 @@ import {
 import {
   clampShapeSides,
   DEFAULT_SHAPE_SIDES,
+  patchLiveShapeParamsPreview,
+  setLiveShapeParamsPreview,
   shapeVertexPoints,
   sidesFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
@@ -235,7 +237,8 @@ function PolygonShapeHandlesOverlay({
   stageEl: HTMLElement | null;
   interactive?: boolean;
 }) {
-  const { t } = useTranslation();  const camera = useRcbCamera();
+  const { t } = useTranslation();
+  const camera = useRcbCamera();
   const z = Math.max(0.05, camera.zoom || 1);
   const k = 1 / z;
 
@@ -340,6 +343,7 @@ function PolygonShapeHandlesOverlay({
         const next = clampShapeSides(d.startSides + delta, d.startSides);
         setDragValue(next);
         setLiveSides(next);
+        patchLiveShapeParamsPreview(nodeId, { sides: next });
         previewRadii(baseR, next);
         return;
       }
@@ -360,28 +364,34 @@ function PolygonShapeHandlesOverlay({
       const d = dragRef.current;
       if (!d) return;
       const soft = !d.moved;
+      if (soft) {
+        dragRef.current = null;
+        setActiveKey(null);
+        setDragValue(null);
+        setLiveSides(null);
+        setLiveCornerRadiusPreview(null);
+        setLiveShapeParamsPreview(null);
+        previewRadii(baseR, baseSides);
+        return;
+      }
+
+      // Commit before clearing live preview so idle ink is not left on stale radii.
+      if (d.mode === 'sides') {
+        const delta = Math.round((d.startY - e.clientY) / SIDES_DRAG_STEP_PX);
+        const next = clampShapeSides(d.startSides + delta, d.startSides);
+        commitSides({ nodeId, sides: next });
+      } else {
+        const sc = toScene(e.clientX, e.clientY);
+        const local = scenePointToLocal(sc.x, sc.y, box, angle);
+        const rounded = Math.round(radiusAlongSite(d.site, local));
+        commitUniformRadius({ nodeId, node, radius: rounded });
+      }
       dragRef.current = null;
       setActiveKey(null);
       setDragValue(null);
       setLiveSides(null);
       setLiveCornerRadiusPreview(null);
-
-      if (soft) {
-        previewRadii(baseR, baseSides);
-        return;
-      }
-
-      if (d.mode === 'sides') {
-        const delta = Math.round((d.startY - e.clientY) / SIDES_DRAG_STEP_PX);
-        const next = clampShapeSides(d.startSides + delta, d.startSides);
-        commitSides({ nodeId, sides: next });
-        return;
-      }
-
-      const sc = toScene(e.clientX, e.clientY);
-      const local = scenePointToLocal(sc.x, sc.y, box, angle);
-      const rounded = Math.round(radiusAlongSite(d.site, local));
-      commitUniformRadius({ nodeId, node, radius: rounded });
+      setLiveShapeParamsPreview(null);
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -391,6 +401,7 @@ function PolygonShapeHandlesOverlay({
       setDragValue(null);
       setLiveSides(null);
       setLiveCornerRadiusPreview(null);
+      setLiveShapeParamsPreview(null);
       previewRadii(baseR, baseSides);
     };
 
@@ -404,6 +415,7 @@ function PolygonShapeHandlesOverlay({
       window.removeEventListener('pointercancel', onUp);
       window.removeEventListener('keydown', onKey);
       setLiveCornerRadiusPreview(null);
+      setLiveShapeParamsPreview(null);
     };
   }, [
     interactive, nodeId,

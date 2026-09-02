@@ -208,6 +208,128 @@ export function starInnerRatioFromAttrs(
   );
 }
 
+/**
+ * Live polygon / star / ellipse params while knob-dragging (DOM + SoA preview).
+ * Document store stays idle mid-drag; toolbars and canvas ink subscribe here.
+ */
+export type LiveShapeParamsPreview = {
+  nodeId: string;
+  sides?: number;
+  starInnerRatio?: number;
+  ellipseInnerRatio?: number;
+  ellipseArcPercent?: number;
+};
+
+let liveShapeParamsPreview: LiveShapeParamsPreview | null = null;
+const liveShapeParamsListeners = new Set<() => void>();
+
+function liveShapeParamsFor(nodeId: string): LiveShapeParamsPreview | null {
+  if (!nodeId || liveShapeParamsPreview?.nodeId !== nodeId) return null;
+  return liveShapeParamsPreview;
+}
+
+export function setLiveShapeParamsPreview(next: LiveShapeParamsPreview | null) {
+  if (next == null) {
+    if (liveShapeParamsPreview == null) return;
+    liveShapeParamsPreview = null;
+    liveShapeParamsListeners.forEach((l) => l());
+    return;
+  }
+  const prev = liveShapeParamsPreview;
+  if (
+    prev?.nodeId === next.nodeId &&
+    prev?.sides === next.sides &&
+    prev?.starInnerRatio === next.starInnerRatio &&
+    prev?.ellipseInnerRatio === next.ellipseInnerRatio &&
+    prev?.ellipseArcPercent === next.ellipseArcPercent
+  ) {
+    return;
+  }
+  liveShapeParamsPreview = next;
+  liveShapeParamsListeners.forEach((l) => l());
+}
+
+export function patchLiveShapeParamsPreview(
+  nodeId: string,
+  patch: Partial<Omit<LiveShapeParamsPreview, 'nodeId'>>
+) {
+  if (!nodeId) return;
+  const prev =
+    liveShapeParamsPreview?.nodeId === nodeId
+      ? liveShapeParamsPreview
+      : { nodeId };
+  setLiveShapeParamsPreview({ ...prev, nodeId, ...patch });
+}
+
+export function hasLiveShapeParamsPreview(): boolean {
+  return liveShapeParamsPreview != null;
+}
+
+export function getLiveShapeParamsPreviewNodeId(): string | null {
+  return liveShapeParamsPreview?.nodeId ?? null;
+}
+
+export function getLiveShapeParamsPreview(nodeId: string): LiveShapeParamsPreview | null {
+  return liveShapeParamsFor(nodeId);
+}
+
+export function subscribeLiveShapeParamsPreview(onStoreChange: () => void): () => void {
+  liveShapeParamsListeners.add(onStoreChange);
+  return () => {
+    liveShapeParamsListeners.delete(onStoreChange);
+  };
+}
+
+export function mergeLiveShapeParamsIntoAttrs(
+  nodeId: string,
+  attrs: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const live = liveShapeParamsFor(nodeId);
+  if (!live) return attrs ? { ...attrs } : {};
+  const merged = { ...(attrs || {}) };
+  if (live.sides != null) merged.sides = live.sides;
+  if (live.starInnerRatio != null) merged.starInnerRatio = live.starInnerRatio;
+  if (live.ellipseInnerRatio != null) merged.ellipseInnerRatio = live.ellipseInnerRatio;
+  if (live.ellipseArcPercent != null) merged.ellipseArcPercent = live.ellipseArcPercent;
+  return merged;
+}
+
+export function effectiveSidesFromAttrs(
+  nodeId: string,
+  attrs: Record<string, unknown> | null | undefined
+): number {
+  const live = liveShapeParamsFor(nodeId);
+  if (live?.sides != null) return clampShapeSides(live.sides);
+  return sidesFromAttrs(attrs);
+}
+
+export function effectiveStarInnerRatioFromAttrs(
+  nodeId: string,
+  attrs: Record<string, unknown> | null | undefined
+): number {
+  const live = liveShapeParamsFor(nodeId);
+  if (live?.starInnerRatio != null) return clampStarInnerRatio(live.starInnerRatio);
+  return starInnerRatioFromAttrs(attrs);
+}
+
+export function effectiveEllipseInnerRatioFromAttrs(
+  nodeId: string,
+  attrs: Record<string, unknown> | null | undefined
+): number {
+  const live = liveShapeParamsFor(nodeId);
+  if (live?.ellipseInnerRatio != null) return clampEllipseInnerRatio(live.ellipseInnerRatio);
+  return ellipseInnerRatioFromAttrs(attrs);
+}
+
+export function effectiveEllipseArcPercentFromAttrs(
+  nodeId: string,
+  attrs: Record<string, unknown> | null | undefined
+): number {
+  const live = liveShapeParamsFor(nodeId);
+  if (live?.ellipseArcPercent != null) return clampEllipseArcPercent(live.ellipseArcPercent);
+  return ellipseArcPercentFromAttrs(attrs);
+}
+
 export function starPoints(
   cx: number,
   cy: number,

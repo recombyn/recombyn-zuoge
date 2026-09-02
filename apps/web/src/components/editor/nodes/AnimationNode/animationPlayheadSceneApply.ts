@@ -343,6 +343,7 @@ export function collectPrecompSessionDocumentPatches(opts: {
   const frameId = resolveAnimationFrameId(opts.document, host);
   const frames = Array.isArray(opts.document.frames) ? opts.document.frames : [];
   const frame = frameId ? frames.find((f) => String(f?.id) === frameId) : null;
+  // World plate: poses are scene paint, then poseToStoredXY maps to frameLocal.
   const plate = {
     left: Number(frame?.x ?? host.x) || 0,
     top: Number(frame?.y ?? host.y) || 0,

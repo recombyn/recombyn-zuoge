@@ -114,6 +114,77 @@ describe('animation workbench plate drag cost', () => {
     patchSpy.mockRestore();
   });
 
+  it('animationFrameHost plate drag does not publish videoLiveGeom', () => {
+    let doc = workbenchDoc(8);
+    doc = addNodeToDocument(doc, 'host', {
+      id: 'host',
+      key: 'lottie',
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+      attrs: {
+        frameId: 'wb',
+        animationFrameHost: true,
+        frameOrder: -1,
+      },
+      children: [],
+    });
+    doc = normalizeDocument(doc);
+    let localDoc: SceneDocument = doc;
+    const publishSpy = vi.fn();
+    const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: (doc.deltaSetLike?.ROOT?.children as string[]) || [],
+    });
+    const board = {
+      root: null as SVGSVGElement | null,
+      nodeEls: new Map<string, SVGElement>([
+        ['host', document.createElementNS('http://www.w3.org/2000/svg', 'g')],
+      ]),
+    };
+    const session = createCanvasSession({
+      getDocument: () => localDoc,
+      getCommittedDocument: () => doc,
+      setDocumentLocal: (next) => {
+        localDoc = next;
+      },
+      getBoard: () => board,
+      getZoom: () => 1,
+      isReadOnly: () => false,
+      spatial,
+      setEditingTextId: () => undefined,
+      measureViewport: () => null,
+      getDragWriteCoalescer: () => ({
+        getPendingVideoGeom: () => null,
+        queueVideoGeom: () => undefined,
+        cancel: () => undefined,
+      }),
+      previewFrameGeometry: (frames) => {
+        frames.forEach((f) => previewArtboardFrameGeometry(f));
+      },
+      clearFrameGeometryPreview: () => clearLiveArtboardFrameGeometry(),
+      publishVideoLiveGeom: publishSpy,
+      clearVideoLiveGeom: () => undefined,
+    });
+
+    for (let step = 0; step < 20; step += 1) {
+      session.onGeometryPreview([
+        {
+          nodeId: frameSelId('wb'),
+          left: 120 + step * 2,
+          top: 110 + step,
+          width: 800,
+          height: 600,
+        },
+      ]);
+    }
+    expect(publishSpy).not.toHaveBeenCalled();
+    // Host FO transform should stay untouched (skip re-seat for animationFrameHost).
+    expect(board.nodeEls.get('host')?.getAttribute('transform')).toBeNull();
+  });
+
   it('live artboard notify stays O(moves) not O(children×moves)', () => {
     const spy = vi.fn();
     const unsub = subscribeLiveArtboardFrameGeometry(spy);

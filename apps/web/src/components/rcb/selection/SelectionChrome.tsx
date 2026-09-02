@@ -515,9 +515,9 @@ export function WorldSvgFrame({
 
   return createPortal(
     <g
-      key={localChrome ? hostEpoch : undefined}
       data-rcb-scene-svg-frame={nodeId || 'scene'}
       data-rcb-chrome-class={zClass}
+      data-rcb-chrome-host-epoch={hostEpoch}
       style={{ pointerEvents }}
       aria-hidden
     >

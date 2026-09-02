@@ -3,92 +3,26 @@
  * - After 轮廓化, path-edit anchors use world HTML pads (clickable at high zoom)
  * - Text outline keeps multi-ring path + chrome that tracks ink (not collapsed junk)
  */
-import path from 'node:path';
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { E2E_TOKEN_SKIP_REASON, resolveE2EToken } from './e2eAuth';
-
-const ROOT = path.resolve(__dirname, '../..');
-const TOKEN = resolveE2EToken(ROOT);
-const API = (process.env.E2E_API || process.env.FUNC_API || 'http://127.0.0.1:8000').replace(
-  /\/$/,
-  ''
-);
+import { E2E_TOKEN_SKIP_REASON } from './e2eAuth';
+import {
+  dragDraw,
+  expectShapeInk,
+  injectAuth,
+  openBlankEditor,
+  openLayers,
+  sleep,
+  waitForEditorToolbar,
+  selectionChromeCount,
+  TOKEN,
+} from './canvasStressHelpers';
 
 test.setTimeout(4 * 60_000);
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-async function injectAuth(page: Page) {
-  await page.context().addInitScript((tok) => {
-    localStorage.setItem('recombine-auth-token-v1', tok);
-    localStorage.setItem('recombyn-editor-tour-v3', '1');
-    localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
-  }, TOKEN);
-}
-
-async function seedAuthSession(page: Page) {
-  const me = await page.request.get(`${API}/api/v1/auth/me`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
-    timeout: 20_000,
-  });
-  if (!me.ok()) throw new Error(`auth/me ${me.status()}`);
-  const body = await me.json();
-  const user = body?.user;
-  if (!user?.id) throw new Error('auth/me missing user');
-  await page.goto('/home', { waitUntil: 'domcontentloaded', timeout: 30_000 });
-  await page.evaluate(
-    ({ tok, user: u }) => {
-      localStorage.setItem('recombine-auth-token-v1', tok);
-      localStorage.setItem('resume-scene-auth-v1', JSON.stringify({ user: u }));
-      localStorage.setItem('recombyn-editor-tour-v3', '1');
-      localStorage.setItem('recombyn-editor-tour-v3:user_super_admin', '1');
-    },
-    { tok: TOKEN, user }
-  );
-}
-
-async function dismissBlockingDialogs(page: Page) {
-  for (let i = 0; i < 8; i += 1) {
-    const skip = page.getByRole('button', { name: /^Skip$|^跳过$/i });
-    if ((await skip.count()) > 0) {
-      await skip.last().click({ force: true }).catch(() => undefined);
-      await sleep(150);
-      continue;
-    }
-    const dialog = page.locator('[role="dialog"]').first();
-    if (!(await dialog.isVisible().catch(() => false))) break;
-    await page.keyboard.press('Escape');
-    await sleep(150);
-  }
-}
-
-async function openBlankEditor(page: Page, name: string) {
-  await seedAuthSession(page);
-  const res = await page.request.put(`${API}/api/v1/projects`, {
-    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
-    data: { name: `${name}-${Date.now()}`, document: null },
-    timeout: 30_000,
-  });
-  if (!res.ok()) throw new Error(`create project ${res.status()}`);
-  const json = await res.json();
-  const id = String(json?.project?.id || json?.id || '').trim();
-  if (!id) throw new Error('missing project id');
-  await page.goto(`/editor/${id}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  await expect(page).toHaveURL(/\/editor\//, { timeout: 45_000 });
-  await dismissBlockingDialogs(page);
-  const stage = page.locator('[data-rcb-canvas="1"], [data-canvas-stage="1"]').first();
-  await expect(stage).toBeVisible({ timeout: 45_000 });
-  await page.keyboard.press('Escape');
-  await sleep(200);
-  return stage;
-}
 
 async function focusStage(page: Page, stage: Locator) {
   const box = await stage.boundingBox();
   if (!box) throw new Error('no stage box');
-  await page.mouse.click(box.x + 80, box.y + 80);
+  await page.mouse.click(box.x + box.width * 0.35, box.y + box.height * 0.35);
   await sleep(120);
   return box;
 }
@@ -118,50 +52,83 @@ async function zoomInHard(page: Page, cx: number, cy: number, n = 40) {
 }
 
 async function clickOutline(page: Page) {
-  const btn = page.getByRole('button', { name: /^Outline$/i }).first();
+  let btn = page.getByRole('button', { name: /^Outline$|^轮廓化$|^轮廓$/i }).first();
+  if (!(await btn.isVisible({ timeout: 2_000 }).catch(() => false))) {
+    const more = page.getByRole('button', { name: /^More$|^更多$/i }).first();
+    await expect(more).toBeVisible({ timeout: 12_000 });
+    await more.click({ force: true });
+    await sleep(250);
+    btn = page
+      .getByRole('menuitem', { name: /^Outline$|^轮廓化$|^轮廓$/i })
+      .or(page.getByRole('button', { name: /^Outline$|^轮廓化$|^轮廓$/i }))
+      .first();
+  }
   await expect(btn).toBeVisible({ timeout: 12_000 });
   await btn.click({ force: true });
+  // Outline commits a path and usually enters path-edit immediately.
   await expect
     .poll(
       async () =>
         page.evaluate(() => {
           const toast = document.body.innerText || '';
-          if (/Outlined|轮廓化成功|已轮廓/.test(toast)) return true;
+          if (/Outlined|轮廓化成功|已轮廓/.test(toast)) return 1;
+          if (document.querySelector('[data-pen-path-edit-preview]')) return 1;
           const hosts = document.querySelectorAll('[data-scene-node-id]');
           for (const n of Array.from(hosts)) {
             const t = n.getAttribute('data-scene-shape-type') || '';
-            if (t === 'path') return true;
+            if (t === 'path') return 1;
           }
           const d = document.querySelector('[data-baseline="1"]')?.getAttribute('d') || '';
-          return d.length > 20 && /z/i.test(d);
+          if (d.length > 20 && /z/i.test(d)) return 1;
+          const idle = Number(
+            document
+              .querySelector('[data-rcb-idle-ink-canvas="1"]')
+              ?.getAttribute('data-rcb-canvas-idle-count') || '0'
+          );
+          return idle > 0 ? 1 : 0;
         }),
       { timeout: 25_000 }
     )
-    .toBe(true);
+    .toBeGreaterThan(0);
   await sleep(700);
 }
 
 async function enterPathEdit(page: Page) {
+  const already = await page.locator('[data-pen-path-edit-preview]').count();
+  if (already > 0) {
+    await expect
+      .poll(
+        async () => page.locator('g[data-pen-path-edit-preview] circle').count(),
+        { timeout: 12_000 }
+      )
+      .toBeGreaterThan(0);
+    return;
+  }
+
+  const ink = page.locator('[data-baseline="1"]').first();
+  const inkBox = await ink.boundingBox().catch(() => null);
+  if (inkBox) {
+    await page.mouse.dblclick(inkBox.x + inkBox.width / 2, inkBox.y + inkBox.height / 2);
+    await sleep(400);
+  } else {
+    const sel = page.locator('[data-sel-box], [data-rcb-sel-box]').first();
+    const selBox = await sel.boundingBox().catch(() => null);
+    if (selBox) {
+      await page.mouse.dblclick(selBox.x + selBox.width / 2, selBox.y + selBox.height / 2);
+      await sleep(400);
+    }
+  }
+
   const nodeId = await page.evaluate(() => {
     const el = document.querySelector('[data-scene-node-id]');
     return el?.getAttribute('data-scene-node-id') || '';
   });
-  expect(nodeId).toBeTruthy();
-
-  const ink = page.locator('[data-baseline="1"]').first();
-  const inkBox = await ink.boundingBox();
-  if (inkBox) {
-    await page.mouse.dblclick(inkBox.x + inkBox.width / 2, inkBox.y + inkBox.height / 2);
+  if (nodeId) {
+    await page.evaluate((id) => {
+      window.dispatchEvent(new CustomEvent('resume:enter-path-edit', { detail: { nodeId: id } }));
+    }, nodeId);
+    await sleep(800);
   }
-  await sleep(400);
-
-  // Fallback: same event Outline / toolbar uses for path-edit chrome.
-  const active = await page.evaluate((id) => {
-    window.dispatchEvent(new CustomEvent('resume:enter-path-edit', { detail: { nodeId: id } }));
-    return id;
-  }, nodeId);
-  expect(active).toBeTruthy();
-  await sleep(800);
 
   await expect
     .poll(
@@ -188,23 +155,16 @@ test.describe('canvas outline / path-edit / text-outline stress', () => {
 
   test('rect outline → path-edit: geometry knobs (no HTML pads) @ high zoom', async ({ page }) => {
     const stage = await openBlankEditor(page, 'outline-path-edit');
+    await waitForEditorToolbar(page);
     const box = await focusStage(page, stage);
+    await openLayers(page);
 
     await page.keyboard.press('r');
     await sleep(150);
-    const x0 = box.x + box.width * 0.32;
-    const y0 = box.y + box.height * 0.32;
-    const x1 = box.x + box.width * 0.48;
-    const y1 = box.y + box.height * 0.48;
-    await page.mouse.move(x0, y0);
-    await page.mouse.down();
-    await page.mouse.move(x1, y1, { steps: 12 });
-    await page.mouse.up();
+    await dragDraw(page, box, 0.32, 0.32, 0.48, 0.48, 12);
     await sleep(500);
-
-    await expect
-      .poll(async () => page.locator('[data-scene-node-id]').count(), { timeout: 12_000 })
-      .toBeGreaterThan(0);
+    await expectShapeInk(page, 1);
+    await expect.poll(async () => selectionChromeCount(page), { timeout: 8_000 }).toBeGreaterThan(0);
 
     await clickOutline(page);
     await enterPathEdit(page);

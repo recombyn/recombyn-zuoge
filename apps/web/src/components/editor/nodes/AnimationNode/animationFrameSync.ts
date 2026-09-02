@@ -13,8 +13,27 @@ import {
   serializeLottieAnimationData,
 } from '@/components/rcb/scene/document/nodeFactories';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
+import { isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
 
 const LINK_KEY = 'ln'; // custom: scene node id on a synced layer
+
+/** Plate box for scene↔Lottie mapping (0,0 under frameLocal — child x/y are already local). */
+function artboardSyncPlate(
+  document: SceneDocument,
+  frame: { x?: unknown; y?: unknown; width?: unknown; height?: unknown }
+): { left: number; top: number; width: number; height: number } {
+  const width = Math.max(1, Number(frame.width) || 1);
+  const height = Math.max(1, Number(frame.height) || 1);
+  if (isFrameLocalCoordSpace(document)) {
+    return { left: 0, top: 0, width, height };
+  }
+  return {
+    left: Number(frame.x) || 0,
+    top: Number(frame.y) || 0,
+    width,
+    height,
+  };
+}
 
 /**
  * True when host animation still has layers not linked to scene children.
@@ -534,12 +553,7 @@ export function syncArtboardChildrenIntoAnimation(
   const host = document.deltaSetLike?.[hostId];
   if (!frame || !host || host.key !== 'lottie') return null;
 
-  const plate = {
-    left: Number(frame.x) || 0,
-    top: Number(frame.y) || 0,
-    width: Math.max(1, Number(frame.width) || 1),
-    height: Math.max(1, Number(frame.height) || 1),
-  };
+  const plate = artboardSyncPlate(document, frame);
 
   const existing = parseLottieAnimationData(host.attrs?.animationData);
   const fps = Math.max(1, Math.round(Number(frame.fps) || Number(existing?.fr) || 30));
@@ -596,10 +610,18 @@ export function syncArtboardChildrenIntoAnimation(
   const prevLayers = Array.isArray(anim.layers) ? (anim.layers as Record<string, unknown>[]) : [];
   const prevByNode = new Map<string, Record<string, unknown>>();
   const keepUnlinked: Record<string, unknown>[] = [];
+  const unlinkedByInd = new Map<number, Record<string, unknown>>();
   for (const layer of prevLayers) {
     const ln = String(layer?.[LINK_KEY] || '').trim();
-    if (ln) prevByNode.set(ln, layer);
-    else keepUnlinked.push(layer);
+    if (ln) {
+      prevByNode.set(ln, layer);
+      continue;
+    }
+    // Layers that lost `ln` (lottie-web / idle rewrite) still carry `ind` —
+    // reclaim them below so move/ensure does not keepUnlinked + re-bake duplicates.
+    const ind = Number(layer?.ind);
+    if (Number.isFinite(ind) && ind > 0) unlinkedByInd.set(ind, layer);
+    keepUnlinked.push(layer);
   }
 
   const prevAssets = Array.isArray(anim.assets) ? [...(anim.assets as unknown[])] : [];
@@ -642,7 +664,19 @@ export function syncArtboardChildrenIntoAnimation(
     const cornerRadius = nodeCornerRadius(node);
     const anchor = parseAnchorPreset(node.attrs?.anchorPreset);
     const { fx, fy } = anchorPresetToFrac(anchor);
-    const prev = prevByNode.get(nodeId);
+    let prev = prevByNode.get(nodeId) || null;
+    if (!prev) {
+      const indAttr = Number(node.attrs?.lottieLayerInd);
+      if (Number.isFinite(indAttr) && indAttr > 0) {
+        const orphan = unlinkedByInd.get(indAttr);
+        if (orphan) {
+          prev = orphan;
+          unlinkedByInd.delete(indAttr);
+          const idx = keepUnlinked.indexOf(orphan);
+          if (idx >= 0) keepUnlinked.splice(idx, 1);
+        }
+      }
+    }
     let ind = Number(prev?.ind);
     if (!Number.isFinite(ind) || ind <= 0) {
       ind = nextLayerIndex([...keepUnlinked, ...nextLayers, ...Array.from(prevByNode.values())]);
@@ -933,12 +967,7 @@ export function syncPrecompSessionShapesIntoHost(opts: {
   const frame = frames.find((f) => String(f?.id) === frameId);
   if (!frame) return opts.document;
 
-  const plate = {
-    left: Number(frame.x) || 0,
-    top: Number(frame.y) || 0,
-    width: Math.max(1, Number(frame.width) || 1),
-    height: Math.max(1, Number(frame.height) || 1),
-  };
+  const plate = artboardSyncPlate(opts.document, frame);
 
   const root = parseLottieAnimationData(host.attrs?.animationData);
   if (!root || !Array.isArray(root.assets)) return opts.document;

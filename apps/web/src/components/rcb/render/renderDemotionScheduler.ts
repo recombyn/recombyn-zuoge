@@ -211,15 +211,20 @@ export function createRenderDemotionScheduler(opts: {
     notifyHints();
   }
 
-  function pulseActiveKey(key: string): void {
+  function pulseActiveKey(key: string): boolean {
     if (forceHosts.has(key)) {
       dropCandidate(key);
-      hints.set(key, 'ACTIVE_SVG');
-      return;
+      if (hints.get(key) !== 'ACTIVE_SVG') {
+        hints.set(key, 'ACTIVE_SVG');
+        return true;
+      }
+      return false;
     }
-    if (hints.get(key) !== 'CANDIDATE') return;
+    if (hints.get(key) !== 'CANDIDATE') return false;
     lastActive.set(key, nowFn());
     ensureWake();
+    // Still CANDIDATE — heldHostIds membership unchanged; skip React notify.
+    return false;
   }
 
   function diffForceHosts(next: Set<string>): { added: string[]; removed: string[] } {
@@ -258,16 +263,16 @@ export function createRenderDemotionScheduler(opts: {
     noteElementActive(id: string): void {
       const key = normalizeId(id);
       if (!key) return;
-      pulseActiveKey(key);
-      notifyHints();
+      if (pulseActiveKey(key)) notifyHints();
     },
 
     noteElementsActive(ids: readonly string[]): void {
+      let changed = false;
       for (const raw of ids) {
         const key = normalizeId(raw);
-        if (key) pulseActiveKey(key);
+        if (key && pulseActiveKey(key)) changed = true;
       }
-      notifyHints();
+      if (changed) notifyHints();
     },
 
     promoteNow(ids: readonly string[]): void {

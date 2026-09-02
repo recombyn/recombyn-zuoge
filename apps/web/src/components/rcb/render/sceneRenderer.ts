@@ -1,6 +1,6 @@
 /**
  * SceneRenderer — paint/hit backend (ADR 0027).
- * SoA/canvas owns vector ink; DOM hosts cover text/media/editors.
+ * SoA/canvas owns vector + idle text/media ink; DOM hosts for FO media / SoftGlow / editors.
  */
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import type { RcbBox, RcbCamera, RcbVec } from '@/components/rcb/core/types';
@@ -10,7 +10,12 @@ import {
 import { rcbCameraCssZoom, rcbCameraScreenOffset, rcbViewportSceneBounds } from '@/components/rcb/core/math';
 import { getShapeBaseline } from '@/components/rcb/core/geometry';
 import { effectivePaintBox, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
-import { hasLiveCornerRadiusPreview } from '@/components/rcb/scene/document/sceneRadii';
+import {
+  clampCornerRadii,
+  hasLiveCornerRadiusPreview,
+  mergeLiveCornerRadiiIntoAttrs,
+  radiiFromAttrs,
+} from '@/components/rcb/scene/document/sceneRadii';
 import { getShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
 import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
@@ -20,15 +25,17 @@ import {
   type SceneHitBox,
 } from '@/components/rcb/scene/document/sceneHitBridge';
 import {
+  effectiveEllipseArcPercentFromAttrs,
+  effectiveEllipseInnerRatioFromAttrs,
+  effectiveSidesFromAttrs,
+  effectiveStarInnerRatioFromAttrs,
   ellipseArcEndAngles,
-  ellipseArcPercentFromAttrs,
-  ellipseInnerRatioFromAttrs,
   ellipseStartDegFromAttrs,
+  hasLiveShapeParamsPreview,
   HEAVY_PATH_D_CHARS,
+  mergeLiveShapeParamsIntoAttrs,
   sceneHitSlop,
   shapeVertexPoints,
-  sidesFromAttrs,
-  starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
   resolveFillColor,
@@ -47,11 +54,16 @@ import {
   type InnerShadowSpec,
 } from '@/components/rcb/scene/document/sceneEffects';
 import { resolveTextFramePlateFill } from '@/components/rcb/scene/document/nodeFactories';
-import { buildNodeStackZMap } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  buildNodeStackZMap,
+  maxDocumentStackZ,
+} from '@/components/rcb/scene/document/sceneDocument';
 import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
   hasFrameClipRevealOverflow,
+  hasSelectionPaintRaise,
+  selectionPaintRaises,
 } from '@/components/rcb/frames/frameContentClip';
 import { hasLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
@@ -83,10 +95,6 @@ import {
   normalizeMeshPoints,
 } from '@/components/rcb/scene/document/sceneDiffuseMesh';
 import {
-  clampCornerRadii,
-  radiiFromAttrs,
-} from '@/components/rcb/scene/document/sceneRadii';
-import {
   parseNodeText,
   parseNodeTextStyle,
   wrapPlainTextLines,
@@ -116,6 +124,7 @@ import {
   ensureSoaBake,
   getSharedSoaBake,
   patchSoaBakeDirty,
+  peekSoaGestureDirtyAccum,
   setSharedSoaBake,
   setSoaBakeClipDocument,
   shouldUseSoaBake,
@@ -200,8 +209,12 @@ export function hitTestWithSpatialIndex(
         const zMap = buildNodeStackZMap(doc, order);
         const rank = new Map(order.map((id, i) => [id, i]));
         return order.slice().sort((a, b) => {
-          const zDiff = (zMap.get(b) || 0) - (zMap.get(a) || 0);
-          return zDiff || (rank.get(b) || 0) - (rank.get(a) || 0);
+          // Hit uses permanent stackOrder only. Selection paint raise (max+1) is
+          // paint-only — otherwise a raised empty/back node steals clicks from
+          // visible strokes (pen / line / pencil) drawn above it.
+          const za = zMap.get(a) || 0;
+          const zb = zMap.get(b) || 0;
+          return zb - za || (rank.get(b) || 0) - (rank.get(a) || 0);
         });
       })()
     : order;
@@ -246,6 +259,15 @@ export function isFullDirty(dirty: DirtyRegion): boolean {
   return dirty.kind === 'full';
 }
 
+/**
+ * Empty node dirty = "nothing to clear / nothing to paint".
+ * Must not fall through to a full clearRect — that wiped idle ink after draw/paste
+ * whenever a second bump arrived with dirty flags already cleared.
+ */
+export function isNoopSoaDirtyRegion(dirty: DirtyRegion): boolean {
+  return dirty.kind === 'nodes' && dirty.ids.length === 0;
+}
+
 export function dirtyTouchesNode(dirty: DirtyRegion, nodeId: string): boolean {
   if (dirty.kind === 'full') return true;
   if (dirty.kind === 'nodes') return dirty.ids.includes(nodeId);
@@ -273,28 +295,38 @@ export function sceneBoxToScreenRect(
 }
 
 /**
- * Prefer SoA dirty AABB for idle/promote repaints; fall back to full when the
- * camera/stage changed or no dirty slots are pending.
+ * Prefer SoA dirty AABB for idle/promote / TransformPreview repaints.
+ * Full clear only when callers pass `full`, or for live corner/params / plate
+ * geometry (frameLocal children need a full erase — see RcbCanvas).
+ *
+ * Selection reveal must NOT force full here: any selected ink sets reveal, and
+ * that would turn every paste/drag paint into a full wipe (freeze on multi-dupe).
+ * Reveal *changes* call `requestIdleCanvasFullRepaint` in RcbShapesLayer instead.
  */
 export function resolveSoaCanvasDirtyRegion(opts: {
   full: boolean;
   buf?: Parameters<typeof unionSoaDirtyAabb>[0] | null;
 }): DirtyRegion {
-  // Selection reveal must full-clear: a leftover dirty AABB clips ctx and can
-  // erase / omit overflow past clipContent (selected fill looks missing).
   if (
     opts.full ||
-    hasNodeTransformPreviews() ||
+    hasLiveArtboardFrameGeometry() ||
     hasLiveCornerRadiusPreview() ||
-    hasFrameClipRevealOverflow()
+    hasLiveShapeParamsPreview()
   ) {
     return { kind: 'full' };
   }
   const buf = opts.buf;
   if (!buf || buf.count <= 0) return { kind: 'full' };
-  const aabb = unionSoaDirtyAabb(buf);
-  if (!aabb) return { kind: 'full' };
-  const pad = 4;
+  const slotAabb = unionSoaDirtyAabb(buf);
+  const accum = peekSoaGestureDirtyAccum();
+  const aabb = mergeDirtyWorldAabb(slotAabb, accum);
+  // No dirty slots (e.g. second blank-click after first paint cleared flags):
+  // do NOT fall through to full — that re-wiped the whole idle canvas on every
+  // duplicate select and felt like a freeze after long paste sessions.
+  if (!aabb) return { kind: 'nodes', ids: [] };
+  // Pad covers center-stroke outset + Canvas AA. clearRect + clip must use the
+  // same box — a larger clear than clip leaves a transparent ring (漏出背景).
+  const pad = 16;
   return {
     kind: 'aabb',
     box: {
@@ -303,6 +335,24 @@ export function resolveSoaCanvasDirtyRegion(opts: {
       width: aabb.width + pad * 2,
       height: aabb.height + pad * 2,
     },
+  };
+}
+
+function mergeDirtyWorldAabb(
+  slot: { left: number; top: number; width: number; height: number } | null,
+  accum: { left: number; top: number; width: number; height: number } | null
+): { left: number; top: number; width: number; height: number } | null {
+  if (!slot) return accum;
+  if (!accum) return slot;
+  const left = Math.min(slot.left, accum.left);
+  const top = Math.min(slot.top, accum.top);
+  const right = Math.max(slot.left + slot.width, accum.left + accum.width);
+  const bottom = Math.max(slot.top + slot.height, accum.top + accum.height);
+  return {
+    left,
+    top,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
   };
 }
 
@@ -388,11 +438,13 @@ function sortIdsByDocumentZ(
 ): string[] {
   if (!doc || ids.length < 2) return ids.slice();
   const zMap = buildNodeStackZMap(doc, ids);
+  const raisedZ = maxDocumentStackZ(doc) + 1;
   const rank = new Map(ids.map((id, i) => [id, i]));
   return ids.slice().sort((a, b) => {
-    return (
-      (zMap.get(a) || 0) - (zMap.get(b) || 0) || (rank.get(a) || 0) - (rank.get(b) || 0)
-    );
+    // Selection temporary raise → current canvas max + 1 (single-select only).
+    const za = selectionPaintRaises(a) ? raisedZ : zMap.get(a) || 0;
+    const zb = selectionPaintRaises(b) ? raisedZ : zMap.get(b) || 0;
+    return za - zb || (zMap.get(a) || 0) - (zMap.get(b) || 0) || (rank.get(a) || 0) - (rank.get(b) || 0);
   });
 }
 
@@ -462,7 +514,21 @@ function paintZOrderedCanvasInk(opts: {
     if (soaBuf && si != null && soaSlotIsBasicInk(soaBuf, si)) {
       if (aabbDirty) {
         const { x, y, w, h } = resolveSoaPaintBox(soaBuf, si, doc);
-        if (paintBoxMissesAabb({ left: x, top: y, width: w, height: h }, aabbDirty)) {
+        // Include outline stroke so neighbors overlapping the cleared AABB by
+        // stroke fringe still repaint (avoids transparent seams / 漏出背景).
+        const sw = Math.max(0, soaBuf.strokeWidths[si] || 0);
+        const outset = sw > 0 ? sw : 0;
+        if (
+          paintBoxMissesAabb(
+            {
+              left: x - outset,
+              top: y - outset,
+              width: w + outset * 2,
+              height: h + outset * 2,
+            },
+            aabbDirty
+          )
+        ) {
           continue;
         }
       }
@@ -560,13 +626,18 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+      // Empty dirty: leave the retained canvas alone (see isNoopSoaDirtyRegion).
+      if (isNoopSoaDirtyRegion(req.dirty)) return;
+
       const z = rcbCameraCssZoom(req.camera);
       const pan = rcbCameraScreenOffset(req.camera, dpr);
       const aabbDirty = req.dirty.kind === 'aabb' ? req.dirty.box : null;
       const usePartialClear = Boolean(aabbDirty) && !isFullDirty(req.dirty);
 
       if (usePartialClear && aabbDirty) {
-        const scr = sceneBoxToScreenRect(aabbDirty, req.camera, dpr, 4);
+        // padScene=0: aabbDirty already includes stroke/AA pad. Extra screen pad
+        // here used to clear past the clip rect and leave transparent seams.
+        const scr = sceneBoxToScreenRect(aabbDirty, req.camera, dpr, 0);
         ctx.clearRect(scr.x, scr.y, scr.width, scr.height);
       } else {
         ctx.clearRect(0, 0, sw, sh);
@@ -604,8 +675,8 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       setSoaBakeClipDocument(doc);
       setSoaPaintDocument(doc);
 
-      // Bake tiles clip at paint time — skip bake while selection reveals overflow
-      // so live SoA ink can paint past clipContent without a stale clipped blit.
+      // Bake tiles lock z-order — skip while selection raise / reveal so live
+      // SoA ink can re-sort (max+1) without a stale blit covering front siblings.
       const useBake =
         Boolean(soaBuf) &&
         (drawIdle || drawBasic) &&
@@ -614,7 +685,8 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
         !gpuDofSkipsSoaTileBake() &&
         !hasNodeTransformPreviews() &&
         !hasLiveArtboardFrameGeometry() &&
-        !hasFrameClipRevealOverflow();
+        !hasFrameClipRevealOverflow() &&
+        !hasSelectionPaintRaise();
 
       if (useBake && soaBuf) {
         paintSoaBakePath(ctx, soaBuf, doc, view, dirtyOnly);
@@ -825,8 +897,11 @@ function isTransparentCssColor(c: string): boolean {
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   if (isImageProcessRunning(node)) return false;
+  // Frame-bound ink stays on the shared SVG mount with plates so stackOrder
+  // data-z can cover artboards / 动画工作台 / generators. SoA sits under that SVG.
+  if (String(node.attrs?.frameId || '').trim()) return false;
   const key = String(node.key || '');
-  if (key === 'lottie' || key === 'audio' || key === 'group') {
+  if (key === 'lottie' || key === 'group') {
     return false;
   }
 
@@ -837,7 +912,8 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
   }
 
   if (key === 'text') return true;
-  if (key === 'image' || key === 'video') return true;
+  // Idle image / video poster / audio plate — selected media keeps one HTML FO host.
+  if (key === 'image' || key === 'video' || key === 'audio') return true;
 
   const fillType = String(attrs['fill-type'] || 'solid').toLowerCase();
   if (
@@ -1531,7 +1607,13 @@ function paintCanvasShapeInkViaBaseline(
   if (!isEllipse && !isPolyStar) return false;
 
   const baselineShapeType = isEllipse ? 'circle' : shapeType;
-  const useEvenodd = isEllipse && ellipseInnerRatioFromAttrs(node.attrs) > 1e-4;
+  const nodeId = String(node.id || '');
+  const mergedAttrs = mergeLiveCornerRadiiIntoAttrs(
+    nodeId,
+    mergeLiveShapeParamsIntoAttrs(nodeId, node.attrs)
+  );
+  const useEvenodd =
+    isEllipse && effectiveEllipseInnerRatioFromAttrs(nodeId, node.attrs) > 1e-4;
 
   if (typeof Path2D !== 'undefined') {
     const baseline = getShapeBaseline(
@@ -1539,7 +1621,7 @@ function paintCanvasShapeInkViaBaseline(
         key: 'shape',
         width: w,
         height: h,
-        attrs: { ...(node.attrs || {}), shapeType: baselineShapeType },
+        attrs: { ...mergedAttrs, shapeType: baselineShapeType },
       } as SceneNodeInput,
       { width: w, height: h }
     );
@@ -1598,8 +1680,9 @@ function paintEllipseVariantNative(
   const cy = h / 2;
   const rx = Math.max(0.5, w / 2);
   const ry = Math.max(0.5, h / 2);
-  const inner = ellipseInnerRatioFromAttrs(node.attrs);
-  const arcPct = ellipseArcPercentFromAttrs(node.attrs);
+  const nodeId = String(node.id || '');
+  const inner = effectiveEllipseInnerRatioFromAttrs(nodeId, node.attrs);
+  const arcPct = effectiveEllipseArcPercentFromAttrs(nodeId, node.attrs);
   const startDeg = ellipseStartDegFromAttrs(node.attrs);
   const full = Math.abs(arcPct) >= 99.5;
   const hasHole = inner > 1e-4;
@@ -1651,12 +1734,13 @@ function paintPolyStarNative(
   }
 ): boolean {
   const { node, width: w, height: h, shapeType, stroke, strokeWidth } = opts;
+  const nodeId = String(node.id || '');
   const pts = shapeVertexPoints(
     shapeType,
     w,
     h,
-    sidesFromAttrs(node.attrs),
-    starInnerRatioFromAttrs(node.attrs)
+    effectiveSidesFromAttrs(nodeId, node.attrs),
+    effectiveStarInnerRatioFromAttrs(nodeId, node.attrs)
   );
   if (pts.length < 3) return false;
 
@@ -2046,6 +2130,59 @@ export function paintTextProxyLines(
   }
 }
 
+/**
+ * Idle audio plate (gen-empty wash + waveform bars). Interactive transport stays
+ * on the single selected HTML FO — same split as idle video posters.
+ */
+export function paintCanvasAudioInk(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    node: SceneNodeInput;
+    width: number;
+    height: number;
+    opacity?: number;
+  }
+): void {
+  const w = Math.max(1, opts.width);
+  const h = Math.max(1, opts.height);
+  const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
+  const attrs = opts.node.attrs || {};
+  const isGen =
+    attrs.audioGenerator === true || String(attrs.audioGenerator || '') === 'true';
+  const r = clampCornerRadii(
+    isGen ? { tl: 0, tr: 0, br: 0, bl: 0 } : radiiFromAttrs(attrs),
+    w,
+    h
+  );
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  traceRoundedRectLocal(ctx, w, h, r);
+  ctx.fillStyle = '#e9eaee';
+  ctx.fill();
+  if (isGen) {
+    ctx.strokeStyle = '#c5c9d2';
+    ctx.lineWidth = Math.max(0.75, Math.min(1.5, Math.min(w, h) * 0.01));
+    ctx.stroke();
+  }
+  const barN = 7;
+  const padX = Math.max(6, w * 0.12);
+  const padY = Math.max(6, h * 0.22);
+  const railW = Math.max(1, w - padX * 2);
+  const railH = Math.max(1, h - padY * 2);
+  const gap = railW / (barN * 1.6);
+  const barW = Math.max(1.5, gap * 0.55);
+  const midY = padY + railH / 2;
+  ctx.fillStyle = '#9aa3b2';
+  for (let i = 0; i < barN; i += 1) {
+    const t = i / Math.max(1, barN - 1);
+    const amp = 0.35 + 0.55 * Math.abs(Math.sin(t * Math.PI * 1.4 + w * 0.01));
+    const bh = Math.max(2, railH * amp);
+    const x = padX + i * (barW + gap);
+    ctx.fillRect(x, midY - bh / 2, barW, bh);
+  }
+  ctx.restore();
+}
+
 /** Minimal image/video/lottie placeholder (mountain + sun) at local (0,0). */
 export function paintMediaProxyIcon(
   ctx: CanvasRenderingContext2D,
@@ -2238,23 +2375,40 @@ export function paintCanvasIdleNode(
   const strokeOnly = canvasIdleIsStrokeOnly(node);
   const pathD = String(node.attrs?.path || '');
   const key = String(node.key || '');
-  const isMedia = key === 'image' || key === 'video' || key === 'lottie';
+  const isMedia = key === 'image' || key === 'video' || key === 'lottie' || key === 'audio';
 
   const paintAtLocalOrigin = (c: CanvasRenderingContext2D) => {
     if (key === 'text') {
-      if (canIdlePaintOnCanvas(node)) {
-        paintCanvasTextInk(c, { node, width: w, height: h, opacity });
-      } else {
+      const fontPx = Math.max(1, Number(node.attrs?.fontSize) || 14);
+      const screenFont = fontPx * Math.max(0.05, opts.zoom || 1);
+      // Far / dense: greeking bars — full glyphs only when readable on screen.
+      if (screenFont < 7 || !canIdlePaintOnCanvas(node)) {
         c.save();
         c.globalAlpha = opacity;
         paintTextProxyLines(c, { node, width: w, height: h, fill, opacity });
         c.restore();
+      } else {
+        paintCanvasTextInk(c, { node, width: w, height: h, opacity });
       }
       return;
     }
     if (isMedia) {
       if (isImageProcessRunning(node)) {
         paintProcessPlateCanvas(c, w, h, opacity, String(node.id || ''));
+        return;
+      }
+      if (key === 'audio') {
+        const screenH = h * Math.max(0.05, opts.zoom || 1);
+        if (screenH < 18) {
+          // Tiny audio plates: solid wash only (no per-bar path work × thousands).
+          c.save();
+          c.globalAlpha = opacity;
+          c.fillStyle = '#e9eaee';
+          c.fillRect(0, 0, w, h);
+          c.restore();
+          return;
+        }
+        paintCanvasAudioInk(c, { node, width: w, height: h, opacity });
         return;
       }
       if (key === 'image' || key === 'video') {
@@ -2277,11 +2431,20 @@ export function paintCanvasIdleNode(
       shapeType === 'arrow' ||
       key === 'path';
     if (isPathLike) {
+      // Path `d` is in document-local coords. Scale into the live preview box so
+      // resize handles update ink in real time (not only translate).
+      const baseW = Math.max(1, Number(node.width) || w);
+      const baseH = Math.max(1, Number(node.height) || h);
+      const sx = w / baseW;
+      const sy = h / baseH;
+      const needsScale = Math.abs(sx - 1) > 1e-6 || Math.abs(sy - 1) > 1e-6;
+      if (needsScale) c.save();
+      if (needsScale) c.scale(sx, sy);
       if (canIdlePaintOnCanvas(node)) {
         paintCanvasPathInk(c, {
           node,
-          width: w,
-          height: h,
+          width: baseW,
+          height: baseH,
           opacity,
           zoom: opts.zoom,
         });
@@ -2290,13 +2453,14 @@ export function paintCanvasIdleNode(
         c.globalAlpha = opacity;
         paintStrokeCanvasIdle(c, {
           pathD,
-          width: w,
-          height: h,
+          width: baseW,
+          height: baseH,
           stroke: fill,
           lineWidth: canvasIdleStrokeWidth(node, opts.zoom),
         });
         c.restore();
       }
+      if (needsScale) c.restore();
       return;
     }
     if (canIdlePaintOnCanvas(node)) {
@@ -2355,7 +2519,14 @@ export type SceneCanvasIdlePaintSnapshot = {
 let sceneCanvasIdlePaint: SceneCanvasIdlePaintSnapshot | null = null;
 const sceneCanvasIdlePaintListeners = new Set<() => void>();
 let sceneCanvasIdlePaintFp = '';
+/** Prior canvas-ink count — avoid split() of a multi-KB join fingerprint. */
+let sceneCanvasIdlePaintLen = 0;
 
+/**
+ * Membership fingerprint without `canvasIds.join` (that allocated ~N×id
+ * strings on every paste and dominated grow-only wake at 2k+).
+ * Hash is order-sensitive over the cull list; rootLen catches doc grows.
+ */
 function sceneCanvasIdlePaintFingerprint(
   next: SceneCanvasIdlePaintSnapshot | null
 ): string {
@@ -2366,32 +2537,74 @@ function sceneCanvasIdlePaintFingerprint(
     ? doc.deltaSetLike!.ROOT!.children!.length
     : 0;
   const coord = String((doc as { coordSpace?: string } | null)?.coordSpace || '');
-  return `${next.hiddenNodeId || ''}\0${next.canvasIds.join('\0')}\0${coord}\0${framesLen}\0${rootLen}`;
+  let hash = 2166136261 >>> 0;
+  const ids = next.canvasIds;
+  for (let i = 0; i < ids.length; i += 1) {
+    const id = String(ids[i] || '');
+    for (let j = 0; j < id.length; j += 1) {
+      hash ^= id.charCodeAt(j);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    hash ^= 1;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return `${next.hiddenNodeId || ''}\0${ids.length}\0${hash.toString(36)}\0${coord}\0${framesLen}\0${rootLen}`;
 }
 
 export function getSceneCanvasIdlePaint(): SceneCanvasIdlePaintSnapshot | null {
   return sceneCanvasIdlePaint;
 }
 
-export function setSceneCanvasIdlePaint(next: SceneCanvasIdlePaintSnapshot | null): void {
+export function setSceneCanvasIdlePaint(next: SceneCanvasIdlePaintSnapshot | null): boolean {
   const fp = sceneCanvasIdlePaintFingerprint(next);
   // Always replace snapshot (getNodeBox may close over fresher geometry) but
   // only wake listeners when membership / doc identity changes — otherwise
   // every parent re-render during frame drag bumps canvasIdlePaintEpoch and
   // stacks full SoA paints until the tab hangs.
   sceneCanvasIdlePaint = next;
-  if (fp === sceneCanvasIdlePaintFp) return;
+  if (typeof window !== 'undefined' && import.meta.env.DEV) {
+    (window as Window & { __RCB_E2E_SCENE_DOC__?: unknown }).__RCB_E2E_SCENE_DOC__ =
+      next?.document ?? null;
+  }
+  if (fp === sceneCanvasIdlePaintFp) return false;
   sceneCanvasIdlePaintFp = fp;
+  // Shrink / clear (delete, cull): must full-clear stale ink.
+  // Grow-only (paste add): dirty AABB on new slots is enough — full wipe on
+  // every Ctrl+V is what made ~12 rect pastes feel like a freeze.
+  // Empty → first ink: still force full so a deferred bump cannot no-op-skip
+  // before dirty flags land (draw-then-blank regression).
+  const prevLen = sceneCanvasIdlePaintLen;
+  const nextLen = next?.canvasIds.length ?? 0;
+  sceneCanvasIdlePaintLen = nextLen;
+  if (next == null || nextLen < prevLen || (prevLen === 0 && nextLen > 0)) {
+    idleCanvasFullRepaintPending = true;
+  }
   for (const fn of sceneCanvasIdlePaintListeners) {
     fn();
   }
+  return true;
 }
 
 /** Re-paint idle ink without changing the id set (e.g. fill-image decode finished). */
+let idlePaintBumpRaf = 0;
+
 export function bumpSceneCanvasIdlePaint(): void {
-  for (const fn of sceneCanvasIdlePaintListeners) {
-    fn();
+  // Coalesce to rAF — calling setState from a child useLayoutEffect (reveal /
+  // demotion) otherwise nests a full RcbCanvas→SvgCanvas re-render inside layout
+  // and freezes select after long paste sessions (history + 100+ nodes).
+  if (typeof requestAnimationFrame !== 'function') {
+    for (const fn of sceneCanvasIdlePaintListeners) {
+      fn();
+    }
+    return;
   }
+  if (idlePaintBumpRaf) return;
+  idlePaintBumpRaf = requestAnimationFrame(() => {
+    idlePaintBumpRaf = 0;
+    for (const fn of sceneCanvasIdlePaintListeners) {
+      fn();
+    }
+  });
 }
 
 let idleCanvasFullRepaintPending = false;

@@ -292,12 +292,18 @@ export function isBoundOutsideOwningClipPlate(
   );
   if (!frame || frame.hidden) return false;
   if (frame.clipContent === false) return false;
-  const left = Number(node.x) || 0;
-  const top = Number(node.y) || 0;
-  const width = Math.max(1, Number(node.width) || 1);
-  const height = Math.max(1, Number(node.height) || 1);
   const fx = Number(frame.x) || 0;
   const fy = Number(frame.y) || 0;
+  const localX = Number(node.x) || 0;
+  const localY = Number(node.y) || 0;
+  // frameLocal stores plate-local x/y; compare in document/world space.
+  const frameLocal = String(
+    (document as { coordSpace?: unknown } | null | undefined)?.coordSpace || ''
+  ) === 'frameLocal';
+  const left = frameLocal ? fx + localX : localX;
+  const top = frameLocal ? fy + localY : localY;
+  const width = Math.max(1, Number(node.width) || 1);
+  const height = Math.max(1, Number(node.height) || 1);
   const fw = Math.max(1, Number(frame.width) || 1);
   const fh = Math.max(1, Number(frame.height) || 1);
   const intersects =

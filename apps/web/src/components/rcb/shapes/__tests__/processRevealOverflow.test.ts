@@ -4,11 +4,13 @@ import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
   hasFrameClipRevealOverflow,
+  hasSelectionPaintRaise,
   setFrameClipRevealOverflowIds,
+  setSelectionPaintRaiseIds,
 } from '@/components/rcb/frames/frameContentClip';
 
 describe('shouldRevealShapeOverflow', () => {
-  it('reveals overflow for selected hosts outside any plate', () => {
+  it('reveals overflow for selected / SoftGlow hosts, keeps clip when idle', () => {
     expect(
       shouldRevealShapeOverflow(true, {
         id: 'n1',
@@ -16,9 +18,13 @@ describe('shouldRevealShapeOverflow', () => {
         attrs: {},
       })
     ).toBe(true);
-  });
-
-  it('keeps clip for SoftGlow / processing hosts even when forceFull', () => {
+    expect(
+      shouldRevealShapeOverflow(true, {
+        id: 'n1',
+        key: 'shape',
+        attrs: { frameId: 'f1' },
+      })
+    ).toBe(true);
     expect(
       shouldRevealShapeOverflow(true, {
         id: 'load',
@@ -30,25 +36,24 @@ describe('shouldRevealShapeOverflow', () => {
           processLabel: 'Removing background...',
         },
       })
-    ).toBe(false);
-  });
-
-  it('reveals overflow for selected hosts bound to clipContent artboards', () => {
-    expect(
-      shouldRevealShapeOverflow(true, {
-        id: 'n1',
-        key: 'shape',
-        attrs: { frameId: 'f1' },
-      })
     ).toBe(true);
-  });
-
-  it('does not reveal when not keep/forceFull', () => {
     expect(
       shouldRevealShapeOverflow(false, {
         id: 'n1',
         key: 'image',
         attrs: {},
+      })
+    ).toBe(false);
+  });
+
+  it('frame-selected children stay clipped (reveal flag false)', () => {
+    // Selecting the artboard keeps children mounted (cull / paint-raise) but
+    // must not pass selectedOrForceFull=true — only selecting the child does.
+    expect(
+      shouldRevealShapeOverflow(false, {
+        id: 'child',
+        key: 'shape',
+        attrs: { frameId: 'f1', shapeType: 'pen' },
       })
     ).toBe(false);
   });
@@ -72,7 +77,7 @@ describe('findClippingFrameForNode still owns clip outside plate AABB', () => {
 });
 
 describe('frameClip reveal-overflow registry', () => {
-  it('marks selection ids so canvas ink can skip artboard clip', () => {
+  it('marks ids so canvas ink can skip artboard clip when set', () => {
     setFrameClipRevealOverflowIds(['a', 'b']);
     expect(frameClipRevealsOverflow('a')).toBe(true);
     expect(frameClipRevealsOverflow('c')).toBe(false);
@@ -80,12 +85,21 @@ describe('frameClip reveal-overflow registry', () => {
     expect(frameClipRevealsOverflow('a')).toBe(false);
   });
 
-  it('hasFrameClipRevealOverflow tracks whether any selection reveal is active', () => {
+  it('hasFrameClipRevealOverflow tracks whether any reveal is active', () => {
     setFrameClipRevealOverflowIds(null);
     expect(hasFrameClipRevealOverflow()).toBe(false);
     setFrameClipRevealOverflowIds(['sel']);
     expect(hasFrameClipRevealOverflow()).toBe(true);
     setFrameClipRevealOverflowIds([]);
     expect(hasFrameClipRevealOverflow()).toBe(false);
+  });
+
+  it('hasSelectionPaintRaise tracks temporary max+1 raise', () => {
+    setSelectionPaintRaiseIds(null);
+    expect(hasSelectionPaintRaise()).toBe(false);
+    setSelectionPaintRaiseIds(['back']);
+    expect(hasSelectionPaintRaise()).toBe(true);
+    setSelectionPaintRaiseIds([]);
+    expect(hasSelectionPaintRaise()).toBe(false);
   });
 });
