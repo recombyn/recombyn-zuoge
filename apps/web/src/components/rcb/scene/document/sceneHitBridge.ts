@@ -25,6 +25,10 @@ import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import { frameSceneBounds } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
+  parseStackKey,
+  stackZIndex,
+} from '@/components/rcb/scene/document/sceneDocument';
+import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
   distPointToSegment,
@@ -221,12 +225,10 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     ) {
       return id;
     }
-    if (isSoaIdle) {
-      // Stroke ink: SoA polylines undersample curves / can go stale vs paint.
-      // Fall through to Path2D / segment hit (same path line/arrow hosts use).
-      if (!strokeSoa) {
-        continue;
-      }
+    // Stroke SoA miss → Path2D below. Custom-path idle without strokeSoa must
+    // not use fat AABB (L-hole). Solid fills fall through to AABB when SoA is stale.
+    if (isSoaIdle && !strokeSoa && String(node.attrs?.path || '').trim()) {
+      continue;
     }
     const box = getNodeBox(id);
     if (!box) {
@@ -251,23 +253,90 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
   return null;
 }
 
-/** Topmost artboard under a scene point (matches canvasSession.hitTestFrameInDoc). */
+function pointInSceneBox(
+  x: number,
+  y: number,
+  box: { left: number; top: number; width: number; height: number }
+): boolean {
+  return (
+    x >= box.left &&
+    x <= box.left + box.width &&
+    y >= box.top &&
+    y <= box.top + box.height
+  );
+}
+
+/** Frame ids top→bottom by stackOrder; frames missing from stack append in array order. */
+function rankedFrameIdsTopFirst(doc: SceneDocument): string[] {
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  if (!frames.length) return [];
+  const byId = new Map(frames.map((f) => [String(f?.id || ''), f]));
+  const order = Array.isArray(doc.stackOrder) ? doc.stackOrder : [];
+  const ranked: string[] = [];
+  const seen = new Set<string>();
+  for (let i = order.length - 1; i >= 0; i -= 1) {
+    const parsed = parseStackKey(String(order[i] || ''));
+    if (!parsed || parsed.kind !== 'frame') continue;
+    if (!byId.has(parsed.id) || seen.has(parsed.id)) continue;
+    seen.add(parsed.id);
+    ranked.push(parsed.id);
+  }
+  for (let i = frames.length - 1; i >= 0; i -= 1) {
+    const id = String(frames[i]?.id || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ranked.push(id);
+  }
+  return ranked;
+}
+
+/** Topmost artboard under a scene point — ordered by stackOrder, not frames[]. */
 export function frameIdAtPoint(
   doc: SceneDocument | null | undefined,
   x: number,
   y: number
 ): string | null {
-  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  for (let i = frames.length - 1; i >= 0; i -= 1) {
-    const frame = frames[i];
+  if (!doc) return null;
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  if (!frames.length) return null;
+  const byId = new Map(frames.map((f) => [String(f?.id || ''), f]));
+  for (const id of rankedFrameIdsTopFirst(doc)) {
+    const frame = byId.get(id);
     if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
-    const live = getLiveArtboardFrameGeometry(String(frame.id || ''));
+    const live = getLiveArtboardFrameGeometry(id);
     const box = frameSceneBounds(doc, frame, live);
-    if (x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height) {
-      return String(frame.id);
-    }
+    if (pointInSceneBox(x, y, box)) return id;
   }
   return null;
+}
+
+/**
+ * True when a higher artboard plate covers (x,y) above this node in stackOrder.
+ * Prevents world / lower-frame content from stealing clicks through an
+ * overlapping 动画工作台 / artboard that paints on top.
+ */
+export function isOccludedByHigherArtboard(
+  doc: SceneDocument,
+  node: SceneNode,
+  x: number,
+  y: number
+): boolean {
+  const nodeId = String(node.id || '');
+  if (!nodeId) return false;
+  const ownerId = String(node.attrs?.frameId || '').trim();
+  const nodeZ = stackZIndex(doc, 'node', nodeId);
+  if (nodeZ <= 0) return false;
+  const frames = Array.isArray(doc.frames) ? doc.frames : [];
+  for (const frame of frames) {
+    const fid = String(frame?.id || '');
+    if (!fid || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
+    if (ownerId && ownerId === fid) continue;
+    if (stackZIndex(doc, 'frame', fid) <= nodeZ) continue;
+    const live = getLiveArtboardFrameGeometry(fid);
+    const box = frameSceneBounds(doc, frame, live);
+    if (pointInSceneBox(x, y, box)) return true;
+  }
+  return false;
 }
 
 /**
@@ -284,6 +353,7 @@ export function isNodePickableAtPoint(
   x: number,
   y: number
 ): boolean {
+  if (isOccludedByHigherArtboard(doc, node, x, y)) return false;
   const ownerId = String(node.attrs?.frameId || '').trim();
   if (ownerId) return frameIdAtPoint(doc, x, y) === ownerId;
   return isPointVisibleForFrameClip(doc, node, x, y);
@@ -543,17 +613,19 @@ function hitTestGeoShape(opts: {
     const { lx, ly } = toNodeLocal(x, y, geom.left, geom.top, gw, gh, angle);
     const { stroke, strokeWidth: sw } = resolveStroke(node, '#333333');
     const align = resolveStrokeAlign(node.attrs);
-    const strokeHit =
-      stroke && stroke !== 'transparent' && sw > 0
-        ? (align === 'outside' ? sw * 2 : sw) + pad * 2
-        : 0;
+    let strokeHit = 0;
+    if (stroke && stroke !== 'transparent' && sw > 0) {
+      const base = align === 'outside' ? sw * 2 : sw;
+      strokeHit = base + pad * 2;
+    }
+    const fillRule =
+      String(node.attrs?.['fill-rule'] || 'nonzero') === 'evenodd' ? 'evenodd' : 'nonzero';
     rememberNodePath2D(id, d);
     if (
       hitTestPath2DLocal(d, lx, ly, {
         fill: supportsFill(node),
         strokeWidth: strokeHit,
-        fillRule:
-          String(node.attrs?.['fill-rule'] || 'nonzero') === 'evenodd' ? 'evenodd' : 'nonzero',
+        fillRule,
         lineCap: 'butt',
         lineJoin: 'miter',
       })

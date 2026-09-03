@@ -19,7 +19,6 @@ import {
 } from '@/components/rcb/render/sceneRenderBuffer';
 import {
   ensureSharedSoaWebglAtlas,
-  isSoaWebglAtlasEnabled,
   pruneSoaAtlasForBuffer,
   releaseSoaAtlasPrefix,
 } from '@/components/rcb/render/webglInstanceAtlas';
@@ -442,20 +441,13 @@ function drawFrame(gpu: GpuRuntime, canvas: HTMLCanvasElement, req: SceneRenderR
   const buf = getSharedSceneRenderBuffer();
   setSoaPaintDocument(req.document);
 
-  const atlas = isSoaWebglAtlasEnabled() ? ensureSharedSoaWebglAtlas() : null;
-  if (atlas) {
-    pruneSoaAtlasForBuffer(atlas, buf);
-    releaseSoaAtlasPrefix(atlas, 'bake:');
-    uploadAtlas(gpu, atlas.canvas, atlas.revision);
-  } else if (!gpu.atlasBindGroup && gpu.atlasTex) {
-    gpu.atlasBindGroup = gpu.device.createBindGroup({
-      layout: gpu.atlasBindGroupLayout,
-      entries: [
-        { binding: 0, resource: gpu.atlasTex.createView() },
-        { binding: 1, resource: gpu.sampler },
-      ],
-    });
+  const atlas = ensureSharedSoaWebglAtlas();
+  if (!atlas) {
+    throw new Error('SoA WebGL atlas unavailable — atlas is required for product ink');
   }
+  pruneSoaAtlasForBuffer(atlas, buf);
+  releaseSoaAtlasPrefix(atlas, 'bake:');
+  uploadAtlas(gpu, atlas.canvas, atlas.revision);
 
   const rects: number[] = [];
   const colors: number[] = [];

@@ -1,9 +1,9 @@
 /**
- * WebGL2 backend for SoA rect + ellipse + line + path (ADR 0027 Phase 4).
- * Unit-quad instancing; dense paths may stamp into a texture atlas (kind=3).
+ * WebGL2 backend for SoA rect + ellipse + line + path (ADR 0027).
+ * Unit-quad instancing; dense / outlined shapes stamp into the atlas (kind=3).
  */
 import { rcbCameraCssZoom, rcbCameraScreenOffset, rcbViewportSceneBounds } from '@/components/rcb/core/math';
-import { getNodeTransformPreview, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
+import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
 import {
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
@@ -24,7 +24,6 @@ import {
   collectSoaBakeTilesIntoAtlas,
   ensureSharedSoaWebglAtlas,
   getSoaAtlasStats,
-  isSoaWebglAtlasEnabled,
   pruneSoaAtlasForBuffer,
   pushAtlasRegionInstance,
   releaseSoaAtlasPrefix,
@@ -32,26 +31,28 @@ import {
   SOA_ATLAS_SEG_THRESHOLD,
   stampSoaPathToAtlas,
   stampSoaRoundedRectToAtlas,
+  stampSoaEllipseToAtlas,
+  type SoaAtlasRegion,
   type SoaWebglAtlas,
 } from '@/components/rcb/render/webglInstanceAtlas';
 import {
+  collectReadySoaBakeTilesForView,
   createSoaBakeCache,
-  ensureSoaBakeTile,
   getSharedSoaBakeCache,
   invalidateSoaBakeTilesForDirty,
+  isSoaBakePathAllowed,
   setSharedSoaBakeCache,
   shouldUseSoaBake,
-  tileKey,
-  tilesForView,
   unionSoaDirtyAabb,
 } from '@/components/rcb/render/soaBakeLayer';
 import {
+  bumpSceneCanvasIdlePaint,
   hitTestWithSpatialIndex,
   type CanvasSceneRendererDeps,
   type SceneRenderRequest,
   type SceneRenderer,
 } from '@/components/rcb/render/sceneRenderer';
-import { hasFrameClipRevealOverflow, hasSelectionPaintRaise } from '@/components/rcb/frames/frameContentClip';
+import { hasFrameClipRevealOverflow } from '@/components/rcb/frames/frameContentClip';
 import {
   buildNormalizedDepthLookup,
   gpuDofSkipsSoaTileBake,
@@ -218,6 +219,27 @@ function countPathSegments(buf: SceneRenderBuffer, index: number): number {
 /** Closed paths must atlas-stamp (segment instances are stroke-only). */
 export function soaPathPrefersAtlasStamp(closed: boolean, segCount: number): boolean {
   return closed || segCount >= SOA_ATLAS_SEG_THRESHOLD;
+}
+
+function clearSoaDirtyFlag(buf: SceneRenderBuffer, index: number, flags: number, force: boolean) {
+  if (!force) return;
+  buf.flags[index] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+}
+
+function commitAtlasRegionInstance(
+  atlas: SoaWebglAtlas,
+  region: SoaAtlasRegion,
+  rects: number[],
+  colors: number[],
+  kinds: number[],
+  angles: number[],
+  uvs: number[],
+  rotRad: number,
+  depthOut: number[] | undefined,
+  slotDepth: number
+) {
+  pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, rotRad);
+  if (depthOut) depthOut.push(slotDepth);
 }
 
 export type CollectSoaWebglOpts = {
@@ -406,30 +428,42 @@ export function collectSoaWebglInstances(
 
     const id = buf.ids[i];
     const liveAngle = id ? getNodeTransformPreview(id)?.angle : undefined;
-    const rotDeg =
-      Number.isFinite(liveAngle) && Math.abs(Number(liveAngle)) > 0.5
-        ? Number(liveAngle)
-        : 0;
+    let rotDeg = 0;
+    if (Number.isFinite(liveAngle) && Math.abs(Number(liveAngle)) > 0.5) {
+      rotDeg = Number(liveAngle);
+    }
+    const rotRad = (rotDeg * Math.PI) / 180;
 
-    // Rounded rects: stamp into atlas (sharp instanced quads cannot round).
+    const outlineW = buf.strokeWidths[i] || 0;
+    const outlineArgb = buf.strokeColors[i] || 0;
+    const hasOutline = outlineW > 0 && outlineArgb !== 0;
+    const outlineCss = hasOutline ? unpackCssColor(outlineArgb) : '';
+    const fillCss = unpackCssColor(buf.colors[i]);
+    const worldBox = { left: x, top: y, width: w, height: h };
+
+    // Rounded / stroked rects → atlas (instanced quads are fill-only sharp).
     if (kind === SOA_KIND_RECT && atlas && odx === 0 && ody === 0) {
       const ro = i * 4;
       const tl = buf.radii[ro] || 0;
       const tr = buf.radii[ro + 1] || 0;
       const br = buf.radii[ro + 2] || 0;
       const bl = buf.radii[ro + 3] || 0;
-      if (tl > 0.5 || tr > 0.5 || br > 0.5 || bl > 0.5) {
-        const key = `round:${id || i}`;
+      const rounded = tl > 0.5 || tr > 0.5 || br > 0.5 || bl > 0.5;
+      if (rounded || hasOutline) {
         const region = stampSoaRoundedRectToAtlas(
           atlas,
-          key,
-          { left: x, top: y, width: w, height: h },
-          unpackCssColor(buf.colors[i]),
+          `round:${id || i}`,
+          worldBox,
+          fillCss,
           { tl, tr, br, bl },
-          { force: forceStamp }
+          {
+            force: forceStamp,
+            strokeCss: hasOutline ? outlineCss : undefined,
+            strokeWidth: hasOutline ? outlineW : 0,
+          }
         );
         if (region) {
-          pushAtlasRegionInstance(
+          commitAtlasRegionInstance(
             atlas,
             region,
             rects,
@@ -437,22 +471,54 @@ export function collectSoaWebglInstances(
             kinds,
             angles,
             uvs,
-            (rotDeg * Math.PI) / 180
+            rotRad,
+            depthOut,
+            slotDepth
           );
-          if (depthOut) depthOut.push(slotDepth);
-          if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+          clearSoaDirtyFlag(buf, i, flags, forceStamp);
           continue;
         }
+      }
+    }
+
+    // Stroked ellipses → atlas (instanced ellipse has no outline).
+    if (kind === SOA_KIND_ELLIPSE && atlas && odx === 0 && ody === 0 && hasOutline) {
+      const region = stampSoaEllipseToAtlas(
+        atlas,
+        `ellipse:${id || i}`,
+        worldBox,
+        fillCss,
+        {
+          force: forceStamp,
+          strokeCss: outlineCss,
+          strokeWidth: outlineW,
+        }
+      );
+      if (region) {
+        commitAtlasRegionInstance(
+          atlas,
+          region,
+          rects,
+          colors,
+          kinds,
+          angles,
+          uvs,
+          rotRad,
+          depthOut,
+          slotDepth
+        );
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
       }
     }
 
     rects.push(x, y, w, h);
     colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
     kinds.push(kind === SOA_KIND_ELLIPSE ? 1 : 0);
-    angles.push((rotDeg * Math.PI) / 180);
+    angles.push(rotRad);
     uvs.push(0, 0, 1, 1);
     if (depthOut) depthOut.push(slotDepth);
-    if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+    clearSoaDirtyFlag(buf, i, flags, forceStamp);
   }
 }
 
@@ -593,8 +659,11 @@ export function createWebglSceneRenderer(
       const view = rcbViewportSceneBounds(req.camera, { width: sw, height: sh }, dpr);
       const buf = getSharedSceneRenderBuffer();
       setSoaPaintDocument(req.document);
-      const atlas = isSoaWebglAtlasEnabled() ? ensureSharedSoaWebglAtlas() : null;
-      if (atlas && atlasBufferRevision !== buf.revision) {
+      const atlas = ensureSharedSoaWebglAtlas();
+      if (!atlas) {
+        throw new Error('SoA WebGL atlas unavailable — atlas is required for product ink');
+      }
+      if (atlasBufferRevision !== buf.revision) {
         // Drop orphans; dirty path/round stamps restamp in-place via force.
         pruneSoaAtlasForBuffer(atlas, buf);
         releaseSoaAtlasPrefix(atlas, 'bake:');
@@ -620,14 +689,12 @@ export function createWebglSceneRenderer(
 
       let usedBakeAtlas = false;
       const skipBake = gpuDofSkipsSoaTileBake();
-      // Bake tiles stamp locked z-order — skip while selection raise / reveal.
+      // Keep viewport bake during selection raise — chrome / raised ink sit above.
       if (
         !skipBake &&
-        atlas &&
         shouldUseSoaBake(buf) &&
-        !hasNodeTransformPreviews() &&
-        !hasFrameClipRevealOverflow() &&
-        !hasSelectionPaintRaise()
+        isSoaBakePathAllowed() &&
+        !hasFrameClipRevealOverflow()
       ) {
         let cache = getSharedSoaBakeCache();
         if (!cache || cache.bufferRevision !== buf.revision) {
@@ -643,36 +710,36 @@ export function createWebglSceneRenderer(
             releaseSoaAtlasRegion(atlas, `bake:${key}`);
           }
         }
-        const tileList: Array<{
-          key: string;
-          canvas: CanvasImageSource;
-          bounds: { left: number; top: number; width: number; height: number };
-          force?: boolean;
-        }> = [];
-        for (const { tx, ty, bounds } of tilesForView(view, cache.tileWorld)) {
-          const key = tileKey(tx, ty);
-          const wasCached = Boolean(
-            cache.tiles.get(key) && cache.tiles.get(key)!.bufferRevision === buf.revision
-          );
-          const tile = ensureSoaBakeTile(buf, cache, tx, ty, bounds);
-          if (!tile) continue;
-          tileList.push({
+        const { tiles: readyTiles, pending: tilesPending } = collectReadySoaBakeTilesForView(
+          buf,
+          view
+        );
+        if (tilesPending) bumpSceneCanvasIdlePaint();
+        // Only switch off live instances when the full viewport tile map is ready.
+        // Partial stamps previously skipped live draw → blank holes / empty board.
+        if (!tilesPending && readyTiles.length > 0) {
+          const tileList: Array<{
+            key: string;
+            canvas: CanvasImageSource;
+            bounds: { left: number; top: number; width: number; height: number };
+            force?: boolean;
+          }> = readyTiles.map((tile) => ({
             key: tile.key,
             canvas: tile.canvas as CanvasImageSource,
             bounds: tile.bounds,
-            force: !wasCached,
-          });
+            force: false,
+          }));
+          const stamped = collectSoaBakeTilesIntoAtlas(
+            atlas,
+            tileList,
+            rects,
+            colors,
+            kinds,
+            angles,
+            uvs
+          );
+          usedBakeAtlas = stamped > 0;
         }
-        const stamped = collectSoaBakeTilesIntoAtlas(
-          atlas,
-          tileList,
-          rects,
-          colors,
-          kinds,
-          angles,
-          uvs
-        );
-        usedBakeAtlas = stamped > 0;
         if (import.meta.env.DEV && atlas.stats.misses + atlas.stats.hits > 0) {
           // Lightweight telemetry for QA — avoid spamming: only when restamps happen.
           if (atlas.stats.restamps > 0 && atlas.stats.restamps % 8 === 0) {
@@ -722,7 +789,7 @@ export function createWebglSceneRenderer(
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(depthFill));
       }
 
-      if (atlas && atlas.revision !== atlasUploadedRevision) {
+      if (atlas.revision !== atlasUploadedRevision) {
         gl.bindTexture(gl.TEXTURE_2D, atlasTex);
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas as TexImageSource);
