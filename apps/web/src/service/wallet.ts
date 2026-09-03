@@ -74,7 +74,7 @@ async function loadWalletPlans(): Promise<WalletPlanRow[]> {
   return Array.isArray(body.plans) ? body.plans : [];
 }
 
-/** Public membership SKUs from `/wallet/plans` (Intelligence via API; OSS fallback). */
+/** Public membership SKUs from `/wallet/plans`. */
 export function usePlanCatalog(): Record<PlanId, PlanDef> {
   const q = useQuery({
     queryKey: ['wallet', 'plans'],
@@ -126,7 +126,8 @@ export const WALLET_LEDGER_QUERY_OPTS = {
 
 /** After chat / image / tool spend — sidebar chip must update immediately. */
 export function refreshWalletAfterSpend(): void {
-  void queryClient.invalidateQueries({ queryKey: apiQuery.walletWalletMe.key() });
+  queryClient.invalidateQueries({ queryKey: apiQuery.walletWalletMe.key() });
+  queryClient.invalidateQueries({ queryKey: ['image-tool-capabilities'] });
 }
 
 /** After redeem / plan change — balance + ledger + public plan SKUs. */

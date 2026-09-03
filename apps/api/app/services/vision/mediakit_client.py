@@ -234,23 +234,9 @@ async def _load_image_bytes(image_ref: str) -> tuple[bytes, str]:
 
 
 def _is_public_http_url(ref: str) -> bool:
-    s = (ref or "").strip()
-    if not (s.startswith("http://") or s.startswith("https://")):
-        return False
-    try:
-        host = (urlparse(s).hostname or "").lower()
-    except Exception:
-        return False
-    if not host:
-        return False
-    if host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
-        return False
-    if host.endswith(".local") or host.endswith(".internal"):
-        return False
-    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("172."):
-        # Private LAN — MediaKit cannot fetch.
-        return False
-    return True
+    from app.services.vision.rehost import is_public_http_url
+
+    return is_public_http_url(ref)
 
 
 def _parse_upload_headers(raw: Any) -> dict[str, str]:

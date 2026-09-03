@@ -24,6 +24,33 @@ function detailToText(detail: unknown): string {
   return extractApiDetailMessage(detail);
 }
 
+function detailCodeFromBody(detail: unknown): string {
+  if (!detail || typeof detail !== 'object' || !('code' in detail)) return '';
+  return String((detail as { code?: unknown }).code || '').trim();
+}
+
+function enrichHttpError(err: HTTPError, body: unknown): Error {
+  const detail =
+    body && typeof body === 'object' && body !== null && 'detail' in body
+      ? (body as { detail?: unknown }).detail
+      : undefined;
+  let detailText = '';
+  if (detail != null) detailText = detailToText(detail);
+  else if (typeof body === 'string' && body.trim()) detailText = body.trim().slice(0, 300);
+  const enriched = new Error(
+    detailText || err.message || `Request failed (${err.response.status})`
+  ) as Error & {
+    response?: { status: number; data?: unknown };
+    status?: number;
+    code?: string;
+  };
+  enriched.response = { status: err.response.status, data: body };
+  enriched.status = err.response.status;
+  const code = detailCodeFromBody(detail);
+  if (code) enriched.code = code;
+  return enriched;
+}
+
 async function clearSessionOnAuthDead(res: Response): Promise<void> {
   if (res.status !== 401 && res.status !== 403) return;
   let detailText = '';
@@ -116,23 +143,7 @@ async function executeRequest<T>(config: RequestConfig, key: string | null): Pro
       } catch {
         body = undefined;
       }
-      const detail =
-        body && typeof body === 'object' && body !== null && 'detail' in body
-          ? (body as { detail?: unknown }).detail
-          : undefined;
-      let detailText = '';
-      if (typeof detail === 'string') detailText = detail.trim();
-      else if (Array.isArray(detail)) detailText = detailToText(detail);
-      else if (typeof body === 'string' && body.trim()) detailText = body.trim().slice(0, 300);
-      const enriched = new Error(
-        detailText || err.message || `Request failed (${err.response.status})`
-      ) as Error & {
-        response?: { status: number; data?: unknown };
-        status?: number;
-      };
-      enriched.response = { status: err.response.status, data: body };
-      enriched.status = err.response.status;
-      throw enriched;
+      throw enrichHttpError(err, body);
     }
     throw err;
   }

@@ -112,6 +112,11 @@ export type ImageToolCapabilities = {
       height?: number;
     }>;
   };
+  /** Free plan lifetime vision-tool quota (null remaining = paid / billing off). */
+  freeVision?: {
+    limit?: number;
+    remaining?: number | null;
+  };
 };
 
 /** Kinds that require Volcengine AI MediaKit (``MEDIAKIT_API_KEY``). */

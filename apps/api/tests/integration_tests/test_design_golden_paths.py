@@ -56,10 +56,6 @@ def _wallet(monkeypatch):
         lambda *_a, **_k: None,
     )
     monkeypatch.setattr(
-        "app.core.config.settings.intelligence_provider",
-        "local",
-    )
-    monkeypatch.setattr(
         "app.services.design.runtime.graph.nodes.decide.intelligence_task_profile",
         lambda _rt: IntelligenceTaskProfile("direct", (), (), False, False),
     )
