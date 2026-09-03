@@ -99,10 +99,6 @@ def _wallet_and_fast_observe(monkeypatch):
         0.05,
     )
     monkeypatch.setattr(
-        "app.core.config.settings.intelligence_provider",
-        "local",
-    )
-    monkeypatch.setattr(
         "app.services.design.runtime.graph.nodes.decide.intelligence_task_profile",
         lambda _rt: IntelligenceTaskProfile("direct", (), (), False, False),
     )

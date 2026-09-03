@@ -5,6 +5,12 @@
     "en": "Daily free run used up. Try again tomorrow or upgrade.",
     "ja": "本日の無料実行回数を使い切りました。明日再度お試しいただくか、プランをアップグレードしてください。"
   },
+  "free_vision_exhausted": {
+    "zh-CN": "免费用户抠图等视觉工具最多使用 3 次，次数已用完，请升级会员后继续使用。",
+    "zh-TW": "免費用戶去背等視覺工具最多使用 3 次，次數已用完，請升級會員後繼續使用。",
+    "en": "Free plan includes 3 vision tool uses (remove background, etc.). Limit reached — upgrade to continue.",
+    "ja": "無料プランの画像ツール（背景除去など）は 3 回までです。上限に達しました。続行するにはプランをアップグレードしてください。"
+  },
   "insufficient_credits": {
     "zh-CN": "积分不足，请充值后重试。",
     "zh-TW": "積分不足，請充值後重試。",
@@ -672,10 +678,10 @@
     "ja": "DLQ エントリに project_id/user_id がありません — 再生できません。"
   },
   "mockup_unavailable": {
-    "zh-CN": "样机渲染需要接入 Recombyn Intelligence（设置 RECOMBYN_INTELLIGENCE_URL）",
-    "zh-TW": "樣機渲染需要接入 Recombyn Intelligence（設定 RECOMBYN_INTELLIGENCE_URL）",
-    "en": "Mockup rendering requires Recombyn Intelligence (set RECOMBYN_INTELLIGENCE_URL).",
-    "ja": "モックアップ描画には Recombyn Intelligence が必要です（RECOMBYN_INTELLIGENCE_URL を設定してください）。"
+    "zh-CN": "样机预览失败，请稍后重试。",
+    "zh-TW": "樣機預覽失敗，請稍後再試。",
+    "en": "Mockup preview failed. Please try again.",
+    "ja": "モックアップのプレビューに失敗しました。もう一度お試しください。"
   },
   "card_key_misconfigured": {
     "zh-CN": "卡密系统未正确配置，请联系管理员",

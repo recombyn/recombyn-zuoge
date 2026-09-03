@@ -16,7 +16,7 @@ import {
   type ImageProcessResult,
 } from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
-import { getHttpErrorMessage } from '@/service/client';
+import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import { refreshWalletAfterSpend } from '@/service/wallet';
 import {
   failImageProcess,
@@ -29,6 +29,22 @@ const DECOMPOSE_KINDS = new Set(['editText', 'editElements']);
 
 function tt(key: string, opts?: Record<string, unknown>): string {
   return String(i18n.t(key, opts));
+}
+
+function resolveHttpStatus(err: unknown): number | undefined {
+  const fromClient = getHttpStatus(err);
+  if (fromClient != null) return fromClient;
+  if (!err || typeof err !== 'object' || !('status' in err)) return undefined;
+  const s = Number((err as { status?: unknown }).status);
+  if (!Number.isFinite(s)) return undefined;
+  return s;
+}
+
+function isQuotaWarnError(err: unknown): boolean {
+  if (resolveHttpStatus(err) === 402) return true;
+  if (!err || typeof err !== 'object' || !('code' in err)) return false;
+  const code = String((err as { code?: unknown }).code || '').trim();
+  return code === 'free_vision_exhausted' || code === 'insufficient_credits';
 }
 
 function parseMeta(raw: unknown): Record<string, unknown> {
@@ -165,7 +181,8 @@ async function finishDecomposeResult(
  * Completes spawned image process jobs via async backend jobs + SSE progress.
  * Results are uploaded to our file server when still inline data URLs.
  */
-function ImageProcessWatcher() {  useImageToolCapabilities();
+function ImageProcessWatcher() {
+  useImageToolCapabilities();
   const pendingId = useSelector((s: any) => s.editor.pendingImageProcessId as string | null);
   const document = useEditorDocument();
   const documentRef = useRef(document);
@@ -182,9 +199,10 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
     const ac = new AbortController();
     const isCancelled = () => cancelled;
 
-    const fail = (msg: string) => {
+    const fail = (msg: string, err?: unknown) => {
       if (cancelled) return;
-      message.error(msg);
+      if (err && isQuotaWarnError(err)) message.warning(msg);
+      else message.error(msg);
       failImageProcess({ nodeId: pendingId });
     };
 
@@ -338,7 +356,7 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
         await refreshWallet();
       } catch (err: any) {
         if (cancelled || isUploadAbortError(err)) return;
-        fail(processFailMessage(err));
+        fail(processFailMessage(err), err);
       }
     };
 

@@ -156,7 +156,7 @@ function UpscaleSessionHost({
               type="button"
               className={cn(
                 imageToolBtn,
-                'min-w-[5.5rem] justify-between gap-2 px-3 font-medium',
+                'gap-1 px-2 font-medium',
                 menuOpen && 'bg-[var(--accent-soft)]'
               )}
               onClick={() => setMenuOpen((v) => !v)}
@@ -193,7 +193,7 @@ function UpscaleSessionHost({
 
           <button
             type="button"
-            className="inline-flex h-8 min-w-[5.75rem] items-center justify-center gap-1.5 rounded-xl px-4 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
+            className="inline-flex h-7 items-center justify-center rounded-xl px-2.5 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
             onClick={onConfirm}
           >
             <span>{t('editor.imageToolbar.upscaleConfirm')}</span>
