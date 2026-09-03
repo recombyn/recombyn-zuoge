@@ -57,9 +57,71 @@ describe('collectSoaWebglInstances', () => {
     const angles: number[] = [];
     collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, rects, colors, kinds, angles);
     expect(kinds.length).toBe(2);
-    expect(kinds).toContain(0);
+    // Default shape stroke uses SDF rounded path (kind 4), not sharp instanced quad.
+    expect(kinds).toContain(4);
     expect(kinds).toContain(1);
     expect(angles.every((a) => a === 0)).toBe(true);
+  });
+
+  it('packs stroke-disabled sharp rect as kind 0', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r', {
+      id: 'r',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#ff0000',
+        'stroke-enabled': false,
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const rects: number[] = [];
+    const colors: number[] = [];
+    const kinds: number[] = [];
+    const angles: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, rects, colors, kinds, angles);
+    expect(kinds).toEqual([0]);
+  });
+
+  it('packs rounded rect as shader SDF kind 4 with radii in uvs', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r', {
+      id: 'r',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#ffffff',
+        cornerRadius: 20,
+        'stroke-enabled': false,
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const rects: number[] = [];
+    const colors: number[] = [];
+    const kinds: number[] = [];
+    const angles: number[] = [];
+    const uvs: number[] = [];
+    const strokes: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, rects, colors, kinds, angles, uvs, {
+      strokes,
+    });
+    expect(kinds).toEqual([4]);
+    expect(uvs[0]).toBeGreaterThan(0);
+    expect(strokes).toEqual([0, 0, 0, 0]);
   });
 
   it('packs line as oriented thin quad from world path polyline', () => {

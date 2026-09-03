@@ -13,7 +13,6 @@ import {
 import { isNodeOverlayHidden } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
   clampCornerRadii,
-  getLiveCornerRadiusPreviewNodeId,
   getLiveCornerRadiusPreviewRadii,
   mergeLiveCornerRadiiIntoAttrs,
   radiiFromAttrs,
@@ -2287,10 +2286,11 @@ export function paintSoaBufferBasic(
         return true;
       }
     }
-    const liveGeoPreview =
-      getLiveCornerRadiusPreviewNodeId() === id ||
-      getLiveShapeParamsPreviewNodeId() === id;
-    if (getShapeHost(id)?.el && !liveGeoPreview) {
+    // Host owns fill/stroke. Live corner-radius is applied on the host SVG —
+    // do not also paint SoA (WebGL used stale sharp radii → white AABB corners).
+    // Poly/star side live-geo still needs SoA rebuild under the host.
+    const liveShapeParams = getLiveShapeParamsPreviewNodeId() === id;
+    if (getShapeHost(id)?.el && !liveShapeParams) {
       clearSoaDirtyFlag(buf, i);
       return true;
     }

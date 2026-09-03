@@ -193,13 +193,7 @@ function ProjectCoverCollage({
     <div className={projectThumbFrameClass(className)}>
       {collage ? (
         <div className={cn('absolute inset-0', projectThumbZoomLayerClass)}>{collage}</div>
-      ) : (
-        <SoftGlowSurface
-          className="absolute inset-0 h-full w-full !rounded-none"
-          seed="cover-empty"
-          aria-hidden
-        />
-      )}
+      ) : null}
       {children}
     </div>
   );
