@@ -29,18 +29,13 @@ async def remove_background(
     Cut out the main subject via MediaKit ``remove-image-background``.
 
     Keeps whatever canvas MediaKit returns (PNG with transparency by default).
-    Brush hint masks from older ILP flows are ignored — MediaKit has no mask input.
 
     Returns ``{ image, kind, engine, model, mode, width, height, scene? }``.
     """
     if not mediakit_enabled():
         raise RuntimeError(_MEDIAKIT_REQUIRED_MSG)
 
-    m = meta or {}
-    if m.get("includeMask") or m.get("excludeMask"):
-        logger.info("removeBg: MediaKit ignores includeMask/excludeMask brush hints")
-
-    out = await remove_image_background(image, meta=m)
+    out = await remove_image_background(image, meta=meta or {})
     png_bytes = out["image_bytes"]
     rgba = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
     image_out = rehost_image_bytes(user_id, png_bytes, filename="removeBg.png")

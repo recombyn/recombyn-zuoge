@@ -39,6 +39,19 @@ def _pending_proposal_flag(rt: AgentRuntime) -> dict[str, Any] | None:
     return raw
 
 
+def _recent_dialogue_lines(rt: AgentRuntime, *, limit: int = 4) -> str:
+    lines: list[str] = []
+    for turn in list(getattr(rt, "mem_short", None) or [])[-limit:]:
+        if not isinstance(turn, dict):
+            continue
+        text = str(turn.get("text") or "").strip()
+        if not text:
+            continue
+        role = "User" if str(turn.get("role") or "") == "user" else "Assistant"
+        lines.append(f"{role}: {text[:280]}")
+    return "\n".join(lines)
+
+
 def _release_ambient_focus_for_new_design(rt: AgentRuntime) -> None:
     """Drop ambient/memory FOCUS so Host can open a shimmer sibling and bind it.
 
@@ -93,9 +106,6 @@ async def _vision_chat_reply(rt: AgentRuntime) -> str:
     ]
     if not images:
         return ""
-    from app.services.design.runtime.models_route import (
-        resolve_model_for_skill,
-    )
 
     try:
         model, _reason = resolve_model_for_skill(
@@ -109,10 +119,13 @@ async def _vision_chat_reply(rt: AgentRuntime) -> str:
             canvas_node_count=len(rt.scene_nodes or []),
             route_lane=str(rt.flags.get("route_lane") or "").strip() or None,
         )
-    except Exception:
-        return ""
-    if not model:
-        return ""
+    except Exception as err:
+        raise RuntimeError(f"vision_chat_failed: model resolve failed: {err}") from err
+    if not str(model or "").strip():
+        raise RuntimeError(
+            "vision_chat_failed: no vision model — lock a multimodal model "
+            "or configure precheck.vision_model"
+        )
     system = (
         "You are a helpful design-canvas assistant. The user attached image(s) "
         "from the canvas or as references. Look at every image carefully and "
@@ -120,9 +133,9 @@ async def _vision_chat_reply(rt: AgentRuntime) -> str:
         "puzzle, solve it and give the answer. Reply in the user's language. "
         "Be concise — do not claim you cannot see the image."
     )
-    user = (rt.prompt or "").strip()[:4000]
-    if not user:
-        user = "Look at the attached image(s) and answer any question they contain."
+    user = (rt.prompt or "").strip()[:4000] or (
+        "Look at the attached image(s) and answer any question they contain."
+    )
     try:
         _family, content, _used, events, _thinking = await _stream_llm_text(
             model_family=model,
@@ -136,9 +149,38 @@ async def _vision_chat_reply(rt: AgentRuntime) -> str:
         for ev in events:
             if isinstance(ev, dict) and ev.get("phase") == "model_switch":
                 _emit({"type": "activity", "kind": "model", **ev})
-        return str(content or "").strip()
+        reply = str(content or "").strip()
+        if not reply:
+            raise RuntimeError("vision_chat_failed: empty vision reply")
+        return reply
+    except RuntimeError:
+        raise
     except Exception as err:
         raise RuntimeError(f"vision_chat_failed: {err}") from err
+
+
+def _intent_summary(
+    *,
+    intent: str,
+    paint_lane: str,
+    action: str,
+    session_action: str,
+    rationale: str,
+) -> str:
+    parts = [f"intent={intent}"]
+    if paint_lane:
+        parts.append(f"/{paint_lane}")
+    if action:
+        parts.append(f" · proposal={action}")
+    if session_action:
+        parts.append(f" · session={session_action}")
+    if rationale:
+        parts.append(f" · {rationale[:80]}")
+    return "".join(parts)
+
+
+def _should_log_reply(*, intent: str, action: str, session_action: str) -> bool:
+    return intent == "chat" or action == "dismiss" or bool(session_action)
 
 
 async def _node_intent_classify(state: GraphState) -> Command:
@@ -149,14 +191,6 @@ async def _node_intent_classify(state: GraphState) -> Command:
     rt = state["rt"]
     st = rt.run
     pending = _pending_proposal_flag(rt)
-    dial_lines: list[str] = []
-    for t in list(getattr(rt, "mem_short", None) or [])[-4:]:
-        if not isinstance(t, dict):
-            continue
-        role = "User" if str(t.get("role") or "") == "user" else "Assistant"
-        text = str(t.get("text") or "").strip()
-        if text:
-            dial_lines.append(f"{role}: {text[:280]}")
     t_intent = time.perf_counter()
     route_lane = str(rt.flags.get("route_lane") or st.task_tier or "").strip() or None
     try:
@@ -187,7 +221,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         scene_nodes=rt.scene_nodes,
         interaction_mode=str(rt.flags.get("mode") or rt.mode or ""),
         pending_proposal=pending,
-        recent_dialogue="\n".join(dial_lines),
+        recent_dialogue=_recent_dialogue_lines(rt),
         model=intent_model,
         user_selected_model=rt.user_selected_model,
         route_lane=route_lane,
@@ -232,9 +266,10 @@ async def _node_intent_classify(state: GraphState) -> Command:
         str(getattr(decision, "output_locale", "") or "").strip() or None,
         default="zh-CN",
     )
-    st.intent = (
-        paint_ops_intent(intent, paint_lane) if intent != "chat" else "chat"
-    )
+    if intent == "chat":
+        st.intent = "chat"
+    else:
+        st.intent = paint_ops_intent(intent, paint_lane)
     rt.flags["gate_intent"] = intent
     plan = build_design_plan(
         prompt=rt.prompt,
@@ -243,10 +278,7 @@ async def _node_intent_classify(state: GraphState) -> Command:
         focus_frame_id=rt.focus_id,
         scene_nodes=rt.scene_nodes,
     )
-    if plan is not None:
-        rt.design_plan = plan.model_dump()
-    else:
-        rt.design_plan = None
+    rt.design_plan = plan.model_dump() if plan is not None else None
     if session_action:
         rt.flags["session_action"] = session_action
     from app.services.design.runtime.session_log import log_stage_decision
@@ -260,6 +292,9 @@ async def _node_intent_classify(state: GraphState) -> Command:
         session_action=session_action or None,
     )
 
+    log_reply = _should_log_reply(
+        intent=intent, action=action, session_action=session_action
+    )
     st.push_log(
         phase="intent_classify",
         intent=intent,
@@ -269,17 +304,13 @@ async def _node_intent_classify(state: GraphState) -> Command:
         model=intent_model,
         model_reason=intent_model_reason,
         needs_clarification=needs_clarification or None,
-        reply=(
-            reply[:500]
-            if intent == "chat" or action == "dismiss" or session_action
-            else None
-        ),
-        summary=(
-            f"intent={intent}"
-            + (f"/{paint_lane}" if paint_lane else "")
-            + (f" · proposal={action}" if action else "")
-            + (f" · session={session_action}" if session_action else "")
-            + (f" · {(decision.rationale or '')[:80]}" if decision.rationale else "")
+        reply=reply[:500] if log_reply else None,
+        summary=_intent_summary(
+            intent=intent,
+            paint_lane=paint_lane,
+            action=action,
+            session_action=session_action,
+            rationale=str(decision.rationale or ""),
         ),
         duration_ms=intent_ms,
         llm_raw=_clip_llm_raw(
@@ -291,13 +322,11 @@ async def _node_intent_classify(state: GraphState) -> Command:
                     "session_action": session_action,
                     "needs_clarification": needs_clarification,
                     "clarification": clarification[:240] if needs_clarification else "",
-                    "clarification_options": clarification_options
-                    if needs_clarification
-                    else [],
+                    "clarification_options": (
+                        clarification_options if needs_clarification else []
+                    ),
                     "rationale": (decision.rationale or "")[:400],
-                    "reply": reply[:400]
-                    if intent == "chat" or action == "dismiss" or session_action
-                    else "",
+                    "reply": reply[:400] if log_reply else "",
                 },
                 ensure_ascii=False,
             ),
@@ -323,11 +352,11 @@ async def _node_intent_classify(state: GraphState) -> Command:
             return _goto_cmd(rt, frm="intent_classify", to="apply_confirm")
 
     if action == "dismiss" and pending:
-        if not reply:
-            _emit_ux_tip(rt, "ask_dismissed")
-        else:
+        if reply:
             st.reply = reply
             _emit({"type": "token", "text": reply})
+        else:
+            _emit_ux_tip(rt, "ask_dismissed")
         _clear_ask_proposal_meta(str(pending.get("task_id") or ""))
         _drop_pending(rt)
         _emit_chat_ui_done(rt)
@@ -347,30 +376,21 @@ async def _node_intent_classify(state: GraphState) -> Command:
 
     if intent == "chat":
         vision_streamed = False
-        if rt.images and not session_action:
+        if rt.images:
             # Classifier never saw pixels — regenerate with vision before settle.
-            vision_reply = await _vision_chat_reply(rt)
-            if vision_reply:
-                reply = vision_reply
-                vision_streamed = True
-                st.reply = reply
-                rt.classified_reply = reply
-                st.push_log(
-                    phase="intent_vision_chat",
-                    intent="chat",
-                    summary=f"vision_chat images={len(rt.images)}",
-                    reply=reply[:500],
-                )
-            elif not reply:
-                raise IntentClassifyError(
-                    "intent_classify: chat with images but vision reply empty"
-                )
-        if reply and not vision_streamed:
+            reply = await _vision_chat_reply(rt)
+            vision_streamed = True
+            rt.classified_reply = reply
+            st.push_log(
+                phase="intent_vision_chat",
+                intent="chat",
+                summary=f"vision_chat images={len(rt.images)}",
+                reply=reply[:500],
+            )
+        if reply:
             st.reply = reply
-            _emit({"type": "token", "text": reply})
-        elif reply and vision_streamed:
-            st.reply = reply
-        # Reply is on screen — free UI before settle (episode / KG / memory).
+            if not vision_streamed:
+                _emit({"type": "token", "text": reply})
         _emit_chat_ui_done(rt)
         return _goto_cmd(rt, frm="intent_classify", to="__settle__")
 

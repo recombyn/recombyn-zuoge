@@ -22,15 +22,8 @@ export function defaultMockupPlacement(): MockupPlacement {
 }
 
 export function autoFitMockupPlacement(
-  designW: number,
-  designH: number,
-  print = DEMO_CYLINDER_PRINT,
-  /** Kept for callers; fill always targets the printable rect (cover drawn in compose). */
-  _mode: 'cover' | 'contain' = 'cover'
+  print = DEMO_CYLINDER_PRINT
 ): MockupPlacement {
-  void designW;
-  void designH;
-  void _mode;
   // Snap to printable face — aspect-correct cover is applied when composing the sheet.
   return {
     x: print.x,

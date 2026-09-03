@@ -36,10 +36,22 @@
     "ja": "構造化出力に失敗しました。再試行するか、別の言い方でお試しください。"
   },
   "vision_chat_failed": {
-    "zh-CN": "看图回复失败，请检查 Admin 看图模型配置后重试。",
-    "zh-TW": "看圖回覆失敗，請檢查 Admin 看圖模型設定後重試。",
-    "en": "Vision reply failed. Check the vision model in Admin and retry.",
-    "ja": "画像付き返信に失敗しました。Admin の vision モデルを確認して再試行してください。"
+    "zh-CN": "看图回复失败，请稍后重试；若反复失败请检查看图模型与附图是否可访问。",
+    "zh-TW": "看圖回覆失敗，請稍後重試；若反覆失敗請檢查看圖模型與附圖是否可存取。",
+    "en": "Vision reply failed. Retry; if it keeps failing, check the vision model and that the image is reachable.",
+    "ja": "画像付き返信に失敗しました。再試行し、続く場合は vision モデルと画像の取得可否を確認してください。"
+  },
+  "vision_image_too_small": {
+    "zh-CN": "附图过小（看图模型要求边长至少约 14px），请换一张更大的图或框选更大区域后再试。",
+    "zh-TW": "附圖過小（看圖模型要求邊長至少約 14px），請換一張更大的圖或框選更大區域後再試。",
+    "en": "Attached image is too small (vision models need roughly 14px on each side). Use a larger image or a bigger selection.",
+    "ja": "添付画像が小さすぎます（vision モデルは各辺おおよそ 14px 以上）。より大きな画像か選択範囲でもう一度お試しください。"
+  },
+  "vision_image_unreachable": {
+    "zh-CN": "附图地址无法被看图模型访问（本机 MinIO / 内网链接）。请重试；若仍失败请检查本地对象存储是否在跑。",
+    "zh-TW": "附圖網址無法被看圖模型存取（本機 MinIO / 內網連結）。請重試；若仍失敗請檢查本機物件儲存是否在運作。",
+    "en": "The image URL is not reachable by the vision model (local MinIO / private link). Retry; if it still fails, check that local object storage is running.",
+    "ja": "画像 URL を vision モデルが取得できません（ローカル MinIO / プライベートリンク）。再試行し、だめならローカルストレージの稼働を確認してください。"
   },
   "review_failed": {
     "zh-CN": "设计评审失败，请重试。",

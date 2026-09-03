@@ -33,8 +33,9 @@ export function parseMarkPinFromChip(
     .map((line) => line.trim())
     .find((line) => line.startsWith('label:'));
   const label = labelLine ? labelLine.slice('label:'.length).trim() : undefined;
-  const kind =
-    tag === 'text' ? 'text' : tag === 'subject' ? 'image' : ('manual' as MarkRegion['kind']);
+  let kind: MarkRegion['kind'] = 'manual';
+  if (tag === 'text') kind = 'text';
+  else if (tag === 'subject') kind = 'image';
   return {
     nodeId,
     id: regionId,

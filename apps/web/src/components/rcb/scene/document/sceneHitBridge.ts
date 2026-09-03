@@ -23,7 +23,7 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
-import { frameSceneBounds } from '@/components/rcb/scene/paint/sceneToSvg';
+import { frameSceneBounds, nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   parseStackKey,
   stackZIndex,
@@ -177,6 +177,56 @@ export function setSceneHitTestBridge(fn: SceneHitFn | null) {
   }
 }
 
+/**
+ * Near-full-bleed artboard background (rect / closed path / image).
+ * Not pickable as content — click should reach nested nodes or the frame plate.
+ */
+export function frameForFullBleedPlate(doc: SceneDocument, nodeId: string): string | null {
+  const node = doc?.deltaSetLike?.[nodeId];
+  if (!node) return null;
+  const key = String(node.key || '');
+  if (key === 'shape') {
+    const shapeType = String(node.attrs?.shapeType || 'rect');
+    // Open strokes are not plates.
+    if (shapeType === 'line' || shapeType === 'arrow' || shapeType === 'pencil') return null;
+    if (shapeType === 'pen' || shapeType === 'path') {
+      const closed = node.attrs?.closed;
+      if (closed === false || closed === 'false' || closed === 0 || closed === '0') return null;
+    }
+  } else if (key !== 'image' && key !== 'rect') {
+    return null;
+  }
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  if (!frames.length) return null;
+  const { left, top } = nodeLeftTop(doc, node);
+  const w = Math.max(1, Number(node.width) || 1);
+  const h = Math.max(1, Number(node.height) || 1);
+  const area = w * h;
+  // Prefer the frame this node is bound to, then any overlapping artboard.
+  const boundId = String(node.attrs?.frameId || '').trim();
+  const ordered = boundId
+    ? [
+        ...frames.filter((f) => String(f?.id) === boundId),
+        ...frames.filter((f) => String(f?.id) !== boundId),
+      ]
+    : frames;
+  for (const f of ordered) {
+    if (!f?.id) continue;
+    const fx = Number(f.x) || 0;
+    const fy = Number(f.y) || 0;
+    const fw = Math.max(1, Number(f.width) || 1);
+    const fh = Math.max(1, Number(f.height) || 1);
+    const frameArea = fw * fh;
+    const ow = Math.max(0, Math.min(left + w, fx + fw) - Math.max(left, fx));
+    const oh = Math.max(0, Math.min(top + h, fy + fh) - Math.max(top, fy));
+    const overlap = ow * oh;
+    if (overlap >= frameArea * 0.9 && area >= frameArea * 0.85) {
+      return String(f.id);
+    }
+  }
+  return null;
+}
+
 export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | null {
   const {
     document: doc,
@@ -202,6 +252,10 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     // 动画工作台 invisible host is plate chrome — never steal picks from nested
     // Lottie / shape children underneath the full-bleed plate.
     if (isAnimationFrameHostNode(node, doc)) {
+      continue;
+    }
+    // Full-bleed image/rect backgrounds must not block picks of content underneath.
+    if (frameForFullBleedPlate(doc, id)) {
       continue;
     }
     // Hidden / preview-only / playhead trim — not pickable.
