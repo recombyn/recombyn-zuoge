@@ -39,6 +39,7 @@ def test_seedream_rewrites_localhost_to_vision_public_base(monkeypatch):
 
 def test_seedream_localhost_inlined_when_no_public_base(monkeypatch):
     from app.services.vision.providers import seedream as mod
+    from app.services.vision import rehost as rehost_mod
 
     png = base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -52,7 +53,7 @@ def test_seedream_localhost_inlined_when_no_public_base(monkeypatch):
         "http://localhost:9000/recombyn",
     )
     monkeypatch.setattr("app.core.config.settings.vision_public_base_url", "")
-    monkeypatch.setattr(mod, "_download", fake_download)
+    monkeypatch.setattr(rehost_mod, "_download_image_bytes", fake_download)
     out = asyncio.run(
         mod._ensure_image_ref(
             "http://localhost:9000/recombyn/uploads/x.png",
@@ -61,6 +62,31 @@ def test_seedream_localhost_inlined_when_no_public_base(monkeypatch):
     )
     assert out.startswith("data:image/png;base64,")
     assert base64.b64decode(out.split(",", 1)[1]) == png
+
+
+def test_llm_refs_inline_localhost_like_seedream(monkeypatch):
+    from app.services.vision import rehost as rehost_mod
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+
+    async def fake_download(_url: str) -> bytes:
+        return png
+
+    monkeypatch.setattr(
+        "app.core.config.settings.s3_public_base_url",
+        "http://localhost:9000/recombyn",
+    )
+    monkeypatch.setattr("app.core.config.settings.vision_public_base_url", "")
+    monkeypatch.setattr(rehost_mod, "_download_image_bytes", fake_download)
+    out = asyncio.run(
+        rehost_mod.ensure_remote_fetchable_image_refs(
+            ["http://localhost:9000/recombyn/uploads/x.png"]
+        )
+    )
+    assert len(out) == 1
+    assert out[0].startswith("data:image/png;base64,")
 
 
 def test_wavespeed_localhost_inlined_when_rehost_still_private(monkeypatch):

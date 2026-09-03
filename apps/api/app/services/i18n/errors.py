@@ -211,6 +211,20 @@ def localize_run_error(
     if "structured_output_failed" in low or "decide_structured" in low:
         return rule_msg("error.structured_output_failed", "structured_output_failed")
     if "vision_chat_failed" in low:
+        if (
+            "too small" in low
+            or "minimum allowed dimension" in low
+            or "dimensions are too small" in low
+        ):
+            return rule_msg("error.vision_image_too_small", "vision_image_too_small")
+        if (
+            "error while downloading" in low
+            or "connection refused" in low
+            or "dial tcp" in low
+        ):
+            return rule_msg(
+                "error.vision_image_unreachable", "vision_image_unreachable"
+            )
         return rule_msg("error.vision_chat_failed", "vision_chat_failed")
     if "review_agent_llm_failed" in low or "review_lanes_unavailable" in low:
         return rule_msg("error.review_failed", "review_failed")

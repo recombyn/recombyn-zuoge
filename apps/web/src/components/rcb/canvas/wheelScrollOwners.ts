@@ -65,7 +65,7 @@ export function textFrameBlocksBrowserZoom(target: Element | null, e: WheelEvent
 
 /** Scrollable panels/menus that own wheel — composer / text-frame handled separately. */
 export const RCB_WHEEL_SCROLL_OWNERS =
-  '[data-image-tool-panel],[data-color-panel],[data-select-dropdown],[data-account-settings],[role="dialog"],[data-headlessui-portal]';
+  '[data-image-tool-panel],[data-product-scene-toolbar],[data-color-panel],[data-select-dropdown],[data-account-settings],[role="dialog"],[data-headlessui-portal]';
 
 export function wheelShouldStayLocal(target: Element | null, e: WheelEvent): boolean {
   if (composerConsumesWheel(target, e)) return true;

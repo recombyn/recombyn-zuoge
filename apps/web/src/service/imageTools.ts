@@ -216,6 +216,18 @@ export async function createImageProcessJob(
   return created.job_id;
 }
 
+/** GET /api/v1/image/process/jobs/{id} — status snapshot (SSE fallback). */
+export async function getImageProcessJob(
+  jobId: string,
+  opts?: { signal?: AbortSignal }
+): Promise<ImageProcessJobState> {
+  return request<ImageProcessJobState>({
+    url: `/api/v1/image/process/jobs/${encodeURIComponent(jobId)}`,
+    method: 'get',
+    signal: abortAfter(30_000, opts?.signal),
+  });
+}
+
 function handleImageProcessJobPayload(
   job: ImageProcessJobState,
   queuedSince: { at: number | null },
@@ -245,6 +257,16 @@ function handleImageProcessJobPayload(
   return 'pending';
 }
 
+async function resolveImageProcessJobFromStore(
+  jobId: string,
+  queuedSince: { at: number | null },
+  report: (pct: number) => void,
+  signal?: AbortSignal
+): Promise<ImageProcessResult | 'pending'> {
+  const job = await getImageProcessJob(jobId, { signal });
+  return handleImageProcessJobPayload(job, queuedSince, report);
+}
+
 /** Wait for toolbar image job via SSE (progress + result). */
 export async function waitForImageProcessJob(
   jobId: string,
@@ -262,52 +284,92 @@ export async function waitForImageProcessJob(
       fn();
     };
 
-    void sse({
-      url: `/api/v1/image/process/jobs/${encodeURIComponent(jobId)}/events`,
-      method: 'GET',
-      signal: abortAfter(IMAGE_PROCESS_JOB_TIMEOUT_MS, opts?.signal),
-      onmessage: (ev) => {
-        if (opts?.signal?.aborted) {
-          finish(() => reject(new DOMException('Aborted', 'AbortError')));
+    async function recoverAfterSseBreak(fallbackErr: Error) {
+      if (settled) return;
+      if (opts?.signal?.aborted) {
+        finish(() => reject(new DOMException('Aborted', 'AbortError')));
+        return;
+      }
+      try {
+        const outcome = await resolveImageProcessJobFromStore(
+          jobId,
+          queuedSince,
+          report,
+          opts?.signal
+        );
+        if (outcome !== 'pending') {
+          finish(() => resolve(outcome));
           return;
         }
-        if (Date.now() > deadline) {
-          finish(() => reject(new Error(IMAGE_PROCESS_TIMEOUT_MSG)));
-          return;
-        }
-        if (ev.event === 'error') {
-          let detail = 'Job not found';
-          try {
-            detail = String(JSON.parse(ev.data)?.error || detail);
-          } catch {
-            /* ignore */
-          }
-          finish(() => reject(new Error(detail)));
-          return;
-        }
-        let job: ImageProcessJobState;
-        try {
-          job = JSON.parse(ev.data) as ImageProcessJobState;
-        } catch {
-          finish(() => reject(new Error('Invalid image process job event payload')));
-          return;
-        }
-        try {
-          const outcome = handleImageProcessJobPayload(job, queuedSince, report);
-          if (outcome !== 'pending') finish(() => resolve(outcome));
-        } catch (err) {
-          finish(() => reject(err instanceof Error ? err : new Error(String(err))));
-        }
-      },
-      onerror: (err) => {
-        finish(() => reject(err));
-      },
-      onclose: () => {
-        if (!settled) {
-          finish(() => reject(new Error(IMAGE_PROCESS_TIMEOUT_MSG)));
-        }
-      },
-    });
+      } catch (err) {
+        finish(() =>
+          reject(err instanceof Error ? err : new Error(String(err)))
+        );
+        return;
+      }
+      finish(() => reject(fallbackErr));
+    }
+
+    async function runSse() {
+      try {
+        await sse({
+          url: `/api/v1/image/process/jobs/${encodeURIComponent(jobId)}/events`,
+          method: 'GET',
+          signal: abortAfter(IMAGE_PROCESS_JOB_TIMEOUT_MS, opts?.signal),
+          onmessage: (ev) => {
+            if (opts?.signal?.aborted) {
+              finish(() => reject(new DOMException('Aborted', 'AbortError')));
+              return;
+            }
+            if (Date.now() > deadline) {
+              finish(() => reject(new Error(IMAGE_PROCESS_TIMEOUT_MSG)));
+              return;
+            }
+            if (ev.event === 'error') {
+              let detail = 'Job not found';
+              try {
+                detail = String(JSON.parse(ev.data)?.error || detail);
+              } catch {
+                /* ignore */
+              }
+              finish(() => reject(new Error(detail)));
+              return;
+            }
+            let job: ImageProcessJobState;
+            try {
+              job = JSON.parse(ev.data) as ImageProcessJobState;
+            } catch {
+              finish(() => reject(new Error('Invalid image process job event payload')));
+              return;
+            }
+            try {
+              const outcome = handleImageProcessJobPayload(job, queuedSince, report);
+              if (outcome !== 'pending') finish(() => resolve(outcome));
+            } catch (err) {
+              finish(() =>
+                reject(err instanceof Error ? err : new Error(String(err)))
+              );
+            }
+          },
+          onerror: (err) => {
+            recoverAfterSseBreak(
+              err instanceof Error ? err : new Error(String(err))
+            );
+          },
+          onclose: () => {
+            if (!settled) {
+              recoverAfterSseBreak(new Error(IMAGE_PROCESS_TIMEOUT_MSG));
+            }
+          },
+        });
+      } catch (err) {
+        if (settled) return;
+        recoverAfterSseBreak(
+          err instanceof Error ? err : new Error(String(err))
+        );
+      }
+    }
+    runSse();
   });
 }
 

@@ -49,8 +49,8 @@ def test_smart_erase_selected_area(monkeypatch):
     monkeypatch.setattr("app.services.vision.smart_erase.mediakit_enabled", lambda: True)
     png = _rgb_png_bytes()
 
-    async def fake_erase(image, *, meta=None, resolved_url=None, mask_bytes=None):
-        assert meta["standard_scene"] == "selected_area_erase"
+    async def fake_erase(image, *, meta=None, mask_bytes=None):
+        assert meta["standardScene"] == "selected_area_erase"
         assert mask_bytes and len(mask_bytes) > 8
         return {
             "image_bytes": png,
@@ -65,8 +65,8 @@ def test_smart_erase_selected_area(monkeypatch):
 
     monkeypatch.setattr("app.services.vision.smart_erase.erase_image", fake_erase)
     monkeypatch.setattr(
-        "app.services.vision.smart_erase.rehost_image_bytes",
-        lambda _uid, data, **kwargs: "https://cdn.example/eraser.png",
+        "app.services.vision.smart_erase.encode_or_rehost_image",
+        lambda data, **kwargs: "https://cdn.example/eraser.png",
     )
     result = asyncio.run(
         smart_erase(
@@ -81,22 +81,42 @@ def test_smart_erase_selected_area(monkeypatch):
     assert result["image"] == "https://cdn.example/eraser.png"
 
 
+def test_mediakit_target_size_snaps_odd_dims():
+    # User failure: 1097x1463 → MediaKit 800012 resolution not supported.
+    tw, th = mk.mediakit_target_size(1097, 1463)
+    assert tw % 8 == 0 and th % 8 == 0
+    assert tw == 1096 and th == 1464
+
+
+def test_fit_raster_for_mediakit_odd_png():
+    buf = io.BytesIO()
+    Image.new("RGB", (1097, 1463), color=(1, 2, 3)).save(buf, format="PNG")
+    fitted, orig, out = mk.fit_raster_for_mediakit(buf.getvalue())
+    assert orig == (1097, 1463)
+    assert out == (1096, 1464)
+    img = Image.open(io.BytesIO(fitted))
+    assert img.size == (1096, 1464)
+
+
 def test_erase_image_selected_area_uploads_mask(monkeypatch):
     monkeypatch.setattr(mk.settings, "mediakit_api_key", "amk-test-key")
     monkeypatch.setattr(mk.settings, "mediakit_base_url", "https://mediakit.test")
     png = _rgb_png_bytes()
     mask = mask_to_mediakit_bw_png(base64.b64decode(_mask_data_url().split(",", 1)[1]))
     bodies: list[bytes] = []
+    uploads = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal uploads
         path = request.url.path
         if path.endswith("/request-media-upload-url"):
+            uploads += 1
             return httpx.Response(
                 200,
                 json={
                     "success": True,
                     "result": {
-                        "file_id": "mediakit://up-1",
+                        "file_id": f"mediakit://up-{uploads}",
                         "method": "PUT",
                         "upload_url": "https://upload.test/put",
                         "upload_headers": [],
@@ -135,10 +155,12 @@ def test_erase_image_selected_area_uploads_mask(monkeypatch):
     out = asyncio.run(
         mk.erase_image(
             data_url,
-            meta={"standard_scene": "selected_area_erase", "output_format": "png"},
+            meta={"standardScene": "selected_area_erase", "outputFormat": "png"},
             mask_bytes=mask,
         )
     )
     assert out["width"] == 8
+    assert out["height"] == 8
     assert out["scene"] == "selected_area_erase"
     assert any(b"selected_area_erase" in b and b"mask_url" in b for b in bodies)
+    assert uploads >= 2  # source + mask

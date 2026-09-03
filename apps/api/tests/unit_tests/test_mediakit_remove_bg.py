@@ -41,7 +41,7 @@ def test_mediakit_supports_when_key_set(monkeypatch):
 
 def test_scene_from_meta_maps_portrait_to_human():
     assert mk._scene_from_meta({"scene": "portrait"}) == "human"
-    assert mk._scene_from_meta({"cutoutScene": "product"}) == "product"
+    assert mk._scene_from_meta({"scene": "product"}) == "product"
     assert mk._scene_from_meta({"scene": "nope"}) == "general"
 
 

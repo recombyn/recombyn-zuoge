@@ -9,7 +9,7 @@ from typing import Any
 from PIL import Image
 
 from app.services.vision.mediakit_client import enhance_image, mediakit_enabled
-from app.services.vision.rehost import rehost_image_bytes
+from app.services.vision.rehost import encode_or_rehost_image, raster_filename_and_type
 
 logger = logging.getLogger(__name__)
 
@@ -48,25 +48,21 @@ async def upscale_image(
     height = int(out.get("height") or img.height)
     fmt = str(out.get("format") or "png").lower()
     version = str(out.get("tool_version") or "professional")
+    filename, content_type = raster_filename_and_type(fmt, stem="upscale")
 
     if user_id:
-        filename = "upscale.png" if fmt == "png" else "upscale.jpg"
-        content_type = "image/png" if fmt == "png" else "image/jpeg"
-        image_out = rehost_image_bytes(
-            user_id, raw, filename=filename, content_type=content_type
-        )
+        payload = raw
     else:
         buf = io.BytesIO()
-        if fmt == "png":
+        if content_type == "image/png":
             img.convert("RGBA" if "A" in img.getbands() else "RGB").save(buf, format="PNG")
-            ctype = "image/png"
         else:
             img.convert("RGB").save(buf, format="JPEG", quality=92)
-            ctype = "image/jpeg"
-        import base64
+        payload = buf.getvalue()
 
-        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-        image_out = f"data:{ctype};base64,{b64}"
+    image_out = encode_or_rehost_image(
+        payload, user_id=user_id, filename=filename, content_type=content_type
+    )
 
     return {
         "image": image_out,

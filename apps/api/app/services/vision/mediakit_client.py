@@ -14,14 +14,17 @@ Product scene: POST /api/v1/tools-sync/generate-product-scene-image
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import re
 from typing import Any
 from urllib.parse import unquote, urlparse
 
 import httpx
+from PIL import Image
 
 from app.core.config import settings
+from app.services.vision.rehost import is_public_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -233,10 +236,95 @@ async def _load_image_bytes(image_ref: str) -> tuple[bytes, str]:
     raise ValueError("unsupported image reference")
 
 
-def _is_public_http_url(ref: str) -> bool:
-    from app.services.vision.rehost import is_public_http_url
+_MEDIAKIT_ALIGN_PX = 8
+_MEDIAKIT_MAX_SIDE = 4096
+_MEDIAKIT_MIN_SIDE = 64
 
-    return is_public_http_url(ref)
+
+def _align_mediakit_dim(n: int, *, align: int = _MEDIAKIT_ALIGN_PX) -> int:
+    size = max(1, int(n))
+    rounded = int(round(size / float(align)) * align)
+    return max(align, rounded)
+
+
+def mediakit_target_size(
+    width: int,
+    height: int,
+    *,
+    align: int = _MEDIAKIT_ALIGN_PX,
+    max_side: int = _MEDIAKIT_MAX_SIDE,
+    min_side: int = _MEDIAKIT_MIN_SIDE,
+) -> tuple[int, int]:
+    """
+    MediaKit erase/remove-bg reject odd / non-aligned sizes (errcode 800012).
+
+    Fit into [min_side, max_side] and snap both edges to ``align`` multiples.
+    """
+    w = max(1, int(width))
+    h = max(1, int(height))
+    long_side = max(w, h)
+    scale = 1.0
+    if long_side > max_side:
+        scale = min(scale, max_side / float(long_side))
+    short_side = min(w, h)
+    if short_side * scale < min_side:
+        scale = max(scale, min_side / float(short_side))
+    tw = _align_mediakit_dim(max(1, round(w * scale)), align=align)
+    th = _align_mediakit_dim(max(1, round(h * scale)), align=align)
+    tw = min(max(align, tw), _align_mediakit_dim(max_side, align=align))
+    th = min(max(align, th), _align_mediakit_dim(max_side, align=align))
+    return tw, th
+
+
+def fit_raster_for_mediakit(
+    data: bytes,
+    *,
+    align: int = _MEDIAKIT_ALIGN_PX,
+    max_side: int = _MEDIAKIT_MAX_SIDE,
+    min_side: int = _MEDIAKIT_MIN_SIDE,
+    nearest: bool = False,
+    target: tuple[int, int] | None = None,
+) -> tuple[bytes, tuple[int, int], tuple[int, int]]:
+    """
+    Return ``(png_bytes, (orig_w, orig_h), (out_w, out_h))``.
+
+    ``nearest=True`` for masks so brush edges stay crisp.
+    """
+    img = Image.open(io.BytesIO(data))
+    orig = (int(img.width), int(img.height))
+    if target is not None:
+        out_w, out_h = int(target[0]), int(target[1])
+    else:
+        out_w, out_h = mediakit_target_size(
+            orig[0], orig[1], align=align, max_side=max_side, min_side=min_side
+        )
+    if (out_w, out_h) == orig and img.format == "PNG":
+        return data, orig, orig
+    if (out_w, out_h) != orig:
+        resample = Image.Resampling.NEAREST if nearest else Image.Resampling.LANCZOS
+        img = img.resize((out_w, out_h), resample)
+    return _image_to_png_bytes(img), orig, (out_w, out_h)
+
+
+def _image_to_png_bytes(img: Image.Image) -> bytes:
+    if img.mode not in ("RGB", "RGBA"):
+        if "A" in img.getbands():
+            img = img.convert("RGBA")
+        else:
+            img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _restore_raster_size(data: bytes, size: tuple[int, int]) -> bytes:
+    w, h = int(size[0]), int(size[1])
+    if w < 1 or h < 1:
+        return data
+    img = Image.open(io.BytesIO(data))
+    if img.size == (w, h):
+        return data
+    return _image_to_png_bytes(img.resize((w, h), Image.Resampling.LANCZOS))
 
 
 def _parse_upload_headers(raw: Any) -> dict[str, str]:
@@ -331,7 +419,7 @@ async def _resolve_image_url_for_tool(
     ref = (image_ref or "").strip()
     if ref.startswith(("mediakit://", "tos://", "vod://")):
         return ref
-    if _is_public_http_url(ref) and not _object_key_from_image_ref(ref):
+    if is_public_http_url(ref) and not _object_key_from_image_ref(ref):
         # Public CDN URL MediaKit can fetch directly.
         return ref
 
@@ -361,7 +449,7 @@ def _parse_json_response(resp: httpx.Response) -> dict[str, Any]:
 
 def _scene_from_meta(meta: dict[str, Any] | None) -> str:
     m = meta or {}
-    raw = str(m.get("scene") or m.get("cutoutScene") or "general").strip().lower()
+    raw = str(m.get("scene") or "general").strip().lower()
     if raw == "portrait":
         raw = "human"
     if raw not in _SCENES:
@@ -370,7 +458,7 @@ def _scene_from_meta(meta: dict[str, Any] | None) -> str:
 
 
 def _output_format_from_meta(meta: dict[str, Any] | None) -> str:
-    raw = str((meta or {}).get("outputFormat") or (meta or {}).get("output_format") or "png")
+    raw = str((meta or {}).get("outputFormat") or "png")
     raw = raw.strip().lower()
     if raw not in _OUTPUT_FORMATS:
         return "png"
@@ -411,16 +499,16 @@ async def remove_image_background(
         "scene": scene,
         "output_format": _output_format_from_meta(m),
     }
-    need_contour = _optional_bool(m, "needContour", "need_contour")
+    need_contour = _optional_bool(m, "needContour")
     if need_contour is not None:
         body["need_contour"] = need_contour
-    need_crop = _optional_bool(m, "needCropBackground", "need_crop_background")
+    need_crop = _optional_bool(m, "needCropBackground")
     if need_crop is not None:
         body["need_crop_background"] = need_crop
-    contour_color = str(m.get("contourColor") or m.get("contour_color") or "").strip()
+    contour_color = str(m.get("contourColor") or "").strip()
     if contour_color:
         body["contour_color"] = contour_color
-    contour_size = m.get("contourSize", m.get("contour_size"))
+    contour_size = m.get("contourSize")
     if contour_size is not None:
         try:
             body["contour_size"] = max(1, min(100, int(contour_size)))
@@ -495,10 +583,10 @@ def expand_ratios_from_meta(meta: dict[str, Any] | None) -> tuple[float, float, 
     """
     m = meta or {}
     direct = (
-        _meta_float(m, "expandLeft", "expand_left"),
-        _meta_float(m, "expandRight", "expand_right"),
-        _meta_float(m, "expandTop", "expand_top"),
-        _meta_float(m, "expandBottom", "expand_bottom"),
+        _meta_float(m, "expandLeft"),
+        _meta_float(m, "expandRight"),
+        _meta_float(m, "expandTop"),
+        _meta_float(m, "expandBottom"),
     )
     if any(v is not None for v in direct):
         return (
@@ -508,12 +596,12 @@ def expand_ratios_from_meta(meta: dict[str, Any] | None) -> tuple[float, float, 
             max(0.0, float(direct[3] or 0.0)),
         )
 
-    pad_l = max(0, _meta_int(m, "padLeft", "pad_left"))
-    pad_r = max(0, _meta_int(m, "padRight", "pad_right"))
-    pad_t = max(0, _meta_int(m, "padTop", "pad_top"))
-    pad_b = max(0, _meta_int(m, "padBottom", "pad_bottom"))
-    tw = _meta_int(m, "targetWidth", "target_width", default=0)
-    th = _meta_int(m, "targetHeight", "target_height", default=0)
+    pad_l = max(0, _meta_int(m, "padLeft"))
+    pad_r = max(0, _meta_int(m, "padRight"))
+    pad_t = max(0, _meta_int(m, "padTop"))
+    pad_b = max(0, _meta_int(m, "padBottom"))
+    tw = _meta_int(m, "targetWidth", default=0)
+    th = _meta_int(m, "targetHeight", default=0)
     ow = tw - pad_l - pad_r if tw > 0 else 0
     oh = th - pad_t - pad_b if th > 0 else 0
     if ow > 0 and oh > 0 and (pad_l or pad_r or pad_t or pad_b):
@@ -698,14 +786,14 @@ async def image_ocr(
     """
     _require_enabled()
     m = meta or {}
-    tool_version = str(m.get("toolVersion") or m.get("tool_version") or "max").strip().lower()
+    tool_version = str(m.get("toolVersion") or "max").strip().lower()
     if tool_version not in {"standard", "max"}:
         tool_version = "max"
     body: dict[str, Any] = {"tool_version": tool_version}
-    task_type = str(m.get("taskType") or m.get("task_type") or "").strip().lower()
+    task_type = str(m.get("taskType") or "").strip().lower()
     if task_type:
         body["task_type"] = task_type
-    keywords = m.get("maxKeywords") if "maxKeywords" in m else m.get("max_keywords")
+    keywords = m.get("maxKeywords")
     if isinstance(keywords, list) and keywords:
         body["max_keywords"] = [str(k).strip() for k in keywords if str(k).strip()]
 
@@ -753,12 +841,116 @@ _ERASE_SCENES = frozenset(
     }
 )
 
+_SELECTED_AREA_KEYS = (
+    ("top_left_x", "top_left_x"),
+    ("topLeftX", "top_left_x"),
+    ("top_left_y", "top_left_y"),
+    ("topLeftY", "top_left_y"),
+    ("bottom_right_x", "bottom_right_x"),
+    ("bottomRightX", "bottom_right_x"),
+    ("bottom_right_y", "bottom_right_y"),
+    ("bottomRightY", "bottom_right_y"),
+)
+
+
+def _erase_scene(meta: dict[str, Any]) -> str:
+    scene = str(meta.get("standardScene") or "full_screen_text_erase").strip()
+    if scene in _ERASE_SCENES:
+        return scene
+    return "full_screen_text_erase"
+
+
+def _selected_area_from_meta(meta: dict[str, Any]) -> dict[str, float] | None:
+    raw = meta.get("selectedArea")
+    if not isinstance(raw, dict):
+        return None
+    area: dict[str, float] = {}
+    for src_key, dst_key in _SELECTED_AREA_KEYS:
+        if src_key not in raw:
+            continue
+        try:
+            area[dst_key] = float(raw[src_key])
+        except (TypeError, ValueError):
+            continue
+    if len(area) != 4:
+        return None
+    return area
+
+
+def _scale_selected_area(
+    area: dict[str, float],
+    *,
+    orig_size: tuple[int, int],
+    fitted_size: tuple[int, int],
+) -> dict[str, float]:
+    if fitted_size == orig_size or orig_size[0] < 1 or orig_size[1] < 1:
+        return area
+    sx = fitted_size[0] / float(orig_size[0])
+    sy = fitted_size[1] / float(orig_size[1])
+    return {
+        "top_left_x": float(area["top_left_x"]) * sx,
+        "top_left_y": float(area["top_left_y"]) * sy,
+        "bottom_right_x": float(area["bottom_right_x"]) * sx,
+        "bottom_right_y": float(area["bottom_right_y"]) * sy,
+    }
+
+
+def _build_erase_body(meta: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
+    tool_version = str(meta.get("toolVersion") or "standard").strip().lower()
+    if tool_version != "standard":
+        tool_version = "standard"
+    scene = _erase_scene(meta)
+    output_format = str(meta.get("outputFormat") or "png").strip().lower()
+    if output_format not in _OUTPUT_FORMATS:
+        output_format = "png"
+
+    body: dict[str, Any] = {
+        "tool_version": tool_version,
+        "standard_scene": scene,
+        "output_format": output_format,
+    }
+    erase_text = str(meta.get("standardEraseText") or "").strip()
+    if erase_text and scene == "full_screen_text_erase":
+        body["standard_erase_text"] = erase_text
+    if scene == "selected_area_erase":
+        area = _selected_area_from_meta(meta)
+        if area is not None:
+            body["selected_area"] = area
+    return body, scene, output_format
+
+
+async def _attach_erase_mask(
+    client: httpx.AsyncClient,
+    body: dict[str, Any],
+    *,
+    scene: str,
+    meta: dict[str, Any],
+    mask_bytes: bytes | None,
+    fitted_size: tuple[int, int],
+) -> None:
+    if scene != "selected_area_erase":
+        return
+    mask_url = str(meta.get("maskUrl") or "").strip()
+    if mask_bytes:
+        mask_fitted, _, _ = fit_raster_for_mediakit(
+            mask_bytes, nearest=True, target=fitted_size
+        )
+        mask_url = await _upload_bytes_as_mediakit_uri(
+            client,
+            mask_fitted,
+            filename="erase-mask.png",
+            tool_name=_ERASE_TOOL,
+        )
+    if mask_url:
+        body["mask_url"] = mask_url
+    if "mask_url" not in body and "selected_area" not in body:
+        raise ValueError("selected_area_erase requires mask_url or selected_area")
+
 
 async def erase_image(
     image_ref: str,
     *,
     meta: dict[str, Any] | None = None,
-    resolved_url: str | None = None,
     mask_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     """
@@ -772,67 +964,29 @@ async def erase_image(
     """
     _require_enabled()
     m = meta or {}
-    tool_version = str(m.get("toolVersion") or m.get("tool_version") or "standard").strip().lower()
-    if tool_version not in {"standard"}:
-        tool_version = "standard"
-    scene = str(
-        m.get("standardScene") or m.get("standard_scene") or "full_screen_text_erase"
-    ).strip()
-    if scene not in _ERASE_SCENES:
-        scene = "full_screen_text_erase"
-    output_format = str(m.get("outputFormat") or m.get("output_format") or "png").strip().lower()
-    if output_format not in _OUTPUT_FORMATS:
-        output_format = "png"
-
-    body: dict[str, Any] = {
-        "tool_version": tool_version,
-        "standard_scene": scene,
-        "output_format": output_format,
-    }
-    erase_text = str(m.get("standardEraseText") or m.get("standard_erase_text") or "").strip()
-    if erase_text and scene == "full_screen_text_erase":
-        body["standard_erase_text"] = erase_text
-
-    selected_area = m.get("selectedArea") if "selectedArea" in m else m.get("selected_area")
-    if isinstance(selected_area, dict) and scene == "selected_area_erase":
-        area: dict[str, float] = {}
-        for src_key, dst_key in (
-            ("top_left_x", "top_left_x"),
-            ("topLeftX", "top_left_x"),
-            ("top_left_y", "top_left_y"),
-            ("topLeftY", "top_left_y"),
-            ("bottom_right_x", "bottom_right_x"),
-            ("bottomRightX", "bottom_right_x"),
-            ("bottom_right_y", "bottom_right_y"),
-            ("bottomRightY", "bottom_right_y"),
-        ):
-            if src_key not in selected_area:
-                continue
-            try:
-                area[dst_key] = float(selected_area[src_key])
-            except (TypeError, ValueError):
-                continue
-        if len(area) == 4:
-            body["selected_area"] = area
+    body, scene, output_format = _build_erase_body(m)
+    tool_version = str(body["tool_version"])
 
     async with httpx.AsyncClient(timeout=_timeout()) as client:
-        body["image_url"] = resolved_url or await _resolve_image_url_for_tool(
-            client, image_ref, tool_name=_ERASE_TOOL
+        src_bytes, _src_name = await _load_image_bytes(image_ref)
+        fitted, orig_size, fitted_size = fit_raster_for_mediakit(src_bytes)
+        body["image_url"] = await _upload_bytes_as_mediakit_uri(
+            client, fitted, filename="erase.png", tool_name=_ERASE_TOOL
         )
-
-        mask_url = str(m.get("maskUrl") or m.get("mask_url") or "").strip()
-        if mask_bytes and scene == "selected_area_erase":
-            mask_url = await _upload_bytes_as_mediakit_uri(
-                client,
-                mask_bytes,
-                filename="erase-mask.png",
-                tool_name=_ERASE_TOOL,
+        await _attach_erase_mask(
+            client,
+            body,
+            scene=scene,
+            meta=m,
+            mask_bytes=mask_bytes,
+            fitted_size=fitted_size,
+        )
+        if "selected_area" in body:
+            body["selected_area"] = _scale_selected_area(
+                body["selected_area"],
+                orig_size=orig_size,
+                fitted_size=fitted_size,
             )
-        if mask_url and scene == "selected_area_erase":
-            body["mask_url"] = mask_url
-
-        if scene == "selected_area_erase" and "mask_url" not in body and "selected_area" not in body:
-            raise ValueError("selected_area_erase requires mask_url or selected_area")
 
         resp = await client.post(
             f"{_base_url()}/api/v1/tools-sync/erase-image",
@@ -850,16 +1004,19 @@ async def erase_image(
         if dl.status_code >= 400:
             raise RuntimeError(f"failed to download MediaKit erase ({dl.status_code})")
         raw = dl.content
+        if fitted_size != orig_size:
+            raw = _restore_raster_size(raw, orig_size)
 
     return {
         "image_bytes": raw,
         "image_url": out_url,
-        "width": int(result.get("image_width") or 0) or None,
-        "height": int(result.get("image_height") or 0) or None,
-        "format": str(result.get("image_format") or output_format).strip().lower(),
+        "width": orig_size[0],
+        "height": orig_size[1],
+        "format": output_format,
         "task_id": str(payload.get("task_id") or "").strip() or None,
         "request_id": str(payload.get("request_id") or "").strip() or None,
         "scene": scene,
+        "tool_version": tool_version,
     }
 
 
@@ -872,26 +1029,24 @@ def enhance_params_from_meta(
     m = meta or {}
     body: dict[str, Any] = {}
 
-    version = str(m.get("toolVersion") or m.get("tool_version") or "professional").strip().lower()
+    version = str(m.get("toolVersion") or "professional").strip().lower()
     if version not in _ENHANCE_VERSIONS:
         version = "professional"
     body["tool_version"] = version
 
-    mode = str(
-        m.get("generativeEnhanceMode") or m.get("generative_enhance_mode") or ""
-    ).strip().lower()
+    mode = str(m.get("generativeEnhanceMode") or "").strip().lower()
     if not mode and version in {"professional", "max"}:
         mode = "fidelity_first"
     if mode in _ENHANCE_MODES:
         body["generative_enhance_mode"] = mode
 
-    multiple = _meta_float(m, "multiple", "scale")
+    multiple = _meta_float(m, "multiple")
     if multiple is not None and multiple >= 1:
         body["multiple"] = round(float(multiple), 2)
         return body
 
-    tw = _meta_int(m, "targetWidth", "target_width", default=0)
-    th = _meta_int(m, "targetHeight", "target_height", default=0)
+    tw = _meta_int(m, "targetWidth", default=0)
+    th = _meta_int(m, "targetHeight", default=0)
     if tw > 0:
         body["target_width"] = tw
     if th > 0:
@@ -992,23 +1147,17 @@ def translate_params_from_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
     m = meta or {}
     body: dict[str, Any] = {}
 
-    version = str(
-        m.get("toolVersion") or m.get("tool_version") or "seed-translation"
-    ).strip().lower()
+    version = str(m.get("toolVersion") or "seed-translation").strip().lower()
     if version not in _TRANSLATE_VERSIONS:
         version = "seed-translation"
     body["tool_version"] = version
 
-    target = _normalize_translate_lang(
-        m.get("targetLang") if "targetLang" in m else m.get("target_lang")
-    )
+    target = _normalize_translate_lang(m.get("targetLang"))
     if not target:
         target = "zh"
     body["target_lang"] = target
 
-    source = _normalize_translate_lang(
-        m.get("sourceLang") if "sourceLang" in m else m.get("source_lang")
-    )
+    source = _normalize_translate_lang(m.get("sourceLang"))
     if source:
         body["source_lang"] = source
     return body
@@ -1074,18 +1223,16 @@ def _clamp_product_dim(raw: Any, default: int = 600) -> int:
 def product_scene_params_from_meta(meta: dict[str, Any] | None) -> dict[str, Any]:
     """Build MediaKit generate-product-scene-image fields from FE meta."""
     m = meta or {}
-    version = str(
-        m.get("toolVersion") or m.get("tool_version") or "standard"
-    ).strip().lower()
+    version = str(m.get("toolVersion") or "standard").strip().lower()
     if version not in _PRODUCT_SCENE_VERSIONS:
         version = "standard"
     body: dict[str, Any] = {"tool_version": version}
 
-    batch = _meta_int(m, "batchCount", "batch_count", default=1)
+    batch = _meta_int(m, "batchCount", default=1)
     body["batch_count"] = max(1, min(4, batch if batch > 0 else 1))
 
-    ow = _meta_int(m, "outputWidth", "output_width", default=0)
-    oh = _meta_int(m, "outputHeight", "output_height", default=0)
+    ow = _meta_int(m, "outputWidth", default=0)
+    oh = _meta_int(m, "outputHeight", default=0)
     if ow > 0:
         body["output_width"] = _clamp_product_dim(ow)
     if oh > 0:
@@ -1094,18 +1241,16 @@ def product_scene_params_from_meta(meta: dict[str, Any] | None) -> dict[str, Any
         body["output_width"] = 600
         body["output_height"] = 600
 
-    prompt = str(m.get("prompt") or m.get("positivePrompt") or "").strip()
+    prompt = str(m.get("prompt") or "").strip()
     if prompt:
         body["prompt"] = prompt
 
-    product_ratio = _meta_float(m, "productRatio", "product_ratio")
+    product_ratio = _meta_float(m, "productRatio")
     if product_ratio is not None:
         body["product_ratio"] = max(0.0, min(1.0, float(product_ratio)))
 
     if version == "standard":
-        scene = str(
-            m.get("standardScene") or m.get("standard_scene") or "exhibit_home"
-        ).strip().lower()
+        scene = str(m.get("standardScene") or "exhibit_home").strip().lower()
         if scene not in _PRODUCT_STANDARD_SCENES:
             scene = "exhibit_home"
         body["standard_scene"] = scene
@@ -1116,42 +1261,23 @@ def product_scene_params_from_meta(meta: dict[str, Any] | None) -> dict[str, Any
     if version == "professional":
         if not prompt:
             raise ValueError("professional product scene requires meta.prompt")
-        ref = str(
-            m.get("professionalReferenceImageUrl")
-            or m.get("professional_reference_image_url")
-            or m.get("referenceImageUrl")
-            or m.get("reference_image_url")
-            or ""
-        ).strip()
+        ref = str(m.get("professionalReferenceImageUrl") or "").strip()
         if not ref:
             raise ValueError(
                 "professional product scene requires meta.professionalReferenceImageUrl"
             )
         body["professional_reference_image_url"] = ref
-        adapt = _meta_float(
-            m,
-            "professionalReferenceImageAdaptScale",
-            "professional_reference_image_adapt_scale",
-            "referenceAdaptScale",
-        )
+        adapt = _meta_float(m, "professionalReferenceImageAdaptScale")
         if adapt is None:
             adapt = 0.9
         body["professional_reference_image_adapt_scale"] = max(0.0, min(1.0, float(adapt)))
         return body
 
     # industry
-    scene_ref = str(
-        m.get("industrySceneImageUrl")
-        or m.get("industry_scene_image_url")
-        or ""
-    ).strip()
+    scene_ref = str(m.get("industrySceneImageUrl") or "").strip()
     if scene_ref:
         body["industry_scene_image_url"] = scene_ref
-    detail_ref = str(
-        m.get("industryDetailImageUrl")
-        or m.get("industry_detail_image_url")
-        or ""
-    ).strip()
+    detail_ref = str(m.get("industryDetailImageUrl") or "").strip()
     if detail_ref:
         body["industry_detail_image_url"] = detail_ref
     return body

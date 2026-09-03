@@ -55,7 +55,7 @@ def test_product_scene_params_professional():
 def test_product_scene_params_professional_requires_ref():
     with pytest.raises(ValueError, match="professionalReferenceImageUrl"):
         mk.product_scene_params_from_meta(
-            {"tool_version": "professional", "prompt": "x"}
+            {"toolVersion": "professional", "prompt": "x"}
         )
 
 
@@ -103,13 +103,12 @@ def test_product_scene_rehosts_batch(monkeypatch):
     )
     calls: list[str] = []
 
-    def fake_rehost(_uid, data, **kwargs):
-        name = str(kwargs.get("filename") or "")
-        calls.append(name)
-        return f"https://cdn.example/{name}"
+    def fake_rehost(data, *, user_id=None, filename="", content_type="image/png"):
+        calls.append(str(filename or ""))
+        return f"https://cdn.example/{filename}"
 
     monkeypatch.setattr(
-        "app.services.vision.product_scene.rehost_image_bytes", fake_rehost
+        "app.services.vision.product_scene.encode_or_rehost_image", fake_rehost
     )
     result = asyncio.run(
         product_scene(

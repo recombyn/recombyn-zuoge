@@ -335,7 +335,7 @@ function MockupPlate({
       }
       clearImageProcess({ nodeId });
     };
-    void (async () => {
+    async function loadKit() {
       try {
         setPlateProcessing(isAutoBakeTemplateId(template.id));
         const next = isAutoBakeTemplateId(template.id)
@@ -360,7 +360,8 @@ function MockupPlate({
       } finally {
         if (!cancelled) setPlateProcessing(false);
       }
-    })();
+    }
+    loadKit();
     return () => {
       cancelled = true;
     };
@@ -549,8 +550,9 @@ function MockupPlate({
           message.warning(t('editor.imageToolbar.mockupKitNotReady'));
           return false;
         }
-        const { width, height } = await loadImageNaturalSize(url);
-        const fit = autoFitMockupPlacement(width, height, fitGuide, 'cover');
+        // Validate the design URL loads before binding placement / UV preview.
+        await loadImageNaturalSize(url);
+        const fit = autoFitMockupPlacement(fitGuide);
         fittedForKitRef.current = [
           activeKit?.templateId,
           activeKit?.fullWidth,
@@ -581,7 +583,14 @@ function MockupPlate({
     setPlacement(defaultMockupPlacement());
     setDesignSelected(false);
     setLivePreviewUrl(null);
-    void previewRef.current?.setDesignSheet(null).catch(() => undefined);
+    async function clearDesignSheet() {
+      try {
+        await previewRef.current?.setDesignSheet(null);
+      } catch {
+        /* ignore */
+      }
+    }
+    clearDesignSheet();
     const baseSrc = String(node?.attrs?.mockupBaseSrc || '').trim();
     patchDocumentNode({
         nodeId,
@@ -609,15 +618,14 @@ function MockupPlate({
       kit.printFull?.w,
       kit.printFull?.h,
     ].join(':');
-    void (async () => {
+    async function refitAndPreview() {
       const pf = kit.printFull;
       const shouldRefit =
         fittedForKitRef.current !== token && pf && pf.w > 0 && pf.h > 0;
       if (shouldRefit) {
         fittedForKitRef.current = token;
         try {
-          const { width, height } = await loadImageNaturalSize(designSrc);
-          const fit = autoFitMockupPlacement(width, height, {
+          const fit = autoFitMockupPlacement({
             templateW: kit.fullWidth,
             templateH: kit.fullHeight,
             x: pf.x,
@@ -634,8 +642,9 @@ function MockupPlate({
           console.warn('[mockup] refit', err);
         }
       }
-      void refreshLivePreview(placementRef.current, designSrc);
-    })();
+      refreshLivePreview(placementRef.current, designSrc);
+    }
+    refitAndPreview();
   }, [kit, designSrc, persistPlacement, refreshLivePreview]);
 
   // Kit became ready with a queued drop — attach now.
@@ -643,7 +652,7 @@ function MockupPlate({
     const pending = pendingDesignRef.current;
     if (!pending?.url || !kit || !previewRef.current) return;
     pendingDesignRef.current = null;
-    void (async () => {
+    async function attachPendingDesign() {
       const ok = await assignDesignSrc(pending.url, false, {
         removeId: pending.removeId,
       });
@@ -651,7 +660,8 @@ function MockupPlate({
         removeDocumentNodes({ nodeIds: [pending.removeId] });
         setSelectedNodeId(nodeId);
       }
-    })();
+    }
+    attachPendingDesign();
   }, [assignDesignSrc, kit, nodeId]);
 
   /** Canvas node drag → drop onto this mockup plate. */
@@ -693,7 +703,7 @@ function MockupPlate({
         (kitRef.current?.fullHeight || template.height);
 
       absorbLockRef.current = true;
-      void (async () => {
+      async function absorbDesign() {
         try {
           const ok = await assignDesignSrc(src, false, {
             hitX,
@@ -711,7 +721,8 @@ function MockupPlate({
             absorbLockRef.current = false;
           }, 400);
         }
-      })();
+      }
+      absorbDesign();
     };
     const onUp = () => {
       const gesture = pointerGestureRef.current;
@@ -746,7 +757,7 @@ function MockupPlate({
       const wait = Number.isFinite(delay) ? Math.max(0, delay) : 600;
       const seq = ++applySeqRef.current;
       bakeTimerRef.current = window.setTimeout(() => {
-        void (async () => {
+        async function bakeComposite() {
           try {
             if (!previewRef.current?.hasDesignBound()) return;
             if (designSelectedRef.current) return;
@@ -770,7 +781,8 @@ function MockupPlate({
           } catch (err) {
             console.warn('[mockup] auto apply', err);
           }
-        })();
+        }
+        bakeComposite();
       }, wait);
     };
     window.addEventListener(RCB_MOCKUP_BAKE_COMPOSITE, onBake);
@@ -824,7 +836,9 @@ function MockupPlate({
     (files: FileList | null) => {
       const file = files?.[0];
       if (!file) return;
-      readImageFile(file, (url) => void assignDesignSrc(url, false));
+      readImageFile(file, (url) => {
+        assignDesignSrc(url, false);
+      });
     },
     [assignDesignSrc]
   );
@@ -889,7 +903,7 @@ function MockupPlate({
       e.preventDefault();
       const droppedUrl = resolveDropSrc(e.dataTransfer);
       if (droppedUrl) {
-        void assignDesignSrc(droppedUrl, false);
+        assignDesignSrc(droppedUrl, false);
         return;
       }
       onFiles(e.dataTransfer?.files || null);
@@ -929,7 +943,7 @@ function MockupPlate({
       setPlacement(next);
       if (designSrc) {
         persistPlacement(next, designSrc);
-        void refreshLivePreview(next, designSrc);
+        refreshLivePreview(next, designSrc);
       }
     },
     [designSrc, persistPlacement, refreshLivePreview]
@@ -944,7 +958,7 @@ function MockupPlate({
         liveRafRef.current = 0;
         const p = pendingLiveRef.current;
         const src = designSrcRef.current;
-        if (p && src) void refreshLivePreview(p, src);
+        if (p && src) refreshLivePreview(p, src);
       });
     },
     [designSrc, refreshLivePreview]

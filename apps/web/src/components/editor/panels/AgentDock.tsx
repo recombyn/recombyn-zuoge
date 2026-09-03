@@ -423,23 +423,39 @@ function resolveUserContentMarked(opts: {
   return undefined;
 }
 
+/** True when a remote vision API cannot fetch this URL (loopback / LAN / relative). */
+function visionUrlNeedsInline(src: string): boolean {
+  const s = String(src || '').trim();
+  if (!s) return false;
+  if (s.startsWith('data:image/')) return false;
+  if (s.startsWith('/') || s.startsWith('blob:')) return true;
+  if (s.includes('/api/v1/uploads/')) return true;
+  try {
+    const u = new URL(s, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    const host = (u.hostname || '').toLowerCase();
+    if (!host || host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') {
+      return true;
+    }
+    if (host.endsWith('.local') || host.endsWith('.internal')) return true;
+    if (host.startsWith('10.') || host.startsWith('192.168.')) return true;
+    if (host.startsWith('172.')) {
+      const second = Number(host.split('.')[1] || '');
+      if (second >= 16 && second <= 31) return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 /** Make chip / canvas image URLs safe for remote vision APIs (data URL or public https). */
 async function resolveVisionImageUrl(src: string): Promise<string | null> {
   const s = String(src || '').trim();
   if (!s) return null;
   if (s.startsWith('data:image/')) return s;
-  const needsAuthFetch =
-    s.startsWith('/') ||
-    s.includes('/api/v1/uploads/') ||
-    (!s.startsWith('http://') && !s.startsWith('https://'));
-  if (needsAuthFetch || s.startsWith('http://') || s.startsWith('https://')) {
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/') || s.startsWith('blob:')) {
     try {
-      // Auth-relative upload URLs cannot be fetched by the vision provider — inline bytes.
-      if (
-        s.startsWith('/') ||
-        s.includes('/api/v1/uploads/') ||
-        s.startsWith('blob:')
-      ) {
+      if (visionUrlNeedsInline(s)) {
         const file = await imageSrcToFile(s, 'vision.png');
         return await readFileAsDataUrl(file);
       }

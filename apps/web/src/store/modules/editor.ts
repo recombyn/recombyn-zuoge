@@ -267,7 +267,11 @@ const NODE_LAYER_TOOL_PANEL_KIND: Record<string, true> = {
 const IMAGE_TOOL_CROP_SESSION_KIND: Record<string, true> = {
   crop: true,
   expand: true,
-  upscale: true};
+  upscale: true,
+  /** Bottom session bars — hide the main image toolbar (same as upscale). */
+  translateImage: true,
+  productScene: true,
+};
 
 const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   crop: true,

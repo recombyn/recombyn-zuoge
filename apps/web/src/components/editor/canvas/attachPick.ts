@@ -5,55 +5,14 @@ import {
   expandSelectionWithGroups,
   readNodeGroupId
 } from '@/components/rcb/scene/document/sceneGroups';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { frameForFullBleedPlate as frameForFullBleedPlateId } from '@/components/rcb/scene/document/sceneHitBridge';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** Near-full-bleed plate covering an artboard — treat click as frame select.
  *  Rect / path / image backgrounds all count (vector artboards often use a path fill). */
 export function frameForFullBleedPlate(doc: SceneDocument, nodeId: string): { id: string } | null {
-  const node = doc?.deltaSetLike?.[nodeId];
-  if (!node) return null;
-  const key = String(node.key || '');
-  if (key === 'shape') {
-    const shapeType = String(node.attrs?.shapeType || 'rect');
-    // Open strokes are not plates.
-    if (shapeType === 'line' || shapeType === 'arrow' || shapeType === 'pencil') return null;
-    if (shapeType === 'pen' || shapeType === 'path') {
-      const closed = node.attrs?.closed;
-      if (closed === false || closed === 'false' || closed === 0 || closed === '0') return null;
-    }
-  } else if (key !== 'image' && key !== 'rect') {
-    return null;
-  }
-  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  if (!frames.length) return null;
-  const { left, top } = nodeLeftTop(doc, node);
-  const w = Math.max(1, Number(node.width) || 1);
-  const h = Math.max(1, Number(node.height) || 1);
-  const area = w * h;
-  // Prefer the frame this node is bound to, then any overlapping artboard.
-  const boundId = String(node.attrs?.frameId || '').trim();
-  const ordered = boundId
-    ? [
-        ...frames.filter((f) => String(f?.id) === boundId),
-        ...frames.filter((f) => String(f?.id) !== boundId),
-      ]
-    : frames;
-  for (const f of ordered) {
-    if (!f?.id) continue;
-    const fx = Number(f.x) || 0;
-    const fy = Number(f.y) || 0;
-    const fw = Math.max(1, Number(f.width) || 1);
-    const fh = Math.max(1, Number(f.height) || 1);
-    const frameArea = fw * fh;
-    const ow = Math.max(0, Math.min(left + w, fx + fw) - Math.max(left, fx));
-    const oh = Math.max(0, Math.min(top + h, fy + fh) - Math.max(top, fy));
-    const overlap = ow * oh;
-    if (overlap >= frameArea * 0.9 && area >= frameArea * 0.85) {
-      return { id: String(f.id) };
-    }
-  }
-  return null;
+  const id = frameForFullBleedPlateId(doc, nodeId);
+  return id ? { id } : null;
 }
 
 /** Drop generator plates + process-shimmer (+ videos when images-only) from attach targets. */
