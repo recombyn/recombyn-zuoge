@@ -897,9 +897,9 @@ function isTransparentCssColor(c: string): boolean {
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   if (isImageProcessRunning(node)) return false;
-  // Frame-bound ink stays on the shared SVG mount with plates so stackOrder
-  // data-z can cover artboards / 动画工作台 / generators. SoA sits under that SVG.
-  if (String(node.attrs?.frameId || '').trim()) return false;
+  // Frame membership does NOT force a DOM host — artboard children demote to
+  // canvas idle / SoA like world nodes. Clip + stackOrder stay on the shared
+  // frame plate / SVG mount; ink paints under it (ADR 0027).
   const key = String(node.key || '');
   if (key === 'lottie' || key === 'group') {
     return false;
