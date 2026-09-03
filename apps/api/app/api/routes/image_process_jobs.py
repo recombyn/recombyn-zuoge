@@ -13,7 +13,12 @@ from pydantic import BaseModel
 
 from app.api.deps import CurrentUser
 from app.api.routes.chat_job_sse import streaming_media_job_events
-from app.api.routes.image_tools import ImageProcessIn, _charge, credit_cost_for_kind
+from app.api.routes.image_tools import (
+    ImageProcessIn,
+    _charge,
+    _require_free_vision_quota,
+    credit_cost_for_kind,
+)
 from app.services.i18n.errors import http_error
 from app.services.i18n.locale import LocaleDep
 from app.services.job_store import get_job, normalize_trace_id, save_job, update_job
@@ -167,6 +172,7 @@ async def create_image_process_job(
         raise http_error(400, "image_required", locale)
 
     cost = credit_cost_for_kind(tool_kind, body.model, user_id=current_user.id)
+    _require_free_vision_quota(current_user.id, cost=cost, locale=locale)
     _charge(current_user.id, cost, f"AI image tool: {tool_kind}", locale=locale)
 
     job_id = uuid.uuid4().hex

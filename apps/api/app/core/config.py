@@ -156,28 +156,6 @@ class Settings(BaseSettings):
 
     agent_profile_id: str = "design.canvas"
 
-    # Design agent floors (ADR 0017). Always BasicLocal in-process — no remote Intelligence service.
-    intelligence_provider: str = Field(
-        default="local",
-        validation_alias="RECOMBYN_INTELLIGENCE_MODE",
-    )
-    intelligence_remote_url: str = Field(
-        default="",
-        validation_alias="RECOMBYN_INTELLIGENCE_URL",
-    )
-    intelligence_remote_api_key: str = Field(
-        default="",
-        validation_alias="RECOMBYN_INTELLIGENCE_API_KEY",
-    )
-    intelligence_remote_timeout_sec: float = Field(
-        default=30.0,
-        validation_alias="RECOMBYN_INTELLIGENCE_TIMEOUT_SEC",
-    )
-    intelligence_circuit_sec: float = Field(
-        default=30.0,
-        validation_alias="RECOMBYN_INTELLIGENCE_CIRCUIT_SEC",
-    )
-
     # Volcengine AI MediaKit (OSS: removeBg, expand, editText, eraser, upscale, translateImage, productScene).
     mediakit_api_key: str = Field(
         default="",
@@ -220,6 +198,12 @@ class Settings(BaseSettings):
     vision_seedream_timeout_sec: float = Field(
         default=180.0,
         validation_alias="VISION_SEEDREAM_TIMEOUT_SEC",
+    )
+    # When S3_PUBLIC_BASE_URL is localhost/MinIO, remote APIs (Seedream/WaveSpeed)
+    # need a reachable CDN base (prod: https://files.recombyn.com/recombyn).
+    vision_public_base_url: str = Field(
+        default="",
+        validation_alias="VISION_PUBLIC_BASE_URL",
     )
 
     # Reserved for later vision vendors (keys only — no layered clients yet).

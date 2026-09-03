@@ -3,7 +3,7 @@ import { useSelector } from '@/store';
 import { useSelectedNodeId, useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
-import { getHttpErrorMessage } from '@/service/client';
+import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import {
   closeImageToolPanel,
   patchDocumentNode,
@@ -413,11 +413,16 @@ function ImageToolPanelHost({
               });
             } catch (err: unknown) {
               const raw = getHttpErrorMessage(err, '');
-              const msg =
-                /failed to fetch|networkerror|load failed/i.test(raw)
-                  ? t('agent.apiDown')
-                  : raw || t('editor.imageToolbar.eraserFailed');
-              message.error(msg);
+              const msg = /failed to fetch|networkerror|load failed/i.test(raw)
+                ? t('agent.apiDown')
+                : raw || t('editor.imageToolbar.eraserFailed');
+              const status =
+                getHttpStatus(err) ??
+                (err && typeof err === 'object' && 'status' in err
+                  ? Number((err as { status?: unknown }).status)
+                  : undefined);
+              if (status === 402) message.warning(msg);
+              else message.error(msg);
             } finally {
               setEraseBusy(false);
             }

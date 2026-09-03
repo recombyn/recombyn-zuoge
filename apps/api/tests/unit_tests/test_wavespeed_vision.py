@@ -64,7 +64,7 @@ def test_angle_mapping():
     assert ws.num_layers_from_meta({"num_layers": 1}) == 2
 
 
-def test_credit_cost_vision_kinds_zero():
+def test_credit_cost_vision_kinds():
     from app.api.routes.image_tools import credit_cost_for_kind
 
     assert credit_cost_for_kind("upscale") == 0
@@ -72,7 +72,7 @@ def test_credit_cost_vision_kinds_zero():
     assert credit_cost_for_kind("removeBg") == 0
     assert credit_cost_for_kind("translateImage") == 0
     assert credit_cost_for_kind("productScene") == 0
-    assert credit_cost_for_kind("editElements") == 0
+    assert credit_cost_for_kind("editElements") == 30
     assert credit_cost_for_kind("multiAngle") == 0
     assert credit_cost_for_kind("replaceText") == 30
 

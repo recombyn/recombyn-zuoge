@@ -18,13 +18,22 @@ from app.services.llm.image_tools import (
     uses_llm_for_kind,
 )
 from app.services.wallet.billing import DEFAULT_IMAGE_CREDITS, image_model_credit_cost
-from app.services.wallet.db import is_wallet_billing_enabled, spend_credits
+from app.services.wallet.db import (
+    consume_free_vision_quota,
+    free_vision_remaining,
+    get_user_plan,
+    is_wallet_billing_enabled,
+    spend_credits,
+)
 
 router = APIRouter(prefix="/image", tags=["image-tools"])
 
-# Wallet 积分 for LLM image tools only (Seedream i2i). MediaKit / WaveSpeed / layered → 0.
+# Wallet 积分 for paid vision / LLM image paths.
+# MediaKit tools (removeBg / expand / …) stay 0 — free users use freeVision quota.
 _KIND_CREDIT_COST: dict[str, int] = {
     "replaceText": 30,
+    # Seedream layer_decomposition / WaveSpeed qwen-image/layered
+    "editElements": 30,
 }
 
 
@@ -49,28 +58,46 @@ def _charge(user_id: str, amount: int, detail: str, *, locale: str | None = None
         raise http_error(400, "request_failed", locale) from err
 
 
+def _require_free_vision_quota(
+    user_id: str,
+    *,
+    cost: int,
+    locale: str | None = None,
+) -> None:
+    """Free plan: lifetime cap on zero-credit vision toolbar tools."""
+    if cost > 0 or not is_wallet_billing_enabled():
+        return
+    if str(get_user_plan(user_id) or "free").strip().lower() != "free":
+        return
+    if consume_free_vision_quota(user_id):
+        return
+    raise http_error(402, "free_vision_exhausted", locale)
+
+
 def credit_cost_for_kind(
     kind: str,
     model: str | None = None,
     *,
     user_id: str | None = None,
 ) -> int:
-    """Platform credits only when an LLM image path runs on the platform key."""
+    """Platform credits for paid image tools (LLM i2i + Seedream/WaveSpeed layered)."""
     k = (kind or "").strip()
-    if not uses_llm_for_kind(k):
-        return 0
     if not is_wallet_billing_enabled():
         return 0
     if is_byok_model_ref(model) or (user_id and uses_user_platform_byok(user_id, model)):
         return 0
+    if k in _KIND_CREDIT_COST:
+        return int(_KIND_CREDIT_COST[k])
+    if not uses_llm_for_kind(k):
+        return 0
     mid = (model or "").strip()
     if mid:
         return image_model_credit_cost(mid)
-    return int(_KIND_CREDIT_COST.get(k, DEFAULT_IMAGE_CREDITS))
+    return int(DEFAULT_IMAGE_CREDITS)
 
 
 @router.get("/tools")
-def list_image_tools() -> dict[str, Any]:
+def list_image_tools(current_user: CurrentUser) -> dict[str, Any]:
     from app.core.config import settings
     from app.services.llm.image_tools import (
         mediakit_supports,
@@ -82,6 +109,7 @@ def list_image_tools() -> dict[str, Any]:
         seedream_enabled,
         wavespeed_enabled,
     )
+    from app.services.wallet.db import FREE_VISION_LIMIT
 
     kinds = sorted(IMAGE_PROCESS_KINDS)
     costs = {k: credit_cost_for_kind(k) for k in kinds}
@@ -91,6 +119,10 @@ def list_image_tools() -> dict[str, Any]:
     dash_on = bool(str(settings.dashscope_api_key or "").strip())
     byte_on = bool(str(settings.byteplus_api_key or "").strip())
     topaz_on = bool(str(settings.topaz_api_key or "").strip())
+    plan = str(get_user_plan(current_user.id) or "free").strip().lower()
+    vision_remaining = None
+    if is_wallet_billing_enabled() and plan == "free":
+        vision_remaining = free_vision_remaining(current_user.id)
     return {
         "kinds": kinds,
         "credits": costs,
@@ -119,6 +151,10 @@ def list_image_tools() -> dict[str, Any]:
         },
         # FE mockup is client-side only (no server bake API).
         "mockup": {"enabled": True, "templates": []},
+        "freeVision": {
+            "limit": FREE_VISION_LIMIT,
+            "remaining": vision_remaining,
+        },
     }
 
 
@@ -130,6 +166,7 @@ async def post_image_process(
 ) -> dict[str, Any]:
     kind = body.kind.strip()
     cost = credit_cost_for_kind(kind, body.model, user_id=current_user.id)
+    _require_free_vision_quota(current_user.id, cost=cost, locale=locale)
     _charge(current_user.id, cost, f"AI image tool: {kind}", locale=locale)
 
     try:

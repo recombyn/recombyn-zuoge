@@ -67,6 +67,9 @@ __all__ = [
     "FREE_DAILY_LIMIT",
     "free_daily_remaining",
     "consume_free_daily_quota",
+    "FREE_VISION_LIMIT",
+    "free_vision_remaining",
+    "consume_free_vision_quota",
 ]
 
 
@@ -324,6 +327,80 @@ def consume_free_daily_quota(user_id: str, *, limit: int = FREE_DAILY_LIMIT) -> 
             amount=0,
             balance_after=int(bal.credits or 0),
             detail=f"{prefix}:run",
+            commit=False,
+        )
+        session.commit()
+    return True
+
+
+# Free users: lifetime cap on zero-credit vision toolbar tools (抠图 / 放大 / …).
+FREE_VISION_LIMIT = 3
+_FREE_VISION_PREFIX = "free_vision:"
+
+
+def free_vision_remaining(user_id: str, *, limit: int = FREE_VISION_LIMIT) -> int:
+    """How many free vision tool uses remain (does not consume)."""
+    from sqlmodel import Session
+
+    from app import crud
+    from app.core.db import engine
+
+    init_schema()
+    uid = (user_id or "").strip()
+    lim = max(0, int(limit if limit is not None else FREE_VISION_LIMIT))
+    if not uid or lim <= 0:
+        return 0
+    with Session(engine) as session:
+        used = crud.count_wallet_ledger_detail_prefix(
+            session=session, user_id=uid, detail_prefix=_FREE_VISION_PREFIX
+        )
+    return max(0, lim - used)
+
+
+def consume_free_vision_quota(user_id: str, *, limit: int = FREE_VISION_LIMIT) -> bool:
+    """
+    Atomically reserve one free vision tool use for plan=free.
+    Returns True if reserved; False if the lifetime quota is already used.
+    Writes a zero-amount ledger marker (does not change balance).
+    """
+    from sqlmodel import Session
+
+    from app import crud
+    from app.core.db import engine
+    from app.models import UserBalance
+
+    init_schema()
+    uid = (user_id or "").strip()
+    lim = max(0, int(limit if limit is not None else FREE_VISION_LIMIT))
+    if not uid or lim <= 0:
+        return False
+    import time
+
+    now = time.time()
+    with Session(engine) as session:
+        used = crud.count_wallet_ledger_detail_prefix(
+            session=session, user_id=uid, detail_prefix=_FREE_VISION_PREFIX
+        )
+        if used >= lim:
+            return False
+        bal = crud.get_user_balance(session=session, user_id=uid)
+        if not bal:
+            bal = UserBalance(
+                user_id=uid,
+                credits=0,
+                plan_id="free",
+                plan_expires_at=None,
+                updated_at=now,
+            )
+            session.add(bal)
+            session.flush()
+        crud.add_wallet_ledger(
+            session=session,
+            user_id=uid,
+            kind="spend",
+            amount=0,
+            balance_after=int(bal.credits or 0),
+            detail=f"{_FREE_VISION_PREFIX}use",
             commit=False,
         )
         session.commit()

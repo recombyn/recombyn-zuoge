@@ -444,16 +444,8 @@ def reset_design_intelligence_client() -> None:
     _client = None
 
 def remote_billing_base_url() -> str:
-    """No remote Intelligence host — billing quotes stay local."""
+    """No remote Intelligence billing host in the open tree."""
     return ""
-
-
-def _remote_billing_headers() -> dict[str, str]:
-    key = str(getattr(settings, "intelligence_remote_api_key", "") or "").strip()
-    headers = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    return headers
 
 
 def call_remote_billing(
@@ -462,39 +454,12 @@ def call_remote_billing(
     *,
     json_body: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """HTTP call to optional host ``/billing/quote``. Returns None if unavailable."""
-    import urllib.error
-    import urllib.request
-
-    base = remote_billing_base_url()
-    if not base:
-        return None
-    url = f"{base}{path}"
-    timeout = float(getattr(settings, "intelligence_remote_timeout_sec", 30.0) or 30.0)
-    data = None
-    headers = _remote_billing_headers()
-    if json_body is not None or method.upper() in ("POST", "PUT"):
-        import json as _json
-
-        raw = _json.dumps(json_body or {}).encode("utf-8")
-        data = raw
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers=headers,
-        method=method.upper(),
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            import json as _json
-
-            body = _json.loads(resp.read().decode("utf-8"))
-            return body if isinstance(body, dict) else None
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as e:
-        _log.warning("remote billing %s %s failed: %s", method, path, e)
-        return None
+    """Optional remote billing — always unavailable (BasicLocal only)."""
+    _ = method, path, json_body
+    return None
 
 
 def quote_remote_task_credits(body: dict[str, Any]) -> dict[str, Any] | None:
-    """Optional host credit quote — wire returns credits only."""
-    return call_remote_billing("POST", "/billing/quote", json_body=body)
+    """Optional host credit quote — not wired in the open tree."""
+    _ = body
+    return None
