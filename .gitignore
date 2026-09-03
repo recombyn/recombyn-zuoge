@@ -103,6 +103,8 @@ e2e/**/*.log
 e2e/scripts/soa-browser-*.json
 e2e/scripts/soa-browser-*.png
 e2e/tests/*.browser.png
+apps/web/*-vitest.log
+apps/web/mixed-*.log
 
 # Local one-off VPS remote helpers
 deploy/vps/_remote-*.sh
