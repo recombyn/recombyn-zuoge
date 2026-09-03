@@ -32,7 +32,7 @@ An open-source AI design workspace. Document-derived **SoA** infinite artboard, 
 
 ## ✨ Features
 
-🎨 **Infinite SoA artboard** — `SceneDocument` is the only truth; paint/pick use a document-derived Structure-of-Arrays buffer (`SceneRenderBuffer` + quadtree) on Canvas2D vector ink. Zoom 5%–10000%. Geometry hit (Path2D / SoA samples) — not an SVG-DOM editor runtime. DOM hosts stay for text caret, media FO, SoftGlow, and path editors. See [canvas-architecture.md](docs/canvas-architecture.md) / [ADR 0027](docs/adr/0027-canvas-layered-runtime.md).
+🎨 **Infinite SoA artboard** — Document-backed Canvas2D ink (`SceneRenderBuffer` + quadtree); zoom 5%–10000%. Geometry hit-test; DOM only for caret / media / SoftGlow / path edit.
 
 🤖 **Design Agent** — Streaming chat on the same canvas: plan → Skills → `tool_ops` → apply. Fixed LangGraph kernel; behavior from AgentProfile YAML, stage prompts, Skills, and the tool registry.
 

@@ -24,3 +24,14 @@ apps/api/private-eval
 deploy/vps/deploy-ip-full.sh
 deploy/vps/setup-private-remote.sh
 deploy/vps/switch-to-private-and-deploy.sh
+deploy/vps/_remote-fix-crlf-and-deploy.sh
+deploy/vps/_remote-redeploy-private.sh
+deploy/vps/_remote-refresh-oss-and-deploy.sh
+deploy/vps/_remote-unpack-tarball-and-deploy.sh
+deploy/vps/_remote-*.sh
+
+# Local e2e scratch (never ship on public mirror)
+e2e/*.log
+e2e/scripts/soa-browser-*.json
+e2e/scripts/soa-browser-*.png
+e2e/tests/*.browser.png

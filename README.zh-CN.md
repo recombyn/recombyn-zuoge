@@ -31,7 +31,7 @@
 
 ## ✨ 功能
 
-🎨 **纯资源 SoA 无限画板** — 以 `SceneDocument` 为唯一事实源；绘制/命中使用文档派生的 Structure of Arrays 缓冲（`SceneRenderBuffer` + 四叉树）走 Canvas2D 矢量墨水。缩放 5%–10000%。几何命中（Path2D / SoA 采样），**不是** SVG DOM 编辑器运行时。DOM host 仅保留文字光标、媒体 FO、SoftGlow、路径编辑等。详见 [canvas-architecture.md](docs/canvas-architecture.md) / [ADR 0027](docs/adr/0027-canvas-layered-runtime.md)。
+🎨 **纯资源 SoA 无限画板** — 文档驱动的 Canvas2D 墨水（`SceneRenderBuffer` + 四叉树）；缩放 5%–10000%。几何命中；DOM 仅用于光标 / 媒体 / SoftGlow / 路径编辑。
 
 🤖 **Design Agent** — 同一张画布上的流式对话：规划 → 挂 Skill → 产出 `tool_ops` → 落笔。LangGraph 内核固定；行为由 AgentProfile YAML、阶段提示词、Skills 与工具注册表配置。
 
