@@ -1621,6 +1621,9 @@ function SelectionChrome({
 
   if (!mount) return null;
 
+  const showRotateCorners = showHandles && showRotate;
+  const showLineEndpoints = showHandles && lineMode;
+
   return createPortal(
       <g data-rcb-sel-chrome="1" style={{ pointerEvents: 'none' }} aria-hidden>
         {metaLabel ? (
@@ -1677,7 +1680,7 @@ function SelectionChrome({
                 style={{ pointerEvents: 'none' }}
               />
             ) : null}
-            {showHandles && showRotate
+            {showRotateCorners
               ? (['nw', 'ne', 'se', 'sw'] as const).map((dir) => {
                   const d = cornerLLocalPath(dir, w, h, lArm, lThick, lClear);
                   if (!d) return null;
@@ -1715,7 +1718,7 @@ function SelectionChrome({
           </g>
         )}
 
-        {showHandles && lineMode
+        {showLineEndpoints
           ? knobs.map(([dir, lx, ly]) => {
               const p = toScenePoint(lx, ly);
               return (

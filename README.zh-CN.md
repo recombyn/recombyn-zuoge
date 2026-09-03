@@ -13,11 +13,11 @@
   </p>
 
   <p>
-    <a href="README.md"><img src="docs/assets/lang-en.png" alt="English" height="28" /></a>
+    <a href="README.md"><img src="docs/assets/lang-en.svg" alt="English" height="20" /></a>
     &nbsp;
-    <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.png" alt="简体中文" height="28" /></a>
+    <a href="README.zh-CN.md"><img src="docs/assets/lang-zh-CN.svg" alt="简体中文" height="20" /></a>
     &nbsp;
-    <a href="README.ja.md"><img src="docs/assets/lang-ja.png" alt="日本語" height="28" /></a>
+    <a href="README.ja.md"><img src="docs/assets/lang-ja.svg" alt="日本語" height="20" /></a>
   </p>
 </div>
 

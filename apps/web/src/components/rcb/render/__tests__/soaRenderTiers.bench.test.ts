@@ -33,6 +33,7 @@ import {
   syncSceneRenderBufferIncremental,
   SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
+  SOA_FLAG_VISIBLE,
   type SceneRenderBuffer,
 } from '../sceneRenderBuffer';
 import {
@@ -464,9 +465,15 @@ describe('SoA render tier benches', () => {
   });
 
   it('documents 1M as bake-path (threshold), not host-per-node', () => {
-    const fake = { count: 1_000_000 } as SceneRenderBuffer;
+    const thr = getSoaBakeCountThreshold();
+    const fake = createSceneRenderBuffer(thr);
+    fake.count = thr;
+    for (let i = 0; i < thr; i += 1) {
+      fake.flags[i] =
+        (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE | SOA_FLAG_BASIC_GEOM) >>> 0;
+    }
     expect(shouldUseSoaBake(fake)).toBe(true);
-    expect(getSoaBakeCountThreshold()).toBeLessThanOrEqual(1_000_000);
+    expect(thr).toBeLessThanOrEqual(1_000_000);
   });
 
   it('polygon + stroked-rect paint path: 150 / 1k / 5k / 10k', () => {

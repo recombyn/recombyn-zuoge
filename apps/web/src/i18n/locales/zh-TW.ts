@@ -120,6 +120,7 @@ const zhTW = {
     heroStartTitle: '，設計從未如此簡單',
     heroStartTitleAria: '左格，設計從未如此簡單',
     footerCopy: '© {{year}} 左格',
+    footerIcp: '滇ICP备2026017289号',
     heroSuggest: {
       ui: 'UI 介面',
       poster: '海報',

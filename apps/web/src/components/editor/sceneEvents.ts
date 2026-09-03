@@ -230,6 +230,30 @@ export function endSelectPerfAfterPaint(): void {
   endInteractionPerfAfterPaint('select-return');
 }
 
+type SelectClickLogWindow = Window & {
+  __RCB_SELECT_CLICK_LOG?: boolean;
+  __RCB_SELECT_CLICK_LAST?: Record<string, unknown>;
+};
+
+/**
+ * Every canvas selection pointerdown (DEV, or `window.__RCB_SELECT_CLICK_LOG = true`).
+ * Unlike select-perf, this fires even when hit/select fails — last payload on
+ * `window.__RCB_SELECT_CLICK_LAST`.
+ */
+export function logSelectClick(payload: Record<string, unknown>): void {
+  if (typeof window === 'undefined') return;
+  const w = window as SelectClickLogWindow;
+  if (w.__RCB_SELECT_CLICK_LOG === false) return;
+  if (w.__RCB_SELECT_CLICK_LOG !== true && !import.meta.env.DEV) return;
+  const report = {
+    kind: 'select-click',
+    t: Number(performance.now().toFixed(2)),
+    ...payload,
+  };
+  w.__RCB_SELECT_CLICK_LAST = report;
+  console.log(JSON.stringify(report));
+}
+
 function defer(fn: () => void) {
   if (typeof window === 'undefined') return;
   queueMicrotask(fn);

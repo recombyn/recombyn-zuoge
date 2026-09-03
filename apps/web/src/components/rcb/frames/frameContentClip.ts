@@ -64,6 +64,12 @@ export function hasSelectionPaintRaise(): boolean {
   return paintRaiseNodeIds.size > 0;
 }
 
+/** Ids currently raised above stack max for paint (selection). */
+export function listSelectionPaintRaiseIds(): string[] {
+  if (!paintRaiseNodeIds.size) return [];
+  return [...paintRaiseNodeIds];
+}
+
 export function hasFrameClipRevealOverflow(): boolean {
   return revealOverflowNodeIds.size > 0;
 }

@@ -87,7 +87,7 @@ export function subscribeGpuDepthOfField(listener: () => void): () => void {
   };
 }
 
-/** Env kill-switch / opt-in: `VITE_GPU_DOF=1`. */
+/** Env opt-in: `VITE_GPU_DOF=1`. */
 export function isGpuDofEnvEnabled(): boolean {
   if (typeof import.meta === 'undefined') return false;
   const v = String(import.meta.env?.VITE_GPU_DOF ?? '').toLowerCase();
@@ -117,17 +117,17 @@ export function resolveGpuDofBackendEnv(): GpuDofBackend | null {
 }
 
 /**
- * Prefer WebGPU when requested and available; otherwise WebGL2.
- * DOF always needs a GPU ink path — callers force webgl even if `VITE_SOA_WEBGL` is unset.
+ * Prefer WebGPU when available (or env asks for it); otherwise WebGL2.
+ * One resolved backend — createSceneRenderer does not cross-fallback.
  */
 export function resolveGpuDofBackend(): GpuDofBackend | null {
   if (!shouldRunGpuDepthOfField()) return null;
   const pref = resolveGpuDofBackendEnv();
-  if (pref === 'webgpu') {
-    if (isWebgpuAvailable()) return 'webgpu';
-    return 'webgl2';
-  }
   if (pref === 'webgl2') return 'webgl2';
+  if (pref === 'webgpu') {
+    if (!isWebgpuAvailable()) return null;
+    return 'webgpu';
+  }
   if (isWebgpuAvailable()) return 'webgpu';
   return 'webgl2';
 }

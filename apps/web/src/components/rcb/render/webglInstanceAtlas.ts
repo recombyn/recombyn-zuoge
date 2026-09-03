@@ -1,6 +1,6 @@
 /**
- * WebGL instance atlas — fixed-cell LRU packer for path stamps + bake tiles
- * (ADR 0027 Phase 4). One textured quad replaces many line segments / idle ink.
+ * WebGL instance atlas — fixed-cell LRU packer for path / outline stamps + bake tiles
+ * (ADR 0027). One textured quad replaces many line segments.
  */
 import {
   SOA_KIND_PATH,
@@ -74,17 +74,13 @@ function createAtlasSurface(size: number): {
   return { canvas: c, ctx };
 }
 
+/** Atlas stamps — product always on with WebGL. Off in Vitest. */
 export function isSoaWebglAtlasEnabled(): boolean {
   try {
     if (import.meta.env.MODE === 'test' || import.meta.env.VITEST) return false;
-    const atlasEnv = String(import.meta.env.VITE_SOA_WEBGL_ATLAS ?? '').toLowerCase();
-    if (atlasEnv === '0' || atlasEnv === 'false' || atlasEnv === 'no') return false;
-    if (atlasEnv === '1' || atlasEnv === 'true' || atlasEnv === 'yes') return true;
-    // Default with WebGL: atlas is required for dense pens + rounded stamps.
-    const webglEnv = String(import.meta.env.VITE_SOA_WEBGL ?? '').toLowerCase();
-    return webglEnv === '1' || webglEnv === 'true' || webglEnv === 'yes';
+    return true;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -287,6 +283,97 @@ function atlasCssIsOpaque(c: string): boolean {
   return true;
 }
 
+type AtlasStrokeStampOpts = {
+  force?: boolean;
+  strokeCss?: string;
+  strokeWidth?: number;
+};
+
+type AtlasWorldBox = { left: number; top: number; width: number; height: number };
+
+/** True when a cached stamp's world AABB no longer matches the live polyline. */
+function atlasWorldMismatch(a: AtlasWorldBox, b: AtlasWorldBox): boolean {
+  return (
+    Math.abs(a.left - b.left) > 0.5 ||
+    Math.abs(a.top - b.top) > 0.5 ||
+    Math.abs(a.width - b.width) > 0.5 ||
+    Math.abs(a.height - b.height) > 0.5
+  );
+}
+
+/** Hit / restamp bookkeeping shared by path / rect / ellipse / image stamps. */
+function takeAtlasStampSlot(
+  atlas: SoaWebglAtlas,
+  key: string,
+  opts?: { force?: boolean }
+): SoaAtlasRegion | 'draw' | null {
+  const existing = atlas.regions.get(key);
+  if (existing && !opts?.force) {
+    touchLru(atlas, key);
+    atlas.stats.hits += 1;
+    return existing;
+  }
+  if (existing && opts?.force) {
+    releaseSoaAtlasRegion(atlas, key);
+    atlas.stats.restamps += 1;
+  } else {
+    atlas.stats.misses += 1;
+  }
+  return 'draw';
+}
+
+function strokePaddedWorld(world: AtlasWorldBox, strokeW: number): AtlasWorldBox {
+  if (!(strokeW > 0)) return world;
+  return {
+    left: world.left - strokeW,
+    top: world.top - strokeW,
+    width: world.width + strokeW * 2,
+    height: world.height + strokeW * 2,
+  };
+}
+
+function withAtlasWorldTransform(
+  atlas: SoaWebglAtlas,
+  region: SoaAtlasRegion,
+  stampWorld: AtlasWorldBox,
+  scale: number,
+  draw: (ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D) => void
+) {
+  const { ctx } = atlas;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(region.x, region.y, region.w, region.h);
+  ctx.clip();
+  ctx.setTransform(
+    scale,
+    0,
+    0,
+    scale,
+    region.x - stampWorld.left * scale,
+    region.y - stampWorld.top * scale
+  );
+  draw(ctx);
+  ctx.restore();
+}
+
+function fillStrokeClosedPath(
+  ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
+  fillCss: string,
+  strokeW: number,
+  strokeCss: string
+) {
+  if (atlasCssIsOpaque(fillCss)) {
+    ctx.fillStyle = fillCss;
+    ctx.fill();
+  }
+  if (strokeW > 0 && atlasCssIsOpaque(strokeCss)) {
+    ctx.strokeStyle = strokeCss;
+    ctx.lineWidth = strokeW;
+    ctx.lineJoin = 'miter';
+    ctx.stroke();
+  }
+}
+
 /**
  * Stamp a world-space polyline into a fixed atlas cell (LRU-evicts when full).
  */
@@ -301,138 +388,138 @@ export function stampSoaPathToAtlas(
   lineWidth = 2,
   opts?: { force?: boolean; strokeCss?: string }
 ): SoaAtlasRegion | null {
+  const polyWorld = computePolylineWorldBounds(xy, startPoint * 2, pointCount);
+  if (!polyWorld) return null;
+  // Half-stroke (+ round caps) must fit the stamp cell — same as rect/ellipse.
+  const world = strokePaddedWorld(polyWorld, Math.max(0, lineWidth));
   const existing = atlas.regions.get(key);
-  if (existing && !opts?.force) {
-    touchLru(atlas, key);
-    atlas.stats.hits += 1;
-    return existing;
-  }
-  if (existing && opts?.force) {
-    releaseSoaAtlasRegion(atlas, key);
-    atlas.stats.restamps += 1;
-  } else {
-    atlas.stats.misses += 1;
-  }
-  const world = computePolylineWorldBounds(xy, startPoint * 2, pointCount);
-  if (!world) return null;
+  // Geometry moved but DIRTY was cleared → restamp or idle shows a stale AABB 色块.
+  const force =
+    Boolean(opts?.force) || Boolean(existing && atlasWorldMismatch(existing.world, world));
+  const slot = takeAtlasStampSlot(atlas, key, { force });
+  if (slot !== 'draw') return slot;
   const region = beginCellStamp(atlas, key, world);
   if (!region) return null;
 
   const strokeCss = opts?.strokeCss ?? fillCss;
   const hasFill = closed && atlasCssIsOpaque(fillCss);
+  const strokeOk = atlasCssIsOpaque(strokeCss);
   const inner = atlas.cell - SOA_ATLAS_PAD * 2;
   const scale = Math.min(1, inner / Math.max(world.width, world.height));
-  const { ctx } = atlas;
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(region.x, region.y, region.w, region.h);
-  ctx.clip();
-  ctx.setTransform(
-    scale,
-    0,
-    0,
-    scale,
-    region.x - world.left * scale,
-    region.y - world.top * scale
-  );
-  ctx.strokeStyle = strokeCss;
-  ctx.fillStyle = fillCss;
-  ctx.lineWidth = lineWidth / Math.max(scale, 1e-3);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  let pending = false;
-  const base = startPoint * 2;
-  for (let i = 0; i < pointCount; i += 1) {
-    const o = base + i * 2;
-    const x = xy[o];
-    const y = xy[o + 1];
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      if (pending && closed) ctx.closePath();
+  withAtlasWorldTransform(atlas, region, world, scale, (ctx) => {
+    ctx.strokeStyle = strokeCss;
+    ctx.fillStyle = fillCss;
+    // lineWidth is scene units; setTransform(scale) already maps to atlas pixels.
+    // Dividing by scale previously thickened strokes by 1/scale when paths were
+    // downsampled into a cell (looked fat + soft after the textured quad upscaled).
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = closed ? 'round' : 'butt';
+    ctx.lineJoin = closed ? 'round' : 'miter';
+    ctx.beginPath();
+    let pending = false;
+    const finishContour = () => {
+      if (!pending) return;
+      if (closed) {
+        ctx.closePath();
+        if (hasFill) ctx.fill();
+      }
+      if (strokeOk) ctx.stroke();
       pending = false;
-      continue;
+      ctx.beginPath();
+    };
+    const base = startPoint * 2;
+    for (let i = 0; i < pointCount; i += 1) {
+      const o = base + i * 2;
+      const x = xy[o];
+      const y = xy[o + 1];
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        finishContour();
+        continue;
+      }
+      if (!pending) {
+        ctx.moveTo(x, y);
+        pending = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
     }
-    if (!pending) {
-      ctx.moveTo(x, y);
-      pending = true;
-    } else {
-      ctx.lineTo(x, y);
-    }
-  }
-  if (pending && closed) {
-    ctx.closePath();
-    if (hasFill) ctx.fill();
-  }
-  if (pending && atlasCssIsOpaque(strokeCss)) ctx.stroke();
-  ctx.restore();
+    finishContour();
+  });
   return region;
 }
 
 /**
- * Stamp a filled rounded rect (tl/tr/br/bl) into the atlas — WebGL instances
- * are sharp quads; rounded idle ink needs a texture stamp for parity.
+ * Stamp a filled rounded rect (optional outline). Instanced quads are sharp fill-only.
  */
 export function stampSoaRoundedRectToAtlas(
   atlas: SoaWebglAtlas,
   key: string,
-  world: { left: number; top: number; width: number; height: number },
+  world: AtlasWorldBox,
   colorCss: string,
   radii: { tl: number; tr: number; br: number; bl: number },
-  opts?: { force?: boolean }
+  opts?: AtlasStrokeStampOpts
 ): SoaAtlasRegion | null {
-  const existing = atlas.regions.get(key);
-  if (existing && !opts?.force) {
-    touchLru(atlas, key);
-    atlas.stats.hits += 1;
-    return existing;
-  }
-  if (existing && opts?.force) {
-    releaseSoaAtlasRegion(atlas, key);
-    atlas.stats.restamps += 1;
-  } else {
-    atlas.stats.misses += 1;
-  }
-  const region = beginCellStamp(atlas, key, world);
+  const slot = takeAtlasStampSlot(atlas, key, opts);
+  if (slot !== 'draw') return slot;
+  const strokeW = Math.max(0, Number(opts?.strokeWidth) || 0);
+  const strokeCss = String(opts?.strokeCss || '');
+  const stampWorld = strokePaddedWorld(world, strokeW);
+  const region = beginCellStamp(atlas, key, stampWorld);
   if (!region) return null;
-
   const inner = atlas.cell - SOA_ATLAS_PAD * 2;
-  const scale = Math.min(1, inner / Math.max(world.width, world.height));
-  const { ctx } = atlas;
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(region.x, region.y, region.w, region.h);
-  ctx.clip();
-  ctx.setTransform(
-    scale,
-    0,
-    0,
-    scale,
-    region.x - world.left * scale,
-    region.y - world.top * scale
-  );
-  ctx.fillStyle = colorCss;
-  const { left: x, top: y, width: w, height: h } = world;
-  const tl = Math.max(0, radii.tl);
-  const tr = Math.max(0, radii.tr);
-  const br = Math.max(0, radii.br);
-  const bl = Math.max(0, radii.bl);
-  ctx.beginPath();
-  ctx.moveTo(x + tl, y);
-  ctx.lineTo(x + w - tr, y);
-  if (tr > 0) ctx.arcTo(x + w, y, x + w, y + tr, tr);
-  else ctx.lineTo(x + w, y);
-  ctx.lineTo(x + w, y + h - br);
-  if (br > 0) ctx.arcTo(x + w, y + h, x + w - br, y + h, br);
-  else ctx.lineTo(x + w, y + h);
-  ctx.lineTo(x + bl, y + h);
-  if (bl > 0) ctx.arcTo(x, y + h, x, y + h - bl, bl);
-  else ctx.lineTo(x, y + h);
-  ctx.lineTo(x, y + tl);
-  if (tl > 0) ctx.arcTo(x, y, x + tl, y, tl);
-  else ctx.lineTo(x, y);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  const scale = Math.min(1, inner / Math.max(stampWorld.width, stampWorld.height));
+  withAtlasWorldTransform(atlas, region, stampWorld, scale, (ctx) => {
+    const { left: x, top: y, width: w, height: h } = world;
+    const tl = Math.max(0, radii.tl);
+    const tr = Math.max(0, radii.tr);
+    const br = Math.max(0, radii.br);
+    const bl = Math.max(0, radii.bl);
+    ctx.beginPath();
+    ctx.moveTo(x + tl, y);
+    ctx.lineTo(x + w - tr, y);
+    if (tr > 0) ctx.arcTo(x + w, y, x + w, y + tr, tr);
+    else ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w, y + h - br);
+    if (br > 0) ctx.arcTo(x + w, y + h, x + w - br, y + h, br);
+    else ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + bl, y + h);
+    if (bl > 0) ctx.arcTo(x, y + h, x, y + h - bl, bl);
+    else ctx.lineTo(x, y + h);
+    ctx.lineTo(x, y + tl);
+    if (tl > 0) ctx.arcTo(x, y, x + tl, y, tl);
+    else ctx.lineTo(x, y);
+    ctx.closePath();
+    fillStrokeClosedPath(ctx, colorCss, strokeW, strokeCss);
+  });
+  return region;
+}
+
+/** Ellipse fill (+ optional outline) stamp. */
+export function stampSoaEllipseToAtlas(
+  atlas: SoaWebglAtlas,
+  key: string,
+  world: AtlasWorldBox,
+  colorCss: string,
+  opts?: AtlasStrokeStampOpts
+): SoaAtlasRegion | null {
+  const slot = takeAtlasStampSlot(atlas, key, opts);
+  if (slot !== 'draw') return slot;
+  const strokeW = Math.max(0, Number(opts?.strokeWidth) || 0);
+  const strokeCss = String(opts?.strokeCss || '');
+  const stampWorld = strokePaddedWorld(world, strokeW);
+  const region = beginCellStamp(atlas, key, stampWorld);
+  if (!region) return null;
+  const inner = atlas.cell - SOA_ATLAS_PAD * 2;
+  const scale = Math.min(1, inner / Math.max(stampWorld.width, stampWorld.height));
+  withAtlasWorldTransform(atlas, region, stampWorld, scale, (ctx) => {
+    const cx = world.left + world.width / 2;
+    const cy = world.top + world.height / 2;
+    const rx = Math.max(0.5, world.width / 2);
+    const ry = Math.max(0.5, world.height / 2);
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    fillStrokeClosedPath(ctx, colorCss, strokeW, strokeCss);
+  });
   return region;
 }
 
@@ -515,11 +602,13 @@ export function pushAtlasRegionInstance(
   kinds: number[],
   angles: number[],
   uvs: number[],
-  angleRad = 0
+  angleRad = 0,
+  offsetX = 0,
+  offsetY = 0
 ) {
   const uv = atlasRegionToUv(atlas, region);
   const { world } = region;
-  rects.push(world.left, world.top, world.width, world.height);
+  rects.push(world.left + offsetX, world.top + offsetY, world.width, world.height);
   colors.push(1, 1, 1, 1);
   kinds.push(3);
   angles.push(Number(angleRad) || 0);

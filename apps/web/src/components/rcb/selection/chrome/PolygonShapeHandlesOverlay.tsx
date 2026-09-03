@@ -440,11 +440,15 @@ function PolygonShapeHandlesOverlay({
     : t('editor.imageToolbar.sideCount', { defaultValue: '边数' });
   const radiusLabel = t('editor.imageToolbar.cornerRadius');
 
-  const badgeVal =
-    dragValue != null ? dragValue : activeKey === 'sides' ? sides : radius;
-  const badgePos = activeKey === 'sides' ? sidesPos : activeKey === 'radius' ? radiusPos : null;
-  const badgeText =
-    activeKey === 'sides' ? `${sidesLabel} ${badgeVal}` : `${radiusLabel} ${badgeVal}`;
+  let badgePos: { x: number; y: number } | null = null;
+  let badgeText = '';
+  if (activeKey === 'sides') {
+    badgePos = sidesPos;
+    badgeText = `${sidesLabel} ${dragValue != null ? dragValue : sides}`;
+  } else if (activeKey === 'radius') {
+    badgePos = radiusPos;
+    badgeText = `${radiusLabel} ${dragValue != null ? dragValue : radius}`;
+  }
 
   type KnobSpec = {
     key: 'radius' | 'sides';

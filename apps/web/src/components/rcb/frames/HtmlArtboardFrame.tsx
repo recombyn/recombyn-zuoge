@@ -14,10 +14,10 @@ import { createSvgBoard } from '@/components/rcb/scene/paint/sceneToSvg';
 import { append, setAttrs, setFill, setStroke, svgEl } from '@/components/rcb/scene/paint/svgDom';
 import {
   getShapeHost,
+  getSceneFramesMount,
+  getSceneFramesRoot,
   getSceneSelectionChromeMount,
-  getSceneShapesMount,
   getSceneWorldEpoch,
-  getSceneWorldRoot,
   registerShapeHost,
   subscribeShapeHosts,
   syncSharedMountPaintOrder,
@@ -300,14 +300,16 @@ function HtmlArtboardFrame({
     const host = hostRef.current;
     if (!host) return undefined;
 
-    // Plates share the shapes mount with all node hosts — one data-z stack.
-    const worldRoot = getSceneWorldRoot();
-    const shapesMount = getSceneShapesMount();
-    if (!worldRoot || !shapesMount) return undefined;
+    // Plates sit on the frames SVG (below SoA ink). Opaque white on the shapes
+    // mount would cover WebGL ink inside the artboard while unclipped overflow
+    // still painted outside — looks like inverted clip.
+    const framesRoot = getSceneFramesRoot();
+    const framesMount = getSceneFramesMount();
+    if (!framesRoot || !framesMount) return undefined;
     const { root, layer: sceneLayer, shared } = createSvgBoard(host, 1, 1, {
       infinite: true,
-      sharedRoot: worldRoot,
-      sharedMount: shapesMount,
+      sharedRoot: framesRoot,
+      sharedMount: framesMount,
     });
     layerRef.current = sceneLayer;
     // createSvgBoard tags shared layers as shape; frames must not share that attr
@@ -320,8 +322,8 @@ function HtmlArtboardFrame({
     registerShapeHost({ nodeId: frame.id, root, layer: sceneLayer, el, kind: 'svg' });
     updateShapeHostElement(frame.id, el);
 
-    if (shared && shapesMount && sceneLayer.parentNode === shapesMount) {
-      syncSharedMountPaintOrder(shapesMount);
+    if (shared && framesMount && sceneLayer.parentNode === framesMount) {
+      syncSharedMountPaintOrder(framesMount);
     }
 
     return () => {
@@ -393,10 +395,10 @@ function HtmlArtboardFrame({
   useLayoutEffect(() => {
     if (layer !== 'body') return;
     const sceneLayer = layerRef.current;
-    const shapesMount = getSceneShapesMount();
-    if (!sceneLayer || !shapesMount || sceneLayer.parentNode !== shapesMount) return;
+    const framesMount = getSceneFramesMount();
+    if (!sceneLayer || !framesMount || sceneLayer.parentNode !== framesMount) return;
     sceneLayer.setAttribute('data-z', String(zIndex));
-    syncSharedMountPaintOrder(shapesMount);
+    syncSharedMountPaintOrder(framesMount);
   }, [layer, zIndex]);
   if (layer === 'label') {
     const live = resolvePaintFrameGeometry(frame);
@@ -463,9 +465,9 @@ function HtmlArtboardFrame({
     <>
       <div
         className="pointer-events-none absolute left-0 top-0 overflow-visible"
-        // Plate paints in the shared world SVG via data-z. Do not mirror stack z on
-        // this HTML anchor — a private-SVG fallback with high CSS z covers shapes
-        // while still letting clicks through (world SVG is pointer-events: none).
+        // Plate paints on the frames SVG (below SoA ink) via data-z. Do not mirror
+        // stack z on this HTML anchor — a private-SVG fallback with high CSS z
+        // covers shapes while still letting clicks through (SVG is none).
         style={{ zIndex: 0 }}
         data-rcb-frame={frame.id}
         data-frame-id={frame.id}

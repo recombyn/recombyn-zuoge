@@ -9,7 +9,7 @@ import {
 } from '@/components/rcb/core/spatialIndex';
 import { rcbCameraCssZoom, rcbCameraScreenOffset, rcbViewportSceneBounds } from '@/components/rcb/core/math';
 import { getShapeBaseline } from '@/components/rcb/core/geometry';
-import { effectivePaintBox, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
+import { effectivePaintBox } from '@/components/rcb/core/transformPreview';
 import {
   clampCornerRadii,
   hasLiveCornerRadiusPreview,
@@ -62,7 +62,6 @@ import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
   hasFrameClipRevealOverflow,
-  hasSelectionPaintRaise,
   selectionPaintRaises,
 } from '@/components/rcb/frames/frameContentClip';
 import { hasLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
@@ -120,14 +119,12 @@ import {
 
 export { isSoaBasicGeomSufficient } from '@/components/rcb/render/sceneRenderBuffer';
 import {
-  blitSoaBakeForView,
-  ensureSoaBake,
-  getSharedSoaBake,
-  patchSoaBakeDirty,
+  getSharedSoaBakeCache,
+  getSoaBakeCountThreshold,
   peekSoaGestureDirtyAccum,
-  setSharedSoaBake,
   setSoaBakeClipDocument,
   shouldUseSoaBake,
+  subscribeSoaBakeTileReady,
   unionSoaDirtyAabb,
 } from '@/components/rcb/render/soaBakeLayer';
 import { createWebglSceneRenderer } from '@/components/rcb/render/webglSceneRenderer';
@@ -135,7 +132,6 @@ import { createWebgpuSceneRenderer } from '@/components/rcb/render/webgpuSceneRe
 import {
   resolveGpuDofBackend,
   shouldRunGpuDepthOfField,
-  gpuDofSkipsSoaTileBake,
 } from '@/components/rcb/render/gpuDepthOfField';
 
 /** Cap centerline samples when stroking a dense pencil/path as canvas ink. */
@@ -407,19 +403,6 @@ function soaSlotIsBasicInk(
   return (flags & SOA_FLAG_CANVAS_IDLE) !== 0 && (flags & SOA_FLAG_BASIC_GEOM) !== 0;
 }
 
-/** True when every published ink id is SoA-basic or already has a DOM host. */
-function allInkIdsAreSoaBasicOrHosted(
-  ids: readonly string[],
-  soaBuf: ReturnType<typeof getSharedSceneRenderBuffer>
-): boolean {
-  for (const id of ids) {
-    if (getShapeHost(id)?.el) continue;
-    const si = soaBuf.indexById.get(id);
-    if (si == null || !soaSlotIsBasicInk(soaBuf, si)) return false;
-  }
-  return true;
-}
-
 function paintBoxMissesAabb(
   paint: { left: number; top: number; width: number; height: number },
   aabb: { x: number; y: number; width: number; height: number }
@@ -446,28 +429,6 @@ function sortIdsByDocumentZ(
     const zb = selectionPaintRaises(b) ? raisedZ : zMap.get(b) || 0;
     return za - zb || (zMap.get(a) || 0) - (zMap.get(b) || 0) || (rank.get(a) || 0) - (rank.get(b) || 0);
   });
-}
-
-function paintSoaBakePath(
-  ctx: CanvasRenderingContext2D,
-  soaBuf: ReturnType<typeof getSharedSceneRenderBuffer>,
-  doc: SceneDocument,
-  view: RcbBox,
-  dirtyOnly: boolean
-): void {
-  let bake = getSharedSoaBake();
-  const dirtyAabb = unionSoaDirtyAabb(soaBuf);
-  if (bake?.valid && dirtyAabb && dirtyOnly) {
-    patchSoaBakeDirty(soaBuf, bake);
-  } else {
-    bake = ensureSoaBake(soaBuf, bake);
-    setSharedSoaBake(bake);
-  }
-  if (bake?.valid) {
-    blitSoaBakeForView(ctx, soaBuf, bake, view);
-    return;
-  }
-  paintSoaBufferBasic(ctx, soaBuf, view, { dirtyOnly: false, document: doc });
 }
 
 function paintZOrderedCanvasInk(opts: {
@@ -580,8 +541,8 @@ function paintZOrderedCanvasInk(opts: {
 }
 
 /**
- * Canvas2D backend — clear + camera transform + grid + SoA vector ink.
- * Hit uses the same spatial index path as the svg adapter.
+ * Canvas2D backend — grid surface + Vitest SoA paint helpers.
+ * Product idle ink uses WebGL (see createSceneRenderer).
  */
 export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneRenderer {
   let disposed = false;
@@ -609,6 +570,7 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
   return {
     backend: 'canvas2d',
     render(req) {
+      ensureSoaBakeTileReadyBridge();
       if (disposed) return;
       const ctx = getCtx();
       if (!ctx) return;
@@ -669,43 +631,24 @@ export function createCanvasSceneRenderer(deps: CanvasSceneRendererDeps): SceneR
       const ids = deps.listNodeIds();
       const soaOn = isSoaCanvasShapesEnabled();
       const soaBuf = soaOn ? getSharedSceneRenderBuffer() : null;
-      const dirtyOnly =
-        !isFullDirty(req.dirty) &&
-        (req.dirty.kind === 'aabb' || req.dirty.kind === 'nodes');
       setSoaBakeClipDocument(doc);
       setSoaPaintDocument(doc);
 
-      // Bake tiles lock z-order — skip while selection raise / reveal so live
-      // SoA ink can re-sort (max+1) without a stale blit covering front siblings.
-      const useBake =
-        Boolean(soaBuf) &&
-        (drawIdle || drawBasic) &&
-        allInkIdsAreSoaBasicOrHosted(ids, soaBuf!) &&
-        shouldUseSoaBake(soaBuf!) &&
-        !gpuDofSkipsSoaTileBake() &&
-        !hasNodeTransformPreviews() &&
-        !hasLiveArtboardFrameGeometry() &&
-        !hasFrameClipRevealOverflow() &&
-        !hasSelectionPaintRaise();
-
-      if (useBake && soaBuf) {
-        paintSoaBakePath(ctx, soaBuf, doc, view, dirtyOnly);
-      } else {
-        paintZOrderedCanvasInk({
-          ctx,
-          deps,
-          doc,
-          ids,
-          soaBuf,
-          dirty: req.dirty,
-          aabbDirty,
-          view,
-          zoom: z,
-          drawIdle,
-          drawBasic,
-          drawProxies,
-        });
-      }
+      // Product bake is WebGL atlas-only. This Canvas2D renderer is grid + Vitest.
+      paintZOrderedCanvasInk({
+        ctx,
+        deps,
+        doc,
+        ids,
+        soaBuf,
+        dirty: req.dirty,
+        aabbDirty,
+        view,
+        zoom: z,
+        drawIdle,
+        drawBasic,
+        drawProxies,
+      });
       ctx.restore();
     },
     hitTest(point, screen) {
@@ -889,10 +832,12 @@ function isTransparentCssColor(c: string): boolean {
 /**
  * Vectors that paint on the SoA / canvas ink surface (ADR 0027).
  *
- * Allowed: fills, strokeAlign, object blur, inner-shadow, blend modes,
- * rect/ellipse (incl. donut/arc)/line/path/poly/star, static text, image/video.
+ * Product WebGL only draws BASIC_GEOM instances (+ atlas stamps). Anything it
+ * cannot paint keeps a DOM host — not a second ink backend.
  *
- * DOM hosts: lottie/audio/group, backdrop-blur, heavy paths, SoftGlow / editors.
+ * Vitest (WebGL off): broader rich idle for Canvas2D paint helpers.
+ *
+ * DOM hosts always: lottie/group, backdrop-blur, SoftGlow / editors.
  */
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
@@ -909,6 +854,15 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
 
   if (resolveBackdropBlur(node)) {
     return false;
+  }
+
+  // Product ink = WebGL instances only. Text/media stay FO/DOM until stamped.
+  // Vectors demote only when SoA-basic (what collectSoaWebglInstances draws).
+  if (isSoaWebglEnvEnabled()) {
+    if (key === 'text' || key === 'image' || key === 'video' || key === 'audio') {
+      return false;
+    }
+    return isSoaBasicGeomSufficient(node);
   }
 
   if (key === 'text') return true;
@@ -2608,6 +2562,16 @@ export function bumpSceneCanvasIdlePaint(): void {
 }
 
 let idleCanvasFullRepaintPending = false;
+let soaBakeTileReadyBridgeInstalled = false;
+
+/** Wire Worker/idle bake completion → idle paint bump (call after modules settle). */
+export function ensureSoaBakeTileReadyBridge(): void {
+  if (soaBakeTileReadyBridgeInstalled) return;
+  soaBakeTileReadyBridgeInstalled = true;
+  subscribeSoaBakeTileReady(() => {
+    bumpSceneCanvasIdlePaint();
+  });
+}
 
 /** Workbench focus / visibility gate changed — next idle paint must full-clear stale ink. */
 export function requestIdleCanvasFullRepaint(): void {
@@ -2642,7 +2606,7 @@ export function listSceneCanvasIdlePaintIds(): readonly string[] {
   return snap.canvasIds.filter((id) => id !== hidden);
 }
 
-/** Default factory — DOM hosts on svg; vector ink on canvas2d / webgl / webgpu. */
+/** Default factory — DOM hosts on svg; product ink on webgl / webgpu; canvas2d = grid + tests. */
 export function createSceneRenderer(
   backend: SceneRendererBackend,
   deps: CanvasSceneRendererDeps | SceneRendererHitDeps
@@ -2653,12 +2617,14 @@ export function createSceneRenderer(
       throw new Error('createSceneRenderer(webgl) requires deps.canvas');
     }
     if (!isSoaCanvasShapesEnabled()) {
-      return createCanvasSceneRenderer(canvasDeps);
+      throw new Error('createSceneRenderer(webgl) requires SoA canvas shapes');
     }
-    if (!isSoaWebglEnvEnabled() && !shouldRunGpuDepthOfField()) {
-      return createCanvasSceneRenderer(canvasDeps);
+    const gl = createWebglSceneRenderer(canvasDeps);
+    if (!gl) {
+      throw new Error('WebGL2 ink unavailable');
     }
-    return createWebglSceneRenderer(canvasDeps) ?? createCanvasSceneRenderer(canvasDeps);
+    ensureSoaBakeTileReadyBridge();
+    return gl;
   }
   if (backend === 'webgpu') {
     const canvasDeps = deps as CanvasSceneRendererDeps;
@@ -2666,33 +2632,64 @@ export function createSceneRenderer(
       throw new Error('createSceneRenderer(webgpu) requires deps.canvas');
     }
     if (!isSoaCanvasShapesEnabled()) {
-      return createCanvasSceneRenderer(canvasDeps);
+      throw new Error('createSceneRenderer(webgpu) requires SoA canvas shapes');
     }
-    return (
-      createWebgpuSceneRenderer(canvasDeps) ??
-      createWebglSceneRenderer(canvasDeps) ??
-      createCanvasSceneRenderer(canvasDeps)
-    );
+    const gpu = createWebgpuSceneRenderer(canvasDeps);
+    if (!gpu) {
+      throw new Error('WebGPU DOF ink unavailable');
+    }
+    ensureSoaBakeTileReadyBridge();
+    return gpu;
   }
   if (backend === 'canvas2d') {
     const canvasDeps = deps as CanvasSceneRendererDeps;
     if (!canvasDeps.canvas) {
       throw new Error('createSceneRenderer(canvas2d) requires deps.canvas');
     }
+    ensureSoaBakeTileReadyBridge();
     return createCanvasSceneRenderer(canvasDeps);
   }
   return createSvgSceneRenderer(deps);
 }
 
-/** Pick ink backend from flags (WebGPU DOF → WebGL DOF → Canvas2D). */
+/** Product idle ink: WebGL (WebGPU only when DOF effect resolves to it). */
 export function resolveIdleInkBackend(): SceneRendererBackend {
-  if (shouldRunGpuDepthOfField() && isSoaCanvasShapesEnabled()) {
+  if (!isSoaCanvasShapesEnabled()) return 'canvas2d';
+  if (shouldRunGpuDepthOfField()) {
     const dofBackend = resolveGpuDofBackend();
     if (dofBackend === 'webgpu') return 'webgpu';
     return 'webgl';
   }
-  if (isSoaWebglEnvEnabled() && isSoaCanvasShapesEnabled()) return 'webgl';
-  return 'canvas2d';
+  return 'webgl';
+}
+
+/** E2E / DEV probe — reads the app module singletons (not a separate Vite graph). */
+export type SoaRuntimeProbe = {
+  inkBackend: SceneRendererBackend;
+  webglEnv: boolean;
+  bakeThreshold: number;
+  shouldBake: boolean;
+  bufCount: number;
+  bakeTiles: number;
+};
+
+if (typeof window !== 'undefined') {
+  (
+    window as Window & {
+      __RCB_SOA_RUNTIME__?: () => SoaRuntimeProbe;
+    }
+  ).__RCB_SOA_RUNTIME__ = () => {
+    const buf = getSharedSceneRenderBuffer();
+    const cache = getSharedSoaBakeCache();
+    return {
+      inkBackend: resolveIdleInkBackend(),
+      webglEnv: isSoaWebglEnvEnabled(),
+      bakeThreshold: getSoaBakeCountThreshold(),
+      shouldBake: shouldUseSoaBake(buf),
+      bufCount: buf.count,
+      bakeTiles: cache?.tiles?.size ?? 0,
+    };
+  };
 }
 
 export {

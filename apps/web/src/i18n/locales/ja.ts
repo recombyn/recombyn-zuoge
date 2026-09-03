@@ -120,6 +120,7 @@ const ja = {
     heroStartTitle: '作ろう、デザインがこんなに簡単だったことはない',
     heroStartTitleAria: '作ろう、デザインがこんなに簡単だったことはない',
     footerCopy: '© {{year}} zuoge',
+    footerIcp: '滇ICP备2026017289号',
     heroSuggest: {
       ui: 'UIデザイン',
       poster: 'ポスター',

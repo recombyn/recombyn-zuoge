@@ -44,6 +44,12 @@ const INNER_HANDLE_HIT_PX = 14;
 const KNOB_VIS_PX = CHROME_HANDLE_VIS_PX;
 const KNOB_STROKE_PX = CHROME_STROKE_PX;
 
+function ellipseArcSweepSign(baseArc: number): 1 | -1 {
+  if (Math.abs(baseArc) >= 99.95) return 1;
+  if (baseArc < 0) return -1;
+  return 1;
+}
+
 function liveNodeEl(nodeId: string): Element | null {
   return (
     (getSharedNodeEls()?.get(nodeId) as Element | undefined) ||
@@ -419,7 +425,7 @@ function CircleShapeHandlesOverlay({
     dragRef.current = {
       mode: 'arc',
       current: baseArc,
-      sweepSign: Math.abs(baseArc) >= 99.95 ? 1 : baseArc < 0 ? -1 : 1,
+      sweepSign: ellipseArcSweepSign(baseArc),
       alongRad: ellipseArcAlongRadFromPercent(baseArc),
       lastPointerAngle: Math.atan2(local.y - cy, local.x - cx),
       startX: e.clientX,

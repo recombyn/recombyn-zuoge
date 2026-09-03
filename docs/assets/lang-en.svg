@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="74" height="20" role="img" aria-label="English">
+  <title>English</title>
+  <rect width="74" height="20" rx="3" fill="#d9d9d9"/>
+  <text
+    x="37"
+    y="14.5"
+    text-anchor="middle"
+    font-family="Verdana, Geneva, DejaVu Sans, sans-serif"
+    font-size="11"
+    fill="#333"
+  >English</text>
+</svg>

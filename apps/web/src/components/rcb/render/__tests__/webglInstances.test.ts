@@ -9,6 +9,7 @@ import {
 import {
   collectSoaWebglInstances,
   soaPathPrefersAtlasStamp,
+  SOA_WEBGL_NO_CLIP,
 } from '../webglSceneRenderer';
 import { SOA_ATLAS_SEG_THRESHOLD } from '../webglInstanceAtlas';
 
@@ -137,11 +138,55 @@ describe('collectSoaWebglInstances', () => {
     expect(kinds.every((k) => k === 2)).toBe(true);
   });
 
-  it('prefers atlas stamp for closed pens even below segment threshold', () => {
-    // Regression: sparse closed fills used stroke-only instances → fill vanished when deselected.
+  it('prefers atlas stamp only for closed pens (open stays crisp segments)', () => {
+    // Closed fills need atlas; open strokes must not rasterize into a cell or
+    // they look thicker/softer than the SVG draw preview after finish.
     expect(soaPathPrefersAtlasStamp(true, 3)).toBe(true);
     expect(soaPathPrefersAtlasStamp(false, 3)).toBe(false);
-    expect(soaPathPrefersAtlasStamp(false, SOA_ATLAS_SEG_THRESHOLD)).toBe(true);
+    expect(soaPathPrefersAtlasStamp(false, SOA_ATLAS_SEG_THRESHOLD)).toBe(false);
+  });
+
+  it('open pen segments use strokeColors when fill colors is 0', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'p', {
+      id: 'p',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      attrs: {
+        shapeType: 'pen',
+        path: 'M 0 0 L 40 0 L 40 40',
+        stroke: '#112233',
+        'border-color': '#112233',
+        'border-width': 1,
+        'fill-color': 'transparent',
+        closed: 'false',
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    rebuildSoaPathSamples(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    expect(buf.colors[0]).toBe(0);
+    expect(buf.strokeColors[0]).toBeTruthy();
+    const colors: number[] = [];
+    const kinds: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 200, height: 200 },
+      [],
+      colors,
+      kinds,
+      [],
+      []
+    );
+    expect(kinds.length).toBeGreaterThan(0);
+    expect(kinds.every((k) => k === 2)).toBe(true);
+    // First instance RGBA — opaque ink from strokeColors, not transparent fill.
+    expect(colors[3]).toBeGreaterThan(0.9);
   });
 
   it('skips stroke-only segment fallback for closed pens without atlas', () => {
@@ -166,6 +211,10 @@ describe('collectSoaWebglInstances', () => {
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
     expect(buf.pathClosed[0]).toBe(1);
+    expect(buf.colors[0]).toBeTruthy();
+    // Frame-local live offset used to block atlas → stroke-only ghost; still no segments.
+    buf.positions[0] = 0;
+    buf.positions[1] = 0;
     const kinds: number[] = [];
     collectSoaWebglInstances(
       buf,
@@ -178,5 +227,76 @@ describe('collectSoaWebglInstances', () => {
     );
     // Prefer invisible idle over border-only ghost when atlas is unavailable.
     expect(kinds).toEqual([]);
+  });
+
+  it('packs clipContent LTRB for frame-owned idle slots', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = {
+      ...doc,
+      frames: [{ id: 'f1', x: 100, y: 50, width: 200, height: 150, clipContent: true }],
+    };
+    doc = addNodeToDocument(doc, 'r', {
+      id: 'r',
+      key: 'shape',
+      x: 10,
+      y: 10,
+      width: 40,
+      height: 40,
+      attrs: { shapeType: 'rect', fill: '#ff0000', frameId: 'f1' },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const clips: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 800, height: 600 },
+      [],
+      [],
+      [],
+      [],
+      [],
+      { clips, document: doc }
+    );
+    expect(clips).toEqual([100, 50, 300, 200]);
+  });
+
+  it('uses open clip when clipContent is off', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = {
+      ...doc,
+      frames: [{ id: 'f1', x: 100, y: 50, width: 200, height: 150, clipContent: false }],
+    };
+    doc = addNodeToDocument(doc, 'r', {
+      id: 'r',
+      key: 'shape',
+      x: 10,
+      y: 10,
+      width: 40,
+      height: 40,
+      attrs: { shapeType: 'rect', fill: '#ff0000', frameId: 'f1' },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const clips: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 800, height: 600 },
+      [],
+      [],
+      [],
+      [],
+      [],
+      { clips, document: doc }
+    );
+    expect(clips).toEqual([
+      SOA_WEBGL_NO_CLIP[0],
+      SOA_WEBGL_NO_CLIP[1],
+      SOA_WEBGL_NO_CLIP[2],
+      SOA_WEBGL_NO_CLIP[3],
+    ]);
   });
 });

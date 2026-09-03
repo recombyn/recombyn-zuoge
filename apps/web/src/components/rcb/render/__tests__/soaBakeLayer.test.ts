@@ -11,12 +11,15 @@ import {
   SOA_FLAG_DIRTY,
   SOA_FLAG_CANVAS_IDLE,
   SOA_FLAG_VISIBLE,
+  SOA_FLAG_BASIC_GEOM,
+  SOA_FLAG_FREE,
   SOA_KIND_LINE,
 } from '../sceneRenderBuffer';
 import {
   SOA_BAKE_COUNT_THRESHOLD,
   accumulateSoaGestureDirtyFromBuffer,
   clearSoaGestureDirtyAccum,
+  collectReadySoaBakeTilesForView,
   computeSoaIdleBounds,
   createSoaBakeCache,
   ensureSoaBake,
@@ -24,6 +27,8 @@ import {
   invalidateSoaBakeTilesForDirty,
   peekSoaGestureDirtyAccum,
   shouldUseSoaBake,
+  setSoaCameraGestureActive,
+  isSoaBakePathAllowed,
   tileKey,
   tilesForView,
   unionSoaDirtyAabb,
@@ -32,6 +37,7 @@ import {
 afterEach(() => {
   clearNodeTransformPreviews();
   clearSoaGestureDirtyAccum();
+  setSoaCameraGestureActive(false);
 });
 
 describe('soa dirty + bake helpers', () => {
@@ -133,12 +139,55 @@ describe('soa dirty + bake helpers', () => {
     expect(endOnly!.top).toBeGreaterThan(40);
   });
 
-  it('shouldUseSoaBake respects threshold', () => {
+  it('shouldUseSoaBake respects threshold of idle basic slots', () => {
     const buf = createSceneRenderBuffer(SOA_BAKE_COUNT_THRESHOLD);
     buf.count = SOA_BAKE_COUNT_THRESHOLD - 1;
+    for (let i = 0; i < buf.count; i += 1) {
+      buf.flags[i] = (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE | SOA_FLAG_BASIC_GEOM) >>> 0;
+    }
     expect(shouldUseSoaBake(buf)).toBe(false);
     buf.count = SOA_BAKE_COUNT_THRESHOLD;
+    for (let i = 0; i < buf.count; i += 1) {
+      buf.flags[i] = (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE | SOA_FLAG_BASIC_GEOM) >>> 0;
+    }
     expect(shouldUseSoaBake(buf)).toBe(true);
+    // High count of FREE holes must not engage bake.
+    for (let i = 0; i < buf.count; i += 1) {
+      buf.flags[i] = SOA_FLAG_FREE;
+    }
+    expect(shouldUseSoaBake(buf)).toBe(false);
+  });
+
+  it('collectReadySoaBakeTilesForView streams new tiles across frames', () => {
+    const probe = document.createElement('canvas');
+    probe.width = 1;
+    probe.height = 1;
+    if (!probe.getContext('2d')) return;
+
+    const buf = createSceneRenderBuffer(SOA_BAKE_COUNT_THRESHOLD);
+    buf.count = SOA_BAKE_COUNT_THRESHOLD;
+    buf.revision = 1;
+    const idle =
+      (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE | SOA_FLAG_BASIC_GEOM) >>> 0;
+    for (let i = 0; i < buf.count; i += 1) {
+      const o = i * 4;
+      buf.positions[o] = (i % 4) * 2200;
+      buf.positions[o + 1] = Math.floor(i / 4) * 2200;
+      buf.positions[o + 2] = 40;
+      buf.positions[o + 3] = 40;
+      buf.kinds[i] = 0;
+      buf.flags[i] = idle;
+      buf.colors[i] = 0xffaabbcc;
+    }
+    const bake = ensureSoaBake(buf, null);
+    expect(bake?.tiled).toBe(true);
+    const view = { x: 0, y: 0, width: 5000, height: 5000 };
+    // Vitest uses sync budget (2 tiles / frame).
+    const first = collectReadySoaBakeTilesForView(buf, view);
+    expect(first.pending).toBe(true);
+    expect(first.tiles.length).toBeGreaterThan(0);
+    const second = collectReadySoaBakeTilesForView(buf, view);
+    expect(typeof second.pending).toBe('boolean');
   });
 
   it('computeSoaIdleBounds returns null when empty', () => {
@@ -157,14 +206,16 @@ describe('soa dirty + bake helpers', () => {
     const buf = createSceneRenderBuffer(SOA_BAKE_COUNT_THRESHOLD);
     buf.count = SOA_BAKE_COUNT_THRESHOLD;
     buf.revision = 1;
-    for (let i = 0; i < 4; i += 1) {
+    const idle =
+      (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE | SOA_FLAG_BASIC_GEOM) >>> 0;
+    for (let i = 0; i < buf.count; i += 1) {
       const o = i * 4;
-      buf.positions[o] = i * 10;
-      buf.positions[o + 1] = 0;
+      buf.positions[o] = (i % 40) * 10;
+      buf.positions[o + 1] = Math.floor(i / 40) * 10;
       buf.positions[o + 2] = 8;
       buf.positions[o + 3] = 8;
       buf.kinds[i] = 0;
-      buf.flags[i] = (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE) >>> 0;
+      buf.flags[i] = idle;
       buf.colors[i] = 0xffaabbcc;
     }
     expect(shouldUseSoaBake(buf)).toBe(true);
@@ -237,5 +288,14 @@ describe('soa dirty + bake helpers', () => {
     expect(dropped).toContain('0,0');
     expect(cache.tiles.has('0,0')).toBe(false);
     expect(buf.flags[0] & SOA_FLAG_DIRTY).toBeFalsy();
+  });
+
+  it('camera gesture disables bake path until settle', () => {
+    setSoaCameraGestureActive(false);
+    expect(isSoaBakePathAllowed()).toBe(true);
+    setSoaCameraGestureActive(true);
+    expect(isSoaBakePathAllowed()).toBe(false);
+    setSoaCameraGestureActive(false);
+    expect(isSoaBakePathAllowed()).toBe(true);
   });
 });

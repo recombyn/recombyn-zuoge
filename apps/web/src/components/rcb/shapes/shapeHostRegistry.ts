@@ -154,6 +154,8 @@ export function listShapeHosts() {
 
 export function clearShapeHosts() {
   hosts.clear();
+  nodeHostEpochs.clear();
+  nodeHostListeners.clear();
 }
 
 /** One screen-surface SVG — shape layers share the canonical camera matrix. */
@@ -204,8 +206,9 @@ export function getSceneFramesMount() {
 }
 
 /**
- * One content mount: frame plates + node hosts, sorted by data-z (`stackOrder`).
- * Split CSS layers cannot express a unified stack — keep both layer kinds here.
+ * Sort mount children by data-z (`stackOrder`).
+ * Frames use the frames mount (below SoA ink); node hosts use the shapes mount
+ * (above ink). Call with the mount that owns the layers being reordered.
  */
 export function syncSharedMountPaintOrder(mount?: SVGGElement | null) {
   const root = mount ?? sceneShapesMount;

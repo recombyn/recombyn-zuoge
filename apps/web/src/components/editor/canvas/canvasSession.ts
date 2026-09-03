@@ -23,6 +23,7 @@ import {
   isNodeMarqueeSkippable,
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
+import { frameIdAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
 import {
   canBindToArtboard,
   getAnimationWorkbenchTimelineFocus,
@@ -342,16 +343,7 @@ export function normalizeGeomPatches(doc: SceneDocument | null | undefined, patc
 }
 
 export function hitTestFrameInDoc(doc: SceneDocument | null | undefined, x: number, y: number): string | null {
-  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  for (let i = frames.length - 1; i >= 0; i -= 1) {
-    const frame = frames[i];
-    if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
-    const box = frameSceneBounds(doc, frame);
-    if (x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height) {
-      return String(frame.id);
-    }
-  }
-  return null;
+  return frameIdAtPoint(doc, x, y);
 }
 
 function rectIntersectsFrame(
