@@ -283,6 +283,29 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
         }
         const storedUrl = await persistProcessedSrc(res.image, `${kind}.png`);
         if (cancelled) return;
+
+        const batchUrls = Array.isArray(res.images)
+          ? res.images.map((u) => String(u || '').trim()).filter(Boolean)
+          : [];
+        let variantAttr: string | undefined;
+        if (batchUrls.length > 1) {
+          const persisted: string[] = [];
+          for (let i = 0; i < batchUrls.length; i += 1) {
+            const u = batchUrls[i];
+            if (u === res.image) {
+              persisted.push(storedUrl);
+              continue;
+            }
+            const nextUrl = await persistProcessedSrc(u, `${kind}-${i}.png`);
+            if (cancelled) return;
+            persisted.push(nextUrl);
+          }
+          const withMain = persisted.includes(storedUrl)
+            ? persisted
+            : [storedUrl, ...persisted];
+          variantAttr = JSON.stringify(withMain);
+        }
+
         const replaceMeta = kind === 'replaceText' ? parseMeta(liveNode?.attrs?.processMeta) : {};
         const replacedCopy = String(replaceMeta.newText || '').trim();
         const finishAttrs = buildFinishAttrsForKind(kind, {
@@ -292,7 +315,10 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
         finishImageProcess({
             nodeId: pendingId,
             src: storedUrl,
-            ...(finishAttrs ? { attrs: finishAttrs } : {}),
+            attrs: {
+              ...(finishAttrs || {}),
+              ...(variantAttr ? { imageVariants: variantAttr } : {}),
+            },
           });
         const labels: Record<string, string> = {
           removeBg: tt('editor.imageToolbar.doneRemoveBg'),
@@ -303,6 +329,8 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
           editText: tt('editor.imageToolbar.doneEditText'),
           editElements: tt('editor.imageToolbar.doneEditElements'),
           replaceText: tt('editor.imageToolbar.doneReplaceText'),
+          translateImage: tt('editor.imageToolbar.doneTranslateImage'),
+          productScene: tt('editor.imageToolbar.doneProductScene'),
           vector: tt('editor.imageToolbar.doneVector'),
           adjust: tt('editor.imageToolbar.doneAdjust'),
         };

@@ -77,7 +77,7 @@ Provider Price          # PricingVersion / rates
       ↓
 Internal Cost           # CostBreakdown.internal_cost_micros
       ↓
-Host commercial policy  # margin / promo / SKU (operator deployment)
+Operator pricing policy # margin / promo / SKU (operator deployment)
       ↓
 User Credits / Ledger   # 用户看到的积分
 ```

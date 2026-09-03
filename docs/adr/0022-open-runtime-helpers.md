@@ -5,8 +5,9 @@
 
 ## Context
 
-The optional HTTP Intelligence adapter and private providers must share one request
-body shape. Empty remote stubs must not override BasicLocal (Kernel quality).
+Optional remote Intelligence HTTP adapters (if an operator wires one) must share
+one request body shape with BasicLocal. Empty remote stubs must not override
+BasicLocal (Kernel quality).
 
 ## Decision
 
@@ -20,11 +21,12 @@ body shape. Empty remote stubs must not override BasicLocal (Kernel quality).
    `apply_intelligence_result` (API-local) writes usable payloads into Runtime
    slots so Decide/Settle see the same fields as BasicLocal.
 3. LangGraph / Scene apply remain in the API; this package stays thin.
-4. Public docs still omit proprietary provider internals.
+4. Document wire shapes and usable rules in protocol / this package — not
+   operator-specific model stacks.
 
 ## Consequences
 
-- Remote + private services stay aligned on payload contract.
+- Remote adapters stay aligned on the same payload contract as BasicLocal.
 - Unimplemented remotes safely fall back to BasicLocal.
 
 ## References

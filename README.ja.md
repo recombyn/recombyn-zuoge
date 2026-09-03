@@ -102,15 +102,6 @@ docker compose --profile av \
   up -d --build
 ```
 
-ベース + Design Intelligence HTTP：
-
-```bash
-docker compose --profile intelligence \
-  -f docker-compose.yml \
-  -f docker-compose.intelligence.yml \
-  up -d --build
-```
-
 GHCR の事前ビルドイメージ：
 
 ```bash

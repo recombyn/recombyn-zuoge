@@ -1,11 +1,11 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Install and register a GitHub Actions self-hosted runner (Windows) for recombyn-dev CI.
+  Install and register a GitHub Actions self-hosted runner (Windows) for zuoge CI.
 
 .DESCRIPTION
-  Private repos do not get unlimited GitHub-hosted minutes. A self-hosted runner on your
-  Windows machine runs CI jobs without consuming Actions billing minutes.
+  A self-hosted runner on your Windows machine runs CI jobs without consuming
+  GitHub-hosted Actions minutes.
 
   Prerequisites (install manually if missing):
     - Git for Windows
@@ -14,7 +14,7 @@
     - (optional) run as Administrator to install the runner Windows service
 
   Get a one-time registration token:
-    GitHub → recombyn/recombyn-dev → Settings → Actions → Runners → New self-hosted runner
+    GitHub → recombyn/zuoge → Settings → Actions → Runners → New self-hosted runner
     Copy the token from the configure step (expires in ~1 hour).
 
 .EXAMPLE
@@ -24,7 +24,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string] $RegistrationToken,
   [string] $RunnerRoot = "C:\actions-runner",
-  [string] $RepoUrl = "https://github.com/recombyn/recombyn-dev",
+  [string] $RepoUrl = "https://github.com/recombyn/zuoge",
   [string[]] $Labels = @("self-hosted", "Windows", "ci")
 )
 
@@ -85,4 +85,4 @@ Write-Host "Runner configured. Start it with ONE of:"
 Write-Host "  Interactive (terminal must stay open):  cd `"$RunnerRoot`"; .\run.cmd"
 Write-Host "  Windows service (Admin PowerShell):     cd `"$RunnerRoot`"; .\svc.install; .\svc.start"
 Write-Host ""
-Write-Host "Verify: GitHub → recombyn-dev → Settings → Actions → Runners (status: Idle)"
+Write-Host "Verify: GitHub → zuoge → Settings → Actions → Runners (status: Idle)"

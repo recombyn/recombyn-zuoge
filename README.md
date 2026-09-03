@@ -102,15 +102,6 @@ docker compose --profile av \
   up -d --build
 ```
 
-Base + optional Design Intelligence HTTP provider:
-
-```bash
-docker compose --profile intelligence \
-  -f docker-compose.yml \
-  -f docker-compose.intelligence.yml \
-  up -d --build
-```
-
 Base from pre-built GHCR images (skip local builds):
 
 ```bash

@@ -1,36 +1,30 @@
-# ADR 0023: Public vs private Design Agent eval
+# ADR 0023: Design Agent eval suite
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-09-03)
 - **Date:** 2026-08-14
 
 ## Context
 
-Design quality regression needs an open suite anyone can run, while human
-rankings, proprietary judge weights, and closed before/after corpora must never
-enter the Apache-2.0 git history or Public CI artifacts.
+Design quality regression needs a suite anyone can clone and run. This
+repository is fully open source — eval fixtures live in-tree under `eval/`.
 
 ## Decision
 
-1. **Public layout (this monorepo):**
+1. **Layout:**
    - `packages/eval-framework` — compare helpers + skill version lookup
    - `eval/framework/` — docs pointer to the package
-   - `eval/design-agent/` — **the** public suite (tasks, rubric, baseline, runners)
-   - `eval/public/` — stable name alias documenting that public suite path
-2. **Operator-only eval** (not in this repository):
-   - Closed rankings, datasets, and proprietary rubrics
-   - Dataset files are gitignored in the operator environment; only README + placeholders may be committed in private forks
-3. **CI rule:** Public workflows may only read `eval/design-agent/**` and
-   `packages/eval-framework/**`. They must not upload or clone private-eval
-   corpora into Public artifacts.
-4. **Docs rule:** Public docs describe the open suite and compare gates only —
-   not private ranking methodology or closed corpora contents.
+   - `eval/design-agent/` — public suite (tasks, rubric, baseline, runners)
+   - `eval/public/` — alias documenting that suite path
+2. **CI:** Workflows may read `eval/design-agent/**` and
+   `packages/eval-framework/**`.
+3. **No private-eval tree.** Operator-specific corpora stay outside this repo
+   if needed; they are not part of the product source.
 
 ## Consequences
 
-- Clone → run → compare works without Intelligence Cloud.
-- Operators keep closed eval data in the private repo (or private storage).
-- Renaming `eval/design-agent` → `eval/public/design-agent` is optional later;
-  the alias README avoids a breaking path move now.
+- Clone → run → compare works without extra services.
+- Renaming `eval/design-agent` → `eval/public/design-agent` remains optional;
+  the alias README avoids a breaking path move.
 
 ## References
 

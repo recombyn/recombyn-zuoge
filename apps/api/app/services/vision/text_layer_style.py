@@ -1,4 +1,4 @@
-"""Text layer font/color enrichment — shared by ILP text-decompose adapter."""
+"""Text layer font/color enrichment — shared by editText adapter."""
 
 from __future__ import annotations
 

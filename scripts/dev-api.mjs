@@ -5,10 +5,6 @@ import { resolveDevApiPort } from './dev-api-port.mjs';
 import { apiRoot, loadApiDotEnv } from './load-api-env.mjs';
 
 const repoRoot = path.resolve(apiRoot, '../..');
-const intelligenceMarker = path.join(
-  repoRoot,
-  'apps/intelligence/src/recombyn_intelligence_service'
-);
 const win = process.platform === 'win32';
 const venvPy = path.join(apiRoot, '.venv', win ? 'Scripts/python.exe' : 'bin/python');
 const py = existsSync(venvPy) ? venvPy : 'python';
@@ -32,11 +28,8 @@ function devApiEnv() {
     );
     process.exit(1);
   }
-  if (existsSync(intelligenceMarker) && !String(env.RECOMBYN_INTELLIGENCE_URL || '').trim()) {
-    env.RECOMBYN_INTELLIGENCE_MODE = env.RECOMBYN_INTELLIGENCE_MODE || 'cloud';
-    env.RECOMBYN_INTELLIGENCE_URL = 'http://127.0.0.1:8091';
-    env.RECOMBYN_INTELLIGENCE_API_KEY = env.RECOMBYN_INTELLIGENCE_API_KEY || 'dev-key';
-  }
+  // Design agent floors stay in-process BasicLocal.
+  env.RECOMBYN_INTELLIGENCE_MODE = 'local';
   return env;
 }
 

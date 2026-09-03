@@ -156,7 +156,7 @@ class Settings(BaseSettings):
 
     agent_profile_id: str = "design.canvas"
 
-    # Design Intelligence client (ADR 0017). local = BasicLocal; remote = HTTP provider.
+    # Design agent floors (ADR 0017). Always BasicLocal in-process — no remote Intelligence service.
     intelligence_provider: str = Field(
         default="local",
         validation_alias="RECOMBYN_INTELLIGENCE_MODE",
@@ -178,35 +178,56 @@ class Settings(BaseSettings):
         validation_alias="RECOMBYN_INTELLIGENCE_CIRCUIT_SEC",
     )
 
-    # Closed-source Image Layer Pipeline (depth/matting/inpaint). Empty = disabled.
-    image_layer_pipeline_url: str = Field(
+    # Volcengine AI MediaKit (OSS: removeBg, expand, editText, eraser, upscale, translateImage, productScene).
+    mediakit_api_key: str = Field(
         default="",
-        validation_alias="IMAGE_LAYER_PIPELINE_URL",
+        validation_alias="MEDIAKIT_API_KEY",
     )
-    image_layer_pipeline_api_key: str = Field(
-        default="",
-        validation_alias="IMAGE_LAYER_PIPELINE_API_KEY",
+    mediakit_base_url: str = Field(
+        default="https://mediakit.cn-beijing.volces.com",
+        validation_alias="MEDIAKIT_BASE_URL",
     )
-    # legacy = SAM/rembg path (default); ilp = always ILP; auto = ILP with legacy fallback.
-    image_layer_pipeline_mode: str = Field(
-        default="legacy",
-        validation_alias="IMAGE_LAYER_PIPELINE_MODE",
-    )
-    image_layer_pipeline_timeout_sec: float = Field(
-        default=300.0,
-        validation_alias="IMAGE_LAYER_PIPELINE_TIMEOUT_SEC",
-    )
-    image_layer_pipeline_poll_sec: float = Field(
-        default=1.0,
-        validation_alias="IMAGE_LAYER_PIPELINE_POLL_SEC",
+    mediakit_timeout_sec: float = Field(
+        default=120.0,
+        validation_alias="MEDIAKIT_TIMEOUT_SEC",
     )
 
+    # WaveSpeedAI (multiAngle / editElements layered). Empty key = disabled.
+    wavespeed_api_key: str = Field(
+        default="",
+        validation_alias="WAVESPEED_API_KEY",
+    )
+    wavespeed_base_url: str = Field(
+        default="https://api.wavespeed.ai",
+        validation_alias="WAVESPEED_BASE_URL",
+    )
+    wavespeed_timeout_sec: float = Field(
+        default=180.0,
+        validation_alias="WAVESPEED_TIMEOUT_SEC",
+    )
+    vision_multiangle_provider: str = Field(
+        default="wavespeed",
+        validation_alias="VISION_MULTIANGLE_PROVIDER",
+    )
+    vision_edit_elements_provider: str = Field(
+        default="seedream",
+        validation_alias="VISION_EDIT_ELEMENTS_PROVIDER",
+    )
+    vision_seedream_layer_model: str = Field(
+        default="doubao-seedream-5-0-pro-260628",
+        validation_alias="VISION_SEEDREAM_LAYER_MODEL",
+    )
+    vision_seedream_timeout_sec: float = Field(
+        default=180.0,
+        validation_alias="VISION_SEEDREAM_TIMEOUT_SEC",
+    )
+
+    # Reserved for later vision vendors (keys only — no layered clients yet).
+    dashscope_api_key: str = Field(default="", validation_alias="DASHSCOPE_API_KEY")
+    byteplus_api_key: str = Field(default="", validation_alias="BYTEPLUS_API_KEY")
+    topaz_api_key: str = Field(default="", validation_alias="TOPAZ_API_KEY")
+
     expand_table_cells: bool = True
-    sam_checkpoint: str | None = None
-    sam_model_type: str = "vit_t"
-    sam_min_area_ratio: float = 0.02
-    sam_max_regions: int = 8
-    lama_use_sam_mask: bool = True
 
     llm_provider: str = "deepseek"
     llm_api_key: str = ""

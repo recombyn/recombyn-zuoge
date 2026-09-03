@@ -1,36 +1,22 @@
-"""Background removal (抠图) — Recombyn Intelligence industrial matting only."""
+"""Background removal (抠图) — Volcengine AI MediaKit sync API."""
 
 from __future__ import annotations
 
-import base64
 import io
 import logging
-import re
 from typing import Any
 
 from PIL import Image
 
-from app.services.vision.ilp_client import ilp_enabled, segment_foreground_via_ilp
+from app.services.vision.mediakit_client import mediakit_enabled, remove_image_background
 from app.services.vision.rehost import rehost_image_bytes
 
 logger = logging.getLogger(__name__)
 
-_ILP_REQUIRED_MSG = (
-    "工业抠图需要接入 Recombyn Intelligence 闭源服务（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
+_MEDIAKIT_REQUIRED_MSG = (
+    "抠图需要配置火山引擎 AI MediaKit（设置 MEDIAKIT_API_KEY，"
+    "见 https://console.volcengine.com/imp/ai-mediakit/settings）"
 )
-_DATA_URL_RE = re.compile(r"^data:[^;,]+(?:;base64)?,(.+)$", re.DOTALL)
-
-
-def _decode_optional_mask(raw: object) -> bytes | None:
-    s = str(raw or "").strip()
-    if not s:
-        return None
-    if not s.startswith("data:"):
-        raise ValueError("matting mask must be a data URL")
-    match = _DATA_URL_RE.match(s)
-    if not match:
-        raise ValueError("invalid matting mask data URL")
-    return base64.b64decode(match.group(1))
 
 
 async def remove_background(
@@ -40,43 +26,34 @@ async def remove_background(
     user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Cut out the main subject via intelligence BiRefNet matting.
+    Cut out the main subject via MediaKit ``remove-image-background``.
 
-    Keeps the original canvas size (transparent outside the subject) — no bbox trim.
-    Forwards optional FE brush hints (``includeMask`` / ``excludeMask``).
+    Keeps whatever canvas MediaKit returns (PNG with transparency by default).
+    Brush hint masks from older ILP flows are ignored — MediaKit has no mask input.
 
-    Returns ``{ image, kind, engine, model, mode, width, height }``.
+    Returns ``{ image, kind, engine, model, mode, width, height, scene? }``.
     """
-    if not ilp_enabled():
-        raise RuntimeError(_ILP_REQUIRED_MSG)
+    if not mediakit_enabled():
+        raise RuntimeError(_MEDIAKIT_REQUIRED_MSG)
 
     m = meta or {}
-    model_name = str(m.get("segmentationModel") or "birefnet-general").strip() or "birefnet-general"
-    # Prefer meta decontaminate when set; default stronger edge cleanup for product photos.
-    try:
-        decontaminate = float(m.get("decontaminate")) if m.get("decontaminate") is not None else 0.85
-    except (TypeError, ValueError):
-        decontaminate = 0.85
-    decontaminate = max(0.0, min(1.0, decontaminate))
+    if m.get("includeMask") or m.get("excludeMask"):
+        logger.info("removeBg: MediaKit ignores includeMask/excludeMask brush hints")
 
-    include_mask = _decode_optional_mask(m.get("includeMask"))
-    exclude_mask = _decode_optional_mask(m.get("excludeMask"))
-
-    png_bytes, _ctype = await segment_foreground_via_ilp(
-        image,
-        model=model_name,
-        decontaminate=decontaminate,
-        include_mask=include_mask,
-        exclude_mask=exclude_mask,
-    )
+    out = await remove_image_background(image, meta=m)
+    png_bytes = out["image_bytes"]
     rgba = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
     image_out = rehost_image_bytes(user_id, png_bytes, filename="removeBg.png")
+    width = int(out.get("width") or rgba.width)
+    height = int(out.get("height") or rgba.height)
+    scene = str(out.get("scene") or "general")
     return {
         "image": image_out,
         "kind": "removeBg",
-        "engine": "ilp:birefnet",
-        "model": model_name,
-        "mode": "ilp",
-        "width": int(rgba.width),
-        "height": int(rgba.height),
+        "engine": "mediakit:remove-image-background",
+        "model": f"mediakit:{scene}",
+        "mode": "mediakit",
+        "scene": scene,
+        "width": width,
+        "height": height,
     }

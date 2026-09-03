@@ -26,9 +26,9 @@ skills/
 
 ## What does not belong here
 
-Do **not** commit proprietary prompts, private datasets, production judge
-rubrics, or closed model/routing notes into this tree. Operator-private packs
-go under `plugins/skills/` (see that folder’s README).
+Do **not** commit operator-only prompts, private datasets, production judge
+rubrics, or model/routing notes meant only for one deployment. Operator-local
+packs go under `plugins/skills/` (see that folder’s README).
 
 ## Load order
 

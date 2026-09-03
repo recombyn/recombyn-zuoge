@@ -64,14 +64,15 @@ token SKUs.
 - Wallet / ledger / estimate→authorize→capture
 - Optional remote **quote** adapter: host returns `credits_to_charge` only
 
-**Out of protocol (host commercial policy — not documented here)**
+**Out of protocol (operator pricing — not documented here)**
 
 - How a host derives sell price from internal cost
 - Dynamic pricing, promotions, discounts, list SKUs
-- Private analytics / user-value models
+- Operator analytics / user-value models
 
 Self-host default: TaskPricing + CreditPolicy floor. Cloud hosts may supply a
-quote endpoint; open Runtime never requires proprietary pricing code.
+quote endpoint; Runtime meters and authorizes from protocol floors without
+embedding host markup formulas.
 
 ### What is no longer product truth
 
@@ -86,7 +87,7 @@ valid usage inputs; they are not the Design Agent sell unit.
   TaskPricing / BYOK agent fee.
 - `default_oss_task_pricing_catalog()` is the shared authorize floor
   (`packages/protocol/recombyn_protocol/billing/task_pricing.py`).
-- Public docs and ADRs do not describe host markup formulas or private services.
+- Docs and ADRs do not describe host markup formulas; those stay operator-local.
 
 ## References
 

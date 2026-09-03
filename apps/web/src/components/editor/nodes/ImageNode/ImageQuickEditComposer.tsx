@@ -76,7 +76,6 @@ import {
   setSelectedNodeIds,
   type PendingMarkContextChip,
 } from '@/store/modules/editor';
-import { useImageToolCapabilities } from '@/service/imageTools';
 import {
   canMarkNode,
   markGateTipKey,
@@ -160,8 +159,6 @@ function ImageQuickEditComposer({
     resolveModelId: resolveQuickEditModelId,
     resetKey: `${nodeId}:${canPickModel ? '1' : '0'}`,
   });
-  const { data: imageToolCaps } = useImageToolCapabilities();
-  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const pendingQuickEditMarks = useSelector(
     (s: any) => (s.editor.pendingQuickEditMarkContexts || []) as PendingMarkContextChip[]
   );
@@ -434,16 +431,10 @@ function ImageQuickEditComposer({
     [nodeId, src, t]
   );
 
-  const markGate = useMemo(
-    () => markNodeGate(node, { ilpEnabled }),
-    [node, ilpEnabled]
-  );
+  const markGate = useMemo(() => markNodeGate(node), [node]);
   const markReady = markGate.status === 'ready';
   const onMark = () => {
     if (!markReady) {
-      if (markGate.reason === 'no_ilp') {
-        message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
-      }
       return;
     }
     if (markActive) {

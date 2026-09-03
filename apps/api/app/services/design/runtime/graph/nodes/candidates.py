@@ -1,9 +1,8 @@
-"""Multi-Candidate Design (P34) — BasicLocal open floor.
+"""Multi-Candidate Design (P34) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.propose_candidates → BasicLocal → here.
 
-Community floor: five named lanes (Editorial…Brand-led) over base Strategy.
-Advanced candidate mining lives behind Remote → private Intelligence.
+BasicLocal: five named lanes (Editorial…Brand-led) over base Strategy.
 
 Candidates live on Runtime only. Unselected never write user canvas /
 SceneDocument / tool_ops.

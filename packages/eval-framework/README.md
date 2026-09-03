@@ -8,6 +8,6 @@ Public helpers for Design Agent eval regression:
 
 **Public suite data** lives under `eval/design-agent/` (tasks, rubric, baseline).
 
-This package does **not** ship private human rankings, proprietary judge
-weights, or closed datasets. Operators may point compare at their own
-result JSON; do not commit private eval corpora into this repository.
+This package ships compare helpers only. Keep large operator-specific ranking
+corpora and custom judge weights out of the tree; point compare at your own
+result JSON when needed.

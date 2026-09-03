@@ -1,10 +1,10 @@
 /**
- * Mockup capability helpers (OSS-safe).
- * Mockup tools — implementation loaded from @commercial when present.
+ * Mockup capability helpers — FE-only UV preview (no server bake API).
  */
 
 import { getHttpErrorMessage } from '@/service/client';
 import type { ImageToolCapabilities } from '@/service/imageTools';
+import { renderMockup as renderMockupImpl } from '@/components/editor/nodes/ImageNode/mockup/mockupTools';
 
 export type MockupRenderResult = {
   image: string;
@@ -16,19 +16,15 @@ export type MockupRenderResult = {
   warnings?: string[];
 };
 
-export function isMockupEnabled(caps?: ImageToolCapabilities | null): boolean {
-  return caps?.mockup?.enabled === true;
+export function isMockupEnabled(_caps?: ImageToolCapabilities | null): boolean {
+  return true;
 }
 
 export async function renderMockup(
   image: string,
   templateId = 'demo-cylinder'
 ): Promise<MockupRenderResult> {
-  const mod = await import(/* @vite-ignore */ '@commercial/mockup/mockupTools').catch(() => null);
-  if (!mod?.renderMockup) {
-    throw new Error('Mockup tools are not available in this build');
-  }
-  return mod.renderMockup(image, templateId);
+  return renderMockupImpl(image, templateId);
 }
 
 export function mockupErrorMessage(err: unknown, fallback: string): string {

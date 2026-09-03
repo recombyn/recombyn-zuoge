@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, memo } from 'react';
-import { useSelector, useStore } from '@/store';
+import { useSelector } from '@/store';
 import { useSelectedNodeId, useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
 import { getHttpErrorMessage } from '@/service/client';
 import {
   closeImageToolPanel,
-  failImageProcess,
-  finishImageProcess,
   patchDocumentNode,
   pushEditorHistory,
   startImageProcess,
@@ -26,8 +24,6 @@ import {
   useRcbDevicePixelRatio,
   rcbSceneToScreen,
 } from '@/components/rcb';
-import { uploadImageFromSrc } from '@/utils/uploadImage';
-import { isIntelligenceVisionEnabled } from '@/service/imageTools';
 import {
   layerOpacityToPct,
   parseLayerOpacity,
@@ -61,47 +57,6 @@ import {
 import { requestPuppetWarpApply } from '@/components/editor/nodes/ImageNode/puppet/puppetWarpApplyEvent';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
-
-/** Local erase — right-side cutout node (source image untouched), same pattern as 抠图. */
-async function confirmEraserAsNewNode(opts: {
-  applyErase: (src: string, o?: { uploadKey?: string | null }) => Promise<string>;
-  src: string;
-  uploadKey: string | null;
-  sourceId: string;
-  label: string;
-  getPendingProcessId: () => string | null;
-  /** Called after the loading clone is spawned (close eraser UI). */
-  onSpawned?: () => void;
-}): Promise<void> {
-  const erased = await opts.applyErase(opts.src, { uploadKey: opts.uploadKey });
-  if (!erased || erased === opts.src) {
-    throw new Error('请先在图片上涂抹');
-  }
-  startImageProcess({
-      sourceId: opts.sourceId,
-      kind: 'eraser',
-      label: opts.label,
-    });
-  const processId = opts.getPendingProcessId();
-  if (!processId) throw new Error('橡皮失败');
-  opts.onSpawned?.();
-  try {
-    const uploaded = await uploadImageFromSrc(erased, 'eraser.png');
-    const url = String(uploaded?.url || erased).trim() || erased;
-    finishImageProcess({
-        nodeId: processId,
-        src: url,
-        attrs: {
-          cutout: 'true',
-          name: '擦除',
-          ...(uploaded?.key ? { uploadKey: String(uploaded.key) } : {}),
-        },
-      });
-  } catch (err) {
-    failImageProcess({ nodeId: processId });
-    throw err;
-  }
-}
 
 /** Dock Eraser / Replace text / — to the image's top-right (not the selection toolbar). */
 function panelStyleRight(
@@ -160,7 +115,7 @@ function ImageToolPanelHost({
   document: SceneDocument;
   /** Hide docked side panel while selection is transforming (drag/resize). */
   hidden?: boolean;
-}): ReactNode {  const store = useStore();
+}): ReactNode {
   const { t } = useTranslation();
   const camera = useRcbCamera();
   const dpr = useRcbDevicePixelRatio();
@@ -445,34 +400,17 @@ function ImageToolPanelHost({
             }
             setEraseBusy(true);
             try {
-              if (isIntelligenceVisionEnabled()) {
-                const eraseMask = await maskRef.current?.exportMask();
-                if (!eraseMask) {
-                  message.error(t('editor.imageToolbar.eraserNoImage'));
-                  return;
-                }
-                await startEraserFromMask({
-                  eraseMask,
-                  sourceId,
-                  label: t('editor.imageToolbar.processingEraser'),
-                  onSpawned: close,
-                });
+              const eraseMask = await maskRef.current?.exportMask();
+              if (!eraseMask) {
+                message.error(t('editor.imageToolbar.eraserNoImage'));
                 return;
               }
-
-              const applyErase = maskRef.current?.applyErase;
-              if (!applyErase) return;
-              await confirmEraserAsNewNode({
-                applyErase,
-                src,
-                uploadKey: String(node?.attrs?.uploadKey || node?.attrs?.key || '') || null,
+              await startEraserFromMask({
+                eraseMask,
                 sourceId,
                 label: t('editor.imageToolbar.processingEraser'),
-                getPendingProcessId: () =>
-                  (store.getState() as any).editor?.pendingImageProcessId || null,
                 onSpawned: close,
               });
-              message.success(t('editor.imageToolbar.eraserDone'));
             } catch (err: unknown) {
               const raw = getHttpErrorMessage(err, '');
               const msg =

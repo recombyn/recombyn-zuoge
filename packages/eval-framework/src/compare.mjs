@@ -1,5 +1,5 @@
 /**
- * Open eval compare helpers — no proprietary datasets.
+ * Open eval compare helpers (suite data lives under eval/design-agent/).
  */
 import fs from 'node:fs';
 import path from 'node:path';

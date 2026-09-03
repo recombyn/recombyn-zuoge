@@ -1689,6 +1689,44 @@ describe('hitTestWithSpatialIndex', () => {
     ).toBeNull();
   });
 
+  it('rescues hit when spatial AABB is stale but getNodeBox covers the point', () => {
+    const doc = {
+      stackOrder: ['node:moved'],
+      deltaSetLike: {
+        ROOT: { children: ['moved'] },
+        moved: {
+          id: 'moved',
+          key: 'shape',
+          x: 500,
+          y: 500,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', 'fill-color': '#fff' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const spatial = new SceneSpatialRuntime(64);
+    // Stale index: still at the pre-move world box.
+    spatial.index.upsert({ id: 'moved', minX: 0, minY: 0, maxX: 80, maxY: 80 });
+    expect(spatial.hitCandidateIds({ x: 520, y: 520, pad: 8 })).toEqual([]);
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['moved'],
+          getNodeBox: () => ({ left: 500, top: 500, width: 80, height: 80 }),
+        },
+        { x: 520, y: 520 }
+      )
+    ).toBe('moved');
+    // Heal so the next coarse search finds it without rescue.
+    expect(spatial.hitCandidateIds({ x: 520, y: 520, pad: 8 }).map((id) => id)).toEqual([
+      'moved',
+    ]);
+  });
+
   it('uses stackOrder instead of root child order for overlapping nodes', () => {
     const doc = {
       stackOrder: ['node:back', 'node:front'],
@@ -1891,5 +1929,59 @@ describe('hitTestWithSpatialIndex', () => {
         { x: 1100, y: 800 }
       )
     ).toBe('front');
+  });
+
+  it('does not select a filled rect via the spatial +64 CSS px halo above the box', () => {
+    setSoaCanvasShapesEnabledForTests(true);
+    const doc = {
+      stackOrder: ['node:plate'],
+      deltaSetLike: {
+        ROOT: { children: ['plate'] },
+        plate: {
+          id: 'plate',
+          key: 'shape',
+          x: 0,
+          y: 100,
+          width: 200,
+          height: 200,
+          attrs: { shapeType: 'rect', 'fill-color': '#fff' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const buf = getSharedSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: ['plate'],
+      reloadToken: 1,
+      aabbPad: 0,
+    });
+    const getNodeBox = () => ({ left: 0, top: 100, width: 200, height: 200 });
+    // ~40 CSS px above the plate — inside old searchPad (12+64) but outside ink.
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['plate'],
+          getNodeBox,
+        },
+        { x: 50, y: 60 }
+      )
+    ).toBeNull();
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['plate'],
+          getNodeBox,
+        },
+        { x: 50, y: 120 }
+      )
+    ).toBe('plate');
   });
 });

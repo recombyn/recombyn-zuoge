@@ -1,6 +1,6 @@
-# Eval (public)
+# Eval
 
-Open Design Agent quality track. No private rankings or closed corpora here.
+Open Design Agent quality track. Suite fixtures live in-tree under `eval/`.
 
 ```text
 eval/
@@ -20,11 +20,10 @@ eval/
 |-------|------|-----------------|
 | Compare helpers | `packages/eval-framework` | Apache-2.0 |
 | Public suite | `eval/design-agent/` | Apache-2.0 |
-| Private rankings / closed datasets | **not in this repo** | operator-only |
 
 ```bash
 npm run eval:agent
 npm run eval:compare
 ```
 
-Operator-only eval corpora live outside this repository. See [ADR 0023](../docs/adr/0023-public-private-eval.md).
+There is no separate private-eval tree in this repo. See [ADR 0023](../docs/adr/0023-public-private-eval.md).

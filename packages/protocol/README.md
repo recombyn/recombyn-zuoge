@@ -20,9 +20,9 @@ Stable **open** contracts for Design Runtime and `intelligence-client`.
   — see [ADR 0025](../../docs/adr/0025-billing-protocol.md),
   [ADR 0026](../../docs/adr/0026-task-centric-billing.md)
 
-This package describes **interfaces**. It does not document proprietary
-provider implementations, private datasets, closed prompts, host commercial
-policy (markup / promotions / list SKUs), or provider API keys.
+This package describes **interfaces** (wire contracts and billing schemas).
+Operator list prices, promotions, and API keys belong in deployment config —
+not in this package.
 
 ## Versioning
 

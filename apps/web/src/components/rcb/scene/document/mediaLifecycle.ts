@@ -664,7 +664,10 @@ export type ImageProcessKind =
   | 'flipRotate'
   | 'import'
   | 'upload'
-  | 'generate';
+  | 'generate'
+  | 'translateImage'
+  | 'replaceText'
+  | 'productScene';
 
 /**
  * Blank loading plate for image import.

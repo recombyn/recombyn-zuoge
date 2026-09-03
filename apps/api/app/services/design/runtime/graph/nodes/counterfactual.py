@@ -1,9 +1,9 @@
-"""Counterfactual Design (P38) — BasicLocal open floor.
+"""Counterfactual Design (P38) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.counterfactual → BasicLocal → here.
 
-Community floor: H1–H5(+H6) virtual-scene trials + repair draft (not applied).
-Metric deltas are frozen test contracts. Advanced CF lives behind Remote.
+BasicLocal: H1–H5(+H6) virtual-scene trials + repair draft (not applied).
+Metric deltas are frozen test contracts.
 
 Never mutates real canvas / SceneDocument / tool_ops.
 """

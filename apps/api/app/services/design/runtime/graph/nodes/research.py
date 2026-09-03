@@ -1,12 +1,9 @@
-"""Design Research (P32) — BasicLocal open floor.
+"""Design Research (P32) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.research → BasicLocal → this module.
 
-This is the **Community / BasicLocal** implementation: category catalog +
-ANTI-CATEGORY rules. Advanced Research (Taste / KG / private mining) lives
-behind Remote → private Intelligence; do not grow proprietary density here.
-
-Never emits canvas tool_ops. Never writes SceneDocument.
+Category catalog + ANTI-CATEGORY rules. Never emits canvas tool_ops.
+Never writes SceneDocument.
 """
 from __future__ import annotations
 
@@ -18,7 +15,7 @@ from app.services.design.runtime.graph.state import (
 )
 from app.services.design.runtime.graph.emit_sse import _emit
 
-# Open ANTI-CATEGORY floor — keep small; Private may enrich via Remote.
+# ANTI-CATEGORY patterns — keep the catalog small and deterministic.
 _CATEGORY_PATTERNS: dict[str, dict[str, list[str]]] = {
     "ai_landing": {
         "common": [

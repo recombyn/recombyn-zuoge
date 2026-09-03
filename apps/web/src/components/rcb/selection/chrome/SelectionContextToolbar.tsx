@@ -95,8 +95,7 @@ import IconAnnotateToolbar from '@/components/editor/nodes/ImageNode/IconAnnotat
 import ImageToolbarEditTools from '@/components/editor/nodes/ImageNode/ImageToolbarEditTools';
 import { canMarkNode } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { expandPuppetTimelineLayer } from '@/components/editor/nodes/ImageNode/puppet/puppetTimeline';
-import { AI_IMAGE_PROCESS_KINDS, useImageToolCapabilities } from '@/service/imageTools';
-import { probeMockupUiInstalled } from '@/components/editor/nodes/ImageNode/mockup/mockupUiLoader';
+import { AI_IMAGE_PROCESS_KINDS } from '@/service/imageTools';
 import ImageToolbarMoreDownload, {
   ToolbarMoreMenu,
   type ImageMoreAction,
@@ -346,8 +345,11 @@ function openImageMoreTool(
       });
     return;
   }
+  if (key === 'expand') {
+    openImageToolPanel({ nodeId, kind: 'expand' });
+    return;
+  }
   switch (key) {
-    case 'expand':
     case 'crop':
     case 'adjust':
     case 'blendMode':
@@ -408,25 +410,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
   const imageToolPanel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
-  const { data: imageToolCaps } = useImageToolCapabilities();
-  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
-  const mockupIntelEnabled = imageToolCaps?.mockup?.enabled === true;
-  const [mockupUiInstalled, setMockupUiInstalled] = useState<boolean | null>(null);
-  const mockupEnabled = mockupIntelEnabled && mockupUiInstalled === true;
-
-  useEffect(() => {
-    if (!mockupIntelEnabled) {
-      setMockupUiInstalled(false);
-      return;
-    }
-    let cancelled = false;
-    void probeMockupUiInstalled().then((ok) => {
-      if (!cancelled) setMockupUiInstalled(ok);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [mockupIntelEnabled]);
+  const mockupEnabled = true;
   const node = document?.deltaSetLike?.[nodeId];
   const kind = node?.key || 'shape';
   const isVectorKind =
@@ -837,20 +821,23 @@ function SelectionContextToolbar(props: Props): ReactNode {
           <ImageToolSep />
           <ImageToolbarEditTools
             onUpscale={() => openImageToolPanel({ nodeId, kind: 'upscale' })}
-            onRemoveBg={
-              ilpEnabled
-                ? () =>
-                    runImageProcess(
-                      'removeBg',
-                      t('editor.imageToolbar.processingRemoveBg'),
-                      undefined,
-                      { cutoutMode: 'ilp' }
-                    )
-                : undefined
+            onTranslateImage={() =>
+              openImageToolPanel({ nodeId, kind: 'translateImage' })
+            }
+            onProductScene={() =>
+              openImageToolPanel({ nodeId, kind: 'productScene' })
+            }
+            onRemoveBg={() =>
+              runImageProcess(
+                'removeBg',
+                t('editor.imageToolbar.processingRemoveBg'),
+                undefined,
+                { scene: 'general' }
+              )
             }
             onEraser={() => openImageToolPanel({ nodeId, kind: 'eraser' })}
             onMark={
-              canMarkNode(node, { ilpEnabled })
+              canMarkNode(node)
                 ? () =>
                     openImageToolPanel({
                         nodeId,
@@ -881,21 +868,14 @@ function SelectionContextToolbar(props: Props): ReactNode {
                 ? () => openImageToolPanel({ nodeId, kind: 'replaceText' })
                 : undefined
             }
-            onEditText={
-              ilpEnabled
-                ? () => runImageProcess('editText', t('editor.imageToolbar.processingEditText'))
-                : undefined
+            onEditText={() =>
+              runImageProcess('editText', t('editor.imageToolbar.processingEditText'))
             }
-            onEditElements={
-              ilpEnabled
-                ? () =>
-                    runImageProcess(
-                      'editElements',
-                      t('editor.imageToolbar.processingEditElements'),
-                      undefined,
-                      { engine: 'ilp' }
-                    )
-                : undefined
+            onEditElements={() =>
+              runImageProcess(
+                'editElements',
+                t('editor.imageToolbar.processingEditElements')
+              )
             }
             onMultiAngle={() =>
               openImageToolPanel({ nodeId, kind: 'multiAngle' })
@@ -905,6 +885,7 @@ function SelectionContextToolbar(props: Props): ReactNode {
             mockupEnabled={mockupEnabled}
             showCornerRadius={supportsCornerRadius(node)}
             vectorizeEnabled={AI_IMAGE_PROCESS_KINDS.has('vector')}
+            expandEnabled
             onAction={(key) => openImageMoreTool(nodeId, key, document, t)}
           />
           <Sep />

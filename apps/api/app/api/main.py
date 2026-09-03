@@ -21,7 +21,6 @@ from app.api.routes import (
     chat_animation_jobs,
     image_process_jobs,
     me,
-    mockup,
     notices,
     orgs,
     plaza,
@@ -60,6 +59,5 @@ api_router.include_router(chat_animation_jobs.router)
 api_router.include_router(chat.router)
 api_router.include_router(image_tools.router)
 api_router.include_router(image_process_jobs.router)
-api_router.include_router(mockup.router)
 api_router.include_router(design.router)
 api_router.include_router(mcp.router)

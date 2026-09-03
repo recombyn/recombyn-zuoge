@@ -292,4 +292,274 @@ test.describe('canvas hit all shapes (browser)', () => {
     console.log(`[e2e:hit-all] L hole pathChrome=${holePathChrome}`);
     expect(holePathChrome).toBe(false);
   });
+
+  test('filled rect: click ~40 CSS px above box must not select (no searchPad halo)', async ({
+    page,
+  }) => {
+    const stage = await openBlankEditor(page, 'hit-pad-halo');
+    await waitForEditorToolbar(page);
+    const box = await focusStage(page, stage);
+    await openLayers(page);
+
+    // Keep plate inside the default 100% viewport (blank editor camera).
+    await page.evaluate(async () => {
+      const editorMod = await import('/src/store/modules/editor.ts');
+      const { setDocument } = editorMod as { setDocument: (doc: unknown) => void };
+      setDocument({
+        x: 0,
+        y: 0,
+        width: 2000,
+        height: 1400,
+        backgroundColor: '',
+        frames: [],
+        pages: [{ id: 'page1', name: 'Page 1', children: ['plate'] }],
+        activePageId: 'page1',
+        deltaSetLike: {
+          ROOT: {
+            id: 'ROOT',
+            key: 'entry',
+            children: ['plate'],
+            attrs: {},
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+          },
+          plate: {
+            id: 'plate',
+            key: 'shape',
+            x: 280,
+            y: 200,
+            width: 420,
+            height: 280,
+            attrs: {
+              shapeType: 'rect',
+              'fill-color': '#ffffff',
+              'fill-enabled': 'true',
+              'border-color': '#111111',
+              'border-width': 1,
+              'stroke-enabled': 'true',
+            },
+            children: [],
+          },
+        },
+        stackOrder: ['node:plate'],
+      });
+    });
+    await sleep(900);
+    await clickSelectTool(page);
+    await blankClick(page, box);
+    await sleep(200);
+
+    // Old bug: fine hit used searchPad ≈ 76 CSS px — 40px above still selected.
+    const aboveBridge = await bridgeHitAt(page, 490, 160);
+    const insideBridge = await bridgeHitAt(page, 490, 340);
+    console.log(`[e2e:hit-pad] bridge above=${aboveBridge} inside=${insideBridge}`);
+    expect(aboveBridge).toBeNull();
+    expect(insideBridge).toBe('plate');
+
+    const aboveScreen = await sceneToClient(page, 490, 160);
+    const insideScreen = await sceneToClient(page, 490, 340);
+    expect(aboveScreen).toBeTruthy();
+    expect(insideScreen).toBeTruthy();
+
+    const aboveRt = await sceneRoundTripHit(page, aboveScreen!.x, aboveScreen!.y);
+    const insideRt = await sceneRoundTripHit(page, insideScreen!.x, insideScreen!.y);
+    console.log('[e2e:hit-pad] round-trip', { aboveRt, insideRt });
+    expect(aboveRt?.hit).toBeNull();
+    expect(insideRt?.hit).toBe('plate');
+
+    await page.mouse.click(aboveScreen!.x, aboveScreen!.y);
+    await sleep(300);
+    expect(await selectionChromeCount(page)).toBe(0);
+
+    await page.mouse.click(insideScreen!.x, insideScreen!.y);
+    await sleep(400);
+    await expect
+      .poll(async () => selectionChromeCount(page), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    console.log('[e2e:hit-pad] above miss + inside select ok');
+  });
+
+  test('multi rects: sequential click, overlap stackOrder, gap miss, underlay', async ({
+    page,
+  }) => {
+    const stage = await openBlankEditor(page, 'hit-multi');
+    await waitForEditorToolbar(page);
+    const box = await focusStage(page, stage);
+    await openLayers(page);
+
+    await page.evaluate(async () => {
+      const editorMod = await import('/src/store/modules/editor.ts');
+      const { setDocument } = editorMod as { setDocument: (doc: unknown) => void };
+      setDocument({
+        x: 0,
+        y: 0,
+        width: 2000,
+        height: 1400,
+        backgroundColor: '',
+        frames: [],
+        pages: [
+          {
+            id: 'page1',
+            name: 'Page 1',
+            children: ['under', 'a', 'b', 'front', 'back'],
+          },
+        ],
+        activePageId: 'page1',
+        deltaSetLike: {
+          ROOT: {
+            id: 'ROOT',
+            key: 'entry',
+            children: ['under', 'a', 'b', 'front', 'back'],
+            attrs: {},
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+          },
+          // Large underlay — like the 3480×2463 white plate in the repro.
+          under: {
+            id: 'under',
+            key: 'shape',
+            x: 160,
+            y: 280,
+            width: 720,
+            height: 360,
+            attrs: {
+              shapeType: 'rect',
+              'fill-color': '#ffffff',
+              'fill-enabled': 'true',
+              'border-color': '#94a3b8',
+              'border-width': 1,
+              'stroke-enabled': 'true',
+            },
+            children: [],
+          },
+          a: {
+            id: 'a',
+            key: 'shape',
+            x: 180,
+            y: 80,
+            width: 140,
+            height: 100,
+            attrs: {
+              shapeType: 'rect',
+              'fill-color': '#e2e8f0',
+              'fill-enabled': 'true',
+              'border-color': '#111',
+              'border-width': 1,
+              'stroke-enabled': 'true',
+            },
+            children: [],
+          },
+          b: {
+            id: 'b',
+            key: 'shape',
+            x: 400,
+            y: 70,
+            width: 160,
+            height: 110,
+            attrs: {
+              shapeType: 'rect',
+              'fill-color': '#7f1d1d',
+              'fill-enabled': 'true',
+              'border-color': '#111',
+              'border-width': 1,
+              'stroke-enabled': 'true',
+            },
+            children: [],
+          },
+          // Overlap pair: back then front in stackOrder → front wins.
+          back: {
+            id: 'back',
+            key: 'shape',
+            x: 620,
+            y: 90,
+            width: 160,
+            height: 140,
+            attrs: {
+              shapeType: 'rect',
+              'fill-color': '#64748b',
+              'fill-enabled': 'true',
+              'border-color': '#111',
+              'border-width': 1,
+              'stroke-enabled': 'true',
+            },
+            children: [],
+          },
+          front: {
+            id: 'front',
+            key: 'shape',
+            x: 680,
+            y: 130,
+            width: 160,
+            height: 140,
+            attrs: {
+              shapeType: 'rect',
+              'fill-color': '#0ea5e9',
+              'fill-enabled': 'true',
+              'border-color': '#111',
+              'border-width': 1,
+              'stroke-enabled': 'true',
+            },
+            children: [],
+          },
+        },
+        // under at bottom; a/b mid; back under front.
+        stackOrder: ['node:under', 'node:a', 'node:b', 'node:back', 'node:front'],
+      });
+    });
+    await sleep(900);
+    await clickSelectTool(page);
+    await blankClick(page, box);
+    await sleep(200);
+
+    // --- bridge: multi + gap + overlap + underlay ---
+    const hits = {
+      a: await bridgeHitAt(page, 250, 130),
+      b: await bridgeHitAt(page, 480, 120),
+      // Gap between a/b row and underlay top (y=280) — old halo would steal `under`.
+      gap: await bridgeHitAt(page, 350, 240),
+      overlap: await bridgeHitAt(page, 740, 180),
+      underOnly: await bridgeHitAt(page, 500, 400),
+      aboveUnder: await bridgeHitAt(page, 500, 250),
+    };
+    console.log('[e2e:hit-multi] bridge', hits);
+    expect(hits.a).toBe('a');
+    expect(hits.b).toBe('b');
+    expect(hits.gap).toBeNull();
+    expect(hits.overlap).toBe('front');
+    expect(hits.underOnly).toBe('under');
+    expect(hits.aboveUnder).toBeNull();
+
+    async function clickSelectId(sx: number, sy: number, id: string | null): Promise<void> {
+      const screen = await sceneToClient(page, sx, sy);
+      expect(screen, `sceneToClient ${sx},${sy}`).toBeTruthy();
+      const rt = await sceneRoundTripHit(page, screen!.x, screen!.y);
+      expect(rt?.hit ?? null).toBe(id);
+      await blankClick(page, box);
+      await sleep(200);
+      await page.mouse.click(screen!.x, screen!.y);
+      await sleep(320);
+      if (id) {
+        await expect
+          .poll(async () => selectionChromeCount(page), { timeout: 8_000 })
+          .toBeGreaterThan(0);
+        const still = await sceneRoundTripHit(page, screen!.x, screen!.y);
+        expect(still?.hit).toBe(id);
+      } else {
+        // Gap / above-under: must not arm selection chrome.
+        expect(await selectionChromeCount(page)).toBe(0);
+      }
+    }
+
+    await clickSelectId(250, 130, 'a');
+    await clickSelectId(480, 120, 'b');
+    await clickSelectId(350, 240, null);
+    await clickSelectId(740, 180, 'front');
+    await clickSelectId(500, 400, 'under');
+    await clickSelectId(500, 250, null);
+    console.log('[e2e:hit-multi] sequential click + overlap + gap ok');
+  });
 });

@@ -1,9 +1,8 @@
-"""Design Tournament (P35) — BasicLocal open floor.
+"""Design Tournament (P35) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.tournament → BasicLocal → here.
 
-Community floor: multi-dim bracket (dim wins beat raw total) + user override.
-Advanced ranking / private taste lives behind Remote → private Intelligence.
+BasicLocal: multi-dim bracket (dim wins beat raw total) + user override.
 
 Unselected candidates never write user canvas.
 """

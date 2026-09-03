@@ -90,7 +90,6 @@ import {
   listMarkSessionTargets,
 } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { isImageGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
-import { useImageToolCapabilities } from '@/service/imageTools';
 import {
   clearCanvasAttachPick,
   closeImageToolPanel,
@@ -162,7 +161,8 @@ function ImageGeneratorCard({
   sceneBox,
   disabled,
 }: Props): ReactNode {
-  const { t } = useTranslation();  const inputRef = useRef<AgentComposerHandle | null>(null);
+  const { t } = useTranslation();
+  const inputRef = useRef<AgentComposerHandle | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -190,8 +190,6 @@ function ImageGeneratorCard({
   const selectedFrameIds = useSelector(
     (state: any) => (state.editor?.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
-  const { data: imageToolCaps } = useImageToolCapabilities();
-  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const pendingImageGenMarks = useSelector(
     (state: any) => (state.editor.pendingImageGenMarkContexts || []) as PendingMarkContextChip[]
   );
@@ -395,20 +393,14 @@ function ImageGeneratorCard({
     ).length;
   }, [editorDocument, nodeId]);
 
-  const markReady = ilpEnabled && !nodeProcessing && markableRefCount > 0;
-  const markTip = !ilpEnabled
-    ? t('editor.imageToolbar.markNeedsIntelligence')
-    : nodeProcessing
-      ? t('editor.imageToolbar.markBlockedProcessing')
-      : markableRefCount <= 0
-        ? t('editor.imageToolbar.markBlockedUnavailable')
-        : t('editor.imageToolbar.mark');
+  const markReady = !nodeProcessing && markableRefCount > 0;
+  const markTip = nodeProcessing
+    ? t('editor.imageToolbar.markBlockedProcessing')
+    : markableRefCount <= 0
+      ? t('editor.imageToolbar.markBlockedUnavailable')
+      : t('editor.imageToolbar.mark');
 
   const onMark = () => {
-    if (!ilpEnabled) {
-      message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
-      return;
-    }
     if (nodeProcessing || disabled || sending) return;
     const doc = editorDocument || (store.getState() as any).editor?.document;
     if (markActive) {

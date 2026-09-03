@@ -1,9 +1,8 @@
-"""Art Director Swarm (P36) — BasicLocal open floor.
+"""Art Director Swarm (P36) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.swarm_direction → BasicLocal → here.
 
-Community floor: fixed specialist set + type/composer conflict arbitration.
-Advanced swarm / private AD lives behind Remote → private Intelligence.
+BasicLocal: fixed specialist set + type/composer conflict arbitration.
 
 Never emits canvas tool_ops. Art Director arbitrates conflicts.
 """

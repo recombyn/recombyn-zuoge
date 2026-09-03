@@ -146,7 +146,9 @@ export type ImageToolPanelKind =
   | 'mark'
   | 'puppet'
   | 'mockup'
-  | 'upscale';
+  | 'upscale'
+  | 'translateImage'
+  | 'productScene';
 
 export type ImageToolPanelState = {
   nodeId: string;
@@ -271,6 +273,8 @@ const IMAGE_TOOL_EXTERNAL_SESSION_KIND: Record<string, true> = {
   crop: true,
   expand: true,
   upscale: true,
+  translateImage: true,
+  productScene: true,
   flipRotate: true,
   quickEdit: true,
   lottieEdit: true,

@@ -10,7 +10,6 @@ from app.core.config import settings
 from app.services.raster_fallback import page_images_as_blocks
 from app.services.scene_builder import build_scene_response
 from app.services.storage import upload_page_images
-from app.services.vision import analyze_page_images
 
 SourceType = Literal["image"]
 
@@ -117,14 +116,9 @@ def run_import(source_type: SourceType, file_path: Path, job_id: str | None = No
 
     blocks: list[dict] = []
 
-    if settings.use_vision and page_images:
-        vision = analyze_page_images(page_images)
-        warnings.extend(vision.get("warnings") or [])
-        engines.extend(vision.get("engines") or [])
-        palette = vision.get("palette") or []
-        width = int(vision.get("width") or width)
-        height = int(vision.get("height") or height)
-        blocks = vision.get("blocks") or []
+    # Document import is raster-only (no remote page-analyze service).
+    if page_images:
+        blocks, width, height = _apply_raster_fallback(page_images, warnings, engines)
 
     drawable = [b for b in blocks if _is_drawable_block(b)]
     if blocks and not drawable and page_images:

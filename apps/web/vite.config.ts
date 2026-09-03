@@ -1,7 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createSvgIconsPlugin } from 'vite-plugin-svg-icons';
@@ -10,11 +9,6 @@ import { resolveDevApiPort } from '../../scripts/dev-api-port.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(root, '../..');
 const isTauri = Boolean(process.env.TAURI_ENV_PLATFORM);
-
-const commercialDev = path.join(root, 'src/commercial/mockup');
-const commercialRoot = fs.existsSync(commercialDev)
-  ? path.join(root, 'src/commercial')
-  : path.join(root, 'src/commercial-oss');
 
 function pick(env: Record<string, string>, ...keys: string[]) {
   for (const key of keys) {
@@ -60,7 +54,6 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.join(root, 'src'),
-        '@commercial': commercialRoot,
         '@canvas-plugins': path.join(repoRoot, 'plugins/canvas'),
       },
       extensionAlias: {
@@ -113,7 +106,7 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/setupTests.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
-      exclude: ['src/private/**', 'src/commercial/mockup/**'],
+      exclude: ['src/private/**'],
       css: false,
     },
   };

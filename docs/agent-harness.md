@@ -1,6 +1,6 @@
 # zuoge Harness — Design Agent extension seams
 
-Open extension surface for the Design Agent **without** replacing LangGraph
+Extension surface for the Design Agent **without** replacing LangGraph
 `canvas_ops_v1`. Kernel topology stays fixed; packs / overlays / hooks plug in.
 
 ## Kernel (fixed)
@@ -13,7 +13,7 @@ Live driver: `apps/api/app/services/design/runtime/graph/` + AgentProfile
 `topology.template: canvas_ops_v1`.
 
 **Boundary:** Kernel = control loop, tool scheduling, canvas R/W, allowlist,
-wallet. Skills / Intelligence = craft. Tools = atomic `tool_ops` on the FE host.
+wallet. Skills / design floors = craft. Tools = atomic `tool_ops` on the FE host.
 
 ## Extension points
 
@@ -24,7 +24,7 @@ wallet. Skills / Intelligence = craft. Tools = atomic `tool_ops` on the FE host.
 | **Skill `handler.py`** | opt-in `DESIGN_SKILL_OPS_RUNNER` | Short-circuit paint ops before LLM |
 | **Skill `hooks.py`** | `register_pipeline(registry)` | Pack-local pre/post hooks on the shared `HookRegistry` |
 | **Profile overlay** | `seeds/agents/overlays/*.patch.yaml` + `agent-overrides/local.patch.yaml` | Deep-merge onto `profiles/{id}.yaml` |
-| **Intelligence** | `packages/intelligence-client` | Swappable provider (BasicLocal open; remote optional) |
+| **Design floors** | `packages/intelligence-client` | In-process **BasicLocal** provider (always) |
 
 ## Session lanes
 
@@ -44,16 +44,9 @@ The web client `DesignRunMode` is only `'agent' | 'single_model'`. Do not send o
 
 Chat `mode=react` (`stream_official_agent`) is a **separate** conversation loop, not the Design canvas driver.
 
-## Open vs closed
+## Related
 
-| Open (public mirror) | Closed (strip on sync) |
-|----------------------|-------------------------|
-| Graph, seams, session_log, agent-sdk vocabulary | `apps/intelligence/` |
-| Skills / canvas plugin samples | `apps/web/src/commercial/mockup/` |
-| AgentProfile seeds + overlays example | `docs/commercial/` |
-
-See [ADR 0017](./adr/0017-intelligence-provider-boundary.md), [ADR 0021](./adr/0021-open-agent-sdk.md),
-[`scripts/oss-exclude.paths`](../scripts/oss-exclude.paths).
+See [ADR 0017](./adr/0017-intelligence-provider-boundary.md), [ADR 0021](./adr/0021-open-agent-sdk.md).
 
 ## Local profile override
 

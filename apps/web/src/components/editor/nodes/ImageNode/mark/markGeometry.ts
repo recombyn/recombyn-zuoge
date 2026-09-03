@@ -22,7 +22,7 @@ export type MarkSessionTarget = {
   blocked: boolean;
 };
 
-export type MarkGateReason = 'not_image' | 'no_ilp' | 'processing' | 'unavailable';
+export type MarkGateReason = 'not_image' | 'processing' | 'unavailable';
 
 export type MarkNodeGate =
   | { status: 'ready' }
@@ -41,15 +41,9 @@ export function isMarkBlockedMediaKey(key: unknown): boolean {
  * Single gate for toolbar / composer / session: only ready raster images mark.
  * Everything else is disabled (vectors, frames-as-nodes, video, empty generators…).
  */
-export function markNodeGate(
-  node: SceneNodeInput | null | undefined,
-  opts: { ilpEnabled: boolean }
-): MarkNodeGate {
+export function markNodeGate(node: SceneNodeInput | null | undefined): MarkNodeGate {
   if (!node || String(node.key || '') !== 'image') {
     return { status: 'disabled', reason: 'not_image' };
-  }
-  if (!opts.ilpEnabled) {
-    return { status: 'disabled', reason: 'no_ilp' };
   }
   if (String(node.attrs?.processStatus || '') === 'running') {
     return { status: 'disabled', reason: 'processing' };
@@ -61,18 +55,13 @@ export function markNodeGate(
   return { status: 'ready' };
 }
 
-export function canMarkNode(
-  node: SceneNodeInput | null | undefined,
-  opts: { ilpEnabled: boolean }
-): boolean {
-  return markNodeGate(node, opts).status === 'ready';
+export function canMarkNode(node: SceneNodeInput | null | undefined): boolean {
+  return markNodeGate(node).status === 'ready';
 }
 
 export function markGateTipKey(gate: MarkNodeGate): string {
   if (gate.status === 'ready') return 'editor.imageToolbar.mark';
   switch (gate.reason) {
-    case 'no_ilp':
-      return 'editor.imageToolbar.markNeedsIntelligence';
     case 'processing':
       return 'editor.imageToolbar.markBlockedProcessing';
     case 'not_image':
@@ -125,7 +114,7 @@ export function listMarkSessionTargets(document: SceneDocument): MarkSessionTarg
     if (!box) continue;
 
     if (key === 'image') {
-      const gate = markNodeGate(node, { ilpEnabled: true });
+      const gate = markNodeGate(node);
       if (gate.status === 'ready') {
         out.push({ nodeId, box, node, blocked: false });
       } else {

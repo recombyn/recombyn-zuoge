@@ -6,8 +6,8 @@ never show the quality checklist.
 
 IntelligenceClient.govern → BasicLocal → gate_governance_before_settle.
 
-Community floor: Brand / A11y / Copyright / Reference / Design System /
-Content / Tool Permission. Brand/copyright private rules live behind Remote.
+BasicLocal: Brand / A11y / Copyright / Reference / Design System /
+Content / Tool Permission.
 
 PASS → settle continues. FAIL → Explain → Repair Plan (never silent success).
 """

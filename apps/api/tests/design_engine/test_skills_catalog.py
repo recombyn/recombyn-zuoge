@@ -38,6 +38,6 @@ def test_skills_readme_is_public_only():
     text = readme.read_text(encoding="utf-8").lower()
     assert "foundation" in text
     assert "domains" in text
-    # Do not document proprietary backends in the open skills README.
+    # skills/ README documents pack layout only (no remote Intelligence service name).
     assert "recombyn-intelligence" not in text
     assert "private-prompts" not in text

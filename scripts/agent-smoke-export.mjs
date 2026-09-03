@@ -63,7 +63,6 @@ function pickRefImage() {
     path.join(outDir, 'ref-64.png'),
     path.join(outDir, 'ref-small.jpg'),
     path.join(root, 'e2e/fixtures/refs/zhuanzhuan-home.png'),
-    path.join(root, 'apps/api/private-eval/mark-edit-test/output.png'),
     path.join(root, 'apps/api/storage/results/_sync/pages/0001.png'),
   ];
   for (const p of preferred) {

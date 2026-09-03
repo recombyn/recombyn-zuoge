@@ -1,8 +1,8 @@
-"""Autonomous Art Director (P42) — BasicLocal open floor.
+"""Autonomous Art Director (P42) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.autonomous_plan/sync → BasicLocal → here.
 
-Community floor: goal vs micro-edit from **LLM classified_intent** (design → goal,
+BasicLocal: goal vs micro-edit from **LLM classified_intent** (design → goal,
 canvas_op → micro_edit). No prompt length / keyword guessing.
 
 Never emits canvas tool_ops. Execution/Observe/Review remain Kernel-owned.

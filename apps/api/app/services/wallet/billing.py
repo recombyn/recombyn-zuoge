@@ -42,7 +42,7 @@ DEFAULT_IMAGE_CREDITS = 2
 DEFAULT_CREDIT_VALUE_MICROS = 100_000
 DEFAULT_BYOK_AGENT_FEE = 5
 
-# OSS list SKUs when Intelligence is unreachable (aligned with commercial defaults).
+# Default list SKUs when remote plan fetch is unavailable.
 _OSS_PLAN_CATALOG: tuple[dict[str, Any], ...] = (
     {
         "planId": "free",

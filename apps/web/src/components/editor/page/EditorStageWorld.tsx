@@ -28,7 +28,9 @@ import UploadJobWatcher from '@/components/editor/nodes/shared/UploadJobWatcher'
 import GeneratorJobRecoveryHost from '@/components/editor/nodes/shared/GeneratorJobRecoveryHost';
 import CropExpandSessionHost from '@/components/editor/nodes/ImageNode/cropExpand/CropExpandSessionHost';
 import UpscaleSessionHost from '@/components/editor/nodes/ImageNode/UpscaleSessionHost';
-import { CommercialEditorHosts } from '@/commercial/editorHosts';
+import TranslateImageSessionHost from '@/components/editor/nodes/ImageNode/TranslateImageSessionHost';
+import ProductSceneSessionHost from '@/components/editor/nodes/ImageNode/ProductSceneSessionHost';
+import { EditorSessionHosts } from '@/components/editor/page/editorHosts';
 import ImageQuickEditSessionHost from '@/components/editor/nodes/ImageNode/ImageQuickEditSessionHost';
 import MarkPinHost from '@/components/editor/nodes/ImageNode/mark/MarkPinHost';
 import PuppetPinHost from '@/components/editor/nodes/ImageNode/puppet/PuppetPinHost';
@@ -819,7 +821,9 @@ function EditorStageWorld({
         <ShapeStylePanelHost document={document} hidden={selectionTransforming} />
         <CropExpandSessionHost document={document} hidden={selectionTransforming} />
         <UpscaleSessionHost document={document} hidden={selectionTransforming} />
-        <CommercialEditorHosts document={document} selectionTransforming={selectionTransforming} />
+        <TranslateImageSessionHost document={document} hidden={selectionTransforming} />
+        <ProductSceneSessionHost document={document} hidden={selectionTransforming} />
+        <EditorSessionHosts document={document} selectionTransforming={selectionTransforming} />
         <ImageQuickEditSessionHost document={document} hidden={selectionTransforming} />
         <MarkPinHost document={document} hidden={selectionTransforming} />
         <PuppetPinHost document={document} hidden={selectionTransforming} />

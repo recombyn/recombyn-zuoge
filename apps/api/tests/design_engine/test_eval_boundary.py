@@ -1,4 +1,4 @@
-"""Public eval boundary — no private-eval corpora in this monorepo."""
+"""Eval layout boundary — suite in-tree; no separate private-eval tree."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,8 +15,8 @@ def test_public_eval_layout_exists():
     assert (_ROOT / "eval" / "README.md").is_file()
 
 
-def test_no_private_eval_tree_in_public_repo():
-    """Closed rankings / datasets must not live under the Apache-2.0 tree."""
+def test_no_private_eval_tree_in_repo():
+    """Product is fully open; do not reintroduce a private-eval dual tree."""
     forbidden_dirs = (
         _ROOT / "private-eval",
         _ROOT / "eval" / "private",
@@ -24,7 +24,7 @@ def test_no_private_eval_tree_in_public_repo():
         _ROOT / "eval" / "design-agent" / "private",
     )
     for path in forbidden_dirs:
-        assert not path.exists(), f"forbidden private eval path: {path}"
+        assert not path.exists(), f"forbidden private-eval path: {path}"
 
 
 def test_no_human_ranking_artifacts_committed():
@@ -45,4 +45,4 @@ def test_no_human_ranking_artifacts_committed():
         for path in root.rglob("*"):
             if path.is_file() and path.name.lower() in bad_names:
                 found.append(str(path.relative_to(_ROOT)))
-    assert not found, f"private eval artifacts in public tree: {found}"
+    assert not found, f"unexpected ranking artifacts under eval/: {found}"

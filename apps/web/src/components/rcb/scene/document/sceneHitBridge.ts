@@ -143,6 +143,8 @@ export type HitTestSceneAtPointOpts = {
   allowSvgDomHit?: boolean;
   /** When set, canvas-idle slots are tested in z-order alongside SVG/scene hits. */
   soaBuf?: SceneRenderBuffer | null;
+  /** Override sceneHitSlop — keep in sync with spatial broad-phase pad. */
+  pad?: number;
 };
 
 let hitFn: SceneHitFn | null = null;
@@ -188,7 +190,10 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     allowSvgDomHit = false,
     soaBuf = null,
   } = opts;
-  const pad = sceneHitSlop(Math.max(0.05, zoom || 1));
+  const pad =
+    opts.pad != null && Number.isFinite(opts.pad)
+      ? Math.max(0, Number(opts.pad))
+      : sceneHitSlop(Math.max(0.05, zoom || 1));
   for (const id of order) {
     const node = doc?.deltaSetLike?.[id];
     if (!node || isNodeHiddenInDocument(doc, node)) {

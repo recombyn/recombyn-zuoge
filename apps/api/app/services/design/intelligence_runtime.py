@@ -1,9 +1,8 @@
 """API-side Intelligence providers + client factory.
 
-BasicLocalProvider delegates to in-repo BasicLocal runners (open floor).
-Optional remote adapter posts to a generic HTTP IntelligenceProvider endpoint;
-usable results are applied onto Runtime slots. Remote failures propagate (no BasicLocal fallback).
-Do not document proprietary backends here.
+Runtime always builds ``BasicLocalProvider`` in-process. Optional remote
+billing helpers may still read config URLs; Design floors do not call a
+remote Intelligence HTTP service.
 
 Stable surface matches ``DesignIntelligenceClient`` canonical methods.
 """
@@ -14,7 +13,7 @@ import logging
 import time
 from typing import Any
 
-from recombyn_intelligence_client import DesignIntelligenceClient, RemoteIntelligenceProvider
+from recombyn_intelligence_client import DesignIntelligenceClient
 
 from app.core.config import settings
 
@@ -427,34 +426,8 @@ class BasicLocalProvider:
 
 
 def build_design_intelligence_client() -> DesignIntelligenceClient:
-    """Resolve provider from settings. Default is local/basic."""
-    mode = str(getattr(settings, "intelligence_provider", "local") or "local").strip().lower()
-    local = BasicLocalProvider()
-    if mode == "cloud":
-        base = str(getattr(settings, "intelligence_remote_url", "") or "").strip()
-        if not base:
-            raise RuntimeError(
-                "RECOMBYN_INTELLIGENCE_MODE=cloud but RECOMBYN_INTELLIGENCE_URL is empty"
-            )
-        key = str(getattr(settings, "intelligence_remote_api_key", "") or "")
-        timeout = float(
-            getattr(settings, "intelligence_remote_timeout_sec", 30.0) or 30.0
-        )
-        circuit_sec = float(
-            getattr(settings, "intelligence_circuit_sec", 30.0) or 30.0
-        )
-        return DesignIntelligenceClient(
-            RemoteIntelligenceProvider(
-                base_url=base,
-                api_key=key,
-                timeout_sec=timeout,
-                circuit_sec=circuit_sec,
-                apply_result=apply_intelligence_result,
-                hop_get=get_intelligence_hop,
-                hop_put=put_intelligence_hop,
-            )
-        )
-    return DesignIntelligenceClient(local)
+    """Always BasicLocal — no remote Intelligence HTTP service."""
+    return DesignIntelligenceClient(BasicLocalProvider())
 
 
 def get_design_intelligence_client() -> DesignIntelligenceClient:
@@ -471,11 +444,8 @@ def reset_design_intelligence_client() -> None:
     _client = None
 
 def remote_billing_base_url() -> str:
-    """Optional remote host base URL for credit quotes; else empty."""
-    mode = str(getattr(settings, "intelligence_provider", "local") or "local").strip().lower()
-    if mode != "cloud":
-        return ""
-    return str(getattr(settings, "intelligence_remote_url", "") or "").strip().rstrip("/")
+    """No remote Intelligence host — billing quotes stay local."""
+    return ""
 
 
 def _remote_billing_headers() -> dict[str, str]:

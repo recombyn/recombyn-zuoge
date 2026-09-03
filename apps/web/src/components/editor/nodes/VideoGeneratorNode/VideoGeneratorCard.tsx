@@ -91,7 +91,6 @@ import { isMarkContextKey, syncMarkPinRemoved } from '@/components/editor/nodes/
 import { clearVideoGenMarkSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
 import { listMarkSessionTargets } from '@/components/editor/nodes/ImageNode/mark/markGeometry';
 import { isVideoGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
-import { useImageToolCapabilities } from '@/service/imageTools';
 import { cn } from '@/utils/classnames';
 import { estimateVideoCredits } from '@/utils/imageCredits';
 import { finishComposerAttachmentUpload, createFilePreviewUrl, revokeComposerPreviewUrls } from '@/utils/uploadImage';
@@ -177,8 +176,6 @@ function VideoGeneratorCard({
   const selectedFrameIds = useSelector(
     (state: any) => (state.editor?.selectedFrameIds as string[]) ?? EMPTY_ID_LIST
   );
-  const { data: imageToolCaps } = useImageToolCapabilities();
-  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const pendingVideoGenMarks = useSelector(
     (state: any) => (state.editor.pendingVideoGenMarkContexts || []) as PendingMarkContextChip[]
   );
@@ -339,20 +336,14 @@ function VideoGeneratorCard({
     ).length;
   }, [editorDocument, nodeId]);
 
-  const markReady = ilpEnabled && !nodeProcessing && markableRefCount > 0;
-  const markTip = !ilpEnabled
-    ? t('editor.imageToolbar.markNeedsIntelligence')
-    : nodeProcessing
-      ? t('editor.imageToolbar.markBlockedProcessing')
-      : markableRefCount <= 0
-        ? t('editor.imageToolbar.markBlockedUnavailable')
-        : t('editor.imageToolbar.mark');
+  const markReady = !nodeProcessing && markableRefCount > 0;
+  const markTip = nodeProcessing
+    ? t('editor.imageToolbar.markBlockedProcessing')
+    : markableRefCount <= 0
+      ? t('editor.imageToolbar.markBlockedUnavailable')
+      : t('editor.imageToolbar.mark');
 
   const onMark = () => {
-    if (!ilpEnabled) {
-      message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
-      return;
-    }
     if (nodeProcessing || disabled || sending) return;
     const doc = editorDocument || (store.getState() as any).editor?.document;
     if (markActive) {

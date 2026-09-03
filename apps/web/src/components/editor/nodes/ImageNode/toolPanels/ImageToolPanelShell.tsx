@@ -16,20 +16,12 @@ const panelBtn =
   'inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-xl px-2 text-[12px] font-medium leading-none transition-colors';
 
 /**
- * Image-tool 积分 costs — sync with apps/api `image_tools.py` `_KIND_CREDIT_COST`.
- * No LLM (removeBg / editText / editElements / vector; CSS adjust is FE-only) → 0.
- * BYOK also skip platform credits on the server.
+ * Static fallbacks for LLM image tools that charge platform credits.
+ * MediaKit / WaveSpeed / local CV → 0 (never show a chip).
+ * Prefer server ``/image/tools`` via ``confirmCostKind`` when available.
  */
 export const IMAGE_TOOL_CREDIT_COST = {
-  upscale: 0,
-  removeBg: 0,
-  eraser: 0,
-  multiAngle: 30,
-  expand: 30,
-  editText: 0,
-  editElements: 0,
   replaceText: 30,
-  vector: 0,
 } as const;
 
 /** Shared chrome for image tool panels docked beside the source image. */

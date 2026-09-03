@@ -1,12 +1,12 @@
-# ADR 0025: Billing Protocol (open) + commercial strategy (host-private)
+# ADR 0025: Billing Protocol + operator pricing boundary
 
 - **Status:** Accepted
 - **Date:** 2026-08-14
 
 ## Context
 
-Billing must be auditable for self-host and ecosystem adapters while **commercial
-policy** (markup, packs, fraud, promotions) stays with the host operator. This
+Billing must be auditable for self-host and ecosystem adapters while **operator
+pricing policy** (markup, packs, fraud, promotions) stays with the host. This
 ADR freezes the **Billing Protocol** (contracts + open cost floor), not a full
 hosted billing product.
 
@@ -43,12 +43,12 @@ Provider Price (PricingVersion / rates)
       ↓
 Internal Cost (CostBreakdown.internal_cost_micros)
       ↓
-Host commercial policy   ← NOT in Public protocol
+Operator pricing policy  ← NOT in protocol (host decides sell price)
       ↓
 User Credits / Ledger
 ```
 
-Public must **not** put `user_price` / `credits_per_token` on Model.
+Protocol must **not** put `user_price` / `credits_per_token` on Model.
 
 ### Invariants
 
@@ -68,14 +68,15 @@ Public must **not** put `user_price` / `credits_per_token` on Model.
 
 ## Consequences
 
-- Ecosystem adapters can meter providers without knowing a host’s commercial policy.
-- Public docs never publish host markup, list-price strategy, or private service maps.
+- Ecosystem adapters can meter providers without knowing a host’s sell-side policy.
+- Docs and protocol cover metering / floors; host markup and list SKUs stay
+  operator-local (not part of the shared contract).
 - See ADR 0026 for task-centric credits.
 
 ## Alternatives considered
 
 - Mutable `model.price` — cannot audit history.
-- Billing only in a closed admin app — blocks open adapters.
+- Billing only inside an operator admin app — blocks open adapters.
 - Float currency as ledger truth — prefer micros.
 
 ## References

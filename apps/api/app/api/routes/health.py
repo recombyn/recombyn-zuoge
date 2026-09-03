@@ -1,4 +1,4 @@
-"""Health / readiness checks for API, Redis, worker, intelligence."""
+"""Health / readiness checks for API, Redis, worker."""
 
 from fastapi import APIRouter
 
@@ -28,15 +28,6 @@ def _check_worker() -> bool:
         return False
 
 
-def _check_intelligence() -> bool:
-    try:
-        from app.services.vision.ilp_client import ilp_enabled
-
-        return ilp_enabled()
-    except Exception:
-        return False
-
-
 def _check_db() -> dict:
     try:
         from sqlalchemy import text
@@ -57,7 +48,6 @@ def _check_db() -> dict:
 def health():
     redis_ok = _check_redis()
     worker_ok = _check_worker() if redis_ok else False
-    intelligence_ok = _check_intelligence()
     db = _check_db()
 
     checks = {
@@ -65,7 +55,6 @@ def health():
         "database": db,
         "redis": redis_ok,
         "worker": worker_ok,
-        "intelligence": intelligence_ok,
         "use_vision": settings.use_vision,
         "s3": settings.s3_enabled,
     }
@@ -75,7 +64,7 @@ def health():
     elif redis_ok and worker_ok:
         status = "ok"
     elif redis_ok:
-        status = "degraded"  # sync import may still work; async jobs queue without drain
+        status = "degraded"
     else:
         status = "degraded"
 

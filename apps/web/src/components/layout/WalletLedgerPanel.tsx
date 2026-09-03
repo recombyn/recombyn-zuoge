@@ -113,6 +113,8 @@ function isImageCreditSpend(row: LedgerEntry) {
     d.includes('image tool') ||
     d.includes('removebg') ||
     d.includes('upscale') ||
+    d.includes('translate') ||
+    d.includes('product scene') ||
     d.includes('hydrate')
   );
 }

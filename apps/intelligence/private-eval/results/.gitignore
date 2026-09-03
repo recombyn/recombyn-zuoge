@@ -1,3 +1,0 @@
-# Private eval outputs (never commit corpora / scores)
-*
-!.gitignore

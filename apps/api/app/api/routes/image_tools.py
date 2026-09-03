@@ -22,19 +22,9 @@ from app.services.wallet.db import is_wallet_billing_enabled, spend_credits
 
 router = APIRouter(prefix="/image", tags=["image-tools"])
 
-# Wallet 积分 charged per LLM image tool when not tied to a Seedream catalog price.
-# Local CV kinds (removeBg / editText / editElements) are always 0.
+# Wallet 积分 for LLM image tools only (Seedream i2i). MediaKit / WaveSpeed / layered → 0.
 _KIND_CREDIT_COST: dict[str, int] = {
-    "upscale": 0,
-    "removeBg": 0,
-    "eraser": 0,
-    "multiAngle": 30,
-    "expand": 30,
-    "editText": 0,
-    "editElements": 0,
-    "detectRegions": 0,
     "replaceText": 30,
-    "vector": 0,  # local vtracer, no LLM
 }
 
 
@@ -67,12 +57,10 @@ def credit_cost_for_kind(
 ) -> int:
     """Platform credits only when an LLM image path runs on the platform key."""
     k = (kind or "").strip()
-    # No LLM call (intelligence vision / CSS adjust) → never charge.
     if not uses_llm_for_kind(k):
         return 0
     if not is_wallet_billing_enabled():
         return 0
-    # User's own key / platform BYOK → upstream billed to them, not our wallet.
     if is_byok_model_ref(model) or (user_id and uses_user_platform_byok(user_id, model)):
         return 0
     mid = (model or "").strip()
@@ -83,33 +71,54 @@ def credit_cost_for_kind(
 
 @router.get("/tools")
 def list_image_tools() -> dict[str, Any]:
-    from app.services.llm.image_tools import ilp_supports
-    from app.services.mockup.mockup_client import mockup_enabled
-    from app.services.vision.ilp_client import ilp_enabled
+    from app.core.config import settings
+    from app.services.llm.image_tools import (
+        mediakit_supports,
+        seedream_supports,
+        wavespeed_supports,
+    )
+    from app.services.vision.mediakit_client import mediakit_enabled
+    from app.services.vision.providers.registry import (
+        seedream_enabled,
+        wavespeed_enabled,
+    )
 
     kinds = sorted(IMAGE_PROCESS_KINDS)
     costs = {k: credit_cost_for_kind(k) for k in kinds}
-    ilp_on = ilp_enabled()
-    mockup_on = mockup_enabled()
-    mockup_block: dict[str, Any] = {"enabled": mockup_on}
-    if mockup_on:
-        mockup_block["templates"] = [
-            {
-                "id": "demo-cylinder",
-                "name": "Demo cylinder mug",
-                "kind": "builtin",
-                "width": 720,
-                "height": 960,
-            }
-        ]
+    mediakit_on = mediakit_enabled()
+    wavespeed_on = wavespeed_enabled()
+    seedream_on = seedream_enabled()
+    dash_on = bool(str(settings.dashscope_api_key or "").strip())
+    byte_on = bool(str(settings.byteplus_api_key or "").strip())
+    topaz_on = bool(str(settings.topaz_api_key or "").strip())
     return {
         "kinds": kinds,
         "credits": costs,
-        "ilp": {
-            "enabled": ilp_on,
-            "supports": ilp_supports(),
+        "mediakit": {
+            "enabled": mediakit_on,
+            "supports": mediakit_supports(),
         },
-        "mockup": mockup_block,
+        "vision": {
+            "providers": {
+                "seedream": {
+                    "enabled": seedream_on,
+                    "supports": seedream_supports(),
+                },
+                "wavespeed": {
+                    "enabled": wavespeed_on,
+                    "supports": wavespeed_supports(),
+                },
+                "dashscope": {"enabled": dash_on, "supports": []},
+                "byteplus": {"enabled": byte_on, "supports": []},
+                "topaz": {"enabled": topaz_on, "supports": []},
+            },
+            "multiAngleProvider": str(settings.vision_multiangle_provider or "wavespeed"),
+            "editElementsProvider": str(
+                settings.vision_edit_elements_provider or "seedream"
+            ),
+        },
+        # FE mockup is client-side only (no server bake API).
+        "mockup": {"enabled": True, "templates": []},
     }
 
 
@@ -121,8 +130,6 @@ async def post_image_process(
 ) -> dict[str, Any]:
     kind = body.kind.strip()
     cost = credit_cost_for_kind(kind, body.model, user_id=current_user.id)
-    # Charge before the model call so insufficient balance fails fast.
-    # cost is 0 when no LLM / BYOK / wallet billing off.
     _charge(current_user.id, cost, f"AI image tool: {kind}", locale=locale)
 
     try:
@@ -147,4 +154,3 @@ async def post_image_process(
     if isinstance(result, dict):
         result = {**result, "credits": cost}
     return result
-

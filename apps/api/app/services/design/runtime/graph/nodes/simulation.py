@@ -1,10 +1,9 @@
-"""Design Simulation (P37) — BasicLocal open floor.
+"""Design Simulation (P37) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.simulate → BasicLocal → here.
 
-Community floor: deterministic attention / quality prediction + CTA gate.
-Numeric contracts are frozen (tests lock hero/cta shares). Do not “simplify”
-formulas here — richer simulation lives behind Remote → private Intelligence.
+BasicLocal: deterministic attention / quality prediction + CTA gate.
+Numeric contracts are frozen (tests lock hero/cta shares).
 
 Read-only. Never mutates SceneDocument / tool_ops.
 """

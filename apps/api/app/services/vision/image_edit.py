@@ -1,8 +1,4 @@
-"""Text-layer style helpers shared by ILP text-decompose adapter.
-
-Local SAM/LaMa/rembg decompose used to live here — that path is retired.
-抠图 / 分层 / 标记 / 高清 run only through closed-source Intelligence (ilp_* adapters).
-"""
+"""Text-layer style helpers (ink color / font estimate) for MediaKit editText."""
 
 from __future__ import annotations
 

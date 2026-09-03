@@ -93,12 +93,15 @@ function ImageToolbarMoreDownload({
   showCornerRadius = true,
   mockupEnabled = false,
   vectorizeEnabled = false,
+  expandEnabled = true,
 }: {
   onAction: (key: ImageMoreAction) => void;
   showCornerRadius?: boolean;
   mockupEnabled?: boolean;
   /** When false, 矢量化 stays in the menu but is disabled. */
   vectorizeEnabled?: boolean;
+  /** When false, 扩展 stays in the menu but is disabled (needs MediaKit). */
+  expandEnabled?: boolean;
 }): ReactNode {
   const { t } = useTranslation();
   const items: ToolbarMoreItem[] = useMemo(() => {
@@ -115,6 +118,7 @@ function ImageToolbarMoreDownload({
         key: 'expand',
         icon: <HiOutlineArrowsPointingOut className="h-4 w-4" />,
         label: t('editor.imageToolbar.expand'),
+        disabled: !expandEnabled,
       },
       {
         key: 'adjust',
@@ -163,7 +167,7 @@ function ImageToolbarMoreDownload({
       }
     );
     return list;
-  }, [t, showCornerRadius, mockupEnabled, vectorizeEnabled]);
+  }, [t, showCornerRadius, mockupEnabled, vectorizeEnabled, expandEnabled]);
 
   return <ToolbarMoreMenu items={items} onAction={(key) => onAction(key as ImageMoreAction)} />;
 }

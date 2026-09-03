@@ -1,4 +1,4 @@
-# Self-hosted CI (Windows) — recombyn-dev
+# Self-hosted CI (Windows) — zuoge
 
 All workflows in this repo run on the **self-hosted Windows runner**
 (`labels: self-hosted, Windows, ci`). They do **not** use GitHub-hosted
@@ -23,7 +23,7 @@ Git Bash must be available (`shell: bash` steps).
 
 ### 2. Register the runner
 
-1. Open **GitHub → recombyn/recombyn-dev → Settings → Actions → Runners → New self-hosted runner → Windows**
+1. Open **GitHub → recombyn/zuoge → Settings → Actions → Runners → New self-hosted runner → Windows**
 2. Copy the **registration token** (valid ~1 hour)
 3. In PowerShell from repo root:
 

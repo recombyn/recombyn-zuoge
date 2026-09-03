@@ -3,10 +3,8 @@ import { createPortal } from 'react-dom';
 import { useSelector } from '@/store';
 import { useTranslation } from 'react-i18next';
 import { nanoid } from 'nanoid';
-import { message } from '@/components/base';
 import { useRcbCamera } from '@/components/rcb';
 import { isImageGeneratorNode, isVideoGeneratorNode } from '@/components/rcb/scene/document/nodeCapabilities';
-import { useImageToolCapabilities } from '@/service/imageTools';
 import {
   closeImageToolPanel,
   isMultiImageMarkPanel,
@@ -57,8 +55,6 @@ function MarkSessionHost({
 }): ReactNode {
   const { t } = useTranslation();
   const camera = useRcbCamera();
-  const { data: imageToolCaps } = useImageToolCapabilities();
-  const ilpEnabled = imageToolCaps?.ilp?.enabled === true;
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as ImageToolPanelState | null
   );
@@ -169,10 +165,7 @@ function MarkSessionHost({
     if (!agentMarkNodeId || !agentBox) return;
     setRegions([]);
     setDraft(null);
-    if (!ilpEnabled) {
-      message.warning(t('editor.imageToolbar.markNeedsIntelligence'));
-    }
-  }, [agentMarkNodeId, agentBox, ilpEnabled, t]);
+  }, [agentMarkNodeId, agentBox]);
 
   const promptRegion = regions.find((r) => r.id === activeRegionId) || null;
   const agentPromptStyle = useMemo(() => {

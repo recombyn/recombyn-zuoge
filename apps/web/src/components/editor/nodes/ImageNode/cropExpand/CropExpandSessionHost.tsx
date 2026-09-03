@@ -10,7 +10,6 @@ import { BiExit } from 'react-icons/bi';
 import { nanoid } from 'nanoid';
 import { message, DropdownPanel, DropdownPanelItem } from '@/components/base';
 import Tooltip from '@/components/base/tooltip';
-import { PanelConfirmCost } from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelShell';
 import {
   RcbOverlayPortal,
   rcbScreenPxToScene,
@@ -202,7 +201,8 @@ function CropExpandSessionHost({
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {  const camera = useRcbCamera();
+}): ReactNode {
+  const camera = useRcbCamera();
   const panel = useSelector((s: any) => s.editor.imageToolPanel as null | {
     nodeId: string;
     kind: ImageToolPanelKind;
@@ -477,10 +477,7 @@ function CropExpandSessionHost({
               {busy ? (
                 <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
               ) : (
-                <>
-                  <span>确认</span>
-                  {mode === 'expand' ? <PanelConfirmCost kind="expand" /> : null}
-                </>
+                <span>确认</span>
               )}
             </button>
 

@@ -1,21 +1,25 @@
-"""Smart eraser — intelligence alpha punch-out from brush hints."""
+"""Smart eraser — Volcengine MediaKit selected-area erase from brush masks."""
 
 from __future__ import annotations
 
 import base64
 import io
 import logging
+import re
 from typing import Any
 
 from PIL import Image
 
-from app.services.vision.ilp_client import erase_alpha_via_ilp, ilp_enabled
+from app.services.vision.mediakit_client import erase_image, mediakit_enabled
+from app.services.vision.rehost import rehost_image_bytes
 
 logger = logging.getLogger(__name__)
 
-_ILP_REQUIRED_MSG = (
-    "智能橡皮需要接入 Recombyn Intelligence 闭源服务（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
+_MEDIAKIT_REQUIRED_MSG = (
+    "橡皮工具需要配置火山引擎 AI MediaKit（设置 MEDIAKIT_API_KEY，"
+    "见 https://console.volcengine.com/imp/ai-mediakit/settings）"
 )
+_DATA_URL_RE = re.compile(r"^data:[^;,]+(?:;base64)?,(.+)$", re.DOTALL)
 
 
 def _png_data_url_from_bytes(png_bytes: bytes) -> str:
@@ -27,41 +31,89 @@ def _decode_data_url_mask(raw: str) -> bytes:
     ref = (raw or "").strip()
     if not ref:
         raise ValueError("eraseMask is required")
-    if ref.startswith("data:"):
-        import re
+    if not ref.startswith("data:"):
+        raise ValueError("eraseMask must be a data URL")
+    match = _DATA_URL_RE.match(ref)
+    if not match:
+        raise ValueError("invalid eraseMask data URL")
+    return base64.b64decode(match.group(1))
 
-        match = re.match(r"^data:[^;,]+(?:;base64)?,(.+)$", ref, re.DOTALL)
-        if not match:
-            raise ValueError("invalid eraseMask data URL")
-        return base64.b64decode(match.group(1))
-    raise ValueError("eraseMask must be a data URL")
+
+def mask_to_mediakit_bw_png(mask_bytes: bytes) -> bytes:
+    """White = erase, black = keep (MediaKit mask contract)."""
+    import numpy as np
+
+    rgba = Image.open(io.BytesIO(mask_bytes)).convert("RGBA")
+    arr = np.asarray(rgba)
+    alpha = arr[:, :, 3]
+    lum = arr[:, :, 0].astype(np.int16) + arr[:, :, 1] + arr[:, :, 2]
+    white = (alpha > 8) & (lum > 24)
+    if not bool(white.any()):
+        raise ValueError("请先在图片上涂抹要擦除的区域")
+    out = np.zeros((arr.shape[0], arr.shape[1]), dtype=np.uint8)
+    out[white] = 255
+    buf = io.BytesIO()
+    Image.fromarray(out, mode="L").convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
 
 
 async def smart_erase(
     image: str,
     *,
     meta: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """
-    Erase painted regions (expanded to similar areas) via intelligence.
+    Erase painted regions via MediaKit ``selected_area_erase`` + mask.
 
-    Returns ``{ image, kind, engine, width, height }``.
+    Also accepts auto scenes when meta sets ``standard_scene`` without a brush mask
+    (e.g. full_screen_text_erase / full_screen_icon_erase).
+
+    Returns ``{ image, kind, engine, mode, width, height }``.
     """
-    if not ilp_enabled():
-        raise RuntimeError(_ILP_REQUIRED_MSG)
+    if not mediakit_enabled():
+        raise RuntimeError(_MEDIAKIT_REQUIRED_MSG)
 
-    m = meta or {}
+    m = dict(meta or {})
+    scene = str(m.get("standardScene") or m.get("standard_scene") or "").strip()
     mask_raw = str(m.get("eraseMask") or m.get("excludeMask") or "").strip()
-    if not mask_raw:
+    mask_png: bytes | None = None
+
+    if mask_raw:
+        mask_png = mask_to_mediakit_bw_png(_decode_data_url_mask(mask_raw))
+        scene = "selected_area_erase"
+        m["standard_scene"] = scene
+    elif not scene:
         raise ValueError("请先在图片上涂抹要擦除的区域")
 
-    mask_bytes = _decode_data_url_mask(mask_raw)
-    png_bytes = await erase_alpha_via_ilp(image, mask_bytes)
-    rgba = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+    m.setdefault("output_format", "png")
+    out = await erase_image(image, meta=m, mask_bytes=mask_png)
+    raw = out["image_bytes"]
+    img = Image.open(io.BytesIO(raw))
+    width = int(out.get("width") or img.width)
+    height = int(out.get("height") or img.height)
+
+    if user_id:
+        fmt = str(out.get("format") or "png").lower()
+        filename = "eraser.png" if fmt == "png" else "eraser.jpg"
+        content_type = "image/png" if fmt == "png" else "image/jpeg"
+        image_out = rehost_image_bytes(
+            user_id, raw, filename=filename, content_type=content_type
+        )
+    else:
+        # Prefer PNG data URL for canvas round-trip when no upload user.
+        if img.mode != "RGBA" and str(out.get("format") or "").lower() != "png":
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="PNG")
+            raw = buf.getvalue()
+        image_out = _png_data_url_from_bytes(raw)
+
     return {
-        "image": _png_data_url_from_bytes(png_bytes),
+        "image": image_out,
         "kind": "eraser",
-        "engine": "ilp:erase-alpha",
-        "width": int(rgba.width),
-        "height": int(rgba.height),
+        "engine": "mediakit:erase-image",
+        "model": f"mediakit:{out.get('scene') or scene}",
+        "mode": "mediakit",
+        "width": width,
+        "height": height,
     }

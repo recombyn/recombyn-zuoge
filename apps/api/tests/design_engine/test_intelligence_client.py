@@ -1,4 +1,4 @@
-"""Intelligence client boundary — protocol + BasicLocal factory (no proprietary docs)."""
+"""Intelligence client boundary — protocol + BasicLocal factory."""
 from __future__ import annotations
 
 from recombyn_intelligence_client import DesignIntelligenceClient, IntelligenceProvider

@@ -71,13 +71,15 @@ def _truthy_flag(raw: Any) -> bool:
     return s in ("1", "true", "yes", "y", "on", "product", "hair")
 
 
-def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
-    """When to run industrial matting after gen — lettering overlays + product plates."""
+def _cutout_scene_for_hydrate(args: dict[str, Any]) -> str | None:
+    """When to run MediaKit matting after gen — lettering overlays + product plates."""
     if str(args.get("letteringText") or "").strip():
         return "product"
-    mode = str(args.get("cutoutMode") or "").strip().lower()
-    if mode in ("product", "hair"):
+    mode = str(args.get("cutoutMode") or args.get("scene") or "").strip().lower()
+    if mode in ("product", "human", "general"):
         return mode
+    if mode == "hair" or mode == "portrait":
+        return "human"
     if _truthy_flag(args.get("removeBg")):
         return "product"
     prompt = str(args.get("genPrompt") or "").lower()
@@ -87,12 +89,12 @@ def _cutout_mode_for_hydrate(args: dict[str, Any]) -> str | None:
 
 
 async def _maybe_cutout_hydrated_src(
-    src: str, mode: str, *, user_id: str | None
+    src: str, scene: str, *, user_id: str | None
 ) -> str:
-    """Run industrial matting on a hydrated image URL. Raises on failure."""
+    """Run MediaKit remove-bg on a hydrated image URL. Raises on failure."""
     from app.services.vision.remove_bg import remove_background
 
-    cut = await remove_background(src, meta={"cutoutMode": mode}, user_id=user_id)
+    cut = await remove_background(src, meta={"scene": scene}, user_id=user_id)
     cut_src = str((cut or {}).get("image") or "").strip()
     if not cut_src:
         raise RuntimeError("remove background returned no image")
@@ -368,11 +370,11 @@ async def _hydrate_tool_ops_images(
             )
         src = str(url)
         # Lettering + product plates → transparent overlay (models love opaque white boxes).
-        cut_mode = _cutout_mode_for_hydrate(args)
-        if cut_mode:
-            src = await _maybe_cutout_hydrated_src(src, cut_mode, user_id=user_id)
+        cut_scene = _cutout_scene_for_hydrate(args)
+        if cut_scene:
+            src = await _maybe_cutout_hydrated_src(src, cut_scene, user_id=user_id)
             args["cutoutApplied"] = True
-            args["cutoutMode"] = cut_mode
+            args["scene"] = cut_scene
         args["src"] = src
         next_op: dict[str, Any] = {"name": "create_image", "args": args}
         if op.get("op_id"):

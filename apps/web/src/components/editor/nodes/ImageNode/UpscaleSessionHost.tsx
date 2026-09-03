@@ -6,10 +6,6 @@ import { HiOutlineChevronDown } from 'react-icons/hi2';
 import { BiExit } from 'react-icons/bi';
 import { DropdownPanel, DropdownPanelItem, Icon, Tooltip } from '@/components/base';
 import {
-  PanelConfirmCost,
-  IMAGE_TOOL_CREDIT_COST,
-} from '@/components/editor/nodes/ImageNode/toolPanels/ImageToolPanelShell';
-import {
   RcbOverlayPortal,
   rcbScreenPxToScene,
   useRcbCamera,
@@ -35,7 +31,7 @@ export type UpscalePreset = {
   height: number;
 };
 
-/** Real-ESRGAN upscale tiers on intelligence. */
+/** MediaKit enhance-image tiers (2K / 4K target box). */
 export const UPSCALE_PRESETS: UpscalePreset[] = [
   {
     key: '2k',
@@ -53,8 +49,6 @@ export const UPSCALE_PRESETS: UpscalePreset[] = [
   },
 ];
 
-const UPSCALE_COST = IMAGE_TOOL_CREDIT_COST.upscale;
-
 function nodeBox(document: SceneDocument, node: SceneNodeInput) {
   if (!node) return null;
   const { left, top } = nodeLeftTop(document, node);
@@ -66,17 +60,15 @@ function nodeBox(document: SceneDocument, node: SceneNodeInput) {
   };
 }
 
-/**
- * Upscale session: compact bar under the image (same chrome as expand).
- * Resolution dropdown keeps the prior panel style; confirm + credits live on the bar.
- */
+/** Upscale session: compact bar under the image (same chrome as expand). */
 function UpscaleSessionHost({
   document,
   hidden = false,
 }: {
   document: SceneDocument;
   hidden?: boolean;
-}): ReactNode {  const { t } = useTranslation();
+}): ReactNode {
+  const { t } = useTranslation();
   const camera = useRcbCamera();
   const panel = useSelector(
     (s: any) => s.editor.imageToolPanel as null | { nodeId: string; kind: string }
@@ -132,13 +124,13 @@ function UpscaleSessionHost({
   const onConfirm = () => {
     if (!selected) return;
     startImageProcess({
-        sourceId: nodeId,
-        kind: 'upscale',
-        label: t('editor.imageToolbar.processingUpscale'),
-        targetWidth: selected.width,
-        targetHeight: selected.height,
-        meta: { resolution: selected.resolution },
-      });
+      sourceId: nodeId,
+      kind: 'upscale',
+      label: t('editor.imageToolbar.processingUpscale'),
+      targetWidth: selected.width,
+      targetHeight: selected.height,
+      meta: { resolution: selected.resolution },
+    });
     close();
   };
 
@@ -205,7 +197,6 @@ function UpscaleSessionHost({
             onClick={onConfirm}
           >
             <span>{t('editor.imageToolbar.upscaleConfirm')}</span>
-            <PanelConfirmCost amount={UPSCALE_COST} />
           </button>
 
           <Tooltip tip={t('editor.imageToolbar.panelExit', '退出')} placement="top">

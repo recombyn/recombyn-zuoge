@@ -165,14 +165,13 @@ export async function uploadPngAndSelect(page: Page) {
   await expect(mark).toBeVisible({ timeout: 25_000 });
 }
 
-export async function mockIntelligenceCapabilities(page: Page, opts?: { mockup?: boolean }) {
+export async function mockImageToolCapabilities(page: Page, opts?: { mockup?: boolean }) {
   await page.route('**/api/v1/image/tools**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        ilp: { enabled: true },
-        mockup: { enabled: opts?.mockup !== false },
+        mockup: { enabled: opts?.mockup !== false, templates: [] },
       }),
     });
   });

@@ -42,8 +42,8 @@ Cross-cutting or hard-to-undo technical choices live here. Product how-tos stay 
 | [0020](./0020-open-plugin-sdk.md) | Open plugin-sdk package | Accepted |
 | [0021](./0021-open-agent-sdk.md) | Open agent-sdk package (+ session events) | Accepted |
 | [0022](./0022-open-runtime-helpers.md) | Open runtime helpers package | Accepted |
-| [0023](./0023-public-private-eval.md) | Public vs private Design Agent eval | Accepted |
+| [0023](./0023-public-private-eval.md) | Design Agent eval suite | Accepted |
 | [0024](./0024-protocol-version-cross-repo-ci.md) | Protocol version pin + cross-repo CI | Accepted |
-| [0025](./0025-billing-protocol.md) | Billing Protocol open / host commercial private | Accepted |
+| [0025](./0025-billing-protocol.md) | Billing Protocol + operator pricing boundary | Accepted |
 | [0026](./0026-task-centric-billing.md) | Task-centric credits (≠ tokens) | Accepted |
 | [0027](./0027-canvas-layered-runtime.md) | Scene + camera + layered render + hit | Accepted |

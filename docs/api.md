@@ -18,7 +18,7 @@ Architecture / Agent: [self-hosting.md](./self-hosting.md#architecture) · Profi
 | `/import/*` | Image → Scene |
 | `/admin/*` | Admin only |
 
-`GET /wallet/plans` — public list prices + monthly credit grants (Intelligence commercial, OSS fallback). No margin fields.
+`GET /wallet/plans` — list prices + monthly credit grants. No margin fields.
 
 Billing UI visibility is **not** tied to `/wallet` success — clients use `GET /auth/config` → `billingEnabled` (default `true`). See [billing.md](./billing.md).
 

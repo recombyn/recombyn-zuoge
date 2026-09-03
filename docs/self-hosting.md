@@ -28,7 +28,7 @@ Docker Compose is the infra for both. Desktop (Tauri): **[desktop.md](./desktop.
 | **MySQL 8** | compose service + volume `mysql_data` |
 | **MinIO** (S3 API) | compose service + volume `minio_data` · console http://127.0.0.1:9001 |
 | Redis | Celery / queues |
-| Optional IntelligenceProvider | `docker compose -f docker-compose.yml -f docker-compose.intelligence.yml --profile intelligence up` · HTTP only · see [ADR 0017](./adr/0017-intelligence-provider-boundary.md) |
+| Design agent floors | Always **BasicLocal** in-process (`packages/intelligence-client`) — no remote Intelligence service |
 
 Default DB URL inside compose:
 
@@ -284,15 +284,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 - API: http://localhost:8000  
 - MySQL: `127.0.0.1:3306` / db `recombyn`
 
-Design Intelligence defaults to **BasicLocal** (`RECOMBYN_INTELLIGENCE_MODE=local`). To attach an optional HTTP provider that implements the open `IntelligenceProvider` contract, point `RECOMBYN_INTELLIGENCE_CONTEXT` at a directory containing a compatible `Dockerfile`, then:
-
-```bash
-export RECOMBYN_INTELLIGENCE_CONTEXT=/path/to/provider
-docker compose -f docker-compose.yml -f docker-compose.intelligence.yml \
-  --profile intelligence up -d --build
-```
-
-Details: [ADR 0017](./adr/0017-intelligence-provider-boundary.md).
+Design agent floors always use **BasicLocal** in-process (`packages/intelligence-client`). There is no separate Intelligence HTTP compose profile.
 
 On first API start, schema + seed data are applied automatically.
 

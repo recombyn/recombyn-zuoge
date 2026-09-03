@@ -1,8 +1,8 @@
-"""Open Design Intelligence client.
+"""Design Intelligence client.
 
-Runtime talks to a DesignIntelligenceClient. Operators supply an
-IntelligenceProvider (default: host BasicLocal). Remote HTTP adapter ships here;
-proprietary Cloud engines stay private.
+Runtime talks to a DesignIntelligenceClient. The API process uses
+BasicLocalProvider in-process. An optional HTTP adapter is exported for
+experiments; production Design Runtime does not call it.
 """
 
 from __future__ import annotations

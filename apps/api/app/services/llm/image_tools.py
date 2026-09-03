@@ -1,4 +1,4 @@
-"""Image toolbar AI tools — Seedream i2i + Recombyn Intelligence vision."""
+"""Image toolbar AI tools — MediaKit + WaveSpeed + Seedream + local CV."""
 
 from __future__ import annotations
 
@@ -24,29 +24,47 @@ IMAGE_PROCESS_KINDS = frozenset(
         "expand",
         "editText",
         "editElements",
-        "detectRegions",
         "replaceText",
+        "translateImage",
+        "productScene",
         "vector",
     }
 )
 
-# Closed-source intelligence only — hidden in UI and rejected when service is down.
-ILP_EXCLUSIVE_KINDS = frozenset(
-    {"removeBg", "eraser", "editText", "editElements", "detectRegions", "upscale"}
+MEDIAKIT_KINDS = frozenset(
+    {
+        "removeBg",
+        "expand",
+        "editText",
+        "eraser",
+        "upscale",
+        "translateImage",
+        "productScene",
+    }
 )
+
+WAVESPEED_KINDS = frozenset({"multiAngle"})
+EDIT_ELEMENTS_KINDS = frozenset({"editElements"})
 
 DECOMPOSE_KINDS = frozenset({"editText", "editElements"})
-DETECT_KINDS = frozenset({"detectRegions"})
 CUTOUT_KINDS = frozenset({"removeBg"})
+EXPAND_KINDS = frozenset({"expand"})
 ERASE_KINDS = frozenset({"eraser"})
 UPSCALE_KINDS = frozenset({"upscale"})
+TRANSLATE_KINDS = frozenset({"translateImage"})
+PRODUCT_SCENE_KINDS = frozenset({"productScene"})
+MULTI_ANGLE_KINDS = frozenset({"multiAngle"})
 VECTOR_KINDS = frozenset({"vector"})
 NO_LLM_KINDS = (
-    CUTOUT_KINDS | ERASE_KINDS | DECOMPOSE_KINDS | DETECT_KINDS | UPSCALE_KINDS | VECTOR_KINDS
-)
-
-_ILP_REQUIRED_MSG = (
-    "此功能需要接入 Recombyn Intelligence 闭源服务（设置 RECOMBYN_INTELLIGENCE_URL 并启动 intelligence）"
+    CUTOUT_KINDS
+    | EXPAND_KINDS
+    | ERASE_KINDS
+    | DECOMPOSE_KINDS
+    | UPSCALE_KINDS
+    | TRANSLATE_KINDS
+    | PRODUCT_SCENE_KINDS
+    | MULTI_ANGLE_KINDS
+    | VECTOR_KINDS
 )
 
 
@@ -56,23 +74,82 @@ def uses_llm_for_kind(kind: str | None) -> bool:
     return bool(k) and k in IMAGE_PROCESS_KINDS and k not in NO_LLM_KINDS
 
 
-def requires_ilp(kind: str | None) -> bool:
-    return (kind or "").strip() in ILP_EXCLUSIVE_KINDS
+def requires_mediakit(kind: str | None) -> bool:
+    return (kind or "").strip() in MEDIAKIT_KINDS
 
 
-def _require_ilp() -> None:
-    from app.services.vision.ilp_client import ilp_enabled
+def requires_wavespeed(kind: str | None) -> bool:
+    k = (kind or "").strip()
+    if k in WAVESPEED_KINDS:
+        return True
+    if k in EDIT_ELEMENTS_KINDS:
+        from app.core.config import settings
 
-    if not ilp_enabled():
-        raise RuntimeError(_ILP_REQUIRED_MSG)
+        return (
+            str(settings.vision_edit_elements_provider or "seedream").strip().lower()
+            == "wavespeed"
+        )
+    return False
 
 
-def ilp_supports() -> list[str]:
-    from app.services.vision.ilp_client import ilp_enabled
+def requires_seedream_layers(kind: str | None) -> bool:
+    k = (kind or "").strip()
+    if k not in EDIT_ELEMENTS_KINDS:
+        return False
+    from app.core.config import settings
 
-    if not ilp_enabled():
-        return []
-    return ["removeBg", "eraser", "editText", "editElements", "detectRegions", "upscale"]
+    return (
+        str(settings.vision_edit_elements_provider or "seedream").strip().lower()
+        == "seedream"
+    )
+
+
+def _require_mediakit() -> None:
+    from app.services.vision.mediakit_client import mediakit_enabled
+
+    if not mediakit_enabled():
+        raise RuntimeError(
+            "此功能需要配置火山引擎 AI MediaKit（设置 MEDIAKIT_API_KEY，"
+            "见 https://console.volcengine.com/imp/ai-mediakit/settings）"
+        )
+
+
+def _require_wavespeed() -> None:
+    from app.services.vision.providers.registry import wavespeed_enabled
+
+    if not wavespeed_enabled():
+        raise RuntimeError(
+            "此功能需要配置 WaveSpeedAI（设置 WAVESPEED_API_KEY，"
+            "见 https://wavespeed.ai/）"
+        )
+
+
+def _require_seedream_layers() -> None:
+    from app.services.vision.providers.registry import seedream_enabled
+
+    if not seedream_enabled():
+        raise RuntimeError(
+            "此功能需要配置豆包方舟（设置 DOUBAO_API_KEY，"
+            "见 https://console.volcengine.com/ark）"
+        )
+
+
+def mediakit_supports() -> list[str]:
+    from app.services.vision.mediakit_client import mediakit_supports as _supports
+
+    return _supports()
+
+
+def wavespeed_supports() -> list[str]:
+    from app.services.vision.providers.registry import wavespeed_supports as _supports
+
+    return _supports()
+
+
+def seedream_supports() -> list[str]:
+    from app.services.vision.providers.registry import seedream_supports as _supports
+
+    return _supports()
 
 
 def _prompt_for(
@@ -88,21 +165,6 @@ def _prompt_for(
             "Upscale this image to high resolution. Enhance sharpness and fine detail, "
             "reduce noise, keep the exact composition, identity, and colors unchanged. "
             "No cropping, no restyling."
-        )
-    if kind == "multiAngle":
-        rotate = m.get("rotate", 0)
-        tilt = m.get("tilt", 0)
-        mode = str(m.get("mode") or "camera")
-        if mode == "skybox":
-            return (
-                f"Based on the reference image, generate an environment / skybox view of the same subject. "
-                f"Horizontal yaw about {rotate}°, pitch about {tilt}°. "
-                f"Keep subject identity, materials, and lighting style consistent."
-            )
-        return (
-            f"Based on the reference photo, regenerate the same subject from a new camera angle: "
-            f"horizontal rotation about {rotate}°, tilt/pitch about {tilt}°. "
-            f"Keep face/body/clothing identity and background style; photorealistic."
         )
     if kind == "expand":
         direction = str(m.get("direction") or "all")
@@ -130,7 +192,7 @@ def _prompt_for(
             f"Continue the scene naturally beyond the edges; match lighting, perspective, and style. "
             f"Do not distort the original subject."
         )
-    if kind in ("editText", "editElements", "detectRegions"):
+    if kind in ("editText", "editElements", "multiAngle"):
         return "unused"
     if kind == "replaceText":
         original = str(m.get("originalText") or "").strip()
@@ -184,11 +246,9 @@ async def process_image_tool(
     """
     Run a toolbar image tool.
 
-    - ``removeBg`` / ``editText`` / ``editElements`` / ``upscale`` → Recombyn Intelligence only
-    - ``vector`` → local vtracer (SVG markup)
-    - other kinds → Seedream image-to-image
+    - MediaKit / WaveSpeed / Seedream layered / local vtracer / Seedream i2i
 
-    Returns ``{ image?, svg?, layers?, text?, kind, model?, width?, height?, warnings? }``.
+    Returns ``{ image?, images?, svg?, layers?, text?, kind, model?, width?, height?, warnings? }``.
     """
     k = (kind or "").strip()
     if k not in IMAGE_PROCESS_KINDS:
@@ -197,8 +257,12 @@ async def process_image_tool(
     if not src:
         raise ValueError("image is required")
 
-    if requires_ilp(k):
-        _require_ilp()
+    if requires_mediakit(k):
+        _require_mediakit()
+    if requires_wavespeed(k):
+        _require_wavespeed()
+    if requires_seedream_layers(k):
+        _require_seedream_layers()
 
     if k in VECTOR_KINDS:
         from app.services.vision.vtracer_vectorize import vectorize_with_vtracer
@@ -210,35 +274,57 @@ async def process_image_tool(
 
         return await remove_background(src, meta=meta, user_id=user_id)
 
+    if k in EXPAND_KINDS:
+        from app.services.vision.expand_canvas import expand_canvas
+
+        return await expand_canvas(src, meta=meta, user_id=user_id)
+
     if k in ERASE_KINDS:
         from app.services.vision.smart_erase import smart_erase
 
-        return await smart_erase(src, meta=meta)
+        return await smart_erase(src, meta=meta, user_id=user_id)
 
     if k == "editElements":
-        from app.services.vision.ilp_decompose import decompose_via_ilp
+        from app.services.vision.edit_elements import edit_elements_layered
 
-        return await decompose_via_ilp(
-            kind="editElements",
-            image=src,
+        return await edit_elements_layered(
+            src,
+            meta=meta,
+            user_id=user_id,
+            on_progress=on_progress,
+        )
+
+    if k in MULTI_ANGLE_KINDS:
+        from app.services.vision.multi_angle import multi_angle_image
+
+        return await multi_angle_image(
+            src,
+            meta=meta,
             user_id=user_id,
             on_progress=on_progress,
         )
 
     if k == "editText":
-        from app.services.vision.ilp_text_decompose import decompose_text_via_ilp
+        from app.services.vision.edit_text import decompose_edit_text
 
-        return await decompose_text_via_ilp(kind="editText", image=src, user_id=user_id)
-
-    if k in DETECT_KINDS:
-        from app.services.vision.ilp_detect_regions import detect_regions_via_ilp_adapter
-
-        return await detect_regions_via_ilp_adapter(image=src)
+        return await decompose_edit_text(src, meta=meta, user_id=user_id)
 
     if k in UPSCALE_KINDS:
-        from app.services.vision.ilp_upscale import upscale_image_via_ilp
+        from app.services.vision.upscale import upscale_image
 
-        return await upscale_image_via_ilp(src, meta=meta, resolution=resolution)
+        return await upscale_image(
+            src, meta=meta, resolution=resolution, user_id=user_id
+        )
+
+    if k in TRANSLATE_KINDS:
+        from app.services.vision.translate_image import translate_image
+
+        return await translate_image(src, meta=meta, user_id=user_id)
+
+    if k in PRODUCT_SCENE_KINDS:
+        from app.services.vision.product_scene import product_scene
+
+        return await product_scene(src, meta=meta, user_id=user_id)
 
     prompt = _prompt_for(k, meta=meta)
     result = await generate_image(

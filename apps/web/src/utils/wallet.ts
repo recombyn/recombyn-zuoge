@@ -69,7 +69,7 @@ export const PLAN_CATALOG: Record<PlanId, PlanDef> = {
     creditsIncluded: 0,
     dailyRuns: 1,
   },
-  /** ¥49 — 340 积分 / mo（与 Intelligence commercial + 扣费锚点一致）. */
+  /** ¥49 — 340 credits / mo (list SKU aligned with wallet charge anchors). */
   plus: {
     id: 'plus',
     priceCny: 49,

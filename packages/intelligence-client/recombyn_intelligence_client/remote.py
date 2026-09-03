@@ -1,7 +1,7 @@
-"""Generic HTTP IntelligenceProvider — open adapter (no proprietary backends).
+"""Optional HTTP IntelligenceProvider adapter.
 
 Host supplies ``apply_result`` to write usable payloads into Runtime slots.
-On failure, optional ``fallback`` provider is used.
+Design Runtime in this monorepo uses BasicLocal instead.
 """
 
 from __future__ import annotations

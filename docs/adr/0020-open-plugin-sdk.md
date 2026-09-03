@@ -13,11 +13,12 @@ validation is useful for pack authors and offline tooling without booting the AP
 1. Ship `packages/plugin-sdk` (`recombyn_plugin_sdk`) with `parse_plugin_manifest`,
    slug helpers, and format constants (ADR 0016).
 2. API `pack_install` imports those helpers; zip extract / HMAC / disk install stay in-API.
-3. Do not document proprietary plugin backends in this repository.
+3. Document the open manifest / install contract here; operator-specific
+   plugin backends stay in the operator’s own install paths.
 
 ## Consequences
 
-- Manifest shape stays single-sourced for public tooling.
+- Manifest shape stays single-sourced for tooling.
 - Install side effects remain operator-controlled in the API.
 
 ## References

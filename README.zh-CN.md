@@ -101,15 +101,6 @@ docker compose --profile av \
   up -d --build
 ```
 
-基础栈 + 可选 Design Intelligence HTTP：
-
-```bash
-docker compose --profile intelligence \
-  -f docker-compose.yml \
-  -f docker-compose.intelligence.yml \
-  up -d --build
-```
-
 使用预构建 GHCR 镜像：
 
 ```bash

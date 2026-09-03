@@ -1,9 +1,8 @@
-"""Design Strategy (P33) — BasicLocal open floor.
+"""Design Strategy (P33) — BasicLocal floor.
 
 Kernel path: Decide → IntelligenceClient.strategy → BasicLocal → this module.
 
-Community floor: category axis catalog + Research ANTI-CATEGORY merge into Brief.
-Advanced Strategy (Taste / private theses) lives behind Remote → private Intelligence.
+BasicLocal: category axis catalog + Research ANTI-CATEGORY merge into Brief.
 
 Never emits canvas tool_ops. Never writes SceneDocument.
 """

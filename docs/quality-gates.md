@@ -123,8 +123,8 @@ Branch protection should require **`CI / gate`**. Full web `tsc` is intentionall
 | `scripts/run-quality-gate.mjs` | Unified Gate A/B runner |
 | `scripts/functional-api-suite.mjs` | Full HTTP surface functional suite |
 | `perf/k6/` | Gate B scenarios |
-| `eval/design-agent/` | Public Agent quality suite (`rubric.json` = Runtime Review caps) · see [ADR 0023](./adr/0023-public-private-eval.md) |
-| `packages/eval-framework` | Open compare helpers (no private rankings) |
+| `eval/design-agent/` | Design Agent quality suite (`rubric.json` = Runtime Review caps) · see [ADR 0023](./adr/0023-public-private-eval.md) |
+| `packages/eval-framework` | Compare helpers for the in-tree suite |
 | `deploy/observability/` | Prometheus + Grafana |
 | `scripts/ci-mint-token.mjs` | CI/local session mint |
 | `apps/api/seeds/design_agent_eval_suite.json` | Eval cases |

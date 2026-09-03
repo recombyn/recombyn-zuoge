@@ -5,7 +5,7 @@ import { imageToolBtn } from './imageToolbarShared';
 
 export type DecomposeMode = 'depth';
 
-/** Depth-based industrial layering — only shown when intelligence is connected. */
+/** WaveSpeed qwen-image/layered decompose entry. */
 function ImageDecomposeMenu({ onPick }: { onPick: (mode: DecomposeMode) => void }): ReactNode {
   const { t } = useTranslation();
   return (

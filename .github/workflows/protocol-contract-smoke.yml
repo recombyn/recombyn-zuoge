@@ -1,8 +1,6 @@
 name: protocol-contract-smoke
 
-# Public guard + optional cross-repo ping to Private compatibility CI.
-# Optional cross-repo ping -> recombyn-dev protocol-compat.yml
-# (repository_dispatch type: protocol-changed)
+# Guard protocol + runtime contract helpers.
 
 on:
   push:
@@ -102,32 +100,3 @@ jobs:
           assert UsageEventSchema(pricing_version_id="pv1").pricing_version_id == "pv1"
           print("protocol contract smoke ok", version("recombyn-protocol"), len(INTELLIGENCE_METHODS), "methods")
           PY
-
-  # Notify Private only on push to default branch (or manual dispatch), never on fork PRs.
-  dispatch-private:
-    needs: smoke
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    runs-on: [self-hosted, Windows, ci]
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Dispatch protocol-changed to recombyn-dev
-        env:
-          TOKEN: ${{ secrets.INTELLIGENCE_REPO_DISPATCH_TOKEN }}
-          TARGET: ${{ vars.DEV_REPO || 'recombyn/recombyn-dev' }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "Skip: set secret INTELLIGENCE_REPO_DISPATCH_TOKEN (PAT with repo scope on recombyn-dev)."
-            exit 0
-          fi
-          REF="${{ github.sha }}"
-          echo "Dispatching protocol-changed -> $TARGET (protocol_ref=$REF)"
-          curl -sS -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${TARGET}/dispatches" \
-            -d "{\"event_type\":\"protocol-changed\",\"client_payload\":{\"protocol_ref\":\"${REF}\",\"public_sha\":\"${REF}\",\"source\":\"recombyn/recombyn\"}}"

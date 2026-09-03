@@ -193,13 +193,41 @@ export function hitTestWithSpatialIndex(
   const doc = deps.getDocument();
   const zoom = Math.max(0.05, deps.getZoom() || 1);
   const pad = sceneHitSlop(zoom);
-  const order = doc
-    ? deps.getSpatial().hitCandidateIds({
+  const searchPad = pad + 64 / zoom;
+  const spatial = deps.getSpatial();
+  let order = doc
+    ? spatial.hitCandidateIds({
         x: point.x,
         y: point.y,
-        pad: pad + 64 / zoom,
+        pad: searchPad,
       })
     : [];
+
+  // frameLocal plate moves (and some commits) leave shared spatial AABBs at the
+  // old world box while getNodeBox / paint already use the new origin — coarse
+  // returns [] even though ink is under the cursor. Rescue + heal the index.
+  if (doc && order.length === 0) {
+    const allIds = deps.listNodeIds();
+    const rescued: string[] = [];
+    for (const id of allIds) {
+      const box = deps.getNodeBox(id);
+      if (!box) continue;
+      if (
+        point.x < box.left - searchPad ||
+        point.x > box.left + box.width + searchPad ||
+        point.y < box.top - searchPad ||
+        point.y > box.top + box.height + searchPad
+      ) {
+        continue;
+      }
+      rescued.push(id);
+    }
+    if (rescued.length) {
+      spatial.patchNodes(doc, rescued, 32);
+      order = rescued;
+    }
+  }
+
   const hitOrder = doc
     ? (() => {
         const zMap = buildNodeStackZMap(doc, order);
@@ -229,22 +257,45 @@ export function hitTestWithSpatialIndex(
         nodeEls: allowSvgDomHit ? (deps.getNodeEls?.() ?? null) : null,
         allowSvgDomHit,
         soaBuf: buf && buf.count > 0 ? buf : null,
+        // Broad-phase keeps searchPad (stale index / edge candidates). Fine hit
+        // uses screen-constant stroke slop only — filled AABB must not inherit
+        // the +64 CSS px halo or empty clicks above a plate steal selection.
+        pad,
       })
     : null;
   if (typeof window !== 'undefined' && import.meta.env.DEV) {
-    const boxes = order.slice(0, 12).map((id) => {
+    const allIds = doc ? deps.listNodeIds() : [];
+    const pointInBox = (
+      box: { left: number; top: number; width: number; height: number } | null | undefined
+    ) => {
+      if (!box) return false;
+      return (
+        point.x >= box.left - searchPad &&
+        point.x <= box.left + box.width + searchPad &&
+        point.y >= box.top - searchPad &&
+        point.y <= box.top + box.height + searchPad
+      );
+    };
+    // When order is empty, dump every listed id box so we can tell "click in
+    // empty world" vs "spatial index empty/stale" without Redux spelunking.
+    const idSource = order.length ? order.slice(0, 12) : allIds.slice(0, 24);
+    const boxes = idSource.map((id) => {
       const box = deps.getNodeBox(id);
-      return { id, box };
+      return { id, box, containsPoint: pointInBox(box) };
     });
     (window as unknown as { __rcbHitTrace?: unknown }).__rcbHitTrace = {
       point,
       zoom,
+      pad,
+      searchPad,
       doc: Boolean(doc),
       disposed: false,
-      allIdsLen: doc ? deps.listNodeIds().length : 0,
+      spatialSize: spatial?.size ?? -1,
+      allIdsLen: allIds.length,
       orderLen: order.length,
       orderHead: order.slice(0, 8),
       boxes,
+      anyBoxContainsPoint: boxes.some((b) => b.containsPoint),
       hit,
     };
   }

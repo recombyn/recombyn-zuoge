@@ -23,7 +23,8 @@ tied to UI reconnect replay.
 3. Full LangGraph / SubAgent / tool pipeline runtime stays in the API
    (`runtime/graph/`, `runtime/seams/`, `runtime/session_log.py`). This package
    is the open naming + contract + session-event vocabulary only.
-4. Public docs still must not describe proprietary intelligence backends.
+4. Floors use in-process BasicLocal; document provider contracts via
+   `packages/intelligence-client` / protocol, not ad-hoc backend inventories.
 5. Design Agent extension seams are documented in [agent-harness.md](../agent-harness.md)
    (zuoge Harness) — fixed Kernel, pluggable Skills / overlays / hooks.
 

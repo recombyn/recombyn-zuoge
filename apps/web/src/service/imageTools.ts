@@ -1,6 +1,6 @@
 /**
  * Image toolbar AI tools — async POST /api/v1/image/process/jobs + SSE wait.
- * (Real-ESRGAN upscale, intelligence vision, or Seedream i2i).
+ * (MediaKit vision tools, WaveSpeed editElements / multiAngle, or Seedream i2i).
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -19,6 +19,8 @@ export type ImageProcessKindApi =
   | 'editText'
   | 'editElements'
   | 'replaceText'
+  | 'translateImage'
+  | 'productScene'
   | 'vector';
 
 export type ImageProcessBody = {
@@ -50,6 +52,8 @@ export type ImageDecomposeLayer = {
 export type ImageProcessResult = {
   /** Raster tool output (data URL or https). Absent for vectorize. */
   image?: string;
+  /** Multi-gen stack (e.g. productScene batch); ``image`` is usually images[0]. */
+  images?: string[];
   /** vtracer SVG markup — finish as ``key: 'svg'`` node. */
   svg?: string;
   text?: string | null;
@@ -68,9 +72,35 @@ export type ImageProcessResult = {
 
 export type ImageToolCapabilities = {
   credits?: Partial<Record<ImageProcessKindApi | string, number>>;
-  ilp?: {
+  mediakit?: {
     enabled?: boolean;
     supports?: string[];
+  };
+  vision?: {
+    providers?: {
+      seedream?: {
+        enabled?: boolean;
+        supports?: string[];
+      };
+      wavespeed?: {
+        enabled?: boolean;
+        supports?: string[];
+      };
+      dashscope?: {
+        enabled?: boolean;
+        supports?: string[];
+      };
+      byteplus?: {
+        enabled?: boolean;
+        supports?: string[];
+      };
+      topaz?: {
+        enabled?: boolean;
+        supports?: string[];
+      };
+    };
+    multiAngleProvider?: string;
+    editElementsProvider?: string;
   };
   mockup?: {
     enabled?: boolean;
@@ -84,14 +114,19 @@ export type ImageToolCapabilities = {
   };
 };
 
-/** Kinds that require Recombyn Intelligence (not available in OSS-only deploy). */
-export const INTELLIGENCE_VISION_KINDS = [
-  'upscale',
+/** Kinds that require Volcengine AI MediaKit (``MEDIAKIT_API_KEY``). */
+export const MEDIAKIT_VISION_KINDS = [
   'removeBg',
-  'eraser',
+  'expand',
   'editText',
-  'editElements',
+  'eraser',
+  'upscale',
+  'translateImage',
+  'productScene',
 ] as const;
+
+/** Kinds that require WaveSpeedAI (``WAVESPEED_API_KEY``). */
+export const WAVESPEED_VISION_KINDS = ['multiAngle', 'editElements'] as const;
 
 /** Toolbar kinds handled by async image process jobs (ImageProcessWatcher). */
 export const AI_IMAGE_PROCESS_KINDS = new Set<string>([
@@ -103,24 +138,26 @@ export const AI_IMAGE_PROCESS_KINDS = new Set<string>([
   'editText',
   'editElements',
   'replaceText',
+  'translateImage',
+  'productScene',
   'vector',
 ]);
 
-let intelligenceVisionEnabled = false;
+let mediaKitEnabled = false;
 
-/** Sync snapshot updated by ``useImageToolCapabilities`` / ``fetchImageToolCapabilities``. */
-export function isIntelligenceVisionEnabled(): boolean {
-  return intelligenceVisionEnabled;
+/** Sync snapshot: MediaKit vision tools available when API key is configured. */
+export function isMediaKitEnabled(): boolean {
+  return mediaKitEnabled;
 }
 
-function syncIntelligenceVisionEnabled(caps: ImageToolCapabilities | undefined): void {
-  intelligenceVisionEnabled = caps?.ilp?.enabled === true;
+function syncCapabilityFlags(caps: ImageToolCapabilities | undefined): void {
+  mediaKitEnabled = caps?.mediakit?.enabled === true;
 }
 
-/** Server-reported image tool capabilities (ILP routing, credits, etc.). */
+/** Server-reported image tool capabilities (MediaKit / WaveSpeed / Seedream routing, credits). */
 export const fetchImageToolCapabilities = async () => {
   const data = (await apiClient.imageToolsListImageTools({})) as ImageToolCapabilities;
-  syncIntelligenceVisionEnabled(data);
+  syncCapabilityFlags(data);
   return data;
 };
 
@@ -269,7 +306,7 @@ export async function waitForImageProcessJob(
   });
 }
 
-/** Create async toolbar job + SSE wait (preferred for long intelligence paths). */
+/** Create async toolbar job + SSE wait (preferred for long vision paths). */
 export async function processImageToolAsync(
   data: ImageProcessBody,
   opts?: {

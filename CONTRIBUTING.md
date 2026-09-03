@@ -153,16 +153,16 @@ Use the checklist in [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST
 | Verify email before first push | Commit `.env`, keys, or local IDE folders (`.cursor/`) |
 | Link issues in the PR body | Force-push `main` / rewrite published history without maintainers |
 | Update docs when behavior changes | Leave failing tests on the default branch |
-| Document open protocols / SDKs / BasicLocal | Document proprietary intelligence backends, private datasets, closed prompts, or private service layouts in this repo |
-
-## Intelligence providers
-
-Design Runtime calls `packages/intelligence-client` (`DesignIntelligenceClient`). The default is **BasicLocal** (in-repo, no network). Optional remote providers use `RECOMBYN_INTELLIGENCE_MODE=cloud` + `RECOMBYN_INTELLIGENCE_URL` and must implement the open `IntelligenceProvider` protocol — see [ADR 0017](./docs/adr/0017-intelligence-provider-boundary.md). Compose override: `docker-compose.intelligence.yml` (`--profile intelligence`). **Do not** add docs that describe closed / proprietary provider internals in this repository.
-
-Shared wire contract lives in `packages/protocol` (`recombyn-protocol`). Bump its version when method names / request keys / usable rules change ([ADR 0024](./docs/adr/0024-protocol-version-cross-repo-ci.md)). Operators who maintain a private Intelligence service should depend on that package and run compatibility tests against it — do not hand-copy method lists into closed repos.
+| Document protocols / SDKs / BasicLocal floors | Leave secret keys or `.env` in the tree |
 
 
-Open skill pack helpers live in `packages/skill-sdk` (`normalize_pack_meta`, `parse_extends`, …) — see [ADR 0019](./docs/adr/0019-open-skill-sdk.md). Open `.recombyn-plugin` manifest helpers live in `packages/plugin-sdk` — see [ADR 0020](./docs/adr/0020-open-plugin-sdk.md). Kernel stage vocabulary lives in `packages/agent-sdk` — see [ADR 0021](./docs/adr/0021-open-agent-sdk.md). Remote intelligence request helpers live in `packages/runtime` — see [ADR 0022](./docs/adr/0022-open-runtime-helpers.md).
+## Design agent floors
+
+Design Runtime calls `packages/intelligence-client` (`DesignIntelligenceClient`) with **BasicLocal** only (in-process, no network). There is no separate Intelligence HTTP service in this repo.
+
+Shared wire contract lives in `packages/protocol` (`recombyn-protocol`). Bump its version when method names / request keys / usable rules change ([ADR 0024](./docs/adr/0024-protocol-version-cross-repo-ci.md)).
+
+Open skill pack helpers live in `packages/skill-sdk` (`normalize_pack_meta`, `parse_extends`, …) — see [ADR 0019](./docs/adr/0019-open-skill-sdk.md). Open `.recombyn-plugin` manifest helpers live in `packages/plugin-sdk` — see [ADR 0020](./docs/adr/0020-open-plugin-sdk.md). Kernel stage vocabulary lives in `packages/agent-sdk` — see [ADR 0021](./docs/adr/0021-open-agent-sdk.md). Intelligence request helpers live in `packages/runtime` — see [ADR 0022](./docs/adr/0022-open-runtime-helpers.md).
 
 ## Commit message conventions
 
