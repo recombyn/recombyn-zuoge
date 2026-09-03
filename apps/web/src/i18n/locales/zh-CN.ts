@@ -123,6 +123,7 @@ const zhCN = {
     heroStartTitle: '，设计从未如此简单',
     heroStartTitleAria: '左格，设计从未如此简单',
     footerCopy: '© {{year}} 左格',
+    footerIcp: '滇ICP备2026017289号',
     heroSuggest: {
       ui: 'UI 界面',
       poster: '海报',

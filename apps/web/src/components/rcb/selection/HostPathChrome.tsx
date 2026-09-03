@@ -44,6 +44,57 @@ function liveNodeEl(nodeId: string): Element | null {
   );
 }
 
+/** Prefer the host leaf itself when it is the baseline, else first descendant. */
+function resolveBaselineEl(el: SVGElement | null | undefined): SVGElement | null {
+  if (!el) return null;
+  if (el.getAttribute?.('data-baseline') === '1') return el;
+  return (
+    (el.querySelector?.(':scope > [data-baseline="1"]') as SVGElement | null) ||
+    (el.querySelector?.('[data-baseline="1"]') as SVGElement | null) ||
+    null
+  );
+}
+
+function outlineSyncKey(o: ShapeOutlineItem): string {
+  const hostKeyId = o.mirrorHostId || o.id;
+  const host = getShapeHost(hostKeyId);
+  const hostEl = (host?.el || getSharedNodeEls()?.get(hostKeyId)) as SVGElement | null | undefined;
+  const baseline = resolveBaselineEl(hostEl);
+  const liveD = readBaselinePathD(baseline, o.pathD);
+  const tf = hostEl?.getAttribute?.('transform') || '';
+  const anyEl = hostEl as {
+    __sceneLeft?: number;
+    __sceneTop?: number;
+    __sceneAngle?: number;
+  } | null | undefined;
+  const origin = `${Number(anyEl?.__sceneLeft) || o.box.left},${Number(anyEl?.__sceneTop) || o.box.top}`;
+  const liveAngle = Number.isFinite(Number(anyEl?.__sceneAngle))
+    ? Number(anyEl?.__sceneAngle)
+    : o.angle;
+  return [
+    o.id,
+    o.unionChrome ? 1 : 0,
+    o.mirrorHostId || '',
+    liveD.length,
+    liveD.slice(0, 24),
+    liveD.slice(-24),
+    `${o.box.left.toFixed(1)},${o.box.top.toFixed(1)},${o.box.width}x${o.box.height}`,
+    liveAngle.toFixed(2),
+    o.flipX ? 1 : 0,
+    o.flipY ? 1 : 0,
+    o.withHandles ? 1 : 0,
+    o.showPath === false ? 0 : 1,
+    o.lineMode ? 1 : 0,
+    o.shaftEndpoints ? 1 : 0,
+    o.showRotate ? 1 : 0,
+    o.cornerHandlesOnly ? 1 : 0,
+    o.edgeHandles || 'all',
+    o.color || '',
+    tf,
+    origin,
+  ].join(':');
+}
+
 function hostAnchorPercents(nodeId: string): { ax: number; ay: number } {
   const el = liveNodeEl(nodeId) as {
     __sceneAnchorX?: number;
@@ -675,11 +726,7 @@ function syncHostSelOutline(
 
   const host = getShapeHost(o.id);
   const el = (host?.el || getSharedNodeEls()?.get(o.id)) as SVGElement | null | undefined;
-  const baseline = el
-    ? (el.getAttribute?.('data-baseline') === '1' ? el : null) ||
-      (el.querySelector?.(':scope > [data-baseline="1"]') as SVGElement | null) ||
-      (el.querySelector?.('[data-baseline="1"]') as SVGElement | null)
-    : null;
+  const baseline = resolveBaselineEl(el);
 
   const d = readHostOutlinePathD(baseline, o);
   if (!d) {
@@ -770,30 +817,7 @@ function ShapeOutlineSvg({ outlines }: { outlines: ShapeOutlineItem[] }) {
   const inv = 1 / z;
   const stroke = CHROME_STROKE_PX * inv;
   const [hostEpoch, setHostEpoch] = useState(0);
-  const outlineKey = outlines
-    .map((o) => {
-      const hostKeyId = o.mirrorHostId || o.id;
-      const host = getShapeHost(hostKeyId);
-      const hostEl = (host?.el || getSharedNodeEls()?.get(hostKeyId)) as SVGElement | null | undefined;
-      const baseline =
-        hostEl &&
-        ((hostEl.getAttribute?.('data-baseline') === '1' ? hostEl : null) ||
-          (hostEl.querySelector?.(':scope > [data-baseline="1"]') as SVGElement | null) ||
-          (hostEl.querySelector?.('[data-baseline="1"]') as SVGElement | null));
-      const liveD = readBaselinePathD(baseline, o.pathD);
-      const tf = hostEl?.getAttribute?.('transform') || '';
-      const anyEl = hostEl as {
-        __sceneLeft?: number;
-        __sceneTop?: number;
-        __sceneAngle?: number;
-      } | null | undefined;
-      const origin = `${Number(anyEl?.__sceneLeft) || o.box.left},${Number(anyEl?.__sceneTop) || o.box.top}`;
-      const liveAngle = Number.isFinite(Number(anyEl?.__sceneAngle))
-        ? Number(anyEl?.__sceneAngle)
-        : o.angle;
-      return `${o.id}:${o.unionChrome ? 1 : 0}:${o.mirrorHostId || ''}:${liveD.length}:${liveD.slice(0, 24)}:${liveD.slice(-24)}:${o.box.left.toFixed(1)},${o.box.top.toFixed(1)},${o.box.width}x${o.box.height}:${liveAngle.toFixed(2)}:${o.flipX ? 1 : 0}:${o.flipY ? 1 : 0}:${o.withHandles ? 1 : 0}:${o.showPath === false ? 0 : 1}:${o.lineMode ? 1 : 0}:${o.shaftEndpoints ? 1 : 0}:${o.showRotate ? 1 : 0}:${o.cornerHandlesOnly ? 1 : 0}:${o.edgeHandles || 'all'}:${o.color || ''}:${tf}:${origin}`;
-    })
-    .join('|');
+  const outlineKey = outlines.map((o) => outlineSyncKey(o)).join('|');
   const outlinesRef = useRef(outlines);
   outlinesRef.current = outlines;
 

@@ -33,6 +33,7 @@ import {
   canIdlePaintOnCanvas,
   canvasIdleIsStrokeOnly,
   bumpSceneCanvasIdlePaint,
+  clearIdleTextOutlineCache,
   getSceneCanvasIdlePaint,
   requestIdleCanvasFullRepaint,
   setSceneCanvasIdlePaint,
@@ -42,6 +43,7 @@ import {
   subscribeLiveCornerRadiusPreview,
 } from '@/components/rcb/scene/document/sceneRadii';
 import {
+  clearNodePathFingerprints,
   getLiveShapeParamsPreviewNodeId,
   subscribeLiveShapeParamsPreview,
 } from '@/components/rcb/scene/document/sceneShapes';
@@ -321,10 +323,12 @@ export function syncSoaBufferFromDocumentNow(
   markAllSoaDirty(buf);
   resetSharedSoaBake();
   setSharedSoaBake(null);
+  clearNodePathFingerprints();
+  clearIdleTextOutlineCache();
   applySoaHostInkFlags(buf, opts.forceFullIds);
   refreshSharedSpatialFromSoa(buf);
   markInteractionPerf('soa-sync', {
-    branch: opts.fullRebuild ? 'full-rebuild-forced' : 'full-rebuild-fallback',
+    branch: opts.fullRebuild ? 'full-rebuild-forced' : 'full-rebuild',
     membershipChanged,
     bufCount: buf.count,
     patched: patchedList.length,

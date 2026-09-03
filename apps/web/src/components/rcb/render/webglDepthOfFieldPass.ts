@@ -19,11 +19,14 @@ layout(location = 3) in float aKind;
 layout(location = 4) in float aAngle;
 layout(location = 5) in vec4 aUv;
 layout(location = 6) in float aDepth;
+layout(location = 7) in vec4 aClip;
 out vec2 vUv;
 out vec2 vAtlasUv;
 out vec4 vColor;
 out float vKind;
 out float vDepth;
+out vec2 vWorld;
+out vec4 vClip;
 void main() {
   vec2 local;
   if (aKind > 1.5 && aKind < 2.5) {
@@ -45,6 +48,8 @@ void main() {
   vColor = aColor;
   vKind = aKind;
   vDepth = aDepth;
+  vWorld = pos;
+  vClip = aClip;
 }`;
 
 const SCENE_FS = `#version 300 es
@@ -55,9 +60,14 @@ in vec2 vAtlasUv;
 in vec4 vColor;
 in float vKind;
 in float vDepth;
+in vec2 vWorld;
+in vec4 vClip;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outDepth;
 void main() {
+  if (vWorld.x < vClip.x || vWorld.y < vClip.y || vWorld.x > vClip.z || vWorld.y > vClip.w) {
+    discard;
+  }
   if (vKind > 2.5) {
     vec4 tex = texture(uAtlas, vAtlasUv);
     if (tex.a < 0.01) discard;
@@ -307,7 +317,7 @@ export function createWebglDepthOfFieldPass(gl: WebGL2RenderingContext): WebglDe
   };
 }
 
-/** Scene program attribute locations for depth instancing (location 6). */
+/** Scene program attribute locations for depth (6) + clipContent LTRB (7). */
 export function bindWebglDofSceneAttributes(
   gl: WebGL2RenderingContext,
   cornerBuf: WebGLBuffer,
@@ -316,7 +326,8 @@ export function bindWebglDofSceneAttributes(
   kindBuf: WebGLBuffer,
   angleBuf: WebGLBuffer,
   uvBuf: WebGLBuffer,
-  depthBuf: WebGLBuffer
+  depthBuf: WebGLBuffer,
+  clipBuf: WebGLBuffer
 ) {
   const inst = 1;
   gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
@@ -353,6 +364,11 @@ export function bindWebglDofSceneAttributes(
   gl.enableVertexAttribArray(6);
   gl.vertexAttribPointer(6, 1, gl.FLOAT, false, 0, 0);
   gl.vertexAttribDivisor(6, inst);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, clipBuf);
+  gl.enableVertexAttribArray(7);
+  gl.vertexAttribPointer(7, 4, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(7, inst);
 }
 
 export function createWebglDepthInstanceBuffer(gl: WebGL2RenderingContext) {
