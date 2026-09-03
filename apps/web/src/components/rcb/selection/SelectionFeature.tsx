@@ -18,6 +18,7 @@ import {
   rcbCameraCssZoom,
   rcbResolveViewportEl,
 } from '@/components/rcb/core/math';
+import { logSelectClick } from '@/components/editor/sceneEvents';
 import {
   getDocumentGridSize,
   collectPairSpacingGuides,
@@ -82,7 +83,7 @@ import {
 } from '@/store/modules/editor';
 import { dismissMarkToolSession } from '@/components/editor/nodes/ImageNode/mark/markSessionCleanup';
 import type { TextResizeMode } from '@/components/rcb/scene/paint/svgToScene';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import store from '@/store';
 
 /** Soft blank click while an image quick-edit / mark session is pinned. */
@@ -222,6 +223,80 @@ function sceneBoxClose(
     Math.abs(a.width - b.width) <= eps &&
     Math.abs(a.height - b.height) <= eps
   );
+}
+
+/** Anchor 0–100% — same rules as scene paint (`anchorPreset` wins). */
+function selectionAnchorPercents(node: SceneNodeInput | null | undefined): {
+  anchorX: number;
+  anchorY: number;
+} {
+  if (!node) return { anchorX: 50, anchorY: 50 };
+  const preset = String(node.attrs?.anchorPreset || '')
+    .trim()
+    .toLowerCase();
+  if (/^[tmb][lmr]$/.test(preset)) {
+    let anchorX = 50;
+    if (preset.endsWith('l')) anchorX = 0;
+    else if (preset.endsWith('r')) anchorX = 100;
+    let anchorY = 50;
+    if (preset.startsWith('t')) anchorY = 0;
+    else if (preset.startsWith('b')) anchorY = 100;
+    return { anchorX, anchorY };
+  }
+  const ax = Number(node.attrs?.anchorX);
+  const ay = Number(node.attrs?.anchorY);
+  return {
+    anchorX: Number.isFinite(ax) ? Math.max(0, Math.min(100, ax)) : 50,
+    anchorY: Number.isFinite(ay) ? Math.max(0, Math.min(100, ay)) : 50,
+  };
+}
+
+function selectionSkewProps(node: SceneNodeInput | null | undefined): {
+  skewX: number;
+  skewAxis: number;
+} {
+  if (!node) return { skewX: 0, skewAxis: 0 };
+  const skewX = Number(node.attrs?.skewX ?? node.attrs?.skew) || 0;
+  const rawAxis = node.attrs?.skewAxis;
+  const skewAxis =
+    rawAxis != null && rawAxis !== '' ? Number(rawAxis) || 0 : 0;
+  return { skewX, skewAxis };
+}
+
+function toolbarValueBox(
+  preferred: SceneBox | null | undefined,
+  node: SceneNodeInput
+): SceneBox {
+  if (preferred) {
+    return {
+      left: preferred.left,
+      top: preferred.top,
+      width: preferred.width,
+      height: preferred.height,
+    };
+  }
+  return {
+    left: Number(node.x) || 0,
+    top: Number(node.y) || 0,
+    width: Math.max(1, Number(node.width) || 1),
+    height: Math.max(1, Number(node.height) || 1),
+  };
+}
+
+function isEllipseLikeNode(node: SceneNodeInput): boolean {
+  return (
+    String(node.attrs?.shapeType || '') === 'circle' || node.key === 'ellipse'
+  );
+}
+
+function isTitledMediaNode(
+  node: SceneNodeInput | null | undefined,
+  isTextFrame: boolean
+): boolean {
+  if (!node) return false;
+  if (isTextFrame) return true;
+  const key = String(node.key || '');
+  return key === 'image' || key === 'video' || key === 'lottie' || key === 'audio';
 }
 
 function selectionOriginsClose(
@@ -530,6 +605,9 @@ function SelectionFeature({
   const readOnlyRef = useRef(readOnly);
   const attachPickActiveRef = useRef(attachPickActive);
   const imageToolSessionNodeIdRef = useRef(imageToolSessionNodeId);
+  const selectedNodeIdsRef = useRef(selectedNodeIds);
+  const selectedFrameIdsRef = useRef(selectedFrameIds);
+  const transformingRef = useRef(false);
   /** Latest chrome pick options — read on pointer events (not effect deps). */
   const chromePickOptsRef = useRef({
     zoom: 1,
@@ -567,6 +645,8 @@ function SelectionFeature({
   readOnlyRef.current = readOnly;
   attachPickActiveRef.current = attachPickActive;
   imageToolSessionNodeIdRef.current = imageToolSessionNodeId;
+  selectedNodeIdsRef.current = selectedNodeIds;
+  selectedFrameIdsRef.current = selectedFrameIds;
 
   const [liveUnion, setLiveUnion] = useState<SceneBox | null>(null);
   const [liveOrigins, setLiveOrigins] = useState<Array<{ nodeId: string; box: SceneBox }> | null>(
@@ -589,6 +669,7 @@ function SelectionFeature({
   const prevInspectSelRef = useRef<string | null>(null);
 
   const setTransformingNotify = (next: boolean) => {
+    transformingRef.current = next;
     setTransforming(next);
     if (!next) setSmartGuides([]);
     onTransformingChangeRef.current?.(next);
@@ -1017,6 +1098,7 @@ function SelectionFeature({
         hitTest,
         hitTestFrame,
         getNodeBox,
+        listNodeIds,
         onSelect,
         onSelectFrame,
       } = getPointerCtx();
@@ -1027,8 +1109,22 @@ function SelectionFeature({
           ? (targetNode as Element)
           : targetNode?.parentElement
       ) as HTMLElement | null;
-      if (!target) return;
-      if (window.document.documentElement.hasAttribute('data-lottie-scrubbing')) return;
+      if (!target) {
+        logSelectClick({
+          phase: 'pointerdown',
+          branch: 'no-target',
+          client: { x: e.clientX, y: e.clientY },
+        });
+        return;
+      }
+      if (window.document.documentElement.hasAttribute('data-lottie-scrubbing')) {
+        logSelectClick({
+          phase: 'pointerdown',
+          branch: 'lottie-scrubbing',
+          client: { x: e.clientX, y: e.clientY },
+        });
+        return;
+      }
       const seed = (
         mode: DragState['mode'],
         ev: { clientX: number; clientY: number },
@@ -1042,15 +1138,80 @@ function SelectionFeature({
       const liveAngleNow = liveAngleRef.current;
       const lockedSelection = isSelectionOriginsLocked(sceneDoc, liveOriginsNow);
       const pickOpts = chromePickOptsRef.current;
+      const storeNodeIds = selectedNodeIdsRef.current;
+      const storeFrameIds = selectedFrameIdsRef.current;
+      // Fresh pointerdown owns the gesture. A missed pointerup leaves dragRef +
+      // transforming stuck — chrome/toolbars stay hidden (looks unselected) even
+      // when storeNodeIds still hold the pick. Clear before any new branch.
+      if (dragRef.current || transformingRef.current) {
+        dragRef.current = null;
+        setTransformingNotify(false);
+      }
+      const markSessionActive =
+        ((store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null } })
+          .editor?.imageToolPanel?.kind === 'mark');
+      const clickLog = (branch: string, extra?: Record<string, unknown>) => {
+        logSelectClick({
+          phase: 'pointerdown',
+          branch,
+          client: { x: e.clientX, y: e.clientY },
+          scene: { x: Number(p.x.toFixed(2)), y: Number(p.y.toFixed(2)) },
+          storeNodeIds,
+          storeFrameIds,
+          liveOriginIds: liveOriginsNow?.map((o) => o.nodeId) ?? [],
+          transforming: transformingRef.current,
+          suppressChrome: pickOpts.suppressChrome,
+          showHandles: pickOpts.showHandles,
+          shiftKey: e.shiftKey,
+          readOnly,
+          attachPickActive,
+          markSessionActive,
+          ...extra,
+        });
+      };
 
       // UI panels own the gesture before geometric chrome pick. The Lottie
       // inspector docks on the selection's E edge and overlaps resize seats —       // `[data-lottie-inspector]` below must win.
-      if (target.closest('[data-sel-toolbar],[data-frame-toolbar]')) return;
+      if (target.closest('[data-sel-toolbar],[data-frame-toolbar]')) {
+        clickLog('ui-toolbar');
+        return;
+      }
       if (
         target.closest(
           '[data-ctx-menu],[data-export-panel],[data-image-label],[data-frame-label],[data-crop-expand-overlay],[data-crop-expand-toolbar],[data-image-tool-panel],[data-image-variants],[data-media-quick-edit],[data-mark-composer],[data-shape-style-panel],[data-gradient-handles],[data-mesh-handles],[data-fill-image-handles],[data-fill-image-preview],[data-color-panel],[data-text-inline-editor],[data-frame-handle],[data-image-generator],[data-video-generator],[data-video-playback-bar],[data-video-trim-toolbar],[data-audio-playback-bar],[data-audio-trim-toolbar],[data-audio-speed-toolbar],[data-mockup-session],[data-mockup-toolbar],[data-upscale-toolbar],[data-mark-overlay],[data-mark-pin-overlay],[data-mark-prompt],[data-puppet-pin-overlay],[data-lottie-inspector],[data-lottie-kf-popover]'
         )
       ) {
+        clickLog('ui-panel');
+        return;
+      }
+
+      // Mark session: never start geometry transforms. setTransformingNotify(true)
+      // used to unmount MarkSessionHost; even when mounted, capture steals the
+      // rubber-band. Soft blank still dismisses via pointing_canvas below.
+      if (markSessionActive && !attachPickActive) {
+        const hitEarly = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
+        if (hitEarly) {
+          clickLog('mark-session-yield', { hitId: hitEarly });
+          return;
+        }
+        const selectedIdsEarly = liveOriginsNow?.map((o) => o.nodeId) ?? [];
+        clickLog('mark-session-blank', {
+          hitId: null,
+          pointInLiveUnion: Boolean(
+            liveUnionNow && pointInOrientedBox(p, liveUnionNow, liveAngleNow || 0)
+          ),
+        });
+        if (!e.shiftKey) {
+          const pin = imageToolSessionNodeIdRef.current;
+          if (
+            !isImageToolSessionPinned(pin, liveOriginsNow, selectedIdsEarly, storeNodeIds)
+          ) {
+            onSelectFrame?.(null);
+            onSelect([]);
+          }
+        }
+        dragRef.current = seed('pointing_canvas', e, p);
+        capture(e.pointerId);
         return;
       }
 
@@ -1079,15 +1240,24 @@ function SelectionFeature({
           tryStartOverlayHandleSeat(ink.pick, e);
           e.preventDefault();
           e.stopPropagation();
+          clickLog('chrome-overlay', { chromePick: ink.pick?.kind ?? null });
           return;
         }
         if (ink?.layer === 'chrome') chromePick = ink.pick;
       }
 
       if (chromePick?.kind === 'rotate' && liveUnionNow && liveOriginsNow?.length) {
-        if (readOnly || lockedSelection) return;
+        if (readOnly || lockedSelection) {
+          clickLog('chrome-rotate-blocked', {
+            readOnly,
+            lockedSelection,
+            chromePick: chromePick.kind,
+          });
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
+        clickLog('chrome-rotate', { chromePick: chromePick.kind });
         const { box: union, angle: angle0 } = resolvePaintedControlChrome(
           sceneDoc,
           liveOriginsNow,
@@ -1122,9 +1292,17 @@ function SelectionFeature({
         liveUnionNow &&
         liveOriginsNow?.length
       ) {
-        if (readOnly || lockedSelection) return;
+        if (readOnly || lockedSelection) {
+          clickLog('chrome-resize-blocked', {
+            readOnly,
+            lockedSelection,
+            chromePick: chromePick.kind,
+          });
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
+        clickLog('chrome-resize', { chromePick: chromePick.kind, handle: chromePick.handle });
         const handle = chromePick.handle;
         const singleId = liveOriginsNow.length === 1 ? liveOriginsNow[0].nodeId : '';
         const singleNode = singleId ? sceneDoc?.deltaSetLike?.[singleId] : null;
@@ -1182,7 +1360,8 @@ function SelectionFeature({
         });
         setLiveOrigins(origins);
         setLiveUnion(liveUnionNow);
-        setTransformingNotify(true);
+        // Defer transforming until onMove passes travel gate — click-in-AABB
+        // must keep chrome/toolbars visible (missed pointerup used to stick hide).
         capture(e.pointerId);
         return true;
       };
@@ -1203,6 +1382,16 @@ function SelectionFeature({
       }
       const plateFrameId = hitId ? frameForFullBleedPlate(sceneDoc, hitId) : null;
       const framePlateId = resolveFramePlateTarget(sceneDoc, p, hitId, hitTestFrame);
+      const hitExtras = {
+        hitId,
+        frameAtPoint,
+        framePlateId,
+        plateFrameId,
+        liveHasHit: hitId ? selectedIds.includes(hitId) : false,
+        storeHasHit: hitId
+          ? storeNodeIds.includes(hitId) || storeFrameIds.includes(hitId)
+          : false,
+      };
 
       const beginFramePlateGesture = (frameId: string) => {
         e.preventDefault();
@@ -1259,10 +1448,13 @@ function SelectionFeature({
               .find((fid): fid is string => Boolean(fid)) || null;
         }
         if (hitId && !plateFrameId) {
+          clickLog('attach-pick-node', { ...hitExtras, calledOnSelect: true });
           onSelect(expandSelectionWithGroups(sceneDoc, [hitId]));
         } else if (frameUnder) {
+          clickLog('attach-pick-frame', { ...hitExtras, frameUnder, calledOnSelect: false });
           onSelectFrame?.(frameUnder);
         } else {
+          clickLog('attach-pick-clear', { ...hitExtras, calledOnSelect: true });
           onSelect([]);
         }
         dragRef.current = seed('blank', e, p, { skipSelectOnUp: true });
@@ -1271,6 +1463,7 @@ function SelectionFeature({
       }
 
       if (framePlateId) {
+        clickLog('frame-plate', { ...hitExtras });
         beginFramePlateGesture(framePlateId);
         return;
       }
@@ -1278,6 +1471,10 @@ function SelectionFeature({
       // Full-bleed background plate outside frame match — marquee only.
       if (hitId && plateFrameId) {
         e.preventDefault();
+        clickLog('full-bleed-plate', {
+          ...hitExtras,
+          calledOnSelect: !e.shiftKey && !readOnly,
+        });
         if (!e.shiftKey && !readOnly) {
           onSelectFrame?.(null);
           onSelect([]);
@@ -1293,24 +1490,42 @@ function SelectionFeature({
         e.stopPropagation();
         const additive = e.shiftKey;
         const expandedHit = expandSelectionWithGroups(sceneDoc, [hitId]);
+        // Store selection drives chrome/toolbar. liveOrigins alone can stay hot after a
+        // missed pointerup — skipping onSelect then lets drag work with no chrome.
+        const storeHasNode =
+          storeNodeIds.includes(hitId) ||
+          expandedHit.some((id) => storeNodeIds.includes(id));
 
         if (readOnly) {
           // Preview / Dev inspect: select only (no move).
+          clickLog('hit-readonly-select', {
+            ...hitExtras,
+            expandedHit,
+            calledOnSelect: true,
+            storeHasNode,
+          });
           onSelect(expandedHit, { additive });
           dragRef.current = seed('blank', e, p);
           capture(e.pointerId);
           return;
         }
 
-        // Expand on down so pointerdown?move uses full group origins before the editor store catches up.
-        if (!selectedIds.includes(hitId)) {
+        const willCallOnSelect = !storeHasNode || additive;
+        if (willCallOnSelect) {
           // Do not open text edit on pointerdown — a single click's up would
           // otherwise count as a second tap and enter edit immediately.
           lastTextClickRef.current = null;
           onSelect(expandedHit, { additive });
         }
         // Shift-add only: wait for pointer-up; don't start a translate.
-        if (additive && !selectedIds.includes(hitId)) {
+        if (additive && !storeHasNode) {
+          clickLog('hit-shift-add', {
+            ...hitExtras,
+            expandedHit,
+            calledOnSelect: willCallOnSelect,
+            storeHasNode,
+            dragMode: 'blank',
+          });
           dragRef.current = seed('blank', e, p);
           capture(e.pointerId);
           return;
@@ -1319,7 +1534,7 @@ function SelectionFeature({
         const { origins, union } = buildMoveOriginsForHit({
           document: sceneDoc,
           hitId,
-          selectedIds,
+          selectedIds: storeHasNode ? storeNodeIds : selectedIds,
           expandedHit,
           liveOriginsNow,
           liveUnionNow,
@@ -1327,11 +1542,26 @@ function SelectionFeature({
           getNodeBox,
           fallbackPoint: p,
         });
-        if (!origins.length) return;
+        if (!origins.length) {
+          clickLog('hit-no-origins', {
+            ...hitExtras,
+            expandedHit,
+            calledOnSelect: willCallOnSelect,
+            storeHasNode,
+          });
+          return;
+        }
 
         // Second click of a double-click: do not start a translate.
         if (isRecentNodeDoubleTap(lastNodeTapRef.current, hitId, e)) {
           lastNodeTapRef.current = null;
+          clickLog('hit-double-tap', {
+            ...hitExtras,
+            expandedHit,
+            calledOnSelect: willCallOnSelect,
+            storeHasNode,
+            dragMode: 'blank',
+          });
           dragRef.current = seed('blank', e, p);
           capture(e.pointerId);
           return;
@@ -1352,21 +1582,37 @@ function SelectionFeature({
         }
         // Locked layers stay selectable but cannot start a drag.
         if (isSelectionOriginsLocked(sceneDoc, origins)) {
+          clickLog('hit-locked', {
+            ...hitExtras,
+            expandedHit,
+            calledOnSelect: willCallOnSelect,
+            storeHasNode,
+            dragMode: 'blank',
+            originIds: origins.map((o) => o.nodeId),
+          });
           dragRef.current = seed('blank', e, p);
           capture(e.pointerId);
           return;
         }
+        clickLog('hit-move', {
+          ...hitExtras,
+          expandedHit,
+          calledOnSelect: willCallOnSelect,
+          storeHasNode,
+          dragMode: 'move',
+          originIds: origins.map((o) => o.nodeId),
+        });
         dragRef.current = seed('move', e, p, {
           origins,
           union,
           textWasSelectedOnDown:
-            selectedIds.length === 1 &&
-            selectedIds[0] === hitId &&
+            storeNodeIds.length === 1 &&
+            storeNodeIds[0] === hitId &&
             sceneDoc?.deltaSetLike?.[hitId]?.key === 'text',
         });
         setLiveOrigins(origins);
         setLiveUnion(union);
-        setTransformingNotify(true);
+        // Defer transforming until travel gate — see beginMoveSelection.
         capture(e.pointerId);
         return;
       }
@@ -1391,11 +1637,13 @@ function SelectionFeature({
         if (frameId && box) {
           // Occupied artboard/workbench: interior stays soft + marquee, never drag plate.
           if (!frameIsEmpty(sceneDoc, frameId)) {
+            clickLog('union-frame-occupied', { ...hitExtras, frameId });
             beginFramePlateGesture(frameId);
             return;
           }
           e.preventDefault();
           e.stopPropagation();
+          clickLog('union-frame-move', { ...hitExtras, frameId, dragMode: 'frame_move' });
           const origins = [{ nodeId: frameSelId(frameId), box: { ...box } }];
           dragRef.current = seed('frame_move', e, p, {
             origins,
@@ -1420,23 +1668,53 @@ function SelectionFeature({
         !readOnly &&
         !selectionHasFrame &&
         pointInLiveUnion &&
-        (liveOriginsNow?.length ?? 0) > 0 &&
-        beginMoveSelection()
+        (liveOriginsNow?.length ?? 0) > 0
       ) {
-        return;
+        const liveNodeIds = liveOriginsNow
+          .map((o) => o.nodeId)
+          .filter((id) => !parseFrameSelId(id));
+        // Store drives chrome/toolbar. liveOrigins can stay hot after a missed
+        // pointerup while store is empty — move without onSelect = no chrome.
+        const storeCoversLive =
+          liveNodeIds.length > 0 &&
+          liveNodeIds.every((id) => storeNodeIds.includes(id));
+        const resyncedStore = !storeCoversLive && liveNodeIds.length > 0;
+        if (resyncedStore) {
+          onSelect(expandSelectionWithGroups(sceneDoc, liveNodeIds));
+        }
+        if (beginMoveSelection()) {
+          clickLog('union-move-selection', {
+            ...hitExtras,
+            pointInLiveUnion: true,
+            dragMode: 'move',
+            calledOnSelect: resyncedStore,
+            liveNodeIds,
+          });
+          return;
+        }
       }
       if (!hitId && frameAtPoint) {
+        clickLog('blank-frame-at-point', { ...hitExtras });
         beginFramePlateGesture(frameAtPoint);
         return;
       }
       if (!e.shiftKey) {
         const pin = imageToolSessionNodeIdRef.current;
         if (
-          !isImageToolSessionPinned(pin, liveOriginsNow, selectedIds, selectedNodeIds)
+          !isImageToolSessionPinned(pin, liveOriginsNow, selectedIds, storeNodeIds)
         ) {
+          clickLog('blank-clear', {
+            ...hitExtras,
+            calledOnSelect: true,
+            pointInLiveUnion: Boolean(pointInLiveUnion),
+          });
           onSelectFrame?.(null);
           onSelect([]);
+        } else {
+          clickLog('blank-pinned', { ...hitExtras, pin });
         }
+      } else {
+        clickLog('blank-marquee-shift', { ...hitExtras });
       }
       dragRef.current = seed('pointing_canvas', e, p);
       capture(e.pointerId);
@@ -1581,6 +1859,10 @@ function SelectionFeature({
       }
 
       if (drag.mode === 'move') {
+        // Hide chrome only after real travel (same gate as resize soft-click).
+        if (!transformingRef.current && screenDistSq >= DRAG_DISTANCE_SQUARED) {
+          setTransformingNotify(true);
+        }
         // Follow the pointer immediately — only grid may quantize (no travel gate).
         const { dx: cdx, dy: cdy } = shiftConstrainedMoveDelta(drag, dx, dy, e.shiftKey);
         const exclude = new Set(drag.origins.map((o) => o.nodeId));
@@ -1729,7 +2011,11 @@ function SelectionFeature({
       // Always clear the brush — even if the gesture ref was lost mid-flight
       // (effect remount used to drop pointerup and leave the box stuck).
       setMarquee(null);
-      if (!drag) return;
+      if (!drag) {
+        // dragRef lost but transforming may still hide chrome/toolbars.
+        if (transformingRef.current) setTransformingNotify(false);
+        return;
+      }
       dragRef.current = null;
       clearSelectionChromeCursor(hitEl);
       const {
@@ -2568,6 +2854,89 @@ function SelectionFeature({
   // HostPathChrome owns the precise open-stroke endpoints for lines/arrows.
   // Other path shapes use the shared SelectionChrome for their box/handles.
   const skipWorldSelectionChrome = hostInjectedSelection && lineChrome;
+  const showWorldSelectionChrome =
+    Boolean(selectionChromeBox) &&
+    !hideSelectionChrome &&
+    selectionCount > 0 &&
+    !skipWorldSelectionChrome &&
+    !hideMultiMoveChrome &&
+    (!transforming || !single);
+
+  const shapeKnobBox = chromeGeomBox || chromeUnion;
+  const canEditShapeKnobs =
+    !inspectDev &&
+    !readOnly &&
+    !transforming &&
+    Boolean(shapeKnobBox) &&
+    Boolean(singleNode && singleId && singleNodeData) &&
+    !lineChrome &&
+    !hideSelectionChrome &&
+    !selectedIsImageGen &&
+    !selectedNodeProcessing;
+
+  const showCornerRadiusKnobs =
+    canEditShapeKnobs &&
+    Boolean(singleNodeData) &&
+    supportsCornerRadius(singleNodeData!) &&
+    !supportsShapeSides(singleNodeData!);
+  const showCircleKnobs =
+    canEditShapeKnobs && Boolean(singleNodeData) && isEllipseLikeNode(singleNodeData!);
+  const showPolygonKnobs = canEditShapeKnobs && singleShapeType === 'polygon';
+  const showStarKnobs = canEditShapeKnobs && singleShapeType === 'star';
+
+  const showContextToolbar =
+    !inspectDev &&
+    Boolean(chromeUnion) &&
+    Boolean(contextToolbarNodeId && contextToolbarNodeData) &&
+    !transforming &&
+    !hideSelectionToolbars &&
+    !selectedNodeProcessing;
+
+  const nodeTitleChrome = textFrameTitle || mediaTitle;
+  const showNodeTitle =
+    !inspectDev &&
+    Boolean(chromeUnion) &&
+    Boolean(singleNode && singleId) &&
+    !transforming &&
+    !hideSelectionToolbars &&
+    isTitledMediaNode(singleNodeData, selectedIsTextFrame) &&
+    Boolean(nodeTitleChrome);
+
+  const showSelectedImageVariants =
+    !inspectDev &&
+    Boolean(chromeUnion || liveUnion) &&
+    Boolean(singleNode && singleId && singleNodeData) &&
+    !transforming &&
+    !hideSelectionToolbars &&
+    singleNodeData?.key === 'image' &&
+    listImageVariantUrls(singleNodeData).length > 1 &&
+    !selectedNodeProcessing;
+
+  const showHoverImageVariants =
+    !inspectDev &&
+    Boolean(hoverImageVariantsId && hoverImageVariantsBox) &&
+    !transforming &&
+    !hideSelectionToolbars;
+
+  const showMultiToolbar =
+    !inspectDev &&
+    Boolean(chromeUnion) &&
+    !single &&
+    selectedNodeIds.length >= 1 &&
+    !transforming &&
+    !hideSelectionToolbars &&
+    !isAnimationWorkbenchSelection(document, selectedNodeIds, selectedFrameIds);
+
+  const chromeAnchor = selectionAnchorPercents(singleNodeData);
+  const chromeSkew = selectionSkewProps(singleNodeData);
+  const showChromeHandles =
+    !inspectDev && !readOnly && !selectedIsMediaGen && !transforming;
+  const showChromeRotate =
+    showChromeHandles &&
+    !lineChrome &&
+    !selectedIsTextFrame &&
+    selectedNodeIds.length >= 1 &&
+    selectedFrameIds.length === 0;
 
   return (
     <>
@@ -2581,269 +2950,129 @@ function SelectionFeature({
       {/* World SelectionChrome — path single/multi use host-mirrored chrome instead.
           Multi non-path keeps chrome while rotating so the control box can tilt.
           Frames use the same hide-while-transforming rule as single shapes. */}
-      {selectionChromeBox &&
-      !hideSelectionChrome &&
-      selectionCount > 0 &&
-      !skipWorldSelectionChrome &&
-      !hideMultiMoveChrome &&
-      (!transforming || !single) ? (
+      {showWorldSelectionChrome ? (
         <SelectionChrome
-          box={selectionChromeBox}
+          box={selectionChromeBox!}
           angle={chromeAngle}
-          showHandles={!inspectDev && !readOnly && !selectedIsMediaGen && !transforming}
+          showHandles={showChromeHandles}
           cornerHandlesOnly={!single}
           variant={lineChrome ? 'line' : 'box'}
-          showRotate={
-            !inspectDev &&
-            !readOnly &&
-            !lineChrome &&
-            !selectedIsMediaGen &&
-            !selectedIsTextFrame &&
-            !transforming &&
-            selectedNodeIds.length >= 1 &&
-            selectedFrameIds.length === 0
-          }
+          showRotate={showChromeRotate}
           showBoxStroke={!lineChrome}
           interactiveBox={frameChromeMode === 'full' && selectedFrameIds.length > 0}
           edgeHandles={edgeHandles}
           strokeOuterScene={strokeOuterScene}
-          anchorX={
-            singleNodeData
-              ? (() => {
-                  const p = String(singleNodeData.attrs?.anchorPreset || '')
-                    .trim()
-                    .toLowerCase();
-                  if (/^[tmb][lmr]$/.test(p)) {
-                    return p.endsWith('l') ? 0 : p.endsWith('r') ? 100 : 50;
-                  }
-                  const n = Number(singleNodeData.attrs?.anchorX);
-                  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
-                })()
-              : 50
-          }
-          anchorY={
-            singleNodeData
-              ? (() => {
-                  const p = String(singleNodeData.attrs?.anchorPreset || '')
-                    .trim()
-                    .toLowerCase();
-                  if (/^[tmb][lmr]$/.test(p)) {
-                    return p.startsWith('t') ? 0 : p.startsWith('b') ? 100 : 50;
-                  }
-                  const n = Number(singleNodeData.attrs?.anchorY);
-                  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
-                })()
-              : 50
-          }
-          skewX={
-            singleNodeData
-              ? Number(singleNodeData.attrs?.skewX ?? singleNodeData.attrs?.skew) || 0
-              : 0
-          }
-          skewAxis={
-            singleNodeData
-              ? singleNodeData.attrs?.skewAxis != null &&
-                singleNodeData.attrs?.skewAxis !== ''
-                ? Number(singleNodeData.attrs.skewAxis) || 0
-                : 0
-              : 0
-          }
+          anchorX={chromeAnchor.anchorX}
+          anchorY={chromeAnchor.anchorY}
+          skewX={chromeSkew.skewX}
+          skewAxis={chromeSkew.skewAxis}
         />
       ) : null}
 
-      {!inspectDev &&
-      !readOnly &&
-      !transforming &&
-      chromeUnion &&
-      singleNode &&
-      singleId &&
-      singleNodeData &&
-      supportsCornerRadius(singleNodeData) &&
-      !supportsShapeSides(singleNodeData) &&
-      !lineChrome &&
-      !hideSelectionChrome &&
-      !selectedIsImageGen &&
-      !selectedNodeProcessing ? (
+      {showCornerRadiusKnobs ? (
         <CornerRadiusHandlesOverlay
-          box={chromeGeomBox || chromeUnion}
+          box={shapeKnobBox!}
           angle={chromeAngle}
-          nodeId={singleId}
-          node={singleNodeData}
+          nodeId={singleId!}
+          node={singleNodeData!}
           toScene={toScene}
           stageEl={hitEl}
           interactive
         />
       ) : null}
 
-      {!inspectDev &&
-      !readOnly &&
-      !transforming &&
-      chromeUnion &&
-      singleNode &&
-      singleId &&
-      singleNodeData &&
-      (String(singleNodeData?.attrs?.shapeType || '') === 'circle' ||
-        singleNodeData?.key === 'ellipse') &&
-      !lineChrome &&
-      !hideSelectionChrome &&
-      !selectedIsImageGen &&
-      !selectedNodeProcessing ? (
+      {showCircleKnobs ? (
         <CircleShapeHandlesOverlay
-          box={chromeGeomBox || chromeUnion}
+          box={shapeKnobBox!}
           angle={chromeAngle}
-          nodeId={singleId}
-          node={singleNodeData}
+          nodeId={singleId!}
+          node={singleNodeData!}
           toScene={toScene}
           stageEl={hitEl}
           interactive
         />
       ) : null}
 
-      {!inspectDev &&
-      !readOnly &&
-      !transforming &&
-      chromeUnion &&
-      singleNode &&
-      singleId &&
-      singleNodeData &&
-      String(singleNodeData?.attrs?.shapeType || '') === 'polygon' &&
-      !lineChrome &&
-      !hideSelectionChrome &&
-      !selectedIsImageGen &&
-      !selectedNodeProcessing ? (
+      {showPolygonKnobs ? (
         <PolygonShapeHandlesOverlay
-          box={chromeGeomBox || chromeUnion}
+          box={shapeKnobBox!}
           angle={chromeAngle}
-          nodeId={singleId}
-          node={singleNodeData}
+          nodeId={singleId!}
+          node={singleNodeData!}
           toScene={toScene}
           stageEl={hitEl}
           interactive
         />
       ) : null}
 
-      {!inspectDev &&
-      !readOnly &&
-      !transforming &&
-      chromeUnion &&
-      singleNode &&
-      singleId &&
-      singleNodeData &&
-      String(singleNodeData?.attrs?.shapeType || '') === 'star' &&
-      !lineChrome &&
-      !hideSelectionChrome &&
-      !selectedIsImageGen &&
-      !selectedNodeProcessing ? (
+      {showStarKnobs ? (
         <StarShapeHandlesOverlay
-          box={chromeGeomBox || chromeUnion}
+          box={shapeKnobBox!}
           angle={chromeAngle}
-          nodeId={singleId}
-          node={singleNodeData}
+          nodeId={singleId!}
+          node={singleNodeData!}
           toScene={toScene}
           stageEl={hitEl}
           interactive
         />
       ) : null}
 
-      {!inspectDev &&
-      chromeUnion &&
-      contextToolbarNodeId &&
-      contextToolbarNodeData &&
-      !transforming &&
-      !hideSelectionToolbars &&
-      !selectedNodeProcessing ? (
+      {showContextToolbar ? (
         <SelectionContextToolbar
           document={document}
-          nodeId={contextToolbarNodeId}
-          {...selectionToolbarDock(chromeUnion, {
+          nodeId={contextToolbarNodeId!}
+          {...selectionToolbarDock(chromeUnion!, {
             angle: chromeAngle,
             edgePadScene: strokeUiPadScreen,
             lineChrome: singleNode ? lineChrome : false,
-            node: contextToolbarNodeData,
+            node: contextToolbarNodeData!,
           })}
-          valueBox={
-            chromeGeomBox || chromeUnion
-              ? {
-                  left: (chromeGeomBox || chromeUnion)!.left,
-                  top: (chromeGeomBox || chromeUnion)!.top,
-                  width: (chromeGeomBox || chromeUnion)!.width,
-                  height: (chromeGeomBox || chromeUnion)!.height,
-                }
-              : {
-                  left: Number(contextToolbarNodeData.x) || 0,
-                  top: Number(contextToolbarNodeData.y) || 0,
-                  width: Math.max(1, Number(contextToolbarNodeData.width) || 1),
-                  height: Math.max(1, Number(contextToolbarNodeData.height) || 1),
-                }
-          }
+          valueBox={toolbarValueBox(shapeKnobBox, contextToolbarNodeData!)}
           onOpenAgent={onOpenAgent}
         />
       ) : null}
 
-      {!inspectDev &&
-      chromeUnion &&
-      singleNode &&
-      singleId &&
-      !transforming &&
-      !hideSelectionToolbars &&
-      (singleNodeData?.key === 'image' ||
-        singleNodeData?.key === 'video' ||
-        singleNodeData?.key === 'lottie' ||
-        singleNodeData?.key === 'audio' ||
-        selectedIsTextFrame) &&
-      (textFrameTitle || mediaTitle) ? (
+      {showNodeTitle ? (
         <NodeTitleLabel
-          box={chromeUnion}
+          box={chromeUnion!}
           angle={chromeAngle}
-          nodeId={singleId}
-          name={(textFrameTitle || mediaTitle)!.name}
-          sizeWidth={chromeUnion.width}
-          sizeHeight={chromeUnion.height}
+          nodeId={singleId!}
+          name={nodeTitleChrome!.name}
+          sizeWidth={chromeUnion!.width}
+          sizeHeight={chromeUnion!.height}
           dataAttr="image-label"
-          icon={(textFrameTitle || mediaTitle)!.icon}
-          dataProps={{ 'data-scene-node-id': singleId }}
+          icon={nodeTitleChrome!.icon}
+          dataProps={{ 'data-scene-node-id': singleId! }}
           onRename={(name, options) =>
             patchDocumentNode({
-                nodeId: singleId,
-                patch: { attrs: { name } },
-                skipHistory: options?.skipHistory,
-                // A title is chrome metadata; the media SVG pixels do not change.
-                skipHostReload: true,
-              })
+              nodeId: singleId!,
+              patch: { attrs: { name } },
+              skipHistory: options?.skipHistory,
+              // A title is chrome metadata; the media SVG pixels do not change.
+              skipHostReload: true,
+            })
           }
-          renameAriaLabel={(textFrameTitle || mediaTitle)!.renameAriaLabel}
+          renameAriaLabel={nodeTitleChrome!.renameAriaLabel}
         />
       ) : null}
 
-      {!inspectDev &&
-      (chromeUnion || liveUnion) &&
-      singleNode &&
-      singleId &&
-      !transforming &&
-      !hideSelectionToolbars &&
-      singleNodeData?.key === 'image' &&
-      listImageVariantUrls(singleNodeData).length > 1 &&
-      !selectedNodeProcessing ? (
+      {showSelectedImageVariants ? (
         <ImageVariantsOverlay
           document={document}
-          nodeId={singleId}
-          box={chromeUnion || liveUnion!}
+          nodeId={singleId!}
+          box={(chromeUnion || liveUnion)!}
           angle={chromeAngle}
           imageHovered={hoverNodeId === singleId}
           readOnly={readOnly}
         />
       ) : null}
 
-      {!inspectDev &&
-      hoverImageVariantsId &&
-      hoverImageVariantsBox &&
-      !transforming &&
-      !hideSelectionToolbars ? (
+      {showHoverImageVariants ? (
         <ImageVariantsOverlay
           document={document}
-          nodeId={hoverImageVariantsId}
-          box={hoverImageVariantsBox}
-          angle={readNodeAngle(document, hoverImageVariantsId)}
+          nodeId={hoverImageVariantsId!}
+          box={hoverImageVariantsBox!}
+          angle={readNodeAngle(document, hoverImageVariantsId!)}
           imageHovered
           readOnly={readOnly}
         />
@@ -2851,18 +3080,12 @@ function SelectionFeature({
 
       {/* Multi-select bar: canvas / overlay only.
           Frame multi-select uses FrameMultiSelectionToolbar. */}
-      {!inspectDev &&
-      chromeUnion &&
-      !single &&
-      selectedNodeIds.length >= 1 &&
-      !transforming &&
-      !hideSelectionToolbars &&
-      !isAnimationWorkbenchSelection(document, selectedNodeIds, selectedFrameIds) ? (
+      {showMultiToolbar ? (
         <MultiSelectionToolbar
           document={document}
           nodeIds={selectedNodeIds}
           frameIds={selectedFrameIds}
-          {...selectionToolbarDock(chromeUnion, {
+          {...selectionToolbarDock(chromeUnion!, {
             angle: chromeAngle,
             edgePadScene: strokeUiPadScreen,
           })}

@@ -13,7 +13,10 @@ export function CommercialEditorHosts({
 }): ReactNode {
   return (
     <>
-      <MarkSessionHost document={document} hidden={selectionTransforming} />
+      {/* Mark must stay mounted while selectionTransforming flickers / sticks —
+          unmounting drops [data-mark-overlay] so SelectionFeature capture steals
+          the gesture and chips never commit. Mockup can still hide mid-drag. */}
+      <MarkSessionHost document={document} />
       <MockupSessionHost document={document} hidden={selectionTransforming} />
     </>
   );

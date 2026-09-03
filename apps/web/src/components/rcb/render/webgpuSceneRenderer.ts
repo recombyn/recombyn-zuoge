@@ -22,7 +22,7 @@ import {
   pruneSoaAtlasForBuffer,
   releaseSoaAtlasPrefix,
 } from '@/components/rcb/render/webglInstanceAtlas';
-import { collectSoaWebglInstances } from '@/components/rcb/render/webglSceneRenderer';
+import { collectSoaWebglInstances, SOA_WEBGL_NO_CLIP } from '@/components/rcb/render/webglSceneRenderer';
 import {
   bumpSceneCanvasIdlePaint,
   hitTestWithSpatialIndex,
@@ -47,6 +47,8 @@ struct VsOut {
   @location(2) color: vec4f,
   @location(3) kind: f32,
   @location(4) depth: f32,
+  @location(5) world: vec2f,
+  @location(6) clipRect: vec4f,
 };
 
 @vertex fn vs(
@@ -57,6 +59,7 @@ struct VsOut {
   @location(4) angle: f32,
   @location(5) uvRect: vec4f,
   @location(6) depth: f32,
+  @location(7) clipRect: vec4f,
 ) -> VsOut {
   var local: vec2f;
   if (kind > 1.5 && kind < 2.5) {
@@ -79,6 +82,8 @@ struct VsOut {
   o.color = color;
   o.kind = kind;
   o.depth = depth;
+  o.world = pos;
+  o.clipRect = clipRect;
   return o;
 }
 
@@ -89,6 +94,9 @@ struct FragOut {
 
 @fragment fn fs(in: VsOut) -> FragOut {
   var out: FragOut;
+  if (in.world.x < in.clipRect.x || in.world.y < in.clipRect.y || in.world.x > in.clipRect.z || in.world.y > in.clipRect.w) {
+    discard;
+  }
   if (in.kind > 2.5) {
     let tex = textureSample(atlasTex, atlasSmp, in.atlasUv);
     if (tex.a < 0.01) { discard; }
@@ -157,6 +165,7 @@ type GpuRuntime = {
   angleBuf: GPUBuffer;
   uvBuf: GPUBuffer;
   depthBuf: GPUBuffer;
+  clipBuf: GPUBuffer;
   sampler: GPUSampler;
   colorTex: GPUTexture | null;
   depthTex: GPUTexture | null;
@@ -242,6 +251,11 @@ async function initWebgpu(canvas: HTMLCanvasElement): Promise<GpuRuntime | null>
       stepMode: 'instance',
       attributes: [{ shaderLocation: 6, offset: 0, format: 'float32' }],
     },
+    {
+      arrayStride: 16,
+      stepMode: 'instance',
+      attributes: [{ shaderLocation: 7, offset: 0, format: 'float32x4' }],
+    },
   ];
 
   const scenePipeline = device.createRenderPipeline({
@@ -324,6 +338,7 @@ async function initWebgpu(canvas: HTMLCanvasElement): Promise<GpuRuntime | null>
     angleBuf: device.createBuffer({ size: 1024, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }),
     uvBuf: device.createBuffer({ size: 4096, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }),
     depthBuf: device.createBuffer({ size: 1024, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }),
+    clipBuf: device.createBuffer({ size: 4096, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }),
     sampler,
     colorTex: null,
     depthTex: null,
@@ -347,6 +362,7 @@ function ensureInstanceCapacity(gpu: GpuRuntime, count: number) {
   gpu.angleBuf.destroy();
   gpu.uvBuf.destroy();
   gpu.depthBuf.destroy();
+  gpu.clipBuf.destroy();
   gpu.rectBuf = device.createBuffer({
     size: gpu.instanceCap * 16,
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -369,6 +385,10 @@ function ensureInstanceCapacity(gpu: GpuRuntime, count: number) {
   });
   gpu.depthBuf = device.createBuffer({
     size: gpu.instanceCap * 4,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  gpu.clipBuf = device.createBuffer({
+    size: gpu.instanceCap * 16,
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
 }
@@ -454,6 +474,7 @@ function drawFrame(gpu: GpuRuntime, canvas: HTMLCanvasElement, req: SceneRenderR
   const kinds: number[] = [];
   const angles: number[] = [];
   const uvs: number[] = [];
+  const clips: number[] = [];
   const depths: number[] = [];
 
   const ids: string[] = [];
@@ -469,6 +490,8 @@ function drawFrame(gpu: GpuRuntime, canvas: HTMLCanvasElement, req: SceneRenderR
       bufferRevision: buf.revision,
       depths,
       depthForId: (id) => depthLookup.depthForId(id),
+      clips,
+      document: req.document,
     });
   }
 
@@ -508,6 +531,11 @@ function drawFrame(gpu: GpuRuntime, canvas: HTMLCanvasElement, req: SceneRenderR
   queue.writeBuffer(gpu.uvBuf, 0, new Float32Array(uvs));
   const depthFill = depths.length === count ? depths : Array.from({ length: count }, () => 0.5);
   queue.writeBuffer(gpu.depthBuf, 0, new Float32Array(depthFill));
+  const clipFill =
+    clips.length === count * 4
+      ? clips
+      : Array.from({ length: count * 4 }, (_, i) => SOA_WEBGL_NO_CLIP[i % 4]);
+  queue.writeBuffer(gpu.clipBuf, 0, new Float32Array(clipFill));
 
   const scenePass = encoder.beginRenderPass({
     colorAttachments: [
@@ -535,6 +563,7 @@ function drawFrame(gpu: GpuRuntime, canvas: HTMLCanvasElement, req: SceneRenderR
   scenePass.setVertexBuffer(4, gpu.angleBuf);
   scenePass.setVertexBuffer(5, gpu.uvBuf);
   scenePass.setVertexBuffer(6, gpu.depthBuf);
+  scenePass.setVertexBuffer(7, gpu.clipBuf);
   scenePass.draw(6, count);
   scenePass.end();
 

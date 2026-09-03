@@ -1026,23 +1026,95 @@ function SelectionContextToolbar(props: Props): ReactNode {
     }
   }
 
-  return (
-    <>
-      <SelectionToolbarShell
-        box={box}
-        angle={placementAngle}
-        edgePadScene={edgePadScene}
-        hasTitleLabel={
-          kind === 'image' ||
-          kind === 'video' ||
-          kind === 'lottie' ||
-          kind === 'audio' ||
-          (kind === 'text' && isTextFrameNode(node))
-        }
-        bare={kind === 'image' && isIconImageNode(node)}
-      >
-          {/* Order: Style/Edit — Geometry — Opacity — More — Actions */}
-          {kind === 'text' && style ? (
+  const isShapeKind =
+    kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path';
+  const hasTitleLabel =
+    kind === 'image' ||
+    kind === 'video' ||
+    kind === 'lottie' ||
+    kind === 'audio' ||
+    (kind === 'text' && isTextFrameNode(node));
+
+  let lottieToolbarChrome: ReactNode = null;
+  if (kind === 'lottie') {
+    lottieToolbarChrome = (
+      <>
+        <AnimationToolbarEditTools
+          nodeId={nodeId}
+          loop={!(
+            node?.attrs?.lottieLoop === false ||
+            node?.attrs?.lottieLoop === 'false' ||
+            node?.attrs?.lottieLoop === 0 ||
+            node?.attrs?.lottieLoop === '0'
+          )}
+          speed={Math.max(0.25, Number(node?.attrs?.lottieSpeed) || 1)}
+        />
+        <Sep />
+        <ExportSelectionPopover nodeIds={[nodeId]} />
+      </>
+    );
+  }
+
+  let audioToolbarChrome: ReactNode = null;
+  if (kind === 'audio') {
+    audioToolbarChrome = (
+      <AudioToolbarEditTools
+        onQuickEdit={() => openImageToolPanel({ nodeId, kind: 'quickEdit' })}
+        onTrim={() => {
+          const host = getAudioHost(nodeId);
+          const keepTime = Math.max(0, Number(host?.getMediaTime()) || 0);
+          openAudioToolPanel({ nodeId, kind: 'trim', keepTime });
+        }}
+        onSpeed={() => openAudioToolPanel({ nodeId, kind: 'speed' })}
+      />
+    );
+  }
+
+  let shapeToolbarChrome: ReactNode = null;
+  if (isShapeKind) {
+    if (flipRotateOpen) {
+      shapeToolbarChrome = flipRotateToolbar;
+    } else {
+      shapeToolbarChrome = (
+        <>
+          <ShapeSelectionToolbar
+            nodeId={nodeId}
+            node={node}
+            box={box}
+            valueBox={valueBox}
+            document={document}
+            hideExport
+          />
+          {elementLayerChrome}
+          <Sep />
+          <ExportSelectionPopover nodeIds={[nodeId]} />
+        </>
+      );
+    }
+  }
+
+  let svgToolbarChrome: ReactNode = null;
+  if (kind === 'svg') {
+    if (flipRotateOpen) {
+      svgToolbarChrome = flipRotateToolbar;
+    } else {
+      svgToolbarChrome = (
+        <>
+          {elementLayerChrome ? (
+            <>
+              {elementLayerChrome}
+              <Sep />
+            </>
+          ) : null}
+          <ExportSelectionPopover nodeIds={[nodeId]} />
+        </>
+      );
+    }
+  }
+
+  let textToolbarChrome: ReactNode = null;
+  if (kind === 'text' && style) {
+    textToolbarChrome = (
             <>
               <ColorPanelPopover
                 value={String(style.fill || '#333333')}
@@ -1263,77 +1335,26 @@ function SelectionContextToolbar(props: Props): ReactNode {
               <Sep />
               <ExportSelectionPopover nodeIds={[nodeId]} />
             </>
-          ) : null}
+    );
+  }
 
+  return (
+    <>
+      <SelectionToolbarShell
+        box={box}
+        angle={placementAngle}
+        edgePadScene={edgePadScene}
+        hasTitleLabel={hasTitleLabel}
+        bare={kind === 'image' && isIconImageNode(node)}
+      >
+          {/* Order: Style/Edit — Geometry — Opacity — More — Actions */}
+          {textToolbarChrome}
           {imageToolbarChrome}
-
           {videoToolbarChrome}
-
-          {kind === 'lottie' ? (
-            <>
-              <AnimationToolbarEditTools
-                nodeId={nodeId}
-                loop={!(
-                  node?.attrs?.lottieLoop === false ||
-                  node?.attrs?.lottieLoop === 'false' ||
-                  node?.attrs?.lottieLoop === 0 ||
-                  node?.attrs?.lottieLoop === '0'
-                )}
-                speed={Math.max(0.25, Number(node?.attrs?.lottieSpeed) || 1)}
-              />
-              <Sep />
-              <ExportSelectionPopover nodeIds={[nodeId]} />
-            </>
-          ) : null}
-
-          {kind === 'audio' ? (
-            <AudioToolbarEditTools
-              onQuickEdit={() =>
-                openImageToolPanel({ nodeId, kind: 'quickEdit' })
-              }
-              onTrim={() => {
-                const host = getAudioHost(nodeId);
-                const keepTime = Math.max(0, Number(host?.getMediaTime()) || 0);
-                openAudioToolPanel({ nodeId, kind: 'trim', keepTime });
-              }}
-              onSpeed={() => openAudioToolPanel({ nodeId, kind: 'speed' })}
-            />
-          ) : null}
-
-          {kind === 'shape' || kind === 'rect' || kind === 'ellipse' || kind === 'path' ? (
-            flipRotateOpen ? (
-              flipRotateToolbar
-            ) : (
-              <>
-                <ShapeSelectionToolbar
-                  nodeId={nodeId}
-                  node={node}
-                  box={box}
-                  valueBox={valueBox}
-                  document={document}
-                  hideExport
-                />
-                {elementLayerChrome}
-                <Sep />
-                <ExportSelectionPopover nodeIds={[nodeId]} />
-              </>
-            )
-          ) : null}
-          {kind === 'svg' ? (
-            flipRotateOpen ? (
-              flipRotateToolbar
-            ) : (
-              <>
-                {elementLayerChrome ? (
-                  <>
-                    {elementLayerChrome}
-                    <Sep />
-                  </>
-                ) : null}
-                <ExportSelectionPopover nodeIds={[nodeId]} />
-              </>
-            )
-          ) : null}
+          {lottieToolbarChrome}
+          {audioToolbarChrome}
+          {shapeToolbarChrome}
+          {svgToolbarChrome}
       </SelectionToolbarShell>
 
       {kind === 'text' ? (

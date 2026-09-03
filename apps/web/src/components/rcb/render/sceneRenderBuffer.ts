@@ -88,6 +88,11 @@ export function setSoaPaintDocument(doc: SceneDocument | null | undefined): void
   soaPaintDocument = doc ?? null;
 }
 
+/** Last document passed to SoA paint (WebGL clip / frame-local resolve). */
+export function getSoaPaintDocument(): SceneDocument | null {
+  return soaPaintDocument;
+}
+
 /** Normalize shapeType / key into a lowercase token (no nested ternary). */
 function shapeTypeToken(node: SceneNodeInput): string {
   const key = String(node.key || '');
@@ -644,7 +649,13 @@ function writeSlot(
   buf.indexById.set(id, index);
   buf.pathStart[index] = -1;
   buf.pathLen[index] = 0;
-  buf.pathClosed[index] = 0;
+  // Closed before path samples rebuild — WebGL fill stamp must not see a false open.
+  if (kind === SOA_KIND_PATH) {
+    const d = String(node.attrs?.path || '');
+    buf.pathClosed[index] = pathDLooksClosed(d, node.attrs?.closed) ? 1 : 0;
+  } else {
+    buf.pathClosed[index] = 0;
+  }
   if (!opts?.skipQuad) syncQuadSlot(buf, index);
 }
 
@@ -731,6 +742,9 @@ export function rebuildSoaPathSamples(
       buf.pathXYCount = cursor;
     }
     shrinkPathXYIfLoose(buf);
+    for (const item of pending) {
+      buf.flags[item.index] = (buf.flags[item.index] | SOA_FLAG_DIRTY) >>> 0;
+    }
     return;
   }
 
@@ -809,6 +823,10 @@ export function rebuildSoaPathSamples(
   }
   buf.pathXYCount = cursor;
   shrinkPathXYIfLoose(buf);
+  // Path geometry changed — WebGL atlas must not keep a stale AABB stamp.
+  for (const item of pending) {
+    buf.flags[item.index] = (buf.flags[item.index] | SOA_FLAG_DIRTY) >>> 0;
+  }
 }
 
 /**
