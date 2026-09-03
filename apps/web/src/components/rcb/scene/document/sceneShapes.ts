@@ -618,6 +618,11 @@ export function invalidateNodePath2D(nodeId: string) {
   nodePathFp.delete(id);
 }
 
+/** Drop all node→path fingerprints (full document replace / SoA rebuild). */
+export function clearNodePathFingerprints(): void {
+  nodePathFp.clear();
+}
+
 export type Path2DHitOpts = {
   /** Test fill (closed shapes / pencil blobs). */
   fill?: boolean;

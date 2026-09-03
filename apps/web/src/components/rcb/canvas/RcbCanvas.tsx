@@ -24,10 +24,9 @@ import {
   rcbClientToStageLocal,
   rcbFitCamera,
   rcbStepZoom,
-  rcbViewportSceneBounds,
   rcbZoomAtPoint,
 } from '../core/math';
-import { SceneSpatialRuntime, getSharedSceneSpatialRuntime } from '../core/spatialIndex';
+import { getSharedSceneSpatialRuntime } from '../core/spatialIndex';
 import { RCB_DEFAULT_CAMERA, type RcbCamera } from '../core/types';
 import { cameraSvgTransform, createCameraTransform } from '../camera/transform';
 import {
@@ -52,10 +51,8 @@ import {
 } from '../render/sceneRenderBuffer';
 import {
   accumulateSoaGestureDirtyFromBuffer,
-  blitHtmlCanvasCssOffset,
   clearSoaGestureDirtyAccum,
-  panRevealSceneAabb,
-  seedSoaGestureDirtyAccum,
+  setSoaCameraGestureActive,
 } from '../render/soaBakeLayer';
 import {
   hasNodeTransformPreviews,
@@ -99,38 +96,8 @@ const EMPTY_SCENE_DOC: SceneDocument = {
   },
 };
 
-/** Canvas2D pan: blit retained ink, seed edge-strip dirty. Returns whether forceFull is needed. */
-function applyCanvas2dPanBlit(opts: {
-  prevOffset: { x: number; y: number };
-  nextOffset: { x: number; y: number };
-  cam: RcbCamera;
-  dpr: number;
-  stageW: number;
-  stageH: number;
-  inkCanvas: HTMLCanvasElement | null;
-  gridCanvas: HTMLCanvasElement | null;
-}): boolean {
-  const dx = opts.nextOffset.x - opts.prevOffset.x;
-  const dy = opts.nextOffset.y - opts.prevOffset.y;
-  if (Math.abs(dx) <= 0.01 && Math.abs(dy) <= 0.01) return false;
-  const inkOk = blitHtmlCanvasCssOffset(opts.inkCanvas, dx, dy, opts.dpr);
-  const gridOk = blitHtmlCanvasCssOffset(opts.gridCanvas, dx, dy, opts.dpr);
-  if (!inkOk || !gridOk) return true;
-  const view = rcbViewportSceneBounds(
-    opts.cam,
-    { width: opts.stageW, height: opts.stageH },
-    opts.dpr
-  );
-  seedSoaGestureDirtyAccum(
-    panRevealSceneAabb({
-      dxCss: dx,
-      dyCss: dy,
-      view,
-      zoom: rcbCameraCssZoom(opts.cam),
-    })
-  );
-  return false;
-}
+export type { RcbCamera };
+export { RCB_DEFAULT_CAMERA };
 
 function markGestureSoaDirty(opts: {
   previewIds: readonly string[];
@@ -151,9 +118,6 @@ function markGestureSoaDirty(opts: {
   }
   if (opts.plateOrParamGesture) markAllSoaDirty(buf);
 }
-
-export type { RcbCamera };
-export { RCB_DEFAULT_CAMERA };
 
 /**
  * Scene-space pixel-grid path (integer multiples of `g`).
@@ -272,6 +236,8 @@ function RcbCanvas({
   const spaceDown = useRef(false);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cameraMoving, setCameraMoving] = useState(false);
+  const cameraMovingRef = useRef(false);
+  cameraMovingRef.current = cameraMoving;
   const emptyDragPansRef = useRef(emptyDragPans);
   const shouldBlockEmptyPanRef = useRef(shouldBlockEmptyPan);
   const panBlockSelectorRef = useRef(panBlockSelector);
@@ -306,6 +272,7 @@ function RcbCanvas({
   useEffect(() => {
     return () => {
       if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      setSoaCameraGestureActive(false);
     };
   }, []);
 
@@ -632,15 +599,15 @@ function RcbCanvas({
 
   const paintCameraKeyRef = useRef('');
   const paintStageKeyRef = useRef('');
-  /** Zoom/DPR/stage changes need full ink; pan uses blit + edge strips (Phase 2). */
+  /** Zoom/DPR/stage changes need full ink; pan uses dirty AABB / live WebGL. */
   const paintCameraZoomRef = useRef(Number.NaN);
   const paintCameraOffsetRef = useRef<{ x: number; y: number } | null>(null);
   /** Backend recreate / idle-list identity still forces one full ink pass. */
   const transformPreviewFullPaintRef = useRef(false);
 
   // Stage: grid → frame plates → SoA canvas ink → DOM hosts (ADR 0027).
-  // Prefer the product SceneSpatialRuntime when SvgCanvas has published it.
-  // Recreate ink backend when GPU DOF toggles webgl ↔ webgpu ↔ canvas2d.
+  // Hit uses the product SceneSpatialRuntime published by SvgCanvas (one path).
+  // Recreate ink backend when GPU DOF toggles webgl ↔ webgpu.
   const [inkBackendKey, setInkBackendKey] = useState(() => resolveIdleInkBackend());
   const inkBackendKeyRef = useRef(inkBackendKey);
   inkBackendKeyRef.current = inkBackendKey;
@@ -656,10 +623,15 @@ function RcbCanvas({
     const gridCanvas = paintCanvasRef.current;
     const inkCanvas = inkCanvasRef.current;
     if (!gridCanvas || !inkCanvas) return;
-    const fallbackSpatial = new SceneSpatialRuntime(64);
     const sharedDeps = {
       getDocument: () => getSceneCanvasIdlePaint()?.document ?? EMPTY_SCENE_DOC,
-      getSpatial: () => getSharedSceneSpatialRuntime() ?? fallbackSpatial,
+      getSpatial: () => {
+        const shared = getSharedSceneSpatialRuntime();
+        if (!shared) {
+          throw new Error('SceneSpatialRuntime not published');
+        }
+        return shared;
+      },
       getZoom: () => rcbCameraCssZoom(cameraRef.current),
       listNodeIds: () => listSceneCanvasIdlePaintIds(),
       getNodeBox: (id: string) => getSceneCanvasIdlePaint()?.getNodeBox(id) ?? null,
@@ -723,10 +695,10 @@ function RcbCanvas({
     const cameraKey = `${cam.x},${cam.y},${cam.zoom}`;
     const stageKey = `${sw}x${sh}@${dpr}|g${grid > 0 ? grid : DEFAULT_GRID_SIZE}|pg${showPixelGridRef.current ? 1 : 0}`;
     const prevZoom = paintCameraZoomRef.current;
-    const zoomOrStageChanged =
-      paintStageKeyRef.current !== stageKey ||
-      !Number.isFinite(prevZoom) ||
-      Math.abs(prevZoom - cam.zoom) > 1e-9;
+    const zoomChanged =
+      !Number.isFinite(prevZoom) || Math.abs(prevZoom - cam.zoom) > 1e-9;
+    const stageChanged = paintStageKeyRef.current !== stageKey;
+    const zoomOrStageChanged = stageChanged || zoomChanged;
     const cameraPanOnly =
       paintCameraKeyRef.current !== cameraKey &&
       !zoomOrStageChanged &&
@@ -736,37 +708,22 @@ function RcbCanvas({
     paintCameraZoomRef.current = cam.zoom;
 
     const nextOffset = rcbCameraScreenOffset(cam, dpr);
-    const prevOffset = paintCameraOffsetRef.current;
     paintCameraOffsetRef.current = nextOffset;
 
+    // Skip Worker bake while pan/zoom is in flight; resume on settle.
+    setSoaCameraGestureActive(cameraMovingRef.current);
+
+    // WebGL ink clears every frame. Camera/stage changes must still mark dirty:full
+    // so paint is not skipped as empty-noop; bake is gated by camera gesture above.
     let forceFull =
       opts?.forceFull === true ||
       transformPreviewFullPaintRef.current ||
       consumeIdleCanvasFullRepaintPending() ||
-      zoomOrStageChanged;
+      zoomOrStageChanged ||
+      cameraPanOnly;
     transformPreviewFullPaintRef.current = false;
 
     const soaOn = isSoaCanvasShapesEnabled();
-    const canPanBlit =
-      cameraPanOnly && !forceFull && soaOn && Boolean(prevOffset);
-    if (canPanBlit && inkBackendKeyRef.current === 'canvas2d' && prevOffset) {
-      if (
-        applyCanvas2dPanBlit({
-          prevOffset,
-          nextOffset,
-          cam,
-          dpr,
-          stageW: sw,
-          stageH: sh,
-          inkCanvas: inkCanvasRef.current,
-          gridCanvas: paintCanvasRef.current,
-        })
-      ) {
-        forceFull = true;
-      }
-    } else if (canPanBlit) {
-      forceFull = true;
-    }
 
     const dirty = resolveSoaCanvasDirtyRegion({
       full: forceFull || !soaOn,
@@ -807,6 +764,7 @@ function RcbCanvas({
       cameraPanOnly,
       zoomOrStageChanged,
       soaOn,
+      bakeSkippedForGesture: cameraMovingRef.current,
     });
   }, []);
   paintStageSurfacesNowRef.current = paintStageSurfacesNow;

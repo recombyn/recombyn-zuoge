@@ -8,11 +8,16 @@ import {
   removeNodesFromDocument,
 } from '@/components/rcb/scene/document/sceneDocument';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
-import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNode, SceneNodeInput, ScenePage } from '@/components/rcb/sceneNode';
 
 /** Soft cap — prefer bytes over entry count for heavy path docs. */
 export const HISTORY_MAX_ENTRIES = 24;
 export const HISTORY_MAX_BYTES = 32 * 1024 * 1024;
+/** Large scenes: fewer full snaps so undo does not multiply O(N) heap. */
+export const HISTORY_MAX_ENTRIES_LARGE = 8;
+export const HISTORY_MAX_ENTRIES_HUGE = 4;
+export const HISTORY_LARGE_NODE_THRESHOLD = 2000;
+export const HISTORY_HUGE_NODE_THRESHOLD = 5000;
 
 /** Full-doc snapshot (structural ops) or before-nodes for patch undo. */
 export type HistorySnap = { kind: 'snap'; doc: SceneDocument };
@@ -72,7 +77,17 @@ function cloneFrameForHistory(frame: ArtboardFrame): ArtboardFrame {
   return { ...frame };
 }
 
-/** Rough node payload; `seenPaths` dedupes shared path strings across the stack. */
+function sharedStringBytes(raw: unknown, seenPaths: Set<string> | undefined, cap = 0): number {
+  const s = raw != null ? String(raw) : '';
+  if (!s) return 0;
+  const len = cap > 0 ? Math.min(s.length, cap) : s.length;
+  if (!seenPaths) return len;
+  if (seenPaths.has(s)) return 0;
+  seenPaths.add(s);
+  return len;
+}
+
+/** Rough node payload; `seenPaths` dedupes shared path / media strings across the stack. */
 export function estimateNodeBytes(
   node: SceneNodeInput | null | undefined,
   seenPaths?: Set<string>
@@ -80,16 +95,20 @@ export function estimateNodeBytes(
   if (!node) return 0;
   const attrs = node.attrs;
   if (!attrs) return 128;
-  const path = attrs.path != null ? String(attrs.path) : '';
   let n = 192;
-  if (path) {
-    if (!seenPaths) n += path.length;
-    else if (!seenPaths.has(path)) {
-      seenPaths.add(path);
-      n += path.length;
-    }
-  }
+  n += sharedStringBytes(attrs.path, seenPaths);
+  n += sharedStringBytes(attrs.markdown, seenPaths);
+  n += sharedStringBytes(attrs.DATA, seenPaths);
+  // data: URLs are huge and often shared across stress injects — count once.
+  n += sharedStringBytes(attrs.src, seenPaths, 4096);
+  n += sharedStringBytes(attrs.poster, seenPaths, 4096);
   return n;
+}
+
+function historyEntryCapForLiveNodes(liveNodes: number): number {
+  if (liveNodes >= HISTORY_HUGE_NODE_THRESHOLD) return HISTORY_MAX_ENTRIES_HUGE;
+  if (liveNodes >= HISTORY_LARGE_NODE_THRESHOLD) return HISTORY_MAX_ENTRIES_LARGE;
+  return HISTORY_MAX_ENTRIES;
 }
 
 export function estimateDocumentBytes(
@@ -124,6 +143,13 @@ export function estimateHistoryEntryBytes(entry: unknown, seenPaths?: Set<string
   return estimateDocumentBytes(e.doc, seenPaths);
 }
 
+function clonePageForHistory(page: ScenePage): ScenePage {
+  return {
+    ...page,
+    children: Array.isArray(page.children) ? [...page.children] : page.children,
+  };
+}
+
 /**
  * History snapshot with structural sharing of immutable path strings.
  * Avoids JSON.parse(JSON.stringify) which dominated edit cost at 5k–10k nodes.
@@ -139,21 +165,16 @@ export function cloneDocumentForHistory(
     if (!node || typeof node !== 'object') continue;
     nextDelta[key] = cloneNodeForHistory(node as SceneNode);
   }
+  const frames = Array.isArray(doc.frames)
+    ? doc.frames.map((f) => (f && typeof f === 'object' ? { ...f } : f))
+    : doc.frames;
+  const pages = Array.isArray(doc.pages)
+    ? doc.pages.map((p) => (p && typeof p === 'object' ? clonePageForHistory(p) : p))
+    : doc.pages;
   return {
     ...doc,
-    frames: Array.isArray(doc.frames)
-      ? doc.frames.map((f) => (f && typeof f === 'object' ? { ...f } : f))
-      : doc.frames,
-    pages: Array.isArray(doc.pages)
-      ? doc.pages.map((p) =>
-          p && typeof p === 'object'
-            ? {
-                ...p,
-                children: Array.isArray(p.children) ? [...p.children] : p.children,
-              }
-            : p
-        )
-      : doc.pages,
+    frames,
+    pages,
     stackOrder: Array.isArray(doc.stackOrder) ? [...doc.stackOrder] : doc.stackOrder,
     deltaSetLike: nextDelta,
   };
@@ -164,7 +185,9 @@ export function cloneDocument(doc: SceneDocument | null | undefined): SceneDocum
 }
 
 export function trimHistoryPast(state: EditorHistoryHost) {
-  while (state.historyPast.length > HISTORY_MAX_ENTRIES) state.historyPast.shift();
+  const liveNodes = Object.keys(state.document?.deltaSetLike || {}).length;
+  const entryCap = historyEntryCapForLiveNodes(liveNodes);
+  while (state.historyPast.length > entryCap) state.historyPast.shift();
   const seen = new Set<string>();
   let bytes = 0;
   for (let i = state.historyPast.length - 1; i >= 0; i -= 1) {

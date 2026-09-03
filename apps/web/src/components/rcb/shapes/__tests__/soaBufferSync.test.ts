@@ -224,4 +224,39 @@ describe('syncSoaBufferFromDocumentNow', () => {
     expect(buf.radii[i * 4 + 2]).toBe(20);
     expect(buf.radii[i * 4 + 3]).toBe(20);
   });
+
+  it('shrinks SoA capacity after full rebuild downsizes the document', () => {
+    setSoaCanvasShapesEnabledForTests(true);
+    let doc = createEmptyDocument({ width: 8000, height: 8000, emptyWorld: true });
+    const ids: string[] = [];
+    for (let i = 0; i < 2500; i += 1) {
+      const id = `b${i}`;
+      ids.push(id);
+      doc = addNodeToDocument(doc, id, {
+        id,
+        key: 'shape',
+        x: (i % 50) * 12,
+        y: Math.floor(i / 50) * 12,
+        width: 10,
+        height: 10,
+        attrs: { shapeType: 'rect', 'fill-color': '#abcdef' },
+        children: [],
+      });
+    }
+    syncSoaBufferFromDocumentNow(doc, { ids, forceFullIds: [], fullRebuild: true });
+    const big = getSharedSceneRenderBuffer();
+    expect(big.count).toBe(2500);
+    expect(big.capacity).toBeGreaterThanOrEqual(2500);
+
+    let small = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    const keep = ['b0', 'b1', 'b2'];
+    for (const id of keep) {
+      const node = doc.deltaSetLike?.[id];
+      if (node) small = addNodeToDocument(small, id, node);
+    }
+    syncSoaBufferFromDocumentNow(small, { ids: keep, forceFullIds: [], fullRebuild: true });
+    const buf = getSharedSceneRenderBuffer();
+    expect(buf.count).toBe(3);
+    expect(buf.capacity).toBe(1024);
+  }, 30_000);
 });
