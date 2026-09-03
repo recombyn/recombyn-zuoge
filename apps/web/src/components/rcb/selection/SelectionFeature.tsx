@@ -314,6 +314,31 @@ function selectionOriginsClose(
   return true;
 }
 
+/**
+ * Soft plate focus: plate edge only — clear node/frame handle chrome.
+ * Full chrome: one frame origin. Applied on pointerdown because the store→live
+ * sync effect skips while dragRef is set; if selection already matches on up,
+ * deps won't fire and stale liveOrigins would keep ghost handles.
+ */
+function framePlateLiveChrome(
+  frameId: string,
+  box: SceneBox | null,
+  chrome: 'soft' | 'full'
+): {
+  origins: Array<{ nodeId: string; box: SceneBox }>;
+  union: SceneBox | null;
+  angle: number;
+} {
+  if (chrome === 'full' && box) {
+    return {
+      origins: [{ nodeId: frameSelId(frameId), box }],
+      union: box,
+      angle: 0,
+    };
+  }
+  return { origins: [], union: null, angle: 0 };
+}
+
 /** One frame of live transform chrome + paint (ADR 0027 — RAF preview). */
 export type TransformPreviewBatch = {
   union?: SceneBox | null;
@@ -1408,6 +1433,12 @@ function SelectionFeature({
         // border band still get full chrome. First-click must not force full.
         const chrome: 'soft' | 'full' = empty || onEdge ? 'full' : 'soft';
         onSelectFrame?.(frameId, { chrome });
+        // Store clears nodes immediately; live chrome must follow on down —
+        // dragRef blocks the store sync effect until pointerup.
+        const live = framePlateLiveChrome(frameId, box, chrome);
+        setLiveOrigins(live.origins);
+        setLiveUnion(live.union);
+        setLiveAngle(live.angle);
 
         if (!box || !empty) {
           dragRef.current = seed('pointing_canvas', e, p, {
@@ -1419,12 +1450,8 @@ function SelectionFeature({
           return;
         }
 
-        const origins = [{ nodeId: frameSelId(frameId), box }];
-        setLiveOrigins(origins);
-        setLiveUnion(box);
-        setLiveAngle(0);
         dragRef.current = seed('frame_move', e, p, {
-          origins,
+          origins: live.origins,
           union: box,
           frameId,
           frameStartX: box.left,
@@ -2098,14 +2125,26 @@ function SelectionFeature({
             additive: shiftKey,
           });
         } else if (platePick && drag.frameId) {
-          onSelectFrame?.(drag.frameId, {
-            chrome: drag.framePlateChrome === 'full' ? 'full' : 'soft',
-          });
+          const chrome = drag.framePlateChrome === 'full' ? 'full' : 'soft';
+          onSelectFrame?.(drag.frameId, { chrome });
+          // Same as pointerdown: re-apply live chrome when store deps are unchanged
+          // (selection already applied on down → effect would not re-run).
+          const box = getFrameBox(sceneDoc, drag.frameId);
+          const live = framePlateLiveChrome(drag.frameId, box, chrome);
+          setLiveOrigins(live.origins);
+          setLiveUnion(live.union);
+          setLiveAngle(live.angle);
         } else if (frameHit) {
           onSelectFrame?.(frameHit, { chrome: 'soft' });
+          setLiveOrigins([]);
+          setLiveUnion(null);
+          setLiveAngle(0);
         } else {
           onSelectFrame?.(null);
           onSelect([]);
+          setLiveOrigins([]);
+          setLiveUnion(null);
+          setLiveAngle(0);
         }
         endTransform();
         return;

@@ -759,20 +759,30 @@ function RcbShapesLayer({
   // Corner-radius drag stays on SoA canvas (transparent SVG corners).
   useLayoutEffect(() => {
     if (!isSoaCanvasShapesEnabled() || aiMutationLock > 0) return;
-    const flipHostInk = (previewNodeId: string | null) => {
+    const flipHostInk = (
+      previewNodeId: string | null,
+      mode: 'host' | 'canvas'
+    ) => {
       const buf = getSharedSceneRenderBuffer();
       if (buf.count === 0) return;
       const hostIds = new Set(fullHostsRef.current);
       for (const id of forceFullSetRef.current) hostIds.add(id);
-      if (previewNodeId) hostIds.delete(previewNodeId);
+      if (previewNodeId) {
+        if (mode === 'host') hostIds.add(previewNodeId);
+        else hostIds.delete(previewNodeId);
+      }
       const flipped = applySoaHostInkFlags(buf, hostIds);
       if (flipped > 0) flushDemotionPaintWake();
     };
     const unsubRadius = subscribeLiveCornerRadiusPreview(() => {
-      flipHostInk(getLiveCornerRadiusPreviewNodeId());
+      // Corner radius live ink is applied on the DOM host SVG. Forcing the
+      // slot onto SoA canvas idle left WebGL painting a stale sharp AABB under
+      // the rounded host (white corners while dragging R).
+      flipHostInk(getLiveCornerRadiusPreviewNodeId(), 'host');
     });
     const unsubShapeParams = subscribeLiveShapeParamsPreview(() => {
-      flipHostInk(getLiveShapeParamsPreviewNodeId());
+      // Poly/star sides need SoA live-geo rebuild — demote host for that node.
+      flipHostInk(getLiveShapeParamsPreviewNodeId(), 'canvas');
     });
     return () => {
       unsubRadius();
