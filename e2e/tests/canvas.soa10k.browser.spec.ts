@@ -2,6 +2,8 @@
  * Real Chromium: blank editor → inject N SoA shapes → host counts + pan FPS.
  * Headed: `npx playwright test tests/canvas.soa10k.browser.spec.ts --headed --workers=1`
  * Count: `SOA_BROWSER_N=10000` (default 10000).
+ * Mixed ladder: `SOA_BROWSER_MIXED=1` (default; 2k/5k/10k rect+text+image+video+path).
+ * Homogeneous only: `SOA_BROWSER_MIXED=0`.
  */
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
@@ -15,8 +17,12 @@ const API = (process.env.E2E_API || process.env.FUNC_API || 'http://127.0.0.1:80
   ''
 );
 const COUNT = Math.max(150, Number(process.env.SOA_BROWSER_N || 10_000) || 10_000);
+const RUN_MIXED_LADDER = (process.env.SOA_BROWSER_MIXED || '1').trim() !== '0';
+/** 1×1 PNG — shared src so thousands of image/video nodes stay cheap. */
+const TINY_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-test.setTimeout(5 * 60_000);
+test.setTimeout(20 * 60_000);
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -96,10 +102,9 @@ async function injectStressDoc(page: Page, n: number, kind: 'rect' | 'polygon') 
         throw new Error('setDocument not exported from editor module');
       }
       const cols = Math.ceil(Math.sqrt(count));
-      const rows = Math.ceil(count / cols);
       const cell = 28;
       const boardW = cols * cell + 64;
-      const boardH = rows * cell + 64;
+      const boardH = Math.ceil(count / cols) * cell + 64;
       const children: string[] = [];
       const deltaSetLike: Record<string, unknown> = {
         ROOT: {
@@ -166,6 +171,180 @@ async function injectStressDoc(page: Page, n: number, kind: 'rect' | 'polygon') 
   );
 }
 
+/**
+ * Product-like mix (~20-slot cycle):
+ * 10 rect · 4 text · 2 image · 1 video · 3 path
+ */
+async function injectMixedStressDoc(page: Page, n: number, tinyPng: string) {
+  return page.evaluate(
+    async ({ n: count, png }) => {
+      const mod = await import('/src/store/modules/editor.ts');
+      const setDocument = (mod as { setDocument: (doc: unknown) => void }).setDocument;
+      if (typeof setDocument !== 'function') {
+        throw new Error('setDocument not exported from editor module');
+      }
+      const cols = Math.ceil(Math.sqrt(count));
+      const cell = 36;
+      const boardW = cols * cell + 80;
+      const boardH = Math.ceil(count / cols) * cell + 80;
+      const children: string[] = [];
+      const deltaSetLike: Record<string, unknown> = {
+        ROOT: {
+          id: 'ROOT',
+          key: 'entry',
+          children,
+          attrs: {},
+          x: 0,
+          y: 0,
+          width: 0,
+          height: 0,
+        },
+      };
+      const tallies = { rect: 0, text: 0, image: 0, video: 0, path: 0 };
+      const pathD = 'M 4 20 L 20 4 L 36 20 L 20 36 Z';
+
+      for (let i = 0; i < count; i += 1) {
+        const id = `m${i}`;
+        children.push(id);
+        const x = (i % cols) * cell;
+        const y = Math.floor(i / cols) * cell;
+        const slot = i % 20;
+        let node: Record<string, unknown>;
+        if (slot < 10) {
+          tallies.rect += 1;
+          node = {
+            id,
+            key: 'shape',
+            x,
+            y,
+            width: 28,
+            height: 28,
+            attrs: {
+              shapeType: 'rect',
+              'fill-color': i % 3 === 0 ? '#EEF2FF' : '#F8FAFC',
+              'fill-enabled': 'true',
+              'border-color': '#334155',
+              'border-width': 1,
+              frameId: 'board',
+              frameOrder: i,
+            },
+            children: [],
+          };
+        } else if (slot < 14) {
+          tallies.text += 1;
+          node = {
+            id,
+            key: 'text',
+            x,
+            y,
+            width: 96,
+            height: 24,
+            attrs: {
+              markdown: `T${i}`,
+              DATA: `T${i}`,
+              fontSize: 12,
+              fontFamily: 'Inter',
+              'fill-color': '#111827',
+              frameId: 'board',
+              frameOrder: i,
+            },
+            children: [],
+          };
+        } else if (slot < 16) {
+          tallies.image += 1;
+          node = {
+            id,
+            key: 'image',
+            x,
+            y,
+            width: 32,
+            height: 32,
+            attrs: {
+              src: png,
+              frameId: 'board',
+              frameOrder: i,
+            },
+            children: [],
+          };
+        } else if (slot < 17) {
+          tallies.video += 1;
+          node = {
+            id,
+            key: 'video',
+            x,
+            y,
+            width: 40,
+            height: 28,
+            attrs: {
+              src: '',
+              poster: png,
+              frameId: 'board',
+              frameOrder: i,
+            },
+            children: [],
+          };
+        } else {
+          tallies.path += 1;
+          node = {
+            id,
+            key: 'shape',
+            x,
+            y,
+            width: 32,
+            height: 32,
+            attrs: {
+              shapeType: 'path',
+              path: pathD,
+              closed: true,
+              'fill-color': '#FEE2E2',
+              'fill-enabled': 'true',
+              'border-width': 1,
+              'border-color': '#991B1B',
+              frameId: 'board',
+              frameOrder: i,
+            },
+            children: [],
+          };
+        }
+        deltaSetLike[id] = node;
+      }
+
+      const t0 = performance.now();
+      setDocument({
+        x: 0,
+        y: 0,
+        width: boardW,
+        height: boardH,
+        backgroundColor: '',
+        frames: [
+          {
+            id: 'board',
+            name: 'Board',
+            x: 0,
+            y: 0,
+            width: boardW,
+            height: boardH,
+            clipContent: true,
+            kind: 'artboard',
+          },
+        ],
+        activeFrameId: 'board',
+        pages: [{ id: 'page1', name: 'Page 1', children: children.slice() }],
+        activePageId: 'page1',
+        deltaSetLike,
+        stackOrder: ['frame:board'],
+      });
+      return {
+        setDocumentMs: performance.now() - t0,
+        tallies,
+        boardW,
+        boardH,
+      };
+    },
+    { n, png: tinyPng }
+  );
+}
+
 async function readCounts(page: Page) {
   return page.evaluate(() => {
     const layer = document.querySelector('[data-rcb-shapes-layer="1"]');
@@ -180,6 +359,8 @@ async function readCounts(page: Page) {
       visible: Number(layer?.getAttribute('data-rcb-visible-count') || -1),
       hasInkCanvas: Boolean(document.querySelector('[data-rcb-idle-ink-canvas]')),
       sceneNodeHosts: document.querySelectorAll('[data-scene-node-id]').length,
+      videoEls: document.querySelectorAll('video').length,
+      imageEls: document.querySelectorAll('[data-rcb-shape-host] image, img').length,
     };
   });
 }
@@ -213,11 +394,31 @@ async function measurePanFps(page: Page, stage: Locator) {
   const avg = dts.reduce((a, b) => a + b, 0) / Math.max(1, dts.length);
   const sorted = [...dts].sort((a, b) => a - b);
   const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0;
+  const fps = avg > 0 ? Math.round((1000 / avg) * 10) / 10 : 0;
   return {
     avgFrameMs: Math.round(avg * 100) / 100,
     p95FrameMs: Math.round(p95 * 100) / 100,
+    approxFps: fps,
     samples: dts.length,
   };
+}
+
+async function settleAndMeasure(page: Page, stage: Locator) {
+  // Mixed docs may keep some media as hosts; wait until something is mounted / painted.
+  await expect
+    .poll(
+      async () => {
+        const c = await readCounts(page);
+        return c.canvasIdle > 0 || c.visible > 0 || c.sceneNodeHosts > 1 || c.hasInkCanvas;
+      },
+      { timeout: 120_000 }
+    )
+    .toBe(true);
+  await sleep(900);
+  const counts = await readCounts(page);
+  console.log('[e2e:soa-settle]', JSON.stringify(counts));
+  const pan = await measurePanFps(page, stage);
+  return { counts, pan };
 }
 
 test.describe('SoA live editor (browser)', () => {
@@ -228,30 +429,21 @@ test.describe('SoA live editor (browser)', () => {
   });
 
   test(`inject ${COUNT} stroked rects — host counts + pan FPS`, async ({ page }) => {
+    test.skip(RUN_MIXED_LADDER, 'SOA_BROWSER_MIXED=1 runs the mixed ladder instead');
     const { stage } = await openBlankEditor(page);
 
     const tInj0 = Date.now();
     const inj = await injectStressDoc(page, COUNT, 'rect');
     const injectWallMs = Date.now() - tInj0;
-
-    await expect
-      .poll(async () => (await readCounts(page)).hasInkCanvas, { timeout: 90_000 })
-      .toBe(true);
-    await expect
-      .poll(async () => (await readCounts(page)).canvasIdle, { timeout: 90_000 })
-      .toBeGreaterThan(0);
-    await sleep(800);
-
-    const counts = await readCounts(page);
-    const pan = await measurePanFps(page, stage);
+    const { counts, pan } = await settleAndMeasure(page, stage);
     const report = {
       n: COUNT,
+      kind: 'rect',
       setDocumentMs: Math.round(inj.setDocumentMs * 10) / 10,
       injectWallMs,
       counts,
       pan,
     };
-    // eslint-disable-next-line no-console
     console.log('[e2e:soa-browser]', JSON.stringify(report, null, 2));
     writeFileSync(
       path.resolve(__dirname, 'canvas.soa10k.browser.results.json'),
@@ -266,5 +458,68 @@ test.describe('SoA live editor (browser)', () => {
     expect(counts.hasInkCanvas).toBe(true);
     expect(counts.fullHost).toBeLessThanOrEqual(96);
     expect(counts.canvasIdle).toBeGreaterThan(0);
+  });
+
+  test('mixed ladder 2k/5k/10k — rect+text+image+video+path pan FPS', async ({ page }) => {
+    test.skip(!RUN_MIXED_LADDER, 'set SOA_BROWSER_MIXED=1 (default) for mixed ladder');
+    const { stage } = await openBlankEditor(page);
+    const ladder = [2000, 5000, 10_000];
+    const rows: Array<Record<string, unknown>> = [];
+
+    for (const n of ladder) {
+      const t0 = Date.now();
+      const inj = await injectMixedStressDoc(page, n, TINY_PNG);
+      const injectWallMs = Date.now() - t0;
+      console.log(`[e2e:soa-mixed] injected n=${n} setDocumentMs=${inj.setDocumentMs} tallies=`, inj.tallies);
+      await sleep(1500);
+      const { counts, pan } = await settleAndMeasure(page, stage);
+      const row = {
+        n,
+        kind: 'mixed',
+        tallies: inj.tallies,
+        setDocumentMs: Math.round(inj.setDocumentMs * 10) / 10,
+        injectWallMs,
+        counts,
+        pan,
+        smoothEnough: pan.avgFrameMs <= 20 && pan.p95FrameMs <= 33,
+      };
+      rows.push(row);
+      console.log(`[e2e:soa-mixed] n=${n}`, JSON.stringify(row));
+      await page.screenshot({
+        path: path.resolve(__dirname, `canvas.soa-mixed-${n}.browser.png`),
+        fullPage: false,
+      });
+    }
+
+    const report = {
+      generatedAt: new Date().toISOString(),
+      mix: '10 rect / 4 text / 2 image / 1 video / 3 path per 20',
+      rows,
+    };
+    writeFileSync(
+      path.resolve(__dirname, 'canvas.soa-mixed-ladder.browser.results.json'),
+      JSON.stringify(report, null, 2),
+      'utf8'
+    );
+    writeFileSync(
+      path.resolve(__dirname, 'canvas.soa10k.browser.results.json'),
+      JSON.stringify(rows[rows.length - 1], null, 2),
+      'utf8'
+    );
+
+    const at2k = rows[0] as {
+      pan: { avgFrameMs: number };
+      counts: { fullHost: number; visible: number; canvasIdle: number };
+    };
+    const at10k = rows[rows.length - 1] as {
+      counts: { hasInkCanvas: boolean; fullHost: number; canvasIdle: number; visible: number };
+      pan: { avgFrameMs: number; p95FrameMs: number; approxFps: number };
+    };
+    // Capacity report: assert demotion path is live; FPS is recorded for the canvas summary.
+    expect(at2k.counts.canvasIdle).toBeGreaterThan(0);
+    expect(at2k.counts.visible + at2k.counts.canvasIdle).toBeGreaterThan(0);
+    expect(at10k.counts.hasInkCanvas || at10k.counts.canvasIdle > 0).toBe(true);
+    // Viewport hosts only — full scene stays on canvas idle / SoA.
+    expect(at10k.counts.fullHost).toBeLessThanOrEqual(400);
   });
 });
