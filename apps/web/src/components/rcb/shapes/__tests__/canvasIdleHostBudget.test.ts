@@ -380,6 +380,12 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
 describe('canIdlePaintOnCanvas', () => {
   it('accepts solid rects and static text; rejects lottie', () => {
     expect(canIdlePaintOnCanvas(rect('n0'))).toBe(true);
+    expect(
+      canIdlePaintOnCanvas({
+        ...rect('framed'),
+        attrs: { ...(rect('framed').attrs || {}), frameId: 'board', frameOrder: 0 },
+      } as never)
+    ).toBe(true);
     expect(canIdlePaintOnCanvas(textNode('t0'))).toBe(true);
     expect(
       canIdlePaintOnCanvas({

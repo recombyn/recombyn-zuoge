@@ -32,7 +32,7 @@
 
 ## ✨ Features
 
-🎨 **SoA 無限アートボード** — 唯一の真実は `SceneDocument`。描画/ヒットはドキュメント由来の Structure of Arrays バッファ（`SceneRenderBuffer` + 四分木）上の Canvas2D ベクターインク。ズーム 5%–10000%。幾何ヒット（Path2D / SoA サンプル）— SVG DOM を編集ランタイムにはしない。DOM ホストはテキストキャレット、メディア FO、SoftGlow、パス編集用。詳細は [canvas-architecture.md](docs/canvas-architecture.md) / [ADR 0027](docs/adr/0027-canvas-layered-runtime.md)。
+🎨 **SoA 無限アートボード** — ドキュメント由来の Canvas2D インク（`SceneRenderBuffer` + 四分木）；ズーム 5%–10000%。幾何ヒット；DOM はキャレット / メディア / SoftGlow / パス編集のみ。
 
 🤖 **Design Agent** — 同一キャンバス上のストリーミング会話：計画 → Skill → `tool_ops` → 適用。LangGraph カーネル固定；挙動は AgentProfile YAML、段階プロンプト、Skills、ツール登録で設定。
 
