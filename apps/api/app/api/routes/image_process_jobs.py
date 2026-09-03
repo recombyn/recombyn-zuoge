@@ -28,6 +28,42 @@ _PROGRESS_CAP = 95
 _PROGRESS_DONE = 100
 
 
+def _celery_workers_online() -> bool:
+    try:
+        from worker.celery_app import celery
+
+        ping = celery.control.inspect(timeout=1.5).ping()
+        return bool(ping)
+    except Exception:
+        return False
+
+
+def _run_image_process_job_inline(job_id: str) -> None:
+    """Run the Celery task body in-process when no worker is listening."""
+    try:
+        run_image_process_job.apply(args=[job_id])
+    except Exception:
+        _log.exception(
+            "image_process_job event=inline_failed job_id=%s",
+            job_id,
+            extra={"job_id": job_id, "event": "inline_failed"},
+        )
+
+
+async def _enqueue_image_process_job(job_id: str) -> str:
+    """Prefer Celery worker; fall back to in-process apply so UI does not stick at 5%."""
+    if _celery_workers_online():
+        run_image_process_job.delay(job_id)
+        return "celery"
+    _log.warning(
+        "image_process_job event=inline_fallback job_id=%s (no celery worker)",
+        job_id,
+        extra={"job_id": job_id, "event": "inline_fallback"},
+    )
+    asyncio.create_task(asyncio.to_thread(_run_image_process_job_inline, job_id))
+    return "inline"
+
+
 class ImageProcessJobCreateRequest(ImageProcessIn):
     trace_id: str | None = None
 
@@ -156,7 +192,7 @@ async def create_image_process_job(
     }
     try:
         save_job(job_id, payload, kind=_KIND)
-        run_image_process_job.delay(job_id)
+        enqueue_via = await _enqueue_image_process_job(job_id)
     except Exception as exc:  # noqa: BLE001
         raise http_error(503, "job_queue_unavailable", locale) from exc
     try:
@@ -166,9 +202,10 @@ async def create_image_process_job(
     except Exception:
         pass
     _log.info(
-        "image_process_job event=enqueued job_id=%s tool_kind=%s trace_id=%s",
+        "image_process_job event=enqueued job_id=%s tool_kind=%s via=%s trace_id=%s",
         job_id,
         tool_kind,
+        enqueue_via,
         trace_id,
         extra={"job_id": job_id, "trace_id": trace_id, "event": "enqueued"},
     )

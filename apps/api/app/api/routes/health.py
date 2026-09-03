@@ -21,7 +21,7 @@ def _check_worker() -> bool:
     try:
         from worker.celery_app import celery
 
-        inspector = celery.control.inspect(timeout=0.8)
+        inspector = celery.control.inspect(timeout=2.0)
         ping = inspector.ping()
         return bool(ping)
     except Exception:

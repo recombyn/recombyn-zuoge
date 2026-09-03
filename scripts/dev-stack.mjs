@@ -1,7 +1,10 @@
 /**
- * Local stack: API (8000) + Vite web (3000) + collab WS (1234).
+ * Local stack: API (8000) + Vite web (3000) + collab WS (1234) + Celery worker.
  *
  *   npm run dev:stack
+ *
+ * Image toolbar jobs (抠图 / 放大 / …) need the worker (or the API inline
+ * fallback). Prefer keeping worker up for parity with production.
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -15,6 +18,7 @@ const kids = [
   spawn(npm, ['run', 'dev:api'], { cwd: root, stdio: 'inherit', shell: win }),
   spawn(npm, ['run', 'dev:web'], { cwd: root, stdio: 'inherit', shell: win }),
   spawn(npm, ['run', 'dev:collab'], { cwd: root, stdio: 'inherit', shell: win }),
+  spawn(npm, ['run', 'dev:worker'], { cwd: root, stdio: 'inherit', shell: win }),
 ];
 
 function shutdown() {
