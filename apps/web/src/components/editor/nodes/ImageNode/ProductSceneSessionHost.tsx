@@ -16,39 +16,39 @@ import {
   closeImageToolPanel,
   startImageProcess,
 } from '@/store/modules/editor';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { cn } from '@/utils/classnames';
-import { imageToolBtn, ImageToolSep } from './imageToolbarShared';
-import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
+import { imageToolBtn, imageToolSessionTitle, ImageToolSep, sessionNodeBox } from './imageToolbarShared';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
+import thumbExhibitHome from '@/assets/editor/product-scenes/exhibit_home.png';
+import thumbExhibitSimple from '@/assets/editor/product-scenes/exhibit_simple.png';
+import thumbExhibitKitchen from '@/assets/editor/product-scenes/exhibit_kitchen.png';
+import thumbExhibitBathroom from '@/assets/editor/product-scenes/exhibit_bathroom.png';
+import thumbExhibitLuxury from '@/assets/editor/product-scenes/exhibit_luxury.png';
+import thumbExhibitModern from '@/assets/editor/product-scenes/exhibit_modern.png';
+import thumbExhibitForest from '@/assets/editor/product-scenes/exhibit_forest.png';
+import thumbExhibitStone from '@/assets/editor/product-scenes/exhibit_stone.png';
+import thumbWaterReflect from '@/assets/editor/product-scenes/water_reflect.png';
+import thumbExhibitLight from '@/assets/editor/product-scenes/exhibit_light.png';
+import thumbNaturalPasture from '@/assets/editor/product-scenes/natural_pasture.png';
+import thumbExhibitFloor from '@/assets/editor/product-scenes/exhibit_floor.png';
 
 /** Curated MediaKit standard_scene presets for the toolbar. */
 export const PRODUCT_SCENE_PRESETS = [
-  { code: 'exhibit_home', labelKey: 'exhibitHome' },
-  { code: 'exhibit_simple', labelKey: 'exhibitSimple' },
-  { code: 'exhibit_kitchen', labelKey: 'exhibitKitchen' },
-  { code: 'exhibit_bathroom', labelKey: 'exhibitBathroom' },
-  { code: 'exhibit_luxury', labelKey: 'exhibitLuxury' },
-  { code: 'exhibit_modern', labelKey: 'exhibitModern' },
-  { code: 'exhibit_forest', labelKey: 'exhibitForest' },
-  { code: 'exhibit_stone', labelKey: 'exhibitStone' },
-  { code: 'water_reflect', labelKey: 'waterReflect' },
-  { code: 'exhibit_light', labelKey: 'exhibitLight' },
-  { code: 'natural_pasture', labelKey: 'naturalPasture' },
-  { code: 'exhibit_floor', labelKey: 'exhibitFloor' },
+  { code: 'exhibit_home', labelKey: 'exhibitHome', thumb: thumbExhibitHome },
+  { code: 'exhibit_simple', labelKey: 'exhibitSimple', thumb: thumbExhibitSimple },
+  { code: 'exhibit_kitchen', labelKey: 'exhibitKitchen', thumb: thumbExhibitKitchen },
+  { code: 'exhibit_bathroom', labelKey: 'exhibitBathroom', thumb: thumbExhibitBathroom },
+  { code: 'exhibit_luxury', labelKey: 'exhibitLuxury', thumb: thumbExhibitLuxury },
+  { code: 'exhibit_modern', labelKey: 'exhibitModern', thumb: thumbExhibitModern },
+  { code: 'exhibit_forest', labelKey: 'exhibitForest', thumb: thumbExhibitForest },
+  { code: 'exhibit_stone', labelKey: 'exhibitStone', thumb: thumbExhibitStone },
+  { code: 'water_reflect', labelKey: 'waterReflect', thumb: thumbWaterReflect },
+  { code: 'exhibit_light', labelKey: 'exhibitLight', thumb: thumbExhibitLight },
+  { code: 'natural_pasture', labelKey: 'naturalPasture', thumb: thumbNaturalPasture },
+  { code: 'exhibit_floor', labelKey: 'exhibitFloor', thumb: thumbExhibitFloor },
 ] as const;
 
 const BATCH_OPTIONS = [1, 2, 4] as const;
-
-function nodeBox(document: SceneDocument, node: SceneNodeInput) {
-  if (!node) return null;
-  const { left, top } = nodeLeftTop(document, node);
-  return {
-    left,
-    top,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
-  };
-}
 
 /**
  * Product-scene (电商万创) session: standard presets + batch count.
@@ -71,7 +71,7 @@ function ProductSceneSessionHost({
   const active = panel?.kind === 'productScene';
   const nodeId = active ? panel!.nodeId : null;
   const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;
-  const box = useMemo(() => nodeBox(document, node), [document, node]);
+  const box = useMemo(() => sessionNodeBox(document, node), [document, node]);
 
   const [sceneCode, setSceneCode] = useState(PRODUCT_SCENE_PRESETS[0].code);
   const [batchCount, setBatchCount] = useState<(typeof BATCH_OPTIONS)[number]>(1);
@@ -144,9 +144,10 @@ function ProductSceneSessionHost({
         className="pointer-events-auto absolute z-[37]"
         style={toolbarStyle}
         onPointerDown={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
       >
         <FloatingToolbar className="relative gap-1 px-2.5 py-1.5">
-          <span className="inline-flex h-8 min-w-[5.5rem] items-center gap-1.5 px-2 text-[12px] font-medium text-[var(--ink)]">
+          <span className={imageToolSessionTitle}>
             <HiOutlineShoppingBag className="h-4 w-4 shrink-0 text-current" />
             <span>{t('editor.imageToolbar.productScene')}</span>
           </span>
@@ -158,7 +159,7 @@ function ProductSceneSessionHost({
               type="button"
               className={cn(
                 imageToolBtn,
-                'min-w-[7rem] justify-between gap-2 px-3 font-medium',
+                'gap-1.5 px-2 font-medium',
                 sceneMenuOpen && 'bg-[var(--accent-soft)]'
               )}
               onClick={() => {
@@ -166,7 +167,13 @@ function ProductSceneSessionHost({
                 setBatchMenuOpen(false);
               }}
             >
-              <span className="max-w-[8rem] truncate">
+              <img
+                src={selected.thumb}
+                alt=""
+                className="h-5 w-5 shrink-0 rounded object-cover ring-1 ring-[var(--line)]"
+                draggable={false}
+              />
+              <span className="max-w-[9rem] truncate">
                 {t(`editor.imageToolbar.productScenePreset.${selected.labelKey}`, {
                   defaultValue: selected.code,
                 })}
@@ -175,20 +182,28 @@ function ProductSceneSessionHost({
             </button>
 
             {sceneMenuOpen ? (
-              <DropdownPanel className="absolute bottom-[calc(100%+6px)] left-1/2 z-50 max-h-64 min-w-[11rem] -translate-x-1/2 overflow-y-auto p-1">
+              <DropdownPanel className="absolute bottom-[calc(100%+6px)] left-1/2 z-50 max-h-72 min-w-[14rem] -translate-x-1/2 overflow-y-auto p-1">
                 {PRODUCT_SCENE_PRESETS.map((p) => (
                   <DropdownPanelItem
                     key={p.code}
                     selected={p.code === selected?.code}
-                    className="px-3 py-2"
+                    className="h-11 gap-2.5 px-2 py-1.5"
                     onClick={() => {
                       setSceneCode(p.code);
                       setSceneMenuOpen(false);
                     }}
                   >
-                    {t(`editor.imageToolbar.productScenePreset.${p.labelKey}`, {
-                      defaultValue: p.code,
-                    })}
+                    <img
+                      src={p.thumb}
+                      alt=""
+                      className="h-8 w-8 shrink-0 rounded-md object-cover ring-1 ring-[var(--line)]"
+                      draggable={false}
+                    />
+                    <span className="truncate">
+                      {t(`editor.imageToolbar.productScenePreset.${p.labelKey}`, {
+                        defaultValue: p.code,
+                      })}
+                    </span>
                   </DropdownPanelItem>
                 ))}
               </DropdownPanel>
@@ -200,7 +215,7 @@ function ProductSceneSessionHost({
               type="button"
               className={cn(
                 imageToolBtn,
-                'min-w-[4.5rem] justify-between gap-2 px-3 font-medium tabular-nums',
+                'gap-1 px-2 font-medium tabular-nums',
                 batchMenuOpen && 'bg-[var(--accent-soft)]'
               )}
               onClick={() => {
@@ -235,7 +250,7 @@ function ProductSceneSessionHost({
 
           <button
             type="button"
-            className="inline-flex h-8 min-w-[5.75rem] items-center justify-center gap-1.5 rounded-xl px-4 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
+            className="inline-flex h-7 items-center justify-center rounded-xl px-2.5 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
             onClick={onConfirm}
           >
             <span>{t('editor.imageToolbar.productSceneConfirm')}</span>

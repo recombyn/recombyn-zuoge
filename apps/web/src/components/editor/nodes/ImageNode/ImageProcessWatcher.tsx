@@ -87,10 +87,6 @@ async function persistProcessedSrc(src: string, filename: string): Promise<strin
   return url;
 }
 
-async function refreshWallet() {
-  refreshWalletAfterSpend();
-}
-
 /** Prefer backend ``message``; FE i18n only for client-only / empty fallbacks. */
 function processFailMessage(err: unknown): string {
   const msg = getHttpErrorMessage(err, '');
@@ -131,6 +127,67 @@ function buildFinishAttrsForKind(
   return undefined;
 }
 
+function decomposeSuccessMessage(kind: string, layers: unknown[]): string {
+  if (kind === 'editElements') {
+    return tt('editor.imageToolbar.doneEditElementsHint');
+  }
+  const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
+  const rasterCount = layers.filter((l: any) => l?.letteringText).length;
+  if (rasterCount > 0 && textCount > 0) {
+    return tt('editor.imageToolbar.doneOcrMixed', { textCount, rasterCount });
+  }
+  if (textCount > 0) {
+    return tt('editor.imageToolbar.doneOcrEditable', { count: textCount });
+  }
+  return tt('editor.imageToolbar.doneOcr');
+}
+
+const PROCESS_DONE_LABELS: Record<string, string> = {
+  removeBg: 'editor.imageToolbar.doneRemoveBg',
+  eraser: 'editor.imageToolbar.doneEraser',
+  upscale: 'editor.imageToolbar.doneUpscale',
+  multiAngle: 'editor.imageToolbar.doneMultiAngle',
+  expand: 'editor.imageToolbar.doneExpand',
+  editText: 'editor.imageToolbar.doneEditText',
+  editElements: 'editor.imageToolbar.doneEditElements',
+  replaceText: 'editor.imageToolbar.doneReplaceText',
+  translateImage: 'editor.imageToolbar.doneTranslateImage',
+  productScene: 'editor.imageToolbar.doneProductScene',
+  vector: 'editor.imageToolbar.doneVector',
+  adjust: 'editor.imageToolbar.doneAdjust',
+};
+
+function rasterDoneMessage(kind: string): string {
+  const key = PROCESS_DONE_LABELS[kind];
+  if (key) return tt(key);
+  return tt('editor.imageToolbar.doneGeneric');
+}
+
+async function persistBatchVariantUrls(
+  mainSrc: string,
+  storedUrl: string,
+  batchUrls: string[],
+  kind: string,
+  cancelled: () => boolean
+): Promise<string | undefined> {
+  if (batchUrls.length <= 1) return undefined;
+  const persisted: string[] = [];
+  for (let i = 0; i < batchUrls.length; i += 1) {
+    const u = batchUrls[i];
+    if (u === mainSrc) {
+      persisted.push(storedUrl);
+      continue;
+    }
+    const nextUrl = await persistProcessedSrc(u, `${kind}-${i}.png`);
+    if (cancelled()) return undefined;
+    persisted.push(nextUrl);
+  }
+  const withMain = persisted.includes(storedUrl)
+    ? persisted
+    : [storedUrl, ...persisted];
+  return JSON.stringify(withMain);
+}
+
 async function finishDecomposeResult(
   pendingId: string,
   kind: string,
@@ -150,30 +207,18 @@ async function finishDecomposeResult(
   if (cancelled()) return true;
 
   finishImageProcess({
-      nodeId: pendingId,
-      layers: persisted,
-      sourceWidth: Number(res.width) || undefined,
-      sourceHeight: Number(res.height) || undefined,
-    });
+    nodeId: pendingId,
+    layers: persisted,
+    sourceWidth: Number(res.width) || undefined,
+    sourceHeight: Number(res.height) || undefined,
+  });
   const warn = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
   if (warn.length) {
     message.warning(warn.slice(0, 3).join('；'));
   } else {
-    const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
-    const rasterCount = layers.filter((l: any) => l?.letteringText).length;
-    if (kind === 'editElements') {
-      message.success(tt('editor.imageToolbar.doneEditElementsHint'));
-    } else if (rasterCount > 0 && textCount > 0) {
-      message.success(
-        tt('editor.imageToolbar.doneOcrMixed', { textCount, rasterCount })
-      );
-    } else if (textCount > 0) {
-      message.success(tt('editor.imageToolbar.doneOcrEditable', { count: textCount }));
-    } else {
-      message.success(tt('editor.imageToolbar.doneOcr'));
-    }
+    message.success(decomposeSuccessMessage(kind, layers));
   }
-  await refreshWallet();
+  refreshWalletAfterSpend();
   return true;
 }
 
@@ -286,12 +331,12 @@ function ImageProcessWatcher() {
             return;
           }
           finishImageProcess({
-              nodeId: pendingId,
-              svg: svgMarkup,
-              attrs: { name: tt('editor.imageToolbar.nameVector') },
-            });
+            nodeId: pendingId,
+            svg: svgMarkup,
+            attrs: { name: tt('editor.imageToolbar.nameVector') },
+          });
           message.success(tt('editor.imageToolbar.doneVector'));
-          await refreshWallet();
+          refreshWalletAfterSpend();
           return;
         }
 
@@ -305,24 +350,14 @@ function ImageProcessWatcher() {
         const batchUrls = Array.isArray(res.images)
           ? res.images.map((u) => String(u || '').trim()).filter(Boolean)
           : [];
-        let variantAttr: string | undefined;
-        if (batchUrls.length > 1) {
-          const persisted: string[] = [];
-          for (let i = 0; i < batchUrls.length; i += 1) {
-            const u = batchUrls[i];
-            if (u === res.image) {
-              persisted.push(storedUrl);
-              continue;
-            }
-            const nextUrl = await persistProcessedSrc(u, `${kind}-${i}.png`);
-            if (cancelled) return;
-            persisted.push(nextUrl);
-          }
-          const withMain = persisted.includes(storedUrl)
-            ? persisted
-            : [storedUrl, ...persisted];
-          variantAttr = JSON.stringify(withMain);
-        }
+        const variantAttr = await persistBatchVariantUrls(
+          res.image,
+          storedUrl,
+          batchUrls,
+          kind,
+          isCancelled
+        );
+        if (cancelled) return;
 
         const replaceMeta = kind === 'replaceText' ? parseMeta(liveNode?.attrs?.processMeta) : {};
         const replacedCopy = String(replaceMeta.newText || '').trim();
@@ -331,29 +366,15 @@ function ImageProcessWatcher() {
           replacedCopy,
         });
         finishImageProcess({
-            nodeId: pendingId,
-            src: storedUrl,
-            attrs: {
-              ...(finishAttrs || {}),
-              ...(variantAttr ? { imageVariants: variantAttr } : {}),
-            },
-          });
-        const labels: Record<string, string> = {
-          removeBg: tt('editor.imageToolbar.doneRemoveBg'),
-          eraser: tt('editor.imageToolbar.doneEraser'),
-          upscale: tt('editor.imageToolbar.doneUpscale'),
-          multiAngle: tt('editor.imageToolbar.doneMultiAngle'),
-          expand: tt('editor.imageToolbar.doneExpand'),
-          editText: tt('editor.imageToolbar.doneEditText'),
-          editElements: tt('editor.imageToolbar.doneEditElements'),
-          replaceText: tt('editor.imageToolbar.doneReplaceText'),
-          translateImage: tt('editor.imageToolbar.doneTranslateImage'),
-          productScene: tt('editor.imageToolbar.doneProductScene'),
-          vector: tt('editor.imageToolbar.doneVector'),
-          adjust: tt('editor.imageToolbar.doneAdjust'),
-        };
-        message.success(labels[kind] || tt('editor.imageToolbar.doneGeneric'));
-        await refreshWallet();
+          nodeId: pendingId,
+          src: storedUrl,
+          attrs: {
+            ...(finishAttrs || {}),
+            ...(variantAttr ? { imageVariants: variantAttr } : {}),
+          },
+        });
+        message.success(rasterDoneMessage(kind));
+        refreshWalletAfterSpend();
       } catch (err: any) {
         if (cancelled || isUploadAbortError(err)) return;
         fail(processFailMessage(err), err);

@@ -87,7 +87,7 @@ def test_remove_background_passes_scene_meta(monkeypatch):
     result = asyncio.run(
         remove_background(
             _tiny_png(),
-            meta={"scene": "product", "includeMask": "data:image/png;base64,xx"},
+            meta={"scene": "product"},
             user_id="u1",
         )
     )

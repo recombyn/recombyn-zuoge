@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import io
 import logging
 from typing import Any
@@ -13,7 +12,7 @@ from app.services.vision.mediakit_client import (
     generate_product_scene_image,
     mediakit_enabled,
 )
-from app.services.vision.rehost import rehost_image_bytes
+from app.services.vision.rehost import encode_or_rehost_image, raster_filename_and_type
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +29,22 @@ def _encode_or_rehost(
     user_id: str | None,
     index: int,
 ) -> str:
+    filename, content_type = raster_filename_and_type(
+        fmt, stem="product-scene", index=index
+    )
     if user_id:
-        filename = f"product-scene-{index}.png" if fmt == "png" else f"product-scene-{index}.jpg"
-        content_type = "image/png" if fmt == "png" else "image/jpeg"
-        return rehost_image_bytes(
-            user_id, raw, filename=filename, content_type=content_type
+        return encode_or_rehost_image(
+            raw, user_id=user_id, filename=filename, content_type=content_type
         )
     img = Image.open(io.BytesIO(raw))
     buf = io.BytesIO()
-    if fmt == "png":
+    if content_type == "image/png":
         img.convert("RGBA" if "A" in img.getbands() else "RGB").save(buf, format="PNG")
-        ctype = "image/png"
     else:
         img.convert("RGB").save(buf, format="JPEG", quality=92)
-        ctype = "image/jpeg"
-    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return f"data:{ctype};base64,{b64}"
+    return encode_or_rehost_image(
+        buf.getvalue(), user_id=None, filename=filename, content_type=content_type
+    )
 
 
 async def product_scene(
@@ -78,12 +77,14 @@ async def product_scene(
         raw = row["image_bytes"]
         fmt = str(row.get("format") or "png").lower()
         urls.append(_encode_or_rehost(raw, fmt=fmt, user_id=user_id, index=i))
-        if not width:
-            width = int(row.get("width") or 0)
-            height = int(row.get("height") or 0)
-            if not width or not height:
-                img = Image.open(io.BytesIO(raw))
-                width, height = img.width, img.height
+        if width and height:
+            continue
+        width = int(row.get("width") or 0)
+        height = int(row.get("height") or 0)
+        if width and height:
+            continue
+        img = Image.open(io.BytesIO(raw))
+        width, height = img.width, img.height
 
     version = str(out.get("tool_version") or "standard")
     return {

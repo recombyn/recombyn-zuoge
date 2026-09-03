@@ -97,7 +97,7 @@ def test_image_ocr_happy_path(monkeypatch):
 
     monkeypatch.setattr(mk.httpx, "AsyncClient", fake_client)
     data_url = f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
-    out = asyncio.run(mk.image_ocr(data_url, meta={"tool_version": "max"}))
+    out = asyncio.run(mk.image_ocr(data_url, meta={"toolVersion": "max"}))
     assert len(out["blocks"]) == 1
     assert out["blocks"][0]["text"] == "AI"
     assert out["tool_version"] == "max"
@@ -127,7 +127,7 @@ def test_decompose_edit_text(monkeypatch):
             "request_id": "r1",
         }
 
-    async def fake_erase(_image, *, meta=None, resolved_url=None):
+    async def fake_erase(_image, *, meta=None, mask_bytes=None):
         return {
             "image_bytes": png,
             "image_url": "https://output.test/bg.png",

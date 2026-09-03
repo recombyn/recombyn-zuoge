@@ -39,7 +39,7 @@ def test_enhance_params_multiple_wins_over_targets():
 
 
 def test_enhance_params_target_width_only():
-    body = mk.enhance_params_from_meta({"target_width": 1920, "tool_version": "standard"})
+    body = mk.enhance_params_from_meta({"targetWidth": 1920, "toolVersion": "standard"})
     assert body["tool_version"] == "standard"
     assert body["target_width"] == 1920
     assert "generative_enhance_mode" not in body
@@ -70,8 +70,10 @@ def test_upscale_image_rehosts(monkeypatch):
 
     monkeypatch.setattr("app.services.vision.upscale.enhance_image", fake_enhance)
     monkeypatch.setattr(
-        "app.services.vision.upscale.rehost_image_bytes",
-        lambda _uid, data, **kwargs: "https://cdn.example/upscale.png",
+        "app.services.vision.upscale.encode_or_rehost_image",
+        lambda data, *, user_id=None, filename="", content_type="image/png": (
+            "https://cdn.example/upscale.png"
+        ),
     )
     result = asyncio.run(
         upscale_image(

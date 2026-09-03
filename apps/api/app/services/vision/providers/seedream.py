@@ -16,11 +16,8 @@ from PIL import Image
 from app.core.config import settings
 from app.services.vision.providers.base import ProgressCb
 from app.services.vision.rehost import (
-    bytes_to_data_url,
+    ensure_remote_fetchable_image_ref,
     ipv4_loopback_url,
-    is_http_url,
-    is_public_http_url,
-    rewrite_private_storage_url,
 )
 
 _DATA_URL_RE = re.compile(r"^data:([^;,]+)?(?:;base64)?,(.+)$", re.DOTALL)
@@ -82,19 +79,7 @@ async def _download(url_or_data: str) -> bytes:
 async def _ensure_image_ref(image: str, *, user_id: str | None) -> str:
     """Give Ark a public URL or data URL — never localhost / LAN."""
     _ = user_id
-    ref = (image or "").strip()
-    if not ref:
-        raise ValueError("image is required")
-    if ref.startswith("data:"):
-        return ref
-    if not is_http_url(ref):
-        raise ValueError("image must be a data URL or http(s) URL")
-    if is_public_http_url(ref):
-        return ref
-    rewritten = rewrite_private_storage_url(ref)
-    if rewritten:
-        return rewritten
-    return bytes_to_data_url(await _download(ref))
+    return await ensure_remote_fetchable_image_ref(image)
 
 
 def _parse_size_wh(raw: Any) -> tuple[int, int]:

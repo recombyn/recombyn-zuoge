@@ -44,7 +44,7 @@ async def decompose_edit_text(
     m = meta or {}
     min_conf = float(getattr(settings, "ocr_text_min_confidence", 0.72) or 0.72)
     ocr_meta = {
-        "tool_version": str(m.get("toolVersion") or m.get("tool_version") or "max"),
+        "tool_version": str(m.get("toolVersion") or "max"),
     }
     ocr = await image_ocr(image, meta=ocr_meta)
     blocks = list(ocr.get("blocks") or [])
@@ -60,9 +60,9 @@ async def decompose_edit_text(
     erase = await erase_image(
         image,
         meta={
-            "standard_scene": "full_screen_text_erase",
-            "output_format": "png",
-            "tool_version": "standard",
+            "standardScene": "full_screen_text_erase",
+            "outputFormat": "png",
+            "toolVersion": "standard",
         },
     )
     bg_bytes = erase["image_bytes"]

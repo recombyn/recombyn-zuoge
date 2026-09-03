@@ -32,11 +32,10 @@ import {
 import {
   isVideoGeneratorNode
 } from '@/components/rcb/scene/document/nodeCapabilities';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { imageSrcToFile } from '@/utils/uploadImage';
 import { cn } from '@/utils/classnames';
 import { AspectPresetGlyph } from '@/components/rcb/selection/chrome/AspectRatioPresetMenu';
-import { imageToolBtn, ImageToolSep } from '../imageToolbarShared';
+import { imageToolBtn, ImageToolSep, sessionNodeBox } from '../imageToolbarShared';
 import CropExpandOverlay, {
   cropRectForRatio,
   expandFrameForRatio,
@@ -124,17 +123,6 @@ function expandMetaFromFrame(cw: number, ch: number, frame: ExpandFrame) {
   };
 }
 
-function nodeBox(document: SceneDocument, node: SceneNodeInput) {
-  if (!node) return null;
-  const { left, top } = nodeLeftTop(document, node);
-  return {
-    left,
-    top,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
-  };
-}
-
 function isCroppableNode(node: SceneNodeInput) {
   if (!node) return false;
   if (node.key === 'image') return true;
@@ -212,7 +200,7 @@ function CropExpandSessionHost({
   const mode = panel?.kind === 'crop' || panel?.kind === 'expand' ? panel.kind : null;
   const nodeId = mode ? panel!.nodeId : null;
   const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;
-  const box = useMemo(() => nodeBox(document, node), [document, node]);
+  const box = useMemo(() => sessionNodeBox(document, node), [document, node]);
 
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
   const [expandFrame, setExpandFrame] = useState<ExpandFrame | null>(null);
@@ -403,7 +391,7 @@ function CropExpandSessionHost({
         setBusy(false);
       }
     }
-    void applyCrop();
+    applyCrop();
   };
 
   return (

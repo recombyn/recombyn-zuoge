@@ -142,3 +142,79 @@ def rehost_image_bytes(
     if not url:
         raise RuntimeError(f"rehost failed for {filename}")
     return url
+
+
+def encode_or_rehost_image(
+    raw: bytes,
+    *,
+    user_id: str | None,
+    filename: str,
+    content_type: str = "image/png",
+) -> str:
+    """Upload when ``user_id`` is set; otherwise return a data URL."""
+    if str(user_id or "").strip():
+        return rehost_image_bytes(
+            user_id, raw, filename=filename, content_type=content_type
+        )
+    return bytes_to_data_url(raw, content_type=content_type)
+
+
+def raster_filename_and_type(
+    fmt: str,
+    *,
+    stem: str,
+    index: int | None = None,
+) -> tuple[str, str]:
+    """``(filename, content_type)`` for png/jpeg vision outputs."""
+    use_png = str(fmt or "png").strip().lower() == "png"
+    suffix = f"-{index}" if index is not None else ""
+    if use_png:
+        return f"{stem}{suffix}.png", "image/png"
+    return f"{stem}{suffix}.jpg", "image/jpeg"
+
+
+async def _download_image_bytes(ref: str) -> bytes:
+    """Fetch image bytes; rewrite localhost → 127.0.0.1 for Windows MinIO."""
+    import httpx
+
+    url = ipv4_loopback_url((ref or "").strip())
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.content
+
+
+async def ensure_remote_fetchable_image_ref(image: str) -> str:
+    """Public URL, CDN rewrite, or data URL — never localhost/LAN for cloud APIs.
+
+    Same contract as Seedream layering: prefer ``VISION_PUBLIC_BASE_URL`` rewrite,
+    else download from local MinIO and inline as data URL.
+    """
+    ref = (image or "").strip()
+    if not ref:
+        raise ValueError("image is required")
+    if ref.startswith("data:"):
+        return ref
+    if not is_http_url(ref):
+        raise ValueError("image must be a data URL or http(s) URL")
+    if is_public_http_url(ref):
+        return ref
+    rewritten = rewrite_private_storage_url(ref)
+    if rewritten:
+        return rewritten
+    return bytes_to_data_url(await _download_image_bytes(ref))
+
+
+async def ensure_remote_fetchable_image_refs(
+    images: list[str] | None,
+) -> list[str]:
+    """Apply ``ensure_remote_fetchable_image_ref`` to each non-empty image URL."""
+    out: list[str] = []
+    for raw in images or []:
+        if not isinstance(raw, str):
+            continue
+        s = raw.strip()
+        if not s:
+            continue
+        out.append(await ensure_remote_fetchable_image_ref(s))
+    return out
