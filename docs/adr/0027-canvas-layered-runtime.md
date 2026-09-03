@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-15
-- **Updated:** 2026-09-02 — Phase 5 GPU depth-of-field (opt-in WebGL2 / WebGPU); dual SVG+underlay migration language removed; large-doc paste: `HistoryAdd` + spatial grow-only `restamp` (no per-paste QT rebuild)
+- **Updated:** 2026-09-03 — Seven layers; WebGL-only ink + atlas outline stamps; Worker-only bake; no SoA/WebGL/atlas env kill-switches; text/media stay DOM until WebGL owns them; DOF one resolved backend
 - **Supersedes (partial):** [ADR 0002](./0002-canvas-rcb-runtime.md) runtime paint/hit coupling — RCB ownership stays; SVG is no longer the editor runtime fact layer.
 
 ## Context
@@ -21,10 +21,32 @@ Treat the editor runtime as four facts (**this is the product architecture — d
 
 1. **`SceneDocument`** — unique document source of truth (store / collab patches write here).
 2. **`CameraTransform`** — single pan/zoom matrix; only `worldToScreen` / `stageLocalToWorld` / `screenDeltaToWorldDelta` on hot paths. No DOM “correction” of coordinates during gestures.
-3. **Layered render** — **single SoA Canvas2D vector ink**; DOM hosts only for text / media FO / SoftGlow / editors / heavy paths; grid on Canvas; selection, guides, and drawing previews share the camera surface; screen UI stays in the HTML overlay. SoftGlow/editors use `RenderDemotionScheduler` (`ACTIVE_SVG` → `CANDIDATE` → `DEPLOYED_SOA`); selection does **not** promote basic shapes onto SVG.
+3. **Layered render** — **WebGL2 instanced SoA ink** (only product ink path); DOM hosts only for text / media FO / SoftGlow / editors / heavy paths; **grid** stays on a separate Canvas2D surface (not an ink fallback); selection, guides, and drawing previews share the camera surface; screen UI stays in the HTML overlay. SoftGlow/editors use `RenderDemotionScheduler` (`ACTIVE_SVG` → `CANDIDATE` → `DEPLOYED_SOA`); selection does **not** promote basic shapes onto SVG. There is **no** Canvas2D idle-ink / pan-blit / bake-blit dual path.
 4. **Independent hit** — root pointer capture → chrome hit → spatial index coarse → precise geometry. `sceneToSvg` stays an **export** path, not the live paint core.
 
 SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `CameraTransform` + `SceneSpatialRuntime`. SoA (`SceneRenderBuffer` + `SoaQuadtree`) is a **derived** paint/pick cache and must not write back into SceneDocument. Demotion host-release uses one shared wake over `lastActive` timestamps; TransformPreview uses dirty AABB + live filter + threshold rebuild (not per-frame QT upsert).
+
+### Seven necessary product layers (density / interaction)
+
+Do not sell micro-caches or effects as parallel “optimization schemes.” Product narrative is these seven:
+
+| # | Layer | Role |
+|---|--------|------|
+| 1 | SoA `SceneRenderBuffer` | Typed-array paint/pick cache |
+| 2 | Demotion + host viewport cull | DOM budget; who stays SVG vs SoA |
+| 3 | WebGL2 instancing + atlas | Only ink backend (no C2D dual path) |
+| 4 | Viewport tile bake + Worker | Second wall when idle+basic ≥ ~800; live fill until tiles ready |
+| 5 | Select raise keep-bake + overpaint | Select must not disable bake |
+| 6 | Dirty AABB + SoA QT + incremental sync | Avoid O(N) wipe/rebuild |
+| 7 | Independent hit + camera | Architecture; not an FPS knob |
+
+**Embedded (not separate products):** path densify, AI mutation lock, TransformPreview live filter.
+
+**Not a fallback:** Canvas2D is used for the **pixel grid surface** and Vitest paint helpers only. Product idle ink is WebGL (WebGPU only when DOF effect is on). Missing WebGL2 is a hard error — do not silently downgrade to Canvas2D ink.
+
+**Do not merge:** `SceneSpatialRuntime` (all-node hit) vs `buf.quadtree` (idle paint/pick) — intentional dual track.
+
+**Camera gesture:** while `cameraMoving`, skip Worker bake; live WebGL fills the viewport; bake resumes on settle.
 
 ### Delivery roadmap (phased — no rewrite)
 
@@ -32,9 +54,9 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 |-------|--------|------|
 | 1 | Done (core) | CameraTransform API; ink and selection chrome share the same SVG root and camera `<g>`; geometry-first chrome hit; shared spatial; union AABB chrome. |
 | 2 | Done (core) | `SceneRenderer` (`svg` hosts + `canvas2d` grid); canvas-capable vectors on idle ink (`canIdlePaintOnCanvas` + rounded/poly Path2D). |
-| 3 | Done (default-on) | **SoA** `SceneRenderBuffer` default-on Canvas2D (`VITE_SOA_CANVAS_SHAPES=0` kill-switch); single vector ink; radii + outline stroke (`strokeAlign` center|inside|outside) + simple poly/star samples; static **text** on canvas idle (`paintCanvasTextInk`); static **image** + idle **video** posters + idle **audio** plates on canvas; selected video/audio keep one FO each for HTML media; AI lock → one flush; shared spatial from SoA; dirty AABB; bake ≥8k; **quadtree** idle cull; demotion scheduler + freeSlots / bulk sync. Lottie / SoftGlow / pen editors / heavy paths stay DOM hosts. Text caret = screen overlay. Generator plates (image/video/audio) idle on canvas at 5k+. |
-| 4 | Frozen (opt-in) | WebGL2 instancing + path densify + atlas — **not** product default. Outline stroke / poly stay off WebGL instances while `VITE_SOA_WEBGL=1`. Converge later; do not dual-default. |
-| 5 | Opt-in | **GPU realtime depth-of-field** (`VITE_GPU_DOF=1`): color + depth MRT → CoC → separable blur → composite. Depth from `buildNodeStackZMap` (no new SceneDocument attrs). While DOF is active, skip CPU `soaBakeLayer` tile bake (`gpuDofSkipsSoaTileBake`). Backends: WebGL2 (`webglDepthOfFieldPass` + `webglSceneRenderer`) or WebGPU (`webgpuSceneRenderer`). UI: Effects → Scene depth of field. Does not change SoA layout, DOM host budget, or export. |
+| 3 | Done (default-on) | **SoA** `SceneRenderBuffer` always on in product (Vitest override only); WebGL vector ink + atlas (incl. stroked rect/ellipse); path samples; **text / image / video / audio** stay DOM hosts until WebGL stamps them; selected video/audio keep one FO each; AI lock → one flush; shared spatial from SoA; dirty AABB; **quadtree** idle cull; demotion + freeSlots / bulk sync. Lottie / SoftGlow / pen editors / heavy paths stay DOM hosts. |
+| 4 | Done (default-on) | WebGL2 instancing + atlas — **only** product ink path. Viewport bake ≥800 eligible idle+basic → **Worker only**; incomplete maps keep live instances; camera gesture skips bake. |
+| 5 | Opt-in **effect** (not density roadmap) | **GPU realtime depth-of-field** (`VITE_GPU_DOF=1`): one resolved backend (webgpu *or* webgl2), no create-time cross-fallback. Skips CPU tile bake while active. UI: Effects → Scene depth of field. |
 
 ### Acceptance targets
 
@@ -62,12 +84,13 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 - Paste undo is `HistoryAdd` (O(paste)), not a full-document history snap. Dock chrome wakes on deferred `documentRevision` after paint — not on `sceneRevision` during the SoA commit.
 - Contributors must not add new world-layer control SVG that mirrors host `viewBox`.
 - Do not reintroduce dual attr keys (`fill` vs `fill-color`, frame `kind: 'lottie'`, `lottieFrameHost`, axios-shaped error probes).
+- Do not add a second async bake scheduler alongside Worker (no idle/main-thread bake dual path).
 
 ## Alternatives considered
 
 1. **Keep SVG runtime, harden viewBox sync** — rejected; complexity grows with zoom and node count.
 2. **Adopt an external whiteboard SDK** — rejected (ADR 0002); product artboards / agents / media stay in-house.
-3. **Jump straight to WebGL** — rejected; stabilize camera + hit + chrome first.
+3. **Jump straight to WebGL** — rejected initially; stabilize camera + hit + chrome first. Phase 4 now defaults WebGL after SoA + hit landed.
 
 ## References
 
@@ -78,6 +101,7 @@ SVG is not the editor runtime fact layer. Fact layer = `SceneDocument` + `Camera
 - `apps/web/src/components/rcb/render/renderDemotionScheduler.ts`
 - `apps/web/src/components/rcb/core/soaQuadtree.ts`
 - `apps/web/src/components/rcb/core/spatialIndex.ts`
+- `apps/web/src/components/rcb/render/soaBakeLayer.ts`
 - `apps/web/src/components/rcb/render/gpuDepthOfField.ts`
 - `apps/web/src/components/rcb/render/webglDepthOfFieldPass.ts`
 - `apps/web/src/components/rcb/render/webgpuSceneRenderer.ts`

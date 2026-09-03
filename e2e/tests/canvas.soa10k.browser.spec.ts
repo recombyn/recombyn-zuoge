@@ -346,7 +346,7 @@ async function injectMixedStressDoc(page: Page, n: number, tinyPng: string) {
 }
 
 async function readCounts(page: Page) {
-  return page.evaluate(() => {
+  const dom = await page.evaluate(() => {
     const layer = document.querySelector('[data-rcb-shapes-layer="1"]');
     const rcb = document.querySelector('[data-rcb-canvas="1"]');
     return {
@@ -363,6 +363,27 @@ async function readCounts(page: Page) {
       imageEls: document.querySelectorAll('[data-rcb-shape-host] image, img').length,
     };
   });
+  let heapUsedMb = -1;
+  try {
+    const client = await page.context().newCDPSession(page);
+    await client.send('Performance.enable');
+    const got = await client.send('Performance.getMetrics');
+    await client.detach().catch(() => undefined);
+    const row = (got?.metrics || []).find((m: { name: string }) => m.name === 'JSHeapUsedSize');
+    if (row && typeof row.value === 'number') {
+      heapUsedMb = Math.round((row.value / (1024 * 1024)) * 10) / 10;
+    }
+  } catch {
+    try {
+      const m = await page.metrics();
+      if (m?.JSHeapUsedSize != null) {
+        heapUsedMb = Math.round((m.JSHeapUsedSize / (1024 * 1024)) * 10) / 10;
+      }
+    } catch {
+      /* metrics unavailable */
+    }
+  }
+  return { ...dom, heapUsedMb };
 }
 
 async function measurePanFps(page: Page, stage: Locator) {
@@ -370,40 +391,52 @@ async function measurePanFps(page: Page, stage: Locator) {
   if (!box) throw new Error('no stage box');
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
-  await page.mouse.move(cx, cy);
-  await page.keyboard.down(' ');
-  await page.mouse.down();
-  const measuring = page.evaluate(async () => {
+
+  // In-page wheel pan (RcbCanvas onWheel) — avoids Playwright mouse.move hanging
+  // when the main thread is busy at 5k+.
+  const result = await page.evaluate(async ({ sx, sy }) => {
+    const el =
+      (document.querySelector('[data-rcb-canvas="1"]') as HTMLElement | null) || document.body;
     const dts: number[] = [];
     let last = performance.now();
-    for (let i = 0; i < 50; i += 1) {
+    const deadline = last + 6_000;
+    for (let i = 0; i < 28 && performance.now() < deadline; i += 1) {
+      el.dispatchEvent(
+        new WheelEvent('wheel', {
+          clientX: sx,
+          clientY: sy,
+          deltaX: i % 2 === 0 ? 48 : -48,
+          deltaY: ((i % 3) - 1) * 24,
+          deltaMode: 0,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
       await new Promise<number>((r) => requestAnimationFrame(r));
       const now = performance.now();
       dts.push(now - last);
       last = now;
     }
-    return dts.slice(8);
-  });
-  for (let i = 0; i < 24; i += 1) {
-    await page.mouse.move(cx + i * 22, cy + ((i % 3) - 1) * 14);
-    await sleep(16);
+    return dts.slice(4);
+  }, { sx: cx, sy: cy });
+
+  if (!result.length) {
+    return { avgFrameMs: 9999, p95FrameMs: 9999, approxFps: 0, samples: 0 };
   }
-  await page.mouse.up();
-  await page.keyboard.up(' ');
-  const dts = await measuring;
-  const avg = dts.reduce((a, b) => a + b, 0) / Math.max(1, dts.length);
-  const sorted = [...dts].sort((a, b) => a - b);
+  const avg = result.reduce((a, b) => a + b, 0) / Math.max(1, result.length);
+  const sorted = [...result].sort((a, b) => a - b);
   const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0;
   const fps = avg > 0 ? Math.round((1000 / avg) * 10) / 10 : 0;
   return {
     avgFrameMs: Math.round(avg * 100) / 100,
     p95FrameMs: Math.round(p95 * 100) / 100,
     approxFps: fps,
-    samples: dts.length,
+    samples: result.length,
   };
 }
 
-async function settleAndMeasure(page: Page, stage: Locator) {
+async function settleAndMeasure(page: Page, stage: Locator, opts?: { minVisible?: number }) {
+  const minVisible = opts?.minVisible ?? 0;
   // Mixed docs may keep some media as hosts; wait until something is mounted / painted.
   await expect
     .poll(
@@ -414,7 +447,43 @@ async function settleAndMeasure(page: Page, stage: Locator) {
       { timeout: 120_000 }
     )
     .toBe(true);
-  await sleep(900);
+
+  if (minVisible > 0) {
+    // Zoom into the board until enough idle ink is on-screen (fit-to-board culls
+    // a sparse 10k grid down to dozens of nodes).
+    await page.evaluate(async ({ want, sx, sy }) => {
+      const el =
+        (document.querySelector('[data-rcb-canvas="1"]') as HTMLElement | null) || document.body;
+      const readIdle = () =>
+        Number(
+          document.querySelector('[data-rcb-shapes-layer="1"]')?.getAttribute('data-rcb-canvas-idle-count') ||
+            document.querySelector('[data-rcb-canvas="1"]')?.getAttribute('data-rcb-canvas-idle-count') ||
+            0
+        );
+      const deadline = performance.now() + 8_000;
+      while (performance.now() < deadline && readIdle() < want) {
+        el.dispatchEvent(
+          new WheelEvent('wheel', {
+            clientX: sx,
+            clientY: sy,
+            deltaY: -80,
+            ctrlKey: true,
+            deltaMode: 0,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+        await new Promise<number>((r) => requestAnimationFrame(r));
+      }
+    }, {
+      want: minVisible,
+      sx: (await stage.boundingBox())!.x + 40,
+      sy: (await stage.boundingBox())!.y + 40,
+    });
+    await sleep(400);
+  }
+
+  await sleep(500);
   const counts = await readCounts(page);
   console.log('[e2e:soa-settle]', JSON.stringify(counts));
   const pan = await measurePanFps(page, stage);
@@ -462,7 +531,9 @@ test.describe('SoA live editor (browser)', () => {
 
   test('mixed ladder 2k/5k/10k — rect+text+image+video+path pan FPS', async ({ page }) => {
     test.skip(!RUN_MIXED_LADDER, 'set SOA_BROWSER_MIXED=1 (default) for mixed ladder');
+    console.log('[e2e:soa-mixed] open editor');
     const { stage } = await openBlankEditor(page);
+    console.log('[e2e:soa-mixed] editor ready');
     const ladder = [2000, 5000, 10_000];
     const rows: Array<Record<string, unknown>> = [];
 
@@ -471,8 +542,8 @@ test.describe('SoA live editor (browser)', () => {
       const inj = await injectMixedStressDoc(page, n, TINY_PNG);
       const injectWallMs = Date.now() - t0;
       console.log(`[e2e:soa-mixed] injected n=${n} setDocumentMs=${inj.setDocumentMs} tallies=`, inj.tallies);
-      await sleep(1500);
-      const { counts, pan } = await settleAndMeasure(page, stage);
+      await sleep(800);
+      const { counts, pan } = await settleAndMeasure(page, stage, { minVisible: 280 });
       const row = {
         n,
         kind: 'mixed',

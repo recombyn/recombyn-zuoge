@@ -6,6 +6,7 @@ import {
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 export type FrameSceneBox = {
@@ -119,12 +120,19 @@ export function resolveFramePlateTarget(
   if (!frameId) return null;
   if (!hitId) return frameId;
   if (frameForFullBleedPlate(doc, hitId) === frameId) return frameId;
+
   const hitNode = doc.deltaSetLike?.[hitId];
-  if (
-    hitNode &&
-    String(hitNode.attrs?.frameId || '').trim() === frameId &&
-    isAnimationWorkbenchPreviewChild(doc, hitNode)
-  ) {
+  const ownedByFrame = Boolean(
+    hitNode && String(hitNode.attrs?.frameId || '').trim() === frameId
+  );
+  if (ownedByFrame && hitNode && isAnimationWorkbenchPreviewChild(doc, hitNode)) {
+    return frameId;
+  }
+  // Real content owned by this frame keeps the node hit (not the plate).
+  if (ownedByFrame) return null;
+
+  // World / lower-frame node under a higher plate — plate wins (matches paint).
+  if (stackZIndex(doc, 'frame', frameId) > stackZIndex(doc, 'node', hitId)) {
     return frameId;
   }
   return null;

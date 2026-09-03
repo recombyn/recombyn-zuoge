@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hitTestSceneAtPoint, isNodePickableAtPoint } from '../sceneHitBridge';
+import { hitTestSceneAtPoint, isNodePickableAtPoint, frameIdAtPoint } from '../sceneHitBridge';
 import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
 import {
   createSceneRenderBuffer,
@@ -9,7 +9,11 @@ import {
   SOA_KIND_PATH,
   syncSceneRenderBufferFromDocument,
 } from '@/components/rcb/render/sceneRenderBuffer';
-import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  createEmptyDocument,
+  addNodeToDocument,
+  stackZIndex,
+} from '@/components/rcb/scene/document/sceneDocument';
 
 function rectDoc(): SceneDocument {
   return {
@@ -576,5 +580,94 @@ describe('hitTestSceneAtPoint', () => {
         soaBuf: buf,
       })
     ).toBe('brush');
+  });
+
+  it('falls through to AABB for idle rect when SoA slot misses', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r', {
+      id: 'r',
+      key: 'shape',
+      x: 50,
+      y: 50,
+      width: 80,
+      height: 60,
+      attrs: { shapeType: 'rect', 'fill-color': '#fff', 'fill-enabled': 'true' },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const i = buf.indexById.get('r')!;
+    buf.flags[i] = (SOA_FLAG_CANVAS_IDLE | SOA_FLAG_VISIBLE) >>> 0;
+    // Stale SoA geometry far from the real node — slot miss must not block AABB.
+    buf.positions[i * 4] = 900;
+    buf.positions[i * 4 + 1] = 900;
+    const getNodeBox = () => ({ left: 50, top: 50, width: 80, height: 60 });
+    expect(
+      hitTestSceneAtPoint({
+        document: doc,
+        order: ['r'],
+        x: 70,
+        y: 70,
+        zoom: 1,
+        getNodeBox,
+        soaBuf: buf,
+      })
+    ).toBe('r');
+  });
+
+  it('occludes world rect under a higher animation artboard', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc.frames = [
+      {
+        id: 'anim',
+        name: 'Anim',
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        kind: 'animation',
+      } as never,
+    ];
+    doc = addNodeToDocument(doc, 'under', {
+      id: 'under',
+      key: 'shape',
+      x: 40,
+      y: 40,
+      width: 200,
+      height: 200,
+      attrs: { shapeType: 'rect', 'fill-color': '#abc' },
+      children: [],
+    });
+    // Force animation plate above the world rect (addNode may reorder).
+    doc = {
+      ...doc,
+      stackOrder: ['node:under', 'frame:anim'],
+    };
+    expect(stackZIndex(doc, 'frame', 'anim')).toBeGreaterThan(stackZIndex(doc, 'node', 'under'));
+    const getNodeBox = () => ({ left: 40, top: 40, width: 200, height: 200 });
+    expect(
+      hitTestSceneAtPoint({
+        document: doc,
+        order: ['under'],
+        x: 100,
+        y: 100,
+        zoom: 1,
+        getNodeBox,
+      })
+    ).toBeNull();
+    expect(isNodePickableAtPoint(doc, doc.deltaSetLike.under as SceneNode, 100, 100)).toBe(false);
+  });
+
+  it('frameIdAtPoint follows stackOrder not frames array order', () => {
+    const doc = {
+      frames: [
+        { id: 'high', x: 50, y: 50, width: 200, height: 200 },
+        { id: 'low', x: 0, y: 0, width: 200, height: 200 },
+      ],
+      // high is on top in stack even though it is first in frames[]
+      stackOrder: ['frame:low', 'frame:high'],
+      deltaSetLike: { ROOT: { children: [] } },
+    } as unknown as SceneDocument;
+    expect(frameIdAtPoint(doc, 100, 100)).toBe('high');
   });
 });

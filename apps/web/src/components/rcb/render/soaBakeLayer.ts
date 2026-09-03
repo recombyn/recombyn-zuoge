@@ -5,8 +5,10 @@
  */
 import {
   type SceneRenderBuffer,
+  SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
   SOA_FLAG_DIRTY,
+  SOA_FLAG_FREE,
   SOA_FLAG_VISIBLE,
   SOA_KIND_ELLIPSE,
   SOA_KIND_LINE,
@@ -15,22 +17,47 @@ import {
   paintSoaBufferBasic,
   resolveSoaPaintBox,
 } from './sceneRenderBuffer';
-import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
+import { getNodeTransformPreview, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** Document for plate clip while baking tiles (set by the stage renderer). */
 let bakeClipDocument: SceneDocument | null = null;
 
+type PendingBakeJob = {
+  key: string;
+  bounds: { left: number; top: number; width: number; height: number };
+  revision: number;
+};
+
+let bakeReadyListeners: Set<() => void> | null = null;
+const bakeInflight = new Set<string>();
+const bakeQueue: PendingBakeJob[] = [];
+let bakeJobSeq = 1;
+let bakeWorker: Worker | null = null;
+let bakeWorkerSyncedRevision = -1;
+let bakeWorkerFailed = false;
+let pumpBuf: SceneRenderBuffer | null = null;
+
+function getBakeReadyListeners(): Set<() => void> {
+  if (!bakeReadyListeners) bakeReadyListeners = new Set();
+  return bakeReadyListeners;
+}
+
 export function setSoaBakeClipDocument(doc: SceneDocument | null | undefined) {
   bakeClipDocument = doc ?? null;
 }
 
-export const SOA_BAKE_COUNT_THRESHOLD = 8_000;
+/** Engage when canvas-idle SoA density is near a full viewport (~800+). */
+export const SOA_BAKE_COUNT_THRESHOLD = 800;
 /** World-space tile edge (scene units). */
 export const SOA_BAKE_TILE_WORLD = 2_048;
 /** Max pixel edge per tile canvas. */
 export const SOA_BAKE_TILE_PX = 2_048;
-const MAX_CACHED_TILES = 24;
+/** New tiles built per paint in Vitest sync budget (browser uses Worker only). */
+export const SOA_BAKE_NEW_TILES_PER_FRAME = 2;
+/** Max Worker bake jobs in flight. */
+export const SOA_BAKE_ASYNC_MAX_INFLIGHT = 4;
+const MAX_CACHED_TILES = 48;
 const POS_STRIDE = 4;
 
 export type SoaWorldBounds = {
@@ -73,10 +100,9 @@ function createBakeCanvas(w: number, h: number): OffscreenCanvas | HTMLCanvasEle
   if (typeof OffscreenCanvas !== 'undefined') {
     try {
       const oc = new OffscreenCanvas(width, height);
-      // Some test / older environments expose OffscreenCanvas without a 2d ctx.
       if (oc.getContext('2d')) return oc;
     } catch {
-      /* fall through */
+      /* Vitest / older engines — use HTMLCanvasElement below. */
     }
   }
   const c = document.createElement('canvas');
@@ -250,107 +276,9 @@ export function clearSoaGestureDirtyAccum(): void {
   gestureInkDirtyAccum = null;
 }
 
-/** Replace gesture accum (e.g. pan reveal strips) without reading SoA slots. */
+/** Replace gesture accum without reading SoA slots. */
 export function seedSoaGestureDirtyAccum(bounds: SoaWorldBounds | null): void {
   gestureInkDirtyAccum = bounds;
-}
-
-function clearCanvasEdgeStrip(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  dx: number,
-  dy: number
-): void {
-  if (dx > 0) ctx.clearRect(0, 0, dx, h);
-  if (dx < 0) ctx.clearRect(w + dx, 0, -dx, h);
-  if (dy > 0) ctx.clearRect(0, 0, w, dy);
-  if (dy < 0) ctx.clearRect(0, h + dy, w, -dy);
-}
-
-/**
- * Shift an HTML canvas bitmap by CSS-px pan delta, then clear the uncovered
- * edge strips. Used so camera pan need not full-clear idle ink.
- */
-export function blitHtmlCanvasCssOffset(
-  canvas: HTMLCanvasElement | null | undefined,
-  dxCss: number,
-  dyCss: number,
-  dpr: number
-): boolean {
-  if (!canvas) return false;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return false;
-  const scale = dpr > 0 ? dpr : 1;
-  const dx = Math.round(dxCss * scale);
-  const dy = Math.round(dyCss * scale);
-  if (dx === 0 && dy === 0) return true;
-  const w = canvas.width;
-  const h = canvas.height;
-  if (w < 1 || h < 1) return false;
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalCompositeOperation = 'copy';
-  ctx.drawImage(canvas, dx, dy);
-  ctx.globalCompositeOperation = 'source-over';
-  clearCanvasEdgeStrip(ctx, w, h, dx, dy);
-  ctx.restore();
-  return true;
-}
-
-function absorbSceneRect(
-  into: { left: number; top: number; right: number; bottom: number; any: boolean },
-  x: number,
-  y: number,
-  w: number,
-  h: number
-): void {
-  if (w < 1e-6 || h < 1e-6) return;
-  into.any = true;
-  into.left = Math.min(into.left, x);
-  into.top = Math.min(into.top, y);
-  into.right = Math.max(into.right, x + w);
-  into.bottom = Math.max(into.bottom, y + h);
-}
-
-/**
- * Scene AABB covering strips newly exposed by a screen-space pan
- * (`dxCss`/`dyCss` = newCamOffset − oldCamOffset).
- */
-export function panRevealSceneAabb(opts: {
-  dxCss: number;
-  dyCss: number;
-  view: { x: number; y: number; width: number; height: number };
-  zoom: number;
-}): SoaWorldBounds | null {
-  const z = Math.max(0.05, opts.zoom || 1);
-  const { view } = opts;
-  const dx = opts.dxCss;
-  const dy = opts.dyCss;
-  const box = {
-    left: Number.POSITIVE_INFINITY,
-    top: Number.POSITIVE_INFINITY,
-    right: Number.NEGATIVE_INFINITY,
-    bottom: Number.NEGATIVE_INFINITY,
-    any: false,
-  };
-  if (Math.abs(dx) > 0.5) {
-    const wScene = Math.abs(dx) / z + 2 / z;
-    if (dx > 0) absorbSceneRect(box, view.x, view.y, wScene, view.height);
-    else absorbSceneRect(box, view.x + view.width - wScene, view.y, wScene, view.height);
-  }
-  if (Math.abs(dy) > 0.5) {
-    const hScene = Math.abs(dy) / z + 2 / z;
-    if (dy > 0) absorbSceneRect(box, view.x, view.y, view.width, hScene);
-    else absorbSceneRect(box, view.x, view.y + view.height - hScene, view.width, hScene);
-  }
-  if (!box.any || !Number.isFinite(box.left)) return null;
-  return {
-    left: box.left,
-    top: box.top,
-    width: Math.max(1, box.right - box.left),
-    height: Math.max(1, box.bottom - box.top),
-  };
 }
 
 export function getSoaBakeCountThreshold(): number {
@@ -373,8 +301,47 @@ export function getSoaBakeTileWorld(): number {
   return SOA_BAKE_TILE_WORLD;
 }
 
+/** Live idle+basic slots — free holes / SVG hosts must not trip bake alone. */
+export function countSoaBakeEligibleSlots(buf: SceneRenderBuffer): number {
+  let n = 0;
+  for (let i = 0; i < buf.count; i += 1) {
+    const flags = buf.flags[i] >>> 0;
+    if (flags & SOA_FLAG_FREE) continue;
+    if (!(flags & SOA_FLAG_VISIBLE)) continue;
+    if (!(flags & SOA_FLAG_CANVAS_IDLE)) continue;
+    if (!(flags & SOA_FLAG_BASIC_GEOM)) continue;
+    n += 1;
+  }
+  return n;
+}
+
 export function shouldUseSoaBake(buf: SceneRenderBuffer): boolean {
-  return buf.count >= getSoaBakeCountThreshold();
+  const thr = getSoaBakeCountThreshold();
+  // Eligible ≤ count, so count < thr cannot engage.
+  if (buf.count < thr) return false;
+  return countSoaBakeEligibleSlots(buf) >= thr;
+}
+
+/**
+ * Pan/zoom gesture in flight (RcbCanvas cameraMoving).
+ * Skip tile bake while true — world tiles stay valid; live WebGL fills the
+ * viewport. Bake resumes on settle (avoids zoom thrashing the Worker).
+ */
+let soaCameraGestureActive = false;
+
+export function setSoaCameraGestureActive(active: boolean): void {
+  soaCameraGestureActive = Boolean(active);
+}
+
+export function isSoaCameraGestureActive(): boolean {
+  return soaCameraGestureActive;
+}
+
+/** Bake path gate for WebGL atlas tiles (gesture / transform preview). */
+export function isSoaBakePathAllowed(): boolean {
+  if (soaCameraGestureActive) return false;
+  if (hasNodeTransformPreviews()) return false;
+  return true;
 }
 
 function paintIdleInto(
@@ -645,7 +612,7 @@ export function ensureSoaBake(
   };
 }
 
-/** Drop tiles overlapping dirty AABB so they rebuild on next blit. */
+/** Drop tiles overlapping dirty AABB so they rebuild on next collect. */
 export function patchSoaBakeDirty(buf: SceneRenderBuffer, bake: SoaBakeLayer): boolean {
   const cache = getSharedSoaBakeCache();
   const dirty = unionSoaDirtyAabb(buf);
@@ -697,63 +664,239 @@ export function invalidateSoaBakeTilesForDirty(
   return [...dropped];
 }
 
-function blitOneTile(
-  ctx: CanvasRenderingContext2D,
-  tile: SoaBakeTile,
-  view: { left?: number; top?: number; x?: number; y?: number; width: number; height: number }
-) {
-  const { bounds, canvas } = tile;
-  const vl = view.left ?? view.x ?? 0;
-  const vt = view.top ?? view.y ?? 0;
-  const vr = vl + view.width;
-  const vb = vt + view.height;
-  const bl = bounds.left;
-  const bt = bounds.top;
-  const br = bl + bounds.width;
-  const bb = bt + bounds.height;
-  if (br < vl || bb < vt || bl > vr || bt > vb) return;
-  const scaleX = canvas.width / Math.max(1, bounds.width);
-  const scaleY = canvas.height / Math.max(1, bounds.height);
-  const srcX = Math.max(0, (vl - bl) * scaleX);
-  const srcY = Math.max(0, (vt - bt) * scaleY);
-  const srcR = Math.min(canvas.width, (vr - bl) * scaleX);
-  const srcB = Math.min(canvas.height, (vb - bt) * scaleY);
-  const srcW = Math.max(1, srcR - srcX);
-  const srcH = Math.max(1, srcB - srcY);
-  const dstX = Math.max(vl, bl);
-  const dstY = Math.max(vt, bt);
-  const dstW = Math.min(vr, br) - dstX;
-  const dstH = Math.min(vb, bb) - dstY;
-  if (dstW <= 0 || dstH <= 0) return;
-  ctx.drawImage(
-    canvas as CanvasImageSource,
-    srcX,
-    srcY,
-    srcW,
-    srcH,
-    dstX,
-    dstY,
-    dstW,
-    dstH
+/** Notify when an async tile lands (SceneRenderer bumps idle paint). */
+export function subscribeSoaBakeTileReady(listener: () => void): () => void {
+  const listeners = getBakeReadyListeners();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifySoaBakeTileReady() {
+  const listeners = bakeReadyListeners;
+  if (!listeners) return;
+  for (const fn of listeners) {
+    fn();
+  }
+}
+
+function canUseSoaBakeWorker(): boolean {
+  if (isSoaBakeVitestEnv()) return false;
+  return (
+    !bakeWorkerFailed &&
+    typeof Worker !== 'undefined' &&
+    typeof OffscreenCanvas !== 'undefined' &&
+    typeof createImageBitmap === 'function'
   );
 }
 
-/** Ensure + blit all tiles covering the viewport. */
-export function blitSoaBakeForView(
-  ctx: CanvasRenderingContext2D,
-  buf: SceneRenderBuffer,
-  bake: SoaBakeLayer,
-  view: { left?: number; top?: number; x?: number; y?: number; width: number; height: number }
+function isSoaBakeVitestEnv(): boolean {
+  try {
+    return Boolean(import.meta.env.MODE === 'test' || import.meta.env.VITEST);
+  } catch {
+    return false;
+  }
+}
+
+function clearBakeAsyncState() {
+  bakeQueue.length = 0;
+  bakeInflight.clear();
+  bakeWorkerSyncedRevision = -1;
+}
+
+function getSoaBakeWorker(): Worker | null {
+  if (!canUseSoaBakeWorker()) return null;
+  if (bakeWorker) return bakeWorker;
+  try {
+    const w = new Worker(new URL('./soaBakeTile.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    w.onmessage = (ev: MessageEvent) => {
+      handleBakeWorkerMessage(ev.data);
+    };
+    w.onerror = () => {
+      bakeWorkerFailed = true;
+      bakeWorker = null;
+      clearBakeAsyncState();
+      notifySoaBakeTileReady();
+    };
+    bakeWorker = w;
+    return w;
+  } catch {
+    bakeWorkerFailed = true;
+    return null;
+  }
+}
+
+function handleBakeWorkerMessage(data: {
+  type?: string;
+  key?: string;
+  revision?: number;
+  ok?: boolean;
+  bitmap?: ImageBitmap;
+}) {
+  if (!data || data.type !== 'tile') return;
+  const key = String(data.key || '');
+  bakeInflight.delete(key);
+  const cache = getSharedSoaBakeCache();
+  const revision = Number(data.revision) || 0;
+  if (data.ok && data.bitmap && cache && cache.bufferRevision === revision && key) {
+    installBakeTileBitmap(cache, key, revision, data.bitmap);
+    notifySoaBakeTileReady();
+  } else {
+    try {
+      data.bitmap?.close?.();
+    } catch {
+      /* ignore */
+    }
+  }
+  pumpSoaBakeQueue();
+}
+
+function installBakeTileBitmap(
+  cache: SoaBakeCache,
+  key: string,
+  revision: number,
+  bitmap: ImageBitmap
 ) {
+  const parts = key.split(',');
+  const tx = Number(parts[0]);
+  const ty = Number(parts[1]);
+  const tw = cache.tileWorld;
+  const bounds: SoaWorldBounds = {
+    left: tx * tw,
+    top: ty * tw,
+    width: tw,
+    height: tw,
+  };
+  const canvas = createBakeCanvas(SOA_BAKE_TILE_PX, SOA_BAKE_TILE_PX);
+  const ctx = canvas.getContext('2d') as
+    | OffscreenCanvasRenderingContext2D
+    | CanvasRenderingContext2D
+    | null;
+  if (!ctx) {
+    bitmap.close();
+    return;
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const tile: SoaBakeTile = { key, canvas, bounds, bufferRevision: revision };
+  cache.tiles.set(key, tile);
+  if (pumpBuf && pumpBuf.revision === revision) {
+    bindElementsForTileBounds(pumpBuf, cache, key, bounds);
+  }
+  touchLru(cache, key);
+}
+
+function syncSoaBakeWorkerBuffer(buf: SceneRenderBuffer): boolean {
+  const w = getSoaBakeWorker();
+  if (!w) return false;
+  if (bakeWorkerSyncedRevision === buf.revision) return true;
+  const n = Math.max(0, buf.count);
+  const pathUsed = Math.max(0, buf.pathXYCount);
+  w.postMessage({
+    type: 'sync',
+    revision: buf.revision,
+    count: n,
+    positions: buf.positions.slice(0, n * POS_STRIDE),
+    radii: buf.radii.slice(0, n * 4),
+    colors: buf.colors.slice(0, n),
+    flags: buf.flags.slice(0, n),
+    kinds: buf.kinds.slice(0, n),
+    strokeWidths: buf.strokeWidths.slice(0, n),
+    strokeColors: buf.strokeColors.slice(0, n),
+    pathXY: buf.pathXY.slice(0, pathUsed),
+    pathStart: buf.pathStart.slice(0, n),
+    pathLen: buf.pathLen.slice(0, n),
+    pathClosed: buf.pathClosed.slice(0, n),
+  });
+  bakeWorkerSyncedRevision = buf.revision;
+  return true;
+}
+
+function enqueueSoaBakeJob(job: PendingBakeJob) {
+  if (bakeInflight.has(job.key)) return;
+  if (bakeQueue.some((q) => q.key === job.key)) return;
+  bakeQueue.push(job);
+}
+
+function pumpSoaBakeQueue() {
+  const buf = pumpBuf;
+  if (!buf) return;
+  while (bakeInflight.size < SOA_BAKE_ASYNC_MAX_INFLIGHT && bakeQueue.length) {
+    const job = bakeQueue.shift();
+    if (!job) break;
+    if (job.revision !== buf.revision) continue;
+    const cache = getSharedSoaBakeCache();
+    if (cache?.tiles.get(job.key)?.bufferRevision === job.revision) continue;
+    if (bakeInflight.has(job.key)) continue;
+    if (!syncSoaBakeWorkerBuffer(buf)) {
+      throw new Error('SoA bake Worker unavailable — no idle/main-thread bake path');
+    }
+    const w = getSoaBakeWorker();
+    if (!w) {
+      throw new Error('SoA bake Worker unavailable — no idle/main-thread bake path');
+    }
+    bakeInflight.add(job.key);
+    bakeJobSeq += 1;
+    w.postMessage({
+      type: 'bake',
+      jobId: bakeJobSeq,
+      key: job.key,
+      revision: job.revision,
+      tilePx: SOA_BAKE_TILE_PX,
+      bounds: job.bounds,
+    });
+  }
+}
+
+/** Ready tiles in view; browser enqueues Worker jobs; Vitest builds sync (no Worker dual path). */
+export function collectReadySoaBakeTilesForView(
+  buf: SceneRenderBuffer,
+  view: { left?: number; top?: number; x?: number; y?: number; width: number; height: number }
+): { tiles: SoaBakeTile[]; pending: boolean } {
   const cache = getSharedSoaBakeCache() ?? createSoaBakeCache();
   setSharedSoaBakeCache(cache);
-  const tw = cache.tileWorld;
-  for (const { tx, ty, bounds } of tilesForView(view, tw)) {
-    const tile = ensureSoaBakeTile(buf, cache, tx, ty, bounds);
-    if (tile) blitOneTile(ctx, tile, view);
+  if (cache.bufferRevision !== buf.revision) {
+    cache.tiles.clear();
+    cache.lru = [];
+    cache.elementToTiles.clear();
+    cache.tileToElements.clear();
+    cache.bufferRevision = buf.revision;
+    cache.tileWorld = getSoaBakeTileWorld();
+    clearBakeAsyncState();
   }
-  bake.bufferRevision = buf.revision;
-  bake.valid = true;
+  pumpBuf = buf;
+  const ready: SoaBakeTile[] = [];
+  let pending = false;
+  let syncBuilt = 0;
+  const useWorker = !isSoaBakeVitestEnv();
+  for (const { tx, ty, bounds } of tilesForView(view, cache.tileWorld)) {
+    const key = tileKey(tx, ty);
+    const cached = cache.tiles.get(key);
+    if (cached && cached.bufferRevision === buf.revision) {
+      ready.push(cached);
+      continue;
+    }
+    pending = true;
+    if (useWorker) {
+      enqueueSoaBakeJob({ key, bounds, revision: buf.revision });
+      continue;
+    }
+    if (syncBuilt >= SOA_BAKE_NEW_TILES_PER_FRAME) continue;
+    const tile = ensureSoaBakeTile(buf, cache, tx, ty, bounds);
+    if (!tile) continue;
+    syncBuilt += 1;
+    ready.push(tile);
+  }
+  pumpSoaBakeQueue();
+  return {
+    tiles: ready,
+    pending: pending || bakeInflight.size > 0 || bakeQueue.length > 0,
+  };
 }
 
 let sharedBake: SoaBakeLayer | null = null;
@@ -781,5 +924,7 @@ export function setSharedSoaBakeCache(cache: SoaBakeCache | null) {
 }
 
 export function resetSharedSoaBakeCache() {
+  clearBakeAsyncState();
   sharedCache = null;
+  pumpBuf = null;
 }

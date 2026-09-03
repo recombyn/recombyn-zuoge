@@ -154,6 +154,8 @@ export function listShapeHosts() {
 
 export function clearShapeHosts() {
   hosts.clear();
+  nodeHostEpochs.clear();
+  nodeHostListeners.clear();
 }
 
 /** One screen-surface SVG — shape layers share the canonical camera matrix. */

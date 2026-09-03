@@ -122,6 +122,7 @@ const en = {
     heroStartTitle: 'Make it, design has never been this simple',
     heroStartTitleAria: 'Make it, design has never been this simple',
     footerCopy: '© {{year}} zuoge',
+    footerIcp: '滇ICP备2026017289号',
     heroSuggest: {
       ui: 'UI design',
       poster: 'Poster',

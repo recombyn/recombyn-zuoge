@@ -128,29 +128,44 @@ function pathAttrsHaveSolidFill(attrs: Record<string, unknown>): boolean {
   return !isTransparentCssColor(String(fill || ''));
 }
 
-/** True when VITE_SOA_WEBGL_ATLAS is explicitly disabled (default-on with WebGL). */
-function isSoaWebglAtlasEnvOff(): boolean {
-  try {
-    const v = String(import.meta.env.VITE_SOA_WEBGL_ATLAS ?? '').toLowerCase();
-    return v === '0' || v === 'false' || v === 'no';
-  } catch {
-    return false;
-  }
+function isStrokeInkShapeType(t: string, key: string, customPath: string): boolean {
+  return (
+    t === 'line' ||
+    t === 'arrow' ||
+    t === 'pen' ||
+    t === 'pencil' ||
+    t === 'path' ||
+    key === 'path' ||
+    Boolean(customPath)
+  );
+}
+
+/** Rect/ellipse fills that WebGL can stamp with outline (atlas). */
+function isWebglAtlasFillShape(t: string, key: string): boolean {
+  return (
+    t === 'rect' ||
+    t === 'roundrect' ||
+    t === '' ||
+    key === 'shape' ||
+    t === 'circle' ||
+    t === 'ellipse' ||
+    t === 'oval'
+  );
+}
+
+function hasVisibleOutlineStroke(node: SceneNodeInput): boolean {
+  const stroke = resolveStroke(node);
+  if (!(Number(stroke.strokeWidth) > 0)) return false;
+  return !isTransparentCssColor(String(stroke.stroke || ''));
 }
 
 /**
- * True when {@link paintSoaBufferBasic} can draw the node faithfully.
- * Gradient / text / media / rotation / flip stay off BASIC_GEOM (rich canvas
- * ink or DOM hosts). Solid rounded rects, outline stroke (any strokeAlign on
- * Canvas2D), and simple poly/star are OK on the Canvas2D SoA path.
- * WebGL instances still lack outline+poly, so those stay off BASIC_GEOM while
- * `VITE_SOA_WEBGL` is on.
- * Line/path ink *is* the stroke (not an outline on a fill).
+ * True when SoA BASIC_GEOM can draw the node on the product WebGL path
+ * (or Canvas2D helpers in Vitest). Non-basic → DOM host.
  */
 export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined): boolean {
   if (!node || !isSoaCanvasEligible(node)) return false;
   const attrs = node.attrs || {};
-  // Flip needs SVG / rich idle transform — basic SoA fill has no scale(-1).
   if (attrs.flipX === true || attrs.flipX === 'true') return false;
   if (attrs.flipY === true || attrs.flipY === 'true') return false;
 
@@ -160,52 +175,28 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
   const key = String(node.key || '');
   const t = shapeTypeToken(node);
   const webgl = isSoaWebglEnvEnabled();
-  // Line/path ink *is* the stroke — outline stroke on filled shapes is separate.
-  const customPathEarly = String(attrs.path || '').trim();
-  const strokeInk =
-    t === 'line' ||
-    t === 'arrow' ||
-    t === 'pen' ||
-    t === 'pencil' ||
-    t === 'path' ||
-    key === 'path' ||
-    Boolean(customPathEarly);
-  // Rotated fills stay off basic SoA; stroke ink (line/arrow/pen) keeps angle —
-  // otherwise angled lines never get CANVAS_IDLE and click-hit falls apart after
-  // select→promote→demote (first click worked via Path2D race / samples).
+  const customPath = String(attrs.path || '').trim();
+  const strokeInk = isStrokeInkShapeType(t, key, customPath);
+
+  // Rotated fills stay off basic SoA; stroke ink keeps angle for pick after demote.
   if (!strokeInk && Math.abs(Number(attrs.angle) || 0) > 0.5) return false;
-  if (!strokeInk) {
-    const stroke = resolveStroke(node);
-    if ((Number(stroke.strokeWidth) || 0) > 0 && !isTransparentCssColor(String(stroke.stroke || ''))) {
-      // WebGL instance path has no outline stroke — keep SVG hosts / rich idle.
-      if (webgl) return false;
-    }
+
+  // Outline on fills: WebGL atlas handles rect/ellipse; other kinds stay DOM.
+  if (!strokeInk && webgl && hasVisibleOutlineStroke(node) && !isWebglAtlasFillShape(t, key)) {
+    return false;
   }
 
   if (t === 'line' || t === 'arrow') return true;
   if (t === 'triangle' || t === 'polygon' || t === 'star') {
-    // WebGL pack skips SOA_KIND_POLY — Canvas2D SoA only.
-    if (webgl) return false;
-    return true;
+    // WebGL skips SOA_KIND_POLY — Vitest Canvas2D SoA only.
+    return !webgl;
   }
-  const customPath = String(attrs.path || '').trim();
-  // Boolean / outline on a rect/circle still paints from `path` — use path rules.
   if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path' || customPath) {
-    const d = customPath || String(attrs.path || '').trim();
+    const d = customPath;
     if (!d || d.length >= HEAVY_PATH_D_CHARS) return false;
-    // Boolean compounds / holes need Path2D + evenodd — SoA polyline fill is nonzero-only.
     const fillRule = String(attrs['fill-rule'] || '').toLowerCase();
     if (fillRule === 'evenodd') return false;
     if (attrs.outlined === true || attrs.outlined === 'true') return false;
-    // Closed fill needs atlas stamps; without atlas keep SVG (segment batch is stroke-only).
-    if (
-      webgl &&
-      isSoaWebglAtlasEnvOff() &&
-      pathDLooksClosed(d, attrs.closed) &&
-      pathAttrsHaveSolidFill(attrs)
-    ) {
-      return false;
-    }
     return true;
   }
   if (t === 'rect' || t === 'roundrect' || t === '') return true;
@@ -267,28 +258,24 @@ export function setSoaCanvasShapesEnabledForTests(value: boolean | null) {
   soaCanvasShapesOverride = value;
 }
 
+/** SoA canvas shapes — product always on. Vitest off unless test override. */
 export function isSoaCanvasShapesEnabled(): boolean {
   if (soaCanvasShapesOverride != null) return soaCanvasShapesOverride;
   try {
-    // Vitest: off unless setSoaCanvasShapesEnabledForTests(true).
     if (import.meta.env.MODE === 'test' || import.meta.env.VITEST) return false;
-    const env = String(import.meta.env.VITE_SOA_CANVAS_SHAPES ?? '').toLowerCase();
-    if (env === '0' || env === 'false' || env === 'no') return false;
-    if (env === '1' || env === 'true' || env === 'yes') return true;
     return true;
   } catch {
     return true;
   }
 }
 
-/** WebGL ink env (no circular import of webglSceneRenderer). */
+/** WebGL ink — product always on. Vitest off so Canvas2D paint helpers stay testable. */
 export function isSoaWebglEnvEnabled(): boolean {
   try {
     if (import.meta.env.MODE === 'test' || import.meta.env.VITEST) return false;
-    const env = String(import.meta.env.VITE_SOA_WEBGL ?? '').toLowerCase();
-    return env === '1' || env === 'true' || env === 'yes';
+    return true;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -451,28 +438,52 @@ function ensureCapacity(buf: SceneRenderBuffer, need: number) {
   if (need <= buf.capacity) return;
   let next = buf.capacity;
   while (next < need) next += GROW;
+  reallocSlotArrays(buf, next);
+}
+
+/** Drop excess slot capacity after a full rebuild (grow-only otherwise). */
+function shrinkCapacityIfLoose(buf: SceneRenderBuffer) {
+  const want = Math.max(GROW, Math.ceil(Math.max(buf.count, 1) / GROW) * GROW);
+  if (buf.capacity <= want) return;
+  // Keep up to 2× live need (or +1 GROW). Anything larger is peak residue.
+  const keep = Math.max(want * 2, want + GROW);
+  if (buf.capacity <= keep) return;
+  reallocSlotArrays(buf, want);
+}
+
+function copyTypedPrefix<T extends { length: number; subarray: (b: number, e: number) => T }>(
+  dst: { set: (src: T) => void },
+  src: T,
+  n: number
+) {
+  if (n <= 0) return;
+  dst.set(src.subarray(0, Math.min(src.length, n)));
+}
+
+function reallocSlotArrays(buf: SceneRenderBuffer, next: number) {
   const positions = new Float32Array(next * POS_STRIDE);
-  positions.set(buf.positions);
+  copyTypedPrefix(positions, buf.positions, next * POS_STRIDE);
   const radii = new Float32Array(next * RAD_STRIDE);
-  radii.set(buf.radii);
+  copyTypedPrefix(radii, buf.radii, next * RAD_STRIDE);
   const colors = new Uint32Array(next);
-  colors.set(buf.colors);
+  copyTypedPrefix(colors, buf.colors, next);
   const flags = new Uint32Array(next);
-  flags.set(buf.flags);
+  copyTypedPrefix(flags, buf.flags, next);
   const kinds = new Uint8Array(next);
-  kinds.set(buf.kinds);
+  copyTypedPrefix(kinds, buf.kinds, next);
   const strokeWidths = new Float32Array(next);
-  strokeWidths.set(buf.strokeWidths);
+  copyTypedPrefix(strokeWidths, buf.strokeWidths, next);
   const strokeColors = new Uint32Array(next);
-  strokeColors.set(buf.strokeColors);
+  copyTypedPrefix(strokeColors, buf.strokeColors, next);
   const ids = new Array(next);
-  for (let i = 0; i < buf.count; i += 1) ids[i] = buf.ids[i];
+  const copyIds = Math.min(buf.count, next);
+  for (let i = 0; i < copyIds; i += 1) ids[i] = buf.ids[i];
   const pathStart = new Int32Array(next).fill(-1);
-  pathStart.set(buf.pathStart);
+  copyTypedPrefix(pathStart, buf.pathStart, next);
   const pathLen = new Uint16Array(next);
-  pathLen.set(buf.pathLen);
+  copyTypedPrefix(pathLen, buf.pathLen, next);
   const pathClosed = new Uint8Array(next);
-  pathClosed.set(buf.pathClosed);
+  copyTypedPrefix(pathClosed, buf.pathClosed, next);
   buf.capacity = next;
   buf.positions = positions;
   buf.radii = radii;
@@ -493,6 +504,17 @@ function ensurePathXYCapacity(buf: SceneRenderBuffer, floatNeed: number) {
   while (next < floatNeed) next *= 2;
   const xy = new Float32Array(next);
   if (buf.pathXYCount > 0) xy.set(buf.pathXY.subarray(0, buf.pathXYCount));
+  buf.pathXY = xy;
+}
+
+/** Compact pathXY after densify when the backing store is far above use. */
+function shrinkPathXYIfLoose(buf: SceneRenderBuffer) {
+  const used = Math.max(0, buf.pathXYCount);
+  let want = 256;
+  while (want < used) want *= 2;
+  if (buf.pathXY.length <= want * 2) return;
+  const xy = new Float32Array(want);
+  if (used > 0) xy.set(buf.pathXY.subarray(0, used));
   buf.pathXY = xy;
 }
 
@@ -708,6 +730,7 @@ export function rebuildSoaPathSamples(
       }
       buf.pathXYCount = cursor;
     }
+    shrinkPathXYIfLoose(buf);
     return;
   }
 
@@ -785,6 +808,7 @@ export function rebuildSoaPathSamples(
     buf.pathClosed[item.index] = item.closed ? 1 : 0;
   }
   buf.pathXYCount = cursor;
+  shrinkPathXYIfLoose(buf);
 }
 
 /**
@@ -800,6 +824,8 @@ export function syncSceneRenderBufferFromDocument(
   buf.freeSlots.length = 0;
   buf.count = 0;
   if (!document?.deltaSetLike) {
+    shrinkCapacityIfLoose(buf);
+    shrinkPathXYIfLoose(buf);
     buf.revision += 1;
     return buf;
   }
@@ -819,6 +845,7 @@ export function syncSceneRenderBufferFromDocument(
   buf.revision += 1;
   rebuildSoaPathSamples(buf, document);
   bulkUpsertSoaQuadtree(buf);
+  shrinkCapacityIfLoose(buf);
   return buf;
 }
 

@@ -934,8 +934,21 @@ function HomeTemplateList({
           >
             <HomeHero onSubmit={onAgentSubmit} />
           </div>
-          <p className="pointer-events-none shrink-0 pb-5 pt-2 text-center text-[12px] leading-none text-[color-mix(in_srgb,var(--ink)_38%,transparent)]">
-            {t('home.footerCopy', { year: new Date().getFullYear() })}
+          <p className="shrink-0 pb-5 pt-2 text-center text-[12px] leading-none text-[color-mix(in_srgb,var(--ink)_38%,transparent)]">
+            <span className="pointer-events-none">
+              {t('home.footerCopy', { year: new Date().getFullYear() })}
+            </span>
+            <span className="pointer-events-none mx-1.5" aria-hidden>
+              ·
+            </span>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline-offset-2 hover:underline"
+            >
+              {t('home.footerIcp')}
+            </a>
           </p>
         </main>
       ) : null}
