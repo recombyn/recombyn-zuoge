@@ -23,6 +23,7 @@ import {
   unpackCssColor,
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
+import { getLiveCornerRadiusPreviewRadii } from '@/components/rcb/scene/document/sceneRadii';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   collectSoaBakeTilesIntoAtlas,
@@ -33,7 +34,6 @@ import {
   releaseSoaAtlasPrefix,
   releaseSoaAtlasRegion,
   stampSoaPathToAtlas,
-  stampSoaRoundedRectToAtlas,
   stampSoaEllipseToAtlas,
   type SoaAtlasRegion,
   type SoaWebglAtlas,
@@ -85,16 +85,25 @@ layout(location = 3) in float aKind;
 layout(location = 4) in float aAngle;
 layout(location = 5) in vec4 aUv;
 layout(location = 6) in vec4 aClip;
+layout(location = 7) in vec4 aStroke;
 out vec2 vUv;
 out vec2 vAtlasUv;
 out vec4 vColor;
 out float vKind;
 out vec2 vWorld;
 out vec4 vClip;
+out vec2 vHalf;
+out vec4 vRadii;
+out vec4 vStroke;
 void main() {
   vec2 local;
   if (aKind > 1.5 && aKind < 2.5) {
     local = vec2(aCorner.x * aRect.z, (aCorner.y - 0.5) * aRect.w);
+  } else if (aKind > 3.5) {
+    // Grow the quad so center-aligned stroke is not clipped by the fill AABB.
+    float pad = aStroke.w * 0.5;
+    vec2 size = aRect.zw + vec2(pad * 2.0);
+    local = aCorner * size - vec2(pad);
   } else {
     local = aCorner * aRect.zw;
   }
@@ -113,7 +122,20 @@ void main() {
   vKind = aKind;
   vWorld = pos;
   vClip = aClip;
+  vHalf = aRect.zw * 0.5;
+  vRadii = aUv;
+  vStroke = aStroke;
 }`;
+
+/** IQ rounded-box SDF; r = (tr, br, tl, bl). */
+const FS_ROUND_SDF = `
+float sdRoundBox(vec2 p, vec2 b, vec4 r) {
+  r.xy = (p.x > 0.0) ? r.xy : r.zw;
+  r.x = (p.y > 0.0) ? r.x : r.y;
+  vec2 q = abs(p) - b + r.x;
+  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r.x;
+}
+`;
 
 const FS = `#version 300 es
 precision mediump float;
@@ -124,15 +146,40 @@ in vec4 vColor;
 in float vKind;
 in vec2 vWorld;
 in vec4 vClip;
+in vec2 vHalf;
+in vec4 vRadii;
+in vec4 vStroke;
 out vec4 outColor;
+${FS_ROUND_SDF}
 void main() {
   if (vWorld.x < vClip.x || vWorld.y < vClip.y || vWorld.x > vClip.z || vWorld.y > vClip.w) {
     discard;
   }
-  if (vKind > 2.5) {
+  // Atlas stamp (paths / bake tiles).
+  if (vKind > 2.5 && vKind < 3.5) {
     vec4 tex = texture(uAtlas, vAtlasUv);
     if (tex.a < 0.01) discard;
     outColor = tex;
+    return;
+  }
+  // Shader rounded rect — avoids 256px atlas downsample soft edges when idle.
+  if (vKind > 3.5) {
+    vec2 p = vUv * vHalf;
+    // aUv/vRadii stored as tl,tr,br,bl → IQ order tr,br,tl,bl
+    vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
+    float d = sdRoundBox(p, vHalf, r);
+    float sw = max(0.0, vStroke.w);
+    float aa = max(fwidth(d), 0.001);
+    float outer = d - sw * 0.5;
+    float cover = 1.0 - smoothstep(-aa, aa, outer);
+    if (cover < 0.01) discard;
+    vec3 rgb = vColor.rgb;
+    if (sw > 0.001) {
+      float inner = d + sw * 0.5;
+      float inFill = 1.0 - smoothstep(-aa, aa, inner);
+      rgb = mix(vStroke.rgb, vColor.rgb, inFill);
+    }
+    outColor = vec4(rgb, vColor.a * cover);
     return;
   }
   if (vKind > 0.5 && vKind < 1.5) {
@@ -142,6 +189,8 @@ void main() {
 }`;
 
 const UNIT_QUAD = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
+/** Instanced kind: shader SDF rounded rect (fill ± center stroke). */
+export const SOA_WEBGL_KIND_ROUNDED = 4;
 /** Default line thickness in scene units (used when SoA stroke width is unset). */
 export const SOA_WEBGL_LINE_THICKNESS = 2;
 /** Cap segments emitted per path so one dense stroke cannot explode the instance batch. */
@@ -219,6 +268,19 @@ export function resolveSoaWebglSlotClip(
   return [left, top, right, bottom];
 }
 
+function pushInstanceStroke(
+  strokes: number[] | undefined,
+  rgba: [number, number, number, number] | null,
+  width: number
+) {
+  if (!strokes) return;
+  if (!rgba || width <= 0) {
+    strokes.push(0, 0, 0, 0);
+    return;
+  }
+  strokes.push(rgba[0], rgba[1], rgba[2], width);
+}
+
 function pushLineInstance(
   x0: number,
   y0: number,
@@ -234,7 +296,8 @@ function pushLineInstance(
   depths: number[] | undefined,
   depth: number,
   clips: number[] | undefined,
-  clip: readonly [number, number, number, number]
+  clip: readonly [number, number, number, number],
+  strokes?: number[]
 ) {
   const dx = x1 - x0;
   const dy = y1 - y0;
@@ -247,6 +310,7 @@ function pushLineInstance(
   uvs.push(0, 0, 1, 1);
   if (depths) depths.push(depth);
   pushInstanceClip(clips, clip);
+  pushInstanceStroke(strokes, null, 0);
 }
 
 function countPathSegments(buf: SceneRenderBuffer, index: number): number {
@@ -330,12 +394,14 @@ function commitAtlasRegionInstance(
   slotDepth: number,
   clips: number[] | undefined,
   clip: readonly [number, number, number, number],
+  strokes: number[] | undefined,
   offsetX = 0,
   offsetY = 0
 ) {
   pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, rotRad, offsetX, offsetY);
   if (depthOut) depthOut.push(slotDepth);
   pushInstanceClip(clips, clip);
+  pushInstanceStroke(strokes, null, 0);
 }
 
 export type CollectSoaWebglOpts = {
@@ -346,13 +412,15 @@ export type CollectSoaWebglOpts = {
   depthForId?: (id: string) => number;
   /** Parallel scene-space LTRB clip per instance (clipContent artboards). */
   clips?: number[];
+  /** Parallel stroke rgba+width for rounded SDF (kind 4); zeros for other kinds. */
+  strokes?: number[];
   /** Document for clip resolve; defaults to {@link getSoaPaintDocument}. */
   document?: SceneDocument | null;
 };
 
 /**
  * Pack visible rect / ellipse / line / path instances intersecting the view.
- * kinds: 0=rect, 1=ellipse, 2=line-or-path-segment, 3=atlas path stamp.
+ * kinds: 0=rect, 1=ellipse, 2=line-or-path-segment, 3=atlas path stamp, 4=rounded SDF.
  */
 export function collectSoaWebglInstances(
   buf: SceneRenderBuffer,
@@ -368,6 +436,7 @@ export function collectSoaWebglInstances(
   const depthOut = opts?.depths;
   const depthForId = opts?.depthForId;
   const clips = opts?.clips;
+  const strokes = opts?.strokes;
   const paintDoc = opts?.document ?? getSoaPaintDocument();
   const vl = view.left ?? view.x ?? 0;
   const vt = view.top ?? view.y ?? 0;
@@ -394,6 +463,7 @@ export function collectSoaWebglInstances(
     const lineW = soaStrokeWidth(buf, i);
     const forceStamp = (flags & SOA_FLAG_DIRTY) !== 0;
     const nodeId = buf.ids[i] || '';
+    const id = nodeId;
     const slotDepth = depthForId ? depthForId(nodeId) : 0.5;
     const slotClip = resolveSoaWebglSlotClip(buf, i, paintDoc);
 
@@ -435,6 +505,7 @@ export function collectSoaWebglInstances(
           pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, 0, 0);
           if (depthOut) depthOut.push(slotDepth);
           pushInstanceClip(clips, slotClip);
+          pushInstanceStroke(strokes, null, 0);
           if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
           continue;
         }
@@ -464,7 +535,8 @@ export function collectSoaWebglInstances(
           depthOut,
           slotDepth,
           clips,
-          slotClip
+          slotClip,
+          strokes
         );
         emitted += 1;
       };
@@ -511,7 +583,8 @@ export function collectSoaWebglInstances(
             depthOut,
             slotDepth,
             clips,
-            slotClip
+            slotClip,
+            strokes
           );
           emitted += 1;
         };
@@ -555,13 +628,13 @@ export function collectSoaWebglInstances(
         depthOut,
         slotDepth,
         clips,
-        slotClip
+        slotClip,
+        strokes
       );
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;
     }
 
-    const id = buf.ids[i];
     const liveAngle = id ? getNodeTransformPreview(id)?.angle : undefined;
     let rotDeg = 0;
     if (Number.isFinite(liveAngle) && Math.abs(Number(liveAngle)) > 0.5) {
@@ -576,45 +649,27 @@ export function collectSoaWebglInstances(
     const fillCss = unpackCssColor(buf.colors[i]);
     const worldBox = { left: x, top: y, width: w, height: h };
 
-    // Rounded / stroked rects → atlas (instanced quads are fill-only sharp).
-    if (kind === SOA_KIND_RECT && atlas && odx === 0 && ody === 0) {
+    // Rounded rects → shader SDF (atlas 256px cell softens large/zoomed idle ink).
+    if (kind === SOA_KIND_RECT) {
       const ro = i * 4;
-      const tl = buf.radii[ro] || 0;
-      const tr = buf.radii[ro + 1] || 0;
-      const br = buf.radii[ro + 2] || 0;
-      const bl = buf.radii[ro + 3] || 0;
+      const liveR = id ? getLiveCornerRadiusPreviewRadii(id) : null;
+      const tl = liveR ? liveR.tl : buf.radii[ro] || 0;
+      const tr = liveR ? liveR.tr : buf.radii[ro + 1] || 0;
+      const br = liveR ? liveR.br : buf.radii[ro + 2] || 0;
+      const bl = liveR ? liveR.bl : buf.radii[ro + 3] || 0;
       const rounded = tl > 0.5 || tr > 0.5 || br > 0.5 || bl > 0.5;
       if (rounded || hasOutline) {
-        const region = stampSoaRoundedRectToAtlas(
-          atlas,
-          `round:${id || i}`,
-          worldBox,
-          fillCss,
-          { tl, tr, br, bl },
-          {
-            force: forceStamp,
-            strokeCss: hasOutline ? outlineCss : undefined,
-            strokeWidth: hasOutline ? outlineW : 0,
-          }
-        );
-        if (region) {
-          commitAtlasRegionInstance(
-            atlas,
-            region,
-            rects,
-            colors,
-            kinds,
-            angles,
-            uvs,
-            rotRad,
-            depthOut,
-            slotDepth,
-            clips,
-            slotClip
-          );
-          clearSoaDirtyFlag(buf, i, flags, forceStamp);
-          continue;
-        }
+        const outlineRgba = hasOutline ? argbToRgba(outlineArgb) : null;
+        rects.push(x, y, w, h);
+        colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
+        kinds.push(SOA_WEBGL_KIND_ROUNDED);
+        angles.push(rotRad);
+        uvs.push(tl, tr, br, bl);
+        if (depthOut) depthOut.push(slotDepth);
+        pushInstanceClip(clips, slotClip);
+        pushInstanceStroke(strokes, outlineRgba, hasOutline ? outlineW : 0);
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
       }
     }
 
@@ -644,7 +699,8 @@ export function collectSoaWebglInstances(
           depthOut,
           slotDepth,
           clips,
-          slotClip
+          slotClip,
+          strokes
         );
         clearSoaDirtyFlag(buf, i, flags, forceStamp);
         continue;
@@ -658,6 +714,7 @@ export function collectSoaWebglInstances(
     uvs.push(0, 0, 1, 1);
     if (depthOut) depthOut.push(slotDepth);
     pushInstanceClip(clips, slotClip);
+    pushInstanceStroke(strokes, null, 0);
     clearSoaDirtyFlag(buf, i, flags, forceStamp);
   }
 }
@@ -687,6 +744,7 @@ export function createWebglSceneRenderer(
   const angleBuf = gl.createBuffer();
   const uvBuf = gl.createBuffer();
   const clipBuf = gl.createBuffer();
+  const strokeBuf = gl.createBuffer();
   const depthBuf = gl.createBuffer();
   const atlasTex = gl.createTexture();
   let disposed = false;
@@ -711,7 +769,8 @@ export function createWebglSceneRenderer(
       angleBuf,
       uvBuf,
       depthBuf,
-      clipBuf
+      clipBuf,
+      strokeBuf
     );
     gl.bindVertexArray(null);
     return dofPass;
@@ -753,6 +812,11 @@ export function createWebglSceneRenderer(
   gl.enableVertexAttribArray(6);
   gl.vertexAttribPointer(6, 4, gl.FLOAT, false, 0, 0);
   gl.vertexAttribDivisor(6, 1);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
+  gl.enableVertexAttribArray(7);
+  gl.vertexAttribPointer(7, 4, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribDivisor(7, 1);
   gl.bindVertexArray(null);
 
   gl.bindTexture(gl.TEXTURE_2D, atlasTex);
@@ -777,6 +841,8 @@ export function createWebglSceneRenderer(
     gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4 * 4, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, clipBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4 * 4, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4 * 4, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, depthBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4, gl.DYNAMIC_DRAW);
@@ -834,6 +900,7 @@ export function createWebglSceneRenderer(
       const angles: number[] = [];
       const uvs: number[] = [];
       const clips: number[] = [];
+      const strokes: number[] = [];
       const depths: number[] = [];
 
       let depthLookup: ReturnType<typeof buildNormalizedDepthLookup> | null = null;
@@ -906,6 +973,7 @@ export function createWebglSceneRenderer(
               SOA_WEBGL_NO_CLIP[2],
               SOA_WEBGL_NO_CLIP[3]
             );
+            strokes.push(0, 0, 0, 0);
           }
         }
         if (import.meta.env.DEV && atlas.stats.misses + atlas.stats.hits > 0) {
@@ -924,6 +992,7 @@ export function createWebglSceneRenderer(
           depths: useDof ? depths : undefined,
           depthForId: depthLookup ? (id) => depthLookup!.depthForId(id) : undefined,
           clips,
+          strokes,
           document: req.document,
         });
       }
@@ -956,6 +1025,12 @@ export function createWebglSceneRenderer(
           : Array.from({ length: count * 4 }, (_, i) => SOA_WEBGL_NO_CLIP[i % 4]);
       gl.bindBuffer(gl.ARRAY_BUFFER, clipBuf);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(clipFill));
+      const strokeFill =
+        strokes.length === count * 4
+          ? strokes
+          : Array.from({ length: count * 4 }, () => 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(strokeFill));
       if (useDof) {
         const depthFill =
           depths.length === count
@@ -1008,6 +1083,7 @@ export function createWebglSceneRenderer(
       gl.deleteBuffer(angleBuf);
       gl.deleteBuffer(uvBuf);
       gl.deleteBuffer(clipBuf);
+      gl.deleteBuffer(strokeBuf);
       gl.deleteBuffer(depthBuf);
       gl.deleteTexture(atlasTex);
       gl.deleteVertexArray(vao);
