@@ -781,12 +781,12 @@ function SelectionFeature({
     if (dragRef.current) return;
     // After draw/remount, prefer live host geom so picks match HostPathChrome paint
     // (store AABB alone drifts under sticky lattice at high zoom).
+    // Frames: baseOrigins already went through resolveFrameChromeBox (live plate /
+    // host-if-close / document) — do not overwrite with a bare stale host lattice
+    // after multi-frame mode:move.
     const origins = baseOrigins.map((o) => {
       const frameId = parseFrameSelId(o.nodeId);
-      if (frameId) {
-        const live = liveShapeGeomBox(frameId);
-        return live ? { nodeId: o.nodeId, box: live } : o;
-      }
+      if (frameId) return o;
       const live = liveShapeGeomBox(o.nodeId);
       if (!live) return o;
       const node = document?.deltaSetLike?.[o.nodeId];
@@ -824,7 +824,12 @@ function SelectionFeature({
           angle: 0,
           membersKey,
         };
-        nextUnion = !idsKey && origins[0]?.box ? origins[0].box : selectionUnion;
+        // Multi artboard / 动画: always the full selection union — origins[0]
+        // collapsed the blue box onto the first plate after move (chrome drift).
+        nextUnion =
+          !idsKey && origins.length === 1 && origins[0]?.box
+            ? origins[0].box
+            : selectionUnion;
         nextAngle = 0;
       }
     } else {
