@@ -5,8 +5,9 @@
  * HTML overlay would snap independently under fractional browser DPR.
  * Snap math stays in alignGuides; this file only paints.
  *
- * Paint contract: one continuous stroke per guide, then small dots at marks.
- * Do not draw × arms on the guide — those read as "broken" segments at high zoom.
+ * Paint contract: one continuous stroke per guide, then short 米 marks at
+ * corners / edge mids. Keep mark arms short so they do not read as broken
+ * guide dashes at high zoom.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -84,9 +85,64 @@ function GuideBadge({
   );
 }
 
-/** Filled dot on a guide — does not interrupt the continuous stroke. */
-function GuideMarkDot({ x, y, r }: { x: number; y: number; r: number }) {
-  return <circle cx={x} cy={y} r={r} fill={GUIDE_STROKE} stroke="none" />;
+/**
+ * 米-shaped snap mark (＋ ×) — short arms so the continuous guide stroke
+ * still reads as one line underneath.
+ */
+export function GuideMarkAsterisk({
+  x,
+  y,
+  r,
+  strokeWidth,
+}: {
+  x: number;
+  y: number;
+  r: number;
+  strokeWidth: number;
+}) {
+  const arm = Math.max(r * 1.15, strokeWidth * 2.5);
+  const diag = arm * 0.72;
+  const sw = Math.max(strokeWidth, r * 0.45);
+  return (
+    <g data-rcb-guide-mark="asterisk" pointerEvents="none">
+      <line
+        x1={x - arm}
+        y1={y}
+        x2={x + arm}
+        y2={y}
+        stroke={GUIDE_STROKE}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
+      <line
+        x1={x}
+        y1={y - arm}
+        x2={x}
+        y2={y + arm}
+        stroke={GUIDE_STROKE}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
+      <line
+        x1={x - diag}
+        y1={y - diag}
+        x2={x + diag}
+        y2={y + diag}
+        stroke={GUIDE_STROKE}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
+      <line
+        x1={x - diag}
+        y1={y + diag}
+        x2={x + diag}
+        y2={y - diag}
+        stroke={GUIDE_STROKE}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
+    </g>
+  );
 }
 
 function formatSizeBadge(box: SceneBox): string {
@@ -189,7 +245,7 @@ export default function SmartGuidesOverlay({
         );
         return;
       }
-      // Continuous align stroke first; dots on top (no × that reads as dashed).
+      // Continuous align stroke first; 米 marks on top.
       out.push(
         <g key={`align-${i}`}>
           <line
@@ -203,7 +259,7 @@ export default function SmartGuidesOverlay({
             shapeRendering="geometricPrecision"
           />
           {(g.marks || []).map((m, mi) => (
-            <GuideMarkDot key={mi} x={m.x} y={m.y} r={markR} />
+            <GuideMarkAsterisk key={mi} x={m.x} y={m.y} r={markR} strokeWidth={stroke} />
           ))}
         </g>
       );
