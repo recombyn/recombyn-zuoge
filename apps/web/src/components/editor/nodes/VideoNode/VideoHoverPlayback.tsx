@@ -273,15 +273,18 @@ function VideoHoverPlayback({
   const [fsOpen, setFsOpen] = useState(false);
   /** Mirrors video.currentTime so scrubber vs freeze can diverge and show live video. */
   const [mediaTime, setMediaTime] = useState(0);
-  /** Frozen still + the mediaTime it was captured at. */
-  const [freeze, setFreeze] = useState<{ url: string; at: number }>(() => ({
-    url: String(poster || '').trim(),
-    at: 0,
-  }));
+  /** Frozen still + the mediaTime it was captured at (atlas / demoted fallback). */
+  const [freeze, setFreeze] = useState<{ url: string; at: number }>(() => {
+    const p = String(poster || '').trim();
+    // blob: posters are revoked across refresh — never seed the freeze <img> with them.
+    if (!p || p.startsWith('blob:')) return { url: '', at: -999 };
+    return { url: p, at: 0 };
+  });
   const playSrc = usePlayableVideoSrc(src, uploadKey);
   const showUi = !hidden;
   const z = Math.max(0.05, zoom || 1);
   const posterUrl = String(poster || '').trim();
+  const capturingFreezeRef = useRef(false);
   freezeUrlRef.current = freeze.url;
   freezeAtRef.current = freeze.at;
   mediaTimeRef.current = mediaTime;
@@ -339,7 +342,7 @@ function VideoHoverPlayback({
 
   useEffect(() => {
     const next = String(poster || '').trim();
-    if (!next) return;
+    if (!next || next.startsWith('blob:')) return;
     setFreeze((prev) => (prev.url ? prev : { url: next, at: 0 }));
   }, [poster]);
 
@@ -356,7 +359,11 @@ function VideoHoverPlayback({
       /* ignore */
     }
     freezeGenRef.current += 1;
-    setFreeze({ url: posterUrl, at: 0 });
+    // Prefer empty over revoked blob poster — live <video> paints the FO plate.
+    setFreeze({
+      url: posterUrl && !posterUrl.startsWith('blob:') ? posterUrl : '',
+      at: posterUrl && !posterUrl.startsWith('blob:') ? 0 : -999,
+    });
     clearVideoIdlePaintFrame(String(nodeId));
     el.src = playSrc;
   }, [playSrc, posterUrl, videoEl, nodeId]);
@@ -367,36 +374,73 @@ function VideoHoverPlayback({
     setMedia(videoMediaFromElement(el));
   }, [videoEl]);
 
-  // Capture still after pause / seek — wait for two decoded frames (first RVFC
-  // can still be the previous bitmap). Keep paused <video> visible until capture
-  // lands so a stale freeze never flashes. Publish still into SoA idle paint.
+  // Capture still for atlas demotion / extract-frame host API.
+  // Do NOT drive the FO plate with this still while we own the shared decoder —
+  // paused <video> already shows currentTime; covering it with a freeze <img>
+  // (often a stale first frame after RVFC) is what made pause/scrub look stuck.
   useEffect(() => {
     const el = videoRef.current as VideoWithFrameCallback | null;
     if (!el) return;
     const id = String(nodeId);
 
-    const freezeNow = (opts?: { invalidate?: boolean }) => {
+    const freezeNow = () => {
       if (!el.paused && !el.ended) return;
-      if (opts?.invalidate) {
-        // Drop time-matched still so scrubber stays on live paused pixels.
-        setFreeze({ url: '', at: -999 });
-      }
+      if (capturingFreezeRef.current) return;
       const gen = ++freezeGenRef.current;
       void (async () => {
+        capturingFreezeRef.current = true;
         const wrap = videoWrapRef.current;
         const prevVis = wrap?.style.visibility;
-        // Hidden videos often won't decode the seeked frame — reveal for capture.
-        // Never punch through a layer-hidden plate (child visibility:visible wins
-        // over parent visibility:hidden in CSS).
         if (wrap && showUiRef.current) wrap.style.visibility = 'visible';
+        const target = Number(el.currentTime) || 0;
         try {
+          // Nudge then restore — paused RVFC alone often redraws the previous bitmap.
+          const nudge =
+            target <= 0.02 ? Math.min(0.05, Math.max(0.02, (Number(el.duration) || 1) * 0.01)) : target;
+          if (Math.abs((Number(el.currentTime) || 0) - nudge) > 0.01) {
+            await new Promise<void>((resolve) => {
+              let settled = false;
+              const done = () => {
+                if (settled) return;
+                settled = true;
+                el.removeEventListener('seeked', done);
+                window.clearTimeout(timer);
+                resolve();
+              };
+              const timer = window.setTimeout(done, 220);
+              el.addEventListener('seeked', done);
+              try {
+                el.currentTime = nudge;
+              } catch {
+                done();
+              }
+            });
+          }
+          if (Math.abs((Number(el.currentTime) || 0) - target) > 0.01) {
+            await new Promise<void>((resolve) => {
+              let settled = false;
+              const done = () => {
+                if (settled) return;
+                settled = true;
+                el.removeEventListener('seeked', done);
+                window.clearTimeout(timer);
+                resolve();
+              };
+              const timer = window.setTimeout(done, 220);
+              el.addEventListener('seeked', done);
+              try {
+                el.currentTime = target;
+              } catch {
+                done();
+              }
+            });
+          }
           await waitForVideoFrame(el);
-          // Second paint — same race extract-frame already works around.
           await waitForVideoFrame(el);
           if (gen !== freezeGenRef.current) return;
           const shot = captureFrameFromVideoEl(el);
           if (!shot) return;
-          const at = Number(el.currentTime) || 0;
+          const at = Number(el.currentTime) || target;
           setMediaTime(at);
           setFreeze({ url: shot, at });
           setVideoIdlePaintFrame(id, shot, at);
@@ -404,15 +448,20 @@ function VideoHoverPlayback({
           markSoaDirtyById(getSharedSceneRenderBuffer(), id);
           bumpSceneCanvasIdlePaint();
         } finally {
+          capturingFreezeRef.current = false;
           if (wrap) {
-            wrap.style.visibility = showUiRef.current ? prevVis ?? '' : 'hidden';
+            // FO plate keeps the decoder visible; don't restore a freeze-era hidden wrap.
+            wrap.style.visibility = showUiRef.current ? 'visible' : prevVis || 'hidden';
           }
         }
       })();
     };
 
-    const onPause = () => freezeNow({ invalidate: true });
-    const onSeeked = () => freezeNow();
+    const onPause = () => freezeNow();
+    const onSeeked = () => {
+      if (capturingFreezeRef.current) return;
+      freezeNow();
+    };
     const onLoaded = () => freezeNow();
     el.addEventListener('pause', onPause);
     el.addEventListener('seeked', onSeeked);
@@ -429,6 +478,7 @@ function VideoHoverPlayback({
       el.removeEventListener('timeupdate', syncTime);
       el.removeEventListener('seeked', syncTime);
       freezeGenRef.current += 1;
+      capturingFreezeRef.current = false;
     };
   }, [playSrc, nodeId]);
 
@@ -477,10 +527,15 @@ function VideoHoverPlayback({
   // Wait for SVG foreignObject mount so we never fall back to a parallel CSS stack.
   if (!svgMount) return null;
 
-  // Still only when it matches scrubber time — otherwise show paused video at currentTime.
-  const freezeMatches = Boolean(freeze.url) && Math.abs(mediaTime - freeze.at) <= 0.12;
-  const showStill = !playing && freezeMatches;
-  const showVideo = playing || !showStill;
+  // Still only when this plate does NOT own the live decoder (demoted / no FO).
+  // Owning the decoder: always paint through <video> — pause/scrub seek the element.
+  const ownsDecoder = sharedVideoOwnerId === String(nodeId) && Boolean(videoEl);
+  const freezeMatches =
+    Boolean(freeze.url) &&
+    !freeze.url.startsWith('blob:') &&
+    Math.abs(mediaTime - freeze.at) <= 0.12;
+  const showStill = !playing && freezeMatches && !ownsDecoder;
+  const showVideo = ownsDecoder || playing || !showStill;
   const barVisible = showUi && !hideChrome && (plateHovered || barHovered || playing);
   // Layout must match FO box (drag-base while CSS-scale resizing), not the visual
   // chrome size — otherwise scrubber/video sit mid-plate during live resize.
