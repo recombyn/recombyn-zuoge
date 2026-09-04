@@ -151,9 +151,44 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
       document: doc,
       visibleIds: ['t0', 'p0', 'i0'],
       zoom: 1,
+      dpr: 1,
     });
     expect(fullIds).toEqual([]);
     expect(canvasIds.sort()).toEqual(['i0', 'p0', 't0']);
+  });
+
+  it('promotes large/zoomed idle images to DOM hosts (atlas cell would soft-downsample)', () => {
+    const large = {
+      ...imageNode('big'),
+      width: 400,
+      height: 300,
+    };
+    const doc = makeDoc({ big: large, small: imageNode('small') });
+    const at1x = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['big', 'small'],
+      zoom: 1,
+      dpr: 1,
+    });
+    expect(at1x.fullIds).toEqual(['big']);
+    expect(at1x.canvasIds).toEqual(['small']);
+
+    const zoomedSmall = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['small'],
+      zoom: 4,
+      dpr: 1,
+    });
+    expect(zoomedSmall.fullIds).toEqual(['small']);
+    expect(zoomedSmall.canvasIds).toEqual([]);
+
+    const retinaSmall = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['small'],
+      zoom: 1,
+      dpr: 4,
+    });
+    expect(retinaSmall.fullIds).toEqual(['small']);
   });
 
   it('forceFullSet keeps a canvas-ink node as a DOM host', () => {
