@@ -173,21 +173,24 @@ void main() {
     outColor = tex;
     return;
   }
-  // Shader rounded rect — avoids 256px atlas downsample soft edges when idle.
+  // Shader rounded rect — scene-space fill ± center stroke.
+  // UV spans the padded quad so SDF samples match the expanded vertex size.
+  // AA is half-fwidth + half-pixel stroke expand so 1px strokes keep SVG-like
+  // optical weight (full fwidth smoothstep alone looks thin/虚 vs selected SVG).
   if (vKind > 3.5) {
-    vec2 p = vUv * vHalf;
+    float sw = max(0.0, vStroke.w);
+    float pad = sw * 0.5;
+    vec2 p = vUv * (vHalf + vec2(pad));
     // aUv/vRadii stored as tl,tr,br,bl → IQ order tr,br,tl,bl
     vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
     float d = sdRoundBox(p, vHalf, r);
-    float sw = max(0.0, vStroke.w);
-    float aa = max(fwidth(d), 0.001);
-    float outer = d - sw * 0.5;
-    float cover = 1.0 - smoothstep(-aa, aa, outer);
-    if (cover < 0.01) discard;
+    float aa = max(0.5 * fwidth(d), 0.0005);
+    float half = pad + aa * 0.5;
+    float cover = 1.0 - smoothstep(-aa, aa, d - half);
+    if (cover < 0.004) discard;
     vec3 rgb = vColor.rgb;
     if (sw > 0.001) {
-      float inner = d + sw * 0.5;
-      float inFill = 1.0 - smoothstep(-aa, aa, inner);
+      float inFill = 1.0 - smoothstep(-aa, aa, d + half);
       rgb = mix(vStroke.rgb, vColor.rgb, inFill);
     }
     outColor = vec4(rgb, vColor.a * cover);
@@ -877,7 +880,8 @@ export function createWebglSceneRenderer(
   const gl = canvas.getContext('webgl2', {
     alpha: true,
     premultipliedAlpha: true,
-    antialias: true,
+    // SDF already feathers edges — MSAA double-softens 1px strokes vs SVG.
+    antialias: false,
   });
   if (!gl || !isSoaCanvasShapesEnabled()) return null;
 
