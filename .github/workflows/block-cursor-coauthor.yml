@@ -1,5 +1,6 @@
 # Reject PR commits that include Cursor as Co-authored-by.
 # GitHub free repos cannot use ruleset commit_message_pattern; this check is the substitute.
+# Use pwsh on Windows self-hosted — Git Bash mangles ACTIONS_TEMP paths (C:\ → C:).
 name: Block Cursor co-author
 
 on:
@@ -16,7 +17,7 @@ jobs:
     runs-on: [self-hosted, Windows, ci]
     defaults:
       run:
-        shell: bash
+        shell: pwsh
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,11 +29,21 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          set -euo pipefail
-          bad="$(git log --format=%B "${BASE_SHA}..${HEAD_SHA}" | grep -F 'Co-authored-by: Cursor' || true)"
-          if [ -n "$bad" ]; then
-            echo "::error::Commits must not include 'Co-authored-by: Cursor'. Amend/rebase without that trailer, then push."
-            git log --format='== %h%n%B' "${BASE_SHA}..${HEAD_SHA}" | grep -n -F 'Co-authored-by: Cursor' -B5 || true
+          $base = $env:BASE_SHA
+          $head = $env:HEAD_SHA
+          if (-not $base -or -not $head) {
+            Write-Error "Missing BASE_SHA or HEAD_SHA"
             exit 1
-          fi
-          echo "OK: no Cursor Co-authored-by trailer in PR commits."
+          }
+          $bodies = git log --format=%B "${base}..${head}" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "git log failed: $bodies"
+            exit 1
+          }
+          $hit = $bodies | Select-String -SimpleMatch 'Co-authored-by: Cursor'
+          if ($hit) {
+            Write-Host "::error::Commits must not include 'Co-authored-by: Cursor'. Amend/rebase without that trailer, then push."
+            git log --format='== %h%n%B' "${base}..${head}" | Select-String -SimpleMatch 'Co-authored-by: Cursor' -Context 5,0
+            exit 1
+          }
+          Write-Host 'OK: no Cursor Co-authored-by trailer in PR commits.'
