@@ -904,7 +904,7 @@ function NodeLayerRow({
             t('editor.tools.imageGenerator'),
             t('editor.tools.videoGenerator'),
             t('editor.tools.lottieGenerator'),
-            t('editor.tools.audioGenerator', { defaultValue: '音频生成�? }),
+            t('editor.tools.audioGenerator'),
             t
           )}
         </span>
