@@ -15,8 +15,39 @@ import {
 export const SOA_ATLAS_DEFAULT_SIZE = 2048;
 export const SOA_ATLAS_CELL = 256;
 export const SOA_ATLAS_PAD = 2;
+/** Usable texels per cell after padding — idle media softer than this on screen. */
+export const SOA_ATLAS_INNER = SOA_ATLAS_CELL - SOA_ATLAS_PAD * 2;
 /** Prefer atlas stamp when a path would emit at least this many segments. */
 export const SOA_ATLAS_SEG_THRESHOLD = 12;
+
+/** Longest screen edge (CSS px × dpr) for an idle media stamp. */
+export function idleMediaScreenEdgePx(
+  width: number,
+  height: number,
+  zoom: number,
+  dpr = 1
+): number {
+  const edge = Math.max(Math.max(1, Number(width) || 1), Math.max(1, Number(height) || 1));
+  return edge * Math.max(0.05, Number(zoom) || 1) * Math.max(1, Number(dpr) || 1);
+}
+
+/**
+ * Idle image/video stamps into a fixed atlas cell. When the on-screen edge
+ * exceeds that cell, the stamp looks soft until selection paint-raises a
+ * full-res SVG host — promote those nodes to DOM hosts while zoomed in.
+ */
+export function idleMediaNeedsSharpHost(
+  node: { key?: unknown; width?: unknown; height?: unknown } | null | undefined,
+  zoom: number,
+  dpr = 1
+): boolean {
+  if (!node) return false;
+  const key = String(node.key || '');
+  if (key !== 'image' && key !== 'video') return false;
+  return idleMediaScreenEdgePx(Number(node.width) || 1, Number(node.height) || 1, zoom, dpr) >
+    SOA_ATLAS_INNER;
+}
+
 
 export type SoaAtlasRegion = {
   key: string;

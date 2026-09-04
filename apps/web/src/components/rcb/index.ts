@@ -158,6 +158,9 @@ export {
   isSoaWebglAtlasEnabled,
   SOA_ATLAS_SEG_THRESHOLD,
   SOA_ATLAS_CELL,
+  SOA_ATLAS_INNER,
+  idleMediaNeedsSharpHost,
+  idleMediaScreenEdgePx,
 } from './render/webglInstanceAtlas';
 export {
   subscribeSoaBakeTileReady,

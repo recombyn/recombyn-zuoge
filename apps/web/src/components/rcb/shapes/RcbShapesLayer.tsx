@@ -40,6 +40,7 @@ import {
   requestIdleCanvasFullRepaint,
   setSceneCanvasIdlePaint,
 } from '@/components/rcb/render/sceneRenderer';
+import { idleMediaNeedsSharpHost } from '@/components/rcb/render/webglInstanceAtlas';
 import {
   getLiveCornerRadiusPreviewNodeId,
   subscribeLiveCornerRadiusPreview,
@@ -475,6 +476,8 @@ export function pickFullAndCanvasIds(opts: {
   /** Kept for API compat; plate raise is data-z on the shared mount. */
   paintRaiseFrameIds?: ReadonlySet<string> | readonly string[];
   zoom: number;
+  /** Device pixel ratio for idle media sharpness (defaults to window.devicePixelRatio). */
+  dpr?: number;
   maxCanvasInk?: number;
 }): { fullIds: string[]; canvasIds: string[] } {
   const { document, visibleIds, zoom } = opts;
@@ -486,6 +489,9 @@ export function pickFullAndCanvasIds(opts: {
       : new Set(opts.paintRaiseIds)
     : null;
   const maxCanvasInk = opts.maxCanvasInk ?? MAX_CANVAS_INK_PAINT;
+  const dpr =
+    opts.dpr ??
+    (typeof window !== 'undefined' ? Number(window.devicePixelRatio) || 1 : 1);
   const fullIds: string[] = [];
   const canvasRaw: string[] = [];
   for (const id of visibleIds) {
@@ -495,7 +501,10 @@ export function pickFullAndCanvasIds(opts: {
       forceFullSet.has(id) ||
       Boolean(holdHostIds?.has(id)) ||
       Boolean(paintRaiseSet?.has(id)) ||
-      worldNodeStacksAboveAnyFrame(document, id);
+      worldNodeStacksAboveAnyFrame(document, id) ||
+      // Atlas cell (~252px) cannot stay sharp for large/zoomed images — same
+      // class of soft-idle bug as rounded-rect SDF before shader fill.
+      idleMediaNeedsSharpHost(node, zoom, dpr);
     if (nodeNeedsDomShapeHost(node, forceHost)) fullIds.push(id);
     else canvasRaw.push(id);
   }

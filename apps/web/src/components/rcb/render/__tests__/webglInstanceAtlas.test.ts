@@ -10,7 +10,10 @@ import {
   pruneSoaAtlasForBuffer,
   atlasRegionToUv,
   SOA_ATLAS_CELL,
+  SOA_ATLAS_INNER,
   SOA_ATLAS_SEG_THRESHOLD,
+  idleMediaNeedsSharpHost,
+  idleMediaScreenEdgePx,
 } from '../webglInstanceAtlas';
 import {
   createSceneRenderBuffer,
@@ -19,6 +22,15 @@ import {
 } from '../sceneRenderBuffer';
 
 describe('webglInstanceAtlas', () => {
+  it('idleMediaNeedsSharpHost when screen edge exceeds atlas inner cell', () => {
+    expect(SOA_ATLAS_INNER).toBe(SOA_ATLAS_CELL - 4);
+    expect(idleMediaScreenEdgePx(80, 60, 1, 1)).toBe(80);
+    expect(idleMediaNeedsSharpHost({ key: 'image', width: 80, height: 60 }, 1, 1)).toBe(false);
+    expect(idleMediaNeedsSharpHost({ key: 'image', width: 400, height: 300 }, 1, 1)).toBe(true);
+    expect(idleMediaNeedsSharpHost({ key: 'image', width: 80, height: 60 }, 4, 1)).toBe(true);
+    expect(idleMediaNeedsSharpHost({ key: 'video', width: 400, height: 300 }, 1, 1)).toBe(true);
+    expect(idleMediaNeedsSharpHost({ key: 'shape', width: 400, height: 300 }, 1, 1)).toBe(false);
+  });
   it('shelf-packs stamped polylines and returns UVs', () => {
     const atlas = createSoaWebglAtlas(512, 128);
     if (!atlas) return;
