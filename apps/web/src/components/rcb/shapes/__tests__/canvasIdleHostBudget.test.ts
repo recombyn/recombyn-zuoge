@@ -192,13 +192,15 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
   });
 
   it('keeps idle image/video/audio generators on canvas ink (empty plate atlas bake)', () => {
+    // Default spawn size is 360×360 — must stay under SoA (not sharp-host DOM),
+    // or generators always paint above canvas rects and break stackOrder.
     const imgGen = {
       id: 'ig',
       key: 'image',
       x: 0,
       y: 0,
-      width: 200,
-      height: 200,
+      width: 360,
+      height: 360,
       attrs: { src: '', imageGenerator: true },
     };
     const vidGen = {
@@ -206,8 +208,8 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
       key: 'video',
       x: 0,
       y: 0,
-      width: 200,
-      height: 200,
+      width: 640,
+      height: 360,
       attrs: { src: '', videoGenerator: true },
     };
     const audGen = {

@@ -511,8 +511,9 @@ export function pickFullAndCanvasIds(opts: {
       Boolean(holdHostIds?.has(id)) ||
       Boolean(paintRaiseSet?.has(id)) ||
       worldNodeStacksAboveAnyFrame(document, id) ||
-      // Atlas cell (~252px) cannot stay sharp for large/zoomed images — same
-      // class of soft-idle bug as rounded-rect SDF before shader fill.
+      // Atlas cell (~252px) cannot stay sharp for large/zoomed bitmaps.
+      // Empty generators are excluded inside idleMediaNeedsSharpHost so they
+      // stay on SoA and honor unified stackOrder vs rect ink.
       idleMediaNeedsSharpHost(node, zoom, dpr);
     if (nodeNeedsDomShapeHost(node, forceHost)) fullIds.push(id);
     else canvasRaw.push(id);
