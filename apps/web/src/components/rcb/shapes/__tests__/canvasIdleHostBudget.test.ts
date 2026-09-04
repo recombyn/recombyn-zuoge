@@ -191,6 +191,48 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(retinaSmall.fullIds).toEqual(['small']);
   });
 
+  it('keeps idle image/video/audio generators as DOM hosts (empty plate has no atlas src)', () => {
+    const imgGen = {
+      id: 'ig',
+      key: 'image',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200,
+      attrs: { src: '', imageGenerator: true },
+    };
+    const vidGen = {
+      id: 'vg',
+      key: 'video',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 200,
+      attrs: { src: '', videoGenerator: true },
+    };
+    const audGen = {
+      id: 'ag',
+      key: 'audio',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      attrs: { audioGenerator: true },
+    };
+    const doc = makeDoc({ ig: imgGen, vg: vidGen, ag: audGen, i0: imageNode('i0') });
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['ig', 'vg', 'ag', 'i0'],
+      zoom: 1,
+      dpr: 1,
+    });
+    expect(fullIds.sort()).toEqual(['ag', 'ig', 'vg']);
+    expect(canvasIds).toEqual(['i0']);
+    expect(canIdlePaintOnCanvas(imgGen as any)).toBe(false);
+    expect(canIdlePaintOnCanvas(vidGen as any)).toBe(false);
+    expect(canIdlePaintOnCanvas(audGen as any)).toBe(false);
+  });
+
   it('forceFullSet keeps a canvas-ink node as a DOM host', () => {
     const nodes: Record<string, any> = {};
     for (let i = 0; i < 40; i += 1) nodes[`n${i}`] = rect(`n${i}`);
@@ -432,7 +474,7 @@ describe('canIdlePaintOnCanvas', () => {
         height: 80,
         attrs: { audioGenerator: true },
       } as never)
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canIdlePaintOnCanvas({
         id: 'l0',
