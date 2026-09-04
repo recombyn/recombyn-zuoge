@@ -8,6 +8,7 @@ import {
 
 import { rcbResolveViewportEl, useRcbScreenToScene } from '@/components/rcb';
 import type { ContextMenuState } from '@/components/rcb/selection/chrome/CanvasContextMenu';
+import { parseFrameSelId } from '@/components/rcb/selection/frameSelectionIds';
 import {
   setActiveFrameId,
   setFrameChromeMode,
@@ -209,16 +210,24 @@ export function resolveContextMenuHit(opts: {
   activeFrameId: string | null;
 }): MenuHit {
   const titleFrameId = frameIdFromEventTarget(opts.target);
-  const hitNode =
+  const rawHit =
     opts.hitTest(opts.sceneX, opts.sceneY, {
       clientX: opts.clientX,
       clientY: opts.clientY,
     }) || nodeIdFromEventTarget(opts.target);
 
-  if (hitNode) {
+  // sceneRenderer returns `__frame__:id` for plate hits — same as SelectionFeature.
+  // Treating that string as a node id clears artboard selection and makes
+  // 副本 / copy / cut no-op (no deltaSetLike entry).
+  const frameFromHit = rawHit ? parseFrameSelId(rawHit) : null;
+  if (frameFromHit) {
+    return { nodeId: null, frameId: frameFromHit };
+  }
+
+  if (rawHit) {
     // Soft activeFrameId is highlight context only — never treat it as a
     // frame mutation target when the menu is opened on a scene node.
-    return { nodeId: hitNode, frameId: titleFrameId };
+    return { nodeId: rawHit, frameId: titleFrameId };
   }
   if (titleFrameId) {
     return { nodeId: null, frameId: titleFrameId };
@@ -302,8 +311,21 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
         activeFrameId: activeFrameIdRef.current,
       });
 
+      let menuNodeId = hit.nodeId;
+      let menuFrameId = hit.frameId;
+
       if (hit.nodeId && !selected.includes(hit.nodeId)) {
-        selectNodeOnly(hit.nodeId);
+        const boundFrame = String(
+          documentRef.current?.deltaSetLike?.[hit.nodeId]?.attrs?.frameId || ''
+        ).trim();
+        // Artboard already selected: keep plate as the mutation target so 副本
+        // duplicates the board (not a single child under the pointer).
+        if (boundFrame && selectedFrames.includes(boundFrame)) {
+          menuNodeId = null;
+          menuFrameId = boundFrame;
+        } else {
+          selectNodeOnly(hit.nodeId);
+        }
       } else if (
         !hit.nodeId &&
         hit.frameId &&
@@ -317,8 +339,8 @@ export function useCanvasContextMenu(args: UseCanvasContextMenuArgs) {
         clientY,
         sceneX: p.x,
         sceneY: p.y,
-        nodeId: hit.nodeId,
-        frameId: hit.frameId,
+        nodeId: menuNodeId,
+        frameId: menuFrameId,
       });
     };
 

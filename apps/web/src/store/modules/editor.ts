@@ -1608,10 +1608,13 @@ export const editorReducers = {
           .map((f) => String(f?.id || ''))
           .filter(Boolean)
       );
-      // Solo 动画工作台 host → select parent frame only.
+      // Solo 动画工作台 host / preview child → select parent frame only.
       if (nodeIds.length === 1 && !frameIdsRaw.length) {
         const host = doc.deltaSetLike?.[nodeIds[0]!];
-        if (isAnimationFrameHostNode(host, doc)) {
+        if (
+          isAnimationFrameHostNode(host, doc) ||
+          isAnimationWorkbenchPreviewChild(doc, host)
+        ) {
           const fid = String(host?.attrs?.frameId || '').trim();
           if (fid && valid.has(fid)) {
             const cur =

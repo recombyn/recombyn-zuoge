@@ -64,4 +64,19 @@ describe('canvas context menu — node titles', () => {
     });
     expect(hit).toEqual({ nodeId: 'circle_1', frameId: null });
   });
+
+  it('treats __frame__: hit ids as artboard plates (not fake node ids)', () => {
+    const hit = resolveContextMenuHit({
+      sceneX: 100,
+      sceneY: 100,
+      target: null,
+      hitTest: () => '__frame__:board_1',
+      clientX: 0,
+      clientY: 0,
+      frames: [{ id: 'board_1', x: 0, y: 0, width: 400, height: 400 }],
+      selectedIds: [],
+      activeFrameId: null,
+    });
+    expect(hit).toEqual({ nodeId: null, frameId: 'board_1' });
+  });
 });
