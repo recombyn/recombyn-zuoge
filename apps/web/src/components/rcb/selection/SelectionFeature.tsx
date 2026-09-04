@@ -145,6 +145,7 @@ import {
   marqueeHitPadScene,
   MARQUEE_MIN_HIT_SCREEN_PX,
   framesHittingMarquee,
+  resolveMarqueeFrameHits,
   resolveInspectPrimaryId,
   isHostInjectedSelection,
   frameForFullBleedPlate,
@@ -2192,9 +2193,16 @@ function SelectionFeature({
         const rawHits = candidates.filter((id) =>
           nodeHitsMarquee(sceneDoc, id, box, getNodeBox, toScene, zoom)
         );
-        const frameHits = framesHittingMarquee(sceneDoc, box).map((f) => f.id);
-        // Full-bleed plate: keep when artboard brushed, or other non-plate content hit.
-        const contentHits = filterMarqueeContentHits(sceneDoc, rawHits, new Set(frameHits), box);
+        // Intersecting plates for content filter; commit uses crossing when the
+        // brush only hits boards, enclosure when content is also selected.
+        const intersectingFrameIds = framesHittingMarquee(sceneDoc, box).map((f) => f.id);
+        const contentHits = filterMarqueeContentHits(
+          sceneDoc,
+          rawHits,
+          new Set(intersectingFrameIds),
+          box
+        );
+        const frameHits = resolveMarqueeFrameHits(sceneDoc, box, contentHits.length);
         commitMarqueeSelection({
           contentHits,
           frameHits,

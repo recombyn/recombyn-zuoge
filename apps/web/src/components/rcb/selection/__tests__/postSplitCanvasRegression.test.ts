@@ -12,6 +12,7 @@ import {
   computeMovedUnion,
   computeResizedUnion,
   framesHittingMarquee,
+  resolveMarqueeFrameHits,
   filterMarqueeContentHits,
   commitMarqueeSelection,
   normalizeBox,
@@ -300,8 +301,21 @@ describe('selectionLogic marquee helpers', () => {
     const hits = framesHittingMarquee(doc, { left: 0, top: 0, width: 120, height: 120 });
     expect(hits.map((h) => h.id)).toEqual(['f1']);
 
+    // Crossing select: partial overlap still hits the artboard.
     const partialHits = framesHittingMarquee(doc, { left: 0, top: 0, width: 80, height: 80 });
-    expect(partialHits).toEqual([]);
+    expect(partialHits.map((h) => h.id)).toEqual(['f1']);
+    // Empty brush → commit crossing frames.
+    expect(resolveMarqueeFrameHits(doc, { left: 0, top: 0, width: 80, height: 80 }, 0)).toEqual([
+      'f1',
+    ]);
+    // Content also hit → only fully enclosed plates join the selection.
+    expect(resolveMarqueeFrameHits(doc, { left: 0, top: 0, width: 80, height: 80 }, 1)).toEqual([]);
+    expect(resolveMarqueeFrameHits(doc, { left: 0, top: 0, width: 120, height: 120 }, 1)).toEqual([
+      'f1',
+    ]);
+
+    const missHits = framesHittingMarquee(doc, { left: 150, top: 150, width: 20, height: 20 });
+    expect(missHits).toEqual([]);
 
     const filtered = filterMarqueeContentHits(doc, ['n1', 'n2', 'n3', 'n4'], new Set(['f1']));
     expect(filtered).toContain('n1');
