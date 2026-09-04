@@ -17,6 +17,19 @@ import VideoPlaybackBar, {
   type VideoMediaControl,
 } from '@/components/editor/nodes/VideoNode/VideoPlaybackBar';
 import { VideoFullscreenPreview } from '@/components/editor/nodes/VideoNode/VideoFullscreenPreviewButton';
+import { waitForVideoFrame } from '@/components/editor/nodes/VideoNode/waitForVideoFrame';
+import {
+  clearVideoIdlePaintFrame,
+  setVideoIdlePaintFrame,
+} from '@/components/rcb/render/videoIdlePaintFrame';
+import {
+  bumpSceneCanvasIdlePaint,
+  getFillImageReady,
+} from '@/components/rcb/render/sceneRenderer';
+import {
+  getSharedSceneRenderBuffer,
+  markSoaDirtyById,
+} from '@/components/rcb/render/sceneRenderBuffer';
 
 function pointInRect(x: number, y: number, r: DOMRect) {
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
@@ -344,8 +357,9 @@ function VideoHoverPlayback({
     }
     freezeGenRef.current += 1;
     setFreeze({ url: posterUrl, at: 0 });
+    clearVideoIdlePaintFrame(String(nodeId));
     el.src = playSrc;
-  }, [playSrc, posterUrl, videoEl]);
+  }, [playSrc, posterUrl, videoEl, nodeId]);
 
   useEffect(() => {
     const el = videoEl;
@@ -353,66 +367,70 @@ function VideoHoverPlayback({
     setMedia(videoMediaFromElement(el));
   }, [videoEl]);
 
-  // Capture still after pause / seek — wait for a decoded frame, briefly reveal video if hidden.
+  // Capture still after pause / seek — wait for two decoded frames (first RVFC
+  // can still be the previous bitmap). Keep paused <video> visible until capture
+  // lands so a stale freeze never flashes. Publish still into SoA idle paint.
   useEffect(() => {
     const el = videoRef.current as VideoWithFrameCallback | null;
     if (!el) return;
+    const id = String(nodeId);
 
-    let vfc = 0;
-    let raf = 0;
-
-    const freezeNow = () => {
+    const freezeNow = (opts?: { invalidate?: boolean }) => {
       if (!el.paused && !el.ended) return;
-      const wrap = videoWrapRef.current;
-      const prevVis = wrap?.style.visibility;
-      // Hidden videos often won't decode the seeked frame — reveal for capture.
-      // Never punch through a layer-hidden plate (child visibility:visible wins
-      // over parent visibility:hidden in CSS).
-      if (wrap && showUiRef.current) wrap.style.visibility = 'visible';
-
+      if (opts?.invalidate) {
+        // Drop time-matched still so scrubber stays on live paused pixels.
+        setFreeze({ url: '', at: -999 });
+      }
       const gen = ++freezeGenRef.current;
-      const finish = () => {
-        if (gen !== freezeGenRef.current) return;
-        const shot = captureFrameFromVideoEl(el);
-        if (shot) {
+      void (async () => {
+        const wrap = videoWrapRef.current;
+        const prevVis = wrap?.style.visibility;
+        // Hidden videos often won't decode the seeked frame — reveal for capture.
+        // Never punch through a layer-hidden plate (child visibility:visible wins
+        // over parent visibility:hidden in CSS).
+        if (wrap && showUiRef.current) wrap.style.visibility = 'visible';
+        try {
+          await waitForVideoFrame(el);
+          // Second paint — same race extract-frame already works around.
+          await waitForVideoFrame(el);
+          if (gen !== freezeGenRef.current) return;
+          const shot = captureFrameFromVideoEl(el);
+          if (!shot) return;
           const at = Number(el.currentTime) || 0;
           setMediaTime(at);
           setFreeze({ url: shot, at });
+          setVideoIdlePaintFrame(id, shot, at);
+          getFillImageReady(shot);
+          markSoaDirtyById(getSharedSceneRenderBuffer(), id);
+          bumpSceneCanvasIdlePaint();
+        } finally {
+          if (wrap) {
+            wrap.style.visibility = showUiRef.current ? prevVis ?? '' : 'hidden';
+          }
         }
-        if (wrap) {
-          wrap.style.visibility = showUiRef.current ? prevVis ?? '' : 'hidden';
-        }
-      };
-
-      if (typeof el.requestVideoFrameCallback === 'function') {
-        vfc = el.requestVideoFrameCallback(() => finish());
-      } else {
-        raf = requestAnimationFrame(() => {
-          raf = requestAnimationFrame(finish);
-        });
-      }
+      })();
     };
 
-    el.addEventListener('pause', freezeNow);
-    el.addEventListener('seeked', freezeNow);
-    el.addEventListener('loadeddata', freezeNow);
+    const onPause = () => freezeNow({ invalidate: true });
+    const onSeeked = () => freezeNow();
+    const onLoaded = () => freezeNow();
+    el.addEventListener('pause', onPause);
+    el.addEventListener('seeked', onSeeked);
+    el.addEventListener('loadeddata', onLoaded);
     const syncTime = () => setMediaTime(Number(el.currentTime) || 0);
     el.addEventListener('timeupdate', syncTime);
     el.addEventListener('seeked', syncTime);
     freezeNow();
     syncTime();
     return () => {
-      el.removeEventListener('pause', freezeNow);
-      el.removeEventListener('seeked', freezeNow);
-      el.removeEventListener('loadeddata', freezeNow);
+      el.removeEventListener('pause', onPause);
+      el.removeEventListener('seeked', onSeeked);
+      el.removeEventListener('loadeddata', onLoaded);
       el.removeEventListener('timeupdate', syncTime);
       el.removeEventListener('seeked', syncTime);
-      cancelAnimationFrame(raf);
-      if (vfc && typeof el.cancelVideoFrameCallback === 'function') {
-        el.cancelVideoFrameCallback(vfc);
-      }
+      freezeGenRef.current += 1;
     };
-  }, [playSrc]);
+  }, [playSrc, nodeId]);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {

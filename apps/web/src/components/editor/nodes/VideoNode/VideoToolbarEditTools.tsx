@@ -19,6 +19,7 @@ import {
   captureFrameFromVideoEl,
   getVideoHoverHost,
 } from '@/components/editor/nodes/VideoNode/VideoHoverPlayback';
+import { waitForVideoFrame } from '@/components/editor/nodes/VideoNode/waitForVideoFrame';
 import {
   failImageProcess,
   finishImageProcess,
@@ -67,34 +68,6 @@ function Tool({
       <span>{label}</span>
     </button>
   );
-}
-
-function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
-  return new Promise((resolve) => {
-    const v = video as HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb: () => void) => number;
-    };
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      resolve();
-    };
-    const timer = window.setTimeout(finish, 250);
-    if (typeof v.requestVideoFrameCallback === 'function') {
-      v.requestVideoFrameCallback(() => {
-        window.clearTimeout(timer);
-        finish();
-      });
-      return;
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.clearTimeout(timer);
-        finish();
-      });
-    });
-  });
 }
 
 function seekVideoEl(video: HTMLVideoElement, seconds: number): Promise<void> {
@@ -255,7 +228,8 @@ async function captureExtractDataUrl(opts: {
 }
 
 function ExtractFrameMenu({ nodeId }: { nodeId: string }) {
-  const { t } = useTranslation();  const document = useEditorDocumentOnCommit();
+  const { t } = useTranslation();
+  const document = useEditorDocumentOnCommit();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
