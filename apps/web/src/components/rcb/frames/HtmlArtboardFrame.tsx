@@ -37,6 +37,43 @@ import {
   isAnimationArtboardKind,
 } from '@/components/rcb/frames/types';
 
+/**
+ * Clear plate stroke only when SelectionChrome paints **this** plate's box.
+ * Multi-frame full chrome uses a union outline — members must keep their edges.
+ */
+export function framePlateClearsIdleStroke(opts: {
+  chromeMode: 'soft' | 'full';
+  selectedFrameIds: readonly string[];
+  frameId: string;
+}): boolean {
+  const { chromeMode, selectedFrameIds, frameId } = opts;
+  return (
+    chromeMode === 'full' &&
+    selectedFrameIds.length === 1 &&
+    selectedFrameIds[0] === frameId
+  );
+}
+
+/** Soft / multi-member highlight edge when SelectionChrome is not owning the plate. */
+export function framePlateShowsHighlightEdge(opts: {
+  chromeMode: 'soft' | 'full';
+  selectedFrameIds: readonly string[];
+  frameId: string;
+  activeFrameId?: string | null;
+  moving?: boolean;
+}): boolean {
+  const { chromeMode, selectedFrameIds, frameId, activeFrameId = null, moving = false } = opts;
+  if (moving) return true;
+  if (chromeMode === 'soft') {
+    return activeFrameId === frameId || selectedFrameIds.includes(frameId);
+  }
+  return (
+    chromeMode === 'full' &&
+    selectedFrameIds.length > 1 &&
+    selectedFrameIds.includes(frameId)
+  );
+}
+
 type HtmlArtboardFrameProps = {
   frame: ArtboardFrame;
   /** Full chrome selected — plate stroke off (SelectionChrome owns the box). */
