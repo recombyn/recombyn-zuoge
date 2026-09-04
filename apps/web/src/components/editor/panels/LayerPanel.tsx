@@ -32,6 +32,7 @@ import {
   HiOutlineMinus,
   HiOutlinePhoto,
   HiOutlineStop,
+  HiOutlineVideoCamera,
 } from 'react-icons/hi2';
 import { TbArrowUpRight, TbCircle, TbStar, TbTriangle } from 'react-icons/tb';
 import Tooltip from '@/components/base/tooltip';
