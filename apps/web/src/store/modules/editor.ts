@@ -85,6 +85,7 @@ import {
   tagCreatedNodeForWorkbenchSurround} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { setLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
+import { schedulePrecompTabArtboardDump } from '@/components/editor/nodes/AnimationNode/precompTabArtboardDump';
 import { collectPrecompSessionDocumentPatches } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
 import { requestPlayheadSceneApply } from '@/components/editor/nodes/AnimationNode/animationPlayheadApplyEvent';
 import { requestPuppetWarpApply } from '@/components/editor/nodes/ImageNode/puppet/puppetWarpApplyEvent';
@@ -3553,6 +3554,12 @@ export const editorReducers = {
             sessionMaterialized: Boolean(state.lottiePrecompEdit.sessionHidesLotInk)});
           bakePrecompSessionDocumentPoses(state);
           requestPlayheadSceneApply({ afterPaint: true });
+          schedulePrecompTabArtboardDump('enter-session:reuse', {
+            hostNodeId,
+            assetId,
+            frameId: state.lottiePrecompEdit.frameId,
+            lotNodeId: state.lottiePrecompEdit.lotNodeId,
+          });
           return;
         }
         clearLottiePrecompEdit(state);
@@ -3568,6 +3575,10 @@ export const editorReducers = {
         state.lottiePrecompEdit = { hostNodeId, assetId, selectedLayerInd: layerInd };
         state.selectedNodeId = null;
         state.selectedNodeIds = [];
+        schedulePrecompTabArtboardDump('enter-session:no-materialize', {
+          hostNodeId,
+          assetId,
+        });
         return;
       }
 
@@ -3597,6 +3608,12 @@ export const editorReducers = {
       bakePrecompSessionDocumentPoses(state);
       requestPlayheadSceneApply({ afterPaint: true });
       requestPrecompCameraFit({ afterPaint: true });
+      schedulePrecompTabArtboardDump('enter-session', {
+        hostNodeId,
+        assetId,
+        frameId: begun.frameId,
+        lotNodeId: begun.lotNodeId,
+      });
     },
     exitLottiePrecompEdit(state) {
       const prev = state.lottiePrecompEdit;
@@ -3646,6 +3663,12 @@ export const editorReducers = {
           afterPaint: true});
       }
       if (prev.frameId) queueEnsureAnimationFrame(prev.frameId);
+      schedulePrecompTabArtboardDump('exit-session', {
+        hostNodeId: prev.hostNodeId,
+        assetId: prev.assetId,
+        frameId: prev.frameId,
+        lotNodeId: prev.lotNodeId,
+      });
     },
     setLottiePrecompSelectedLayer(state, action) {
       if (!state.lottiePrecompEdit) return;
