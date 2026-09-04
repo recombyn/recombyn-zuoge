@@ -131,6 +131,10 @@ apps/api/_tmp_*
 apps/api/.tmp_*
 apps/api/list_packs.py
 
+# Root-level scratch fixtures (do not publish). Keep real fixtures under
+# apps/*/tests/** or e2e/fixtures/** next to their suites.
+/tests/
+
 # Local agent smoke / stress scratch (never commit)
 .tmp-*
 .tmp_*
