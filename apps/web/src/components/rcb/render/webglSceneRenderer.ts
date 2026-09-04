@@ -82,6 +82,10 @@ import {
   createWebglDepthOfFieldPass,
   type WebglDepthOfFieldPass,
 } from '@/components/rcb/render/webglDepthOfFieldPass';
+import {
+  adaptivePathStrokeMaxSegs,
+  floorContentStrokeSceneWidth,
+} from '@/components/rcb/render/strokeScreenFloor';
 
 /** Scene-space LTRB when the slot has no clipContent owner (or reveal-overflow). */
 export const SOA_WEBGL_NO_CLIP: [number, number, number, number] = [-1e8, -1e8, 1e8, 1e8];
@@ -152,6 +156,7 @@ float sdRoundBox(vec2 p, vec2 b, vec4 r) {
 const FS = `#version 300 es
 precision mediump float;
 uniform sampler2D uAtlas;
+uniform float uZoom;
 in vec2 vUv;
 in vec2 vAtlasUv;
 in vec4 vColor;
@@ -178,6 +183,7 @@ void main() {
   // UV spans the padded quad so SDF samples match the expanded vertex size.
   // AA is half-fwidth + half-pixel stroke expand so 1px strokes keep SVG-like
   // optical weight (full fwidth smoothstep alone looks thin/虚 vs selected SVG).
+  // Cap AA vs stroke pad / screen px so zoom-out fwidth cannot erase the ring.
   if (vKind > 3.5) {
     float sw = max(0.0, vStroke.w);
     float pad = sw * 0.5;
@@ -186,6 +192,8 @@ void main() {
     vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
     float d = sdRoundBox(p, vHalf, r);
     float aa = max(0.5 * fwidth(d), 0.0005);
+    float maxAa = max(pad * 0.85, 0.35 / max(uZoom, 0.05));
+    aa = min(aa, maxAa);
     float halfW = pad + aa * 0.5;
     float cover = 1.0 - smoothstep(-aa, aa, d - halfW);
     if (cover < 0.004) discard;
@@ -588,7 +596,8 @@ export function collectSoaWebglInstances(
     if (x + w < vl || y + h < vt || x > vr || y > vb) continue;
     const rgba = argbToRgba(buf.colors[i]);
     const strokeRgba = soaWebglStrokeRgba(buf, i);
-    const lineW = soaStrokeWidth(buf, i);
+    const lineW = floorContentStrokeSceneWidth(soaStrokeWidth(buf, i), zoom);
+    const pathMaxSegs = adaptivePathStrokeMaxSegs(zoom, SOA_WEBGL_PATH_MAX_SEGS);
     const forceStamp = (flags & SOA_FLAG_DIRTY) !== 0;
     const nodeId = buf.ids[i] || '';
     const id = nodeId;
@@ -774,6 +783,7 @@ export function collectSoaWebglInstances(
               clips,
               paintClips,
               strokes,
+              maxSegs: pathMaxSegs,
             });
           }
           if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
@@ -805,6 +815,7 @@ export function collectSoaWebglInstances(
         clips,
         paintClips,
         strokes,
+        maxSegs: pathMaxSegs,
       });
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;
@@ -818,7 +829,7 @@ export function collectSoaWebglInstances(
         let lastFinite = -1;
         let emitted = 0;
         const emitSeg = (a: number, b: number) => {
-          if (emitted >= SOA_WEBGL_PATH_MAX_SEGS) return;
+          if (emitted >= pathMaxSegs) return;
           for (const activeClip of paintClips) {
             pushLineInstance(
               buf.pathXY[a] + odx,
@@ -897,7 +908,7 @@ export function collectSoaWebglInstances(
     }
     const rotRad = (rotDeg * Math.PI) / 180;
 
-    const outlineW = buf.strokeWidths[i] || 0;
+    const outlineW = floorContentStrokeSceneWidth(buf.strokeWidths[i] || 0, zoom);
     const outlineArgb = buf.strokeColors[i] || 0;
     const hasOutline = outlineW > 0 && outlineArgb !== 0;
     const outlineCss = hasOutline ? unpackCssColor(outlineArgb) : '';
@@ -1015,6 +1026,22 @@ export function createWebglSceneRenderer(
   let atlasBufferRevision = -1;
   let dofPass: WebglDepthOfFieldPass | null = null;
   let dofVao: WebGLVertexArrayObject | null = null;
+  /** Scratch typed views — avoid per-frame `new Float32Array(arr)` GC. */
+  let scratchRect = new Float32Array(0);
+  let scratchColor = new Float32Array(0);
+  let scratchKind = new Float32Array(0);
+  let scratchAngle = new Float32Array(0);
+  let scratchUv = new Float32Array(0);
+  let scratchClip = new Float32Array(0);
+  let scratchStroke = new Float32Array(0);
+  let scratchDepth = new Float32Array(0);
+
+  function copyToScratch(src: ArrayLike<number>, prev: Float32Array): Float32Array {
+    const n = src.length;
+    const out = prev.length >= n ? prev : new Float32Array(Math.max(n, prev.length * 2 || 64));
+    out.set(src, 0);
+    return out;
+  }
 
   function ensureDofPass(): WebglDepthOfFieldPass | null {
     if (dofPass) return dofPass;
@@ -1272,35 +1299,43 @@ export function createWebglSceneRenderer(
       }
 
       ensureInstanceCapacity(count);
+      scratchRect = copyToScratch(rects, scratchRect);
+      scratchColor = copyToScratch(colors, scratchColor);
+      scratchKind = copyToScratch(kinds, scratchKind);
+      scratchAngle = copyToScratch(angles, scratchAngle);
+      scratchUv = copyToScratch(uvs, scratchUv);
       gl.bindBuffer(gl.ARRAY_BUFFER, rectBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(rects));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchRect.subarray(0, rects.length));
       gl.bindBuffer(gl.ARRAY_BUFFER, colorBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(colors));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchColor.subarray(0, colors.length));
       gl.bindBuffer(gl.ARRAY_BUFFER, kindBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(kinds));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchKind.subarray(0, kinds.length));
       gl.bindBuffer(gl.ARRAY_BUFFER, angleBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(angles));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchAngle.subarray(0, angles.length));
       gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(uvs));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchUv.subarray(0, uvs.length));
       const clipFill =
         clips.length === count * 4
           ? clips
           : Array.from({ length: count * 4 }, (_, i) => SOA_WEBGL_NO_CLIP[i % 4]);
+      scratchClip = copyToScratch(clipFill, scratchClip);
       gl.bindBuffer(gl.ARRAY_BUFFER, clipBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(clipFill));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchClip.subarray(0, count * 4));
       const strokeFill =
         strokes.length === count * 4
           ? strokes
           : Array.from({ length: count * 4 }, () => 0);
+      scratchStroke = copyToScratch(strokeFill, scratchStroke);
       gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(strokeFill));
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchStroke.subarray(0, count * 4));
       if (useDof) {
         const depthFill =
           depths.length === count
             ? depths
             : Array.from({ length: count }, () => 0.5);
+        scratchDepth = copyToScratch(depthFill, scratchDepth);
         gl.bindBuffer(gl.ARRAY_BUFFER, depthBuf);
-        gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(depthFill));
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchDepth.subarray(0, count));
       }
 
       if (atlas.revision !== atlasUploadedRevision) {

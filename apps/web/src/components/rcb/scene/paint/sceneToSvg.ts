@@ -90,6 +90,7 @@ import {
   FRAME_PLATE_STROKE,
   framePlateStrokeSceneWidth,
 } from '@/components/rcb/frames/types';
+import { floorContentStrokeSceneWidth } from '@/components/rcb/render/strokeScreenFloor';
 import { strokeDashForStyle } from '../document/sceneStrokeStyle';
 import type { RcbCamera } from '@/components/rcb/core/types';
 import {
@@ -345,9 +346,11 @@ type ShapeStrokeOpts = {
 
 function strokeOptsFromNode(node: SceneNodeInput, color: string, width: number): ShapeStrokeOpts {
   const dash = strokeDashForStyle(node?.attrs?.strokeStyle);
+  // Editor SVG sits under CSS scale(zoom) — floor like WebGL so hairlines survive zoom-out.
+  const floored = floorContentStrokeSceneWidth(width, getInfiniteSvgPaintZoom());
   return {
     color,
-    width,
+    width: floored > 0 ? floored : width,
     ...(dash ? { dasharray: dash } : {}),
     align: resolveStrokeAlign(node?.attrs),
     linecap: resolveStrokeLinecap(node?.attrs),
