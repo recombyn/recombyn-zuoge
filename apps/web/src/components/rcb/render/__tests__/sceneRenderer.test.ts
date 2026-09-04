@@ -28,6 +28,8 @@ import {
   nodeNeedsCanvasEffectBake,
   canvasCompositeFromBlendMode,
   paintCanvasMediaInk,
+  bakeMediaInkForAtlas,
+  paintGeneratorEmptyInk,
   clipCanvasIdleToOwningFrame,
   paintStrokeCanvasIdle,
   paintTextProxyLines,
@@ -842,6 +844,25 @@ describe('Canvas idle path / text / shape paint', () => {
     expect(ops).toContain('drawImage');
   });
 
+  it('bakeMediaInkForAtlas draws empty generator plate without src', () => {
+    const baked = bakeMediaInkForAtlas(
+      {
+        key: 'image',
+        attrs: { src: '', imageGenerator: true },
+      } as SceneNodeInput,
+      120,
+      120
+    );
+    expect(baked).not.toBeNull();
+    expect((baked as { width: number }).width).toBeGreaterThan(0);
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    paintGeneratorEmptyInk(ctx as unknown as CanvasRenderingContext2D, 80, 80, 1);
+    expect(ops.some((o) => o.startsWith('fill') || o === 'fillRect' || o.includes('fill'))).toBe(
+      true
+    );
+  });
+
   it('paintCanvasIdleNode clips media to owning clipContent frame', () => {
     const ops: string[] = [];
     const ctx = mockCtx(ops);
@@ -1355,13 +1376,13 @@ describe('Canvas idle path / text / shape paint', () => {
         key: 'audio',
         attrs: { src: '', audioGenerator: true },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'image',
         attrs: { src: '', imageGenerator: true },
       } as SceneNodeInput)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         key: 'audio',

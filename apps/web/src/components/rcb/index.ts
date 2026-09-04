@@ -60,6 +60,7 @@ export {
   paintStrokeCanvasIdle,
   paintTextProxyLines,
   paintMediaProxyIcon,
+  paintGeneratorEmptyInk,
   strokeCanvasIdleCenterline,
   canvasIdleIsStrokeOnly,
   canvasIdleStrokeWidth,

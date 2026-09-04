@@ -503,7 +503,9 @@ export function collectSoaWebglInstances(
             (node.key === 'video' ? node.attrs?.poster : null) || node.attrs?.src || ''
           ).trim();
           // Pending decode → bump. CORS/tainted → stop retrying; host will paint.
-          if (src && isFillImageWebglUnsafe(src)) {
+          // Empty src should bake a plate — if bake still failed, clear dirty
+          // (do not eternal-bump; that burned CPU and never drew).
+          if (!src || (src && isFillImageWebglUnsafe(src))) {
             clearSoaDirtyFlag(buf, i, flags, forceStamp);
           } else {
             bumpSceneCanvasIdlePaint();
