@@ -66,6 +66,7 @@ void main() {
 const SCENE_FS = `#version 300 es
 precision mediump float;
 uniform sampler2D uAtlas;
+uniform float uZoom;
 in vec2 vUv;
 in vec2 vAtlasUv;
 in vec4 vColor;
@@ -102,6 +103,8 @@ void main() {
     vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
     float d = sdRoundBox(p, vHalf, r);
     float aa = max(0.5 * fwidth(d), 0.0005);
+    float maxAa = max(pad * 0.85, 0.35 / max(uZoom, 0.05));
+    aa = min(aa, maxAa);
     float halfW = pad + aa * 0.5;
     float cover = 1.0 - smoothstep(-aa, aa, d - halfW);
     if (cover < 0.004) discard;

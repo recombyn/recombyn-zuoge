@@ -404,4 +404,40 @@ describe('collectSoaWebglInstances', () => {
       SOA_WEBGL_NO_CLIP[3],
     ]);
   });
+
+  it('floors kind-4 stroke width at low zoom so hairlines survive', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r', {
+      id: 'r',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#ff0000',
+        'stroke-enabled': true,
+        'border-width': 2,
+        'border-color': '#000000',
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const strokes: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 100, height: 100 },
+      [],
+      [],
+      [],
+      [],
+      [],
+      { strokes, zoom: 0.25 }
+    );
+    // aStroke.w = floored scene width (2 → 4 at 0.25 zoom for 1 CSS px floor).
+    expect(strokes[3]).toBe(4);
+  });
 });
