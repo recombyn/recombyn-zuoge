@@ -120,6 +120,7 @@ import {
 import store from '@/store';
 import { cn } from '@/utils/classnames';
 import { RCB_SYNC_NESTED_LOT_HOSTS } from '@/components/editor/sceneEvents';
+import { logPrecompTabArtboardDump } from '@/components/editor/nodes/AnimationNode/precompTabArtboardDump';
 
 const DOCK_HEIGHT_KEY = 'lottie-timeline-dock-height';
 const DOCK_MIN_H = 160;
@@ -2114,6 +2115,10 @@ function AnimationTimelineDock({
                     setSelectedNodeIds([]);
                     // LOT tab = materialize insides + resize workbench to the plate.
                     const firstInd = scene.layers[0]?.ind;
+                    logPrecompTabArtboardDump('tab→precomp:before', {
+                      hostNodeId: nodeId,
+                      assetId: scene.assetId,
+                    });
                     enterLottiePrecompEdit({
                         hostNodeId: nodeId,
                         assetId: scene.assetId,
@@ -2121,6 +2126,9 @@ function AnimationTimelineDock({
                       });
                   } else {
                     // — — flush LOT session + restore workbench before switching tabs.
+                    logPrecompTabArtboardDump('tab→main:before', {
+                      hostNodeId: nodeId,
+                    });
                     exitLottiePrecompEdit();
                     setSceneId(scene.id);
                     setLottiePrecompSelectedLayer(null);
