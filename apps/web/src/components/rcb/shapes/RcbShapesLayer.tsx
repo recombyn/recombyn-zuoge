@@ -382,12 +382,20 @@ export function soaBufferMembershipChanged(
  * unclipped selection chrome. Idle (unselected) ink stays clipped.
  * Frame-only selection must NOT reveal child overflow — pass selected node ids
  * (not frame-kept cull ids) into the reveal set.
+ *
+ * Video/audio stay as forceFull DOM hosts for the HTML decoder, but must NOT
+ * clear clipContent — sole-on-board media would otherwise paint past the Frame.
  */
 export function shouldRevealShapeOverflow(
   selectedOrForceFull: boolean,
-  _node: SceneNodeInput | null | undefined
+  node: SceneNodeInput | null | undefined
 ): boolean {
-  return selectedOrForceFull;
+  if (!selectedOrForceFull) return false;
+  const key = String(node?.key || '');
+  if (key === 'video' || key === 'audio') {
+    return isImageProcessRunning(node);
+  }
+  return true;
 }
 
 type Props = {
@@ -1027,8 +1035,8 @@ function RcbShapesLayer({
             reloadToken={hostReloadTokenFor(id)}
             frameClipToken={frameClipToken}
             forceHidden={isNodeOverlayHidden(document, node, hiddenNodeId === id)}
-            // Selected / SoftGlow: drop clipContent so overflow matches chrome.
-            // Frame-selected children use paintRaise mount but stay clipped.
+            // SoftGlow / selected shapes: drop clip so overflow matches chrome.
+            // Video/audio keep clip even when forceFull (decoder host).
             revealOverflow={shouldRevealShapeOverflow(
               revealSet.has(id) || forceFullSet.has(id),
               node

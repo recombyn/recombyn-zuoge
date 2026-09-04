@@ -46,6 +46,35 @@ describe('shouldRevealShapeOverflow', () => {
     ).toBe(false);
   });
 
+  it('keeps frame clip for video/audio even when forceFull / selected', () => {
+    expect(
+      shouldRevealShapeOverflow(true, {
+        id: 'v1',
+        key: 'video',
+        attrs: { frameId: 'f1', src: 'https://example.com/a.mp4' },
+      })
+    ).toBe(false);
+    expect(
+      shouldRevealShapeOverflow(true, {
+        id: 'a1',
+        key: 'audio',
+        attrs: { frameId: 'f1', src: 'https://example.com/a.mp3' },
+      })
+    ).toBe(false);
+    expect(
+      shouldRevealShapeOverflow(true, {
+        id: 'v-glow',
+        key: 'video',
+        attrs: {
+          frameId: 'f1',
+          src: 'https://example.com/a.mp4',
+          processStatus: 'running',
+          processKind: 'removeBg',
+        },
+      })
+    ).toBe(true);
+  });
+
   it('frame-selected children stay clipped (reveal flag false)', () => {
     // Selecting the artboard keeps children mounted (cull / paint-raise) but
     // must not pass selectedOrForceFull=true — only selecting the child does.
