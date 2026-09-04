@@ -315,37 +315,46 @@ export function pasteClipboardIntoDocument(
 
   const prepared: Array<{ id: string; node: SceneNode }> = [];
   const newIds: string[] = [];
+  const frameLocal = String(next.coordSpace || '') === 'frameLocal';
   (clip.nodes || []).forEach(({ id, node: raw }) => {
     const node = cloneSceneValue(raw);
     const newId = idMap.get(id)!;
     node.id = newId;
-    node.x = (Number(node.x) || 0) + ox;
-    node.y = (Number(node.y) || 0) + oy;
-    const outset = strokeVisualOutset(node);
-    if (outset > 0) {
-      const visual = snapBoxToGrid(
-        {
-          left: node.x - outset,
-          top: node.y - outset,
-          width: Math.max(1, Number(node.width) || 1) + outset * 2,
-          height: Math.max(1, Number(node.height) || 1) + outset * 2,
-        },
-        gridSize
-      );
-      node.x = visual.left + outset;
-      node.y = visual.top + outset;
+    const sourceFrameId = String(node.attrs?.frameId || '').trim();
+    const mappedFrameId = sourceFrameId ? frameIdMap.get(sourceFrameId) : undefined;
+    // Duplicating an artboard: children stay plate-local. Offsetting them again
+    // (on top of moving the frame) pushes ink outside clipContent — empty copies.
+    const keepPlateLocal = Boolean(mappedFrameId) && frameLocal;
+    if (!keepPlateLocal) {
+      node.x = (Number(node.x) || 0) + ox;
+      node.y = (Number(node.y) || 0) + oy;
+      const outset = strokeVisualOutset(node);
+      if (outset > 0) {
+        const visual = snapBoxToGrid(
+          {
+            left: node.x - outset,
+            top: node.y - outset,
+            width: Math.max(1, Number(node.width) || 1) + outset * 2,
+            height: Math.max(1, Number(node.height) || 1) + outset * 2,
+          },
+          gridSize
+        );
+        node.x = visual.left + outset;
+        node.y = visual.top + outset;
+      } else {
+        node.x = snapCoordToGrid(node.x, gridSize);
+        node.y = snapCoordToGrid(node.y, gridSize);
+      }
     } else {
-      node.x = snapCoordToGrid(node.x, gridSize);
-      node.y = snapCoordToGrid(node.y, gridSize);
+      node.x = Number(node.x) || 0;
+      node.y = Number(node.y) || 0;
     }
     const gid = String(node.attrs?.groupId || '').trim();
     if (gid) {
       if (!groupMap.has(gid)) groupMap.set(gid, nanoid(8));
       node.attrs = { ...(node.attrs || {}), groupId: groupMap.get(gid) };
     }
-    const sourceFrameId = String(node.attrs?.frameId || '').trim();
     if (sourceFrameId) {
-      const mappedFrameId = frameIdMap.get(sourceFrameId);
       node.attrs = {
         ...(node.attrs || {}),
         ...(mappedFrameId ? { frameId: mappedFrameId } : { frameId: undefined }),
