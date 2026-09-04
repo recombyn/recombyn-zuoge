@@ -21,9 +21,18 @@ import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapab
 import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
 import { paintProcessPlateCanvas } from '@/components/rcb/process/processPlateSvg';
 import {
-  hitTestSceneAtPoint,
+  hitTestUnifiedStackAtPoint,
   type SceneHitBox,
+  type SceneStackHit,
 } from '@/components/rcb/scene/document/sceneHitBridge';
+import {
+  buildNodeStackZMap,
+  buildUnifiedHitZMap,
+  maxDocumentStackZ,
+  stackFrameKey,
+} from '@/components/rcb/scene/document/sceneDocument';
+import { frameSelId } from '@/components/rcb/selection/frameSelectionIds';
+import { frameSceneAabb } from '@/components/rcb/core/spatialIndex';
 import {
   effectiveEllipseArcPercentFromAttrs,
   effectiveEllipseInnerRatioFromAttrs,
@@ -54,10 +63,6 @@ import {
   type InnerShadowSpec,
 } from '@/components/rcb/scene/document/sceneEffects';
 import { resolveTextFramePlateFill } from '@/components/rcb/scene/document/nodeFactories';
-import {
-  buildNodeStackZMap,
-  maxDocumentStackZ,
-} from '@/components/rcb/scene/document/sceneDocument';
 import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
@@ -104,6 +109,7 @@ import {
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
   isSoaBasicGeomSufficient,
+  isSoaRichFillAtlasStampable,
   isSoaWebglEnvEnabled,
   paintSoaBufferBasic,
   paintSoaIdleSlot,
@@ -117,7 +123,7 @@ import {
   SOA_KIND_RECT,
 } from '@/components/rcb/render/sceneRenderBuffer';
 
-export { isSoaBasicGeomSufficient } from '@/components/rcb/render/sceneRenderBuffer';
+export { isSoaBasicGeomSufficient, isSoaRichFillAtlasStampable } from '@/components/rcb/render/sceneRenderBuffer';
 import {
   getSharedSoaBakeCache,
   getSoaBakeCountThreshold,
@@ -184,87 +190,52 @@ export type SceneRendererHitDeps = {
   allowSvgDomHit?: boolean;
 };
 
-/** Spatial coarse → precise geometry (shared by svg + canvas backends). */
+/**
+ * Ideal product hit (ADR 0027):
+ *   SceneSpatialRuntime QT (nodes + `frame:id` plates, paint box = hit box)
+ *   → permanent stackOrder top-first
+ *   → first precise geometry / plate AABB wins
+ *
+ * Returns bare node id, or `__frame__:id` for artboard plates (see frameSelId).
+ * Selection paint raise is ignored (paint-only).
+ */
 export function hitTestWithSpatialIndex(
   deps: SceneRendererHitDeps,
   point: RcbVec,
   screen?: { clientX: number; clientY: number }
 ): SceneNodeId | null {
-  const doc = deps.getDocument();
-  const zoom = Math.max(0.05, deps.getZoom() || 1);
-  const pad = sceneHitSlop(zoom);
-  const searchPad = pad + 64 / zoom;
-  const spatial = deps.getSpatial();
-  let order = doc
-    ? spatial.hitCandidateIds({
-        x: point.x,
-        y: point.y,
-        pad: searchPad,
-      })
-    : [];
+  const target = hitTestSceneTargetWithSpatialIndex(deps, point, screen);
+  if (!target) return null;
+  return target.kind === 'frame' ? frameSelId(target.id) : target.id;
+}
 
-  // frameLocal plate moves (and some commits) leave shared spatial AABBs at the
-  // old world box while getNodeBox / paint already use the new origin — coarse
-  // returns [] even though ink is under the cursor. Rescue + heal the index.
-  if (doc && order.length === 0) {
-    const allIds = deps.listNodeIds();
-    const rescued: string[] = [];
-    for (const id of allIds) {
-      const box = deps.getNodeBox(id);
-      if (!box) continue;
-      if (
-        point.x < box.left - searchPad ||
-        point.x > box.left + box.width + searchPad ||
-        point.y < box.top - searchPad ||
-        point.y > box.top + box.height + searchPad
-      ) {
-        continue;
-      }
-      rescued.push(id);
-    }
-    if (rescued.length) {
-      spatial.patchNodes(doc, rescued, 32);
-      order = rescued;
-    }
-  }
-
-  const hitOrder = doc
-    ? (() => {
-        const zMap = buildNodeStackZMap(doc, order);
-        const rank = new Map(order.map((id, i) => [id, i]));
-        return order.slice().sort((a, b) => {
-          // Hit uses permanent stackOrder only. Selection paint raise (max+1) is
-          // paint-only — otherwise a raised empty/back node steals clicks from
-          // visible strokes (pen / line / pencil) drawn above it.
-          const za = zMap.get(a) || 0;
-          const zb = zMap.get(b) || 0;
-          return zb - za || (rank.get(b) || 0) - (rank.get(a) || 0);
-        });
-      })()
-    : order;
+/** Typed ideal hit — prefer this over string encoding when wiring new callers. */
+export function hitTestSceneTargetWithSpatialIndex(
+  deps: SceneRendererHitDeps,
+  point: RcbVec,
+  screen?: { clientX: number; clientY: number }
+): SceneStackHit | null {
+  const collected = collectUnifiedHitCandidates(deps, point);
+  if (!collected) return null;
+  const { doc, hitOrder, pad, searchPad, spatial, rescuedIds, order } = collected;
   const allowSvgDomHit = deps.allowSvgDomHit === true;
   const buf =
-    doc && isSoaCanvasShapesEnabled() && hitOrder.length ? getSharedSceneRenderBuffer() : null;
-  const hit = doc
-    ? hitTestSceneAtPoint({
-        document: doc,
-        order: hitOrder,
-        x: point.x,
-        y: point.y,
-        zoom,
-        screen,
-        getNodeBox: deps.getNodeBox,
-        nodeEls: allowSvgDomHit ? (deps.getNodeEls?.() ?? null) : null,
-        allowSvgDomHit,
-        soaBuf: buf && buf.count > 0 ? buf : null,
-        // Broad-phase keeps searchPad (stale index / edge candidates). Fine hit
-        // uses screen-constant stroke slop only — filled AABB must not inherit
-        // the +64 CSS px halo or empty clicks above a plate steal selection.
-        pad,
-      })
-    : null;
+    isSoaCanvasShapesEnabled() && hitOrder.length ? getSharedSceneRenderBuffer() : null;
+  const hit = hitTestUnifiedStackAtPoint({
+    document: doc,
+    order: hitOrder,
+    x: point.x,
+    y: point.y,
+    zoom: collected.zoom,
+    screen,
+    getNodeBox: deps.getNodeBox,
+    nodeEls: allowSvgDomHit ? (deps.getNodeEls?.() ?? null) : null,
+    allowSvgDomHit,
+    soaBuf: buf && buf.count > 0 ? buf : null,
+    pad,
+  });
   if (typeof window !== 'undefined' && import.meta.env.DEV) {
-    const allIds = doc ? deps.listNodeIds() : [];
+    const allIds = deps.listNodeIds();
     const pointInBox = (
       box: { left: number; top: number; width: number; height: number } | null | undefined
     ) => {
@@ -276,30 +247,115 @@ export function hitTestWithSpatialIndex(
         point.y <= box.top + box.height + searchPad
       );
     };
-    // When order is empty, dump every listed id box so we can tell "click in
-    // empty world" vs "spatial index empty/stale" without Redux spelunking.
     const idSource = order.length ? order.slice(0, 12) : allIds.slice(0, 24);
     const boxes = idSource.map((id) => {
+      if (String(id).startsWith('frame:')) {
+        return { id, box: null, containsPoint: false };
+      }
       const box = deps.getNodeBox(id);
       return { id, box, containsPoint: pointInBox(box) };
     });
     (window as unknown as { __rcbHitTrace?: unknown }).__rcbHitTrace = {
       point,
-      zoom,
+      zoom: collected.zoom,
       pad,
       searchPad,
-      doc: Boolean(doc),
+      doc: true,
       disposed: false,
       spatialSize: spatial?.size ?? -1,
       allIdsLen: allIds.length,
       orderLen: order.length,
       orderHead: order.slice(0, 8),
+      rescuedIds,
+      hitOrderHead: hitOrder.slice(0, 8),
       boxes,
       anyBoxContainsPoint: boxes.some((b) => b.containsPoint),
       hit,
     };
   }
   return hit;
+}
+
+/** Coarse QT + point-in-box rescue (nodes + frames) + permanent stackOrder sort. */
+export function collectUnifiedHitCandidates(
+  deps: SceneRendererHitDeps,
+  point: RcbVec
+): {
+  doc: NonNullable<ReturnType<SceneRendererHitDeps['getDocument']>>;
+  zoom: number;
+  pad: number;
+  searchPad: number;
+  spatial: ReturnType<SceneRendererHitDeps['getSpatial']>;
+  order: string[];
+  rescuedIds: string[];
+  hitOrder: string[];
+} | null {
+  const doc = deps.getDocument();
+  if (!doc) return null;
+  const zoom = Math.max(0.05, deps.getZoom() || 1);
+  const pad = sceneHitSlop(zoom);
+  const searchPad = pad + 64 / zoom;
+  const spatial = deps.getSpatial();
+  let order = spatial.hitCandidateIds({
+    x: point.x,
+    y: point.y,
+    pad: searchPad,
+  });
+
+  const seen = new Set(order);
+  const rescuedIds: string[] = [];
+  const pointHitsBox = (box: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }) =>
+    point.x >= box.left - searchPad &&
+    point.x <= box.left + box.width + searchPad &&
+    point.y >= box.top - searchPad &&
+    point.y <= box.top + box.height + searchPad;
+
+  // Partial stale rescue: QT may still return neighbors while the moved
+  // node's indexed AABB lags getNodeBox / live plate geom.
+  for (const id of deps.listNodeIds()) {
+    if (seen.has(id)) continue;
+    const box = deps.getNodeBox(id);
+    if (!box || !pointHitsBox(box)) continue;
+    rescuedIds.push(id);
+    seen.add(id);
+  }
+  for (const frame of Array.isArray(doc.frames) ? doc.frames : []) {
+    const fid = String(frame?.id || '').trim();
+    if (!fid) continue;
+    const key = stackFrameKey(fid);
+    if (seen.has(key)) continue;
+    const aabb = frameSceneAabb(doc, fid, searchPad);
+    if (!aabb) continue;
+    if (
+      point.x < aabb.minX ||
+      point.x > aabb.maxX ||
+      point.y < aabb.minY ||
+      point.y > aabb.maxY
+    ) {
+      continue;
+    }
+    rescuedIds.push(key);
+    seen.add(key);
+  }
+  if (rescuedIds.length) {
+    spatial.patchNodes(doc, rescuedIds, 32);
+    order = [...order, ...rescuedIds];
+  }
+
+  const zMap = buildUnifiedHitZMap(doc, order);
+  const rank = new Map(order.map((id, i) => [id, i]));
+  const hitOrder = order.slice().sort((a, b) => {
+    const za = zMap.get(a) || 0;
+    const zb = zMap.get(b) || 0;
+    return zb - za || (rank.get(b) || 0) - (rank.get(a) || 0);
+  });
+
+  return { doc, zoom, pad, searchPad, spatial, order, rescuedIds, hitOrder };
 }
 
 export function isFullDirty(dirty: DirtyRegion): boolean {
@@ -883,8 +939,9 @@ function isTransparentCssColor(c: string): boolean {
 /**
  * Vectors that paint on the SoA / canvas ink surface (ADR 0027).
  *
- * Product WebGL only draws BASIC_GEOM instances (+ atlas stamps). Anything it
- * cannot paint keeps a DOM host — not a second ink backend.
+ * Product WebGL draws BASIC_GEOM (+ atlas stamps for paths / boolean). Nodes that
+ * must interleave above artboard plates still promote to DOM hosts on the shared
+ * stack mount (`worldNodeStacksAboveAnyFrame`).
  *
  * Vitest (WebGL off): broader rich idle for Canvas2D paint helpers.
  *
@@ -893,9 +950,6 @@ function isTransparentCssColor(c: string): boolean {
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   if (isImageProcessRunning(node)) return false;
-  // Frame membership does NOT force a DOM host — artboard children demote to
-  // canvas idle / SoA like world nodes. Clip + stackOrder stay on the shared
-  // frame plate / SVG mount; ink paints under it (ADR 0027).
   const key = String(node.key || '');
   if (key === 'lottie' || key === 'group') {
     return false;
@@ -907,13 +961,23 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
     return false;
   }
 
-  // Product ink = WebGL instances only. Text/media stay FO/DOM until stamped.
-  // Vectors demote only when SoA-basic (what collectSoaWebglInstances draws).
+  // Product WebGL: basic + atlas-stamped paths/boolean/image/video/audio/text/gradients.
+  // Lottie stays DOM. Puppet-warp images stay DOM hosts.
+  // StackOrder above plates still promotes to hosts (shared mount data-z).
   if (isSoaWebglEnvEnabled()) {
-    if (key === 'text' || key === 'image' || key === 'video' || key === 'audio') {
+    if (key === 'lottie' || key === 'group') {
       return false;
     }
-    return isSoaBasicGeomSufficient(node);
+    if (key === 'text' || key === 'audio') return true;
+    if (key === 'image' || key === 'video') {
+      if (nodeNeedsPuppetWarp(node)) return false;
+      // Cross-origin without CORS cannot stamp into WebGL — keep a DOM host.
+      const src = mediaPaintSrc(node);
+      if (src && isFillImageWebglUnsafe(src)) return false;
+      return true;
+    }
+    if (isSoaBasicGeomSufficient(node)) return true;
+    return isSoaRichFillAtlasStampable(node);
   }
 
   if (key === 'text') return true;
@@ -1229,8 +1293,44 @@ const FILL_IMAGE_CACHE_MAX = 64;
 const DIFFUSE_BAKE_CACHE_MAX = 24;
 
 const fillImageCache = new Map<string, CanvasImageSource>();
+/** Srcs that painted a non-readable canvas (CORS) — never stamp into WebGL atlas. */
+const fillImageWebglUnsafe = new Set<string>();
 const diffuseBakeCache = new Map<string, HTMLCanvasElement>();
 
+/** True when canvas pixels can be read (safe to upload to WebGL). */
+export function canvasPixelsReadable(
+  canvas: HTMLCanvasElement | OffscreenCanvas | null | undefined
+): boolean {
+  if (!canvas) return false;
+  try {
+    const ctx = canvas.getContext('2d') as
+      | CanvasRenderingContext2D
+      | OffscreenCanvasRenderingContext2D
+      | null;
+    if (!ctx) return false;
+    ctx.getImageData(0, 0, 1, 1);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Remote http(s) need CORS for WebGL atlas; blob/data are same-document. */
+function fillImageShouldUseCors(url: string): boolean {
+  const u = String(url || '').trim();
+  if (!u) return false;
+  if (u.startsWith('blob:') || u.startsWith('data:') || u.startsWith('file:')) return false;
+  return /^https?:\/\//i.test(u) || u.startsWith('//');
+}
+
+export function isFillImageWebglUnsafe(src: string): boolean {
+  return fillImageWebglUnsafe.has(String(src || '').trim());
+}
+
+export function markFillImageWebglUnsafe(src: string): void {
+  const url = String(src || '').trim();
+  if (url) fillImageWebglUnsafe.add(url);
+}
 export function imageSourceSize(img: CanvasImageSource): { iw: number; ih: number } {
   if (typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement) {
     return { iw: img.naturalWidth || img.width || 1, ih: img.naturalHeight || img.height || 1 };
@@ -1252,10 +1352,17 @@ export function getFillImageReady(src: string): CanvasImageSource | null {
   const cached = fillImageCache.get(url);
   if (cached) {
     if (typeof HTMLImageElement !== 'undefined' && cached instanceof HTMLImageElement) {
-      if (cached.complete && (cached.naturalWidth || cached.width)) return cached;
-      return null;
+      // Legacy cache entries loaded without CORS would taint the WebGL atlas.
+      if (fillImageShouldUseCors(url) && cached.crossOrigin !== 'anonymous') {
+        fillImageCache.delete(url);
+      } else if (cached.complete && (cached.naturalWidth || cached.width)) {
+        return cached;
+      } else {
+        return null;
+      }
+    } else {
+      return cached;
     }
-    return cached;
   }
   if (typeof Image === 'undefined') return null;
   if (fillImageCache.size >= FILL_IMAGE_CACHE_MAX) {
@@ -1264,6 +1371,10 @@ export function getFillImageReady(src: string): CanvasImageSource | null {
   }
   const img = new Image();
   img.decoding = 'async';
+  // Required so bake → atlas → texImage2D is not tainted by cross-origin bitmaps.
+  if (fillImageShouldUseCors(url)) {
+    img.crossOrigin = 'anonymous';
+  }
   img.src = url;
   fillImageCache.set(url, img);
   if (img.complete && (img.naturalWidth || img.width)) return img;
@@ -1273,6 +1384,15 @@ export function getFillImageReady(src: string): CanvasImageSource | null {
       'load',
       () => {
         bumpSceneCanvasIdlePaint();
+      },
+      { once: true }
+    );
+    img.addEventListener(
+      'error',
+      () => {
+        // CORS failure with crossOrigin=anonymous — do not keep stamping/bumping.
+        markFillImageWebglUnsafe(url);
+        fillImageCache.delete(url);
       },
       { once: true }
     );
@@ -1290,6 +1410,7 @@ export function setFillImageCacheEntry(src: string, img: CanvasImageSource): voi
 /** Test / dispose helper. */
 export function clearFillImageCache(): void {
   fillImageCache.clear();
+  fillImageWebglUnsafe.clear();
   diffuseBakeCache.clear();
 }
 
@@ -2321,6 +2442,217 @@ export function paintCanvasMediaInk(
   ctx.restore();
 }
 
+/**
+ * Bake static image / video poster for WebGL atlas stamp (crop + corners).
+ * Returns null while decode is pending (caller should skip; load bumps idle).
+ */
+export function bakeMediaInkForAtlas(
+  node: SceneNodeInput,
+  width: number,
+  height: number
+): HTMLCanvasElement | OffscreenCanvas | null {
+  if (nodeNeedsPuppetWarp(node)) return null;
+  const src = mediaPaintSrc(node);
+  if (!src || isFillImageWebglUnsafe(src) || !getFillImageReady(src)) return null;
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  // Cap bake resolution so atlas cells stay sharp without huge canvases.
+  const maxEdge = 512;
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const bw = Math.max(1, Math.round(w * scale));
+  const bh = Math.max(1, Math.round(h * scale));
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  if (typeof OffscreenCanvas !== 'undefined') {
+    canvas = new OffscreenCanvas(bw, bh);
+  } else if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas');
+    c.width = bw;
+    c.height = bh;
+    canvas = c;
+  } else {
+    return null;
+  }
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) return null;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  paintCanvasMediaInk(ctx as CanvasRenderingContext2D, {
+    node,
+    width: w,
+    height: h,
+    opacity: 1,
+  });
+  // Never return a tainted bake — stamping it would poison the shared WebGL atlas.
+  if (!canvasPixelsReadable(canvas)) {
+    markFillImageWebglUnsafe(src);
+    return null;
+  }
+  return canvas;
+}
+
+/**
+ * Bake idle audio plate for WebGL atlas stamp (wash + waveform bars).
+ */
+export function bakeAudioInkForAtlas(
+  node: SceneNodeInput,
+  width: number,
+  height: number,
+  zoom = 1
+): HTMLCanvasElement | OffscreenCanvas | null {
+  if (String(node.key || '') !== 'audio') return null;
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const maxEdge = 512;
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const bw = Math.max(1, Math.round(w * scale));
+  const bh = Math.max(1, Math.round(h * scale));
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  if (typeof OffscreenCanvas !== 'undefined') {
+    canvas = new OffscreenCanvas(bw, bh);
+  } else if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas');
+    c.width = bw;
+    c.height = bh;
+    canvas = c;
+  } else {
+    return null;
+  }
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) return null;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  const opacity = Math.min(1, Math.max(0.05, Number(node.attrs?.opacity) || 1));
+  const screenH = h * Math.max(0.05, zoom || 1);
+  if (screenH < 18) {
+    const c2 = ctx as CanvasRenderingContext2D;
+    c2.save();
+    c2.globalAlpha = opacity;
+    c2.fillStyle = '#e9eaee';
+    c2.fillRect(0, 0, w, h);
+    c2.restore();
+  } else {
+    paintCanvasAudioInk(ctx as CanvasRenderingContext2D, {
+      node,
+      width: w,
+      height: h,
+      opacity,
+    });
+  }
+  return canvas;
+}
+
+/**
+ * Bake rich shape ink for WebGL atlas (`rich:`): gradients, rotated solids,
+ * triangle/polygon/star, donut/arc ellipses.
+ */
+export function bakeShapeInkForAtlas(
+  node: SceneNodeInput,
+  width: number,
+  height: number
+): HTMLCanvasElement | OffscreenCanvas | null {
+  if (!isSoaRichFillAtlasStampable(node)) return null;
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const maxEdge = 512;
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const bw = Math.max(1, Math.round(w * scale));
+  const bh = Math.max(1, Math.round(h * scale));
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  if (typeof OffscreenCanvas !== 'undefined') {
+    canvas = new OffscreenCanvas(bw, bh);
+  } else if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas');
+    c.width = bw;
+    c.height = bh;
+    canvas = c;
+  } else {
+    return null;
+  }
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) return null;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  const opacity = Math.min(1, Math.max(0.05, Number(node.attrs?.opacity) || 1));
+  const key = String(node.key || '');
+  const t = String(node.attrs?.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
+  const customPath = String(node.attrs?.path || '').trim();
+  const pathLike =
+    t === 'pen' || t === 'pencil' || t === 'path' || key === 'path' || Boolean(customPath);
+  const angle = Number(node.attrs?.angle) || 0;
+  const c2 = ctx as CanvasRenderingContext2D;
+  c2.save();
+  if (Math.abs(angle) > 0.5) {
+    c2.translate(w / 2, h / 2);
+    c2.rotate((angle * Math.PI) / 180);
+    c2.translate(-w / 2, -h / 2);
+  }
+  if (pathLike) {
+    paintCanvasPathInk(c2, { node, width: w, height: h, opacity });
+  } else {
+    paintCanvasShapeInk(c2, { node, width: w, height: h, opacity });
+  }
+  c2.restore();
+  if (!canvasPixelsReadable(canvas)) {
+    const fillSrc = String(node.attrs?.['fill-image-src'] || '').trim();
+    if (fillSrc) markFillImageWebglUnsafe(fillSrc);
+    return null;
+  }
+  return canvas;
+}
+
+/**
+ * Bake static text for WebGL atlas stamp (glyphs or greeking by zoom).
+ */
+export function bakeTextInkForAtlas(
+  node: SceneNodeInput,
+  width: number,
+  height: number,
+  zoom = 1
+): HTMLCanvasElement | OffscreenCanvas | null {
+  if (String(node.key || '') !== 'text') return null;
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  const maxEdge = 512;
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const bw = Math.max(1, Math.round(w * scale));
+  const bh = Math.max(1, Math.round(h * scale));
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  if (typeof OffscreenCanvas !== 'undefined') {
+    canvas = new OffscreenCanvas(bw, bh);
+  } else if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas');
+    c.width = bw;
+    c.height = bh;
+    canvas = c;
+  } else {
+    return null;
+  }
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) return null;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  const opacity = Math.min(1, Math.max(0.15, Number(node.attrs?.opacity) || 1));
+  const fontPx = Math.max(1, Number(node.attrs?.fontSize) || 14);
+  const screenFont = fontPx * Math.max(0.05, zoom || 1);
+  if (screenFont < 7) {
+    const fill = resolveNodeProxyFill(node);
+    (ctx as CanvasRenderingContext2D).save();
+    (ctx as CanvasRenderingContext2D).globalAlpha = opacity;
+    paintTextProxyLines(ctx as CanvasRenderingContext2D, {
+      node,
+      width: w,
+      height: h,
+      fill,
+      opacity,
+    });
+    (ctx as CanvasRenderingContext2D).restore();
+  } else {
+    paintCanvasTextInk(ctx as CanvasRenderingContext2D, {
+      node,
+      width: w,
+      height: h,
+      opacity,
+    });
+  }
+  return canvas;
+}
+
 export type CanvasIdleNodePaintOpts = {
   left: number;
   top: number;
@@ -2335,7 +2667,6 @@ export type CanvasIdleNodePaintOpts = {
 
 /**
  * Clip Canvas ink to the node's owning clipContent frame (scene space).
- * Needed when idle ink paints above artboard plates.
  */
 export function clipCanvasIdleToOwningFrame(
   ctx: CanvasRenderingContext2D,

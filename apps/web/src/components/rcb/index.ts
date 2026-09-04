@@ -42,6 +42,8 @@ export {
   createCanvasSceneRenderer,
   resolveIdleInkBackend,
   hitTestWithSpatialIndex,
+  hitTestSceneTargetWithSpatialIndex,
+  collectUnifiedHitCandidates,
   isFullDirty,
   isNoopSoaDirtyRegion,
   dirtyTouchesNode,
@@ -71,6 +73,8 @@ export {
   getFillImageReady,
   setFillImageCacheEntry,
   clearFillImageCache,
+  canvasPixelsReadable,
+  isFillImageWebglUnsafe,
   setSceneCanvasIdlePaint,
   getSceneCanvasIdlePaint,
   clearSceneCanvasIdlePaint,
@@ -97,6 +101,7 @@ export {
   setSoaCanvasShapesEnabledForTests,
   isSoaCanvasEligible,
   isSoaBasicGeomSufficient,
+  isSoaRichFillAtlasStampable,
   soaStrokeWidth,
   SOA_DEFAULT_STROKE_WIDTH,
   hitTestSoaBuffer,
@@ -122,6 +127,7 @@ export {
   SOA_FLAG_VISIBLE,
   SOA_FLAG_CANVAS_IDLE,
   SOA_FLAG_BASIC_GEOM,
+  SOA_FLAG_ATLAS_STAMP,
   SOA_FLAG_FREE,
   SOA_KIND_RECT,
   SOA_KIND_ELLIPSE,
@@ -345,3 +351,9 @@ export {
   coerceSceneDocumentInput,
 } from './sceneNode';
 export type { SceneNodeRef } from './scene/document/nodeCapabilities';
+export {
+  stackPaintZ,
+  stackPaintMaxZ,
+  stackPaintNaturalZ,
+  syncStackPaintOrder,
+} from './scene/document/sceneStackPainter';

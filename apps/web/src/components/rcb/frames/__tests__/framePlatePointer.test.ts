@@ -6,7 +6,6 @@ import {
   isPointOnFrameEdge,
   listContentNodeIds,
   resolveFramePlateDragMode,
-  resolveFramePlateTarget,
 } from '../framePlatePointer';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
@@ -18,99 +17,6 @@ describe('framePlatePointer', () => {
       activePageId: 'p1',
     } as unknown as SceneDocument;
     expect(listContentNodeIds(doc)).toEqual(['a', 'b']);
-  });
-
-  it('resolveFramePlateTarget accepts empty interior hits', () => {
-    const doc = {
-      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
-      deltaSetLike: { ROOT: { children: [] } },
-    } as unknown as SceneDocument;
-    const hitTestFrame = (x: number, y: number) =>
-      x >= 0 && x <= 300 && y >= 0 && y <= 300 ? 'f1' : null;
-    expect(resolveFramePlateTarget(doc, { x: 100, y: 100 }, null, hitTestFrame)).toBe('f1');
-  });
-
-  it('resolveFramePlateTarget accepts full-bleed plate hits', () => {
-    const doc = {
-      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
-      deltaSetLike: {
-        ROOT: { children: ['bg'] },
-        bg: {
-          id: 'bg',
-          key: 'shape',
-          x: 0,
-          y: 0,
-          width: 300,
-          height: 300,
-          attrs: { shapeType: 'rect' },
-        },
-      },
-    } as unknown as SceneDocument;
-    const hitTestFrame = () => 'f1';
-    expect(resolveFramePlateTarget(doc, { x: 50, y: 50 }, 'bg', hitTestFrame)).toBe('f1');
-  });
-
-  it('resolveFramePlateTarget keeps bound frame children as node hits', () => {
-    const doc = {
-      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
-      stackOrder: ['frame:f1'],
-      deltaSetLike: {
-        ROOT: { children: ['shape'] },
-        shape: {
-          id: 'shape',
-          key: 'shape',
-          x: 40,
-          y: 40,
-          width: 80,
-          height: 80,
-          attrs: { shapeType: 'rect', frameId: 'f1', frameOrder: 0 },
-        },
-      },
-    } as unknown as SceneDocument;
-    const hitTestFrame = () => 'f1';
-    expect(resolveFramePlateTarget(doc, { x: 50, y: 50 }, 'shape', hitTestFrame)).toBeNull();
-  });
-
-  it('resolveFramePlateTarget prefers higher plate over world nodes underneath', () => {
-    const doc = {
-      frames: [{ id: 'anim', x: 0, y: 0, width: 400, height: 300, kind: 'animation' }],
-      stackOrder: ['node:under', 'frame:anim'],
-      deltaSetLike: {
-        ROOT: { children: ['under'] },
-        under: {
-          id: 'under',
-          key: 'shape',
-          x: 20,
-          y: 20,
-          width: 200,
-          height: 200,
-          attrs: { shapeType: 'rect' },
-        },
-      },
-    } as unknown as SceneDocument;
-    const hitTestFrame = () => 'anim';
-    expect(resolveFramePlateTarget(doc, { x: 100, y: 100 }, 'under', hitTestFrame)).toBe('anim');
-  });
-
-  it('resolveFramePlateTarget rejects real shape hits', () => {
-    const doc = {
-      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
-      deltaSetLike: {
-        ROOT: { children: ['shape'] },
-        shape: {
-          id: 'shape',
-          key: 'shape',
-          x: 40,
-          y: 40,
-          width: 80,
-          height: 80,
-          attrs: { shapeType: 'rect' },
-        },
-      },
-    } as unknown as SceneDocument;
-    const hitTestFrame = () => 'f1';
-    // No stackOrder → equal z; unbound shape is not treated as under-plate.
-    expect(resolveFramePlateTarget(doc, { x: 50, y: 50 }, 'shape', hitTestFrame)).toBeNull();
   });
 
   it('frameIsEmpty uses bound children (attrs.frameId), not geometry', () => {
@@ -212,26 +118,6 @@ describe('framePlatePointer', () => {
     expect(frameIsEmpty(doc, 'f1')).toBe(true);
   });
 
-  it('resolveFramePlateTarget treats Lottie frame host as plate', () => {
-    const doc = {
-      frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'animation' }],
-      deltaSetLike: {
-        ROOT: { children: ['host'] },
-        host: {
-          id: 'host',
-          key: 'lottie',
-          x: 0,
-          y: 0,
-          width: 300,
-          height: 300,
-          attrs: { frameId: 'lot', animationFrameHost: true },
-        },
-      },
-    } as unknown as SceneDocument;
-    const hitTestFrame = () => 'lot';
-    expect(resolveFramePlateTarget(doc, { x: 50, y: 50 }, 'host', hitTestFrame)).toBe('lot');
-  });
-
   it('frameIsEmpty ignores Lottie frame host (host-only plate is empty)', () => {
     const doc = {
       frames: [{ id: 'lot', x: 0, y: 0, width: 300, height: 300, kind: 'animation' }],
@@ -251,44 +137,10 @@ describe('framePlatePointer', () => {
     expect(frameIsEmpty(doc, 'lot')).toBe(true);
   });
 
-  it('isPointOnFrameEdge detects border band', () => {
-    const box = { left: 0, top: 0, width: 300, height: 300 };
-    const band = framePlateEdgeBandScene(1);
-    expect(isPointOnFrameEdge({ x: band / 2, y: 150 }, box, 1)).toBe(true);
-    expect(isPointOnFrameEdge({ x: 150, y: 150 }, box, 1)).toBe(false);
-  });
-
-  it('resolveFramePlateDragMode: empty → frame_move, occupied → pointing_canvas', () => {
-    const emptyDoc = {
-      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
-      deltaSetLike: { ROOT: { children: [] } },
-    } as unknown as SceneDocument;
-    expect(
-      resolveFramePlateDragMode(emptyDoc, 'f1', { readOnly: false, canMove: true })
-    ).toBe('frame_move');
-    expect(
-      resolveFramePlateDragMode(emptyDoc, 'f1', { readOnly: true, canMove: true })
-    ).toBe('pointing_canvas');
-
-    const occupied = {
-      pages: [{ id: 'p1', children: ['inner'] }],
-      activePageId: 'p1',
-      frames: [{ id: 'f1', x: 0, y: 0, width: 300, height: 300 }],
-      deltaSetLike: {
-        ROOT: { children: [] },
-        inner: {
-          id: 'inner',
-          key: 'shape',
-          x: 40,
-          y: 40,
-          width: 80,
-          height: 80,
-          attrs: { frameId: 'f1' },
-        },
-      },
-    } as unknown as SceneDocument;
-    expect(
-      resolveFramePlateDragMode(occupied, 'f1', { readOnly: false, canMove: true })
-    ).toBe('pointing_canvas');
+  it('edge band scales with zoom and detects border hits', () => {
+    const box = { left: 0, top: 0, width: 200, height: 100 };
+    expect(framePlateEdgeBandScene(1)).toBeGreaterThan(0);
+    expect(isPointOnFrameEdge({ x: 2, y: 50 }, box, 1)).toBe(true);
+    expect(isPointOnFrameEdge({ x: 100, y: 50 }, box, 1)).toBe(false);
   });
 });

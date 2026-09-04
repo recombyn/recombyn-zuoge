@@ -2,11 +2,17 @@ import type { SceneDocument } from '@/components/rcb/sceneNode';
 /**
  * Spatial index for scene AABBs (culling + hit candidate filter).
  * Backed by {@link SoaQuadtree} (world units; pan/zoom only transforms queries).
+ *
+ * Product hit indexes **nodes** (bare id) and **artboard plates** (`frame:id`)
+ * in one QT. Paint box = hit box. Marquee (`queryIdsInRect`) returns nodes only.
  */
 
 import { SoaQuadtree, type SoaQuadItem } from './soaQuadtree';
-import { nodeLeftTop } from '../scene/paint/sceneToSvg';
+import { nodeLeftTop, frameSceneBounds } from '../scene/paint/sceneToSvg';
 import { effectivePaintBox } from './transformPreview';
+import { stackFrameKey, parseStackKey } from '@/components/rcb/scene/document/sceneDocument';
+import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { isArtboardVisibleInDocument } from '@/components/rcb/scene/document/nodeCapabilities';
 
 export type RcbSpatialItem = SoaQuadItem;
 
@@ -236,6 +242,29 @@ export function nodeSceneAabb(
   };
 }
 
+/** Artboard plate AABB in the same world space as nodeSceneAabb (key = `frame:id`). */
+export function frameSceneAabb(
+  document: SceneDocument,
+  frameId: string,
+  pad = 0
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const fid = String(frameId || '').trim();
+  if (!fid || !document) return null;
+  const frame = (Array.isArray(document.frames) ? document.frames : []).find(
+    (f) => String(f?.id || '') === fid
+  );
+  if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) return null;
+  const live = getLiveArtboardFrameGeometry(fid);
+  const box = frameSceneBounds(document, frame, live);
+  const expand = Math.max(0, pad);
+  return {
+    minX: box.left - expand,
+    minY: box.top - expand,
+    maxX: box.left + box.width + expand,
+    maxY: box.top + box.height + expand,
+  };
+}
+
 /** Prefer spatial candidates once the scene reaches this many root ids. */
 export const SCENE_SPATIAL_LARGE_THRESHOLD = 48;
 
@@ -247,6 +276,8 @@ export type SceneSpatialSyncInput = {
   patchedNodeIds?: readonly string[];
   /** Extra AABB pad in scene units (stroke handled inside nodeSceneAabb). */
   aabbPad?: number;
+  /** When true (default), keep `frame:id` plate AABBs in the same QT. */
+  indexFrames?: boolean;
 };
 
 /**
@@ -259,9 +290,11 @@ export class SceneSpatialRuntime {
   private reloadToken: number | string | null = null;
   /** Length-only membership fingerprint — page.children is a new array every paste. */
   private childrenLen = -1;
+  private framesLen = -1;
   private rank = new Map<string, number>();
   /** Skip StrictMode double-invoke with the same membership + patch set. */
   private lastSyncKey = '';
+  private indexFrames = true;
 
   constructor(cellSize = 256) {
     this.index = new RcbSpatialIndex(cellSize);
@@ -279,8 +312,58 @@ export class SceneSpatialRuntime {
     this.index.clear();
     this.reloadToken = null;
     this.childrenLen = -1;
+    this.framesLen = -1;
     this.rank = new Map();
     this.lastSyncKey = '';
+  }
+
+  /** Collect node + optional frame plate items for a full replaceAll. */
+  private collectSyncItems(
+    doc: SceneDocument,
+    childrenSrc: readonly string[],
+    pad: number,
+    withFrames: boolean
+  ): RcbSpatialItem[] {
+    const items: RcbSpatialItem[] = [];
+    for (const id of childrenSrc) {
+      const box = nodeSceneAabb(doc, id, pad);
+      if (!box) continue;
+      items.push({ id, ...box });
+    }
+    if (withFrames) {
+      for (const frame of Array.isArray(doc.frames) ? doc.frames : []) {
+        const fid = String(frame?.id || '').trim();
+        if (!fid) continue;
+        const box = frameSceneAabb(doc, fid, pad);
+        if (!box) continue;
+        items.push({ id: stackFrameKey(fid), ...box });
+      }
+    }
+    return items;
+  }
+
+  /** Reconcile `frame:*` plate keys after node sync (membership + live geom). */
+  private syncFramePlates(doc: SceneDocument, pad: number): void {
+    if (!this.indexFrames) return;
+    const want = new Set<string>();
+    for (const frame of Array.isArray(doc.frames) ? doc.frames : []) {
+      const fid = String(frame?.id || '').trim();
+      if (!fid) continue;
+      const key = stackFrameKey(fid);
+      const box = frameSceneAabb(doc, fid, pad);
+      if (!box) {
+        this.index.remove(key);
+        continue;
+      }
+      want.add(key);
+      this.index.upsert({ id: key, ...box });
+    }
+    for (const id of [...this.index.ids()]) {
+      const parsed = parseStackKey(id);
+      if (!parsed || parsed.kind !== 'frame') continue;
+      if (!want.has(id)) this.index.remove(id);
+    }
+    this.framesLen = Array.isArray(doc.frames) ? doc.frames.length : 0;
   }
 
   sync(input: SceneSpatialSyncInput): RcbSpatialIndex {
@@ -292,14 +375,19 @@ export class SceneSpatialRuntime {
     const childrenSrc = input.childrenIds;
     const pad = input.aabbPad ?? 32;
     const patched = input.patchedNodeIds || [];
-    const syncKey = `${input.reloadToken}:${childrenSrc.length}:${patched.length}:${patched[0] || ''}:${patched[patched.length - 1] || ''}`;
+    this.indexFrames = input.indexFrames !== false;
+    const framesLen = Array.isArray(doc.frames) ? doc.frames.length : 0;
+    const syncKey = `${input.reloadToken}:${childrenSrc.length}:${framesLen}:${patched.length}:${patched[0] || ''}:${patched[patched.length - 1] || ''}:${this.indexFrames ? 1 : 0}`;
     if (syncKey === this.lastSyncKey && this.index.size > 0) {
+      // Live plate drag: still refresh frame AABBs from live geom.
+      if (this.indexFrames) this.syncFramePlates(doc, pad);
       return this.index;
     }
     this.lastSyncKey = syncKey;
 
     const tokenChanged = this.reloadToken !== input.reloadToken;
     const lenChanged = this.childrenLen !== childrenSrc.length;
+    const framesChanged = this.framesLen !== framesLen;
     if (tokenChanged || lenChanged || this.index.size === 0) {
       this.rank = buildIdRankMap(childrenSrc);
       this.childrenLen = childrenSrc.length;
@@ -308,14 +396,10 @@ export class SceneSpatialRuntime {
     if (tokenChanged || this.index.size === 0) {
       // One replaceAll — sequential upsert rebuilds the tree on every out-of-root
       // paste offset and went O(n²) once the scene grew past a few dozen nodes.
-      const items: RcbSpatialItem[] = [];
-      for (const id of childrenSrc) {
-        const box = nodeSceneAabb(doc, id, pad);
-        if (!box) continue;
-        items.push({ id, ...box });
-      }
+      const items = this.collectSyncItems(doc, childrenSrc, pad, this.indexFrames);
       this.index.replaceAll(items);
       this.reloadToken = input.reloadToken;
+      this.framesLen = framesLen;
       return this.index;
     }
 
@@ -327,6 +411,7 @@ export class SceneSpatialRuntime {
       const idSet = grewOnly ? null : new Set(childrenSrc);
       if (idSet) {
         for (const id of [...this.index.ids()]) {
+          if (parseStackKey(id)?.kind === 'frame') continue;
           if (!idSet.has(id)) this.index.remove(id);
         }
       }
@@ -362,10 +447,12 @@ export class SceneSpatialRuntime {
         return key && !addedIds.has(key);
       });
       if (geomOnly.length) this.patchNodes(doc, geomOnly, pad);
+      this.syncFramePlates(doc, pad);
       return this.index;
     }
 
     this.patchNodes(doc, patched, pad);
+    if (framesChanged || this.indexFrames) this.syncFramePlates(doc, pad);
     return this.index;
   }
 
@@ -379,6 +466,13 @@ export class SceneSpatialRuntime {
     if (patchedNodeIds.length === 1) {
       const id = String(patchedNodeIds[0] || '').trim();
       if (!id) return;
+      if (parseStackKey(id)?.kind === 'frame') {
+        const fid = parseStackKey(id)!.id;
+        const box = frameSceneAabb(document, fid, aabbPad);
+        if (!box) this.index.remove(id);
+        else this.index.upsert({ id, ...box });
+        return;
+      }
       if (!document.deltaSetLike?.[id]) {
         this.index.remove(id);
         return;
@@ -392,6 +486,13 @@ export class SceneSpatialRuntime {
     for (const raw of patchedNodeIds) {
       const id = String(raw || '').trim();
       if (!id) continue;
+      if (parseStackKey(id)?.kind === 'frame') {
+        const fid = parseStackKey(id)!.id;
+        const box = frameSceneAabb(document, fid, aabbPad);
+        if (!box) this.index.remove(id);
+        else upserts.push({ id, ...box });
+        continue;
+      }
       if (!document.deltaSetLike?.[id]) {
         this.index.remove(id);
         continue;
@@ -404,10 +505,10 @@ export class SceneSpatialRuntime {
     else if (upserts.length > 1) this.index.bulkUpsert(upserts);
   }
 
-  /** Bottom→top ids intersecting rect (rank-sorted hits only). */
+  /** Bottom→top ids intersecting rect (rank-sorted). Nodes only — frames excluded. */
   queryIdsInRect(
     box: { left: number; top: number; width: number; height: number },
-    opts?: { ascending?: boolean }
+    opts?: { ascending?: boolean; includeFrames?: boolean }
   ): string[] {
     const hits = this.index.search(
       box.left,
@@ -416,14 +517,16 @@ export class SceneSpatialRuntime {
       box.top + box.height
     );
     if (!hits.length) return [];
-    return sortIdsByRank(
-      hits.map((h) => h.id),
-      this.rank,
-      { ascending: opts?.ascending !== false }
-    );
+    const ids = hits
+      .map((h) => h.id)
+      .filter((id) => opts?.includeFrames || parseStackKey(id)?.kind !== 'frame');
+    return sortIdsByRank(ids, this.rank, { ascending: opts?.ascending !== false });
   }
 
-  /** Top→bottom hit-test order — always spatial broad-phase (no full-scene scan). */
+  /**
+   * Top→bottom hit-test order — spatial broad-phase for nodes + `frame:*` plates.
+   * Caller must re-sort by permanent stackOrder (ideal hit contract).
+   */
   hitCandidateIds(opts: { x: number; y: number; pad: number }): string[] {
     const nearby = this.index.searchPoint(opts.x, opts.y, opts.pad);
     return sortIdsByRank(

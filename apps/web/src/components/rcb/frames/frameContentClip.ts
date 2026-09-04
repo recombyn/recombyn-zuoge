@@ -18,6 +18,7 @@ let revealOverflowNodeIds: ReadonlySet<string> = EMPTY_REVEAL_OVERFLOW;
 
 const EMPTY_PAINT_RAISE = new Set<string>();
 let paintRaiseNodeIds: ReadonlySet<string> = EMPTY_PAINT_RAISE;
+let paintRaiseFrameIds: ReadonlySet<string> = EMPTY_PAINT_RAISE;
 
 /**
  * Optional registry for hosts that temporarily paint past clipContent.
@@ -60,14 +61,38 @@ export function selectionPaintRaises(nodeId: string | null | undefined): boolean
   return paintRaiseNodeIds.has(nodeId);
 }
 
+/** Single-selected artboard / 动画工作台 — temporary paint front over world ink. */
+export function setSelectionPaintRaiseFrameIds(ids: Iterable<string> | null | undefined): void {
+  if (!ids) {
+    paintRaiseFrameIds = EMPTY_PAINT_RAISE;
+    return;
+  }
+  const next = new Set<string>();
+  for (const id of ids) {
+    const s = String(id || '').trim();
+    if (s) next.add(s);
+  }
+  paintRaiseFrameIds = next.size ? next : EMPTY_PAINT_RAISE;
+}
+
+export function selectionPaintRaisesFrame(frameId: string | null | undefined): boolean {
+  if (!frameId) return false;
+  return paintRaiseFrameIds.has(frameId);
+}
+
 export function hasSelectionPaintRaise(): boolean {
-  return paintRaiseNodeIds.size > 0;
+  return paintRaiseNodeIds.size > 0 || paintRaiseFrameIds.size > 0;
 }
 
 /** Ids currently raised above stack max for paint (selection). */
 export function listSelectionPaintRaiseIds(): string[] {
   if (!paintRaiseNodeIds.size) return [];
   return [...paintRaiseNodeIds];
+}
+
+export function listSelectionPaintRaiseFrameIds(): string[] {
+  if (!paintRaiseFrameIds.size) return [];
+  return [...paintRaiseFrameIds];
 }
 
 export function hasFrameClipRevealOverflow(): boolean {

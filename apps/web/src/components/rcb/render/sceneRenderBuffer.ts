@@ -54,6 +54,9 @@ import {
   selectionPaintRaises,
 } from '@/components/rcb/frames/frameContentClip';
 import { buildNodeStackZMap, maxDocumentStackZ } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  isNodeAabbFullyOccludedByHigherArtboard,
+} from '@/components/rcb/scene/document/sceneHitBridge';
 
 export const SOA_FLAG_VISIBLE = 1 << 0;
 export const SOA_FLAG_LOCKED = 1 << 1;
@@ -64,6 +67,11 @@ export const SOA_FLAG_CANVAS_IDLE = 1 << 3;
 export const SOA_FLAG_BASIC_GEOM = 1 << 4;
 /** Tombstone slot awaiting reuse via freeSlots (skipped by paint/hit). */
 export const SOA_FLAG_FREE = 1 << 5;
+/**
+ * Idle ink via Canvas→atlas stamp (gradient / rotated solid / rich fill).
+ * Not BASIC_GEOM — collectSoaWebglInstances bakes `rich:` cells.
+ */
+export const SOA_FLAG_ATLAS_STAMP = 1 << 6;
 
 export const SOA_KIND_RECT = 0;
 export const SOA_KIND_ELLIPSE = 1;
@@ -71,6 +79,8 @@ export const SOA_KIND_LINE = 2;
 export const SOA_KIND_PATH = 3;
 export const SOA_KIND_IMAGE = 4;
 export const SOA_KIND_POLY = 5;
+/** Static text glyphs — atlas-stamped idle (not BASIC_GEOM). */
+export const SOA_KIND_TEXT = 6;
 export const SOA_KIND_OTHER = 15;
 /** Fallback line/path width when attrs omit border-width (matches prior Canvas/WebGL default). */
 export const SOA_DEFAULT_STROKE_WIDTH = 2;
@@ -101,13 +111,13 @@ function shapeTypeToken(node: SceneNodeInput): string {
   return String(raw).toLowerCase();
 }
 
-/** Lightweight SoA BASIC_GEOM eligibility — not rich idle text/media (those use canvasIds). */
+/** Lightweight SoA slot eligibility — vectors + static image/video/audio/text. */
 export function isSoaCanvasEligible(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   const key = String(node.key || '');
-  // Text/image/video/audio idle on canvas via paintCanvasIdleNode — not BASIC_GEOM slots.
-  if (key === 'lottie' || key === 'audio' || key === 'group' || key === 'text') return false;
-  if (key === 'image' || key === 'video') return false;
+  // Lottie/group stay DOM. Static image/video/audio/text can atlas-stamp.
+  if (key === 'lottie' || key === 'group') return false;
+  if (key === 'text' || key === 'image' || key === 'video' || key === 'audio') return true;
   const t = shapeTypeToken(node);
   if (t === 'rect' || t === 'roundrect' || t === '' || key === 'shape') return true;
   if (t === 'circle' || t === 'ellipse' || t === 'oval') return true;
@@ -164,8 +174,66 @@ function hasVisibleOutlineStroke(node: SceneNodeInput): boolean {
 }
 
 /**
+ * True when gradient / image / diffuse / rotated-solid / poly / donut-arc
+ * fills can idle via atlas stamp (shared stackOrder: ink under plates; host when above).
+ */
+export function isSoaRichFillAtlasStampable(node: SceneNodeInput | null | undefined): boolean {
+  if (!node || !isSoaCanvasEligible(node)) return false;
+  if (isSoaBasicGeomSufficient(node)) return false;
+  const key = String(node.key || '');
+  if (key === 'text' || key === 'image' || key === 'video' || key === 'audio') return false;
+  const attrs = node.attrs || {};
+  if (attrs.flipX === true || attrs.flipX === 'true') return false;
+  if (attrs.flipY === true || attrs.flipY === 'true') return false;
+
+  const fillType = String(attrs['fill-type'] || 'solid').toLowerCase();
+  const richFill =
+    fillType === 'linear' ||
+    fillType === 'radial' ||
+    fillType === 'angular' ||
+    fillType === 'image' ||
+    fillType === 'diffuse';
+  const solidish = !fillType || fillType === 'solid';
+  if (!richFill && !solidish) return false;
+
+  const rotated = Math.abs(Number(attrs.angle) || 0) > 0.5;
+  const t = shapeTypeToken(node);
+  const customPath = String(attrs.path || '').trim();
+  const pathLike =
+    t === 'pen' || t === 'pencil' || t === 'path' || key === 'path' || Boolean(customPath);
+
+  // WebGL has no POLY instancing — Canvas-bake → atlas for all eligible fills.
+  if (t === 'triangle' || t === 'polygon' || t === 'star') return true;
+
+  if (pathLike) {
+    if (!customPath || customPath.length >= HEAVY_PATH_D_CHARS) return false;
+  } else if (
+    t !== 'rect' &&
+    t !== 'roundrect' &&
+    t !== '' &&
+    t !== 'circle' &&
+    t !== 'ellipse' &&
+    t !== 'oval'
+  ) {
+    return false;
+  }
+
+  // Donut / pie / annular sector — paintCanvasShapeInk evenodd bake.
+  if (t === 'circle' || t === 'ellipse' || t === 'oval') {
+    if (ellipseInnerRatioFromAttrs(attrs) > 1e-6) return true;
+    const arc = ellipseArcPercentFromAttrs(attrs);
+    if (arc > 0 && arc < 100 - 1e-6) return true;
+  }
+
+  if (richFill) return true;
+  // Rotated solid rect/ellipse/path — bake instead of forcing a DOM host.
+  if (rotated && solidish) return true;
+  return false;
+}
+
+/**
  * True when SoA BASIC_GEOM can draw the node on the product WebGL path
- * (or Canvas2D helpers in Vitest). Non-basic → DOM host.
+ * (or Canvas2D helpers in Vitest). Non-basic → DOM host or atlas stamp.
  */
 export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined): boolean {
   if (!node || !isSoaCanvasEligible(node)) return false;
@@ -192,15 +260,15 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
 
   if (t === 'line' || t === 'arrow') return true;
   if (t === 'triangle' || t === 'polygon' || t === 'star') {
-    // WebGL skips SOA_KIND_POLY — Vitest Canvas2D SoA only.
+    // Product WebGL stamps POLY via rich atlas; Vitest Canvas2D uses basic SoA.
     return !webgl;
   }
   if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path' || customPath) {
     const d = customPath;
     if (!d || d.length >= HEAVY_PATH_D_CHARS) return false;
-    const fillRule = String(attrs['fill-rule'] || '').toLowerCase();
-    if (fillRule === 'evenodd') return false;
-    if (attrs.outlined === true || attrs.outlined === 'true') return false;
+    // evenodd / outlined (boolean results) stamp via the WebGL atlas like
+    // other closed paths — stackOrder is enforced by the shared plate+host mount,
+    // not by forcing a DOM host.
     return true;
   }
   if (t === 'rect' || t === 'roundrect' || t === '') return true;
@@ -562,6 +630,7 @@ export function unpackCssColor(argb: number): string {
 
 function shapeKindOf(node: SceneNodeInput): number {
   const key = String(node.key || '');
+  if (key === 'text') return SOA_KIND_TEXT;
   if (key === 'image' || key === 'video' || key === 'audio') return SOA_KIND_IMAGE;
   const t = shapeTypeToken(node);
   // Boolean / outline silhouettes keep a stored `path` — never solid RECT ink/hit.
@@ -639,9 +708,14 @@ function writeSlot(
   let flags = SOA_FLAG_DIRTY;
   if (!isNodeOverlayHidden(document, node)) flags |= SOA_FLAG_VISIBLE;
   if (node.attrs?.locked) flags |= SOA_FLAG_LOCKED;
-  // BASIC_GEOM → SoA canvas ink. Text / media / non-basic stay off this flag.
+  // BASIC_GEOM → SoA / WebGL vector ink. Image/video/text + rich fills get
+  // CANVAS_IDLE without BASIC_GEOM so collectSoaWebglInstances can atlas-stamp.
   if (isSoaBasicGeomSufficient(node)) {
     flags |= SOA_FLAG_BASIC_GEOM | SOA_FLAG_CANVAS_IDLE;
+  } else if (kind === SOA_KIND_IMAGE || kind === SOA_KIND_TEXT) {
+    flags |= SOA_FLAG_CANVAS_IDLE;
+  } else if (isSoaRichFillAtlasStampable(node)) {
+    flags |= SOA_FLAG_CANVAS_IDLE | SOA_FLAG_ATLAS_STAMP;
   }
   buf.flags[index] = flags >>> 0;
   buf.ids[index] = id;
@@ -1942,6 +2016,17 @@ export function paintSoaIdleSlot(
   if (doc && id) {
     const node = doc.deltaSetLike?.[id] as SceneNodeInput | undefined;
     if (node) {
+      if (
+        isNodeAabbFullyOccludedByHigherArtboard(doc, { ...node, id }, {
+          left: x,
+          top: y,
+          width: w,
+          height: h,
+        })
+      ) {
+        buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+        return;
+      }
       clipped = clipSoaIdleSlotToFrame(ctx, doc, id, node, { x, y, w, h });
     }
   }
@@ -2476,10 +2561,17 @@ export function applySoaHostInkFlags(
       kind === SOA_KIND_ELLIPSE ||
       kind === SOA_KIND_LINE ||
       kind === SOA_KIND_PATH ||
-      kind === SOA_KIND_POLY;
+      kind === SOA_KIND_POLY ||
+      kind === SOA_KIND_IMAGE ||
+      kind === SOA_KIND_TEXT;
     if (!shapeEligible) return false;
     let flags = buf.flags[i];
-    const wantInk = !hosts.has(id) && (flags & SOA_FLAG_BASIC_GEOM) !== 0;
+    const wantInk =
+      !hosts.has(id) &&
+      ((flags & SOA_FLAG_BASIC_GEOM) !== 0 ||
+        (flags & SOA_FLAG_ATLAS_STAMP) !== 0 ||
+        kind === SOA_KIND_IMAGE ||
+        kind === SOA_KIND_TEXT);
     const isInk = (flags & SOA_FLAG_CANVAS_IDLE) !== 0;
     if (wantInk === isInk) return false;
     if (wantInk) flags = (flags | SOA_FLAG_CANVAS_IDLE) >>> 0;

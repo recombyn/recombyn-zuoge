@@ -21,10 +21,12 @@ import {
   uniqueStringIds,
   worldNodeStacksAboveAnyFrame,
 } from '@/components/rcb/scene/document/sceneDocument';
+import { syncStackPaintOrder } from '@/components/rcb/scene/document/sceneStackPainter';
 import {
   findClippingFrameForNode,
   setFrameClipRevealOverflowIds,
   setSelectionPaintRaiseIds,
+  setSelectionPaintRaiseFrameIds,
 } from '@/components/rcb/frames/frameContentClip';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
@@ -338,7 +340,7 @@ export function syncSoaBufferFromDocumentNow(
   return true;
 }
 
-/** HTML/SVG hosts only when canvas cannot own the pixels (effects / live HTML media). */
+/** HTML/SVG hosts when canvas ink cannot occupy the correct stackOrder slot. */
 export function nodeNeedsDomShapeHost(
   node: SceneNodeInput | null | undefined,
   forceFull = false
@@ -346,6 +348,9 @@ export function nodeNeedsDomShapeHost(
   if (forceFull) return true;
   if (!node) return true;
   if (isImageProcessRunning(node)) return true;
+  // Plates share the stack SVG above SoA ink — bound children must host so
+  // their data-z can sit above the owner plate.
+  if (String(node.attrs?.frameId || '').trim()) return true;
   const key = String(node.key || '');
   // Static text —canvas ink; caret —TextInlineEditor overlay.
   // Static image —paintCanvasMediaInk; SoftGlow process still forceFull above.
@@ -402,6 +407,8 @@ type Props = {
   revealOverflowIds?: readonly string[];
   /** Single-select temporary paint raise (max+1). Empty for multi-select. */
   paintRaiseIds?: readonly string[];
+  /** Single-selected artboard id — temporary front over world ink under the plate. */
+  paintRaiseFrameIds?: readonly string[];
   /** Must stay as full SVG hosts (SoftGlow / inline editors —selection stays on canvas ink). */
   forceFullIds?: readonly string[];
   /** Shared scene index from SvgCanvas —drives viewport visible set. */
@@ -449,7 +456,9 @@ function trimCanvasInkIds(opts: {
 }
 
 /**
- * Split in-viewport ids: DOM hosts vs SoA/canvas ink (one surface for vectors).
+ * Split in-viewport ids: DOM hosts vs SoA/canvas ink.
+ * Hosts share one mount with artboard plates (`data-z` = stackOrder).
+ * SoA only for world nodes that sit under every artboard plate.
  */
 export function pickFullAndCanvasIds(opts: {
   document: SceneDocument;
@@ -463,6 +472,8 @@ export function pickFullAndCanvasIds(opts: {
   holdHostIds?: ReadonlySet<string>;
   /** Single-select paint raise — must share the plate mount (SoA is under plates). */
   paintRaiseIds?: ReadonlySet<string> | readonly string[];
+  /** Kept for API compat; plate raise is data-z on the shared mount. */
+  paintRaiseFrameIds?: ReadonlySet<string> | readonly string[];
   zoom: number;
   maxCanvasInk?: number;
 }): { fullIds: string[]; canvasIds: string[] } {
@@ -513,6 +524,7 @@ function RcbShapesLayer({
   keepVisibleIds = EMPTY_KEEP,
   revealOverflowIds = EMPTY_KEEP,
   paintRaiseIds = EMPTY_KEEP,
+  paintRaiseFrameIds = EMPTY_KEEP,
   forceFullIds = EMPTY_FORCE_FULL,
   spatialIndex = null,
 }: Props) {
@@ -584,6 +596,10 @@ function RcbShapesLayer({
   const paintRaiseSet = useMemo(
     () => new Set(paintRaiseIds.filter(Boolean)),
     [paintRaiseIds]
+  );
+  const paintRaiseFrameSet = useMemo(
+    () => new Set(paintRaiseFrameIds.filter(Boolean)),
+    [paintRaiseFrameIds]
   );
   const forceFullSet = useMemo(
     () => new Set(forceFullIds.filter(Boolean)),
@@ -666,6 +682,7 @@ function RcbShapesLayer({
         forceFullSet,
         holdHostIds,
         paintRaiseIds: paintRaiseSet,
+        paintRaiseFrameIds: paintRaiseFrameSet,
         zoom: cullCam.zoom || 1,
       }),
     [
@@ -674,6 +691,7 @@ function RcbShapesLayer({
       forceFullSet,
       holdHostIds,
       paintRaiseSet,
+      paintRaiseFrameSet,
       cullCam.zoom,
       workbenchTimelineToken,
     ]
@@ -814,6 +832,7 @@ function RcbShapesLayer({
     if (!document) {
       setFrameClipRevealOverflowIds(null);
       setSelectionPaintRaiseIds(null);
+      setSelectionPaintRaiseFrameIds(null);
       revealKeyRef.current = '';
       revealIdsRef.current = [];
       raiseIdsRef.current = [];
@@ -832,7 +851,8 @@ function RcbShapesLayer({
       if (node && shouldRevealShapeOverflow(true, node)) revealIds.push(id);
     }
     const raiseIds = [...paintRaiseSet];
-    const revealKey = `${revealIds.slice().sort().join('\0')}|${raiseIds.slice().sort().join('\0')}`;
+    const raiseFrameIds = [...paintRaiseFrameSet];
+    const revealKey = `${revealIds.slice().sort().join('\0')}|${raiseIds.slice().sort().join('\0')}|${raiseFrameIds.slice().sort().join('\0')}`;
     const revealChanged = revealKey !== revealKeyRef.current;
     const prevRevealIds = revealIdsRef.current;
     const prevRaiseIds = raiseIdsRef.current;
@@ -841,6 +861,9 @@ function RcbShapesLayer({
     raiseIdsRef.current = raiseIds;
     setFrameClipRevealOverflowIds(revealIds);
     setSelectionPaintRaiseIds(raiseIds);
+    setSelectionPaintRaiseFrameIds(raiseFrameIds);
+    // Plates + hosts share one mount — re-sort by data-z after selection raise.
+    syncStackPaintOrder();
 
     if (aiMutationLock > 0) return;
     if (!canvasIds.length) {
@@ -954,12 +977,14 @@ function RcbShapesLayer({
     revealSet,
     forceFullSet,
     paintRaiseSet,
+    paintRaiseFrameSet,
   ]);
 
   useEffect(() => {
     return () => {
       setFrameClipRevealOverflowIds(null);
       setSelectionPaintRaiseIds(null);
+      setSelectionPaintRaiseFrameIds(null);
       clearSceneCanvasIdlePaint();
     };
   }, []);
