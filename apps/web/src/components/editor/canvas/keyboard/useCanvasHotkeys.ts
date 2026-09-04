@@ -92,15 +92,6 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
     const COMPOSER_HOST = `[data-agent-composer], ${SCENE_COMPOSER_HOST}`;
 
     const isComposerTarget = (t: HTMLElement | null) => Boolean(t?.closest?.(COMPOSER_HOST));
-    const isSceneComposerTarget = (t: HTMLElement | null) =>
-      Boolean(t?.closest?.(SCENE_COMPOSER_HOST));
-
-    const composerPromptText = (t: HTMLElement | null) => {
-      const el =
-        (t?.closest?.('[data-agent-composer]') as HTMLElement | null) ||
-        (t?.closest?.(COMPOSER_HOST)?.querySelector?.('[data-agent-composer]') as HTMLElement | null);
-      return (el?.innerText || '').replace(/\u200b/g, '').trim();
-    };
 
     const selectionBusy = () => {
       const doc = documentRef.current;
@@ -282,13 +273,12 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && !readOnly) {
         if (typing && !inComposer) return;
-        // Empty on-canvas generator / quick-edit: Delete removes the plate (CE keeps focus).
-        // Agent dock composer must never fall through to canvas delete.
-        if (inComposer && composerPromptText(target)) return;
+        // Generator / quick-edit / agent composer own Backspace+Delete — even when
+        // the prompt is empty. Never fall through to canvas delete (that closed the
+        // plate and removed the selected node while the caret was in the input).
+        if (inComposer) return;
         const el = target as HTMLElement | null;
-        const allowEmptySceneComposerDelete = isSceneComposerTarget(target);
         if (
-          !allowEmptySceneComposerDelete &&
           el &&
           (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
         ) {
