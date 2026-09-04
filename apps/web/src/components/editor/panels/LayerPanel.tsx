@@ -552,7 +552,7 @@ function LayerIcon({
     if (thumb) return thumb;
     return (
       <LayerGlyphFallback>
-        <LuFilm className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
+        <HiOutlineVideoCamera className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
       </LayerGlyphFallback>
     );
   }
