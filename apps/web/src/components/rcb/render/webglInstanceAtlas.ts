@@ -3,8 +3,12 @@
  * (ADR 0027). One textured quad replaces many line segments.
  */
 import {
+  SOA_KIND_ELLIPSE,
+  SOA_KIND_IMAGE,
   SOA_KIND_PATH,
+  SOA_KIND_POLY,
   SOA_KIND_RECT,
+  SOA_KIND_TEXT,
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
 
@@ -186,11 +190,32 @@ export function pruneSoaAtlasForBuffer(atlas: SoaWebglAtlas, buf: SceneRenderBuf
     if (!id) continue;
     const kind = buf.kinds[i];
     if (kind === SOA_KIND_PATH) keep.add(`path:${id}`);
-    if (kind === SOA_KIND_RECT) keep.add(`round:${id}`);
+    if (kind === SOA_KIND_RECT) {
+      keep.add(`round:${id}`);
+      keep.add(`rich:${id}`);
+    }
+    if (kind === SOA_KIND_ELLIPSE || kind === SOA_KIND_POLY || kind === SOA_KIND_PATH) {
+      keep.add(`rich:${id}`);
+    }
+    if (kind === SOA_KIND_IMAGE) {
+      // image/video share IMAGE kind; audio stamps use aud: prefix.
+      keep.add(`img:${id}`);
+      keep.add(`aud:${id}`);
+    }
+    if (kind === SOA_KIND_TEXT) keep.add(`txt:${id}`);
   }
   let n = 0;
   for (const key of [...atlas.regions.keys()]) {
-    if (!key.startsWith('path:') && !key.startsWith('round:')) continue;
+    if (
+      !key.startsWith('path:') &&
+      !key.startsWith('round:') &&
+      !key.startsWith('img:') &&
+      !key.startsWith('aud:') &&
+      !key.startsWith('txt:') &&
+      !key.startsWith('rich:')
+    ) {
+      continue;
+    }
     if (keep.has(key)) continue;
     if (releaseSoaAtlasRegion(atlas, key)) n += 1;
   }
@@ -386,7 +411,7 @@ export function stampSoaPathToAtlas(
   fillCss: string,
   closed: boolean,
   lineWidth = 2,
-  opts?: { force?: boolean; strokeCss?: string }
+  opts?: { force?: boolean; strokeCss?: string; fillRule?: 'nonzero' | 'evenodd' }
 ): SoaAtlasRegion | null {
   const polyWorld = computePolylineWorldBounds(xy, startPoint * 2, pointCount);
   if (!polyWorld) return null;
@@ -402,6 +427,7 @@ export function stampSoaPathToAtlas(
   if (!region) return null;
 
   const strokeCss = opts?.strokeCss ?? fillCss;
+  const fillRule = opts?.fillRule === 'evenodd' ? 'evenodd' : 'nonzero';
   const hasFill = closed && atlasCssIsOpaque(fillCss);
   const strokeOk = atlasCssIsOpaque(strokeCss);
   const inner = atlas.cell - SOA_ATLAS_PAD * 2;
@@ -417,23 +443,14 @@ export function stampSoaPathToAtlas(
     ctx.lineJoin = closed ? 'round' : 'miter';
     ctx.beginPath();
     let pending = false;
-    const finishContour = () => {
-      if (!pending) return;
-      if (closed) {
-        ctx.closePath();
-        if (hasFill) ctx.fill();
-      }
-      if (strokeOk) ctx.stroke();
-      pending = false;
-      ctx.beginPath();
-    };
     const base = startPoint * 2;
     for (let i = 0; i < pointCount; i += 1) {
       const o = base + i * 2;
       const x = xy[o];
       const y = xy[o + 1];
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        finishContour();
+        if (pending && closed) ctx.closePath();
+        pending = false;
         continue;
       }
       if (!pending) {
@@ -443,7 +460,12 @@ export function stampSoaPathToAtlas(
         ctx.lineTo(x, y);
       }
     }
-    finishContour();
+    if (pending && closed) ctx.closePath();
+    if (hasFill && closed) {
+      if (fillRule === 'evenodd') ctx.fill('evenodd');
+      else ctx.fill();
+    }
+    if (strokeOk) ctx.stroke();
   });
   return region;
 }
@@ -534,6 +556,7 @@ export function stampImageToAtlas(
   world: { left: number; top: number; width: number; height: number },
   opts?: { force?: boolean }
 ): SoaAtlasRegion | null {
+  if (!atlasStampSourceIsSafe(source)) return null;
   const existing = atlas.regions.get(key);
   if (existing && !opts?.force) {
     touchLru(atlas, key);
@@ -652,4 +675,37 @@ let sharedAtlas: SoaWebglAtlas | null = null;
 export function ensureSharedSoaWebglAtlas(): SoaWebglAtlas | null {
   if (!sharedAtlas) sharedAtlas = createSoaWebglAtlas();
   return sharedAtlas;
+}
+
+/** Drop a tainted atlas surface and allocate a fresh one (WebGL texImage2D recovery). */
+export function recreateSharedSoaWebglAtlas(): SoaWebglAtlas | null {
+  sharedAtlas = createSoaWebglAtlas();
+  return sharedAtlas;
+}
+
+/** True when a stamp source will not taint the atlas canvas. */
+export function atlasStampSourceIsSafe(source: CanvasImageSource): boolean {
+  if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
+    try {
+      const ctx = source.getContext('2d');
+      if (!ctx) return false;
+      ctx.getImageData(0, 0, 1, 1);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (typeof OffscreenCanvas !== 'undefined' && source instanceof OffscreenCanvas) {
+    try {
+      const ctx = source.getContext('2d');
+      if (!ctx) return false;
+      ctx.getImageData(0, 0, 1, 1);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // HTMLImageElement / ImageBitmap / Video — trust caller CORS; drawImage of
+  // cross-origin without CORS taints. Prefer baking through a readable canvas.
+  return true;
 }

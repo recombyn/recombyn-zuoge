@@ -202,11 +202,10 @@ export type RcbCanvasProps = {
 /**
  * Layers:
  *   1. Grid canvas
- *   2. Frame plate SVG (below shape ink)
- *   3. SoA / canvas shape ink (single vector surface)
- *   4. DOM shape hosts (text / media FO / editors)
- *   5. Chrome SVG (preview, guides, selection)
- *   6. Overlay HTML UI
+ *   2. SoA / canvas shape ink (under stack SVG)
+ *   3. Stack SVG — artboard plates + DOM hosts interleaved by stackOrder data-z
+ *   4. Chrome SVG (preview, guides, selection)
+ *   5. Overlay HTML UI
  */
 function RcbCanvas({
   artboard,
@@ -522,26 +521,18 @@ function RcbCanvas({
     });
   }, [camera, devicePixelRatio, viewportEl?.clientWidth, viewportEl?.clientHeight]);
 
-  // z-order: grid → frame plates → SoA canvas ink → DOM hosts → chrome.
-  const sceneFramesSvgRef = useRef<SVGSVGElement | null>(null);
+  // z-order: grid → SoA canvas ink → stack SVG (plates+hosts) → chrome.
   const sceneInkSvgRef = useRef<SVGSVGElement | null>(null);
   const sceneChromeSvgRef = useRef<SVGSVGElement | null>(null);
 
   const publishSceneWorldMounts = useCallback(() => {
-    const framesInk = sceneFramesSvgRef.current;
     const ink = sceneInkSvgRef.current;
     const chrome = sceneChromeSvgRef.current;
-    const framesCamera = framesInk
-      ? (framesInk.querySelector(':scope > g[data-rcb-scene-camera]') as SVGGElement | null)
-      : null;
     const inkCamera = ink
       ? (ink.querySelector(':scope > g[data-rcb-scene-camera]') as SVGGElement | null)
       : null;
     const chromeCamera = chrome
       ? (chrome.querySelector(':scope > g[data-rcb-scene-camera]') as SVGGElement | null)
-      : null;
-    const framesMount = framesCamera
-      ? (framesCamera.querySelector(':scope > g[data-rcb-frames-mount]') as SVGGElement | null)
       : null;
     const mount = inkCamera
       ? (inkCamera.querySelector(':scope > g[data-rcb-shapes-mount]') as SVGGElement | null)
@@ -559,24 +550,9 @@ function RcbCanvas({
           ':scope > g[data-rcb-selection-chrome-mount]'
         ) as SVGGElement | null)
       : null;
-    setSceneWorldRoot(
-      ink,
-      mount,
-      previewMount,
-      guidesMount,
-      selectionChromeMount,
-      framesInk,
-      framesMount
-    );
+    // Plates alias onto the shapes mount inside setSceneWorldRoot.
+    setSceneWorldRoot(ink, mount, previewMount, guidesMount, selectionChromeMount);
   }, []);
-
-  const setSceneFramesRootNode = useCallback(
-    (node: SVGSVGElement | null) => {
-      sceneFramesSvgRef.current = node;
-      publishSceneWorldMounts();
-    },
-    [publishSceneWorldMounts]
-  );
 
   const setSceneInkRootNode = useCallback(
     (node: SVGSVGElement | null) => {
@@ -594,7 +570,7 @@ function RcbCanvas({
     [publishSceneWorldMounts]
   );
   useEffect(() => {
-    return () => setSceneWorldRoot(null, null, null, null, null, null, null);
+    return () => setSceneWorldRoot(null, null, null, null, null);
   }, []);
 
   const paintCameraKeyRef = useRef('');
@@ -605,7 +581,7 @@ function RcbCanvas({
   /** Backend recreate / idle-list identity still forces one full ink pass. */
   const transformPreviewFullPaintRef = useRef(false);
 
-  // Stage: grid → frame plates → SoA canvas ink → DOM hosts (ADR 0027).
+  // Stage: grid → SoA ink → shared stack SVG (plates+hosts by stackOrder) → chrome.
   // Hit uses the product SceneSpatialRuntime published by SvgCanvas (one path).
   // Recreate ink backend when GPU DOF toggles webgl ↔ webgpu.
   const [inkBackendKey, setInkBackendKey] = useState(() => resolveIdleInkBackend());
@@ -881,7 +857,7 @@ function RcbCanvas({
                 [data-rcb-canvas] [data-rcb-video-svg-underlay="1"] { opacity: 0; }
               `}</style>
               {defs}
-              {/* Grid under frame plates. */}
+              {/* Grid under stack ink. */}
               <canvas
                 ref={paintCanvasRef}
                 aria-hidden
@@ -892,43 +868,14 @@ function RcbCanvas({
                 data-rcb-grid-top={String(Math.floor(sceneTop / g) * g)}
                 className="pointer-events-none absolute inset-0 z-0"
               />
-              {/* Frame plates below SoA canvas ink. */}
-              {stageW > 0 && stageH > 0 ? (
-                <svg
-                  ref={setSceneFramesRootNode}
-                  aria-hidden
-                  data-rcb-scene-frames-root="1"
-                  data-rcb-screen-surface="1"
-                  data-rcb-infinite="1"
-                  data-rcb-shared-scene-surface="1"
-                  className="pointer-events-none absolute inset-0 z-[1] overflow-visible"
-                  width={stageW}
-                  height={stageH}
-                  viewBox={`0 0 ${stageW} ${stageH}`}
-                  preserveAspectRatio="none"
-                  style={{
-                    width: stageW,
-                    height: stageH,
-                    display: 'block',
-                    overflow: 'visible',
-                    shapeRendering: 'geometricPrecision',
-                    pointerEvents: 'none',
-                    isolation: 'isolate',
-                  }}
-                >
-                  <g data-rcb-scene-camera="1" transform={sceneCameraTransform}>
-                    <g data-rcb-frames-mount="1" />
-                  </g>
-                </svg>
-              ) : null}
               <canvas
                 ref={inkCanvasRef}
                 aria-hidden
                 data-rcb-idle-ink-canvas="1"
                 data-rcb-canvas-idle-count={String(listSceneCanvasIdlePaintIds().length)}
-                className="pointer-events-none absolute inset-0 z-[2]"
+                className="pointer-events-none absolute inset-0 z-[1]"
               />
-              {/* DOM hosts (text/media/editors) above SoA canvas ink. */}
+              {/* Plates + DOM hosts — one mount, stackOrder data-z. */}
               {stageW > 0 && stageH > 0 ? (
                 <svg
                   ref={setSceneInkRootNode}
@@ -939,7 +886,7 @@ function RcbCanvas({
                   data-rcb-shared-scene-surface="1"
                   data-rcb-scene-surface="1"
                   data-rcb-grid-size={String(g)}
-                  className="pointer-events-none absolute inset-0 z-[3] overflow-visible"
+                  className="pointer-events-none absolute inset-0 z-[2] overflow-visible"
                   width={stageW}
                   height={stageH}
                   viewBox={`0 0 ${stageW} ${stageH}`}
@@ -951,8 +898,6 @@ function RcbCanvas({
                     overflow: 'visible',
                     shapeRendering: 'geometricPrecision',
                     pointerEvents: 'none',
-                    // Keep mix-blend-mode layers compositing in SVG paint order
-                    // (above artboard plates) instead of against the page backdrop.
                     isolation: 'isolate',
                   }}
                 >
@@ -961,7 +906,7 @@ function RcbCanvas({
                   </g>
                 </svg>
               ) : null}
-              {/* Draw preview / guides / selection above shape ink — same CameraTransform. */}
+              {/* Draw preview / guides / selection above stack paint. */}
               {stageW > 0 && stageH > 0 ? (
                 <svg
                   ref={setSceneChromeRootNode}
@@ -969,7 +914,7 @@ function RcbCanvas({
                   data-rcb-scene-chrome-root="1"
                   data-rcb-screen-surface="1"
                   data-rcb-infinite="1"
-                  className="pointer-events-none absolute inset-0 z-[4] overflow-visible"
+                  className="pointer-events-none absolute inset-0 z-[3] overflow-visible"
                   width={stageW}
                   height={stageH}
                   viewBox={`0 0 ${stageW} ${stageH}`}

@@ -186,7 +186,7 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeFalsy();
   });
 
-  it('boolean evenodd / outlined stay off SoA basic but can idle on canvas Path2D', () => {
+  it('boolean evenodd / outlined idle on SoA basic (atlas stamp)', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'b', {
       id: 'b',
@@ -207,14 +207,14 @@ describe('SoA basic geom vs rounded / poly', () => {
       children: [],
     });
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.b)).toBe(true);
-    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.b)).toBe(false);
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.b)).toBe(true);
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
-    expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeFalsy();
-    expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeFalsy();
+    expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+    expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
   });
 
-  it('gradient / text / media stay off SoA basic; outside-stroke enters basic idle', () => {
+  it('gradient / text stay off SoA basic; image+gradient idle via atlas; outside-stroke enters basic idle', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     const cases: Array<{ id: string; node: Parameters<typeof addNodeToDocument>[2] }> = [
       {
@@ -292,21 +292,57 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.flags[buf.indexById.get('outside')!] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
     expect(buf.flags[buf.indexById.get('outside')!] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(buf.strokeWidths[buf.indexById.get('outside')!]).toBe(2);
-    for (const id of ['grad', 'txt', 'img'] as const) {
+    for (const id of ['grad'] as const) {
       const node = doc.deltaSetLike[id];
       expect(isSoaBasicGeomSufficient(node), id).toBe(false);
       const i = buf.indexById.get(id);
       expect(i).toBeDefined();
       expect(buf.flags[i!] & SOA_FLAG_BASIC_GEOM, id).toBeFalsy();
-      expect(buf.flags[i!] & SOA_FLAG_CANVAS_IDLE, id).toBeFalsy();
+      // Rich fills idle via atlas stamp (CANVAS_IDLE), not BASIC_GEOM.
+      expect(buf.flags[i!] & SOA_FLAG_CANVAS_IDLE, id).toBeTruthy();
     }
+    // Static image/text: atlas-stamp idle (CANVAS_IDLE) without BASIC_GEOM.
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.img)).toBe(false);
+    const imgIdx = buf.indexById.get('img')!;
+    expect(buf.flags[imgIdx] & SOA_FLAG_BASIC_GEOM).toBeFalsy();
+    expect(buf.flags[imgIdx] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.txt)).toBe(false);
+    const txtIdx = buf.indexById.get('txt')!;
+    expect(buf.flags[txtIdx] & SOA_FLAG_BASIC_GEOM).toBeFalsy();
+    expect(buf.flags[txtIdx] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(isSoaCanvasEligible(doc.deltaSetLike.outside)).toBe(true);
     expect(isSoaCanvasEligible(doc.deltaSetLike.grad)).toBe(true);
-    expect(isSoaCanvasEligible(doc.deltaSetLike.txt)).toBe(false);
-    expect(isSoaCanvasEligible(doc.deltaSetLike.img)).toBe(false);
+    expect(isSoaCanvasEligible(doc.deltaSetLike.txt)).toBe(true);
+    expect(isSoaCanvasEligible(doc.deltaSetLike.img)).toBe(true);
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.outside)).toBe(true);
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.grad)).toBe(true);
-    // Text idle paints via rich canvas (not SoA BASIC_GEOM); still no ShapeHost.
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.txt)).toBe(true);
+    expect(canIdlePaintOnCanvas(doc.deltaSetLike.img)).toBe(true);
+  });
+
+  it('donut ellipse idles via atlas stamp (not BASIC_GEOM)', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'donut', {
+      id: 'donut',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 80,
+      attrs: {
+        shapeType: 'ellipse',
+        'fill-color': '#0cf',
+        ellipseInnerRatio: 0.4,
+        'stroke-enabled': false,
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.donut)).toBe(false);
+    const i = buf.indexById.get('donut')!;
+    expect(buf.flags[i] & SOA_FLAG_BASIC_GEOM).toBeFalsy();
+    expect(buf.flags[i] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
+    expect(canIdlePaintOnCanvas(doc.deltaSetLike.donut)).toBe(true);
   });
 });

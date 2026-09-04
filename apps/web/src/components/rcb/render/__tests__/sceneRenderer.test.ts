@@ -1727,6 +1727,158 @@ describe('hitTestWithSpatialIndex', () => {
     ]);
   });
 
+  it('partial-stale rescue: QT returns a neighbor while the moved node is absent', () => {
+    const doc = {
+      stackOrder: ['node:neighbor', 'node:moved'],
+      deltaSetLike: {
+        ROOT: { children: ['neighbor', 'moved'] },
+        neighbor: {
+          id: 'neighbor',
+          key: 'shape',
+          x: 0,
+          y: 0,
+          width: 40,
+          height: 40,
+          attrs: { shapeType: 'rect', 'fill-color': '#eee' },
+        },
+        moved: {
+          id: 'moved',
+          key: 'shape',
+          x: 500,
+          y: 500,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', 'fill-color': '#fff' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const spatial = new SceneSpatialRuntime(64);
+    // Neighbor still indexed near origin; moved still at stale (0,0) AABB — click at 520.
+    spatial.index.upsert({ id: 'neighbor', minX: 0, minY: 0, maxX: 40, maxY: 40 });
+    spatial.index.upsert({ id: 'moved', minX: 0, minY: 0, maxX: 80, maxY: 80 });
+    // Coarse at 520 returns [] with small pad — use large pad so neighbor isn't required;
+    // simulate non-empty order by also indexing a decoy at the click that misses precise.
+    spatial.index.upsert({ id: 'decoy', minX: 510, minY: 510, maxX: 530, maxY: 530 });
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['neighbor', 'moved'],
+          getNodeBox: (id) => {
+            const node = doc.deltaSetLike[id];
+            if (!node) return null;
+            return { left: node.x, top: node.y, width: node.width, height: node.height };
+          },
+        },
+        { x: 520, y: 520 }
+      )
+    ).toBe('moved');
+  });
+
+  it('unified walk: higher plate wins over world node under it (returns __frame__:id)', () => {
+    const doc = {
+      stackOrder: ['node:under', 'frame:board'],
+      frames: [
+        {
+          id: 'board',
+          name: 'A',
+          backgroundColor: '#fff',
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 200,
+        },
+      ],
+      deltaSetLike: {
+        ROOT: { children: ['under'] },
+        under: {
+          id: 'under',
+          key: 'shape',
+          x: 20,
+          y: 20,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', 'fill-color': '#0af' },
+        },
+      },
+    } as unknown as SceneDocument;
+    const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: ['under'],
+      reloadToken: 1,
+      aabbPad: 0,
+    });
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['under'],
+          getNodeBox: (id) => {
+            const node = doc.deltaSetLike[id];
+            return { left: node.x, top: node.y, width: node.width, height: node.height };
+          },
+        },
+        { x: 40, y: 40 }
+      )
+    ).toBe('__frame__:board');
+  });
+
+  it('unified walk: bound child above its plate keeps the node hit', () => {
+    const doc = {
+      stackOrder: ['frame:board'],
+      frames: [
+        {
+          id: 'board',
+          name: 'A',
+          backgroundColor: '#fff',
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 200,
+        },
+      ],
+      deltaSetLike: {
+        ROOT: { children: ['child'] },
+        child: {
+          id: 'child',
+          key: 'shape',
+          x: 20,
+          y: 20,
+          width: 80,
+          height: 80,
+          attrs: { shapeType: 'rect', 'fill-color': '#0af', frameId: 'board', frameOrder: 0 },
+        },
+      },
+    } as unknown as SceneDocument;
+    const spatial = new SceneSpatialRuntime(64);
+    spatial.sync({
+      document: doc,
+      childrenIds: ['child'],
+      reloadToken: 1,
+      aabbPad: 0,
+    });
+    expect(
+      hitTestWithSpatialIndex(
+        {
+          getDocument: () => doc,
+          getSpatial: () => spatial,
+          getZoom: () => 1,
+          listNodeIds: () => ['child'],
+          getNodeBox: (id) => {
+            const node = doc.deltaSetLike[id];
+            return { left: node.x, top: node.y, width: node.width, height: node.height };
+          },
+        },
+        { x: 40, y: 40 }
+      )
+    ).toBe('child');
+  });
+
   it('uses stackOrder instead of root child order for overlapping nodes', () => {
     const doc = {
       stackOrder: ['node:back', 'node:front'],

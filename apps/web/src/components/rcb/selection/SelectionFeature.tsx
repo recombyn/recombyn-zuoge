@@ -207,7 +207,6 @@ import {
   frameIsEmpty,
   isPointOnFrameEdge,
   resolveFramePlateDragMode,
-  resolveFramePlateTarget,
 } from '@/components/rcb/frames/framePlatePointer';
 
 function sceneBoxClose(
@@ -960,19 +959,24 @@ function SelectionFeature({
         applyHover(null);
         return;
       }
-      const nodeHit = hitTestRef.current(p.x, p.y, {
+      const rawHit = hitTestRef.current(p.x, p.y, {
         clientX: e.clientX,
         clientY: e.clientY,
       });
-      if (nodeHit) {
-        const hitNode = documentRef.current?.deltaSetLike?.[nodeHit];
+      const frameFromHit = rawHit ? parseFrameSelId(rawHit) : null;
+      if (frameFromHit) {
+        applyHover(frameSelId(frameFromHit));
+        return;
+      }
+      if (rawHit) {
+        const hitNode = documentRef.current?.deltaSetLike?.[rawHit];
         // Preview-only workbench ink must not get hover path silhouettes.
         if (isAnimationWorkbenchPreviewChild(documentRef.current, hitNode)) {
           const fid = String(hitNode?.attrs?.frameId || '').trim();
           applyHover(fid ? frameSelId(fid) : null);
           return;
         }
-        applyHover(nodeHit);
+        applyHover(rawHit);
         return;
       }
       // Empty artboard / frame chrome: still measure select?hover spacing.
@@ -1397,16 +1401,20 @@ function SelectionFeature({
         liveOriginsNow?.some((o) => parseFrameSelId(o.nodeId))
       );
 
-      // Hit-test scene nodes (selection chrome is non-blocking so empty clicks pass through).
-      const frameAtPoint = hitTestFrame?.(p.x, p.y) ?? null;
-      let hitId = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
+      // Ideal hit: QT → permanent stackOrder → first node ink or plate AABB.
+      // Frame hits are encoded as __frame__:id (frameSelId).
+      let hitRaw = hitTest(p.x, p.y, { clientX: e.clientX, clientY: e.clientY });
+      const frameFromHit = hitRaw ? parseFrameSelId(hitRaw) : null;
+      let hitId = frameFromHit ? null : hitRaw;
+      const frameAtPoint = frameFromHit ?? hitTestFrame?.(p.x, p.y) ?? null;
       const selectedIds = liveOriginsNow?.map((o) => o.nodeId) ?? [];
       // Bbox fallback only outside artboard interior — frame plate owns its blank area.
       if (!hitId && !frameAtPoint && selectedIds.some((id) => parseFrameSelId(id))) {
         hitId = fallbackVisibleNodeHit(sceneDoc, p, listNodeIds(), getNodeBox, lottiePlayheadSec);
       }
       const plateFrameId = hitId ? frameForFullBleedPlate(sceneDoc, hitId) : null;
-      const framePlateId = resolveFramePlateTarget(sceneDoc, p, hitId, hitTestFrame);
+      // Unified walk already returns the plate when it wins — no secondary resolve.
+      const framePlateId = frameFromHit;
       const hitExtras = {
         hitId,
         frameAtPoint,
@@ -2114,10 +2122,12 @@ function SelectionFeature({
             : null;
         // Re-pick on up: thin pen/line hits can miss on down (stale spatial /
         // promote race) then succeed a frame later — same point, no drag.
-        const nodeHit =
+        const rawUpHit =
           !platePick && screenDistSq < DRAG_DISTANCE_SQUARED
             ? hitTest(p.x, p.y, { clientX, clientY })
             : null;
+        const frameFromUp = rawUpHit ? parseFrameSelId(rawUpHit) : null;
+        const nodeHit = frameFromUp ? null : rawUpHit;
         if (pin) {
           handlePinnedImageToolBlankClick(pin);
         } else if (nodeHit) {
@@ -2134,8 +2144,8 @@ function SelectionFeature({
           setLiveOrigins(live.origins);
           setLiveUnion(live.union);
           setLiveAngle(live.angle);
-        } else if (frameHit) {
-          onSelectFrame?.(frameHit, { chrome: 'soft' });
+        } else if (frameFromUp || frameHit) {
+          onSelectFrame?.(frameFromUp || frameHit, { chrome: 'soft' });
           setLiveOrigins([]);
           setLiveUnion(null);
           setLiveAngle(0);
@@ -2455,7 +2465,7 @@ function SelectionFeature({
         const ids = liveOriginsRef.current?.map((o) => o.nodeId) || [];
         if (ids.length === 1) hit = ids[0];
       }
-      if (!hit) return;
+      if (!hit || parseFrameSelId(hit)) return;
       const node = sceneDoc?.deltaSetLike?.[hit];
       if (node?.key === 'text') {
         e.preventDefault();

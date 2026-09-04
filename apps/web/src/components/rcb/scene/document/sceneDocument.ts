@@ -205,6 +205,12 @@ export function buildNodeStackZMap(
   for (const id of ids) {
     const key = String(id || '');
     if (!key || out.has(key)) continue;
+    const parsed = parseStackKey(key);
+    if (parsed?.kind === 'frame') {
+      const frameIndex = order.indexOf(stackFrameKey(parsed.id));
+      out.set(key, frameIndex < 0 ? 0 : (frameIndex + 1) * STACK_GROUP_STRIDE);
+      continue;
+    }
     const node = doc.deltaSetLike?.[key];
     const frameId = String(node?.attrs?.frameId || '').trim();
     if (!frameId) {
@@ -247,6 +253,17 @@ export function buildNodeStackZMap(
     out.set(key, (frameIndex + 1) * STACK_GROUP_STRIDE + localSlot);
   }
   return out;
+}
+
+/**
+ * Unified hit z-map: bare node ids + `frame:id` plate keys share one permanent
+ * stackOrder scale (selection paint raise is ignored).
+ */
+export function buildUnifiedHitZMap(
+  doc: SceneDocument | null | undefined,
+  candidateKeys: readonly string[]
+): Map<string, number> {
+  return buildNodeStackZMap(doc, candidateKeys);
 }
 
 export function stackZIndex(doc: SceneDocument, kind: 'frame' | 'node', id: string): number {
@@ -324,8 +341,8 @@ export function selectionPaintZIndex(
 
 /**
  * World (unbound) node whose stack z is above at least one artboard plate.
- * Those must paint as SVG hosts on the shared shapes mount — SoA canvas sits
- * under that SVG, so idle ink can never cover 动画工作台 / artboard plates.
+ * Those must paint as SVG hosts on the shared stack mount — SoA ink sits under
+ * that SVG, so only hosts can cover 画板 / 动画工作台 plates via data-z.
  */
 export function worldNodeStacksAboveAnyFrame(
   doc: SceneDocument | null | undefined,

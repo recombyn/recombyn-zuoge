@@ -4,9 +4,7 @@ import {
   isAnimationFrameHostNode,
   isNodeHiddenInDocument,
 } from '@/components/rcb/scene/document/nodeCapabilities';
-import { isAnimationWorkbenchPreviewChild } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
-import { stackZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 export type FrameSceneBox = {
@@ -103,37 +101,4 @@ export function resolveFramePlateDragMode(
   if (opts.readOnly || !opts.canMove) return 'pointing_canvas';
   if (frameIsEmpty(doc, frameId)) return 'frame_move';
   return 'pointing_canvas';
-}
-
-/**
- * Frame plate pick: pointer inside artboard, no real shape ink under cursor.
- * Full-bleed background rects count as plate, not content.
- * Preview-mode workbench children also count as plate (select workbench, not child).
- */
-export function resolveFramePlateTarget(
-  doc: SceneDocument,
-  p: { x: number; y: number },
-  hitId: string | null,
-  hitTestFrame?: (x: number, y: number) => string | null
-): string | null {
-  const frameId = hitTestFrame?.(p.x, p.y) ?? null;
-  if (!frameId) return null;
-  if (!hitId) return frameId;
-  if (frameForFullBleedPlate(doc, hitId) === frameId) return frameId;
-
-  const hitNode = doc.deltaSetLike?.[hitId];
-  const ownedByFrame = Boolean(
-    hitNode && String(hitNode.attrs?.frameId || '').trim() === frameId
-  );
-  if (ownedByFrame && hitNode && isAnimationWorkbenchPreviewChild(doc, hitNode)) {
-    return frameId;
-  }
-  // Real content owned by this frame keeps the node hit (not the plate).
-  if (ownedByFrame) return null;
-
-  // World / lower-frame node under a higher plate — plate wins (matches paint).
-  if (stackZIndex(doc, 'frame', frameId) > stackZIndex(doc, 'node', hitId)) {
-    return frameId;
-  }
-  return null;
 }

@@ -2000,6 +2000,12 @@ function SvgCanvas({
     [document, ids, selectedFrameIds]
   );
 
+  /** Single-selected artboard — temporary front over world SoA ink (plate under ink CSS). */
+  const paintRaiseFrameIds = useMemo(() => {
+    if (selectedFrameIds.length !== 1 || ids.length > 0) return [] as string[];
+    return [String(selectedFrameIds[0] || '')].filter(Boolean);
+  }, [ids.length, selectedFrameIds]);
+
   /** DOM hosts: SoftGlow process + pen path-edit + active video/audio FO (≤1 each).
    * Text edit → TextInlineEditor overlay. Idle image/video/audio → canvas ink / plate. */
   const forceFullIds = useMemo(() => {
@@ -2115,6 +2121,7 @@ function SvgCanvas({
             keepVisibleIds={keepVisibleIds}
             revealOverflowIds={revealOverflowIds}
             paintRaiseIds={paintRaiseIds}
+            paintRaiseFrameIds={paintRaiseFrameIds}
             forceFullIds={forceFullIds}
             spatialIndex={nodeSpatialIndex}
           />

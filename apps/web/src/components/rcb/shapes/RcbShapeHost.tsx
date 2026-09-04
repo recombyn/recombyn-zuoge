@@ -5,6 +5,7 @@ import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 import {
   syncFrameContentClip,
 } from '@/components/rcb/frames/frameContentClip';
+import { syncStackPaintOrder } from '@/components/rcb/scene/document/sceneStackPainter';
 import {
   createSvgBoard,
   nodeToSvgElement,
@@ -24,7 +25,6 @@ import {
   setShapeHostRevealOverflow,
   subscribeShapeHost,
   subscribeShapeHosts,
-  syncSharedMountPaintOrder,
   unregisterShapeHost,
   updateShapeHostElement,
 } from '@/components/rcb/shapes/shapeHostRegistry';
@@ -366,7 +366,7 @@ function RcbShapeHost({
     if (!layer) return;
     layer.setAttribute('data-z', String(paintZIndex));
     if (!mount || layer.parentNode !== mount) return;
-    syncSharedMountPaintOrder(mount);
+    syncStackPaintOrder(mount);
   }, [paintZIndex, paintToken, worldEpoch]);
 
   return (

@@ -15,29 +15,47 @@ import {
   SOA_FLAG_CANVAS_IDLE,
   SOA_FLAG_DIRTY,
   SOA_FLAG_VISIBLE,
+  SOA_FLAG_BASIC_GEOM,
   SOA_KIND_ELLIPSE,
+  SOA_KIND_IMAGE,
   SOA_KIND_LINE,
   SOA_KIND_PATH,
+  SOA_KIND_POLY,
   SOA_KIND_RECT,
+  SOA_KIND_TEXT,
   soaStrokeWidth,
   unpackCssColor,
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
 import { getLiveCornerRadiusPreviewRadii } from '@/components/rcb/scene/document/sceneRadii';
-import type { SceneDocument } from '@/components/rcb/sceneNode';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
   collectSoaBakeTilesIntoAtlas,
   ensureSharedSoaWebglAtlas,
+  recreateSharedSoaWebglAtlas,
   getSoaAtlasStats,
   pruneSoaAtlasForBuffer,
   pushAtlasRegionInstance,
   releaseSoaAtlasPrefix,
   releaseSoaAtlasRegion,
+  stampImageToAtlas,
   stampSoaPathToAtlas,
   stampSoaEllipseToAtlas,
   type SoaAtlasRegion,
   type SoaWebglAtlas,
 } from '@/components/rcb/render/webglInstanceAtlas';
+import {
+  bakeAudioInkForAtlas,
+  bakeMediaInkForAtlas,
+  bakeShapeInkForAtlas,
+  bakeTextInkForAtlas,
+  bumpSceneCanvasIdlePaint,
+  isFillImageWebglUnsafe,
+  hitTestWithSpatialIndex,
+  type CanvasSceneRendererDeps,
+  type SceneRenderRequest,
+  type SceneRenderer,
+} from '@/components/rcb/render/sceneRenderer';
 import {
   collectReadySoaBakeTilesForView,
   createSoaBakeCache,
@@ -48,13 +66,6 @@ import {
   shouldUseSoaBake,
   unionSoaDirtyAabb,
 } from '@/components/rcb/render/soaBakeLayer';
-import {
-  bumpSceneCanvasIdlePaint,
-  hitTestWithSpatialIndex,
-  type CanvasSceneRendererDeps,
-  type SceneRenderRequest,
-  type SceneRenderer,
-} from '@/components/rcb/render/sceneRenderer';
 import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
@@ -416,6 +427,8 @@ export type CollectSoaWebglOpts = {
   strokes?: number[];
   /** Document for clip resolve; defaults to {@link getSoaPaintDocument}. */
   document?: SceneDocument | null;
+  /** Camera zoom — text atlas greeking threshold. */
+  zoom?: number;
 };
 
 /**
@@ -438,6 +451,7 @@ export function collectSoaWebglInstances(
   const clips = opts?.clips;
   const strokes = opts?.strokes;
   const paintDoc = opts?.document ?? getSoaPaintDocument();
+  const zoom = Math.max(0.05, Number(opts?.zoom) || 1);
   const vl = view.left ?? view.x ?? 0;
   const vt = view.top ?? view.y ?? 0;
   const vr = vl + view.width;
@@ -452,7 +466,10 @@ export function collectSoaWebglInstances(
       kind !== SOA_KIND_RECT &&
       kind !== SOA_KIND_ELLIPSE &&
       kind !== SOA_KIND_LINE &&
-      kind !== SOA_KIND_PATH
+      kind !== SOA_KIND_PATH &&
+      kind !== SOA_KIND_POLY &&
+      kind !== SOA_KIND_IMAGE &&
+      kind !== SOA_KIND_TEXT
     ) {
       continue;
     }
@@ -466,6 +483,119 @@ export function collectSoaWebglInstances(
     const id = nodeId;
     const slotDepth = depthForId ? depthForId(nodeId) : 0.5;
     const slotClip = resolveSoaWebglSlotClip(buf, i, paintDoc);
+    const paintClips: Array<[number, number, number, number]> = [
+      [slotClip[0], slotClip[1], slotClip[2], slotClip[3]],
+    ];
+
+    if (kind === SOA_KIND_IMAGE) {
+      const node = paintDoc?.deltaSetLike?.[id];
+      if (!node || !atlas) {
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
+      }
+      const isAudio = String(node.key || '') === 'audio';
+      const baked = isAudio
+        ? bakeAudioInkForAtlas(node, w, h, zoom)
+        : bakeMediaInkForAtlas(node, w, h);
+      if (!baked) {
+        if (!isAudio) {
+          const src = String(
+            (node.key === 'video' ? node.attrs?.poster : null) || node.attrs?.src || ''
+          ).trim();
+          // Pending decode → bump. CORS/tainted → stop retrying; host will paint.
+          if (src && isFillImageWebglUnsafe(src)) {
+            clearSoaDirtyFlag(buf, i, flags, forceStamp);
+          } else {
+            bumpSceneCanvasIdlePaint();
+          }
+        } else clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
+      }
+      const region = stampImageToAtlas(
+        atlas,
+        isAudio ? `aud:${id}` : `img:${id}`,
+        baked as CanvasImageSource,
+        { left: x, top: y, width: w, height: h },
+        { force: forceStamp }
+      );
+      if (region) {
+        for (const activeClip of paintClips) {
+          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, odx, ody);
+          if (depthOut) depthOut.push(slotDepth);
+          pushInstanceClip(clips, activeClip);
+          pushInstanceStroke(strokes, null, 0);
+        }
+        if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+      }
+      continue;
+    }
+
+    if (kind === SOA_KIND_TEXT) {
+      const node = paintDoc?.deltaSetLike?.[id];
+      if (!node || !atlas) {
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
+      }
+      const baked = bakeTextInkForAtlas(node, w, h, zoom);
+      if (!baked) {
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
+      }
+      const region = stampImageToAtlas(
+        atlas,
+        `txt:${id}`,
+        baked as CanvasImageSource,
+        { left: x, top: y, width: w, height: h },
+        { force: forceStamp }
+      );
+      if (region) {
+        for (const activeClip of paintClips) {
+          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, odx, ody);
+          if (depthOut) depthOut.push(slotDepth);
+          pushInstanceClip(clips, activeClip);
+          pushInstanceStroke(strokes, null, 0);
+        }
+        if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+      }
+      continue;
+    }
+
+    // Gradient / rotated / poly / donut — Canvas bake → atlas (not BASIC_GEOM).
+    if (
+      (flags & SOA_FLAG_BASIC_GEOM) === 0 &&
+      (kind === SOA_KIND_RECT ||
+        kind === SOA_KIND_ELLIPSE ||
+        kind === SOA_KIND_PATH ||
+        kind === SOA_KIND_POLY)
+    ) {
+      const node = paintDoc?.deltaSetLike?.[id];
+      if (!node || !atlas) {
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
+      }
+      const baked = bakeShapeInkForAtlas(node, w, h);
+      if (!baked) {
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
+      }
+      const region = stampImageToAtlas(
+        atlas,
+        `rich:${id}`,
+        baked as CanvasImageSource,
+        { left: x, top: y, width: w, height: h },
+        { force: forceStamp }
+      );
+      if (region) {
+        for (const activeClip of paintClips) {
+          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, odx, ody);
+          if (depthOut) depthOut.push(slotDepth);
+          pushInstanceClip(clips, activeClip);
+          pushInstanceStroke(strokes, null, 0);
+        }
+        if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+      }
+      continue;
+    }
 
     if (kind === SOA_KIND_PATH) {
       const start = buf.pathStart[i];
@@ -487,6 +617,9 @@ export function collectSoaWebglInstances(
           continue;
         }
         const fillCss = unpackCssColor(buf.colors[i]);
+        const fillRuleAttr = String(
+          paintDoc?.deltaSetLike?.[id]?.attrs?.['fill-rule'] || ''
+        ).toLowerCase();
         const region = stampSoaPathToAtlas(
           atlas,
           `path:${id}`,
@@ -499,13 +632,16 @@ export function collectSoaWebglInstances(
           {
             force: forceStamp,
             strokeCss: unpackCssColor(buf.strokeColors[i] || 0xff333333),
+            fillRule: fillRuleAttr === 'evenodd' ? 'evenodd' : 'nonzero',
           }
         );
         if (region) {
-          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, 0, 0);
-          if (depthOut) depthOut.push(slotDepth);
-          pushInstanceClip(clips, slotClip);
-          pushInstanceStroke(strokes, null, 0);
+          for (const activeClip of paintClips) {
+            pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, 0, 0);
+            if (depthOut) depthOut.push(slotDepth);
+            pushInstanceClip(clips, activeClip);
+            pushInstanceStroke(strokes, null, 0);
+          }
           if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
           continue;
         }
@@ -520,24 +656,26 @@ export function collectSoaWebglInstances(
       let emitted = 0;
       const emitSeg = (a: number, b: number) => {
         if (emitted >= SOA_WEBGL_PATH_MAX_SEGS) return;
-        pushLineInstance(
-          buf.pathXY[a] + odx,
-          buf.pathXY[a + 1] + ody,
-          buf.pathXY[b] + odx,
-          buf.pathXY[b + 1] + ody,
-          strokeRgba,
-          lineW,
-          rects,
-          colors,
-          kinds,
-          angles,
-          uvs,
-          depthOut,
-          slotDepth,
-          clips,
-          slotClip,
-          strokes
-        );
+        for (const activeClip of paintClips) {
+          pushLineInstance(
+            buf.pathXY[a] + odx,
+            buf.pathXY[a + 1] + ody,
+            buf.pathXY[b] + odx,
+            buf.pathXY[b + 1] + ody,
+            strokeRgba,
+            lineW,
+            rects,
+            colors,
+            kinds,
+            angles,
+            uvs,
+            depthOut,
+            slotDepth,
+            clips,
+            activeClip,
+            strokes
+          );
+        }
         emitted += 1;
       };
       for (let p = 0; p < len; p += 1) {
@@ -568,24 +706,26 @@ export function collectSoaWebglInstances(
         let emitted = 0;
         const emitSeg = (a: number, b: number) => {
           if (emitted >= SOA_WEBGL_PATH_MAX_SEGS) return;
-          pushLineInstance(
-            buf.pathXY[a] + odx,
-            buf.pathXY[a + 1] + ody,
-            buf.pathXY[b] + odx,
-            buf.pathXY[b + 1] + ody,
-            strokeRgba,
-            lineW,
-            rects,
-            colors,
-            kinds,
-            angles,
-            uvs,
-            depthOut,
-            slotDepth,
-            clips,
-            slotClip,
-            strokes
-          );
+          for (const activeClip of paintClips) {
+            pushLineInstance(
+              buf.pathXY[a] + odx,
+              buf.pathXY[a + 1] + ody,
+              buf.pathXY[b] + odx,
+              buf.pathXY[b + 1] + ody,
+              strokeRgba,
+              lineW,
+              rects,
+              colors,
+              kinds,
+              angles,
+              uvs,
+              depthOut,
+              slotDepth,
+              clips,
+              activeClip,
+              strokes
+            );
+          }
           emitted += 1;
         };
         for (let p = 0; p < len; p += 1) {
@@ -613,24 +753,26 @@ export function collectSoaWebglInstances(
       const maxX = Math.max(x, x1) + lineW;
       const maxY = Math.max(y, y1) + lineW;
       if (maxX < vl || maxY < vt || minX > vr || minY > vb) continue;
-      pushLineInstance(
-        x,
-        y,
-        x1,
-        y1,
-        strokeRgba,
-        lineW,
-        rects,
-        colors,
-        kinds,
-        angles,
-        uvs,
-        depthOut,
-        slotDepth,
-        clips,
-        slotClip,
-        strokes
-      );
+      for (const activeClip of paintClips) {
+        pushLineInstance(
+          x,
+          y,
+          x1,
+          y1,
+          strokeRgba,
+          lineW,
+          rects,
+          colors,
+          kinds,
+          angles,
+          uvs,
+          depthOut,
+          slotDepth,
+          clips,
+          activeClip,
+          strokes
+        );
+      }
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;
     }
@@ -660,14 +802,16 @@ export function collectSoaWebglInstances(
       const rounded = tl > 0.5 || tr > 0.5 || br > 0.5 || bl > 0.5;
       if (rounded || hasOutline) {
         const outlineRgba = hasOutline ? argbToRgba(outlineArgb) : null;
-        rects.push(x, y, w, h);
-        colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
-        kinds.push(SOA_WEBGL_KIND_ROUNDED);
-        angles.push(rotRad);
-        uvs.push(tl, tr, br, bl);
-        if (depthOut) depthOut.push(slotDepth);
-        pushInstanceClip(clips, slotClip);
-        pushInstanceStroke(strokes, outlineRgba, hasOutline ? outlineW : 0);
+        for (const activeClip of paintClips) {
+          rects.push(x, y, w, h);
+          colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
+          kinds.push(SOA_WEBGL_KIND_ROUNDED);
+          angles.push(rotRad);
+          uvs.push(tl, tr, br, bl);
+          if (depthOut) depthOut.push(slotDepth);
+          pushInstanceClip(clips, activeClip);
+          pushInstanceStroke(strokes, outlineRgba, hasOutline ? outlineW : 0);
+        }
         clearSoaDirtyFlag(buf, i, flags, forceStamp);
         continue;
       }
@@ -687,34 +831,38 @@ export function collectSoaWebglInstances(
         }
       );
       if (region) {
-        commitAtlasRegionInstance(
-          atlas,
-          region,
-          rects,
-          colors,
-          kinds,
-          angles,
-          uvs,
-          rotRad,
-          depthOut,
-          slotDepth,
-          clips,
-          slotClip,
-          strokes
-        );
+        for (const activeClip of paintClips) {
+          commitAtlasRegionInstance(
+            atlas,
+            region,
+            rects,
+            colors,
+            kinds,
+            angles,
+            uvs,
+            rotRad,
+            depthOut,
+            slotDepth,
+            clips,
+            activeClip,
+            strokes
+          );
+        }
         clearSoaDirtyFlag(buf, i, flags, forceStamp);
         continue;
       }
     }
 
-    rects.push(x, y, w, h);
-    colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
-    kinds.push(kind === SOA_KIND_ELLIPSE ? 1 : 0);
-    angles.push(rotRad);
-    uvs.push(0, 0, 1, 1);
-    if (depthOut) depthOut.push(slotDepth);
-    pushInstanceClip(clips, slotClip);
-    pushInstanceStroke(strokes, null, 0);
+    for (const activeClip of paintClips) {
+      rects.push(x, y, w, h);
+      colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
+      kinds.push(kind === SOA_KIND_ELLIPSE ? 1 : 0);
+      angles.push(rotRad);
+      uvs.push(0, 0, 1, 1);
+      if (depthOut) depthOut.push(slotDepth);
+      pushInstanceClip(clips, activeClip);
+      pushInstanceStroke(strokes, null, 0);
+    }
     clearSoaDirtyFlag(buf, i, flags, forceStamp);
   }
 }
@@ -994,6 +1142,7 @@ export function createWebglSceneRenderer(
           clips,
           strokes,
           document: req.document,
+          zoom: z,
         });
       }
       const count = kinds.length;
@@ -1043,8 +1192,22 @@ export function createWebglSceneRenderer(
       if (atlas.revision !== atlasUploadedRevision) {
         gl.bindTexture(gl.TEXTURE_2D, atlasTex);
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas as TexImageSource);
-        atlasUploadedRevision = atlas.revision;
+        try {
+          gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            atlas.canvas as TexImageSource
+          );
+          atlasUploadedRevision = atlas.revision;
+        } catch {
+          // Tainted atlas (cross-origin draw without CORS). Replace surface so
+          // later stamps can recover; this frame draws with the last good tex.
+          recreateSharedSoaWebglAtlas();
+          atlasUploadedRevision = -1;
+        }
       }
 
       const drawProg = dof ? dof.sceneProgram : prog;

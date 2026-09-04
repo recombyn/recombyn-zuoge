@@ -160,7 +160,11 @@ export function clearShapeHosts() {
 
 /** One screen-surface SVG — shape layers share the canonical camera matrix. */
 let sceneWorldRoot: SVGSVGElement | null = null;
-/** Frame body plates mount below SoA canvas ink (separate SVG root). */
+/**
+ * Artboard plates + DOM hosts share `sceneShapesMount`, ordered by `data-z`
+ * (`stackOrder`). SoA/WebGL ink sits under that SVG; nodes that must interleave
+ * with plates paint as hosts on this mount.
+ */
 let sceneFramesRoot: SVGSVGElement | null = null;
 let sceneShapesMount: SVGGElement | null = null;
 let sceneFramesMount: SVGGElement | null = null;
@@ -175,13 +179,15 @@ export function setSceneWorldRoot(
   drawPreviewMount: SVGGElement | null = null,
   smartGuidesMount: SVGGElement | null = null,
   selectionChromeMount: SVGGElement | null = null,
-  framesRoot: SVGSVGElement | null = null,
-  framesMount: SVGGElement | null = null
+  /** @deprecated Plates share the shapes SVG; ignored when null — aliased to root/mount. */
+  _framesRoot: SVGSVGElement | null = null,
+  _framesMount: SVGGElement | null = null
 ) {
   sceneWorldRoot = root;
   sceneShapesMount = shapesMount;
-  sceneFramesRoot = framesRoot;
-  sceneFramesMount = framesMount;
+  // Unified stack: plates + hosts on one mount (stackOrder / data-z).
+  sceneFramesRoot = root;
+  sceneFramesMount = shapesMount;
   sceneDrawPreviewMount = drawPreviewMount;
   sceneSmartGuidesMount = smartGuidesMount;
   sceneSelectionChromeMount = selectionChromeMount;
@@ -193,22 +199,23 @@ export function getSceneWorldRoot() {
   return sceneWorldRoot;
 }
 
+/** Same SVG as the scene world root — plates share the host surface. */
 export function getSceneFramesRoot() {
-  return sceneFramesRoot;
+  return sceneFramesRoot ?? sceneWorldRoot;
 }
 
 export function getSceneShapesMount() {
   return sceneShapesMount;
 }
 
+/** Same mount as shapes — plates interleave with hosts by data-z. */
 export function getSceneFramesMount() {
-  return sceneFramesMount;
+  return sceneFramesMount ?? sceneShapesMount;
 }
 
 /**
  * Sort mount children by data-z (`stackOrder`).
- * Frames use the frames mount (below SoA ink); node hosts use the shapes mount
- * (above ink). Call with the mount that owns the layers being reordered.
+ * Artboard plates and node hosts share this mount so stackOrder is physical.
  */
 export function syncSharedMountPaintOrder(mount?: SVGGElement | null) {
   const root = mount ?? sceneShapesMount;

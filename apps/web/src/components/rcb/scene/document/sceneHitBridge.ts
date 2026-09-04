@@ -26,8 +26,13 @@ import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboa
 import { frameSceneBounds, nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   parseStackKey,
+  selectionPaintZIndex,
   stackZIndex,
 } from '@/components/rcb/scene/document/sceneDocument';
+import {
+  selectionPaintRaises,
+  selectionPaintRaisesFrame,
+} from '@/components/rcb/frames/frameContentClip';
 import {
   HEAVY_PATH_D_CHARS,
   distPointToPathD,
@@ -41,7 +46,6 @@ import {
 } from '@/components/rcb/scene/document/sceneShapes';
 import {
   hitTestSoaSlot,
-  SOA_FLAG_CANVAS_IDLE,
   SOA_KIND_LINE,
   SOA_KIND_PATH,
   SOA_KIND_POLY,
@@ -269,10 +273,6 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     const kind = soaIndex != null && soaIndex >= 0 ? soaBuf!.kinds[soaIndex] : -1;
     const strokeSoa =
       kind === SOA_KIND_PATH || kind === SOA_KIND_LINE || kind === SOA_KIND_POLY;
-    const isSoaIdle =
-      soaIndex != null &&
-      soaIndex >= 0 &&
-      (soaBuf!.flags[soaIndex] & SOA_FLAG_CANVAS_IDLE) !== 0;
     // Stroke polylines stay pickable after selection paint-raise clears CANVAS_IDLE
     // (host promote). Fill shapes still require idle ink.
     if (
@@ -284,11 +284,8 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     ) {
       return id;
     }
-    // Stroke SoA miss → Path2D below. Custom-path idle without strokeSoa must
-    // not use fat AABB (L-hole). Solid fills fall through to AABB when SoA is stale.
-    if (isSoaIdle && !strokeSoa && String(node.attrs?.path || '').trim()) {
-      continue;
-    }
+    // Stroke SoA miss → Path2D / geo / AABB below. Do not skip fallthrough for
+    // idle slots that merely carry a path attr — atlas/rich fills need Path2D.
     const box = getNodeBox(id);
     if (!box) {
       continue;
@@ -308,6 +305,42 @@ export function hitTestSceneAtPoint(opts: HitTestSceneAtPointOpts): string | nul
     if (hit) {
       return id;
     }
+  }
+  return null;
+}
+
+export type SceneStackHitKind = 'node' | 'frame';
+
+/** Ideal hit result: first precise stack entry under the pointer. */
+export type SceneStackHit = { kind: SceneStackHitKind; id: string };
+
+/**
+ * Unified stack walk (ideal contract): candidates already sorted top→bottom by
+ * permanent stackOrder. Frame keys are `frame:id`; first plate AABB or node ink
+ * hit wins.
+ */
+export function hitTestUnifiedStackAtPoint(
+  opts: HitTestSceneAtPointOpts
+): SceneStackHit | null {
+  const { document: doc, order, x, y } = opts;
+  for (const raw of order) {
+    const key = String(raw || '');
+    if (!key) continue;
+    const parsed = parseStackKey(key);
+    if (parsed?.kind === 'frame') {
+      const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
+        (f) => String(f?.id || '') === parsed.id
+      );
+      if (!frame || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
+      const live = getLiveArtboardFrameGeometry(parsed.id);
+      const box = frameSceneBounds(doc, frame, live);
+      if (pointInSceneBox(x, y, box)) {
+        return { kind: 'frame', id: parsed.id };
+      }
+      continue;
+    }
+    const nodeHit = hitTestSceneAtPoint({ ...opts, order: [key] });
+    if (nodeHit) return { kind: 'node', id: nodeHit };
   }
   return null;
 }
@@ -369,10 +402,27 @@ export function frameIdAtPoint(
   return null;
 }
 
+function effectiveNodeStackZ(doc: SceneDocument, nodeId: string): number {
+  if (selectionPaintRaises(nodeId)) {
+    return selectionPaintZIndex(doc, 'node', nodeId, true);
+  }
+  return stackZIndex(doc, 'node', nodeId);
+}
+
+function effectiveFrameStackZ(
+  doc: SceneDocument,
+  frameId: string,
+  raiseFrameIds?: ReadonlySet<string> | null
+): number {
+  if (raiseFrameIds?.has(frameId) || selectionPaintRaisesFrame(frameId)) {
+    return selectionPaintZIndex(doc, 'frame', frameId, true);
+  }
+  return stackZIndex(doc, 'frame', frameId);
+}
+
 /**
- * True when a higher artboard plate covers (x,y) above this node in stackOrder.
- * Prevents world / lower-frame content from stealing clicks through an
- * overlapping 动画工作台 / artboard that paints on top.
+ * True when a higher artboard plate covers (x,y) above this node in **permanent**
+ * stackOrder (selection paint raise is paint-only — ideal hit contract).
  */
 export function isOccludedByHigherArtboard(
   doc: SceneDocument,
@@ -396,6 +446,125 @@ export function isOccludedByHigherArtboard(
     if (pointInSceneBox(x, y, box)) return true;
   }
   return false;
+}
+
+export type SceneOccluderBox = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+/**
+ * Higher opaque artboard plates that cover this node in stackOrder.
+ * Used for hit-testing and skipping fully covered SoA ink under plates.
+ */
+export function listHigherArtboardOccluderBoxes(
+  doc: SceneDocument | null | undefined,
+  node: SceneNode | SceneNodeInput | null | undefined,
+  opts?: { raiseFrameIds?: Iterable<string> | null }
+): SceneOccluderBox[] {
+  if (!doc || !node) return [];
+  const nodeId = String(node.id || '').trim();
+  if (!nodeId) return [];
+  // Bound children paint above their own plate only — still occlude under
+  // any later / selection-raised artboard (same rule as hit testing).
+  const ownerId = String(node.attrs?.frameId || '').trim();
+  const nodeZ = effectiveNodeStackZ(doc, nodeId);
+  if (nodeZ <= 0) return [];
+  let raiseFrameIds: ReadonlySet<string> | null = null;
+  if (opts?.raiseFrameIds) {
+    const next = new Set<string>();
+    for (const id of opts.raiseFrameIds) {
+      const s = String(id || '').trim();
+      if (s) next.add(s);
+    }
+    raiseFrameIds = next.size ? next : null;
+  }
+  const out: SceneOccluderBox[] = [];
+  for (const frame of doc.frames || []) {
+    const fid = String(frame?.id || '');
+    if (!fid || frame.locked || !isArtboardVisibleInDocument(frame)) continue;
+    if (ownerId && ownerId === fid) continue;
+    if (effectiveFrameStackZ(doc, fid, raiseFrameIds) <= nodeZ) continue;
+    const live = getLiveArtboardFrameGeometry(fid);
+    const box = frameSceneBounds(doc, frame, live);
+    const left = Number(box.left) || 0;
+    const top = Number(box.top) || 0;
+    const width = Math.max(1, Number(box.width) || 1);
+    const height = Math.max(1, Number(box.height) || 1);
+    out.push({ left, top, right: left + width, bottom: top + height });
+  }
+  return out;
+}
+
+export function intersectSceneOccluderBoxes(
+  a: SceneOccluderBox,
+  b: SceneOccluderBox
+): SceneOccluderBox | null {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.right, b.right);
+  const bottom = Math.min(a.bottom, b.bottom);
+  if (right <= left || bottom <= top) return null;
+  return { left, top, right, bottom };
+}
+
+/** Subject minus one hole → up to four residual rects. */
+function subtractOneOccluderBox(a: SceneOccluderBox, hole: SceneOccluderBox): SceneOccluderBox[] {
+  const hit = intersectSceneOccluderBoxes(a, hole);
+  if (!hit) return [a];
+  const out: SceneOccluderBox[] = [];
+  if (a.top < hit.top) {
+    out.push({ left: a.left, top: a.top, right: a.right, bottom: hit.top });
+  }
+  if (hit.bottom < a.bottom) {
+    out.push({ left: a.left, top: hit.bottom, right: a.right, bottom: a.bottom });
+  }
+  if (a.left < hit.left) {
+    out.push({ left: a.left, top: hit.top, right: hit.left, bottom: hit.bottom });
+  }
+  if (hit.right < a.right) {
+    out.push({ left: hit.right, top: hit.top, right: a.right, bottom: hit.bottom });
+  }
+  return out.filter((r) => r.right > r.left && r.bottom > r.top);
+}
+
+/** Clip subject to the complement of opaque higher artboards (paint/hit parity). */
+export function subtractHigherArtboardOccluders(
+  subject: SceneOccluderBox,
+  holes: readonly SceneOccluderBox[]
+): SceneOccluderBox[] {
+  if (!holes.length) return [subject];
+  let parts = [subject];
+  for (const hole of holes) {
+    const next: SceneOccluderBox[] = [];
+    for (const part of parts) next.push(...subtractOneOccluderBox(part, hole));
+    parts = next;
+    if (!parts.length) break;
+  }
+  return parts;
+}
+
+/** True when the node's AABB lies fully under a higher artboard plate. */
+export function isNodeAabbFullyOccludedByHigherArtboard(
+  doc: SceneDocument | null | undefined,
+  node: SceneNode | SceneNodeInput | null | undefined,
+  box?: { left?: number; top?: number; x?: number; y?: number; width?: number; height?: number }
+): boolean {
+  const holes = listHigherArtboardOccluderBoxes(doc, node);
+  if (!holes.length || !node) return false;
+  const left = Number(box?.left ?? box?.x ?? node.x) || 0;
+  const top = Number(box?.top ?? box?.y ?? node.y) || 0;
+  const width = Math.max(1, Number(box?.width ?? node.width) || 1);
+  const height = Math.max(1, Number(box?.height ?? node.height) || 1);
+  const subject: SceneOccluderBox = {
+    left,
+    top,
+    right: left + width,
+    bottom: top + height,
+  };
+  return subtractHigherArtboardOccluders(subject, holes).length === 0;
 }
 
 /**
