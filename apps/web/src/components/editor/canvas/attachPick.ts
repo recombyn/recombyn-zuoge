@@ -6,6 +6,8 @@ import {
   readNodeGroupId
 } from '@/components/rcb/scene/document/sceneGroups';
 import { frameForFullBleedPlate as frameForFullBleedPlateId } from '@/components/rcb/scene/document/sceneHitBridge';
+import { nodeIdsBoundToFrames } from '@/components/rcb/scene/document/sceneClipboard';
+import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** Near-full-bleed plate covering an artboard — treat click as frame select.
@@ -40,6 +42,31 @@ export function ctxMenuSeedFrameIds(selectedFrameIds: string[], menuFrameId?: st
 }
 
 export type AttachPickOpts = { imagesOnly?: boolean };
+
+/**
+ * Frame attach during canvas pick.
+ * Image-only composers must not swallow animation / empty plates (hover shows
+ * not-allowed, but frame: shortcuts used to attach anyway).
+ */
+export function canAttachFrameToPick(
+  doc: SceneDocument | null | undefined,
+  frameId: string | null | undefined,
+  opts?: AttachPickOpts
+): boolean {
+  const fid = String(frameId || '').trim();
+  if (!fid || !doc) return false;
+  if (!opts?.imagesOnly) return true;
+  const frame = (Array.isArray(doc.frames) ? doc.frames : []).find(
+    (f) => String(f?.id || '') === fid
+  );
+  if (!frame || frame.hidden) return false;
+  // 动画工作台 is LOT ink — never a valid image reference.
+  if (isAnimationArtboardKind(frame.kind)) return false;
+  const bound = nodeIdsBoundToFrames(doc, [fid]);
+  return filterChatAttachNodeIds(doc, bound, opts).some(
+    (id) => doc.deltaSetLike?.[id]?.key === 'image'
+  );
+}
 
 /** Resolve a pick click into an attach payload, or null if empty / only blocked nodes. */
 export function resolveAttachPickPayload(
@@ -77,7 +104,12 @@ export function resolveAttachPickPayload(
   }
   if (seed.length) return { payload: '', blockedOnly: true };
   const fid = String(frameId || '').trim();
-  if (fid) return { payload: `frame:${fid}`, blockedOnly: false };
+  if (fid) {
+    if (!canAttachFrameToPick(doc, fid, opts)) {
+      return { payload: '', blockedOnly: true };
+    }
+    return { payload: `frame:${fid}`, blockedOnly: false };
+  }
   return null;
 }
 
