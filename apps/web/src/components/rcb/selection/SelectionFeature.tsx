@@ -3014,6 +3014,9 @@ function SelectionFeature({
     Boolean(chromeUnion) &&
     !single &&
     selectedNodeIds.length >= 1 &&
+    // Artboard / 动画 multi uses FrameMultiSelectionToolbar; avoid an empty
+    // node-style pill when frame co-selection strips style chrome.
+    selectedFrameIds.length === 0 &&
     !transforming &&
     !hideSelectionToolbars &&
     !isAnimationWorkbenchSelection(document, selectedNodeIds, selectedFrameIds);

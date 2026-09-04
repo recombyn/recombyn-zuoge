@@ -698,7 +698,9 @@ function EditorStageWorld({
     canvasApplyLock <= 0 &&
     frameChromeMode === 'full' &&
     selectedFrames.length >= 1 &&
-    selectedNodeIds.length === 0 &&
+    // Multi artboards keep their align/lock bar even if a stray node is also
+    // selected (MultiSelectionToolbar hides node chrome when frames are present).
+    (selectedNodeIds.length === 0 || selectedFrames.length > 1) &&
     Boolean(selectedFrameBox) &&
     !selectedFrames.some((frame) => movingFrameIdSet.has(frame.id)) &&
     !selectionTransforming;
