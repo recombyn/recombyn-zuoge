@@ -8,7 +8,7 @@ import {
 } from '@/components/rcb/scene/document/nodeFactories';
 import { removeNodesFromDocument } from '@/components/rcb/scene/document/sceneDocument';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
+import { nodeLeftTop, isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
 import { materializeRootShapeLayers } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
 import {
   extractPrecompAssetJson,
@@ -36,6 +36,8 @@ export type PrecompSessionBegin = {
   document: SceneDocument;
   frameId: string;
   frameSnapshot: FrameGeomSnapshot;
+  /** Nested LOT plate-local geom before LOT-tab frame shrink (frameLocal). */
+  lotSnapshot: FrameGeomSnapshot | null;
   lotNodeId: string | null;
   sessionNodeIds: string[];
 };
@@ -46,6 +48,7 @@ export type LottiePrecompEditState = {
   selectedLayerInd: number | null;
   frameId?: string;
   frameSnapshot?: FrameGeomSnapshot;
+  lotSnapshot?: FrameGeomSnapshot | null;
   lotNodeId?: string | null;
   sessionNodeIds?: string[];
 };
@@ -364,6 +367,20 @@ export function beginPrecompEditSession(opts: {
     height: Math.max(1, num(prevFrame.height, 1)),
   };
 
+  const lotId = plate.lotNodeId;
+  const frameLocal = isFrameLocalCoordSpace(opts.document);
+  let lotSnapshot: FrameGeomSnapshot | null = null;
+  if (lotId && opts.document.deltaSetLike?.[lotId]) {
+    const lotNode = opts.document.deltaSetLike[lotId];
+    lotSnapshot = {
+      x: num(lotNode.x),
+      y: num(lotNode.y),
+      width: Math.max(1, num(lotNode.width, 1)),
+      height: Math.max(1, num(lotNode.height, 1)),
+    };
+  }
+
+  // Shrink workbench to the nested LOT plate (world).
   frames[frameIdx] = {
     ...prevFrame,
     x: plate.left,
@@ -377,14 +394,24 @@ export function beginPrecompEditSession(opts: {
     frames,
     deltaSetLike: { ...(opts.document.deltaSetLike || {}) },
   };
+  // Host fills the resized plate. frameLocal → local 0,0 (not world plate.left).
   doc = patchNode(doc, hostId, {
-    x: plate.left,
-    y: plate.top,
+    x: frameLocal ? 0 : plate.left,
+    y: frameLocal ? 0 : plate.top,
     width: plate.width,
     height: plate.height,
   });
+  // Rebase nested LOT into the new plate — otherwise frameLocal children keep
+  // their old local x/y and fall outside clipContent (blank 主场景 after tab switch).
+  if (lotId && lotSnapshot) {
+    doc = patchNode(doc, lotId, {
+      x: frameLocal ? 0 : plate.left,
+      y: frameLocal ? 0 : plate.top,
+      width: plate.width,
+      height: plate.height,
+    });
+  }
 
-  const lotId = plate.lotNodeId;
   const sourceAnim = resolveSourceAnim(doc, host.attrs?.animationData, assetId, lotId);
   if (!sourceAnim) return null;
   const materializeAnim = stripAllLayerLinks(sourceAnim);
@@ -397,8 +424,8 @@ export function beginPrecompEditSession(opts: {
     frameId,
     animationData: materializeAnim,
     plate: {
-      x: plate.left,
-      y: plate.top,
+      x: frameLocal ? 0 : plate.left,
+      y: frameLocal ? 0 : plate.top,
       width: plate.width,
       height: plate.height,
     },
@@ -411,6 +438,7 @@ export function beginPrecompEditSession(opts: {
       document: doc,
       frameId,
       frameSnapshot,
+      lotSnapshot,
       lotNodeId: lotId,
       sessionNodeIds: [],
     };
@@ -443,6 +471,7 @@ export function beginPrecompEditSession(opts: {
     document: doc,
     frameId,
     frameSnapshot,
+    lotSnapshot,
     lotNodeId: lotId,
     sessionNodeIds: matured.nodeIds,
   };
@@ -512,6 +541,7 @@ export function endPrecompEditSession(opts: {
   assetId: string;
   frameId: string;
   frameSnapshot: FrameGeomSnapshot;
+  lotSnapshot?: FrameGeomSnapshot | null;
   lotNodeId: string | null;
   sessionNodeIds: string[];
   playheadSec?: number;
@@ -530,6 +560,7 @@ export function endPrecompEditSession(opts: {
   const frameId = String(opts.frameId || '').trim();
   const sessionIds = opts.sessionNodeIds.filter(Boolean);
   const lotId = opts.lotNodeId || linkedLotNodeIdFromAsset(assetId);
+  const frameLocal = isFrameLocalCoordSpace(doc);
 
   doc = writeBackLotOnPrecompExit(doc, hostId, assetId, lotId, sessionIds);
 
@@ -544,7 +575,21 @@ export function endPrecompEditSession(opts: {
     }
     const host = doc.deltaSetLike?.[hostId];
     if (host && isAnimationFrameHostNode(host, doc)) {
-      doc = patchNode(doc, hostId, { ...opts.frameSnapshot });
+      doc = patchNode(
+        doc,
+        hostId,
+        frameLocal
+          ? {
+              x: 0,
+              y: 0,
+              width: opts.frameSnapshot.width,
+              height: opts.frameSnapshot.height,
+            }
+          : { ...opts.frameSnapshot }
+      );
+    }
+    if (lotId && opts.lotSnapshot && doc.deltaSetLike?.[lotId]) {
+      doc = patchNode(doc, lotId, { ...opts.lotSnapshot });
     }
   }
 
@@ -564,6 +609,7 @@ export function endPrecompEditFromState(
     assetId: edit.assetId,
     frameId: edit.frameId,
     frameSnapshot: edit.frameSnapshot,
+    lotSnapshot: edit.lotSnapshot ?? null,
     lotNodeId: edit.lotNodeId ?? null,
     sessionNodeIds: resolvePrecompSessionNodeIds(document, edit),
     playheadSec,
