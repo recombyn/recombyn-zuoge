@@ -143,7 +143,7 @@ export default function SmartGuidesOverlay({
   // Keep ≥1 CSS px under camera scale so the guide never drops to a dashed hairline.
   const stroke = Math.max(1 / z, CHROME_STROKE_PX / z);
   const tip = 5 * inv;
-  const markR = Math.max(stroke * 2, 3.5 * inv);
+  const markR = Math.max(stroke * 1.25, 2 * inv);
   const dash = `${5 * inv} ${4 * inv}`;
 
   // Remount when shared world SVG appears / is replaced.
