@@ -389,9 +389,29 @@ export function ensureMinScreenHitBox(box: SceneBox, zoom: number): SceneBox {
   };
 }
 
+/** True when the marquee completely contains the artboard plate. */
+export function frameFullyEnclosedByMarquee(
+  frame: { x?: unknown; y?: unknown; width?: unknown; height?: unknown },
+  marquee: SceneBox
+): boolean {
+  const fb: SceneBox = {
+    left: Number(frame.x) || 0,
+    top: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  };
+  return (
+    marquee.left <= fb.left &&
+    marquee.top <= fb.top &&
+    marquee.left + marquee.width >= fb.left + fb.width &&
+    marquee.top + marquee.height >= fb.top + fb.height
+  );
+}
+
 /**
- * Return frames fully enclosed by the marquee. A frame is not a normal content
- * node: merely crossing its plate must not select it while selecting children.
+ * Return frames that intersect the marquee (crossing select).
+ * Same rule as scene nodes — requiring full enclosure made artboard / 动画
+ * boards unselectable until the brush swallowed the whole plate.
  */
 export function framesHittingMarquee(doc: SceneDocument, marquee: SceneBox): Array<{ id: string; area: number }> {
   const frames = Array.isArray(doc?.frames) ? doc.frames : [];
@@ -404,16 +424,32 @@ export function framesHittingMarquee(doc: SceneDocument, marquee: SceneBox): Arr
       width: Math.max(1, Number(f.width) || 1),
       height: Math.max(1, Number(f.height) || 1),
     };
-    const contains =
-      marquee.left <= fb.left &&
-      marquee.top <= fb.top &&
-      marquee.left + marquee.width >= fb.left + fb.width &&
-      marquee.top + marquee.height >= fb.top + fb.height;
-    if (!contains) continue;
+    if (!boxesIntersect(marquee, fb)) continue;
     out.push({ id: String(f.id), area: fb.width * fb.height });
   }
   out.sort((a, b) => b.area - a.area);
   return out;
+}
+
+/**
+ * Frames to commit from a marquee: crossing when the brush only hits plates;
+ * fully enclosed plates only when scene content is also hit (so grazing a
+ * child does not also select its parent artboard).
+ */
+export function resolveMarqueeFrameHits(
+  doc: SceneDocument,
+  marquee: SceneBox,
+  contentHitCount: number
+): string[] {
+  const intersecting = framesHittingMarquee(doc, marquee);
+  if (contentHitCount <= 0) return intersecting.map((h) => h.id);
+  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
+  return intersecting
+    .filter((h) => {
+      const frame = frames.find((f) => String(f?.id) === h.id);
+      return frame ? frameFullyEnclosedByMarquee(frame, marquee) : false;
+    })
+    .map((h) => h.id);
 }
 
 /** Synthetic selection id so frames share the same union chrome / transform path as nodes. */
@@ -1098,7 +1134,7 @@ export function commitMarqueeSelection(opts: {
   const uniqueFrameHits = [...new Set(frameHits.filter(Boolean))];
   const selectedContent = contentHits.length ? contentHits : rawHits;
 
-  // Multiple fully enclosed artboards — select as units; canvas-root nodes in
+  // Multiple intersecting artboards — select as units; canvas-root nodes in
   // the same brush (outside those frames) can still join the selection.
   if (uniqueFrameHits.length > 1) {
     if (onSelectMixed) {
@@ -1117,7 +1153,7 @@ export function commitMarqueeSelection(opts: {
     }
   }
 
-  // A single fully enclosed artboard is selected only when no scene content
+  // A single intersecting artboard is selected only when no scene content
   // was hit. If content is present, the user is selecting that content.
   if (uniqueFrameHits.length === 1 && contentHits.length === 0) {
     if (onSelectFrame) onSelectFrame(uniqueFrameHits[0]);
