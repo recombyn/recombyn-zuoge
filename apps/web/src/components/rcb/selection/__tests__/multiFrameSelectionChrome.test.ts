@@ -56,6 +56,35 @@ describe('multi artboard/animation selection chrome', () => {
     expect(state.frameChromeMode).toBe('full');
   });
 
+  it('setMixedSelection uses full chrome for frames + scene nodes', () => {
+    let state = seedWithTwoAnimationBoards();
+    const doc = {
+      ...state.document!,
+      deltaSetLike: {
+        ...(state.document!.deltaSetLike || {}),
+        n1: {
+          id: 'n1',
+          key: 'rect',
+          x: 100,
+          y: 400,
+          width: 40,
+          height: 40,
+          attrs: {},
+          children: [],
+        },
+      },
+      stackOrder: [...(state.document!.stackOrder || []), 'n1'],
+    };
+    state = reduceEditor(state, editorReducers.setDocumentFromCanvas, doc as any);
+    state = reduceEditor(state, editorReducers.setMixedSelection, {
+      nodeIds: ['n1'],
+      frameIds: ['a1', 'a2'],
+    });
+    expect(state.selectedNodeIds).toEqual(['n1']);
+    expect(state.selectedFrameIds).toEqual(['a1', 'a2']);
+    expect(state.frameChromeMode).toBe('full');
+  });
+
   it('buildShapeOutlines emits one union box for multi frames', () => {
     const state = seedWithTwoAnimationBoards();
     const outlines = buildShapeOutlines({

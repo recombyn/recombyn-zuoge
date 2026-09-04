@@ -1645,10 +1645,13 @@ export const editorReducers = {
       state.selectedNodeIds = Array.from(new Set(nodeIds));
       state.selectedNodeId = state.selectedNodeIds[0] || null;
       state.selectedFrameIds = frameIds;
-      // Multi artboard / 动画 units need full chrome (one union control box).
-      // Soft is for single occupied-plate interior focus — marquee multi must not
-      // stay soft or each plate only gets an edge highlight with no shared handles.
-      if (frameIds.length > 1 && state.selectedNodeIds.length === 0) {
+      // Multi artboard / 动画, or mixed frames+nodes: one union control box so
+      // drag moves every member together. Soft is only for single occupied-plate
+      // interior focus (no handles).
+      if (
+        frameIds.length > 1 ||
+        (frameIds.length >= 1 && state.selectedNodeIds.length >= 1)
+      ) {
         state.frameChromeMode = 'full';
       } else {
         // Marquee / interior work stays soft — title / layer panel set full explicitly.

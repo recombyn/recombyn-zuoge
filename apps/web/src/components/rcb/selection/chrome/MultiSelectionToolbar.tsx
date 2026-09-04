@@ -369,15 +369,20 @@ function MultiSelectionToolbar({
   box,
   angle = 0,
   edgePadScene = 0,
-}: Props): ReactNode {  const { t } = useTranslation();
+}: Props): ReactNode {
+  const { t } = useTranslation();
   const [distributeOpen, setDistributeOpen] = useState(false);
   const [booleanOpen, setBooleanOpen] = useState(false);
   const [ratioOpen, setRatioOpen] = useState(false);
 
-  /** Explicit nodes — content inside co-selected artboards. */
+  /** Artboards co-selected: do not expand plate children into style ops. */
+  const selectionHasFrames = (frameIds?.length ?? 0) > 0;
   const opNodeIds = useMemo(
-    () => resolveSelectionNodeIds(document, nodeIds, frameIds),
-    [document, nodeIds, frameIds]
+    () =>
+      selectionHasFrames
+        ? (nodeIds || []).filter(Boolean)
+        : resolveSelectionNodeIds(document, nodeIds, frameIds),
+    [document, nodeIds, frameIds, selectionHasFrames]
   );
 
   const boxes = useMemo(() => readBoxes(document, opNodeIds), [document, opNodeIds]);
@@ -416,9 +421,12 @@ function MultiSelectionToolbar({
   const allGenerators =
     opNodeIds.length > 0 &&
     opNodeIds.every((id) => isGeneratorNode(document?.deltaSetLike?.[id]));
-  const showStyleChrome = !allGenerators && (showFill || showStroke || showCornerRadius);
-  const showGeometryChrome = !allGenerators;
-  const showActionChrome = !allGenerators;
+  // Mixed with artboards / 动画: keep align only — opacity / blend / group are
+  // node-style chrome and do not apply to plates (FrameMultiSelectionToolbar).
+  const showStyleChrome =
+    !selectionHasFrames && !allGenerators && (showFill || showStroke || showCornerRadius);
+  const showGeometryChrome = !selectionHasFrames && !allGenerators;
+  const showActionChrome = !selectionHasFrames && !allGenerators;
 
   const activeRatioId = useMemo(
     () => matchAspectPresetKey(box.width, box.height, ELEMENT_ASPECT_PRESETS),
