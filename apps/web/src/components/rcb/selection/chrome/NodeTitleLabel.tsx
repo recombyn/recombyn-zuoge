@@ -17,6 +17,7 @@ import {
 } from 'react';
 import { LuAudioLines, LuImagePlus, LuType } from 'react-icons/lu';
 import { RiVideoAiLine } from 'react-icons/ri';
+import { HiOutlineVideoCamera } from 'react-icons/hi2';
 import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
 import {
   RcbOverlayPortal,
@@ -228,12 +229,7 @@ function TitleIcon({ kind }: { kind: NodeTitleIcon }): ReactNode {
         </SvgTitleIcon>
       );
     case 'video':
-      return (
-        <SvgTitleIcon>
-          <rect x={2} y={5} width={20} height={14} rx={2} {...STROKE_ICON} />
-          <path d="M10 9l5 3-5 3z" {...STROKE_ICON} fill={MUTED} />
-        </SvgTitleIcon>
-      );
+      return <LucideTitleIcon Icon={HiOutlineVideoCamera} />;
     default:
       return (
         <SvgTitleIcon>

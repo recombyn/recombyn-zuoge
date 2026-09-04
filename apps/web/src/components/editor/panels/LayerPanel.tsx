@@ -14,7 +14,6 @@ import {
   LuFrame,
   LuPanelLeft,
   LuPencil,
-  LuFilm,
   LuHexagon,
   LuImagePlus,
   LuLayoutGrid,
