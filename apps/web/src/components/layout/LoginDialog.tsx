@@ -16,7 +16,7 @@ import { setSession } from '@/store/modules/auth';
 import { cn } from '@/utils/classnames';
 import { isLoginOpen, readReturnToParam } from '@/utils/authReturnTo';
 import { docsUrl } from '@/utils/docsUrl';
-import { GOOGLE_CLIENT_ID, startGoogleOAuthRedirect } from '@/utils/googleOAuth';
+import { startGoogleOAuthRedirect } from '@/utils/googleOAuth';
 import { getToken } from '@/utils/token';
 import { getHttpErrorDetail, getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import { HiArrowPath, HiCheck, HiChevronDoubleRight, HiOutlineXMark } from 'react-icons/hi2';
@@ -475,11 +475,14 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
 
   const onGoogleContinue = () => {
     if (!ensureAgreedTerms(() => onGoogleContinue())) return;
-    try {
-      startGoogleOAuthRedirect(returnTo);
-    } catch {
-      message.error(t('auth.googleFailed') || 'Google login failed');
+    async function runGoogleLogin() {
+      try {
+        await startGoogleOAuthRedirect(returnTo);
+      } catch {
+        message.error(t('auth.googleFailed') || 'Google login failed');
+      }
     }
+    runGoogleLogin();
   };
 
   const onGetCode = async () => {
@@ -759,28 +762,16 @@ function LoginDialog({ open, onClose, returnTo, onSuccess }: LoginDialogProps) {
                   <span className="h-px flex-1 bg-[#eee]" />
                 </div>
 
-                {GOOGLE_CLIENT_ID ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={onGoogleContinue}
-                    className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg border border-[#e5e5e5] bg-white transition hover:bg-[#fafafa] disabled:opacity-60"
-                    title={t('auth.google')}
-                    aria-label={t('auth.google')}
-                  >
-                    <Icon name="auth-google" width={20} height={20} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled
-                    title="Set GOOGLE_CLIENT_ID in apps/web/.env and apps/api/.env"
-                    className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg border border-[#e5e5e5] bg-white opacity-70"
-                    aria-label={t('auth.google')}
-                  >
-                    <Icon name="auth-google" width={20} height={20} />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onGoogleContinue}
+                  className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg border border-[#e5e5e5] bg-white transition hover:bg-[#fafafa] disabled:opacity-60"
+                  title={t('auth.google')}
+                  aria-label={t('auth.google')}
+                >
+                  <Icon name="auth-google" width={20} height={20} />
+                </button>
               </div>
             </div>
           </div>

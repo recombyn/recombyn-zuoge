@@ -14,7 +14,8 @@ COPY plugins/canvas ./plugins/canvas
 # Bake collab client flag at build time (self-host default: on).
 ARG VITE_COLLAB_ENABLED=true
 ENV VITE_COLLAB_ENABLED=$VITE_COLLAB_ENABLED
-# Google OAuth client id must be present at Vite build time (__GOOGLE_CLIENT_ID__).
+# Optional bake-in for Google OAuth client id (__GOOGLE_CLIENT_ID__).
+# Self-host may omit this — the web app loads googleClientId from API /auth/config.
 ARG GOOGLE_CLIENT_ID=
 ENV GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
 ARG VITE_GOOGLE_CLIENT_ID=

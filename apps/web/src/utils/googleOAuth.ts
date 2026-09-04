@@ -2,17 +2,28 @@
  * Full-page Google OAuth (authorization code + redirect).
  * Navigates the current tab to accounts.google.com — not popup / iframe.
  * Return intent is encoded in the OAuth `state` query (URL), not the editor store.
+ *
+ * Client ID: prefer Vite bake-in for local dev; otherwise load from GET /auth/config
+ * so Docker/GHCR images keep Google login without rebuilding the web image.
  */
 
+import { fetchAuthConfig } from '@/service/auth';
 import { sanitizeReturnTo } from '@/utils/authReturnTo';
 
 declare const __GOOGLE_CLIENT_ID__: string;
 
-export const GOOGLE_CLIENT_ID =
-  typeof __GOOGLE_CLIENT_ID__ !== 'undefined' ? __GOOGLE_CLIENT_ID__ : '';
-
 /** CSRF nonce only — intent path rides in the OAuth `state` URL param. */
 const NONCE_KEY = 'recombyn-google-oauth-nonce-v1';
+
+let cachedApiClientId = '';
+
+function bakedGoogleClientId(): string {
+  if (typeof __GOOGLE_CLIENT_ID__ === 'undefined') return '';
+  return String(__GOOGLE_CLIENT_ID__).trim();
+}
+
+/** Build-time id when present (local `apps/web/.env`). Empty on typical Docker/GHCR images. */
+export const GOOGLE_CLIENT_ID = bakedGoogleClientId();
 
 export function getGoogleRedirectUri(): string {
   return `${window.location.origin}/login/google/callback`;
@@ -34,10 +45,22 @@ function decodeReturnTo(encoded: string): string {
   }
 }
 
-export function startGoogleOAuthRedirect(returnTo = '/home') {
-  if (!GOOGLE_CLIENT_ID) {
-    throw new Error('GOOGLE_CLIENT_ID is not configured');
+/** Resolve Google OAuth client id (bake-in, then API `/auth/config`). */
+export async function resolveGoogleClientId(): Promise<string> {
+  const baked = bakedGoogleClientId();
+  if (baked) return baked;
+  if (cachedApiClientId) return cachedApiClientId;
+  const cfg = await fetchAuthConfig();
+  const fromApi = String(cfg.googleClientId || '').trim();
+  if (!fromApi) {
+    throw new Error('GOOGLE_CLIENT_ID is not configured on the API');
   }
+  cachedApiClientId = fromApi;
+  return fromApi;
+}
+
+export async function startGoogleOAuthRedirect(returnTo = '/home') {
+  const clientId = await resolveGoogleClientId();
   const nonce =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
@@ -52,7 +75,7 @@ export function startGoogleOAuthRedirect(returnTo = '/home') {
   }
 
   const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
+    client_id: clientId,
     redirect_uri: getGoogleRedirectUri(),
     response_type: 'code',
     scope: 'openid email profile',

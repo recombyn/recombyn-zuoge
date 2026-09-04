@@ -73,6 +73,9 @@ services:
       dockerfile: deploy/docker/Dockerfile.web
       args:
         VITE_COLLAB_ENABLED: ${VITE_COLLAB_ENABLED:-true}
+        # Optional bake-in; Login UI also loads client id from API /auth/config.
+        GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     ports:
       - "3000:80"
     depends_on:
