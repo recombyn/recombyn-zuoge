@@ -716,14 +716,18 @@ function SelectionFeature({
     // Derive ids from keys so a new array reference does not recreate origins
     // every render (that caused Maximum update depth loops).
     const ids = idsKey ? idsKey.split('|').filter(Boolean) : [];
-    // Soft frame focus uses plate edge highlight only — never feed a *single*
-    // soft frame into control chrome. Multi-frame selection always needs the
-    // union box (marquee), even if chrome mode briefly lags soft.
-    const fids =
-      (frameChromeMode === 'full' || (frameIdsKey && frameIdsKey.includes('|'))) &&
-      frameIdsKey
-        ? frameIdsKey.split('|').filter(Boolean)
-        : [];
+    // Soft single-frame focus: plate edge only — no control chrome.
+    // Multi-frame or mixed (nodes + frames) always need frames in the union
+    // so drag/move can seed every `__frame__:` origin together.
+    const fids = (() => {
+      if (!frameIdsKey) return [];
+      const list = frameIdsKey.split('|').filter(Boolean);
+      if (!list.length) return [];
+      if (list.length > 1) return list;
+      if (idsKey) return list; // mixed selection
+      if (frameChromeMode === 'full') return list;
+      return [];
+    })();
     const nodeOrigins = ids
       .map((id) => {
         const box = getNodeBox(id);
@@ -1434,6 +1438,22 @@ function SelectionFeature({
         e.preventDefault();
         e.stopPropagation();
 
+        // Member of an existing multi / mixed selection: move the whole union.
+        // Calling onSelectFrame → setActiveFrameId would collapse to one plate.
+        const selectionTotal = storeFrameIds.length + storeNodeIds.length;
+        if (
+          !readOnly &&
+          !e.shiftKey &&
+          storeFrameIds.includes(frameId) &&
+          selectionTotal > 1 &&
+          (liveOriginsNow?.length ?? 0) > 0
+        ) {
+          if (beginMoveSelection()) {
+            clickLog('multi-selection-plate-move', { ...hitExtras, frameId });
+            return;
+          }
+        }
+
         const mode = resolveFramePlateDragMode(sceneDoc, frameId, {
           readOnly,
           canMove: Boolean(onFrameMoveRef.current),
@@ -1703,21 +1723,31 @@ function SelectionFeature({
           return;
         }
       }
+      // Multi-frame / mixed / nodes-only: unified mode:'move' (geom path already
+      // applies `__frame__:` patches). Single empty plate uses frame_move above.
       if (
         !readOnly &&
-        !selectionHasFrame &&
         pointInLiveUnion &&
-        (liveOriginsNow?.length ?? 0) > 0
+        (liveOriginsNow?.length ?? 0) > 0 &&
+        !(frameOnlySelection && liveOriginsNow!.length === 1)
       ) {
         const liveNodeIds = liveOriginsNow
           .map((o) => o.nodeId)
           .filter((id) => !parseFrameSelId(id));
+        const liveFrameIds = liveOriginsNow
+          .map((o) => parseFrameSelId(o.nodeId))
+          .filter((id): id is string => Boolean(id));
         // Store drives chrome/toolbar. liveOrigins can stay hot after a missed
         // pointerup while store is empty — move without onSelect = no chrome.
+        // Never onSelect(nodes-only) when frames are in the live union — that
+        // would drop artboards from the selection mid-gesture.
         const storeCoversLive =
-          liveNodeIds.length > 0 &&
-          liveNodeIds.every((id) => storeNodeIds.includes(id));
-        const resyncedStore = !storeCoversLive && liveNodeIds.length > 0;
+          (liveNodeIds.length === 0 ||
+            liveNodeIds.every((id) => storeNodeIds.includes(id))) &&
+          (liveFrameIds.length === 0 ||
+            liveFrameIds.every((id) => storeFrameIds.includes(id)));
+        const resyncedStore =
+          !storeCoversLive && liveNodeIds.length > 0 && liveFrameIds.length === 0;
         if (resyncedStore) {
           onSelect(expandSelectionWithGroups(sceneDoc, liveNodeIds));
         }
@@ -1728,6 +1758,7 @@ function SelectionFeature({
             dragMode: 'move',
             calledOnSelect: resyncedStore,
             liveNodeIds,
+            liveFrameIds,
           });
           return;
         }
