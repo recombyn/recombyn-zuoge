@@ -85,7 +85,7 @@ function GuideBadge({
   );
 }
 
-/** × snap mark — two short diagonals so the guide stroke still reads continuous. */
+/** × snap mark — short diagonals so the guide stroke still reads continuous. */
 export function GuideMarkX({
   x,
   y,
@@ -97,8 +97,8 @@ export function GuideMarkX({
   r: number;
   strokeWidth: number;
 }) {
-  const arm = Math.max(r * 1.15, strokeWidth * 2.5);
-  const sw = Math.max(strokeWidth, r * 0.45);
+  const arm = Math.max(r * 0.85, strokeWidth * 1.4);
+  const sw = Math.max(strokeWidth, r * 0.35);
   return (
     <g data-rcb-guide-mark="x" pointerEvents="none">
       <line
