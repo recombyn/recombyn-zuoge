@@ -167,9 +167,18 @@ void main() {
 function compileShader(gl: WebGL2RenderingContext, type: number, src: string) {
   const sh = gl.createShader(type);
   if (!sh) return null;
-  gl.shaderSource(sh, src);
+  // Match webglSceneRenderer: strip CR so #version stays valid on Windows CRLF sources.
+  gl.shaderSource(sh, src.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
   gl.compileShader(sh);
   if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[webgl-dof] shader compile failed',
+        type === gl.VERTEX_SHADER ? 'VS' : 'FS',
+        gl.getShaderInfoLog(sh)
+      );
+    }
     gl.deleteShader(sh);
     return null;
   }

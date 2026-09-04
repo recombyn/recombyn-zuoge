@@ -3071,7 +3071,12 @@ export function createSceneRenderer(
     }
     const gl = createWebglSceneRenderer(canvasDeps);
     if (!gl) {
-      throw new Error('WebGL2 ink unavailable');
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[scene] WebGL2 ink unavailable; falling back to canvas2d');
+      }
+      ensureSoaBakeTileReadyBridge();
+      return createCanvasSceneRenderer(canvasDeps);
     }
     ensureSoaBakeTileReadyBridge();
     return gl;

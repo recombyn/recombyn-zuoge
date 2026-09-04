@@ -179,16 +179,16 @@ void main() {
     outColor = tex;
     return;
   }
-  // Shader rounded rect — scene-space fill ± center stroke.
+  // Shader rounded rect: scene-space fill +/- center stroke.
   // UV spans the padded quad so SDF samples match the expanded vertex size.
   // AA is half-fwidth + half-pixel stroke expand so 1px strokes keep SVG-like
-  // optical weight (full fwidth smoothstep alone looks thin/虚 vs selected SVG).
+  // optical weight (full fwidth smoothstep alone looks thin vs selected SVG).
   // Cap AA vs stroke pad / screen px so zoom-out fwidth cannot erase the ring.
   if (vKind > 3.5) {
     float sw = max(0.0, vStroke.w);
     float pad = sw * 0.5;
     vec2 p = vUv * (vHalf + vec2(pad));
-    // aUv/vRadii stored as tl,tr,br,bl → IQ order tr,br,tl,bl
+    // aUv/vRadii stored as tl,tr,br,bl -> IQ order tr,br,tl,bl
     vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
     float d = sdRoundBox(p, vHalf, r);
     float aa = max(0.5 * fwidth(d), 0.0005);
@@ -219,12 +219,25 @@ export const SOA_WEBGL_LINE_THICKNESS = 2;
 /** Cap segments emitted per path so one dense stroke cannot explode the instance batch. */
 export const SOA_WEBGL_PATH_MAX_SEGS = 96;
 
+/** ANGLE / some Windows drivers reject \\r in #version lines and non-ASCII in source. */
+function normalizeGlslSource(src: string): string {
+  return src.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 function compile(gl: WebGL2RenderingContext, type: number, src: string) {
   const sh = gl.createShader(type);
   if (!sh) return null;
-  gl.shaderSource(sh, src);
+  gl.shaderSource(sh, normalizeGlslSource(src));
   gl.compileShader(sh);
   if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[webgl] shader compile failed',
+        type === gl.VERTEX_SHADER ? 'VS' : 'FS',
+        gl.getShaderInfoLog(sh)
+      );
+    }
     gl.deleteShader(sh);
     return null;
   }
@@ -238,6 +251,10 @@ function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader) {
   gl.attachShader(prog, fs);
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error('[webgl] program link failed', gl.getProgramInfoLog(prog));
+    }
     gl.deleteProgram(prog);
     return null;
   }
@@ -1002,12 +1019,25 @@ export function createWebglSceneRenderer(
     // SDF already feathers edges — MSAA double-softens 1px strokes vs SVG.
     antialias: false,
   });
-  if (!gl || !isSoaCanvasShapesEnabled()) return null;
+  if (!gl) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error('[webgl] getContext(webgl2) returned null');
+    }
+    return null;
+  }
+  if (!isSoaCanvasShapesEnabled()) return null;
 
   const vs = compile(gl, gl.VERTEX_SHADER, VS);
   const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
   const prog = vs && fs ? link(gl, vs, fs) : null;
-  if (!prog || !vs || !fs) return null;
+  if (!prog || !vs || !fs) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error('[webgl] ink program unavailable (compile/link failed)');
+    }
+    return null;
+  }
 
   const vao = gl.createVertexArray();
   const cornerBuf = gl.createBuffer();
