@@ -51,13 +51,35 @@ jobs:
         working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+      # Prefer the self-hosted tool-cache / installed Python 3.12. Avoid
+      # actions/setup-python (HKLM uninstall rewrite needs admin) and the
+      # WindowsApps python stub (non-zero exit without a real interpreter).
+      - name: Prefer runner Python 3.12
+        shell: powershell
+        working-directory: ${{ github.workspace }}
+        run: |
+          $candidates = @(
+            (Join-Path $env:RUNNER_TOOL_CACHE 'Python\3.12.10\x64\python.exe'),
+            (Join-Path $env:RUNNER_TOOL_CACHE 'Python\3.12.9\x64\python.exe'),
+            'C:\actions-runner\_work\_tool\Python\3.12.10\x64\python.exe',
+            'C:\Users\DELL\AppData\Local\Programs\Python\Python312\python.exe'
+          )
+          $py = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $py) {
+            $launcher = Get-Command py -ErrorAction SilentlyContinue
+            if ($launcher) {
+              $py = (& py -3.12 -c 'import sys; print(sys.executable)').Trim()
+            }
+          }
+          if (-not $py -or -not (Test-Path $py)) {
+            throw 'Python 3.12 not found on self-hosted runner (install or seed tool-cache)'
+          }
+          $bin = Split-Path -Parent $py
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+          Write-Host "Using $py"
+          & $py --version
       - name: Install API (+ test extras)
-        shell: pwsh
+        shell: powershell
         run: |
           python -m pip install --upgrade pip
           pip install -e "../../packages/scene-builder-py"

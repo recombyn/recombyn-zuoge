@@ -40,7 +40,7 @@ def test_expand_ratios_from_pads():
 
 def test_expand_ratios_direct():
     left, right, top, bottom = mk.expand_ratios_from_meta(
-        {"expand_left": 0.15, "expand_right": 0.1, "expand_top": 0, "expand_bottom": 0.05}
+        {"expandLeft": 0.15, "expandRight": 0.1, "expandTop": 0, "expandBottom": 0.05}
     )
     assert (left, right, top, bottom) == (0.15, 0.1, 0.0, 0.05)
 
@@ -159,7 +159,7 @@ def test_expand_canvas_service(monkeypatch):
         lambda _uid, data, **kwargs: "https://cdn.example/expand.jpg",
     )
     result = asyncio.run(
-        expand_canvas("data:image/png;base64,xx", meta={"expand_left": 0.1}, user_id="u1")
+        expand_canvas("data:image/png;base64,xx", meta={"expandLeft": 0.1}, user_id="u1")
     )
     assert result["kind"] == "expand"
     assert result["engine"] == "mediakit:expand-image-canvas"

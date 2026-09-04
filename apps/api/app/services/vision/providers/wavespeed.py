@@ -10,20 +10,22 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import logging
 import re
 import time
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from PIL import Image
 
 from app.core.config import settings
 from app.services.vision.providers.base import ProgressCb
-from app.services.vision.rehost import rehost_image_bytes
-
-logger = logging.getLogger(__name__)
+from app.services.vision.rehost import (
+    bytes_to_data_url,
+    ipv4_loopback_url,
+    is_http_url,
+    is_public_http_url,
+    rehost_image_bytes,
+)
 
 _DATA_URL_RE = re.compile(r"^data:([^;,]+)?(?:;base64)?,(.+)$", re.DOTALL)
 _TERMINAL_FAIL = frozenset({"failed", "cancelled", "timeout", "deleted"})
@@ -76,12 +78,11 @@ def _unwrap_data(payload: Any) -> dict[str, Any]:
     return payload
 
 
-def _is_http_url(ref: str) -> bool:
-    try:
-        parsed = urlparse(ref)
-    except Exception:
-        return False
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+def _outputs_list(task: dict[str, Any]) -> list[str] | None:
+    outputs = task.get("outputs")
+    if not isinstance(outputs, list) or not outputs:
+        return None
+    return [str(x) for x in outputs if str(x).strip()]
 
 
 async def _load_image_bytes(image_ref: str) -> tuple[bytes, str]:
@@ -93,15 +94,15 @@ async def _load_image_bytes(image_ref: str) -> tuple[bytes, str]:
         if not match:
             raise ValueError("invalid data URL")
         return base64.b64decode(match.group(2)), "image/png"
-    if _is_http_url(ref):
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
-            resp = await client.get(ref)
-            resp.raise_for_status()
-            ctype = (resp.headers.get("content-type") or "image/png").split(";")[0].strip()
-            if not ctype.startswith("image/"):
-                ctype = "image/png"
-            return resp.content, ctype
-    raise ValueError("image must be a data URL or http(s) URL")
+    if not is_http_url(ref):
+        raise ValueError("image must be a data URL or http(s) URL")
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
+        resp = await client.get(ipv4_loopback_url(ref))
+        resp.raise_for_status()
+        ctype = (resp.headers.get("content-type") or "image/png").split(";")[0].strip()
+        if not ctype.startswith("image/"):
+            ctype = "image/png"
+        return resp.content, ctype
 
 
 async def ensure_public_image_url(
@@ -110,25 +111,23 @@ async def ensure_public_image_url(
     user_id: str | None,
     filename: str = "wavespeed-input.png",
 ) -> str:
-    """WaveSpeed fetches remote URLs; rehost data / private refs when needed."""
+    """WaveSpeed fetches remote URLs; inline private / loopback refs as data URLs."""
     ref = (image or "").strip()
     if not ref:
         raise ValueError("image is required")
-    if _is_http_url(ref):
+    if is_http_url(ref) and is_public_http_url(ref):
         return ref
     raw, ctype = await _load_image_bytes(ref)
     uid = str(user_id or "").strip()
-    if not uid:
-        # Fallback: WaveSpeed accepts some data URLs; prefer rehost in production.
-        b64 = base64.b64encode(raw).decode("ascii")
-        return f"data:{ctype};base64,{b64}"
-    ext = "png" if "png" in ctype else "jpg"
-    return rehost_image_bytes(
-        uid,
-        raw,
-        filename=filename if filename.endswith(ext) else f"wavespeed-input.{ext}",
-        content_type=ctype or "image/png",
-    )
+    if uid:
+        ext = "png" if "png" in ctype else "jpg"
+        name = filename if filename.endswith(ext) else f"wavespeed-input.{ext}"
+        hosted = rehost_image_bytes(
+            uid, raw, filename=name, content_type=ctype or "image/png"
+        )
+        if is_public_http_url(hosted):
+            return hosted
+    return bytes_to_data_url(raw, content_type=ctype)
 
 
 async def _download_output(url_or_b64: str) -> bytes:
@@ -141,7 +140,7 @@ async def _download_output(url_or_b64: str) -> bytes:
             raise RuntimeError("invalid WaveSpeed data URL output")
         return base64.b64decode(match.group(2))
     # Naked base64 (enable_base64_output)
-    if not _is_http_url(ref) and len(ref) > 64 and re.fullmatch(r"[A-Za-z0-9+/=\s]+", ref or ""):
+    if not is_http_url(ref) and len(ref) > 64 and re.fullmatch(r"[A-Za-z0-9+/=\s]+", ref):
         try:
             return base64.b64decode(ref)
         except Exception:
@@ -178,17 +177,15 @@ async def submit_and_wait(
         task = _unwrap_data(submit_resp.json())
         prediction_id = str(task.get("id") or "").strip()
         if not prediction_id:
-            # Sync mode may return outputs immediately.
-            outputs = task.get("outputs")
-            if isinstance(outputs, list) and outputs:
-                return [str(x) for x in outputs if str(x).strip()]
+            sync_out = _outputs_list(task)
+            if sync_out:
+                return sync_out
             raise RuntimeError("WaveSpeed submit response missing prediction id")
 
-        status = str(task.get("status") or "").strip().lower()
-        if status == "completed":
-            outputs = task.get("outputs")
-            if isinstance(outputs, list) and outputs:
-                return [str(x) for x in outputs if str(x).strip()]
+        if str(task.get("status") or "").strip().lower() == "completed":
+            done = _outputs_list(task)
+            if done:
+                return done
 
         result_url = f"{_base_url()}/api/v3/predictions/{prediction_id}/result"
         poll_n = 0
@@ -198,8 +195,7 @@ async def submit_and_wait(
             await asyncio.sleep(_POLL_SEC)
             poll_n += 1
             if on_progress:
-                pct = min(90, 10 + poll_n * 5)
-                on_progress(pct, "wavespeed:poll")
+                on_progress(min(90, 10 + poll_n * 5), "wavespeed:poll")
             poll_resp = await client.get(result_url, headers=headers)
             if poll_resp.status_code >= 400:
                 detail = (poll_resp.text or "")[:400]
@@ -207,10 +203,10 @@ async def submit_and_wait(
             result = _unwrap_data(poll_resp.json())
             status = str(result.get("status") or "").strip().lower()
             if status == "completed":
-                outputs = result.get("outputs")
-                if not isinstance(outputs, list) or not outputs:
+                done = _outputs_list(result)
+                if not done:
                     raise RuntimeError("WaveSpeed completed with empty outputs")
-                return [str(x) for x in outputs if str(x).strip()]
+                return done
             if status in _TERMINAL_FAIL:
                 err = str(result.get("error") or status)
                 raise RuntimeError(f"WaveSpeed prediction {status}: {err}")

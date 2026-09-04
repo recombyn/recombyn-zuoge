@@ -1,5 +1,5 @@
 import { nodeLeftTop, isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
-import { frameIdAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
+import { frameIdAtPoint, frameForFullBleedPlate as frameForFullBleedPlateGeom } from '@/components/rcb/scene/document/sceneHitBridge';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
   getDocumentGridSize,
@@ -453,7 +453,7 @@ export function isHostInjectedSelection(
   return false;
 }
 
-/** Near-full-bleed artboard plate — must not block marquee (looks empty but hits as a shape). */
+/** Near-full-bleed artboard plate — must not block marquee / nested picks. */
 export function frameForFullBleedPlate(doc: SceneDocument, nodeId: string): string | null {
   const node = doc?.deltaSetLike?.[nodeId];
   if (!node) return null;
@@ -462,30 +462,7 @@ export function frameForFullBleedPlate(doc: SceneDocument, nodeId: string): stri
     const fid = String(node.attrs?.frameId || '').trim();
     return fid || null;
   }
-  if (node.key !== 'shape') return null;
-  const shapeType = String(node.attrs?.shapeType || 'rect');
-  if (shapeType !== 'rect') return null;
-  const frames = Array.isArray(doc?.frames) ? doc.frames : [];
-  if (!frames.length) return null;
-  const { left, top } = nodeLeftTop(doc, node);
-  const w = Math.max(1, Number(node.width) || 1);
-  const h = Math.max(1, Number(node.height) || 1);
-  const area = w * h;
-  for (const f of frames) {
-    if (!f?.id) continue;
-    const fx = Number(f.x) || 0;
-    const fy = Number(f.y) || 0;
-    const fw = Math.max(1, Number(f.width) || 1);
-    const fh = Math.max(1, Number(f.height) || 1);
-    const frameArea = fw * fh;
-    const ow = Math.max(0, Math.min(left + w, fx + fw) - Math.max(left, fx));
-    const oh = Math.max(0, Math.min(top + h, fy + fh) - Math.max(top, fy));
-    const overlap = ow * oh;
-    if (overlap >= frameArea * 0.9 && area >= frameArea * 0.85) {
-      return String(f.id);
-    }
-  }
-  return null;
+  return frameForFullBleedPlateGeom(doc, nodeId);
 }
 
 /** Visual AABB in scene space via mounted SVG (matches what the user sees). */
@@ -934,9 +911,9 @@ export function filterMarqueeContentHits(
     const node = document.deltaSetLike?.[id];
     if (node) {
       const ownerId = String(node.attrs?.frameId || '').trim();
-    if (ownerId) {
-      if (touchedFrameIds.size) return touchedFrameIds.has(ownerId);
-    }
+      if (ownerId && touchedFrameIds.size) {
+        return touchedFrameIds.has(ownerId);
+      }
     }
     const plateFrame = frameForFullBleedPlate(document, id);
     if (!plateFrame) return true;

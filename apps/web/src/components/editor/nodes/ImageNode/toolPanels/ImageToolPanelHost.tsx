@@ -3,7 +3,7 @@ import { useSelector } from '@/store';
 import { useSelectedNodeId, useSelectedNodeIds } from '@/store/editorSelectors';
 import { useTranslation } from 'react-i18next';
 import { message } from '@/components/base';
-import { getHttpErrorMessage } from '@/service/client';
+import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import {
   closeImageToolPanel,
   patchDocumentNode,
@@ -16,7 +16,6 @@ import {
 } from '@/store/modules/editor';
 import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import { buildNodeAdjustFilterCss } from '@/components/rcb/scene/document/sceneFill';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { toolbarBoxForSelection } from '@/components/rcb/selection/selectionLogic';
 import {
   RcbOverlayPortal,
@@ -37,8 +36,6 @@ import MattingHintOverlay, {
 } from './MattingHintOverlay';
 import RemoveBgToolPanel from './RemoveBgToolPanel';
 import { defaultBrushSize } from './maskBrushUtils';
-import { startEraserFromMask } from './eraserSession';
-import { startRemoveBgFromMasks } from './removeBgSession';
 import OpacityToolPanel from './OpacityToolPanel';
 import PuppetToolPanel from './PuppetToolPanel';
 import MultiAngleToolPanel from './MultiAngleToolPanel';
@@ -57,6 +54,7 @@ import {
 import { requestPuppetWarpApply } from '@/components/editor/nodes/ImageNode/puppet/puppetWarpApplyEvent';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import type { SceneDocument, SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
+import { sessionNodeBox } from '@/components/editor/nodes/ImageNode/imageToolbarShared';
 
 /** Dock Eraser / Replace text / — to the image's top-right (not the selection toolbar). */
 function panelStyleRight(
@@ -85,18 +83,12 @@ function isLineOrArrow(node: SceneNodeInput): boolean {
   return t === 'line' || t === 'arrow';
 }
 
-function nodeBox(
+function panelNodeBox(
   document: SceneDocument,
-  node: SceneNodeInput
+  node: SceneNodeInput | null | undefined
 ): { left: number; top: number; width: number; height: number } | null {
-  if (!node) return null;
-  const { left, top } = nodeLeftTop(document, node);
-  const box = {
-    left,
-    top,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
-  };
+  const box = sessionNodeBox(document, node);
+  if (!box || !node) return box;
   // Line/arrow store a fat hit AABB. Dock blend/effects to the shaft AABB
   // (same as the selection toolbar) so the panel sits at the visual top-right.
   return (
@@ -105,6 +97,44 @@ function nodeBox(
       node,
     }) || box
   );
+}
+
+function resolveErrHttpStatus(err: unknown): number | undefined {
+  const fromClient = getHttpStatus(err);
+  if (fromClient != null) return fromClient;
+  if (!err || typeof err !== 'object' || !('status' in err)) return undefined;
+  const status = Number((err as { status?: unknown }).status);
+  if (!Number.isFinite(status)) return undefined;
+  return status;
+}
+
+function startEraserFromMask(opts: {
+  eraseMask: string;
+  sourceId: string;
+  label: string;
+  onSpawned?: () => void;
+}): void {
+  startImageProcess({
+    sourceId: opts.sourceId,
+    kind: 'eraser',
+    label: opts.label,
+    meta: { eraseMask: opts.eraseMask },
+  });
+  opts.onSpawned?.();
+}
+
+function startRemoveBg(opts: {
+  sourceId: string;
+  label: string;
+  onSpawned?: () => void;
+}): void {
+  // MediaKit remove-bg has no brush-mask input — ignore overlay strokes.
+  startImageProcess({
+    sourceId: opts.sourceId,
+    kind: 'removeBg',
+    label: opts.label,
+  });
+  opts.onSpawned?.();
 }
 
 /** Host for image tool panels positioned relative to the source image. */
@@ -185,7 +215,7 @@ function ImageToolPanelHost({
     if (panel.kind !== 'eraser' && panel.kind !== 'removeBg') return;
 
     const node = document?.deltaSetLike?.[panel.nodeId];
-    const boxNow = nodeBox(document, node);
+    const boxNow = panelNodeBox(document, node);
     if (!boxNow) return;
 
     setBrushSize(defaultBrushSize(boxNow));
@@ -234,7 +264,7 @@ function ImageToolPanelHost({
 
   const box = useMemo(() => {
     if (!panel) return null;
-    return nodeBox(document, document?.deltaSetLike?.[panel.nodeId]);
+    return panelNodeBox(document, document?.deltaSetLike?.[panel.nodeId]);
   }, [document, panel]);
 
   if (!panel || !box) return null;
@@ -413,11 +443,12 @@ function ImageToolPanelHost({
               });
             } catch (err: unknown) {
               const raw = getHttpErrorMessage(err, '');
-              const msg =
-                /failed to fetch|networkerror|load failed/i.test(raw)
-                  ? t('agent.apiDown')
-                  : raw || t('editor.imageToolbar.eraserFailed');
-              message.error(msg);
+              const msg = /failed to fetch|networkerror|load failed/i.test(raw)
+                ? t('agent.apiDown')
+                : raw || t('editor.imageToolbar.eraserFailed');
+              const status = resolveErrHttpStatus(err);
+              if (status === 402) message.warning(msg);
+              else message.error(msg);
             } finally {
               setEraseBusy(false);
             }
@@ -451,8 +482,7 @@ function ImageToolPanelHost({
             }
             setMattingBusy(true);
             try {
-              await startRemoveBgFromMasks({
-                maskRef: mattingMaskRef.current,
+              startRemoveBg({
                 sourceId,
                 label: t('editor.imageToolbar.processingRemoveBg'),
                 onSpawned: close,

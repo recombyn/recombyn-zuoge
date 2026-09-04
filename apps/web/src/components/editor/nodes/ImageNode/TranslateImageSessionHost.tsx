@@ -16,10 +16,9 @@ import {
   closeImageToolPanel,
   startImageProcess,
 } from '@/store/modules/editor';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { cn } from '@/utils/classnames';
-import { imageToolBtn, ImageToolSep } from './imageToolbarShared';
-import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
+import { imageToolBtn, imageToolSessionTitle, ImageToolSep, sessionNodeBox } from './imageToolbarShared';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 /** Common seed-translation targets (MediaKit lang codes). */
 export const TRANSLATE_TARGET_LANGS = [
@@ -38,17 +37,6 @@ export const TRANSLATE_TARGET_LANGS = [
   { code: 'id', labelKey: 'id' },
   { code: 'it', labelKey: 'it' },
 ] as const;
-
-function nodeBox(document: SceneDocument, node: SceneNodeInput) {
-  if (!node) return null;
-  const { left, top } = nodeLeftTop(document, node);
-  return {
-    left,
-    top,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
-  };
-}
 
 function defaultTargetFromLocale(lng: string | undefined): string {
   const l = String(lng || '').toLowerCase();
@@ -82,7 +70,7 @@ function TranslateImageSessionHost({
   const active = panel?.kind === 'translateImage';
   const nodeId = active ? panel!.nodeId : null;
   const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;
-  const box = useMemo(() => nodeBox(document, node), [document, node]);
+  const box = useMemo(() => sessionNodeBox(document, node), [document, node]);
 
   const [targetLang, setTargetLang] = useState(() => defaultTargetFromLocale(i18n.language));
   const [menuOpen, setMenuOpen] = useState(false);
@@ -149,7 +137,7 @@ function TranslateImageSessionHost({
         onPointerDown={(e) => e.stopPropagation()}
       >
         <FloatingToolbar className="relative gap-1 px-2.5 py-1.5">
-          <span className="inline-flex h-8 min-w-[5.5rem] items-center gap-1.5 px-2 text-[12px] font-medium text-[var(--ink)]">
+          <span className={imageToolSessionTitle}>
             <HiOutlineLanguage className="h-4 w-4 shrink-0 text-current" />
             <span>{t('editor.imageToolbar.translateImage')}</span>
           </span>
@@ -161,7 +149,7 @@ function TranslateImageSessionHost({
               type="button"
               className={cn(
                 imageToolBtn,
-                'min-w-[6.5rem] justify-between gap-2 px-3 font-medium',
+                'gap-1 px-2 font-medium',
                 menuOpen && 'bg-[var(--accent-soft)]'
               )}
               onClick={() => setMenuOpen((v) => !v)}
@@ -199,7 +187,7 @@ function TranslateImageSessionHost({
 
           <button
             type="button"
-            className="inline-flex h-8 min-w-[5.75rem] items-center justify-center gap-1.5 rounded-xl px-4 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
+            className="inline-flex h-7 items-center justify-center rounded-xl px-2.5 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
             onClick={onConfirm}
           >
             <span>{t('editor.imageToolbar.translateImageConfirm')}</span>

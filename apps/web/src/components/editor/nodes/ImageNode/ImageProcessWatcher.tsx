@@ -16,7 +16,7 @@ import {
   type ImageProcessResult,
 } from '@/service/imageTools';
 import { isUploadAbortError, uploadImageFromSrc } from '@/utils/uploadImage';
-import { getHttpErrorMessage } from '@/service/client';
+import { getHttpErrorMessage, getHttpStatus } from '@/service/client';
 import { refreshWalletAfterSpend } from '@/service/wallet';
 import {
   failImageProcess,
@@ -29,6 +29,22 @@ const DECOMPOSE_KINDS = new Set(['editText', 'editElements']);
 
 function tt(key: string, opts?: Record<string, unknown>): string {
   return String(i18n.t(key, opts));
+}
+
+function resolveHttpStatus(err: unknown): number | undefined {
+  const fromClient = getHttpStatus(err);
+  if (fromClient != null) return fromClient;
+  if (!err || typeof err !== 'object' || !('status' in err)) return undefined;
+  const s = Number((err as { status?: unknown }).status);
+  if (!Number.isFinite(s)) return undefined;
+  return s;
+}
+
+function isQuotaWarnError(err: unknown): boolean {
+  if (resolveHttpStatus(err) === 402) return true;
+  if (!err || typeof err !== 'object' || !('code' in err)) return false;
+  const code = String((err as { code?: unknown }).code || '').trim();
+  return code === 'free_vision_exhausted' || code === 'insufficient_credits';
 }
 
 function parseMeta(raw: unknown): Record<string, unknown> {
@@ -71,10 +87,6 @@ async function persistProcessedSrc(src: string, filename: string): Promise<strin
   return url;
 }
 
-async function refreshWallet() {
-  refreshWalletAfterSpend();
-}
-
 /** Prefer backend ``message``; FE i18n only for client-only / empty fallbacks. */
 function processFailMessage(err: unknown): string {
   const msg = getHttpErrorMessage(err, '');
@@ -115,6 +127,67 @@ function buildFinishAttrsForKind(
   return undefined;
 }
 
+function decomposeSuccessMessage(kind: string, layers: unknown[]): string {
+  if (kind === 'editElements') {
+    return tt('editor.imageToolbar.doneEditElementsHint');
+  }
+  const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
+  const rasterCount = layers.filter((l: any) => l?.letteringText).length;
+  if (rasterCount > 0 && textCount > 0) {
+    return tt('editor.imageToolbar.doneOcrMixed', { textCount, rasterCount });
+  }
+  if (textCount > 0) {
+    return tt('editor.imageToolbar.doneOcrEditable', { count: textCount });
+  }
+  return tt('editor.imageToolbar.doneOcr');
+}
+
+const PROCESS_DONE_LABELS: Record<string, string> = {
+  removeBg: 'editor.imageToolbar.doneRemoveBg',
+  eraser: 'editor.imageToolbar.doneEraser',
+  upscale: 'editor.imageToolbar.doneUpscale',
+  multiAngle: 'editor.imageToolbar.doneMultiAngle',
+  expand: 'editor.imageToolbar.doneExpand',
+  editText: 'editor.imageToolbar.doneEditText',
+  editElements: 'editor.imageToolbar.doneEditElements',
+  replaceText: 'editor.imageToolbar.doneReplaceText',
+  translateImage: 'editor.imageToolbar.doneTranslateImage',
+  productScene: 'editor.imageToolbar.doneProductScene',
+  vector: 'editor.imageToolbar.doneVector',
+  adjust: 'editor.imageToolbar.doneAdjust',
+};
+
+function rasterDoneMessage(kind: string): string {
+  const key = PROCESS_DONE_LABELS[kind];
+  if (key) return tt(key);
+  return tt('editor.imageToolbar.doneGeneric');
+}
+
+async function persistBatchVariantUrls(
+  mainSrc: string,
+  storedUrl: string,
+  batchUrls: string[],
+  kind: string,
+  cancelled: () => boolean
+): Promise<string | undefined> {
+  if (batchUrls.length <= 1) return undefined;
+  const persisted: string[] = [];
+  for (let i = 0; i < batchUrls.length; i += 1) {
+    const u = batchUrls[i];
+    if (u === mainSrc) {
+      persisted.push(storedUrl);
+      continue;
+    }
+    const nextUrl = await persistProcessedSrc(u, `${kind}-${i}.png`);
+    if (cancelled()) return undefined;
+    persisted.push(nextUrl);
+  }
+  const withMain = persisted.includes(storedUrl)
+    ? persisted
+    : [storedUrl, ...persisted];
+  return JSON.stringify(withMain);
+}
+
 async function finishDecomposeResult(
   pendingId: string,
   kind: string,
@@ -134,30 +207,18 @@ async function finishDecomposeResult(
   if (cancelled()) return true;
 
   finishImageProcess({
-      nodeId: pendingId,
-      layers: persisted,
-      sourceWidth: Number(res.width) || undefined,
-      sourceHeight: Number(res.height) || undefined,
-    });
+    nodeId: pendingId,
+    layers: persisted,
+    sourceWidth: Number(res.width) || undefined,
+    sourceHeight: Number(res.height) || undefined,
+  });
   const warn = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
   if (warn.length) {
     message.warning(warn.slice(0, 3).join('；'));
   } else {
-    const textCount = layers.filter((l: any) => String(l?.type) === 'text').length;
-    const rasterCount = layers.filter((l: any) => l?.letteringText).length;
-    if (kind === 'editElements') {
-      message.success(tt('editor.imageToolbar.doneEditElementsHint'));
-    } else if (rasterCount > 0 && textCount > 0) {
-      message.success(
-        tt('editor.imageToolbar.doneOcrMixed', { textCount, rasterCount })
-      );
-    } else if (textCount > 0) {
-      message.success(tt('editor.imageToolbar.doneOcrEditable', { count: textCount }));
-    } else {
-      message.success(tt('editor.imageToolbar.doneOcr'));
-    }
+    message.success(decomposeSuccessMessage(kind, layers));
   }
-  await refreshWallet();
+  refreshWalletAfterSpend();
   return true;
 }
 
@@ -165,7 +226,8 @@ async function finishDecomposeResult(
  * Completes spawned image process jobs via async backend jobs + SSE progress.
  * Results are uploaded to our file server when still inline data URLs.
  */
-function ImageProcessWatcher() {  useImageToolCapabilities();
+function ImageProcessWatcher() {
+  useImageToolCapabilities();
   const pendingId = useSelector((s: any) => s.editor.pendingImageProcessId as string | null);
   const document = useEditorDocument();
   const documentRef = useRef(document);
@@ -182,9 +244,10 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
     const ac = new AbortController();
     const isCancelled = () => cancelled;
 
-    const fail = (msg: string) => {
+    const fail = (msg: string, err?: unknown) => {
       if (cancelled) return;
-      message.error(msg);
+      if (err && isQuotaWarnError(err)) message.warning(msg);
+      else message.error(msg);
       failImageProcess({ nodeId: pendingId });
     };
 
@@ -268,12 +331,12 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
             return;
           }
           finishImageProcess({
-              nodeId: pendingId,
-              svg: svgMarkup,
-              attrs: { name: tt('editor.imageToolbar.nameVector') },
-            });
+            nodeId: pendingId,
+            svg: svgMarkup,
+            attrs: { name: tt('editor.imageToolbar.nameVector') },
+          });
           message.success(tt('editor.imageToolbar.doneVector'));
-          await refreshWallet();
+          refreshWalletAfterSpend();
           return;
         }
 
@@ -287,24 +350,14 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
         const batchUrls = Array.isArray(res.images)
           ? res.images.map((u) => String(u || '').trim()).filter(Boolean)
           : [];
-        let variantAttr: string | undefined;
-        if (batchUrls.length > 1) {
-          const persisted: string[] = [];
-          for (let i = 0; i < batchUrls.length; i += 1) {
-            const u = batchUrls[i];
-            if (u === res.image) {
-              persisted.push(storedUrl);
-              continue;
-            }
-            const nextUrl = await persistProcessedSrc(u, `${kind}-${i}.png`);
-            if (cancelled) return;
-            persisted.push(nextUrl);
-          }
-          const withMain = persisted.includes(storedUrl)
-            ? persisted
-            : [storedUrl, ...persisted];
-          variantAttr = JSON.stringify(withMain);
-        }
+        const variantAttr = await persistBatchVariantUrls(
+          res.image,
+          storedUrl,
+          batchUrls,
+          kind,
+          isCancelled
+        );
+        if (cancelled) return;
 
         const replaceMeta = kind === 'replaceText' ? parseMeta(liveNode?.attrs?.processMeta) : {};
         const replacedCopy = String(replaceMeta.newText || '').trim();
@@ -313,32 +366,18 @@ function ImageProcessWatcher() {  useImageToolCapabilities();
           replacedCopy,
         });
         finishImageProcess({
-            nodeId: pendingId,
-            src: storedUrl,
-            attrs: {
-              ...(finishAttrs || {}),
-              ...(variantAttr ? { imageVariants: variantAttr } : {}),
-            },
-          });
-        const labels: Record<string, string> = {
-          removeBg: tt('editor.imageToolbar.doneRemoveBg'),
-          eraser: tt('editor.imageToolbar.doneEraser'),
-          upscale: tt('editor.imageToolbar.doneUpscale'),
-          multiAngle: tt('editor.imageToolbar.doneMultiAngle'),
-          expand: tt('editor.imageToolbar.doneExpand'),
-          editText: tt('editor.imageToolbar.doneEditText'),
-          editElements: tt('editor.imageToolbar.doneEditElements'),
-          replaceText: tt('editor.imageToolbar.doneReplaceText'),
-          translateImage: tt('editor.imageToolbar.doneTranslateImage'),
-          productScene: tt('editor.imageToolbar.doneProductScene'),
-          vector: tt('editor.imageToolbar.doneVector'),
-          adjust: tt('editor.imageToolbar.doneAdjust'),
-        };
-        message.success(labels[kind] || tt('editor.imageToolbar.doneGeneric'));
-        await refreshWallet();
+          nodeId: pendingId,
+          src: storedUrl,
+          attrs: {
+            ...(finishAttrs || {}),
+            ...(variantAttr ? { imageVariants: variantAttr } : {}),
+          },
+        });
+        message.success(rasterDoneMessage(kind));
+        refreshWalletAfterSpend();
       } catch (err: any) {
         if (cancelled || isUploadAbortError(err)) return;
-        fail(processFailMessage(err));
+        fail(processFailMessage(err), err);
       }
     };
 

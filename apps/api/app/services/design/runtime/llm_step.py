@@ -293,6 +293,12 @@ async def complete_skill_step(
     raw_images = [
         u.strip() for u in (images or []) if isinstance(u, str) and u.strip()
     ]
+    if raw_images:
+        from app.services.vision.rehost import ensure_remote_fetchable_image_refs
+
+        raw_images = await ensure_remote_fetchable_image_refs(raw_images)
+        if safe_images:
+            safe_images = await ensure_remote_fetchable_image_refs(safe_images)
     tokens = _resolve_max_tokens(max_tokens)
     endpoint, llm = _build_step_llm(
         family=family,
@@ -412,6 +418,12 @@ async def stream_skill_step(
     raw_images = [
         u.strip() for u in (images or []) if isinstance(u, str) and u.strip()
     ]
+    if raw_images:
+        from app.services.vision.rehost import ensure_remote_fetchable_image_refs
+
+        raw_images = await ensure_remote_fetchable_image_refs(raw_images)
+        if safe_images:
+            safe_images = await ensure_remote_fetchable_image_refs(safe_images)
     tokens = _resolve_max_tokens(max_tokens)
     endpoint, llm = _build_step_llm(
         family=family,

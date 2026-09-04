@@ -7,18 +7,18 @@ from __future__ import annotations
 
 import base64
 import io
-import logging
 import re
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from PIL import Image
 
 from app.core.config import settings
 from app.services.vision.providers.base import ProgressCb
-
-logger = logging.getLogger(__name__)
+from app.services.vision.rehost import (
+    ensure_remote_fetchable_image_ref,
+    ipv4_loopback_url,
+)
 
 _DATA_URL_RE = re.compile(r"^data:([^;,]+)?(?:;base64)?,(.+)$", re.DOTALL)
 _DEFAULT_MODEL = "doubao-seedream-5-0-pro-260628"
@@ -28,6 +28,7 @@ _SEEDREAM_REQUIRED_MSG = (
     "见 https://console.volcengine.com/ark）"
 )
 _TIMEOUT_SEC = 180.0
+_SIZE_PRESETS = frozenset({"1K", "1.5K", "2K"})
 
 
 def seedream_enabled() -> bool:
@@ -52,22 +53,12 @@ def _require_enabled() -> None:
         raise RuntimeError(_SEEDREAM_REQUIRED_MSG)
 
 
-def _is_http_url(ref: str) -> bool:
-    try:
-        parsed = urlparse(ref)
-    except Exception:
-        return False
-    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
-
-
-async def _ensure_image_ref(image: str, *, user_id: str | None) -> str:
-    """Ark accepts public URL or data URL; rehost private refs when needed."""
-    ref = (image or "").strip()
-    if not ref:
-        raise ValueError("image is required")
-    if _is_http_url(ref) or ref.startswith("data:"):
-        return ref
-    raise ValueError("image must be a data URL or http(s) URL")
+def _normalize_size(raw: Any) -> str:
+    s = str(raw or "auto").strip() or "auto"
+    upper = s.upper()
+    if upper in _SIZE_PRESETS:
+        return upper
+    return s
 
 
 async def _download(url_or_data: str) -> bytes:
@@ -80,22 +71,29 @@ async def _download(url_or_data: str) -> bytes:
             raise RuntimeError("invalid data URL from Seedream")
         return base64.b64decode(match.group(2))
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
-        resp = await client.get(ref)
+        resp = await client.get(ipv4_loopback_url(ref))
         resp.raise_for_status()
         return resp.content
 
 
+async def _ensure_image_ref(image: str, *, user_id: str | None) -> str:
+    """Give Ark a public URL or data URL — never localhost / LAN."""
+    _ = user_id
+    return await ensure_remote_fetchable_image_ref(image)
+
+
 def _parse_size_wh(raw: Any) -> tuple[int, int]:
     s = str(raw or "").strip().lower()
-    if "x" in s:
-        parts = s.split("x", 1)
-        try:
-            w, h = int(parts[0]), int(parts[1])
-            if w > 0 and h > 0:
-                return w, h
-        except ValueError:
-            pass
-    return 0, 0
+    if "x" not in s:
+        return 0, 0
+    left, right = s.split("x", 1)
+    try:
+        w, h = int(left), int(right)
+    except ValueError:
+        return 0, 0
+    if w <= 0 or h <= 0:
+        return 0, 0
+    return w, h
 
 
 def _bbox_xywh(item: dict[str, Any]) -> tuple[float, float, float, float] | None:
@@ -106,12 +104,7 @@ def _bbox_xywh(item: dict[str, Any]) -> tuple[float, float, float, float] | None
     if not isinstance(absolute, (list, tuple)) or len(absolute) < 4:
         return None
     try:
-        left, top, right, bottom = (
-            float(absolute[0]),
-            float(absolute[1]),
-            float(absolute[2]),
-            float(absolute[3]),
-        )
+        left, top, right, bottom = (float(absolute[i]) for i in range(4))
     except (TypeError, ValueError):
         return None
     w = max(0.0, right - left)
@@ -131,6 +124,15 @@ def _item_url(item: dict[str, Any]) -> str:
     return ""
 
 
+def _layer_display_name(raw: dict[str, Any], z: int) -> str:
+    name = str(raw.get("name") or "").strip()
+    if name:
+        return name
+    if z == 0:
+        return "Background"
+    return f"Layer {z}"
+
+
 def map_seedream_data_to_layers(
     data_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -140,20 +142,18 @@ def map_seedream_data_to_layers(
         if not isinstance(raw, dict):
             continue
         try:
-            z = int(raw.get("z_index") if raw.get("z_index") is not None else i)
+            z_raw = raw.get("z_index")
+            z = int(z_raw) if z_raw is not None else i
         except (TypeError, ValueError):
             z = i
         url = _item_url(raw)
         if not url:
             continue
-        name = str(raw.get("name") or "").strip() or (
-            "Background" if z == 0 else f"Layer {z}"
-        )
         rows.append(
             {
                 "z_index": z,
                 "url": url,
-                "name": name,
+                "name": _layer_display_name(raw, z),
                 "description": str(raw.get("description") or "").strip(),
                 "size": raw.get("size"),
                 "bounding_box": raw.get("bounding_box"),
@@ -161,6 +161,38 @@ def map_seedream_data_to_layers(
         )
     rows.sort(key=lambda r: int(r["z_index"]))
     return rows
+
+
+def _raster_wh(raw: bytes) -> tuple[int, int]:
+    with Image.open(io.BytesIO(raw)) as img:
+        return int(img.width), int(img.height)
+
+
+def _layer_geometry(
+    row: dict[str, Any],
+    raw_bytes: bytes,
+    *,
+    canvas_w: int,
+    canvas_h: int,
+) -> tuple[float, float, float, float, int, int]:
+    """Return (x, y, w, h, canvas_w, canvas_h) for one Seedream layer."""
+    z = int(row["z_index"])
+    size_w, size_h = _parse_size_wh(row.get("size"))
+    xywh = _bbox_xywh(row)
+
+    if z == 0:
+        if size_w > 0 and size_h > 0:
+            cw, ch = size_w, size_h
+        else:
+            cw, ch = _raster_wh(raw_bytes)
+        return 0.0, 0.0, float(cw), float(ch), cw, ch
+
+    if xywh:
+        x, y, w, h = xywh
+        return x, y, w, h, canvas_w, canvas_h
+
+    nw, nh = _raster_wh(raw_bytes)
+    return 0.0, 0.0, float(nw), float(nh), canvas_w, canvas_h
 
 
 async def run_layered(
@@ -180,9 +212,7 @@ async def run_layered(
 
     m = meta or {}
     image_ref = await _ensure_image_ref(image, user_id=user_id)
-    size = str(m.get("size") or m.get("resolution") or "auto").strip() or "auto"
-    if size.upper() in ("1K", "1.5K", "2K"):
-        size = size.upper() if size.upper() != "1.5K" else "1.5K"
+    size = _normalize_size(m.get("size") or m.get("resolution"))
     prompt = str(m.get("prompt") or "").strip()
     model = layer_model_id()
 
@@ -224,9 +254,7 @@ async def run_layered(
     if not isinstance(data, list) or not data:
         raise RuntimeError("Seedream layer_decomposition returned no data")
 
-    mapped = map_seedream_data_to_layers(
-        [x for x in data if isinstance(x, dict)]
-    )
+    mapped = map_seedream_data_to_layers([x for x in data if isinstance(x, dict)])
     if not mapped:
         raise RuntimeError("Seedream layer_decomposition returned empty layers")
 
@@ -237,22 +265,9 @@ async def run_layered(
     layers_out: list[dict[str, Any]] = []
     for row in mapped:
         raw_bytes = await _download(str(row["url"]))
-        z = int(row["z_index"])
-        xywh = _bbox_xywh(row)
-        size_w, size_h = _parse_size_wh(row.get("size"))
-        if z == 0:
-            if size_w > 0 and size_h > 0:
-                canvas_w, canvas_h = size_w, size_h
-            else:
-                with Image.open(io.BytesIO(raw_bytes)) as img:
-                    canvas_w, canvas_h = int(img.width), int(img.height)
-            x, y, w, h = 0.0, 0.0, float(canvas_w), float(canvas_h)
-        elif xywh:
-            x, y, w, h = xywh
-        else:
-            with Image.open(io.BytesIO(raw_bytes)) as img:
-                nw, nh = int(img.width), int(img.height)
-            x, y, w, h = 0.0, 0.0, float(nw), float(nh)
+        x, y, w, h, canvas_w, canvas_h = _layer_geometry(
+            row, raw_bytes, canvas_w=canvas_w, canvas_h=canvas_h
+        )
         layers_out.append(
             {
                 "bytes": raw_bytes,
@@ -261,7 +276,7 @@ async def run_layered(
                 "width": w,
                 "height": h,
                 "name": str(row["name"]),
-                "z_index": z,
+                "z_index": int(row["z_index"]),
                 "description": str(row.get("description") or ""),
             }
         )

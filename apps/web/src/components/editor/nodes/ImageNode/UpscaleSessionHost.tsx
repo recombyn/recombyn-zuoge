@@ -16,10 +16,9 @@ import {
   closeImageToolPanel,
   startImageProcess,
 } from '@/store/modules/editor';
-import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { cn } from '@/utils/classnames';
-import { imageToolBtn, ImageToolSep } from './imageToolbarShared';
-import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
+import { imageToolBtn, imageToolSessionTitle, ImageToolSep, sessionNodeBox } from './imageToolbarShared';
+import type { SceneDocument } from '@/components/rcb/sceneNode';
 
 export type UpscaleResolution = '2K' | '4K';
 
@@ -49,17 +48,6 @@ export const UPSCALE_PRESETS: UpscalePreset[] = [
   },
 ];
 
-function nodeBox(document: SceneDocument, node: SceneNodeInput) {
-  if (!node) return null;
-  const { left, top } = nodeLeftTop(document, node);
-  return {
-    left,
-    top,
-    width: Math.max(1, Number(node.width) || 1),
-    height: Math.max(1, Number(node.height) || 1),
-  };
-}
-
 /** Upscale session: compact bar under the image (same chrome as expand). */
 function UpscaleSessionHost({
   document,
@@ -78,7 +66,7 @@ function UpscaleSessionHost({
   const active = panel?.kind === 'upscale';
   const nodeId = active ? panel!.nodeId : null;
   const node = nodeId ? document?.deltaSetLike?.[nodeId] : null;
-  const box = useMemo(() => nodeBox(document, node), [document, node]);
+  const box = useMemo(() => sessionNodeBox(document, node), [document, node]);
 
   const [selectedKey, setSelectedKey] = useState(UPSCALE_PRESETS[1]?.key ?? '4k');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -144,7 +132,7 @@ function UpscaleSessionHost({
         onPointerDown={(e) => e.stopPropagation()}
       >
         <FloatingToolbar className="relative gap-1 px-2.5 py-1.5">
-          <span className="inline-flex h-8 min-w-[5.5rem] items-center gap-1.5 px-2 text-[12px] font-medium text-[var(--ink)]">
+          <span className={imageToolSessionTitle}>
             <Icon name="editor-upscale" width={16} height={16} className="text-current" />
             <span>{t('editor.imageToolbar.upscale')}</span>
           </span>
@@ -156,7 +144,7 @@ function UpscaleSessionHost({
               type="button"
               className={cn(
                 imageToolBtn,
-                'min-w-[5.5rem] justify-between gap-2 px-3 font-medium',
+                'gap-1 px-2 font-medium',
                 menuOpen && 'bg-[var(--accent-soft)]'
               )}
               onClick={() => setMenuOpen((v) => !v)}
@@ -193,7 +181,7 @@ function UpscaleSessionHost({
 
           <button
             type="button"
-            className="inline-flex h-8 min-w-[5.75rem] items-center justify-center gap-1.5 rounded-xl px-4 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
+            className="inline-flex h-7 items-center justify-center rounded-xl px-2.5 text-[12px] font-medium bg-[var(--ink)] text-[var(--on-brand)] transition hover:opacity-90"
             onClick={onConfirm}
           >
             <span>{t('editor.imageToolbar.upscaleConfirm')}</span>

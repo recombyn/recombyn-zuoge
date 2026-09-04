@@ -638,7 +638,7 @@ function writeSlot(
   buf.strokeColors[index] = slotOutlineStrokeColor(node, kind) >>> 0;
   let flags = SOA_FLAG_DIRTY;
   if (!isNodeOverlayHidden(document, node)) flags |= SOA_FLAG_VISIBLE;
-  if (Boolean(node.attrs?.locked)) flags |= SOA_FLAG_LOCKED;
+  if (node.attrs?.locked) flags |= SOA_FLAG_LOCKED;
   // BASIC_GEOM → SoA canvas ink. Text / media / non-basic stay off this flag.
   if (isSoaBasicGeomSufficient(node)) {
     flags |= SOA_FLAG_BASIC_GEOM | SOA_FLAG_CANVAS_IDLE;

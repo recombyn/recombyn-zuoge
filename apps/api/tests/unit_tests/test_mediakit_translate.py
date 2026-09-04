@@ -42,7 +42,7 @@ def test_translate_params_aliases():
 
 
 def test_translate_params_invalid_version_falls_back():
-    body = mk.translate_params_from_meta({"tool_version": "nope", "target_lang": "ja"})
+    body = mk.translate_params_from_meta({"toolVersion": "nope", "targetLang": "ja"})
     assert body["tool_version"] == "seed-translation"
     assert body["target_lang"] == "ja"
 
@@ -80,8 +80,10 @@ def test_translate_image_rehosts(monkeypatch):
         "app.services.vision.translate_image.translate_image_text", fake_translate
     )
     monkeypatch.setattr(
-        "app.services.vision.translate_image.rehost_image_bytes",
-        lambda _uid, data, **kwargs: "https://cdn.example/translate.png",
+        "app.services.vision.translate_image.encode_or_rehost_image",
+        lambda data, *, user_id=None, filename="", content_type="image/png": (
+            "https://cdn.example/translate.png"
+        ),
     )
     result = asyncio.run(
         translate_image(

@@ -7,8 +7,7 @@ import {
 
 const t = ((key: string) => {
   const map: Record<string, string> = {
-    'agent.activityThoughtRunning': '正在理解需求…',
-    'agent.activityThoughtBrief': '已确认需求',
+    'agent.thinkingTitle': '思考过程',
     'agent.activityExplored': '已确认设计材料',
   };
   return map[key] || key;
@@ -21,15 +20,15 @@ describe('applyThinkingBodyToSteps — visible thought row', () => {
     expect(next[0]).toMatchObject({
       id: 'thought-stream',
       kind: 'thought',
-      name: '已确认需求',
+      name: '思考过程',
       status: 'done',
       body: '竖版海报，主视觉居中',
     });
   });
 
-  it('uses running label while streaming chunks', () => {
+  it('uses thinking title while streaming chunks', () => {
     const next = applyThinkingBodyToSteps([], '先…', false, t);
-    expect(next[0].name).toBe('正在理解需求…');
+    expect(next[0].name).toBe('思考过程');
     expect(next[0].status).toBe('running');
   });
 

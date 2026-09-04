@@ -445,6 +445,19 @@ export function radiiFromAttrs(attrs: Record<string, unknown> | null | undefined
     NaN
   );
   const stored = parseRadiusVertices(attrs?.radiusVertices);
+  // Factories often seed radiusTL…=0 with a positive uniform cornerRadius.
+  // When linked and every corner is zero, prefer the uniform value.
+  if (
+    linked &&
+    Number.isFinite(uniform) &&
+    uniform > 0 &&
+    num(attrs?.radiusTL, 0) === 0 &&
+    num(attrs?.radiusTR, 0) === 0 &&
+    num(attrs?.radiusBR, 0) === 0 &&
+    num(attrs?.radiusBL, 0) === 0
+  ) {
+    return { tl: uniform, tr: uniform, br: uniform, bl: uniform };
+  }
   // Prefer per-corner attrs whenever present (toolbar / stroke panel).
   // Fall back to uniform `radius` only when corner keys are absent.
   if (hasCornerAttrs || !linked || !Number.isFinite(uniform)) {

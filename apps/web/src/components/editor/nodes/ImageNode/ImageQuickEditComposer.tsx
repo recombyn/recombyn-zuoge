@@ -593,7 +593,7 @@ function ImageQuickEditComposer({
             value={prompt}
             onChange={setPrompt}
             onSubmit={() => {
-              if (canSendGen) void onGenerate();
+              if (canSendGen) onGenerate();
             }}
             // canSendGen only gates the send button — empty prompt must stay editable.
             disabled={sending}
@@ -720,7 +720,9 @@ function ImageQuickEditComposer({
               <button
                 type="button"
                 disabled={!canSendGen}
-                onClick={() => void onGenerate()}
+                onClick={() => {
+                  onGenerate();
+                }}
                 className={cn(
                   'inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition',
                   'bg-[var(--ink)] text-[var(--on-brand)] disabled:opacity-40',

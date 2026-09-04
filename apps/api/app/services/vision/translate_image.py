@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import io
 import logging
 from typing import Any
@@ -10,7 +9,7 @@ from typing import Any
 from PIL import Image
 
 from app.services.vision.mediakit_client import mediakit_enabled, translate_image_text
-from app.services.vision.rehost import rehost_image_bytes
+from app.services.vision.rehost import encode_or_rehost_image, raster_filename_and_type
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +17,20 @@ _MEDIAKIT_REQUIRED_MSG = (
     "图像翻译需要配置火山引擎 AI MediaKit（设置 MEDIAKIT_API_KEY，"
     "见 https://console.volcengine.com/imp/ai-mediakit/settings）"
 )
+
+
+def _payload_for_output(raw: bytes, *, fmt: str, user_id: str | None) -> tuple[bytes, str, str]:
+    """Return ``(bytes, filename, content_type)``."""
+    filename, content_type = raster_filename_and_type(fmt, stem="translate")
+    if user_id:
+        return raw, filename, content_type
+    img = Image.open(io.BytesIO(raw))
+    buf = io.BytesIO()
+    if content_type == "image/png":
+        img.convert("RGBA" if "A" in img.getbands() else "RGB").save(buf, format="PNG")
+    else:
+        img.convert("RGB").save(buf, format="JPEG", quality=92)
+    return buf.getvalue(), filename, content_type
 
 
 async def translate_image(
@@ -46,22 +59,10 @@ async def translate_image(
     version = str(out.get("tool_version") or "seed-translation")
     target = str(out.get("target_lang") or "zh")
 
-    if user_id:
-        filename = "translate.png" if fmt == "png" else "translate.jpg"
-        content_type = "image/png" if fmt == "png" else "image/jpeg"
-        image_out = rehost_image_bytes(
-            user_id, raw, filename=filename, content_type=content_type
-        )
-    else:
-        buf = io.BytesIO()
-        if fmt == "png":
-            img.convert("RGBA" if "A" in img.getbands() else "RGB").save(buf, format="PNG")
-            ctype = "image/png"
-        else:
-            img.convert("RGB").save(buf, format="JPEG", quality=92)
-            ctype = "image/jpeg"
-        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-        image_out = f"data:{ctype};base64,{b64}"
+    payload, filename, content_type = _payload_for_output(raw, fmt=fmt, user_id=user_id)
+    image_out = encode_or_rehost_image(
+        payload, user_id=user_id, filename=filename, content_type=content_type
+    )
 
     return {
         "image": image_out,

@@ -43,8 +43,8 @@ describe('ctxMenuGuards', () => {
     ).toBe(false);
   });
 
-  it('blocks mutations while a frame is processing', () => {
-    expect(selectionMutationBlocked(doc, [], ['frame-running'])).toBe(true);
+  it('does not block mutations on frame processStatus alone', () => {
+    expect(selectionMutationBlocked(doc, [], ['frame-running'])).toBe(false);
   });
 
   it('allows deleting any processing target', () => {

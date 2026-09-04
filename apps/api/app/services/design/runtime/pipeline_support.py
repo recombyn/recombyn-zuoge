@@ -154,6 +154,18 @@ def _run_error_code(err: BaseException | str) -> str:
     if "structured_output_failed" in low:
         return "structured_output_failed"
     if "vision_chat_failed" in low:
+        if (
+            "too small" in low
+            or "minimum allowed dimension" in low
+            or "dimensions are too small" in low
+        ):
+            return "vision_image_too_small"
+        if (
+            "error while downloading" in low
+            or "connection refused" in low
+            or "dial tcp" in low
+        ):
+            return "vision_image_unreachable"
         return "vision_chat_failed"
     if "review_agent_llm_failed" in low or "review_lanes_unavailable" in low:
         return "review_failed"

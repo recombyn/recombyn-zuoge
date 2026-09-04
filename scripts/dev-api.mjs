@@ -28,8 +28,6 @@ function devApiEnv() {
     );
     process.exit(1);
   }
-  // Design agent floors stay in-process BasicLocal.
-  env.RECOMBYN_INTELLIGENCE_MODE = 'local';
   return env;
 }
 

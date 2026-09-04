@@ -11,7 +11,7 @@ from typing import Any
 from PIL import Image
 
 from app.services.vision.mediakit_client import erase_image, mediakit_enabled
-from app.services.vision.rehost import rehost_image_bytes
+from app.services.vision.rehost import encode_or_rehost_image, raster_filename_and_type
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +20,6 @@ _MEDIAKIT_REQUIRED_MSG = (
     "见 https://console.volcengine.com/imp/ai-mediakit/settings）"
 )
 _DATA_URL_RE = re.compile(r"^data:[^;,]+(?:;base64)?,(.+)$", re.DOTALL)
-
-
-def _png_data_url_from_bytes(png_bytes: bytes) -> str:
-    b64 = base64.b64encode(png_bytes).decode("ascii")
-    return f"data:image/png;base64,{b64}"
 
 
 def _decode_data_url_mask(raw: str) -> bytes:
@@ -57,6 +52,15 @@ def mask_to_mediakit_bw_png(mask_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
+def _png_bytes_for_canvas(raw: bytes, img: Image.Image, fmt: str) -> bytes:
+    """Prefer PNG for canvas round-trip when no upload user."""
+    if img.mode == "RGBA" or str(fmt or "").lower() == "png":
+        return raw
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG")
+    return buf.getvalue()
+
+
 async def smart_erase(
     image: str,
     *,
@@ -66,7 +70,7 @@ async def smart_erase(
     """
     Erase painted regions via MediaKit ``selected_area_erase`` + mask.
 
-    Also accepts auto scenes when meta sets ``standard_scene`` without a brush mask
+    Also accepts auto scenes when meta sets ``standardScene`` without a brush mask
     (e.g. full_screen_text_erase / full_screen_icon_erase).
 
     Returns ``{ image, kind, engine, mode, width, height }``.
@@ -75,38 +79,32 @@ async def smart_erase(
         raise RuntimeError(_MEDIAKIT_REQUIRED_MSG)
 
     m = dict(meta or {})
-    scene = str(m.get("standardScene") or m.get("standard_scene") or "").strip()
-    mask_raw = str(m.get("eraseMask") or m.get("excludeMask") or "").strip()
+    scene = str(m.get("standardScene") or "").strip()
+    mask_raw = str(m.get("eraseMask") or "").strip()
     mask_png: bytes | None = None
 
     if mask_raw:
         mask_png = mask_to_mediakit_bw_png(_decode_data_url_mask(mask_raw))
         scene = "selected_area_erase"
-        m["standard_scene"] = scene
+        m["standardScene"] = scene
     elif not scene:
         raise ValueError("请先在图片上涂抹要擦除的区域")
 
-    m.setdefault("output_format", "png")
+    m.setdefault("outputFormat", "png")
     out = await erase_image(image, meta=m, mask_bytes=mask_png)
     raw = out["image_bytes"]
     img = Image.open(io.BytesIO(raw))
     width = int(out.get("width") or img.width)
     height = int(out.get("height") or img.height)
+    fmt = str(out.get("format") or "png").lower()
 
-    if user_id:
-        fmt = str(out.get("format") or "png").lower()
-        filename = "eraser.png" if fmt == "png" else "eraser.jpg"
-        content_type = "image/png" if fmt == "png" else "image/jpeg"
-        image_out = rehost_image_bytes(
-            user_id, raw, filename=filename, content_type=content_type
-        )
-    else:
-        # Prefer PNG data URL for canvas round-trip when no upload user.
-        if img.mode != "RGBA" and str(out.get("format") or "").lower() != "png":
-            buf = io.BytesIO()
-            img.convert("RGB").save(buf, format="PNG")
-            raw = buf.getvalue()
-        image_out = _png_data_url_from_bytes(raw)
+    if not user_id:
+        raw = _png_bytes_for_canvas(raw, img, fmt)
+        fmt = "png"
+    filename, content_type = raster_filename_and_type(fmt, stem="eraser")
+    image_out = encode_or_rehost_image(
+        raw, user_id=user_id, filename=filename, content_type=content_type
+    )
 
     return {
         "image": image_out,
