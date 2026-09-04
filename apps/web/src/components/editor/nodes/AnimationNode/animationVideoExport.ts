@@ -243,7 +243,7 @@ export async function downloadLottieAsGif(opts: {
     blob = await convertVideoBlobWithFfmpeg(recorded.blob, recorded.ext, 'gif');
   } catch (err) {
     console.warn('[lottie-gif] convert failed', err);
-    throw new Error('gif convert failed');
+    throw new Error('gif convert failed', { cause: err });
   }
   if (!blob.size) throw new Error('empty gif');
   const base = safeBaseName(opts.baseName, 'animation');

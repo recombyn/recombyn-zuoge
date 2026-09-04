@@ -37,7 +37,6 @@ describe('SoA hit / paint parity', () => {
         'stroke-enabled': false,
         cornerRadius: 20,
         radiusLinked: true,
-        'stroke-enabled': false,
       },
       children: [],
     });
