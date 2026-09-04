@@ -35,15 +35,38 @@ export function idleMediaScreenEdgePx(
  * Idle image/video stamps into a fixed atlas cell. When the on-screen edge
  * exceeds that cell, the stamp looks soft until selection paint-raises a
  * full-res SVG host — promote those nodes to DOM hosts while zoomed in.
+ *
+ * Empty generators are excluded: they bake a plate glyph (no bitmap to sharpen),
+ * and DOM promotion would paint above all SoA rects, breaking stackOrder.
  */
 export function idleMediaNeedsSharpHost(
-  node: { key?: unknown; width?: unknown; height?: unknown } | null | undefined,
+  node:
+    | {
+        key?: unknown;
+        width?: unknown;
+        height?: unknown;
+        attrs?: Record<string, unknown> | null;
+      }
+    | null
+    | undefined,
   zoom: number,
   dpr = 1
 ): boolean {
   if (!node) return false;
   const key = String(node.key || '');
   if (key !== 'image' && key !== 'video') return false;
+  const attrs = node.attrs || {};
+  const isImageGen =
+    attrs.imageGenerator === true || String(attrs.imageGenerator || '') === 'true';
+  const isVideoGen =
+    attrs.videoGenerator === true || String(attrs.videoGenerator || '') === 'true';
+  if (isImageGen || isVideoGen) {
+    const src = String(
+      (key === 'video' ? attrs.poster : null) || attrs.src || ''
+    ).trim();
+    // Empty plate — stay on canvas/atlas idle so stackOrder matches rects.
+    if (!src) return false;
+  }
   return idleMediaScreenEdgePx(Number(node.width) || 1, Number(node.height) || 1, zoom, dpr) >
     SOA_ATLAS_INNER;
 }

@@ -30,6 +30,34 @@ describe('webglInstanceAtlas', () => {
     expect(idleMediaNeedsSharpHost({ key: 'image', width: 80, height: 60 }, 4, 1)).toBe(true);
     expect(idleMediaNeedsSharpHost({ key: 'video', width: 400, height: 300 }, 1, 1)).toBe(true);
     expect(idleMediaNeedsSharpHost({ key: 'shape', width: 400, height: 300 }, 1, 1)).toBe(false);
+    // Empty generators bake a plate glyph — never sharp-host (would break stackOrder).
+    expect(
+      idleMediaNeedsSharpHost(
+        { key: 'image', width: 360, height: 360, attrs: { src: '', imageGenerator: true } },
+        1,
+        1
+      )
+    ).toBe(false);
+    expect(
+      idleMediaNeedsSharpHost(
+        { key: 'video', width: 640, height: 360, attrs: { src: '', videoGenerator: true } },
+        2,
+        2
+      )
+    ).toBe(false);
+    // Filled generator / real media still promote when oversized.
+    expect(
+      idleMediaNeedsSharpHost(
+        {
+          key: 'image',
+          width: 400,
+          height: 400,
+          attrs: { src: 'https://example.com/a.png', imageGenerator: true },
+        },
+        1,
+        1
+      )
+    ).toBe(true);
   });
   it('shelf-packs stamped polylines and returns UVs', () => {
     const atlas = createSoaWebglAtlas(512, 128);
