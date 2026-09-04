@@ -35,6 +35,10 @@ import {
   type SceneClipboardPayload,
 } from '@/components/rcb/scene/document/sceneClipboard';
 import {
+  canvasBulkItemCount,
+  runCanvasBulkOp,
+} from '@/components/editor/canvas/canvasBulkOpLoading';
+import {
   loadSceneOntoSvg,
   nodeLeftTop,
 } from '@/components/rcb/scene/paint/sceneToSvg';
@@ -1533,7 +1537,7 @@ function SvgCanvas({
    * Upload placeholders are scrubbed from history (not restorable via Undo).
    */
   const deleteCanvasSelection = useCallback(
-    (opts?: { nodeIds?: string[]; frameIds?: string[] }) => {
+    (opts?: { nodeIds?: string[]; frameIds?: string[]; skipLoading?: boolean }) => {
       const doc0 = documentRef.current;
       if (!doc0) return false;
       const nodeIds = opts?.nodeIds ? [...opts.nodeIds] : [...selectedIdsRef.current];
@@ -1547,13 +1551,24 @@ function SvgCanvas({
       // use visible overlap so all content belonging to the artboard is removed.
       const bound = frameIds.length ? nodeIdsBoundToFrames(doc0, frameIds) : [];
       const allNodes = [...new Set([...nodeIds, ...bound])];
-      allNodes.forEach((id) => abortNodeUpload(id));
-
-      removeDocumentNodes({ nodeIds: allNodes, frameIds });
-      requestProjectFlush();
+      const count = canvasBulkItemCount(allNodes.length, frameIds.length);
+      const apply = () => {
+        allNodes.forEach((id) => abortNodeUpload(id));
+        removeDocumentNodes({ nodeIds: allNodes, frameIds });
+        requestProjectFlush();
+        return true;
+      };
+      if (opts?.skipLoading) return apply();
+      runCanvasBulkOp({
+        count,
+        label: t('editor.bulkOp.deleting', { defaultValue: '正在删除…' }),
+        run: () => {
+          apply();
+        },
+      });
       return true;
     },
-    [ t]
+    [t]
   );
 
 

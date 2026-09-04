@@ -61,7 +61,11 @@ export type RunCanvasCtxActionDeps = {
   onAddToChat?: (id: string | string[]) => void;
   collabUndo: () => boolean;
   collabRedo: () => boolean;
-  deleteCanvasSelection: (opts?: { nodeIds?: string[]; frameIds?: string[] }) => boolean;
+  deleteCanvasSelection: (opts?: {
+    nodeIds?: string[];
+    frameIds?: string[];
+    skipLoading?: boolean;
+  }) => boolean;
   reorderLayer: (dir: 'front' | 'forward' | 'backward' | 'back', ids: string[]) => void;
 };
 
