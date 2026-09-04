@@ -36,6 +36,16 @@ import {
   framePlateStrokeSceneWidth,
   isAnimationArtboardKind,
 } from '@/components/rcb/frames/types';
+import {
+  getSceneCanvasIdlePaint,
+  subscribeSceneCanvasIdlePaint,
+} from '@/components/rcb/render/sceneRenderer';
+import { getSoaPaintDocument } from '@/components/rcb/render/sceneRenderBuffer';
+import {
+  registerArtboardInkSurface,
+  scheduleArtboardInkPaint,
+  updateArtboardInkChrome,
+} from '@/components/rcb/frames/artboardInkSurface';
 
 /**
  * Clear plate stroke only when SelectionChrome paints **this** plate's box.
@@ -208,6 +218,14 @@ export function previewArtboardFrameGeometry(
   }
   const plate = el.querySelector<SVGRectElement>('rect[data-baseline="1"]');
   if (plate) setAttrs(plate, { width, height });
+  const fo = el.querySelector<SVGForeignObjectElement>('foreignObject[data-rcb-artboard-ink="1"]');
+  if (fo) setAttrs(fo, { width, height });
+  const inkCanvas = el.querySelector<HTMLCanvasElement>('canvas[data-rcb-artboard-ink-canvas]');
+  if (inkCanvas) {
+    inkCanvas.style.width = `${width}px`;
+    inkCanvas.style.height = `${height}px`;
+  }
+  scheduleArtboardInkPaint(id);
   return true;
 }
 
@@ -219,17 +237,17 @@ function paintFramePlate(
   generating: boolean,
   zoom: number
 ): SVGGElement {
+  const prevPlate = layer.querySelector<SVGGElement>(':scope > g[data-rcb-frame-plate="1"]');
+  const prevHost = prevPlate as PlateInkHost | null;
+  prevHost?.__artboardInkUnregister?.();
   while (layer.firstChild) layer.removeChild(layer.firstChild);
 
   const x = Number(frame.x) || 0;
   const y = Number(frame.y) || 0;
   const w = Math.max(1, Number(frame.width) || 1);
   const h = Math.max(1, Number(frame.height) || 1);
-  const backgroundOpacity = generating
-    ? 1
-    : Math.max(0, Math.min(100, Number(frame.backgroundOpacity ?? 100))) / 100;
 
-  const g = svgEl('g');
+  const g = svgEl('g') as SVGGElement & PlateInkHost;
   append(layer, g);
   setAttrs(g, {
     transform: `translate(${x} ${y})`,
@@ -238,64 +256,100 @@ function paintFramePlate(
     'data-rcb-frame-plate': '1',
   });
   if (generating) setAttrs(g, { 'data-rcb-process-plate': '1' });
-  const anyG = g as unknown as {
-    __sceneLeft?: number;
-    __sceneTop?: number;
-    sceneWidth?: number;
-    sceneHeight?: number;
-  };
-  anyG.__sceneLeft = x;
-  anyG.__sceneTop = y;
-  anyG.sceneWidth = w;
-  anyG.sceneHeight = h;
+  g.__sceneLeft = x;
+  g.__sceneTop = y;
+  g.sceneWidth = w;
+  g.sceneHeight = h;
 
   const root = layer.ownerSVGElement;
-  const clipD = roundedRectPath(w, h, { tl: 0, tr: 0, br: 0, bl: 0 });
-  const stroke = selected
-    ? undefined
-    : {
-        color: highlighted ? FRAME_HIGHLIGHT_STROKE : FRAME_PLATE_STROKE,
-        width: framePlateStrokeSceneWidth(zoom),
-      };
-
   if (generating && root) {
-    appendProcessPlatePaths(g, root, frame.id, clipD, w, h, stroke || undefined);
-  } else {
-    let bg = '#FFFFFF';
-    if (frame.backgroundColor && frame.backgroundColor !== 'transparent') {
-      bg = frame.backgroundColor;
-    }
-    const plate = svgEl('rect', {
-      x: 0,
-      y: 0,
-      width: w,
-      height: h,
-      'data-baseline': '1',
-      'data-radius-body': '1',
-    });
-    append(g, plate);
-    setFill(plate, bg);
-    setAttrs(plate, { 'fill-opacity': backgroundOpacity });
-    plate.removeAttribute('vector-effect');
-    if (selected) {
-      setStroke(plate, 'none');
-      plate.removeAttribute('shape-rendering');
-    } else if (highlighted) {
-      setStroke(plate, {
-        color: FRAME_HIGHLIGHT_STROKE,
-        width: framePlateStrokeSceneWidth(zoom),
-      });
-      setAttrs(plate, { 'shape-rendering': 'crispEdges' });
-    } else {
-      setStroke(plate, {
-        color: FRAME_PLATE_STROKE,
-        width: framePlateStrokeSceneWidth(zoom),
-      });
-      setAttrs(plate, { 'shape-rendering': 'crispEdges' });
-    }
+    const stroke = selected
+      ? undefined
+      : {
+          color: highlighted ? FRAME_HIGHLIGHT_STROKE : FRAME_PLATE_STROKE,
+          width: framePlateStrokeSceneWidth(zoom),
+        };
+    const clipD = roundedRectPath(w, h, { tl: 0, tr: 0, br: 0, bl: 0 });
+    appendProcessPlatePaths(g, root, frame.id, clipD, w, h, stroke);
+    return g;
   }
+
+  mountArtboardInk(g, frame, w, h, selected, highlighted, zoom);
   return g;
 }
+
+type PlateInkHost = {
+  __sceneLeft?: number;
+  __sceneTop?: number;
+  sceneWidth?: number;
+  sceneHeight?: number;
+  __artboardInkCanvas?: HTMLCanvasElement;
+  __artboardInkUnregister?: () => void;
+};
+
+function inkPaintFrameFrom(frame: ArtboardFrame) {
+  const geom = resolvePaintFrameGeometry(frame);
+  return {
+    id: frame.id,
+    x: Number(geom.x) || 0,
+    y: Number(geom.y) || 0,
+    width: Math.max(1, Number(geom.width) || 1),
+    height: Math.max(1, Number(geom.height) || 1),
+    backgroundColor: frame.backgroundColor,
+    backgroundOpacity: frame.backgroundOpacity,
+  };
+}
+
+function mountArtboardInk(
+  g: SVGGElement & PlateInkHost,
+  frame: ArtboardFrame,
+  w: number,
+  h: number,
+  selected: boolean,
+  highlighted: boolean,
+  zoom: number
+): void {
+  const fo = svgEl('foreignObject', {
+    x: 0,
+    y: 0,
+    width: w,
+    height: h,
+    'data-rcb-artboard-ink': '1',
+  }) as SVGForeignObjectElement;
+  append(g, fo);
+
+  const canvas = document.createElement('canvas');
+  canvas.setAttribute('data-rcb-artboard-ink-canvas', frame.id);
+  canvas.style.display = 'block';
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  fo.appendChild(canvas);
+
+  g.__artboardInkCanvas = canvas;
+  g.__artboardInkUnregister = registerArtboardInkSurface({
+    canvas,
+    frameId: frame.id,
+    selected,
+    highlighted,
+    zoom,
+    getFrame: () => inkPaintFrameFrom(frame),
+    getDocument: () => getSceneCanvasIdlePaint()?.document ?? getSoaPaintDocument() ?? null,
+  });
+
+  const plate = svgEl('rect', {
+    x: 0,
+    y: 0,
+    width: w,
+    height: h,
+    'data-baseline': '1',
+    'data-radius-body': '1',
+  });
+  append(g, plate);
+  setFill(plate, 'none');
+  setStroke(plate, 'none');
+  setAttrs(plate, { 'pointer-events': 'none' });
+}
+
 
 function HtmlArtboardFrame({
   frame,
@@ -363,6 +417,8 @@ function HtmlArtboardFrame({
     }
 
     return () => {
+      const plate = sceneLayer.querySelector<SVGGElement>(':scope > g[data-rcb-frame-plate="1"]');
+      (plate as PlateInkHost | null)?.__artboardInkUnregister?.();
       unregisterShapeHost(frame.id);
       try {
         sceneLayer.remove();
@@ -374,6 +430,22 @@ function HtmlArtboardFrame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layer, frame.id, worldEpoch]);
 
+  // Idle SoA / document paint → restamp every artboard small-canvas.
+  useEffect(() => {
+    if (layer !== 'body') return undefined;
+    return subscribeSceneCanvasIdlePaint(() => {
+      scheduleArtboardInkPaint(frame.id);
+    });
+  }, [layer, frame.id]);
+
+  // Live plate geometry → restamp ink (bounds already updated in previewArtboardFrameGeometry).
+  useEffect(() => {
+    if (layer !== 'body') return undefined;
+    return subscribeLiveArtboardFrameGeometry(() => {
+      scheduleArtboardInkPaint(frame.id);
+    });
+  }, [layer, frame.id]);
+
   // Selection / zoom hairline: repaint plate in place (do not remount the layer g).
   useLayoutEffect(() => {
     if (layer !== 'body') return;
@@ -384,26 +456,7 @@ function HtmlArtboardFrame({
     // makes bound content look like it is sliding inside the plate.
     const live = getLiveArtboardFrameGeometry(frame.id);
     if (live) {
-      const host = getShapeHost(frame.id)?.el as SVGElement | null | undefined;
-      if (!host) return;
-      const plate = host.querySelector<SVGRectElement>('rect[data-baseline="1"]');
-      if (!plate) return;
-      if (selected) {
-        setStroke(plate, 'none');
-        plate.removeAttribute('shape-rendering');
-      } else if (highlighted) {
-        setStroke(plate, {
-          color: FRAME_HIGHLIGHT_STROKE,
-          width: framePlateStrokeSceneWidth(z),
-        });
-        setAttrs(plate, { 'shape-rendering': 'crispEdges' });
-      } else {
-        setStroke(plate, {
-          color: FRAME_PLATE_STROKE,
-          width: framePlateStrokeSceneWidth(z),
-        });
-        setAttrs(plate, { 'shape-rendering': 'crispEdges' });
-      }
+      updateArtboardInkChrome(frame.id, { selected, highlighted, zoom: z });
       return;
     }
     const paintFrame = { ...frame, ...resolvePaintFrameGeometry(frame) };
@@ -424,6 +477,7 @@ function HtmlArtboardFrame({
     frame.width,
     frame.height,
     frame.backgroundColor,
+    frame.backgroundOpacity,
     frame.clipContent,
   ]);
 

@@ -133,7 +133,7 @@ import {
   subscribeSoaBakeTileReady,
   unionSoaDirtyAabb,
 } from '@/components/rcb/render/soaBakeLayer';
-import { createWebglSceneRenderer } from '@/components/rcb/render/webglSceneRenderer';
+import { createWebglSceneRenderer, soaWebglInkShadersOk } from '@/components/rcb/render/webglSceneRenderer';
 import { createWebgpuSceneRenderer } from '@/components/rcb/render/webgpuSceneRenderer';
 import {
   resolveGpuDofBackend,
@@ -3069,11 +3069,23 @@ export function createSceneRenderer(
     if (!isSoaCanvasShapesEnabled()) {
       throw new Error('createSceneRenderer(webgl) requires SoA canvas shapes');
     }
+    // Probe on a throwaway canvas first — never bind webgl2 onto the stage ink
+    // canvas unless the ink program links (otherwise Canvas2D fallback is dead).
+    if (!soaWebglInkShadersOk()) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[scene] WebGL2 ink shaders unavailable; using canvas2d idle ink (do not claim webgl2 on stage canvas)'
+        );
+      }
+      ensureSoaBakeTileReadyBridge();
+      return createCanvasSceneRenderer(canvasDeps);
+    }
     const gl = createWebglSceneRenderer(canvasDeps);
     if (!gl) {
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
-        console.warn('[scene] WebGL2 ink unavailable; falling back to canvas2d');
+        console.warn('[scene] WebGL2 ink unavailable after probe; falling back to canvas2d');
       }
       ensureSoaBakeTileReadyBridge();
       return createCanvasSceneRenderer(canvasDeps);

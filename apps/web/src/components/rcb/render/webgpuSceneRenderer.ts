@@ -492,6 +492,7 @@ function drawFrame(gpu: GpuRuntime, canvas: HTMLCanvasElement, req: SceneRenderR
       depthForId: (id) => depthLookup.depthForId(id),
       clips,
       document: req.document,
+      skipFrameBound: true,
     });
   }
 

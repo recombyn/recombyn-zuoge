@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canIdlePaintOnCanvas, canvasIdleIsStrokeOnly, pickFullAndCanvasIds } from '../RcbShapesLayer';
+import { canIdlePaintOnCanvas, canvasIdleIsStrokeOnly, nodeNeedsDomShapeHost, pickFullAndCanvasIds } from '../RcbShapesLayer';
 import { HEAVY_PATH_D_CHARS } from '@/components/rcb/scene/document/sceneShapes';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
@@ -488,6 +488,77 @@ describe('canIdlePaintOnCanvas', () => {
         attrs: {},
       } as never)
     ).toBe(false);
+  });
+
+  it('framed solid rects idle on ArtboardLayer ink (not full SVG hosts)', () => {
+    const nodes: Record<string, any> = {
+      framed: {
+        ...rect('framed'),
+        attrs: { ...(rect('framed').attrs || {}), frameId: 'board', frameOrder: 0 },
+      },
+    };
+    const doc = makeDoc(nodes);
+    doc.frames = [
+      {
+        id: 'board',
+        name: 'A',
+        backgroundColor: '#fff',
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 200,
+      },
+    ] as never;
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['framed'],
+      zoom: 1,
+    });
+    expect(fullIds).not.toContain('framed');
+    expect(canvasIds).toContain('framed');
+  });
+
+  it('animation workbench: idle vectors stay on ArtboardLayer; lottie stays FO host', () => {
+    const nodes: Record<string, any> = {
+      ink: {
+        ...rect('ink'),
+        attrs: { ...(rect('ink').attrs || {}), frameId: 'lot', frameOrder: 0 },
+      },
+      nest: {
+        id: 'nest',
+        key: 'lottie',
+        x: 10,
+        y: 10,
+        width: 80,
+        height: 80,
+        attrs: { frameId: 'lot', frameOrder: 1, animationData: '{}' },
+      },
+    };
+    const doc = makeDoc(nodes);
+    doc.frames = [
+      {
+        id: 'lot',
+        name: '动画工作台',
+        backgroundColor: '#fff',
+        x: 0,
+        y: 0,
+        width: 364,
+        height: 364,
+        kind: 'animation',
+      },
+    ] as never;
+    doc.stackOrder = ['frame:lot', 'node:ink', 'node:nest'];
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['ink', 'nest'],
+      zoom: 1,
+    });
+    expect(fullIds).not.toContain('ink');
+    expect(canvasIds).toContain('ink');
+    expect(fullIds).toContain('nest');
+    expect(canvasIds).not.toContain('nest');
+    expect(nodeNeedsDomShapeHost(nodes.nest as never)).toBe(true);
+    expect(nodeNeedsDomShapeHost(nodes.ink as never)).toBe(false);
   });
 
   it('canvasIdleIsStrokeOnly for stroke-only pens', () => {

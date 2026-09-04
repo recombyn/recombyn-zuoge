@@ -8,11 +8,11 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 |-------|------|----------------|
 | Stage shell | Camera, frames, product canvas | `editor/page/EditorStageWorld.tsx` |
 | Camera / pan-zoom | Infinite world (`zoom` ~0.05–100); **CameraTransform** is the sole world↔screen API | `rcb/canvas/RcbCanvas.tsx`, `rcb/core/math.ts`, `rcb/camera/transform.ts` |
-| SceneRenderer | Paint/hit backend (`svg` DOM hosts + `canvas2d` grid + SoA vector ink) | `rcb/render/sceneRenderer.ts` |
+| SceneRenderer | Paint/hit backend (`svg` DOM hosts + `canvas2d` grid + world SoA/WebGL + ArtboardLayer) | `rcb/render/sceneRenderer.ts` |
 | Product canvas | Tools, media overlays, store writes; hit via SceneRenderer | `editor/canvas/SvgCanvas.tsx` |
-| Shape paint | SoA/WebGL ink under shared stack SVG; plates + DOM hosts interleaved by `stackOrder` | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx`, `scene/document/sceneStackPainter.ts` |
+| Pixel grid + ink | Grid `[data-rcb-scene-canvas]`; world idle `[data-rcb-idle-ink-canvas]`; plate-bound idle via ArtboardLayer | `RcbCanvas` + `createCanvasSceneRenderer` + `artboardInkSurface` |
+| Shape paint | World WebGL (unbound) + ArtboardLayer small-canvas (bound) + FO hosts by `stackOrder` | `rcb/shapes/RcbShapesLayer.tsx`, `RcbShapeHost.tsx`, `frames/HtmlArtboardFrame.tsx`, `frames/artboardInkSurface.ts`, `scene/document/sceneStackPainter.ts` |
 | SoA buffer + demotion | Derived paint/pick cache (`SceneRenderBuffer`); never writes back to SceneDocument | `rcb/render/sceneRenderBuffer.ts`, `renderDemotionScheduler.ts` |
-| Pixel grid + canvas ink | Grid `[data-rcb-scene-canvas]`; vector ink `[data-rcb-idle-ink-canvas]` | `RcbCanvas` + `createCanvasSceneRenderer` |
 | Selection chrome | Shared scene SVG camera group for AABB, path silhouette, shape knobs, guides, and drawing previews; HTML overlay only for screen UI/hit seats | `rcb/selection/SelectionChrome.tsx`, `HostPathChrome.tsx`, chrome overlays |
 | Transform gestures | `pointermove` → RAF-coalesced live preview into `TransformPreview` + transitional SVG DOM; `pointerup` commits SceneDocument and clears preview | `core/transformPreview.ts`, `SelectionFeature` coalescer, `canvasSession.onGeometryPreview/Commit` |
 | Frame clip (live) | Artboard move: preview plate geom (+ live artboard map) → re-seat bound hosts via `nodeLeftTop` → `syncFrameContentClip` (no child TransformPreview under frameLocal). SoA QT uses the same mid-gesture dirty + liveAabb rescue as TransformPreview so plate-bound ink is not culled with stale AABBs | `EditorStageWorld`, `canvasSession.onGeometryPreview`, `prepareSoaQuadtreeForQuery` |
@@ -48,9 +48,15 @@ There is **no hard max node count** on the document. Capacity is governed by pai
 
 At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen-space `[data-rcb-scene-canvas]` via `createCanvasSceneRenderer` / `drawSceneGrid` (camera baked into ctx; axes stay on `gℤ` — same as `snapCoordToGrid` / pen tips; do **not** device-shift axes off the snap lattice). SVG no longer carries the grid `<path>`.
 
-**Unified stack paint:** one SVG mount holds artboard plates + DOM hosts, ordered by `stackOrder` (`data-z` via `syncStackPaintOrder`). SoA/WebGL ink sits **under** that mount and only paints world nodes that do not need to interleave above plates. Nodes stacked above any plate promote to DOM hosts. Do not reintroduce per-type CSS z bands, host-occlusion clips, or plate cutouts.
+**Paint stack:**
 
-**Idle ink surface:** canvas-capable nodes (`canIdlePaintOnCanvas`) publish through `setSceneCanvasIdlePaint` and paint on `[data-rcb-idle-ink-canvas]` (WebGL atlas stamps for paths/boolean, static text/image/video/audio, gradients, poly/star, donut/arc). Selection does **not** promote basic shapes to SVG. DOM hosts stay for **lottie/group**, path editors, heavy paths, **backdrop-blur**, SoftGlow via `forceFullSet`, puppet-warp images, and the **active** video/audio decoder (≤1 FO each). Object blur + inner-shadow bake on canvas idle (`paintLocalInkWithObjectEffects`). Non-normal **blendMode** idles via underlay + `globalCompositeOperation` (`paintLocalInkWithBlend`). SoftGlow process chrome lives on shape hosts (`attrs.processStatus`). strokeAlign inside/outside paints on canvas ink (SoA basic or rich idle).
+```text
+grid (Canvas2D) → world WebGL (unbound idle) → stack by stackOrder (ArtboardLayer + FO hosts) → chrome
+```
+
+One SVG mount holds artboard plate layers + DOM hosts, ordered by `stackOrder` (`data-z` via `syncStackPaintOrder`). Each plate layer embeds an **ArtboardLayer** small canvas (plate fill + bound idle SoA ink via `artboardInkSurface`). World SoA/WebGL on `[data-rcb-idle-ink-canvas]` paints unbound idle only (`skipFrameBound`). Unbound nodes stacked above any plate promote to DOM hosts. Do not reintroduce per-type CSS z bands, host-occlusion clips, plate cutouts, or bound-idle→SVG-host paint.
+
+**Idle ink:** canvas-capable nodes (`canIdlePaintOnCanvas`) publish through `setSceneCanvasIdlePaint`. Unbound → world WebGL; bound → owning ArtboardLayer. Selection does **not** promote basic shapes to SVG. DOM hosts stay for **lottie/group**, path editors, heavy paths, **backdrop-blur**, SoftGlow via `forceFullSet`, puppet-warp images, and the **active** video/audio decoder (≤1 FO each) — including when frame-bound (FO sits above the plate canvas via `data-z`). Object blur + inner-shadow bake on canvas idle (`paintLocalInkWithObjectEffects`). Non-normal **blendMode** idles via underlay + `globalCompositeOperation` (`paintLocalInkWithBlend`). SoftGlow process chrome lives on shape hosts (`attrs.processStatus`). strokeAlign inside/outside paints on canvas ink (SoA basic or rich idle).
 
 ### SoA buffer + promote / demote
 
@@ -68,7 +74,7 @@ At ≥ `PIXEL_GRID_MIN_ZOOM` (~800%), `RcbCanvas` paints the lattice on a screen
 
 ### DOM hosts (FO media / SoftGlow / editors / stack promotion)
 
-Idle text / image / video poster / audio plate / gradient / poly paint as ink. DOM hosts (`RcbShapeHost`) remain for FO media, SoftGlow, live editors, lottie/group, and any world node whose `stackOrder` sits above an artboard plate. Hosts and plates share one stack SVG mount ordered by `stackOrder`. Drawing previews, guides, and selection chrome share the camera surface. The CSS world layer and live host `left/top/viewBox` camera cancellation path were removed; do not restore either one.
+Idle text / image / video poster / audio plate / gradient / poly paint as ink (world WebGL or ArtboardLayer). DOM hosts (`RcbShapeHost`) remain for FO media, SoftGlow, live editors, lottie/group, and any unbound world node whose `stackOrder` sits above an artboard plate. Hosts and artboard plate layers share one stack SVG mount ordered by `stackOrder`. Drawing previews, guides, and selection chrome share the camera surface. The CSS world layer and live host `left/top/viewBox` camera cancellation path were removed; do not restore either one.
 
 #### Direct size edits and host notifications
 
@@ -145,7 +151,7 @@ Implemented in `RcbShapesLayer.tsx` (current constants):
 
 Spatial: `SceneSpatialRuntime` / `RcbSpatialIndex` are **quadtree-backed** (`SoaQuadtree`). The constructor `cellSize` argument is only a leaf-capacity hint (SvgCanvas still passes 256). Large-scene helpers also use `SCENE_SPATIAL_LARGE_THRESHOLD` (48) in `spatialIndex.ts`. Idle SoA paint/hit additionally uses `buf.quadtree`.
 
-**Rule of thumb:** document can hold thousands of light shapes (stress benches exercise 1k–10k); vectors + static media idle on one SoA/WebGL ink surface under the stack SVG; DOM hosts are for FO media / SoftGlow / editors / stack promotion above plates. Off-screen nodes are culled (not mounted).
+**Rule of thumb:** document can hold thousands of light shapes (stress benches exercise 1k–10k); unbound vectors idle on world SoA/WebGL; frame-bound idle ink lives on per-artboard small canvases (ArtboardLayer) interleaved with FO hosts by `stackOrder`; DOM hosts are for FO media / SoftGlow / editors / stack promotion above plates. Off-screen nodes are culled (not mounted).
 
 ## History / agent (related caps)
 
@@ -169,7 +175,7 @@ Runtime uniforms: `focalDepth`, `aperture`, `maxCoCPx`, `downsample`. Tunable in
 ## Practical capacity
 
 - **Light vectors:** hundreds → low thousands with cull + SoA canvas ink + QT
-- **Dense scenes:** one ink surface (real paint), not host-overflow dual path
+- **Dense scenes:** world WebGL + per-artboard ArtboardLayer ink (real paint); FO hosts stay exceptional
 - **Many videos / animations / generators:** DOM + decode dominate before node-count alone
 - **Huge path `d`:** hit-test / history pressure (`HEAVY_PATH_D_CHARS`)
 
@@ -177,13 +183,15 @@ Runtime uniforms: `focalDepth`, `aperture`, `maxCoCPx`, `downsample`. Tunable in
 
 ```
 apps/web/src/components/rcb/
-  canvas/RcbCanvas.tsx                # stage: grid → SoA ink → stack SVG (plates+hosts) → chrome
+  canvas/RcbCanvas.tsx                # stage: grid → world SoA ink → stack SVG (plates+hosts) → chrome
+  frames/HtmlArtboardFrame.tsx        # plate layer + ArtboardLayer FO canvas mount
+  frames/artboardInkSurface.ts        # per-frame plate fill + bound idle SoA ink
   shapes/RcbShapesLayer.tsx           # cull + DOM hosts vs SoA canvas ink + demotion wiring
   shapes/shapeHostRegistry.ts         # host registry + shared stack mount paint order
   scene/document/sceneStackPainter.ts # stackOrder → data-z contract
   render/sceneRenderBuffer.ts         # SoA typed arrays, paint, QT sync
   render/renderDemotionScheduler.ts   # ACTIVE_SVG / CANDIDATE / DEPLOYED_SOA
-  render/soaBakeLayer.ts              # tile bake + element↔tile maps
+  render/soaBakeLayer.ts              # world tile bake (skipFrameBound) + element↔tile maps
   render/gpuDepthOfField.ts           # DOF params + stack depth normalization
   render/webglDepthOfFieldPass.ts     # WebGL2 FBO + CoC blur
   render/webgpuSceneRenderer.ts       # WebGPU MRT scene + CoC DOF (async device)

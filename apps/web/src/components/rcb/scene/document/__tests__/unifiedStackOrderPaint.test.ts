@@ -132,7 +132,7 @@ describe('unified stackOrder paint', () => {
     expect(canvasIds).toEqual([]);
   });
 
-  it('frame-bound children always take a DOM host (plate shares stack SVG above ink)', () => {
+  it('frame-bound idle rects stay on ArtboardLayer ink (not DOM hosts)', () => {
     const node = {
       id: 'child',
       key: 'shape',
@@ -140,21 +140,35 @@ describe('unified stackOrder paint', () => {
       y: 0,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', frameId: 'board', 'fill-color': '#abc' },
+      attrs: { shapeType: 'rect', frameId: 'board', 'fill-color': '#abc', 'stroke-enabled': false },
     };
-    expect(nodeNeedsDomShapeHost(node as never)).toBe(true);
+    expect(nodeNeedsDomShapeHost(node as never)).toBe(false);
     let doc = createBareDocument();
     doc.frames = [
       { id: 'board', name: 'A', backgroundColor: '#fff', x: 0, y: 0, width: 100, height: 100 },
     ];
     doc.stackOrder = ['frame:board'];
     doc = addNodeToDocument(doc, 'child', { ...node, children: [] } as never);
-    const { fullIds } = pickFullAndCanvasIds({
+    const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ['child'],
       zoom: 1,
     });
-    expect(fullIds).toContain('child');
+    expect(fullIds).not.toContain('child');
+    expect(canvasIds).toContain('child');
+  });
+
+  it('frame-bound lottie still takes a DOM host', () => {
+    const node = {
+      id: 'lot',
+      key: 'lottie',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      attrs: { frameId: 'board' },
+    };
+    expect(nodeNeedsDomShapeHost(node as never)).toBe(true);
   });
 
   it('static text idles on ink when below plates; hosts when stacked above', () => {
