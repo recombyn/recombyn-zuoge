@@ -73,6 +73,52 @@ function userLotFixture() {
 }
 
 describe('main scene LOT preview data', () => {
+  it('placeUploadedLottie: frameLocal nest stays inside plate (non-zero frame origin)', () => {
+    const anim = lotFixture();
+    expect(anim).toBeTruthy();
+
+    let state = seedEditor();
+    expect(String(state.document?.coordSpace || '')).toBe('frameLocal');
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
+      animationData: anim,
+      name: '测试生成LOT-edited',
+      x: 480,
+      y: 320,
+      width: 418,
+      height: 418,
+    });
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    const hostId = String(state.lottieTimelinePanel!.nodeId);
+    const lotId = findNestedLot(state, hostId, frameId)!;
+    expect(lotId).toBeTruthy();
+
+    const frame = (state.document!.frames || []).find((f) => String(f?.id) === frameId)!;
+    expect(Number(frame.x)).toBe(480);
+    expect(Number(frame.y)).toBe(320);
+
+    const lot = state.document!.deltaSetLike[lotId];
+    // Plate-local — not world (480+…). World coords get clipped away → blank 主场景.
+    expect(Number(lot.x)).toBeLessThan(Number(frame.width));
+    expect(Number(lot.y)).toBeLessThan(Number(frame.height));
+    expect(Number(lot.x)).toBeGreaterThanOrEqual(0);
+    expect(Number(lot.y)).toBeGreaterThanOrEqual(0);
+    expect(isNodeStructurallyHiddenInDocument(state.document, lot)).toBe(false);
+    expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
+
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, {
+      hostNodeId: hostId,
+      assetId: `lot_${lotId}`,
+      selectedLayerInd: 1,
+    });
+    expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
+    state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
+    expect(state.lottiePrecompEdit).toBeNull();
+    expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
+    expect(
+      isNodeStructurallyHiddenInDocument(state.document, state.document!.deltaSetLike[lotId])
+    ).toBe(false);
+  });
+
   it('placeUploadedLottie: 主场景 preview ready before and after LOT tab exit', () => {
     const anim = lotFixture();
     expect(anim).toBeTruthy();

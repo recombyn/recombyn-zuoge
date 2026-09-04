@@ -2711,10 +2711,15 @@ export const editorReducers = {
       const fh = Math.max(1, Number(frame.height) || height);
       const nestW = Math.min(width, fw);
       const nestH = Math.min(height, fh);
+      // frameLocal docs store children in plate-local space (0,0 = frame TL).
+      // World (fx+…) coords leave the lot outside clipContent → no 主场景 preview.
+      const localPlate = String(state.document.coordSpace || '') === 'frameLocal';
+      const nestX = Math.max(0, (fw - nestW) / 2);
+      const nestY = Math.max(0, (fh - nestH) / 2);
       try {
         const { id, node } = createLottieNode({
-          x: fx + Math.max(0, (fw - nestW) / 2),
-          y: fy + Math.max(0, (fh - nestH) / 2),
+          x: localPlate ? nestX : fx + nestX,
+          y: localPlate ? nestY : fy + nestY,
           width: nestW,
           height: nestH,
           name: lotName,
@@ -3847,9 +3852,10 @@ export const editorReducers = {
           height: Math.max(32, Math.round(frame.height)),
           durationSec: Math.max(0.5, Number(frame.durationSec) || 5),
           fps: Math.max(1, Math.round(Number(frame.fps) || 30))});
+        const localPlate = String(state.document?.coordSpace || '') === 'frameLocal';
         const { id, node } = createLottieNode({
-          x: frame.x,
-          y: frame.y,
+          x: localPlate ? 0 : frame.x,
+          y: localPlate ? 0 : frame.y,
           width: frame.width,
           height: frame.height,
           name: ' ',
@@ -3864,8 +3870,8 @@ export const editorReducers = {
           const next = normalizeDocument(state.document);
           const host = next.deltaSetLike?.[id];
           if (host) {
-            host.x = Number(frame.x) || 0;
-            host.y = Number(frame.y) || 0;
+            host.x = localPlate ? 0 : Number(frame.x) || 0;
+            host.y = localPlate ? 0 : Number(frame.y) || 0;
             host.width = Math.max(1, Number(frame.width) || 1);
             host.height = Math.max(1, Number(frame.height) || 1);
             host.attrs = {
