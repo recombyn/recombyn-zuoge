@@ -1,4 +1,4 @@
-import { forwardRef, memo, type HTMLAttributes, type ReactNode } from 'react';
+import { Children, forwardRef, memo, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/utils/classnames';
 
 type FloatingToolbarProps = HTMLAttributes<HTMLDivElement> & {
@@ -14,6 +14,7 @@ type FloatingToolbarProps = HTMLAttributes<HTMLDivElement> & {
 
 /**
  * Floating editor toolbar chrome — pill ends, or flat when docked to the timeline.
+ * Renders nothing when there are no visible children (avoids an empty white pill).
  */
 export const FloatingToolbar = memo(
   forwardRef<HTMLDivElement, FloatingToolbarProps>(
@@ -24,6 +25,12 @@ export const FloatingToolbar = memo(
       children,
       ...rest
     }, ref) {
+      const content = Children.toArray(children).filter((child) => {
+        if (child == null || child === false || child === true) return false;
+        if (Array.isArray(child) && child.length === 0) return false;
+        return true;
+      });
+      if (!content.length) return null;
       const flat = variant === 'flat';
       return (
         <div
@@ -39,7 +46,7 @@ export const FloatingToolbar = memo(
           )}
           {...rest}
         >
-          {children}
+          {content}
         </div>
       );
     }

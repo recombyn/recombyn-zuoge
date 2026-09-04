@@ -989,17 +989,21 @@ function MultiSelectionToolbar({
     </>
   ) : null;
 
+  const sections = joinToolbarSections([
+    styleItems.length ? <>{styleItems}</> : null,
+    layoutItems.length ? (
+      <div className="flex flex-nowrap items-center gap-0.5">{layoutItems}</div>
+    ) : null,
+    booleanMenu,
+    geometryCluster,
+    actionCluster,
+  ]);
+  // Mixed artboards strip node chrome — do not leave an empty FloatingToolbar pill.
+  if (!sections.length) return null;
+
   return (
     <SelectionToolbarShell box={box} angle={angle} edgePadScene={edgePadScene}>
-      {joinToolbarSections([
-        styleItems.length ? <>{styleItems}</> : null,
-        layoutItems.length ? (
-          <div className="flex flex-nowrap items-center gap-0.5">{layoutItems}</div>
-        ) : null,
-        booleanMenu,
-        geometryCluster,
-        actionCluster,
-      ])}
+      {sections}
     </SelectionToolbarShell>
   );
 }
