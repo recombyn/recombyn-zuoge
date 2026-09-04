@@ -94,7 +94,11 @@ import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import { bindUnownedNodesToFrames } from '@/components/rcb/frames/frameNodeBinding';
-import { clearLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
+import {
+  clearLiveArtboardFrameGeometry,
+  framePlateClearsIdleStroke,
+  framePlateShowsHighlightEdge,
+} from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   isArtboardVisibleInDocument,
   setAnimationWorkbenchGeometryPreview,
@@ -745,17 +749,25 @@ function EditorStageWorld({
               selected={
                 !isDevMode &&
                 !movingFrameIdSet.has(frame.id) &&
-                frameChromeMode === 'full' &&
-                selectedFrameIds.includes(frame.id)
+                framePlateClearsIdleStroke({
+                  chromeMode: frameChromeMode,
+                  selectedFrameIds,
+                  frameId: frame.id,
+                })
               }
               highlighted={
                 !isDevMode &&
                 // While dragging: keep a visible plate edge (no handles). Hiding
                 // both selected + highlighted left only a faint hairline so the
                 // plate looked like it vanished on the light canvas.
-                (movingFrameIdSet.has(frame.id) ||
-                  (frameChromeMode === 'soft' &&
-                    (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))))
+                // Multi full: union chrome does not own per-plate edges — highlight.
+                framePlateShowsHighlightEdge({
+                  chromeMode: frameChromeMode,
+                  selectedFrameIds,
+                  frameId: frame.id,
+                  activeFrameId,
+                  moving: movingFrameIdSet.has(frame.id),
+                })
               }
               layer="body"
               aiGenerating={frameShowsAiOverlay(frame, aiOperationState)}
@@ -860,14 +872,21 @@ function EditorStageWorld({
               selected={
                 !isDevMode &&
                 !movingFrameIdSet.has(frame.id) &&
-                frameChromeMode === 'full' &&
-                selectedFrameIds.includes(frame.id)
+                framePlateClearsIdleStroke({
+                  chromeMode: frameChromeMode,
+                  selectedFrameIds,
+                  frameId: frame.id,
+                })
               }
               highlighted={
                 !isDevMode &&
-                (movingFrameIdSet.has(frame.id) ||
-                  (frameChromeMode === 'soft' &&
-                    (activeFrameId === frame.id || selectedFrameIds.includes(frame.id))))
+                framePlateShowsHighlightEdge({
+                  chromeMode: frameChromeMode,
+                  selectedFrameIds,
+                  frameId: frame.id,
+                  activeFrameId,
+                  moving: movingFrameIdSet.has(frame.id),
+                })
               }
               hideTitle={
                 isDevMode ||
