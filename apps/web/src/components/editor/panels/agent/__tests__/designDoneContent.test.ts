@@ -131,11 +131,11 @@ describe('humanizeDesignError', () => {
     ).toBe('intent_classify: prompt pack missing');
   });
 
-  it('falls back to FE i18n when message is absent', () => {
-    expect(humanizeDesignError(t, 'free_daily_exhausted')).toBe('agent.requestFailed');
+  it('shows code when message is absent; FE i18n only when both are empty', () => {
+    expect(humanizeDesignError(t, 'free_daily_exhausted')).toBe('free_daily_exhausted');
+    expect(humanizeDesignError(t, 'skill_failed:boom')).toBe('skill_failed:boom');
+    expect(humanizeDesignError(t, '请换一种描述再试')).toBe('请换一种描述再试');
     expect(humanizeDesignError(t, undefined)).toBe('agent.requestFailed');
     expect(humanizeDesignError(t, '')).toBe('agent.requestFailed');
-    expect(humanizeDesignError(t, 'skill_failed:boom')).toBe('agent.requestFailed');
-    expect(humanizeDesignError(t, '请换一种描述再试')).toBe('agent.requestFailed');
   });
 });

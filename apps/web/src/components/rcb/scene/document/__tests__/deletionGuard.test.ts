@@ -41,6 +41,7 @@ describe('processing delete vs mutation guards', () => {
     expect(selectionHasProcessing(doc, ['img-multi'], [])).toBe(true);
     expect(selectionHasProcessing(doc, ['img-generator-running'], [])).toBe(true);
     expect(selectionHasProcessing(doc, ['img-done'], [])).toBe(false);
-    expect(selectionHasProcessing(doc, [], ['frame-running'])).toBe(true);
+    // Frame processStatus alone does not gate SoftGlow — process chrome lives on nodes.
+    expect(selectionHasProcessing(doc, [], ['frame-running'])).toBe(false);
   });
 });

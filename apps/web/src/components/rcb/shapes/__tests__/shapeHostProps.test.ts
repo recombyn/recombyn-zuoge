@@ -21,9 +21,20 @@ describe('shapeHostPropsEqual', () => {
     expect(shapeHostPropsEqual(props(before), props(after))).toBe(true);
   });
 
-  it('updates the host when its own node changes', () => {
+  it('ignores top-level geometry commits on the same paint attrs', () => {
     const before = { deltaSetLike: { 'brush-a': { id: 'brush-a', x: 0 } } };
     const after = { deltaSetLike: { 'brush-a': { id: 'brush-a', x: 20 } } };
+
+    expect(shapeHostPropsEqual(props(before), props(after))).toBe(true);
+  });
+
+  it('updates the host when paint attrs on its own node change', () => {
+    const before = {
+      deltaSetLike: { 'brush-a': { id: 'brush-a', attrs: { path: 'M0 0' } } },
+    };
+    const after = {
+      deltaSetLike: { 'brush-a': { id: 'brush-a', attrs: { path: 'M20 0' } } },
+    };
 
     expect(shapeHostPropsEqual(props(before), props(after))).toBe(false);
   });
