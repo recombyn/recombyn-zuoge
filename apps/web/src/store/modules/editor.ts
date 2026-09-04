@@ -1645,8 +1645,15 @@ export const editorReducers = {
       state.selectedNodeIds = Array.from(new Set(nodeIds));
       state.selectedNodeId = state.selectedNodeIds[0] || null;
       state.selectedFrameIds = frameIds;
-      // Marquee / interior work stays soft — title / layer panel set full explicitly.
-      state.frameChromeMode = 'soft';
+      // Multi artboard / 动画 units need full chrome (one union control box).
+      // Soft is for single occupied-plate interior focus — marquee multi must not
+      // stay soft or each plate only gets an edge highlight with no shared handles.
+      if (frameIds.length > 1 && state.selectedNodeIds.length === 0) {
+        state.frameChromeMode = 'full';
+      } else {
+        // Marquee / interior work stays soft — title / layer panel set full explicitly.
+        state.frameChromeMode = 'soft';
+      }
       if (nodeIds.length) pauseLottieIfPlaying(state);
       if (shouldClearImageToolPanelOnSelect(state.imageToolPanel, nodeIds[0] || null)) {
         state.imageToolPanel = null;

@@ -715,9 +715,12 @@ function SelectionFeature({
     // Derive ids from keys so a new array reference does not recreate origins
     // every render (that caused Maximum update depth loops).
     const ids = idsKey ? idsKey.split('|').filter(Boolean) : [];
-    // Soft frame focus uses plate edge highlight only — never feed frames into control chrome.
+    // Soft frame focus uses plate edge highlight only — never feed a *single*
+    // soft frame into control chrome. Multi-frame selection always needs the
+    // union box (marquee), even if chrome mode briefly lags soft.
     const fids =
-      frameChromeMode === 'full' && frameIdsKey
+      (frameChromeMode === 'full' || (frameIdsKey && frameIdsKey.includes('|'))) &&
+      frameIdsKey
         ? frameIdsKey.split('|').filter(Boolean)
         : [];
     const nodeOrigins = ids
