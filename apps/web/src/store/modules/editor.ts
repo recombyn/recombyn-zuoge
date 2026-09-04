@@ -3568,6 +3568,7 @@ export const editorReducers = {
         selectedLayerInd: layerInd,
         frameId: begun.frameId,
         frameSnapshot: begun.frameSnapshot,
+        lotSnapshot: begun.lotSnapshot,
         lotNodeId: begun.lotNodeId,
         sessionNodeIds: begun.sessionNodeIds};
       setLottiePrecompEditFocus({

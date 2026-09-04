@@ -105,18 +105,31 @@ describe('main scene LOT preview data', () => {
     expect(isNodeStructurallyHiddenInDocument(state.document, lot)).toBe(false);
     expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
 
+    const lotXBefore = Number(lot.x);
+    const lotYBefore = Number(lot.y);
     state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, {
       hostNodeId: hostId,
       assetId: `lot_${lotId}`,
       selectedLayerInd: 1,
     });
     expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
+    // During LOT tab the workbench shrinks; nested lot must rebase to local 0,0.
+    const lotDuring = state.document!.deltaSetLike[lotId];
+    expect(Number(lotDuring.x)).toBe(0);
+    expect(Number(lotDuring.y)).toBe(0);
+    expect(isNodeStructurallyHiddenInDocument(state.document, lotDuring)).toBe(false);
+
     state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     expect(state.lottiePrecompEdit).toBeNull();
+    const lotAfter = state.document!.deltaSetLike[lotId];
+    expect(Number(lotAfter.x)).toBe(lotXBefore);
+    expect(Number(lotAfter.y)).toBe(lotYBefore);
     expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
-    expect(
-      isNodeStructurallyHiddenInDocument(state.document, state.document!.deltaSetLike[lotId])
-    ).toBe(false);
+    expect(isNodeStructurallyHiddenInDocument(state.document, lotAfter)).toBe(false);
+    const frameAfter = (state.document!.frames || []).find((f) => String(f?.id) === frameId)!;
+    expect(Number(frameAfter.x)).toBe(480);
+    expect(Number(frameAfter.y)).toBe(320);
+    expect(Number(frameAfter.width)).toBe(418);
   });
 
   it('placeUploadedLottie: 主场景 preview ready before and after LOT tab exit', () => {
