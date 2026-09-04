@@ -47,6 +47,11 @@ import {
   readSystemPastePayload,
   type SystemPastePayload,
 } from '../systemPaste';
+import {
+  canvasBulkItemCount,
+  runCanvasBulkOp,
+} from '../canvasBulkOpLoading';
+import i18n from '@/i18n';
 
 /** Multi-select chrome + SoA in one sync commit froze 64× paste at 2k+. */
 const DEFER_PASTE_SELECTION_AT = 24;
@@ -126,7 +131,11 @@ type UseCanvasClipboardArgs = {
   internalClipboardAtRef: RefObject<number>;
   osClipboardMetaRef: RefObject<{ fingerprint: string; at: number }>;
   imagePlaceAtRef: RefObject<{ x: number; y: number } | null>;
-  deleteCanvasSelection: (opts?: { nodeIds?: string[]; frameIds?: string[] }) => boolean;
+  deleteCanvasSelection: (opts?: {
+    nodeIds?: string[];
+    frameIds?: string[];
+    skipLoading?: boolean;
+  }) => boolean;
   placeOriginForSize: (
     size: { width: number; height: number },
     anchor?: { x: number; y: number } | null
@@ -166,10 +175,10 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
     onLottiePaste,
     getPasteAnchor,
   } = args;
-  const copySelected = useCallback(
+  const resolveCopyTargets = useCallback(
     (nodeIds?: string[], frameIds?: string[]) => {
       const doc = documentRef.current;
-      if (!doc) return false;
+      if (!doc) return null;
       let nodes = nodeIds ? [...nodeIds] : [...selectedIdsRef.current];
       let frames = frameIds ? [...frameIds] : [...selectedFrameIdsRef.current];
       if (!frames.length && !nodes.length && activeFrameIdRef.current) {
@@ -179,7 +188,23 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         nodes = [...new Set([...nodes, ...nodeIdsInsideFrames(doc, frames)])];
       }
       const expanded = resolveSelectionNodeIds(doc, nodes, frames);
-      if (selectionMutationBlocked(doc, expanded.length ? expanded : nodes, frames)) return false;
+      if (selectionMutationBlocked(doc, expanded.length ? expanded : nodes, frames)) return null;
+      return {
+        doc,
+        nodes,
+        frames,
+        count: canvasBulkItemCount(expanded.length || nodes.length, frames.length),
+      };
+    },
+    [activeFrameIdRef, documentRef, selectedFrameIdsRef, selectedIdsRef]
+  );
+
+  /** Sync snapshot into memory clipboard (no loading toast). */
+  const copySelectedNow = useCallback(
+    (nodeIds?: string[], frameIds?: string[]) => {
+      const targets = resolveCopyTargets(nodeIds, frameIds);
+      if (!targets) return false;
+      const { doc, nodes, frames } = targets;
       const nodeSnap = nodes.length ? snapshotNodesForClipboard(doc, nodes) : null;
       const frameSnap = snapshotFramesForClipboard(doc, frames);
       if (!nodeSnap?.nodes?.length && !frameSnap.length) return false;
@@ -188,47 +213,52 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
         ...(frameSnap.length ? { frames: frameSnap } : {}),
       };
       internalClipboardAtRef.current = performance.now();
-      // Memory clip is ready for paste; OS JSON write is async so Ctrl+X/C
-      // with hundreds of nodes is not blocked on stringify + clipboard IPC.
       const osPayload = clipboardRef.current;
-      async function writeOsClipboard() {
+      void (async () => {
         try {
           if (!navigator.clipboard?.writeText) return;
           await navigator.clipboard.writeText(JSON.stringify(osPayload));
         } catch {
           /* ignore — memory clipboard still works */
         }
-      }
-      writeOsClipboard();
+      })();
       return true;
     },
-    [
-      activeFrameIdRef,
-      clipboardRef,
-      documentRef,
-      internalClipboardAtRef,
-      selectedFrameIdsRef,
-      selectedIdsRef,
-    ]
+    [clipboardRef, internalClipboardAtRef, resolveCopyTargets]
+  );
+
+  const copySelected = useCallback(
+    (nodeIds?: string[], frameIds?: string[]) => {
+      const targets = resolveCopyTargets(nodeIds, frameIds);
+      if (!targets) return false;
+      const { count, nodes, frames } = targets;
+      runCanvasBulkOp({
+        count,
+        label: i18n.t('editor.bulkOp.copying', { defaultValue: '正在复制…' }),
+        run: () => {
+          copySelectedNow(nodes, frames);
+        },
+      });
+      return true;
+    },
+    [copySelectedNow, resolveCopyTargets]
   );
 
   const cutSelected = useCallback(
     (nodeIds?: string[], frameIds?: string[]) => {
-      const nodes = nodeIds ? [...nodeIds] : [...selectedIdsRef.current];
-      let frames = frameIds ? [...frameIds] : [...selectedFrameIdsRef.current];
-      if (!frames.length && !nodes.length && activeFrameIdRef.current) {
-        frames = [activeFrameIdRef.current];
-      }
-      if (!copySelected(nodes, frames)) return;
-      deleteCanvasSelection({ nodeIds: nodes, frameIds: frames });
+      const targets = resolveCopyTargets(nodeIds, frameIds);
+      if (!targets) return;
+      const { count, nodes, frames } = targets;
+      runCanvasBulkOp({
+        count,
+        label: i18n.t('editor.bulkOp.cutting', { defaultValue: '正在剪切…' }),
+        run: () => {
+          if (!copySelectedNow(nodes, frames)) return;
+          deleteCanvasSelection({ nodeIds: nodes, frameIds: frames, skipLoading: true });
+        },
+      });
     },
-    [
-      activeFrameIdRef,
-      copySelected,
-      deleteCanvasSelection,
-      selectedFrameIdsRef,
-      selectedIdsRef,
-    ]
+    [copySelectedNow, deleteCanvasSelection, resolveCopyTargets]
   );
 
   const pasteValidatedClip = useCallback(
@@ -236,36 +266,48 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       const doc = documentRef.current;
       if (!doc || readOnly) return false;
       const clipN = clip.nodes?.length || 0;
-      const liveN = Object.keys(doc.deltaSetLike || {}).length;
-      beginPastePerf(`paste clip=${clipN} live≈${liveN}`);
-      const g = getDocumentGridSize(doc);
-      const nudge = Math.max(10, snapCoordToGrid(10, g));
-      const { document: next, ids: newIds, frameIds: newFrameIds } = pasteClipboardIntoDocument(
-        doc,
-        clip,
-        {
-          offsetX: nudge,
-          offsetY: nudge,
-          anchor: opts?.anchor,
-          trusted: true,
+      const clipF = clip.frames?.length || 0;
+      const count = canvasBulkItemCount(clipN, clipF);
+      const apply = () => {
+        const liveN = Object.keys(doc.deltaSetLike || {}).length;
+        beginPastePerf(`paste clip=${clipN} live≈${liveN}`);
+        const g = getDocumentGridSize(doc);
+        const nudge = Math.max(10, snapCoordToGrid(10, g));
+        const { document: next, ids: newIds, frameIds: newFrameIds } = pasteClipboardIntoDocument(
+          doc,
+          clip,
+          {
+            offsetX: nudge,
+            offsetY: nudge,
+            anchor: opts?.anchor,
+            trusted: true,
+          }
+        );
+        markPastePerf('pasteClipboardIntoDocument', {
+          newIds: newIds.length,
+          newFrames: newFrameIds.length,
+          nextNodes: Object.keys(next.deltaSetLike || {}).length,
+        });
+        if (!newIds.length && !newFrameIds.length) {
+          endPastePerfAfterPaint();
+          return false;
         }
-      );
-      markPastePerf('pasteClipboardIntoDocument', {
-        newIds: newIds.length,
-        newFrames: newFrameIds.length,
-        nextNodes: Object.keys(next.deltaSetLike || {}).length,
-      });
-      if (!newIds.length && !newFrameIds.length) {
-        endPastePerfAfterPaint();
-        return false;
-      }
-      documentRef.current = next;
-      const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
-      commitPasteThenSelect({
-        document: next,
-        newIds,
-        newFrameIds,
-        sel,
+        documentRef.current = next;
+        const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
+        commitPasteThenSelect({
+          document: next,
+          newIds,
+          newFrameIds,
+          sel,
+        });
+        return true;
+      };
+      runCanvasBulkOp({
+        count,
+        label: i18n.t('editor.bulkOp.pasting', { defaultValue: '正在粘贴…' }),
+        run: () => {
+          apply();
+        },
       });
       return true;
     },
@@ -295,52 +337,59 @@ export function useCanvasClipboard(args: UseCanvasClipboardArgs): CanvasClipboar
       }
       const expanded = resolveSelectionNodeIds(doc, nodes, frames);
       if (selectionMutationBlocked(doc, expanded.length ? expanded : nodes, frames)) return;
-      const liveN = Object.keys(doc.deltaSetLike || {}).length;
-      beginPastePerf(`dupe sel=${nodes.length} live≈${liveN}`);
-      const nodeSnap = nodes.length ? snapshotNodesForClipboard(doc, nodes) : null;
-      const frameSnap = snapshotFramesForClipboard(doc, frames);
-      markPastePerf('snapshot', {
-        snapNodes: nodeSnap?.nodes?.length || 0,
-        snapFrames: frameSnap.length,
-      });
-      if (!nodeSnap?.nodes?.length && !frameSnap.length) {
-        endPastePerfAfterPaint();
-        return;
-      }
-      const snap: SceneClipboardPayload = {
-        nodes: nodeSnap?.nodes || [],
-        ...(frameSnap.length ? { frames: frameSnap } : {}),
-      };
-      const bounds = clipboardNodesBounds(snap);
-      // Place to the right with a 10px gutter on the snap lattice (default 1px).
-      const g = getDocumentGridSize(doc);
-      const gap = Math.max(10, g);
-      const offsetX = snapCoordToGrid((bounds?.width ?? 0) + gap, g);
-      const { document: next, ids: newIds, frameIds: newFrameIds } = pasteClipboardIntoDocument(
-        doc,
-        snap,
-        {
-          offsetX,
-          offsetY: 0,
-          trusted: true,
-        }
-      );
-      markPastePerf('pasteClipboardIntoDocument', {
-        newIds: newIds.length,
-        newFrames: newFrameIds.length,
-        nextNodes: Object.keys(next.deltaSetLike || {}).length,
-      });
-      if (!newIds.length && !newFrameIds.length) {
-        endPastePerfAfterPaint();
-        return;
-      }
-      documentRef.current = next;
-      const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
-      commitPasteThenSelect({
-        document: next,
-        newIds,
-        newFrameIds,
-        sel,
+      const count = canvasBulkItemCount(expanded.length || nodes.length, frames.length);
+      runCanvasBulkOp({
+        count,
+        label: i18n.t('editor.bulkOp.duplicating', { defaultValue: '正在创建副本…' }),
+        run: () => {
+          const liveN = Object.keys(doc.deltaSetLike || {}).length;
+          beginPastePerf(`dupe sel=${nodes.length} live≈${liveN}`);
+          const nodeSnap = nodes.length ? snapshotNodesForClipboard(doc, nodes) : null;
+          const frameSnap = snapshotFramesForClipboard(doc, frames);
+          markPastePerf('snapshot', {
+            snapNodes: nodeSnap?.nodes?.length || 0,
+            snapFrames: frameSnap.length,
+          });
+          if (!nodeSnap?.nodes?.length && !frameSnap.length) {
+            endPastePerfAfterPaint();
+            return;
+          }
+          const snap: SceneClipboardPayload = {
+            nodes: nodeSnap?.nodes || [],
+            ...(frameSnap.length ? { frames: frameSnap } : {}),
+          };
+          const bounds = clipboardNodesBounds(snap);
+          // Place to the right with a 10px gutter on the snap lattice (default 1px).
+          const g = getDocumentGridSize(doc);
+          const gap = Math.max(10, g);
+          const offsetX = snapCoordToGrid((bounds?.width ?? 0) + gap, g);
+          const { document: next, ids: newIds, frameIds: newFrameIds } = pasteClipboardIntoDocument(
+            doc,
+            snap,
+            {
+              offsetX,
+              offsetY: 0,
+              trusted: true,
+            }
+          );
+          markPastePerf('pasteClipboardIntoDocument', {
+            newIds: newIds.length,
+            newFrames: newFrameIds.length,
+            nextNodes: Object.keys(next.deltaSetLike || {}).length,
+          });
+          if (!newIds.length && !newFrameIds.length) {
+            endPastePerfAfterPaint();
+            return;
+          }
+          documentRef.current = next;
+          const sel = selectionAfterClipboardPaste(next, newIds, newFrameIds);
+          commitPasteThenSelect({
+            document: next,
+            newIds,
+            newFrameIds,
+            sel,
+          });
+        },
       });
     },
     [

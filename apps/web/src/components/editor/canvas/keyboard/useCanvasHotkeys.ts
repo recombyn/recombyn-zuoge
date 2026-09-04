@@ -8,6 +8,11 @@ import {
 } from '@/components/rcb/scene/document/sceneClipboard';
 import { collectSelectAllTargets } from '@/components/editor/canvas/canvasSession';
 import {
+  canvasBulkItemCount,
+  runCanvasBulkOp,
+} from '@/components/editor/canvas/canvasBulkOpLoading';
+import i18n from '@/i18n';
+import {
   clearCanvasAttachPick,
   closeImageToolPanel,
   redo,
@@ -149,7 +154,14 @@ export function useCanvasHotkeys(args: UseCanvasHotkeysArgs) {
         e.preventDefault();
         const doc = documentRef.current;
         const { nodeIds, frameIds } = collectSelectAllTargets(doc);
-        onSelectMixed(nodeIds, frameIds);
+        const count = canvasBulkItemCount(nodeIds.length, frameIds.length);
+        runCanvasBulkOp({
+          count,
+          label: i18n.t('editor.bulkOp.selectingAll', { defaultValue: '正在全选…' }),
+          run: () => {
+            onSelectMixed(nodeIds, frameIds);
+          },
+        });
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'i') {
         e.preventDefault();
