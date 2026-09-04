@@ -151,11 +151,13 @@ import SvgPaper from './SvgPaper';
 import { pointerToWorld, type ArtboardRect } from './pointerToWorld';
 import {
   attachPickFilterOpts,
+  canAttachFrameToPick,
   ctxMenuSeedNodeIds,
   filterChatAttachNodeIds,
   frameForFullBleedPlate,
   resolveAttachPickPayload,
 } from './attachPick';
+import { parseFrameSelId } from '@/components/rcb/selection/frameSelectionIds';
 import { ctxMenuTargetHasProcessing, resolveCtxMenuTargets } from './ctxMenuGuards';
 import { buildCanvasContextMenuProps } from './buildCanvasContextMenuProps';
 import { closedPenFillAttrs, pathNodeHasSolidFill } from './penFillAttrs';
@@ -842,21 +844,29 @@ function SvgCanvas({
     }
     const onMove = (e: PointerEvent) => {
       const pt = rcbScreenToScene(camera, stageEl, e.clientX, e.clientY);
-      const id = hitTestRef.current(pt.x, pt.y, {
+      const rawHit = hitTestRef.current(pt.x, pt.y, {
         clientX: e.clientX,
         clientY: e.clientY,
       });
-      if (!id) {
+      const opts = attachPickFilterOpts(canvasAttachPickRef.current);
+      const doc = documentRef.current;
+      const frameFromHit = rawHit ? parseFrameSelId(rawHit) : null;
+      if (frameFromHit) {
+        setCanvasAttachPickBlocked(!canAttachFrameToPick(doc, frameFromHit, opts));
+        return;
+      }
+      if (!rawHit) {
         setCanvasAttachPickBlocked(false);
         return;
       }
-      const doc = documentRef.current;
-      const seed = expandSelectionWithGroups(doc, [id]);
-      const attachable = filterChatAttachNodeIds(
-        doc,
-        seed,
-        attachPickFilterOpts(canvasAttachPickRef.current)
-      );
+      const seed = expandSelectionWithGroups(doc, [rawHit]);
+      const attachable = filterChatAttachNodeIds(doc, seed, opts);
+      // Full-bleed plate → click promotes to frame; mirror that for the cursor.
+      const plate = frameForFullBleedPlate(doc, rawHit);
+      if (plate && attachable.length === 0) {
+        setCanvasAttachPickBlocked(!canAttachFrameToPick(doc, plate.id, opts));
+        return;
+      }
       setCanvasAttachPickBlocked(seed.length > 0 && attachable.length === 0);
     };
     stageEl.addEventListener('pointermove', onMove);
@@ -874,6 +884,11 @@ function SvgCanvas({
           clearCanvasAttachPick();
           return;
         }
+        const filter = attachPickFilterOpts(pick);
+        if (!canAttachFrameToPick(documentRef.current, frameId, filter)) {
+          setCanvasAttachPickBlocked(true);
+          return; // stay in pick mode (matches not-allowed cursor)
+        }
         completeCanvasAttachPick(pick.target, `frame:${frameId}`);
         return;
       }
@@ -887,7 +902,7 @@ function SvgCanvas({
       setActiveFrameId(frameId);
       setFrameChromeMode(chrome);
     },
-    [ completeCanvasAttachPick]
+    [completeCanvasAttachPick]
   );
 
   const onSelectFrames = useCallback(
@@ -897,6 +912,11 @@ function SvgCanvas({
       if (pick?.target) {
         if (!ids.length) {
           clearCanvasAttachPick();
+          return;
+        }
+        const filter = attachPickFilterOpts(pick);
+        if (!canAttachFrameToPick(documentRef.current, ids[0], filter)) {
+          setCanvasAttachPickBlocked(true);
           return;
         }
         completeCanvasAttachPick(pick.target, `frame:${ids[0]}`);
@@ -909,7 +929,7 @@ function SvgCanvas({
       setSelectedNodeIds([]);
       setSelectedFrameIds(ids);
     },
-    [ completeCanvasAttachPick]
+    [completeCanvasAttachPick]
   );
 
   const onSelectMixed = useCallback(
@@ -975,19 +995,19 @@ function SvgCanvas({
           clearCanvasAttachPick();
           return;
         }
+        const filter = attachPickFilterOpts(pick);
         if (ids.length === 1) {
           const plateFrame = frameForFullBleedPlate(doc, ids[0]);
           if (plateFrame) {
+            if (!canAttachFrameToPick(doc, plateFrame.id, filter)) {
+              setCanvasAttachPickBlocked(true);
+              return;
+            }
             completeCanvasAttachPick(pick.target, `frame:${plateFrame.id}`);
             return;
           }
         }
-        const resolved = resolveAttachPickPayload(
-          doc,
-          ids,
-          undefined,
-          attachPickFilterOpts(pick)
-        );
+        const resolved = resolveAttachPickPayload(doc, ids, undefined, filter);
         if (!resolved) {
           clearCanvasAttachPick();
           return;
