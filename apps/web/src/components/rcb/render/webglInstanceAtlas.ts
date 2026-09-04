@@ -519,7 +519,8 @@ export function stampSoaPathToAtlas(
       if (fillRule === 'evenodd') ctx.fill('evenodd');
       else ctx.fill();
     }
-    if (strokeOk) ctx.stroke();
+    // lineWidth 0 → fill-only stamp; outline is emitted as crisp WebGL segments.
+    if (strokeOk && lineWidth > 0) ctx.stroke();
   });
   return region;
 }
