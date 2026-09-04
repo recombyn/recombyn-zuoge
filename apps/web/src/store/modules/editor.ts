@@ -3540,7 +3540,7 @@ export const editorReducers = {
           setLottiePrecompEditFocus({
             active: true,
             lotNodeId: state.lottiePrecompEdit.lotNodeId ?? null,
-            sessionMaterialized: true});
+            sessionMaterialized: Boolean(state.lottiePrecompEdit.sessionHidesLotInk)});
           bakePrecompSessionDocumentPoses(state);
           requestPlayheadSceneApply({ afterPaint: true });
           return;
@@ -3572,12 +3572,14 @@ export const editorReducers = {
         frameId: begun.frameId,
         frameSnapshot: begun.frameSnapshot,
         lotSnapshot: begun.lotSnapshot,
+        lotAnimationSnapshot: begun.lotAnimationSnapshot,
         lotNodeId: begun.lotNodeId,
-        sessionNodeIds: begun.sessionNodeIds};
+        sessionNodeIds: begun.sessionNodeIds,
+        sessionHidesLotInk: begun.sessionHidesLotInk};
       setLottiePrecompEditFocus({
         active: true,
         lotNodeId: begun.lotNodeId ?? null,
-        sessionMaterialized: begun.sessionNodeIds.length > 0});
+        sessionMaterialized: begun.sessionHidesLotInk});
       state.document.activeFrameId = begun.frameId;
       state.selectedFrameIds = [];
       state.selectedNodeId = null;
