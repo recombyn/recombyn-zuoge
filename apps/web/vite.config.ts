@@ -106,7 +106,14 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/setupTests.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
-      exclude: ['src/private/**'],
+      // Bench / stress suites are opt-in via `npm run test:stress` — keep them
+      // out of default CI so a loaded self-hosted runner does not flake gate.
+      exclude: [
+        'src/private/**',
+        'src/**/*.bench.test.ts',
+        'src/**/*stress*.test.ts',
+        'src/**/*Stress*.test.ts',
+      ],
       css: false,
     },
   };
