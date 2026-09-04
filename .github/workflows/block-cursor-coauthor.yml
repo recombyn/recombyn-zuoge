@@ -1,6 +1,7 @@
 # Reject PR commits that include Cursor as Co-authored-by.
 # GitHub free repos cannot use ruleset commit_message_pattern; this check is the substitute.
-# Use pwsh on Windows self-hosted — Git Bash mangles ACTIONS_TEMP paths (C:\ → C:).
+# Use Windows PowerShell — Git Bash mangles ACTIONS_TEMP paths (C:\ → C:),
+# and this runner may not have PowerShell 7 (pwsh) installed.
 name: Block Cursor co-author
 
 on:
@@ -17,7 +18,7 @@ jobs:
     runs-on: [self-hosted, Windows, ci]
     defaults:
       run:
-        shell: pwsh
+        shell: powershell
     steps:
       - name: Checkout
         uses: actions/checkout@v4
