@@ -11,7 +11,7 @@ import {
   soaPathPrefersAtlasStamp,
   SOA_WEBGL_NO_CLIP,
 } from '../webglSceneRenderer';
-import { SOA_ATLAS_SEG_THRESHOLD } from '../webglInstanceAtlas';
+import { createSoaWebglAtlas, SOA_ATLAS_SEG_THRESHOLD } from '../webglInstanceAtlas';
 
 describe('collectSoaWebglInstances', () => {
   it('packs rect and ellipse in view', () => {
@@ -249,6 +249,49 @@ describe('collectSoaWebglInstances', () => {
     expect(kinds.every((k) => k === 2)).toBe(true);
     // First instance RGBA — opaque ink from strokeColors, not transparent fill.
     expect(colors[3]).toBeGreaterThan(0.9);
+  });
+
+  it('closed stroked path stamps fill atlas then emits crisp stroke segments', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'b', {
+      id: 'b',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 80,
+      attrs: {
+        shapeType: 'path',
+        path: 'M0 0 H100 V80 H0 Z',
+        closed: 'true',
+        'fill-color': '#ffffff',
+        'fill-rule': 'evenodd',
+        'stroke-enabled': true,
+        'border-width': 4,
+        'border-color': '#111111',
+        stroke: '#111111',
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    rebuildSoaPathSamples(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const atlas = createSoaWebglAtlas(512, 128);
+    if (!atlas) return;
+    const kinds: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 200, height: 200 },
+      [],
+      [],
+      kinds,
+      [],
+      [],
+      { atlas, document: doc }
+    );
+    expect(kinds.includes(3)).toBe(true);
+    expect(kinds.some((k) => k === 2)).toBe(true);
   });
 
   it('skips stroke-only segment fallback for closed pens without atlas', () => {

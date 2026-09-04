@@ -209,7 +209,7 @@ export const SOA_WEBGL_KIND_ROUNDED = 4;
 /** Default line thickness in scene units (used when SoA stroke width is unset). */
 export const SOA_WEBGL_LINE_THICKNESS = 2;
 /** Cap segments emitted per path so one dense stroke cannot explode the instance batch. */
-export const SOA_WEBGL_PATH_MAX_SEGS = 48;
+export const SOA_WEBGL_PATH_MAX_SEGS = 96;
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string) {
   const sh = gl.createShader(type);
@@ -326,6 +326,113 @@ function pushLineInstance(
   if (depths) depths.push(depth);
   pushInstanceClip(clips, clip);
   pushInstanceStroke(strokes, null, 0);
+}
+
+/**
+ * Emit crisp stroke quads along a densified polyline.
+ * When `closeContours` is set, each finite run closes back to its first point
+ * (boolean / evenodd holes use NaN breaks between contours).
+ */
+export function emitPathStrokeSegments(opts: {
+  xy: Float32Array;
+  start: number;
+  len: number;
+  ox?: number;
+  oy?: number;
+  rgba: [number, number, number, number];
+  thickness: number;
+  closeContours?: boolean;
+  rects: number[];
+  colors: number[];
+  kinds: number[];
+  angles: number[];
+  uvs: number[];
+  depths?: number[];
+  depth: number;
+  clips?: number[];
+  paintClips: Array<readonly [number, number, number, number]>;
+  strokes?: number[];
+  maxSegs?: number;
+}): number {
+  const {
+    xy,
+    start,
+    len,
+    rgba,
+    thickness,
+    closeContours = false,
+    rects,
+    colors,
+    kinds,
+    angles,
+    uvs,
+    depths,
+    depth,
+    clips,
+    paintClips,
+    strokes,
+  } = opts;
+  const ox = opts.ox || 0;
+  const oy = opts.oy || 0;
+  const maxSegs = opts.maxSegs ?? SOA_WEBGL_PATH_MAX_SEGS;
+  const base = start * 2;
+  let contourFirst = -1;
+  let lastFinite = -1;
+  let emitted = 0;
+  const emitSeg = (a: number, b: number) => {
+    if (emitted >= maxSegs) return;
+    for (const activeClip of paintClips) {
+      pushLineInstance(
+        xy[a] + ox,
+        xy[a + 1] + oy,
+        xy[b] + ox,
+        xy[b + 1] + oy,
+        rgba,
+        thickness,
+        rects,
+        colors,
+        kinds,
+        angles,
+        uvs,
+        depths,
+        depth,
+        clips,
+        activeClip,
+        strokes
+      );
+    }
+    emitted += 1;
+  };
+  const endContour = () => {
+    if (
+      closeContours &&
+      contourFirst >= 0 &&
+      lastFinite >= 0 &&
+      contourFirst !== lastFinite
+    ) {
+      emitSeg(lastFinite, contourFirst);
+    }
+    contourFirst = -1;
+    lastFinite = -1;
+  };
+  for (let p = 0; p < len; p += 1) {
+    const fo = base + p * 2;
+    const px = xy[fo];
+    const py = xy[fo + 1];
+    if (!Number.isFinite(px) || !Number.isFinite(py)) {
+      endContour();
+      continue;
+    }
+    if (lastFinite < 0) {
+      contourFirst = fo;
+      lastFinite = fo;
+      continue;
+    }
+    emitSeg(lastFinite, fo);
+    lastFinite = fo;
+  }
+  endContour();
+  return emitted;
 }
 
 function countPathSegments(buf: SceneRenderBuffer, index: number): number {
@@ -611,6 +718,7 @@ export function collectSoaWebglInstances(
       // Frame-local live left/top can yield odx/ody — still atlas-stamp (offset the quad).
       // Blocking stamp on odx≠0 previously skipped closed fills entirely → stroke-only ghost.
       const canStamp = Boolean(atlas) && soaPathPrefersAtlasStamp(closed, segCount);
+      const strokeW = Math.max(0, lineW);
       if (canStamp && atlas) {
         const id = buf.ids[i] || String(i);
         // Stamp in live scene space so frame-local / TransformPreview never
@@ -624,6 +732,8 @@ export function collectSoaWebglInstances(
         const fillRuleAttr = String(
           paintDoc?.deltaSetLike?.[id]?.attrs?.['fill-rule'] || ''
         ).toLowerCase();
+        // Fill-only atlas stamp: baked stroke AA + 256px downsample looks 虚.
+        // Crisp outline is emitted as kind=2 segments on top (same as open pens).
         const region = stampSoaPathToAtlas(
           atlas,
           `path:${id}`,
@@ -632,7 +742,7 @@ export function collectSoaWebglInstances(
           mapped.len,
           fillCss,
           true,
-          lineW,
+          0,
           {
             force: forceStamp,
             strokeCss: unpackCssColor(buf.strokeColors[i] || 0xff333333),
@@ -646,57 +756,56 @@ export function collectSoaWebglInstances(
             pushInstanceClip(clips, activeClip);
             pushInstanceStroke(strokes, null, 0);
           }
+          if (strokeW > 0) {
+            emitPathStrokeSegments({
+              xy: mapped.xy,
+              start: mapped.start,
+              len: mapped.len,
+              rgba: strokeRgba,
+              thickness: strokeW,
+              closeContours: true,
+              rects,
+              colors,
+              kinds,
+              angles,
+              uvs,
+              depths: depthOut,
+              depth: slotDepth,
+              clips,
+              paintClips,
+              strokes,
+            });
+          }
           if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
           continue;
         }
       }
-      // Closed fill cannot use stroke segments (border-only idle ghost).
-      if (closed) {
+      // Closed fill without atlas cannot use stroke-only segments (border ghost).
+      // Stroke-only closed paths (no fill) still get crisp segments.
+      if (closed && buf.colors[i] !== 0) {
         if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
         continue;
       }
-      const base = start * 2;
-      let lastFinite = -1;
-      let emitted = 0;
-      const emitSeg = (a: number, b: number) => {
-        if (emitted >= SOA_WEBGL_PATH_MAX_SEGS) return;
-        for (const activeClip of paintClips) {
-          pushLineInstance(
-            buf.pathXY[a] + odx,
-            buf.pathXY[a + 1] + ody,
-            buf.pathXY[b] + odx,
-            buf.pathXY[b + 1] + ody,
-            strokeRgba,
-            lineW,
-            rects,
-            colors,
-            kinds,
-            angles,
-            uvs,
-            depthOut,
-            slotDepth,
-            clips,
-            activeClip,
-            strokes
-          );
-        }
-        emitted += 1;
-      };
-      for (let p = 0; p < len; p += 1) {
-        const fo = base + p * 2;
-        const px = buf.pathXY[fo];
-        const py = buf.pathXY[fo + 1];
-        if (!Number.isFinite(px) || !Number.isFinite(py)) {
-          lastFinite = -1;
-          continue;
-        }
-        if (lastFinite < 0) {
-          lastFinite = fo;
-          continue;
-        }
-        emitSeg(lastFinite, fo);
-        lastFinite = fo;
-      }
+      emitPathStrokeSegments({
+        xy: buf.pathXY,
+        start,
+        len,
+        ox: odx,
+        oy: ody,
+        rgba: strokeRgba,
+        thickness: strokeW > 0 ? strokeW : SOA_WEBGL_LINE_THICKNESS,
+        closeContours: closed,
+        rects,
+        colors,
+        kinds,
+        angles,
+        uvs,
+        depths: depthOut,
+        depth: slotDepth,
+        clips,
+        paintClips,
+        strokes,
+      });
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;
     }
