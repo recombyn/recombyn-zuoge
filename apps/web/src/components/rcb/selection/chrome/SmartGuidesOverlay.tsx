@@ -5,7 +5,7 @@
  * HTML overlay would snap independently under fractional browser DPR.
  * Snap math stays in alignGuides; this file only paints.
  *
- * Paint contract: one continuous stroke per guide, then short 米 marks at
+ * Paint contract: one continuous stroke per guide, then short × marks at
  * corners / edge mids. Keep mark arms short so they do not read as broken
  * guide dashes at high zoom.
  */
@@ -85,11 +85,8 @@ function GuideBadge({
   );
 }
 
-/**
- * 米-shaped snap mark (＋ ×) — short arms so the continuous guide stroke
- * still reads as one line underneath.
- */
-export function GuideMarkAsterisk({
+/** × snap mark — two short diagonals so the guide stroke still reads continuous. */
+export function GuideMarkX({
   x,
   y,
   r,
@@ -101,42 +98,23 @@ export function GuideMarkAsterisk({
   strokeWidth: number;
 }) {
   const arm = Math.max(r * 1.15, strokeWidth * 2.5);
-  const diag = arm * 0.72;
   const sw = Math.max(strokeWidth, r * 0.45);
   return (
-    <g data-rcb-guide-mark="asterisk" pointerEvents="none">
+    <g data-rcb-guide-mark="x" pointerEvents="none">
       <line
         x1={x - arm}
-        y1={y}
-        x2={x + arm}
-        y2={y}
-        stroke={GUIDE_STROKE}
-        strokeWidth={sw}
-        strokeLinecap="round"
-      />
-      <line
-        x1={x}
         y1={y - arm}
-        x2={x}
+        x2={x + arm}
         y2={y + arm}
         stroke={GUIDE_STROKE}
         strokeWidth={sw}
         strokeLinecap="round"
       />
       <line
-        x1={x - diag}
-        y1={y - diag}
-        x2={x + diag}
-        y2={y + diag}
-        stroke={GUIDE_STROKE}
-        strokeWidth={sw}
-        strokeLinecap="round"
-      />
-      <line
-        x1={x - diag}
-        y1={y + diag}
-        x2={x + diag}
-        y2={y - diag}
+        x1={x - arm}
+        y1={y + arm}
+        x2={x + arm}
+        y2={y - arm}
         stroke={GUIDE_STROKE}
         strokeWidth={sw}
         strokeLinecap="round"
@@ -245,7 +223,7 @@ export default function SmartGuidesOverlay({
         );
         return;
       }
-      // Continuous align stroke first; 米 marks on top.
+      // Continuous align stroke first; × marks on top.
       out.push(
         <g key={`align-${i}`}>
           <line
@@ -259,7 +237,7 @@ export default function SmartGuidesOverlay({
             shapeRendering="geometricPrecision"
           />
           {(g.marks || []).map((m, mi) => (
-            <GuideMarkAsterisk key={mi} x={m.x} y={m.y} r={markR} strokeWidth={stroke} />
+            <GuideMarkX key={mi} x={m.x} y={m.y} r={markR} strokeWidth={stroke} />
           ))}
         </g>
       );
