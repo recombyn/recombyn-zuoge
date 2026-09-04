@@ -21,6 +21,13 @@ export function isAvMediaSceneNode(node: { key?: unknown } | null | undefined): 
   return key === 'video' || key === 'audio';
 }
 
+/** Owning artboard id from `attrs.frameId`, or empty when unbound. */
+export function nodeOwnerFrameId(
+  node: { attrs?: { frameId?: unknown } | null } | null | undefined
+): string {
+  return String(node?.attrs?.frameId || '').trim();
+}
+
 /** 动画工作台 rejects AV + generators; nested free Lottie plates become precomp tabs. */
 export function canBindNodeToArtboardFrame(
   frame: ArtboardFrame | null | undefined,

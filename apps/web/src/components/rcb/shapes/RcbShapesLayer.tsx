@@ -349,14 +349,8 @@ export function nodeNeedsDomShapeHost(
   if (forceFull) return true;
   if (!node) return true;
   if (isImageProcessRunning(node)) return true;
-  // Plates share the stack SVG above SoA ink — bound children must host so
-  // their data-z can sit above the owner plate.
-  if (String(node.attrs?.frameId || '').trim()) return true;
+  // Artboard-bound idle vectors use ArtboardLayer ink — not SVG hosts for frameId alone.
   const key = String(node.key || '');
-  // Static text —canvas ink; caret —TextInlineEditor overlay.
-  // Static image —paintCanvasMediaInk / atlas bake (empty gens bake plate glyph).
-  // SoftGlow process still forceFull above.
-  // Video/audio idle —canvas poster/plate; selected decoder is forceFull (FO + HTML).
   if (key === 'lottie' || key === 'group') return true;
   return !canIdlePaintOnCanvas(node);
 }

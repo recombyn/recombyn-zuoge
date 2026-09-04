@@ -28,6 +28,7 @@ import {
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
 import { getLiveCornerRadiusPreviewRadii } from '@/components/rcb/scene/document/sceneRadii';
+import { nodeOwnerFrameId } from '@/components/rcb/frames/frameNodeBinding';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
   collectSoaBakeTilesIntoAtlas,
@@ -259,6 +260,57 @@ function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader) {
     return null;
   }
   return prog;
+}
+
+let inkShaderProbeOk: boolean | null = null;
+
+/**
+ * Compile the product ink program on a throwaway canvas.
+ * Must run BEFORE `getContext('webgl2')` on the stage ink canvas — a failed
+ * compile still binds WebGL2 to that element and blocks Canvas2D fallback
+ * (deselected shapes then vanish; only selection chrome remains).
+ */
+export function soaWebglInkShadersOk(): boolean {
+  if (inkShaderProbeOk != null) return inkShaderProbeOk;
+  if (typeof document === 'undefined') {
+    inkShaderProbeOk = false;
+    return false;
+  }
+  try {
+    const probe = document.createElement('canvas');
+    probe.width = 1;
+    probe.height = 1;
+    const gl = probe.getContext('webgl2', {
+      alpha: true,
+      premultipliedAlpha: true,
+      antialias: false,
+    });
+    if (!gl) {
+      inkShaderProbeOk = false;
+      return false;
+    }
+    const vs = compile(gl, gl.VERTEX_SHADER, VS);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
+    const prog = vs && fs ? link(gl, vs, fs) : null;
+    inkShaderProbeOk = Boolean(prog);
+    if (prog) gl.deleteProgram(prog);
+    if (vs) gl.deleteShader(vs);
+    if (fs) gl.deleteShader(fs);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return inkShaderProbeOk;
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.error('[webgl] ink shader probe failed', err);
+    }
+    inkShaderProbeOk = false;
+    return false;
+  }
+}
+
+/** Test-only: clear probe cache after shader source changes. */
+export function resetSoaWebglInkShaderProbeForTests() {
+  inkShaderProbeOk = null;
 }
 
 function argbToRgba(argb: number): [number, number, number, number] {
@@ -565,6 +617,11 @@ export type CollectSoaWebglOpts = {
   document?: SceneDocument | null;
   /** Camera zoom — text atlas greeking threshold. */
   zoom?: number;
+  /**
+   * World idle ink: skip nodes with attrs.frameId (ArtboardLayer paints them).
+   * Default false for tests / bake helpers that collect everything.
+   */
+  skipFrameBound?: boolean;
 };
 
 /**
@@ -588,6 +645,7 @@ export function collectSoaWebglInstances(
   const strokes = opts?.strokes;
   const paintDoc = opts?.document ?? getSoaPaintDocument();
   const zoom = Math.max(0.05, Number(opts?.zoom) || 1);
+  const skipFrameBound = opts?.skipFrameBound === true;
   const vl = view.left ?? view.x ?? 0;
   const vt = view.top ?? view.y ?? 0;
   const vr = vl + view.width;
@@ -597,6 +655,10 @@ export function collectSoaWebglInstances(
     if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
     const idEarly = buf.ids[i];
     if (idEarly && getNodeTransformPreview(idEarly)?.hidden) continue;
+    if (skipFrameBound && paintDoc && idEarly) {
+      const node = paintDoc.deltaSetLike?.[idEarly];
+      if (nodeOwnerFrameId(node)) continue;
+    }
     const kind = buf.kinds[i];
     if (
       kind !== SOA_KIND_RECT &&
@@ -1314,6 +1376,8 @@ export function createWebglSceneRenderer(
           strokes,
           document: req.document,
           zoom: z,
+          // ArtboardLayer owns plate-bound idle ink on per-frame small canvases.
+          skipFrameBound: true,
         });
       }
       const count = kinds.length;

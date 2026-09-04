@@ -19,6 +19,7 @@ import {
 } from './sceneRenderBuffer';
 import { getNodeTransformPreview, hasNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
+import { nodeOwnerFrameId } from '@/components/rcb/frames/frameNodeBinding';
 
 /** Document for plate clip while baking tiles (set by the stage renderer). */
 let bakeClipDocument: SceneDocument | null = null;
@@ -45,6 +46,14 @@ function getBakeReadyListeners(): Set<() => void> {
 
 export function setSoaBakeClipDocument(doc: SceneDocument | null | undefined) {
   bakeClipDocument = doc ?? null;
+}
+
+/** World bake tiles skip plate-bound ink (ArtboardLayer owns those slots). */
+function isBakeFrameBoundSlot(buf: SceneRenderBuffer, i: number): boolean {
+  if (!bakeClipDocument) return false;
+  const id = buf.ids[i];
+  if (!id) return false;
+  return Boolean(nodeOwnerFrameId(bakeClipDocument.deltaSetLike?.[id]));
 }
 
 /** Engage when canvas-idle SoA density is near a full viewport (~800+). */
@@ -120,6 +129,7 @@ export function computeSoaIdleBounds(buf: SceneRenderBuffer): SoaWorldBounds | n
   for (let i = 0; i < buf.count; i += 1) {
     const flags = buf.flags[i];
     if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
+    if (isBakeFrameBoundSlot(buf, i)) continue;
     const kind = buf.kinds[i];
     if (
       kind !== SOA_KIND_RECT &&
@@ -310,6 +320,7 @@ export function countSoaBakeEligibleSlots(buf: SceneRenderBuffer): number {
     if (!(flags & SOA_FLAG_VISIBLE)) continue;
     if (!(flags & SOA_FLAG_CANVAS_IDLE)) continue;
     if (!(flags & SOA_FLAG_BASIC_GEOM)) continue;
+    if (isBakeFrameBoundSlot(buf, i)) continue;
     n += 1;
   }
   return n;
@@ -357,6 +368,7 @@ function paintIdleInto(
   paintSoaBufferBasic(ctx as CanvasRenderingContext2D, buf, bounds, {
     dirtyOnly: false,
     document: bakeClipDocument,
+    skipIndex: (i) => isBakeFrameBoundSlot(buf, i),
   });
 }
 
@@ -506,6 +518,7 @@ function bindElementsForTileBounds(
   for (let i = 0; i < buf.count; i += 1) {
     const flags = buf.flags[i];
     if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
+    if (isBakeFrameBoundSlot(buf, i)) continue;
     const id = buf.ids[i];
     if (!id) continue;
     const o = i * POS_STRIDE;

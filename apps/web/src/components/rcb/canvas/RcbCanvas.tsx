@@ -42,6 +42,7 @@ import {
   consumeIdleCanvasFullRepaintPending,
   type SceneRenderer,
 } from '../render/sceneRenderer';
+import { soaWebglInkShadersOk } from '../render/webglSceneRenderer';
 import {
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
@@ -587,6 +588,13 @@ function RcbCanvas({
   const [inkBackendKey, setInkBackendKey] = useState(() => resolveIdleInkBackend());
   const inkBackendKeyRef = useRef(inkBackendKey);
   inkBackendKeyRef.current = inkBackendKey;
+  // If WebGL shaders fail, never bind webgl2 onto the stage ink canvas (blocks 2d).
+  // Remount the <canvas> when falling back so a prior failed GL claim is discarded.
+  const inkUsesWebgl =
+    (inkBackendKey === 'webgl' || inkBackendKey === 'webgpu') && soaWebglInkShadersOk();
+  const inkSurfaceKey = `${inkBackendKey}:${inkUsesWebgl ? 'gl' : '2d'}`;
+  const effectiveInkBackend =
+    inkBackendKey === 'webgl' && !inkUsesWebgl ? 'canvas2d' : inkBackendKey;
   useEffect(() => {
     return subscribeGpuDepthOfField(() => {
       setInkBackendKey(resolveIdleInkBackend());
@@ -625,7 +633,7 @@ function RcbCanvas({
       paintGrid: true,
       drawCanvasIdle: false,
     });
-    const inkRenderer = createSceneRenderer(inkBackendKey, {
+    const inkRenderer = createSceneRenderer(effectiveInkBackend, {
       ...sharedDeps,
       canvas: inkCanvas,
       paintGrid: false,
@@ -640,7 +648,7 @@ function RcbCanvas({
       paintRendererRef.current = null;
       inkRendererRef.current = null;
     };
-  }, [inkBackendKey]);
+  }, [effectiveInkBackend, inkSurfaceKey]);
 
   useEffect(() => {
     return subscribeSceneCanvasIdlePaint(() => {
@@ -869,9 +877,11 @@ function RcbCanvas({
                 className="pointer-events-none absolute inset-0 z-0"
               />
               <canvas
+                key={inkSurfaceKey}
                 ref={inkCanvasRef}
                 aria-hidden
                 data-rcb-idle-ink-canvas="1"
+                data-rcb-ink-surface={inkSurfaceKey}
                 data-rcb-canvas-idle-count={String(listSceneCanvasIdlePaintIds().length)}
                 className="pointer-events-none absolute inset-0 z-[1]"
               />
