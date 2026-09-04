@@ -552,7 +552,7 @@ function LayerIcon({
     if (thumb) return thumb;
     return (
       <LayerGlyphFallback>
-        <LuFilm className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
+        <HiOutlineVideoCamera className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
       </LayerGlyphFallback>
     );
   }
@@ -904,7 +904,7 @@ function NodeLayerRow({
             t('editor.tools.imageGenerator'),
             t('editor.tools.videoGenerator'),
             t('editor.tools.lottieGenerator'),
-            t('editor.tools.audioGenerator', { defaultValue: '音频生成器' }),
+            t('editor.tools.audioGenerator', { defaultValue: '音频生成�? }),
             t
           )}
         </span>
@@ -997,7 +997,7 @@ function LayerStackRowView({
   );
 }
 
-/** Left layers dock — history + frames/nodes from unified stackOrder. */
+/** Left layers dock �?history + frames/nodes from unified stackOrder. */
 function LayerPanel({
   onClose,
   onSelectNode,
@@ -1013,8 +1013,8 @@ function LayerPanel({
 } = {}) {
   const { t } = useTranslation();
   const documentCommitted = useEditorDocumentOnCommit();
-  // Paste bumps documentRevision / sceneRevision — defer layer-list rebuild so the
-  // canvas SoA paint stays ahead of the dock at 2k–10k nodes.
+  // Paste bumps documentRevision / sceneRevision �?defer layer-list rebuild so the
+  // canvas SoA paint stays ahead of the dock at 2k�?0k nodes.
   // canvas commit is not blocked by dock work while history snaps accumulate.
   const document = useDeferredValue(documentCommitted);
   const selectedNodeId = useSelectedNodeId();
@@ -1170,7 +1170,7 @@ function LayerPanel({
   const onDockResizePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const drag = resizeDragRef.current;
     if (!drag) return;
-    // Right edge: drag right — wider
+    // Right edge: drag right �?wider
     setDockWidth(clampLayerDockWidth(drag.startW + (e.clientX - drag.startX)));
   };
 
@@ -1191,7 +1191,7 @@ function LayerPanel({
   };
 
   const historyItems = useMemo(() => {
-    // Newest first — length only (never subscribe to full snap docs).
+    // Newest first �?length only (never subscribe to full snap docs).
     if (!historyPastLen) return [];
     return Array.from({ length: historyPastLen }, (_, i) => ({
       id: `h-${historyPastLen - i}`,
@@ -1294,7 +1294,7 @@ function LayerPanel({
         </div>
       ) : null}
 
-      {/* Layer rows — top of list = front of stack (virtualized) */}
+      {/* Layer rows �?top of list = front of stack (virtualized) */}
       <VirtualList
         ref={layerListRef}
         items={layerRows}
