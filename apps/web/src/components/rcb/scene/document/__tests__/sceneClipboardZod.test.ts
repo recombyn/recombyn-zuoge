@@ -279,6 +279,64 @@ describe('scene clipboard Zod', () => {
     expect(out.document.deltaSetLike!['overlap-free']?.attrs?.frameId).toBeFalsy();
   });
 
+  it('frameLocal duplicate keeps bound children plate-local (no double offset)', () => {
+    let doc = createEmptyDocument({ emptyWorld: true });
+    doc = {
+      ...doc,
+      coordSpace: 'frameLocal',
+      frames: [
+        {
+          id: 'frame-src',
+          name: 'Frame',
+          kind: 'artboard',
+          x: 120,
+          y: 80,
+          width: 300,
+          height: 400,
+          backgroundColor: '#fff',
+          clipContent: true,
+        },
+      ],
+      stackOrder: ['frame:frame-src'],
+    };
+    doc = addNodeToDocument(doc, 'child', {
+      id: 'child',
+      key: 'rect',
+      x: 40,
+      y: 50,
+      width: 80,
+      height: 60,
+      attrs: { frameId: 'frame-src', 'fill-color': '#f00' },
+      children: [],
+    } as any);
+    expect(String(doc.coordSpace || '')).toBe('frameLocal');
+
+    const out = pasteClipboardIntoDocument(
+      doc,
+      {
+        frames: [
+          {
+            id: 'frame-src',
+            frame: { ...(doc.frames![0] as object), id: 'frame-src' } as any,
+          },
+        ],
+        nodes: [{ id: 'child', node: doc.deltaSetLike!.child as any }],
+      },
+      { offsetX: 320, offsetY: 0, trusted: true }
+    );
+
+    expect(out.frameIds).toHaveLength(1);
+    expect(out.ids).toHaveLength(1);
+    const newFrame = out.document.frames!.find((f) => f.id === out.frameIds[0])!;
+    const newChild = out.document.deltaSetLike![out.ids[0]]!;
+    expect(Number(newFrame.x)).toBe(120 + 320);
+    expect(Number(newFrame.y)).toBe(80);
+    // Must stay plate-local — applying offsetX again puts ink outside clipContent.
+    expect(Number(newChild.x)).toBe(40);
+    expect(Number(newChild.y)).toBe(50);
+    expect(String(newChild.attrs?.frameId)).toBe(out.frameIds[0]);
+  });
+
   it('clipboardNodesBounds ignores overflowing children of clipped frames', () => {
     const bounds = clipboardNodesBounds({
       frames: [
