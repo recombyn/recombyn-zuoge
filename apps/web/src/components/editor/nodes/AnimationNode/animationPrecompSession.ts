@@ -9,7 +9,7 @@ import {
 import { removeNodesFromDocument } from '@/components/rcb/scene/document/sceneDocument';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeLeftTop, isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
-import { materializeRootShapeLayers } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
+import { materializeRootShapeLayers, sessionCoversLotInk } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
 import {
   extractPrecompAssetJson,
   linkedLotNodeIdFromAsset,
@@ -38,8 +38,12 @@ export type PrecompSessionBegin = {
   frameSnapshot: FrameGeomSnapshot;
   /** Nested LOT plate-local geom before LOT-tab frame shrink (frameLocal). */
   lotSnapshot: FrameGeomSnapshot | null;
+  /** Nested LOT animationData before enter — restore if host write-back would drop ink. */
+  lotAnimationSnapshot: string | null;
   lotNodeId: string | null;
   sessionNodeIds: string[];
+  /** True only when session shapes fully cover materializable layers (safe to hide ink). */
+  sessionHidesLotInk: boolean;
 };
 
 export type LottiePrecompEditState = {
@@ -49,8 +53,10 @@ export type LottiePrecompEditState = {
   frameId?: string;
   frameSnapshot?: FrameGeomSnapshot;
   lotSnapshot?: FrameGeomSnapshot | null;
+  lotAnimationSnapshot?: string | null;
   lotNodeId?: string | null;
   sessionNodeIds?: string[];
+  sessionHidesLotInk?: boolean;
 };
 
 function num(v: unknown, fallback = 0): number {
@@ -283,27 +289,41 @@ function plateForLot(
   };
 }
 
-function writeAssetLayers(
+/**
+ * Stamp `ln` onto existing precomp asset layers by `ind` — keep original shapes/keyframes.
+ * Replacing the whole layer list on enter was dropping path ink and blanking the LOT tab.
+ */
+function stampSessionLinksIntoHostAsset(
   hostAnimationData: unknown,
   assetId: string,
-  maturedLayers: unknown[],
-  maturedW: number,
-  maturedH: number
+  maturedLayers: unknown[]
 ): string | null {
   const root = parseLottieAnimationData(hostAnimationData);
   if (!root || !Array.isArray(root.assets)) return null;
-  const assets = (root.assets as Record<string, unknown>[]).map((a) =>
-    a && typeof a === 'object' ? { ...a } : a
-  );
-  const idx = assets.findIndex((a) => String(a?.id || '') === assetId);
-  if (idx < 0) return null;
-  const prev = assets[idx] as Record<string, unknown>;
-  assets[idx] = {
-    ...prev,
-    w: Math.max(1, Math.round(maturedW)),
-    h: Math.max(1, Math.round(maturedH)),
-    layers: maturedLayers,
-  };
+  const lnByInd = new Map<number, string>();
+  for (const raw of maturedLayers) {
+    if (!raw || typeof raw !== 'object') continue;
+    const layer = raw as Record<string, unknown>;
+    const ln = String(layer.ln || '').trim();
+    const ind = Math.round(num(layer.ind, NaN));
+    if (!ln || !Number.isFinite(ind)) continue;
+    lnByInd.set(ind, ln);
+  }
+  if (!lnByInd.size) return null;
+
+  const assets = (root.assets as Record<string, unknown>[]).map((asset) => {
+    if (!asset || String(asset.id || '') !== assetId) return asset;
+    if (!Array.isArray(asset.layers)) return asset;
+    const layers = (asset.layers as unknown[]).map((raw) => {
+      if (!raw || typeof raw !== 'object') return raw;
+      const layer = { ...(raw as Record<string, unknown>) };
+      const ind = Math.round(num(layer.ind, NaN));
+      const ln = Number.isFinite(ind) ? lnByInd.get(ind) : undefined;
+      if (ln) layer.ln = ln;
+      return layer;
+    });
+    return { ...asset, layers };
+  });
   return serializeLottieAnimationData({ ...root, assets });
 }
 
@@ -370,6 +390,7 @@ export function beginPrecompEditSession(opts: {
   const lotId = plate.lotNodeId;
   const frameLocal = isFrameLocalCoordSpace(opts.document);
   let lotSnapshot: FrameGeomSnapshot | null = null;
+  let lotAnimationSnapshot: string | null = null;
   if (lotId && opts.document.deltaSetLike?.[lotId]) {
     const lotNode = opts.document.deltaSetLike[lotId];
     lotSnapshot = {
@@ -378,6 +399,8 @@ export function beginPrecompEditSession(opts: {
       width: Math.max(1, num(lotNode.width, 1)),
       height: Math.max(1, num(lotNode.height, 1)),
     };
+    const raw = String(lotNode.attrs?.animationData || '').trim();
+    lotAnimationSnapshot = raw || null;
   }
 
   // Shrink workbench to the nested LOT plate (world).
@@ -439,8 +462,10 @@ export function beginPrecompEditSession(opts: {
       frameId,
       frameSnapshot,
       lotSnapshot,
+      lotAnimationSnapshot,
       lotNodeId: lotId,
       sessionNodeIds: [],
+      sessionHidesLotInk: false,
     };
   }
 
@@ -453,16 +478,17 @@ export function beginPrecompEditSession(opts: {
   const maturedLayers = Array.isArray(maturedParsed?.layers)
     ? (maturedParsed!.layers as unknown[])
     : [];
-  const hostJson = writeAssetLayers(
+  // Stamp ln only — never replace asset layers with a re-serialized subset
+  // (that permanently deleted path/image layers and blanked the LOT).
+  const hostJson = stampSessionLinksIntoHostAsset(
     doc.deltaSetLike?.[hostId]?.attrs?.animationData ?? host.attrs?.animationData,
     assetId,
-    maturedLayers,
-    Math.max(1, num(maturedParsed?.w, plate.width)),
-    Math.max(1, num(maturedParsed?.h, plate.height))
+    maturedLayers
   );
   if (hostJson) {
     doc = patchNode(doc, hostId, { attrs: { animationData: hostJson } });
   }
+  const sessionHidesLotInk = sessionCoversLotInk(sourceAnim, matured.nodeIds.length);
   // Keep nested lot in the SVG paint tree (no attrs.hidden). Removing the node
   // from SVG drops the foreignObject mount; after LOT tab exit the 主场景 lottie
   // overlay never reattaches. Ink hide during LOT edit is overlay-only.
@@ -472,8 +498,10 @@ export function beginPrecompEditSession(opts: {
     frameId,
     frameSnapshot,
     lotSnapshot,
+    lotAnimationSnapshot,
     lotNodeId: lotId,
     sessionNodeIds: matured.nodeIds,
+    sessionHidesLotInk,
   };
 }
 
@@ -542,6 +570,7 @@ export function endPrecompEditSession(opts: {
   frameId: string;
   frameSnapshot: FrameGeomSnapshot;
   lotSnapshot?: FrameGeomSnapshot | null;
+  lotAnimationSnapshot?: string | null;
   lotNodeId: string | null;
   sessionNodeIds: string[];
   playheadSec?: number;
@@ -563,6 +592,20 @@ export function endPrecompEditSession(opts: {
   const frameLocal = isFrameLocalCoordSpace(doc);
 
   doc = writeBackLotOnPrecompExit(doc, hostId, assetId, lotId, sessionIds);
+
+  // If write-back lost layers vs enter snapshot, restore the original LOT JSON
+  // then re-apply host-synced transforms only when session fully covered ink.
+  if (lotId && opts.lotAnimationSnapshot && doc.deltaSetLike?.[lotId]) {
+    const snap = parseLottieAnimationData(opts.lotAnimationSnapshot);
+    const now = parseLottieAnimationData(doc.deltaSetLike[lotId].attrs?.animationData);
+    const snapCount = Array.isArray(snap?.layers) ? snap!.layers.length : 0;
+    const nowCount = Array.isArray(now?.layers) ? now!.layers.length : 0;
+    if (snapCount > 0 && nowCount < snapCount) {
+      doc = patchNode(doc, lotId, {
+        attrs: { animationData: opts.lotAnimationSnapshot },
+      });
+    }
+  }
 
   if (sessionIds.length) doc = removeNodesFromDocument(doc, sessionIds);
 
@@ -610,6 +653,7 @@ export function endPrecompEditFromState(
     frameId: edit.frameId,
     frameSnapshot: edit.frameSnapshot,
     lotSnapshot: edit.lotSnapshot ?? null,
+    lotAnimationSnapshot: edit.lotAnimationSnapshot ?? null,
     lotNodeId: edit.lotNodeId ?? null,
     sessionNodeIds: resolvePrecompSessionNodeIds(document, edit),
     playheadSec,

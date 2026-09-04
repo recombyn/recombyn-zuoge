@@ -102,8 +102,55 @@ function readRectSize(shapes: unknown[]): {
         ellipse: s.ty === 'el',
       };
     }
+    if (Array.isArray(s.it)) {
+      const nested = readRectSize(s.it as unknown[]);
+      if (nested) return nested;
+    }
   }
   return null;
+}
+
+/** Root ty:4 layers that materializeRootShapeLayers can explode. */
+export function countMaterializableRootShapeLayers(animationData: unknown): number {
+  const root = parseLottieAnimationData(animationData);
+  if (!root || !Array.isArray(root.layers)) return 0;
+  let n = 0;
+  for (const raw of root.layers as unknown[]) {
+    const layer = asObj(raw);
+    if (!layer) continue;
+    if (num(layer.ty, -1) !== 4) continue;
+    const shapes = Array.isArray(layer.shapes) ? (layer.shapes as unknown[]) : [];
+    if (readRectSize(shapes)) n += 1;
+  }
+  return n;
+}
+
+/**
+ * True when LOT tab may hide lottie-web ink (session shapes fully replace it).
+ * Partial explode + hide = blank tab (paths / images stay only in the JSON).
+ */
+export function sessionCoversLotInk(
+  animationData: unknown,
+  sessionNodeCount: number
+): boolean {
+  if (sessionNodeCount <= 0) return false;
+  const root = parseLottieAnimationData(animationData);
+  if (!root || !Array.isArray(root.layers)) return false;
+  let materializable = 0;
+  for (const raw of root.layers as unknown[]) {
+    const layer = asObj(raw);
+    if (!layer) continue;
+    const ty = num(layer.ty, -1);
+    if (ty === 4) {
+      const shapes = Array.isArray(layer.shapes) ? (layer.shapes as unknown[]) : [];
+      if (readRectSize(shapes)) materializable += 1;
+      else return false; // path / complex shape — keep ink
+    } else if (ty === 0 || ty === 2 || ty === 1) {
+      // precomp / image / text — keep ink
+      return false;
+    }
+  }
+  return materializable > 0 && sessionNodeCount >= materializable;
 }
 
 export type MaterializeLottieResult = {

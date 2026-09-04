@@ -142,6 +142,7 @@ function AnimationPrecompEditFocusHost({
         selectedLayerInd: number | null;
         lotNodeId?: string | null;
         sessionNodeIds?: string[];
+        sessionHidesLotInk?: boolean;
         frameId?: string;
       }
   );
@@ -150,7 +151,7 @@ function AnimationPrecompEditFocusHost({
   const assetId = edit?.assetId || '';
   const frameId = edit?.frameId || '';
   const lotNodeId = edit?.lotNodeId ?? linkedLotNodeIdFromAsset(assetId);
-  const sessionMaterialized = Boolean(edit?.sessionNodeIds?.length);
+  const sessionMaterialized = Boolean(edit?.sessionHidesLotInk);
   const pushedRef = useRef(false);
   const fittedKeyRef = useRef('');
   const stageElRef = useRef(stageEl);

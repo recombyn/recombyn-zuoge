@@ -337,6 +337,7 @@ function LottiePlateHost({
         assetId?: string;
         lotNodeId?: string | null;
         sessionNodeIds?: string[];
+        sessionHidesLotInk?: boolean;
       }
   );
   const node = document?.deltaSetLike?.[nodeId];
@@ -360,7 +361,7 @@ function LottiePlateHost({
     hidden,
     precompAssetId,
     precompLotId,
-    precompSessionMaterialized: Boolean(precompEdit?.sessionNodeIds?.length),
+    precompSessionMaterialized: Boolean(precompEdit?.sessionHidesLotInk),
   });
   const inkRevision = String(node.attrs?.lottieInkRevision ?? '');
 
