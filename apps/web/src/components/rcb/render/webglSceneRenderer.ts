@@ -52,6 +52,7 @@ import {
   bumpSceneCanvasIdlePaint,
   isFillImageWebglUnsafe,
   hitTestWithSpatialIndex,
+  mediaPaintSrc,
   type CanvasSceneRendererDeps,
   type SceneRenderRequest,
   type SceneRenderer,
@@ -499,12 +500,10 @@ export function collectSoaWebglInstances(
       const isAudio = String(node.key || '') === 'audio';
       const baked = isAudio
         ? bakeAudioInkForAtlas(node, w, h, zoom)
-        : bakeMediaInkForAtlas(node, w, h);
+        : bakeMediaInkForAtlas(node, w, h, id);
       if (!baked) {
         if (!isAudio) {
-          const src = String(
-            (node.key === 'video' ? node.attrs?.poster : null) || node.attrs?.src || ''
-          ).trim();
+          const src = mediaPaintSrc(node, id);
           // Pending decode → bump. CORS/tainted → stop retrying; host will paint.
           // Empty src should bake a plate — if bake still failed, clear dirty
           // (do not eternal-bump; that burned CPU and never drew).

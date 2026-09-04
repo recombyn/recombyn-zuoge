@@ -139,6 +139,7 @@ import {
   resolveGpuDofBackend,
   shouldRunGpuDepthOfField,
 } from '@/components/rcb/render/gpuDepthOfField';
+import { getVideoIdlePaintFrame } from '@/components/rcb/render/videoIdlePaintFrame';
 
 /** Cap centerline samples when stroking a dense pencil/path as canvas ink. */
 export const CANVAS_IDLE_STROKE_MAX_PTS = 64;
@@ -2410,10 +2411,14 @@ function readMediaCropNorm(
   return null;
 }
 
-function mediaPaintSrc(node: SceneNodeInput): string {
+/** Prefer pause-frame still over attrs.poster for video idle ink. */
+export function mediaPaintSrc(node: SceneNodeInput, nodeId?: string): string {
   const key = String(node.key || '');
   const attrs = node.attrs || {};
   if (key === 'video') {
+    const id = String(nodeId || node.id || '').trim();
+    const runtime = id ? getVideoIdlePaintFrame(id) : null;
+    if (runtime) return runtime;
     const poster = String(attrs.poster || '').trim();
     if (poster) return poster;
   }
@@ -2431,12 +2436,13 @@ export function paintCanvasMediaInk(
     width: number;
     height: number;
     opacity?: number;
+    nodeId?: string;
   }
 ): void {
   const w = Math.max(1, opts.width);
   const h = Math.max(1, opts.height);
   const opacity = Math.min(1, Math.max(0.05, opts.opacity ?? 1));
-  const src = mediaPaintSrc(opts.node);
+  const src = mediaPaintSrc(opts.node, opts.nodeId);
   const img = src ? getFillImageReady(src) : null;
   if (!img) {
     const attrs = opts.node.attrs || {};
@@ -2504,10 +2510,12 @@ export function paintCanvasMediaInk(
 export function bakeMediaInkForAtlas(
   node: SceneNodeInput,
   width: number,
-  height: number
+  height: number,
+  nodeId?: string
 ): HTMLCanvasElement | OffscreenCanvas | null {
   if (nodeNeedsPuppetWarp(node)) return null;
-  const src = mediaPaintSrc(node);
+  const id = String(nodeId || node.id || '').trim();
+  const src = mediaPaintSrc(node, id);
   if (src) {
     if (isFillImageWebglUnsafe(src)) return null;
     if (!getFillImageReady(src)) return null;
@@ -2538,6 +2546,7 @@ export function bakeMediaInkForAtlas(
     width: w,
     height: h,
     opacity: 1,
+    nodeId: id || undefined,
   });
   // Never return a tainted bake — stamping it would poison the shared WebGL atlas.
   // Empty plates have no external image; skip the readback gate when there is no src.
