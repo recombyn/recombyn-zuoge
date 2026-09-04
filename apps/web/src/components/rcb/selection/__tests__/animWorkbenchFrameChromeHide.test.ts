@@ -131,5 +131,8 @@ describe('frame chrome while transforming', () => {
     expect(box.left).toBe(120);
     expect(box.top).toBe(80);
     clearLiveArtboardFrameGeometry(['f1']);
+    const after = resolveFrameChromeBox('f1', { x: 50, y: 60, width: 200, height: 200 });
+    expect(after.left).toBe(50);
+    expect(after.top).toBe(60);
   });
 });

@@ -691,7 +691,7 @@ export type CanvasSessionDeps = {
   measureViewport: () => DOMRect | null;
   getDragWriteCoalescer: () => DragWriteCoalescer;
   previewFrameGeometry: (frames: ArtboardFrameGeometry[]) => void;
-  clearFrameGeometryPreview: () => void;
+  clearFrameGeometryPreview: (frameIds?: readonly string[]) => void;
   publishVideoLiveGeom: (next: Record<string, VideoGeomOverride> | null) => void;
   clearVideoLiveGeom: () => void;
 };
@@ -1225,8 +1225,10 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     }
     // Same React turn as the store doc — HTML plates must not fall back to
     // stale coords between commit and onTransformingChange(false).
+    // Pass committed frame ids so multi-frame mode:move rebakes every host even
+    // when the last preview coalesce was cancelled (empty preview set).
     deps.clearVideoLiveGeom();
-    deps.clearFrameGeometryPreview();
+    deps.clearFrameGeometryPreview(frames.map((f) => f.id));
     clearNodeTransformPreviews();
     if (frames.length && board) {
       syncOwnedFrameClipsOnBoard(board, next, { zoom: deps.getZoom() });

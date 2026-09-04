@@ -460,12 +460,16 @@ function SvgCanvas({
   );
   const overlayRoot = useRcbOverlayRoot();
 
-  const clearFrameGeometryPreview = useCallback(() => {
+  const clearFrameGeometryPreview = useCallback((frameIds?: readonly string[]) => {
     const liveDoc = documentRef.current;
     const frames = Array.isArray(liveDoc?.frames) ? liveDoc.frames : [];
-    const previewIds = [...frameGeometryPreviewIdsRef.current];
-    clearLiveArtboardFrameGeometry(previewIds);
-    previewIds.forEach((id) => {
+    // Prefer explicit commit ids — multi-frame mode:move can cancel the last
+    // preview rAF so the tracked preview set is empty while hosts are still stale.
+    const fromArg = (frameIds || []).map(String).filter(Boolean);
+    const fromPreview = [...frameGeometryPreviewIdsRef.current];
+    const ids = [...new Set(fromArg.length ? [...fromArg, ...fromPreview] : fromPreview)];
+    clearLiveArtboardFrameGeometry(ids.length ? ids : undefined);
+    ids.forEach((id) => {
       const frame = frames.find((item: any) => String(item?.id) === id);
       if (frame) previewArtboardFrameGeometry(frame, { recordLive: false });
     });

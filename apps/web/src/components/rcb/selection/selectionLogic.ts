@@ -100,13 +100,18 @@ import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboa
 
 export const CORNER_HANDLES = new Set<ResizeHandle>(['nw', 'ne', 'sw', 'se']);
 
-/** Frame chrome box: host paint → live artboard map → document (gesture-safe). */
+/** Frame chrome box: live plate (gesture) → host if it matches document → document. */
 export function resolveFrameChromeBox(
   frameId: string,
   frame: { x?: number; y?: number; width?: number; height?: number }
 ): SceneBox {
-  const liveHost = liveShapeGeomBox(String(frameId));
-  if (liveHost) return liveHost;
+  const docBox: SceneBox = {
+    left: Number(frame.x) || 0,
+    top: Number(frame.y) || 0,
+    width: Math.max(1, Number(frame.width) || 1),
+    height: Math.max(1, Number(frame.height) || 1),
+  };
+  // Gesture preview owns the plate while dragging (store lags behind).
   const livePlate = getLiveArtboardFrameGeometry(String(frameId));
   if (livePlate) {
     return {
@@ -116,12 +121,14 @@ export function resolveFrameChromeBox(
       height: Math.max(1, Number(livePlate.height) || 1),
     };
   }
-  return {
-    left: Number(frame.x) || 0,
-    top: Number(frame.y) || 0,
-    width: Math.max(1, Number(frame.width) || 1),
-    height: Math.max(1, Number(frame.height) || 1),
-  };
+  const liveHost = liveShapeGeomBox(String(frameId));
+  if (liveHost) {
+    // Sticky lattice is sub-pixel. After multi-frame mode:move, hosts can lag
+    // the committed store — prefer document when the host drifted.
+    const drift = Math.hypot(liveHost.left - docBox.left, liveHost.top - docBox.top);
+    if (drift <= 1.5) return liveHost;
+  }
+  return docBox;
 }
 
 export function textResizeModeForHandle(
@@ -2208,14 +2215,15 @@ export function resolveChromeUnion(opts: {
       if (liveUnion) return liveUnion;
     }
   }
-  // Frames: title uses live `__sceneLeft` / sticky transform; chrome must too —
-  // editor store frame.x alone drifts at 10000% so the label looks off the left edge.
+  // Frames: gesture live plate / committed document via resolveFrameChromeBox —
+  // do not prefer bare host lattice (stale after multi-frame mode:move).
   if (opts.selectedNodeIds.length === 0 && opts.selectedFrameIds.length >= 1) {
+    const frames = Array.isArray(opts.document?.frames) ? opts.document.frames : [];
     const lives: SceneBox[] = [];
     for (const id of opts.selectedFrameIds) {
-      const live = liveShapeGeomBox(id);
-      if (!live) break;
-      lives.push(live);
+      const frame = frames.find((f: any) => f && String(f.id) === String(id));
+      if (!frame) break;
+      lives.push(resolveFrameChromeBox(String(id), frame));
     }
     if (lives.length === opts.selectedFrameIds.length) {
       const liveUnion =
