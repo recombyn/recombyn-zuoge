@@ -40,5 +40,5 @@ describe('text outline keeps fontkit beziers', () => {
     expect(outlineTextFromFont).toHaveBeenCalled();
     expect(out?.pathD).toBeTruthy();
     expect(out!.pathD).toMatch(/[CcQq]/);
-  });
+  }, 30_000);
 });

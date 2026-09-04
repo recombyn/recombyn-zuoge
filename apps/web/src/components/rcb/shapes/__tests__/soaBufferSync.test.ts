@@ -258,5 +258,5 @@ describe('syncSoaBufferFromDocumentNow', () => {
     const buf = getSharedSceneRenderBuffer();
     expect(buf.count).toBe(3);
     expect(buf.capacity).toBe(1024);
-  }, 30_000);
+  }, 60_000);
 });

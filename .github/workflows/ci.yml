@@ -51,13 +51,16 @@ jobs:
         working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+      # Self-hosted runner already has Python 3.12. setup-python@v5 tries to
+      # rewrite HKLM uninstall keys and fails without admin on this machine.
+      - name: Verify runner Python
+        shell: powershell
+        working-directory: ${{ github.workspace }}
+        run: |
+          python --version
+          if ($LASTEXITCODE -ne 0) { throw 'python missing on self-hosted runner' }
       - name: Install API (+ test extras)
-        shell: pwsh
+        shell: powershell
         run: |
           python -m pip install --upgrade pip
           pip install -e "../../packages/scene-builder-py"
