@@ -1,15 +1,6 @@
 name: Dependency audit
 
 on:
-  pull_request:
-    paths:
-      - 'apps/api/pyproject.toml'
-      - 'apps/web/package.json'
-      - 'package-lock.json'
-      - 'package.json'
-      - '.github/workflows/dependency-audit.yml'
-  schedule:
-    - cron: '0 6 * * 1'
   workflow_dispatch:
 
 jobs:

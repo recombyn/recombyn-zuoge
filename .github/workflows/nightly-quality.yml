@@ -1,10 +1,8 @@
 name: Nightly quality gates
 
-# Nightly soak — manual or scheduled only (not on every push).
+# Manual only — automatic schedule disabled (single self-hosted runner).
 
 on:
-  schedule:
-    - cron: '0 18 * * *' # 02:00 CST
   workflow_dispatch:
 
 jobs:

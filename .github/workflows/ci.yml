@@ -1,13 +1,11 @@
 name: CI
 
-# Required check for branch protection: "CI / gate"
-# Lint + typecheck + unit + build only. E2E / skill / k6 are workflow_dispatch.
-# Self-hosted Windows — docs/self-hosted-ci-windows.md
+# Disabled for automatic PR/main runs — single self-hosted Windows runner is too
+# slow / contended. Re-enable triggers only when a dedicated runner pool exists.
+# Manual: Actions → CI → Run workflow
 
 on:
-  pull_request:
-  push:
-    branches: [main, master, develop]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

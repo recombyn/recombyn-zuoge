@@ -1,18 +1,8 @@
 name: protocol-contract-smoke
 
-# Guard protocol + runtime contract helpers.
+# Guard protocol + runtime contract helpers. Manual only (self-hosted CI off).
 
 on:
-  push:
-    paths:
-      - "packages/protocol/**"
-      - "packages/runtime/**"
-      - ".github/workflows/protocol-contract-smoke.yml"
-  pull_request:
-    paths:
-      - "packages/protocol/**"
-      - "packages/runtime/**"
-      - ".github/workflows/protocol-contract-smoke.yml"
   workflow_dispatch:
 
 jobs:
