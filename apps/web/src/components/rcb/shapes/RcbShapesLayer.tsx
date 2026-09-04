@@ -354,6 +354,7 @@ export function nodeNeedsDomShapeHost(
   if (String(node.attrs?.frameId || '').trim()) return true;
   const key = String(node.key || '');
   // Static text —canvas ink; caret —TextInlineEditor overlay.
+  // Image/video/audio/lottie *generators* stay DOM (--gen-empty plate; no atlas src).
   // Static image —paintCanvasMediaInk; SoftGlow process still forceFull above.
   // Video/audio idle —canvas poster/plate; selected decoder is forceFull (FO + HTML).
   if (key === 'lottie' || key === 'group') return true;

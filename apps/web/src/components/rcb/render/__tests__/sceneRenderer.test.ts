@@ -1355,7 +1355,13 @@ describe('Canvas idle path / text / shape paint', () => {
         key: 'audio',
         attrs: { src: '', audioGenerator: true },
       } as SceneNodeInput)
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      canIdlePaintOnCanvas({
+        key: 'image',
+        attrs: { src: '', imageGenerator: true },
+      } as SceneNodeInput)
+    ).toBe(false);
     expect(
       canIdlePaintOnCanvas({
         key: 'audio',

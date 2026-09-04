@@ -17,7 +17,7 @@ import {
   radiiFromAttrs,
 } from '@/components/rcb/scene/document/sceneRadii';
 import { getShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
-import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isGeneratorNode, isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
 import { paintProcessPlateCanvas } from '@/components/rcb/process/processPlateSvg';
 import {
@@ -950,6 +950,9 @@ function isTransparentCssColor(c: string): boolean {
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   if (isImageProcessRunning(node)) return false;
+  // Empty image/video generators have no src — WebGL atlas bake returns null and
+  // the plate vanishes until paint-raise. Keep them on SVG hosts (--gen-empty).
+  if (isGeneratorNode(node)) return false;
   const key = String(node.key || '');
   if (key === 'lottie' || key === 'group') {
     return false;
