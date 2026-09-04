@@ -17,7 +17,7 @@ import {
   radiiFromAttrs,
 } from '@/components/rcb/scene/document/sceneRadii';
 import { getShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
-import { isGeneratorNode, isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
+import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
 import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
 import { paintProcessPlateCanvas } from '@/components/rcb/process/processPlateSvg';
 import {
@@ -950,9 +950,6 @@ function isTransparentCssColor(c: string): boolean {
 export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   if (isImageProcessRunning(node)) return false;
-  // Empty image/video generators have no src — WebGL atlas bake returns null and
-  // the plate vanishes until paint-raise. Keep them on SVG hosts (--gen-empty).
-  if (isGeneratorNode(node)) return false;
   const key = String(node.key || '');
   if (key === 'lottie' || key === 'group') {
     return false;
@@ -2350,6 +2347,47 @@ export function paintMediaProxyIcon(
   ctx.restore();
 }
 
+/**
+ * Empty image/video generator plate for canvas / atlas idle ink — rect wash +
+ * landscape glyph (same idea as SVG `--gen-empty`, no DOM host required).
+ */
+export function paintGeneratorEmptyInk(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  opacity = 1
+): void {
+  const width = Math.max(1, w);
+  const height = Math.max(1, h);
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, Math.max(0.05, opacity));
+  ctx.fillStyle = '#e9eaee';
+  ctx.fillRect(0, 0, width, height);
+  const sw = Math.max(0.75, Math.min(1.5, Math.min(width, height) * 0.008));
+  ctx.strokeStyle = '#c5c9d2';
+  ctx.lineWidth = sw;
+  ctx.strokeRect(sw / 2, sw / 2, Math.max(1, width - sw), Math.max(1, height - sw));
+  const icon = Math.min(width, height) * 0.28;
+  if (icon >= 4) {
+    const cx = width / 2;
+    const cy = height / 2;
+    const s = icon / 24;
+    ctx.fillStyle = '#9aa3b2';
+    ctx.beginPath();
+    ctx.arc(cx + 4.5 * s, cy - 4.5 * s, 2.25 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 8.5 * s, cy + 6.5 * s);
+    ctx.lineTo(cx - 2.8 * s, cy - 1.8 * s);
+    ctx.lineTo(cx + 1.1 * s, cy + 3.1 * s);
+    ctx.lineTo(cx + 4.4 * s, cy - 0.6 * s);
+    ctx.lineTo(cx + 8.5 * s, cy + 6.5 * s);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 /** Normalized crop from image/video attrs (matches sceneToSvg). */
 function readMediaCropNorm(
   node: SceneNodeInput
@@ -2401,7 +2439,20 @@ export function paintCanvasMediaInk(
   const src = mediaPaintSrc(opts.node);
   const img = src ? getFillImageReady(src) : null;
   if (!img) {
-    paintMediaProxyIcon(ctx, w, h, opacity);
+    const attrs = opts.node.attrs || {};
+    const isGen =
+      attrs.imageGenerator === true ||
+      String(attrs.imageGenerator || '') === 'true' ||
+      attrs.videoGenerator === true ||
+      String(attrs.videoGenerator || '') === 'true';
+    if (isGen || !src) {
+      // Empty generator / missing bitmap: draw plate ink (not wait on src).
+      if (isGen) paintGeneratorEmptyInk(ctx, w, h, opacity);
+      else paintMediaProxyIcon(ctx, w, h, opacity);
+    } else {
+      // src present but still decoding — soft proxy until ready.
+      paintMediaProxyIcon(ctx, w, h, opacity);
+    }
     return;
   }
 
@@ -2447,7 +2498,8 @@ export function paintCanvasMediaInk(
 
 /**
  * Bake static image / video poster for WebGL atlas stamp (crop + corners).
- * Returns null while decode is pending (caller should skip; load bumps idle).
+ * Empty generators / missing src bake a plate glyph (same as 2d idle ink).
+ * Returns null only while a real src is still decoding or is WebGL-unsafe.
  */
 export function bakeMediaInkForAtlas(
   node: SceneNodeInput,
@@ -2456,7 +2508,10 @@ export function bakeMediaInkForAtlas(
 ): HTMLCanvasElement | OffscreenCanvas | null {
   if (nodeNeedsPuppetWarp(node)) return null;
   const src = mediaPaintSrc(node);
-  if (!src || isFillImageWebglUnsafe(src) || !getFillImageReady(src)) return null;
+  if (src) {
+    if (isFillImageWebglUnsafe(src)) return null;
+    if (!getFillImageReady(src)) return null;
+  }
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
   // Cap bake resolution so atlas cells stay sharp without huge canvases.
@@ -2485,7 +2540,8 @@ export function bakeMediaInkForAtlas(
     opacity: 1,
   });
   // Never return a tainted bake — stamping it would poison the shared WebGL atlas.
-  if (!canvasPixelsReadable(canvas)) {
+  // Empty plates have no external image; skip the readback gate when there is no src.
+  if (src && !canvasPixelsReadable(canvas)) {
     markFillImageWebglUnsafe(src);
     return null;
   }

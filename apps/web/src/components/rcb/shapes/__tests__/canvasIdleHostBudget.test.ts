@@ -191,7 +191,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(retinaSmall.fullIds).toEqual(['small']);
   });
 
-  it('keeps idle image/video/audio generators as DOM hosts (empty plate has no atlas src)', () => {
+  it('keeps idle image/video/audio generators on canvas ink (empty plate atlas bake)', () => {
     const imgGen = {
       id: 'ig',
       key: 'image',
@@ -226,11 +226,11 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
       zoom: 1,
       dpr: 1,
     });
-    expect(fullIds.sort()).toEqual(['ag', 'ig', 'vg']);
-    expect(canvasIds).toEqual(['i0']);
-    expect(canIdlePaintOnCanvas(imgGen as any)).toBe(false);
-    expect(canIdlePaintOnCanvas(vidGen as any)).toBe(false);
-    expect(canIdlePaintOnCanvas(audGen as any)).toBe(false);
+    expect(fullIds).toEqual([]);
+    expect(canvasIds.sort()).toEqual(['ag', 'i0', 'ig', 'vg']);
+    expect(canIdlePaintOnCanvas(imgGen as any)).toBe(true);
+    expect(canIdlePaintOnCanvas(vidGen as any)).toBe(true);
+    expect(canIdlePaintOnCanvas(audGen as any)).toBe(true);
   });
 
   it('forceFullSet keeps a canvas-ink node as a DOM host', () => {
@@ -474,7 +474,7 @@ describe('canIdlePaintOnCanvas', () => {
         height: 80,
         attrs: { audioGenerator: true },
       } as never)
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canIdlePaintOnCanvas({
         id: 'l0',
