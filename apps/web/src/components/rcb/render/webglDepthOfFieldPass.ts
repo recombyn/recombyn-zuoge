@@ -96,18 +96,18 @@ void main() {
     return;
   }
   if (vKind > 3.5) {
-    vec2 p = vUv * vHalf;
+    float sw = max(0.0, vStroke.w);
+    float pad = sw * 0.5;
+    vec2 p = vUv * (vHalf + vec2(pad));
     vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
     float d = sdRoundBox(p, vHalf, r);
-    float sw = max(0.0, vStroke.w);
-    float aa = max(fwidth(d), 0.001);
-    float outer = d - sw * 0.5;
-    float cover = 1.0 - smoothstep(-aa, aa, outer);
-    if (cover < 0.01) discard;
+    float aa = max(0.5 * fwidth(d), 0.0005);
+    float half = pad + aa * 0.5;
+    float cover = 1.0 - smoothstep(-aa, aa, d - half);
+    if (cover < 0.004) discard;
     vec3 rgb = vColor.rgb;
     if (sw > 0.001) {
-      float inner = d + sw * 0.5;
-      float inFill = 1.0 - smoothstep(-aa, aa, inner);
+      float inFill = 1.0 - smoothstep(-aa, aa, d + half);
       rgb = mix(vStroke.rgb, vColor.rgb, inFill);
     }
     outColor = vec4(rgb, vColor.a * cover);
