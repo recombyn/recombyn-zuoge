@@ -32,6 +32,7 @@ import {
   HiOutlineMinus,
   HiOutlinePhoto,
   HiOutlineStop,
+  HiOutlineVideoCamera,
 } from 'react-icons/hi2';
 import { TbArrowUpRight, TbCircle, TbStar, TbTriangle } from 'react-icons/tb';
 import Tooltip from '@/components/base/tooltip';
@@ -551,7 +552,7 @@ function LayerIcon({
     if (thumb) return thumb;
     return (
       <LayerGlyphFallback>
-        <LuFilm className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
+        <HiOutlineVideoCamera className="block h-[13px] w-[13px] shrink-0" strokeWidth={1.75} />
       </LayerGlyphFallback>
     );
   }
