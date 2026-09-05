@@ -157,11 +157,14 @@ function unpackBatch(packed: Float32Array): (FillMesh | null)[] {
 
 async function loadWasmModule(): Promise<WasmApi | null> {
   try {
+    // Served from public/rcb-wasm (copied by build-wasm.mjs) so Vite ships .wasm.
     const mod = await import(
       /* @vite-ignore */
-      '@/components/rcb/render/vector/wasm/pkg/rcb_wasm_geom.js'
+      '/rcb-wasm/rcb_wasm_geom.js'
     );
-    if (typeof mod.default === 'function') await mod.default();
+    if (typeof mod.default === 'function') {
+      await mod.default({ module_or_path: '/rcb-wasm/rcb_wasm_geom_bg.wasm' });
+    }
     if (
       typeof mod.densify_path_d !== 'function' ||
       typeof mod.tessellate_fill !== 'function' ||
