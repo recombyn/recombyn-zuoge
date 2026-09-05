@@ -44,7 +44,6 @@ import {
 import {
   bakeAudioInkForAtlas,
   bakeMediaInkForAtlas,
-  bakeTextInkForAtlas,
   bumpSceneCanvasIdlePaint,
   isFillImageWebglUnsafe,
   hitTestWithSpatialIndex,
@@ -55,6 +54,10 @@ import {
 } from '@/components/rcb/render/sceneRenderer';
 import { getOrBuildShapeMesh } from '@/components/rcb/render/vector/meshCache';
 import { appendMeshLocal } from '@/components/rcb/render/vector/appendMesh';
+import {
+  ensureTextOutlineMesh,
+  getTextOutlineMesh,
+} from '@/components/rcb/render/vector/textOutlineMesh';
 import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
@@ -76,7 +79,8 @@ import {
 /** Scene-space LTRB when the slot has no clipContent owner (or reveal-overflow). */
 export const SOA_WEBGL_NO_CLIP: [number, number, number, number] = [-1e8, -1e8, 1e8, 1e8];
 
-const VS = `#version 300 es
+/** Instance ink vertex shader (world + artboard FO). */
+export const SOA_WEBGL_INK_VS = `#version 300 es
 precision mediump float;
 uniform vec2 uPan;
 uniform float uZoom;
@@ -118,7 +122,8 @@ void main() {
   vClip = aClip;
 }`;
 
-const FS = `#version 300 es
+/** Instance ink fragment shader (world + artboard FO). */
+export const SOA_WEBGL_INK_FS = `#version 300 es
 precision mediump float;
 uniform sampler2D uAtlas;
 uniform float uZoom;
@@ -157,7 +162,7 @@ void main() {
 }`;
 
 /** World-space triangle mesh program (vector fill/stroke). */
-const MESH_VS = `#version 300 es
+export const SOA_WEBGL_MESH_VS = `#version 300 es
 precision mediump float;
 uniform vec2 uPan;
 uniform float uZoom;
@@ -180,7 +185,7 @@ void main() {
   vClip = aClip;
 }`;
 
-const MESH_FS = `#version 300 es
+export const SOA_WEBGL_MESH_FS = `#version 300 es
 precision mediump float;
 in vec4 vColor;
 in vec2 vWorld;
@@ -193,7 +198,13 @@ void main() {
   outColor = vColor;
 }`;
 
-const UNIT_QUAD = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
+const VS = SOA_WEBGL_INK_VS;
+const FS = SOA_WEBGL_INK_FS;
+const MESH_VS = SOA_WEBGL_MESH_VS;
+const MESH_FS = SOA_WEBGL_MESH_FS;
+
+export const SOA_WEBGL_UNIT_QUAD = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
+const UNIT_QUAD = SOA_WEBGL_UNIT_QUAD;
 /** Default line thickness in scene units (used when SoA stroke width is unset). */
 export const SOA_WEBGL_LINE_THICKNESS = 2;
 /** Cap segments emitted per path so one dense stroke cannot explode the instance batch. */
@@ -204,7 +215,12 @@ function normalizeGlslSource(src: string): string {
   return src.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
-function compile(gl: WebGL2RenderingContext, type: number, src: string) {
+/** Compile a GLSL shader (shared by world ink + artboard FO ink). */
+export function compileSoaWebglShader(
+  gl: WebGL2RenderingContext,
+  type: number,
+  src: string
+): WebGLShader | null {
   const sh = gl.createShader(type);
   if (!sh) return null;
   gl.shaderSource(sh, normalizeGlslSource(src));
@@ -224,7 +240,12 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string) {
   return sh;
 }
 
-function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader) {
+/** Link VS+FS into a program (shared by world ink + artboard FO ink). */
+export function linkSoaWebglProgram(
+  gl: WebGL2RenderingContext,
+  vs: WebGLShader,
+  fs: WebGLShader
+): WebGLProgram | null {
   const prog = gl.createProgram();
   if (!prog) return null;
   gl.attachShader(prog, vs);
@@ -239,6 +260,14 @@ function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader) {
     return null;
   }
   return prog;
+}
+
+function compile(gl: WebGL2RenderingContext, type: number, src: string) {
+  return compileSoaWebglShader(gl, type, src);
+}
+
+function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader) {
+  return linkSoaWebglProgram(gl, vs, fs);
 }
 
 let inkShaderProbeOk: boolean | null = null;
@@ -575,8 +604,14 @@ export type CollectSoaWebglOpts = {
   /**
    * World idle ink: skip nodes with attrs.frameId (ArtboardLayer paints them).
    * Default false for tests / bake helpers that collect everything.
+   * Ignored when {@link onlyFrameId} is set.
    */
   skipFrameBound?: boolean;
+  /**
+   * Artboard FO ink: only slots owned by this frame (and not selection-reveal).
+   * World path leaves this unset and uses skipFrameBound instead.
+   */
+  onlyFrameId?: string;
   /** World-space vector fill/stroke triangle XY (flat). */
   meshPos?: number[];
   /** Per-vertex RGBA for meshPos. */
@@ -606,7 +641,8 @@ export function collectSoaWebglInstances(
   const paintDoc = opts?.document ?? getSoaPaintDocument();
   const zoom = Math.max(0.05, Number(opts?.zoom) || 1);
   const dpr = Math.max(1, Number(opts?.dpr) || 1);
-  const skipFrameBound = opts?.skipFrameBound === true;
+  const onlyFrameId = String(opts?.onlyFrameId || '').trim();
+  const skipFrameBound = !onlyFrameId && opts?.skipFrameBound === true;
   const meshPos = opts?.meshPos;
   const meshCol = opts?.meshCol;
   const meshClip = opts?.meshClip;
@@ -623,9 +659,14 @@ export function collectSoaWebglInstances(
     if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
     const idEarly = buf.ids[i];
     if (idEarly && getNodeTransformPreview(idEarly)?.hidden) continue;
-    if (skipFrameBound && paintDoc && idEarly) {
+    if (onlyFrameId && paintDoc && idEarly) {
       const node = paintDoc.deltaSetLike?.[idEarly];
-      // Selection reveal: paint overflow on world ink (FO stays clipped).
+      // Plate FO stays clipped; selection reveal → raised SVG host (max+1).
+      // World ink is only a lag fallback while CANVAS_IDLE has not cleared yet.
+      if (nodeOwnerFrameId(node) !== onlyFrameId || frameClipRevealsOverflow(idEarly)) continue;
+    } else if (skipFrameBound && paintDoc && idEarly) {
+      const node = paintDoc.deltaSetLike?.[idEarly];
+      // Selection reveal: overflow may still be on SoA until host flags flip.
       if (nodeOwnerFrameId(node) && !frameClipRevealsOverflow(idEarly)) continue;
     }
     const kind = buf.kinds[i];
@@ -727,13 +768,7 @@ export function collectSoaWebglInstances(
 
     if (kind === SOA_KIND_TEXT) {
       const node = paintDoc?.deltaSetLike?.[id];
-      if (!node || !atlas) {
-        clearSoaDirtyFlag(buf, i, flags, forceStamp);
-        continue;
-      }
-      const atlasKey = `txt:${id}:z${atlasZoomBucket(zoom)}`;
-      const baked = bakeTextInkForAtlas(node, w, h, zoom);
-      if (!baked) {
+      if (!node) {
         clearSoaDirtyFlag(buf, i, flags, forceStamp);
         continue;
       }
@@ -741,33 +776,44 @@ export function collectSoaWebglInstances(
       const liveAngle = Number.isFinite(preview?.angle)
         ? Number(preview!.angle)
         : Number(node.attrs?.angle) || 0;
-      const angleRad = (liveAngle * Math.PI) / 180;
-      const region = stampImageToAtlas(
-        atlas,
-        atlasKey,
-        baked as CanvasImageSource,
-        { left: x, top: y, width: w, height: h },
-        { force: forceStamp }
-      );
-      if (region) {
-        for (const activeClip of paintClips) {
-          pushAtlasRegionInstance(
-            atlas,
-            region,
-            rects,
-            colors,
-            kinds,
-            angles,
-            uvs,
-            angleRad,
-            0,
-            0
-          );
-          if (depthOut) depthOut.push(slotDepth);
-          pushInstanceClip(clips, activeClip);
+      const paintNode =
+        Number.isFinite(preview?.angle) &&
+        Math.abs(liveAngle - (Number(node.attrs?.angle) || 0)) > 1e-4
+          ? { ...node, attrs: { ...(node.attrs || {}), angle: liveAngle } }
+          : node;
+      ensureTextOutlineMesh(id, paintNode, { width: w, height: h });
+      const textMesh = getTextOutlineMesh(id, paintNode, { width: w, height: h });
+      if (textMesh?.fill && meshPos && meshCol && meshClip) {
+        const opacity = Math.min(1, Math.max(0, Number(paintNode.attrs?.opacity) || 1));
+        const fillRgba: [number, number, number, number] = [
+          rgba[0],
+          rgba[1],
+          rgba[2],
+          rgba[3] * opacity,
+        ];
+        if (fillRgba[3] > 0.01) {
+          const rotOpts = {
+            angleDeg: liveAngle,
+            pivotW: w,
+            pivotH: h,
+          };
+          for (const activeClip of paintClips) {
+            appendMeshLocal(
+              textMesh.fill.positions,
+              x,
+              y,
+              fillRgba,
+              activeClip,
+              meshPos,
+              meshCol,
+              meshClip,
+              rotOpts
+            );
+          }
         }
         if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       }
+      // No text atlas — wait for outline mesh (ensure already kicked).
       continue;
     }
 

@@ -479,10 +479,17 @@ export function pickFullAndCanvasIds(opts: {
   holdHostIds?: ReadonlySet<string>;
   /**
    * Single-select temporary raise (within-ink z + hit).
-   * Basic shapes stay on SoA; generators promote to SVG so max+1 data-z can cover siblings.
+   * World basics stay on SoA; generators + plate-bound promote to SVG so max+1
+   * data-z can cover sibling hosts / artboard plates (world WebGL sits under SVG).
    */
   paintRaiseIds?: ReadonlySet<string> | readonly string[];
   paintRaiseFrameIds?: ReadonlySet<string> | readonly string[];
+  /**
+   * Selection / SoftGlow overflow reveal. Plate-bound ids must leave FO ink
+   * (see artboardInkSurface) — promote to SVG host even when paint-raise is
+   * empty (multi-select), otherwise overflow only paints under the plate.
+   */
+  revealOverflowIds?: ReadonlySet<string> | readonly string[];
   zoom: number;
   /** Device pixel ratio for idle media sharpness (defaults to window.devicePixelRatio). */
   dpr?: number;
@@ -507,18 +514,28 @@ export function pickFullAndCanvasIds(opts: {
           ? raiseIds.has(id)
           : (raiseIds as readonly string[]).includes(id))
     );
-    const raiseHost = isPaintRaised && isGeneratorNode(node);
-    // Plate-bound siblings must share ArtboardLayer ink. Zoom-based SVG promote
-    // splits some onto data-z hosts while others stay on the plate canvas →
-    // apparent layer-order flips when the camera zooms.
+    const revealIds = opts.revealOverflowIds;
+    const isRevealed = Boolean(
+      revealIds &&
+        (revealIds instanceof Set
+          ? revealIds.has(id)
+          : (revealIds as readonly string[]).includes(id))
+    );
+    // Plate-bound siblings must share ArtboardLayer ink when idle. Zoom-based
+    // SVG promote splits some onto data-z hosts while others stay on the plate
+    // canvas → apparent layer-order flips when the camera zooms.
     const plateBound = Boolean(nodeOwnerFrameId(node));
+    // Selection raise / overflow reveal: plate-bound basics must leave SoA/FO —
+    // world WebGL sits under plates, so raise-within-ink cannot cover the
+    // artboard. Promote to SVG host at max+1 data-z (same as generators).
+    const raiseHost =
+      (isPaintRaised && isGeneratorNode(node)) ||
+      (plateBound && (isPaintRaised || isRevealed));
     const forceHost =
       forceFullSet.has(id) ||
       Boolean(holdHostIds?.has(id)) ||
       raiseHost ||
-      // Basic shapes keep SoA under raise (chrome/z only). Generators must
-      // leave SoA so max+1 data-z can cover sibling SVG hosts — otherwise ink
-      // stays under the stack SVG and drag chrome looks like it "bounces".
+      // World nodes stacked above any plate still need hosts on the shared mount.
       worldNodeStacksAboveAnyFrame(document, id) ||
       // Shape/text sharpness promote retired — media may still leave SoA for crisp hosts.
       (!plateBound && idleMediaNeedsSharpHost(node, zoom, dpr));
@@ -710,6 +727,7 @@ function RcbShapesLayer({
         holdHostIds,
         paintRaiseIds: paintRaiseSet,
         paintRaiseFrameIds: paintRaiseFrameSet,
+        revealOverflowIds: revealSet,
         zoom: cullCam.zoom || 1,
       }),
     [
@@ -719,6 +737,7 @@ function RcbShapesLayer({
       holdHostIds,
       paintRaiseSet,
       paintRaiseFrameSet,
+      revealSet,
       cullCam.zoom,
       workbenchTimelineToken,
     ]
@@ -1042,7 +1061,13 @@ function RcbShapesLayer({
             key={id}
             nodeId={id}
             document={document}
-            zIndex={nodePaintZIndex(document, id, paintRaiseSet.has(id))}
+            zIndex={nodePaintZIndex(
+              document,
+              id,
+              // Plate-bound reveal must share max+1 with single-select raise —
+              // otherwise the host mounts at natural z under / inside the plate.
+              paintRaiseSet.has(id) || revealSet.has(id)
+            )}
             reloadToken={hostReloadTokenFor(id)}
             frameClipToken={frameClipToken}
             forceHidden={isNodeOverlayHidden(document, node, hiddenNodeId === id)}

@@ -1,10 +1,9 @@
 /**
- * WebGL instance atlas — fixed-cell LRU packer for media / text bake tiles (ADR 0027).
- * Shape ink is vector (mesh / Path2D); never stamped here.
+ * WebGL instance atlas — fixed-cell LRU packer for media bake tiles (ADR 0027).
+ * Shape / text ink is vector (mesh / Path2D); never stamped here.
  */
 import {
   SOA_KIND_IMAGE,
-  SOA_KIND_TEXT,
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
 
@@ -290,8 +289,8 @@ export function releaseSoaAtlasPrefix(atlas: SoaWebglAtlas, prefix: string): num
 }
 
 /**
- * Drop stale atlas stamps. Legacy shape keys (`rich:` / `path:` / `round:`)
- * are always released. Media (`img:` / `aud:`) and text (`txt:`) kept while the slot remains.
+ * Drop stale atlas stamps. Legacy shape keys (`rich:` / `path:` / `round:` / `txt:`)
+ * are always released. Media (`img:` / `aud:`) kept while the slot remains.
  */
 export function pruneSoaAtlasForBuffer(atlas: SoaWebglAtlas, buf: SceneRenderBuffer): number {
   const keep = new Set<string>();
@@ -302,8 +301,6 @@ export function pruneSoaAtlasForBuffer(atlas: SoaWebglAtlas, buf: SceneRenderBuf
     if (kind === SOA_KIND_IMAGE) {
       keep.add(`img:${id}`);
       keep.add(`aud:${id}`);
-    } else if (kind === SOA_KIND_TEXT) {
-      keep.add(`txt:${id}`);
     }
   }
   let n = 0;
@@ -311,16 +308,13 @@ export function pruneSoaAtlasForBuffer(atlas: SoaWebglAtlas, buf: SceneRenderBuf
     if (
       key.startsWith('rich:') ||
       key.startsWith('path:') ||
-      key.startsWith('round:')
+      key.startsWith('round:') ||
+      key.startsWith('txt:')
     ) {
       if (releaseSoaAtlasRegion(atlas, key)) n += 1;
       continue;
     }
-    if (
-      !key.startsWith('img:') &&
-      !key.startsWith('aud:') &&
-      !key.startsWith('txt:')
-    ) {
+    if (!key.startsWith('img:') && !key.startsWith('aud:')) {
       continue;
     }
     const kept = [...keep].some((k) => key === k || key.startsWith(`${k}:`));

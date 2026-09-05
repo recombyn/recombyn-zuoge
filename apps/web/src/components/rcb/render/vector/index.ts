@@ -24,6 +24,14 @@ export {
   type CachedShapeMesh,
 } from '@/components/rcb/render/vector/meshCache';
 export {
+  ensureTextOutlineMesh,
+  getTextOutlineMesh,
+  invalidateTextOutlineMesh,
+  clearTextOutlineMeshCache,
+  textOutlineGeomFingerprint,
+  type CachedTextOutlineMesh,
+} from '@/components/rcb/render/vector/textOutlineMesh';
+export {
   appendMeshLocal,
   type AppendMeshLocalOpts,
 } from '@/components/rcb/render/vector/appendMesh';
@@ -39,6 +47,7 @@ export {
   tessellateFillWithHolesWasm,
   tessellateBatchFill,
   buildShapeMeshes,
+  buildCompoundFillMeshes,
   booleanPolygonsWasm,
   offsetPolylineWasm,
   simplifyRdpWasm,

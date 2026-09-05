@@ -19,19 +19,23 @@ import {
   registerArtboardInkSurface,
   soaSlotIsFrameBound,
 } from '@/components/rcb/frames/artboardInkSurface';
+import * as artboardWebglInk from '@/components/rcb/frames/artboardWebglInk';
 import { setFrameClipRevealOverflowIds } from '@/components/rcb/frames/frameContentClip';
 
 describe('artboardInkScale', () => {
-  it('tracks zoom×dpr up to MAX_SCALE', () => {
+  it('tracks zoom×dpr up to MAX_SCALE (edge OOM guard is separate)', () => {
     expect(artboardInkScale(1, 1)).toBe(1);
     expect(artboardInkScale(2, 1)).toBe(2);
-    expect(artboardInkScale(4, 2)).toBe(ARTBOARD_INK_MAX_SCALE);
-    expect(artboardInkScale(20, 1)).toBe(ARTBOARD_INK_MAX_SCALE);
+    expect(artboardInkScale(4, 2)).toBe(8);
+    expect(artboardInkScale(ARTBOARD_INK_MAX_SCALE + 10, 1)).toBe(ARTBOARD_INK_MAX_SCALE);
     expect(artboardInkBackingInsufficient(2, 1)).toBe(false);
     expect(artboardInkBackingInsufficient(ARTBOARD_INK_MAX_SCALE + 1, 1)).toBe(true);
   });
 
   it('restamps FO canvas at zoom×dpr so camera scale does not mush ink', () => {
+    vi.spyOn(artboardWebglInk, 'artboardWebglInkAvailable').mockReturnValue(false);
+    vi.spyOn(artboardWebglInk, 'paintArtboardWebglInk').mockReturnValue(false);
+
     const canvas = document.createElement('canvas');
     const ops: string[] = [];
     const fakeCtx = {
@@ -45,6 +49,7 @@ describe('artboardInkScale', () => {
       clip: () => undefined,
       translate: () => undefined,
       strokeRect: () => ops.push('strokeRect'),
+      drawImage: () => ops.push('drawImage'),
       globalAlpha: 1,
       fillStyle: '',
       strokeStyle: '',
@@ -83,7 +88,9 @@ describe('artboardInkScale', () => {
     expect(ops).not.toContain('fillRect');
     expect(ops).not.toContain('strokeRect');
     expect(ARTBOARD_INK_MAX_EDGE).toBeGreaterThan(1024);
+    expect(ARTBOARD_INK_MAX_SCALE).toBeGreaterThan(8);
     unreg();
+    vi.restoreAllMocks();
   });
 });
 
@@ -169,7 +176,125 @@ describe('artboard small-canvas SoA partition', () => {
     expect(kindsWithAtlas.length).toBeLessThanOrEqual(1);
   });
 
-  it('selection reveal paints frame-bound overflow on world ink', () => {
+  it('onlyFrameId collects plate-bound idle and omits other plates / world', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc.frames = [
+      {
+        id: 'board-a',
+        name: 'A',
+        backgroundColor: '#fff',
+        x: 0,
+        y: 0,
+        width: 200,
+        height: 200,
+      },
+      {
+        id: 'board-b',
+        name: 'B',
+        backgroundColor: '#fff',
+        x: 300,
+        y: 0,
+        width: 200,
+        height: 200,
+      },
+    ];
+    doc = addNodeToDocument(doc, 'world', {
+      id: 'world',
+      key: 'shape',
+      x: 500,
+      y: 400,
+      width: 20,
+      height: 20,
+      attrs: { shapeType: 'rect', fill: '#f00', 'stroke-enabled': false },
+      children: [],
+    });
+    doc = addNodeToDocument(doc, 'on-a', {
+      id: 'on-a',
+      key: 'shape',
+      x: 10,
+      y: 10,
+      width: 20,
+      height: 20,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#0f0',
+        'stroke-enabled': false,
+        frameId: 'board-a',
+      },
+      children: [],
+    });
+    doc = addNodeToDocument(doc, 'on-b', {
+      id: 'on-b',
+      key: 'shape',
+      x: 310,
+      y: 10,
+      width: 20,
+      height: 20,
+      attrs: {
+        shapeType: 'rect',
+        fill: '#00f',
+        'stroke-enabled': false,
+        frameId: 'board-b',
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    for (let i = 0; i < buf.count; i += 1) {
+      buf.flags[i] = (buf.flags[i] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    }
+
+    const atlas = createSoaWebglAtlas(512, 128);
+    if (!atlas) return;
+    const kinds: number[] = [];
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { left: 0, top: 0, width: 200, height: 200 },
+      [],
+      [],
+      kinds,
+      [],
+      [],
+      {
+        document: doc,
+        onlyFrameId: 'board-a',
+        atlas,
+        meshPos,
+        meshCol,
+        meshClip,
+      }
+    );
+    // Only board-a content; world + board-b omitted. Mesh and/or kind instance OK.
+    expect(kinds.length + meshPos.length).toBeGreaterThan(0);
+
+    const kindsWorld: number[] = [];
+    const meshWorld: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 800, height: 600 },
+      [],
+      [],
+      kindsWorld,
+      [],
+      [],
+      {
+        document: doc,
+        skipFrameBound: true,
+        atlas,
+        meshPos: meshWorld,
+        meshCol: [],
+        meshClip: [],
+      }
+    );
+    // World still skips plate-bound (on-a / on-b).
+    const worldOnly = kindsWorld.length + meshWorld.length;
+    expect(worldOnly).toBeGreaterThan(0);
+  });
+
+  it('selection reveal skips FO collect; world paints only while SoA idle remains', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc.frames = [
       {
@@ -229,6 +354,28 @@ describe('artboard small-canvas SoA partition', () => {
       if (clips.length >= 4) {
         expect(clips[0]).toBeLessThan(-1e7);
       }
+
+      const plateKinds: number[] = [];
+      const plateMesh: number[] = [];
+      collectSoaWebglInstances(
+        buf,
+        { left: 0, top: 0, width: 200, height: 200 },
+        [],
+        [],
+        plateKinds,
+        [],
+        [],
+        {
+          document: doc,
+          onlyFrameId: 'board',
+          atlas,
+          meshPos: plateMesh,
+          meshCol: [],
+          meshClip: [],
+        }
+      );
+      // Revealed overflow must not paint on the FO collect (raised host / world).
+      expect(plateKinds.length + plateMesh.length).toBe(0);
     } finally {
       setFrameClipRevealOverflowIds(null);
     }

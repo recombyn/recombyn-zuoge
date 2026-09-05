@@ -4,7 +4,7 @@
 import { getShapeBaselineD } from '@/components/rcb/core/geometry/baseline';
 import type { SceneNodeInput } from '@/components/rcb/sceneNode';
 import { shapeGeomFingerprint } from '@/components/rcb/render/vector/geomFingerprint';
-import { densifyPathDJs, DENSIFY_DEFAULT_FLATNESS } from '@/components/rcb/render/vector/densifyPathDJs';
+import { densifyPathDJs, DENSIFY_DEFAULT_FLATNESS, splitPolylineContours } from '@/components/rcb/render/vector/densifyPathDJs';
 import { densifyPathDWasm } from '@/components/rcb/render/vector/wasmGeom';
 import {
   ellipseArcPercentFromAttrs,
@@ -31,11 +31,16 @@ export type ShapeContour = {
 
 /** Densify SVG path `d` — prefers WASM when ready, else JS. */
 export function densifyPathD(d: string, flatness = DENSIFY_DEFAULT_FLATNESS): Vec2[] {
+  const src = String(d || '');
+  // Multi-subpath (arrow shaft + V): JS densify inserts NaN breaks. Old WASM
+  // densify concatenated subpaths into one zigzag stroke mesh.
+  const moveCount = (src.match(/[Mm]/g) || []).length;
+  if (moveCount > 1) return densifyPathDJs(d, flatness);
   return densifyPathDWasm(d, flatness);
 }
 
 /** Explicit JS-only densify (tests / golden). */
-export { densifyPathDJs, DENSIFY_DEFAULT_FLATNESS };
+export { densifyPathDJs, DENSIFY_DEFAULT_FLATNESS, splitPolylineContours };
 
 /** Full ellipse / circle ring — peri÷flatness samples (not 4×8 Bézier chords). */
 export function sampleEllipseRing(

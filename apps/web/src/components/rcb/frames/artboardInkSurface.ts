@@ -1,11 +1,23 @@
 /**
- * Per-artboard ink surface — bound SoA idle nodes on a FO canvas.
- * Plate fill + edge stay on SVG (HtmlArtboardFrame); painting them here too
- * double-layers and bleeds past selection chrome under camera scale.
+ * Per-artboard ink surface — bound SoA idle on a FO canvas via shared WebGL
+ * (same mesh path as world). Plate fill + edge stay on SVG (HtmlArtboardFrame);
+ * painting them here too double-layers and bleeds past selection chrome.
  *
  * Backing tracks zoom: FO sits under SVG `scale(zoom)`, so scene×dpr alone mush.
+ * Soft 8× soft-upscale path removed; MAX_EDGE still caps OOM.
  */
+import { nodeOwnerFrameId } from '@/components/rcb/frames/frameNodeBinding';
+import { frameClipRevealsOverflow } from '@/components/rcb/frames/frameContentClip';
+import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
+import { readDevicePixelRatio } from '@/components/rcb/core/dpr';
+import { buildNodeStackZMap } from '@/components/rcb/scene/document/sceneDocument';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
+import {
+  artboardWebglInkAvailable,
+  paintArtboardWebglInk,
+  releaseArtboardWebglTarget,
+} from '@/components/rcb/frames/artboardWebglInk';
 import {
   getSharedSceneRenderBuffer,
   paintSoaIdleSlot,
@@ -15,15 +27,12 @@ import {
   setSoaPaintDocument,
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
-import { buildNodeStackZMap } from '@/components/rcb/scene/document/sceneDocument';
-import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
-import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
-import { readDevicePixelRatio } from '@/components/rcb/core/dpr';
-import { nodeOwnerFrameId } from '@/components/rcb/frames/frameNodeBinding';
-import { frameClipRevealsOverflow } from '@/components/rcb/frames/frameContentClip';
 
-/** Cap on zoom×dpr for a single full-plate ink bitmap (tiles take over past this). */
-export const ARTBOARD_INK_MAX_SCALE = 8;
+/**
+ * Soft cap on zoom×dpr for a single full-plate ink bitmap.
+ * Raised so MAX_EDGE is the practical OOM guard (no permanent mush at 8×).
+ */
+export const ARTBOARD_INK_MAX_SCALE = 64;
 /** Longest backing edge (px) so huge plates at high zoom do not OOM. */
 export const ARTBOARD_INK_MAX_EDGE = 4096;
 
@@ -69,7 +78,7 @@ export function artboardInkBackingInsufficient(zoom: number, dpr = 1): boolean {
 /**
  * Size the FO canvas so CSS scene size × camera zoom maps ~1:1 to device pixels
  * (up to {@link ARTBOARD_INK_MAX_SCALE} / {@link ARTBOARD_INK_MAX_EDGE}).
- * Returns the effective scene→backing scale for `setTransform`.
+ * Returns the effective scene→backing scale for paint transforms.
  */
 function resizeInkCanvas(
   canvas: HTMLCanvasElement,
@@ -108,7 +117,9 @@ function collectBoundIdleIndices(
     if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
     const id = buf.ids[i];
     if (!id) continue;
-    // Selected / editing: paint on world ink without plate clip (match chrome).
+    // Selected / editing: paint on raised SVG host / world ink (not FO).
+    // Dual FO+world paint left a clipped ghost in the plate while the live
+    // drag drew outside — and world WebGL cannot cover the plate fill.
     if (frameClipRevealsOverflow(id)) continue;
     const node = doc.deltaSetLike?.[id] as SceneNodeInput | undefined;
     if (!node || nodeOwnerFrameId(node) !== frameId) continue;
@@ -116,9 +127,38 @@ function collectBoundIdleIndices(
     indices.push(i);
   }
   if (indices.length <= 1) return indices;
-  const zMap = buildNodeStackZMap(doc);
+  const zMap = buildNodeStackZMap(
+    doc,
+    indices.map((i) => buf.ids[i] || '').filter(Boolean)
+  );
   indices.sort((a, b) => (zMap.get(buf.ids[a] || '') ?? 0) - (zMap.get(buf.ids[b] || '') ?? 0));
   return indices;
+}
+
+/** Canvas2D survival path when shared artboard WebGL is unavailable. */
+function paintArtboardInkSurface2d(entry: SurfaceEntry, frame: ArtboardInkPaintFrame, effective: number): void {
+  const w = Math.max(1, Number(frame.width) || 1);
+  const h = Math.max(1, Number(frame.height) || 1);
+  const ctx = entry.canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(effective, 0, 0, effective, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const doc = entry.getDocument();
+  if (!doc) return;
+  setSoaPaintDocument(doc);
+  const buf = getSharedSceneRenderBuffer();
+  const fx = Number(frame.x) || 0;
+  const fy = Number(frame.y) || 0;
+  const indices = collectBoundIdleIndices(buf, doc, String(frame.id));
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  ctx.clip();
+  ctx.translate(-fx, -fy);
+  const view = { left: fx, top: fy, right: fx + w, bottom: fy + h };
+  for (const i of indices) paintSoaIdleSlot(ctx, buf, i, view, doc);
+  ctx.restore();
 }
 
 /** Register a display canvas for continuous artboard ink. */
@@ -143,7 +183,10 @@ export function registerArtboardInkSurface(
   surfaces.set(id, full);
   scheduleArtboardInkPaint(id);
   return () => {
-    if (surfaces.get(id) === full) surfaces.delete(id);
+    if (surfaces.get(id) === full) {
+      surfaces.delete(id);
+      releaseArtboardWebglTarget(id);
+    }
   };
 }
 
@@ -185,29 +228,29 @@ export function paintArtboardInkSurface(entry: SurfaceEntry): void {
   const scale = artboardInkScale(entry.zoom, dpr);
   const effective = resizeInkCanvas(entry.canvas, w, h, scale);
 
-  const ctx = entry.canvas.getContext('2d');
-  if (!ctx) return;
-  ctx.setTransform(effective, 0, 0, effective, 0, 0);
-  // Transparent — SVG `data-rcb-artboard-fill` / edge own the plate. Painting
-  // fill+stroke here too double-layers and bleeds ~1px past selection chrome.
-  ctx.clearRect(0, 0, w, h);
-
   const doc = entry.getDocument();
-  if (doc) {
-    setSoaPaintDocument(doc);
-    const buf = getSharedSceneRenderBuffer();
-    const fx = Number(frame.x) || 0;
-    const fy = Number(frame.y) || 0;
-    const indices = collectBoundIdleIndices(buf, doc, String(frame.id));
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, w, h);
-    ctx.clip();
-    ctx.translate(-fx, -fy);
-    const view = { left: fx, top: fy, right: fx + w, bottom: fy + h };
-    for (const i of indices) paintSoaIdleSlot(ctx, buf, i, view, doc);
-    ctx.restore();
+  if (
+    doc &&
+    artboardWebglInkAvailable() &&
+    paintArtboardWebglInk({
+      targetCanvas: entry.canvas,
+      frameId: String(frame.id),
+      frame: {
+        x: Number(frame.x) || 0,
+        y: Number(frame.y) || 0,
+        width: w,
+        height: h,
+      },
+      document: doc,
+      effectiveScale: effective,
+      dpr,
+    })
+  ) {
+    return;
   }
+
+  // Transparent clear + optional 2D idle — SVG fill/edge own the plate.
+  paintArtboardInkSurface2d(entry, frame, effective);
 }
 
 /** True when a SoA slot belongs to an artboard (painted on ArtboardLayer, not world ink). */

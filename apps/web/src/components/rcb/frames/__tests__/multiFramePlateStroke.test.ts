@@ -53,7 +53,7 @@ describe('multi-frame plate stroke', () => {
     ).toBe(true);
   });
 
-  it('clears plate edge when a bound child owns SelectionChrome', () => {
+  it('clears plate blue soft edge when a bound child owns SelectionChrome (keeps idle hairline)', () => {
     expect(
       framePlateClearsIdleStroke({
         chromeMode: 'soft',
@@ -61,7 +61,7 @@ describe('multi-frame plate stroke', () => {
         frameId: 'a',
         boundChildSelected: true,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       framePlateShowsHighlightEdge({
         chromeMode: 'soft',

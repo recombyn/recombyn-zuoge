@@ -86,7 +86,8 @@ rcb/
 │
 ├── frames/                  # 画板 / 动画工作台
 │   ├── HtmlArtboardFrame.tsx
-│   ├── artboardInkSurface.ts  # 板内 Canvas2D 墨水
+│   ├── artboardInkSurface.ts  # 板内 FO 墨水（共享 WebGL→blit；2D 回退）
+│   ├── artboardWebglInk.ts    # 共享 WebGL2 + onlyFrameId
 │   ├── frameContentClip.ts    # clipContent + selection raise 注册表
 │   └── frameNodeBinding.ts / FrameDraw|MoveFeature …
 │
@@ -117,7 +118,7 @@ rcb/
 | 表面 | 解决什么 | 放大时 |
 |------|----------|--------|
 | **WebGL / Canvas2D SoA** | 上千节点时的吞吐 | 位图/atlas 有分辨率上限 → 糊 |
-| **画板 FO Canvas** | 板内子节点跟板一起裁剪、少占世界层 | 有 `ARTBOARD_INK_MAX_SCALE` 上限 → 再放大糊 |
+| **画板 FO Canvas** | 板内子节点跟板一起裁剪、少占世界层 | `MAX_EDGE` 防 OOM；产品路径为共享 WebGL→FO |
 | **SVG / DOM host** | 矢量边、Lucide 图标、需压住画板、编辑器 | CSS zoom 下仍清晰 |
 | **HTML FO media** | video/audio/滚动文字原生能力 | 清晰取决于资源本身 |
 
@@ -224,10 +225,11 @@ rcb/
 |-----|------|
 | `createSceneRenderer` / `createWebglSceneRenderer` | 世界墨水 |
 | `canIdlePaintOnCanvas` | 能否走 SoA/idle 位图路径 |
-| `pickFullAndCanvasIds` | 拆 `fullIds`(host) / `canvasIds`(SoA) |
+| `pickFullAndCanvasIds` | 拆 `fullIds`(host) / `canvasIds`(SoA)；板内 raise/reveal → host |
 | `idleMediaNeedsSharpHost` 等 | 放大后是否必须升 host |
 | `applySoaHostInkFlags` | host 占用时关掉 SoA 槽，防双画 |
-| `paintArtboardInkSurface`（frames） | 板内墨水 |
+| `paintArtboardInkSurface`（frames） | 板内墨水；reveal id **不进** FO collect |
+| `artboardWebglInk` / `onlyFrameId` | 共享 WebGL→FO；同样跳过 reveal |
 | `syncStackPaintOrder` | 按 `data-z` 排共享 SVG |
 
 **目标 API（建议新增，薄封装）：**
@@ -269,15 +271,16 @@ function paintFrame(doc, camera, dirty): void  // 内部再分发三条后端
 
 | 类型 | 默认 idle | 何时 DomHost |
 |------|-----------|--------------|
-| rect / ellipse / line（基础） | SoaWorld / SoaArtboard | 需盖住画板、描边 atlas 糊、SoftGlow |
-| path / poly / star / pencil | atlas / rich idle | 糊、抬升、盖板、过重 path |
-| text | atlas / 2D idle | 高 zoom 糊；滚动字 FO |
+| rect / ellipse / line（基础） | SoaWorld / SoaArtboard | 板内选中/reveal、需盖住画板、描边 atlas 糊、SoftGlow |
+| path / poly / star / pencil | atlas / rich idle | 糊、抬升、盖板、过重 path、**板内选中/reveal** |
+| text | outline mesh | 编辑态 FO；无 text atlas |
 | image / video / audio | atlas stamp | 屏边 > atlas、空生成器、CORS、过程中、解码编辑 |
 | 空生成器（图/视/音/Lottie） | **禁止 SoA** | **永远 DomHost**（图标清晰 + 可压板） |
 | lottie / group | 禁止 SoA | 永远 DomHost |
 | backdrop-blur / puppet-warp | 禁止 SoA | DomHost |
 
-板绑定（`attrs.frameId`）：idle SoA → **SoaArtboard**，不进世界 WebGL。
+板绑定（`attrs.frameId`）：idle SoA → **SoaArtboard**，不进世界 WebGL。  
+选中 / overflow reveal：FO 停画该 id → **升 SVG host（max+1）**；禁止 FO+世界各画一半。
 
 ---
 
@@ -333,7 +336,7 @@ function paintFrame(doc, camera, dirty): void  // 内部再分发三条后端
 2. **选中才看见？** 多半是 selection paint raise；idle 应用 `nodePaintZIndex`，不是只靠 raise。  
 3. **放大糊？** atlas / 板 ink 上限；该升 DomHost 还是提高 stamp 分辨率。  
 4. **点不着？** hit 遮挡 vs paint 是否一致（`isOccludedByHigherArtboard`）。  
-5. **弹一下 / 层级跳？** 抬升时生成器是否升到 host；SoA 画在 SVG 下无法靠 max+1 盖住 sibling host。  
+5. **弹一下 / 层级跳？** 抬升时生成器 **与板内绑定形** 是否升到 host；SoA 画在 SVG 下无法靠 max+1 盖住板面 / sibling host。板内拖出若仍见鬼影：FO 是否仍在 paint reveal。  
 6. **TDZ / 循环依赖？** 不要从 `sceneDocument` 拉 editor chrome；常量放叶子模块。
 
 ---

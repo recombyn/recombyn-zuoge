@@ -27,7 +27,7 @@ export function framePlateStrokeSceneWidth(zoom: number): number {
  * transform — same miter closed-path recipe as stroked SoA rects (not strokeRect AA).
  *
  * Prefer {@link applyArtboardPlateEdgeStroke} for live plate chrome: artboard ink
- * canvas backing is capped (`ARTBOARD_INK_MAX_SCALE`), so canvas hairlines vanish
+ * canvas backing is edge-capped (`ARTBOARD_INK_MAX_EDGE`), so canvas hairlines vanish
  * when zoomed in past that cap.
  */
 export function strokeCanvasPlateHairline(

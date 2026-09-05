@@ -150,12 +150,14 @@ describe('getShapeBaseline', () => {
     expect(lineBaselinePath(80, 24)).toBe('M 0 12 L 80 12');
   });
 
-  it('arrow shaft reaches tip and V shares tip', () => {
+  it('arrow shaft stops at head base; only V meets the tip', () => {
     const d = arrowBaselinePath(100, 24);
     expect(d).toContain('M 0 12');
-    expect(d).toContain('L 100 12');
-    // Shaft + V both meet tip (preview geometry).
-    expect(d.match(/L 100 12/g)?.length).toBeGreaterThanOrEqual(2);
+    // Default ARROW_HEAD=14 → shaft ends at 86, tip at 100.
+    expect(d).toContain('L 86 12');
+    expect(d).not.toMatch(/M 0 12 L 100 12/);
+    // V still shares the tip once.
+    expect(d.match(/L 100 12/g)?.length).toBe(1);
   });
 
   it('circle uses ellipse baseline', () => {

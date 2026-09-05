@@ -41,7 +41,9 @@ import {
   starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
 import { invalidateShapeMesh } from '@/components/rcb/render/vector/meshCache';
+import { invalidateTextOutlineMesh } from '@/components/rcb/render/vector/textOutlineMesh';
 import { pencilSilhouettePathD } from '@/components/rcb/render/vector/contour';
+import { parseNodeTextStyle } from '@/components/rcb/scene/document/sceneText';
 import { getSoaTextInkPainter } from '@/components/rcb/render/soaTextInkPainter';
 import { getShapeBaseline } from '@/components/rcb/core/geometry/baseline';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
@@ -90,7 +92,7 @@ export const SOA_KIND_LINE = 2;
 export const SOA_KIND_PATH = 3;
 export const SOA_KIND_IMAGE = 4;
 export const SOA_KIND_POLY = 5;
-/** Static text — Canvas/DOM vector glyphs (never atlas stamp). */
+/** Static text — WebGL glyph outline mesh (never atlas stamp). */
 export const SOA_KIND_TEXT = 6;
 export const SOA_KIND_OTHER = 15;
 /** Fallback line/path width when attrs omit border-width (matches prior Canvas/WebGL default). */
@@ -126,7 +128,7 @@ function shapeTypeToken(node: SceneNodeInput): string {
 export function isSoaCanvasEligible(node: SceneNodeInput | null | undefined): boolean {
   if (!node) return false;
   const key = String(node.key || '');
-  // Lottie/group stay DOM. Static image/video/audio/text can atlas-stamp.
+  // Lottie/group stay DOM. Static image/video/audio may atlas-stamp; text is outline mesh.
   if (key === 'lottie' || key === 'group') return false;
   if (key === 'text' || key === 'image' || key === 'video' || key === 'audio') return true;
   const t = shapeTypeToken(node);
@@ -644,6 +646,10 @@ function shapeKindOf(node: SceneNodeInput): number {
 
 function fillColorOf(node: SceneNodeInput): number {
   const attrs = node.attrs || {};
+  if (shapeKindOf(node) === SOA_KIND_TEXT) {
+    const style = parseNodeTextStyle(attrs);
+    return packCssColor(style.fill ?? attrs.fill ?? attrs['fill-color'], 0xff333333);
+  }
   return packCssColor(attrs['fill-color'], 0xffc0c0c0);
 }
 
@@ -706,8 +712,8 @@ function writeSlot(
   let flags = SOA_FLAG_DIRTY;
   if (!isNodeOverlayHidden(document, node)) flags |= SOA_FLAG_VISIBLE;
   if (node.attrs?.locked) flags |= SOA_FLAG_LOCKED;
-  // BASIC_GEOM → SoA vector ink (WebGL mesh / Canvas2D Path2D). Media/text
-  // keep CANVAS_IDLE without BASIC for texture / glyph paths.
+  // BASIC_GEOM → SoA vector ink (WebGL mesh / Canvas2D Path2D). Media keeps
+  // CANVAS_IDLE without BASIC (GPU texture). Text is outline mesh (still no BASIC).
   if (isSoaBasicGeomSufficient(node)) {
     flags |= SOA_FLAG_BASIC_GEOM | SOA_FLAG_CANVAS_IDLE;
   } else if (kind === SOA_KIND_IMAGE || kind === SOA_KIND_TEXT) {
@@ -731,6 +737,7 @@ function writeSlot(
   // Geometry wrote — drop vector caches so next paint rebuilds fill/stroke meshes.
   invalidateShapeMesh(id);
   invalidateNodePath2D(id);
+  if (kind === SOA_KIND_TEXT) invalidateTextOutlineMesh(id);
   if (!opts?.skipQuad) syncQuadSlot(buf, index);
 }
 
@@ -2735,6 +2742,7 @@ export function upsertSoaGeom(
   buf.flags[index] = (buf.flags[index] | SOA_FLAG_DIRTY) >>> 0;
   invalidateShapeMesh(id);
   invalidateNodePath2D(id);
+  if (buf.kinds[index] === SOA_KIND_TEXT) invalidateTextOutlineMesh(id);
   syncQuadSlot(buf, index);
   return index;
 }

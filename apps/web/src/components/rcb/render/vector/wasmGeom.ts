@@ -3,7 +3,7 @@
  * Lazy-loads `packages/rcb-wasm-geom`; each export falls back to JS when unavailable.
  */
 import type { Vec2 } from '@/components/rcb/render/vector/contour';
-import { densifyPathDJs, DENSIFY_DEFAULT_FLATNESS } from '@/components/rcb/render/vector/densifyPathDJs';
+import { densifyPathDJs, DENSIFY_DEFAULT_FLATNESS, splitPolylineContours } from '@/components/rcb/render/vector/densifyPathDJs';
 import {
   tessellateFill as tessellateFillJs,
   tessellateFillWithHoles as tessellateFillWithHolesJs,
@@ -158,10 +158,11 @@ function unpackBatch(packed: Float32Array): (FillMesh | null)[] {
 async function loadWasmModule(): Promise<WasmApi | null> {
   try {
     // Served from public/rcb-wasm (copied by build-wasm.mjs) so Vite ships .wasm.
-    const mod = await import(
-      /* @vite-ignore */
-      '/rcb-wasm/rcb_wasm_geom.js'
-    );
+    // Avoid `import('/public/...')` — Vite rejects public JS as bundle imports; runtime fetch via Function.
+    const dynamicImport = new Function('u', 'return import(u)') as (
+      u: string
+    ) => Promise<Record<string, unknown> & { default?: (opts: { module_or_path: string }) => Promise<void> }>;
+    const mod = await dynamicImport('/rcb-wasm/rcb_wasm_geom.js');
     if (typeof mod.default === 'function') {
       await mod.default({ module_or_path: '/rcb-wasm/rcb_wasm_geom_bg.wasm' });
     }
@@ -173,20 +174,31 @@ async function loadWasmModule(): Promise<WasmApi | null> {
       return null;
     }
     return {
-      densify_path_d: mod.densify_path_d,
-      tessellate_fill: mod.tessellate_fill,
-      tessellate_fill_with_holes: mod.tessellate_fill_with_holes,
-      tessellate_stroke: mod.tessellate_stroke,
-      tessellate_batch_fill: mod.tessellate_batch_fill,
+      densify_path_d: mod.densify_path_d as WasmApi['densify_path_d'],
+      tessellate_fill: mod.tessellate_fill as WasmApi['tessellate_fill'],
+      tessellate_fill_with_holes: mod.tessellate_fill_with_holes as WasmApi['tessellate_fill_with_holes'],
+      tessellate_stroke: mod.tessellate_stroke as WasmApi['tessellate_stroke'],
+      tessellate_batch_fill: mod.tessellate_batch_fill as WasmApi['tessellate_batch_fill'],
       boolean_polygons:
-        typeof mod.boolean_polygons === 'function' ? mod.boolean_polygons : undefined,
+        typeof mod.boolean_polygons === 'function'
+          ? (mod.boolean_polygons as NonNullable<WasmApi['boolean_polygons']>)
+          : undefined,
       offset_polyline:
-        typeof mod.offset_polyline === 'function' ? mod.offset_polyline : undefined,
-      simplify_rdp: typeof mod.simplify_rdp === 'function' ? mod.simplify_rdp : undefined,
+        typeof mod.offset_polyline === 'function'
+          ? (mod.offset_polyline as NonNullable<WasmApi['offset_polyline']>)
+          : undefined,
+      simplify_rdp:
+        typeof mod.simplify_rdp === 'function'
+          ? (mod.simplify_rdp as NonNullable<WasmApi['simplify_rdp']>)
+          : undefined,
       simplify_rdp_closed:
-        typeof mod.simplify_rdp_closed === 'function' ? mod.simplify_rdp_closed : undefined,
+        typeof mod.simplify_rdp_closed === 'function'
+          ? (mod.simplify_rdp_closed as NonNullable<WasmApi['simplify_rdp_closed']>)
+          : undefined,
       trace_rgba_contours:
-        typeof mod.trace_rgba_contours === 'function' ? mod.trace_rgba_contours : undefined,
+        typeof mod.trace_rgba_contours === 'function'
+          ? (mod.trace_rgba_contours as NonNullable<WasmApi['trace_rgba_contours']>)
+          : undefined,
     };
   } catch {
     return null;
@@ -327,6 +339,7 @@ function fillMeshFor(
 }
 
 function strokeMeshFor(points: Vec2[], opts: StrokeTessOpts): StrokeMesh | null {
+  if (points.length < 2) return null;
   if (wasmLive()) {
     return meshFromFlat(
       api!.tessellate_stroke(
@@ -340,6 +353,150 @@ function strokeMeshFor(points: Vec2[], opts: StrokeTessOpts): StrokeMesh | null 
     );
   }
   return tessellateStrokeJs(points, opts);
+}
+
+function mergeStrokeMeshes(parts: StrokeMesh[]): StrokeMesh | null {
+  if (!parts.length) return null;
+  if (parts.length === 1) return parts[0]!;
+  let total = 0;
+  for (const p of parts) total += p.positions.length;
+  const positions = new Float32Array(total);
+  let o = 0;
+  let tris = 0;
+  for (const p of parts) {
+    positions.set(p.positions, o);
+    o += p.positions.length;
+    tris += p.triangleCount;
+  }
+  return { positions, triangleCount: tris };
+}
+
+function mergeFillMeshes(parts: FillMesh[]): FillMesh | null {
+  if (!parts.length) return null;
+  if (parts.length === 1) return parts[0]!;
+  let total = 0;
+  for (const p of parts) total += p.positions.length;
+  const positions = new Float32Array(total);
+  let o = 0;
+  let tris = 0;
+  for (const p of parts) {
+    positions.set(p.positions, o);
+    o += p.positions.length;
+    tris += p.triangleCount;
+  }
+  return { positions, triangleCount: tris };
+}
+
+function ringSignedArea(ring: Vec2[]): number {
+  let a = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    a += ring[j]!.x * ring[i]!.y - ring[i]!.x * ring[j]!.y;
+  }
+  return a * 0.5;
+}
+
+function pointInRing(p: Vec2, ring: Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i]!.x;
+    const yi = ring[i]!.y;
+    const xj = ring[j]!.x;
+    const yj = ring[j]!.y;
+    if ((yi > p.y) !== (yj > p.y) && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi + 1e-20) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function ringCentroid(ring: Vec2[]): Vec2 {
+  let x = 0;
+  let y = 0;
+  for (const p of ring) {
+    x += p.x;
+    y += p.y;
+  }
+  const n = Math.max(1, ring.length);
+  return { x: x / n, y: y / n };
+}
+
+/**
+ * Multi-subpath fill (text glyphs / compound paths): nest rings → outer+holes
+ * compounds, then tessellate. Works for evenodd canvas traces and nonzero fontkit.
+ */
+export function buildCompoundFillMeshes(
+  points: Vec2[],
+  _fillRule: 'nonzero' | 'evenodd' = 'evenodd'
+): FillMesh | null {
+  const runs = splitPolylineContours(points)
+    .map((r) => {
+      const out = r.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+      if (out.length < 3) return out;
+      const a = out[0]!;
+      const b = out[out.length - 1]!;
+      if (Math.abs(a.x - b.x) > 1e-5 || Math.abs(a.y - b.y) > 1e-5) out.push({ ...a });
+      return out;
+    })
+    .filter((r) => r.length >= 3);
+  if (!runs.length) return null;
+  if (runs.length === 1) return fillMeshFor(runs[0]!, undefined);
+
+  const indexed = runs.map((ring, i) => ({
+    ring,
+    i,
+    area: Math.abs(ringSignedArea(ring)),
+  }));
+  indexed.sort((a, b) => b.area - a.area);
+
+  const parent = new Array<number>(runs.length).fill(-1);
+  for (let a = 0; a < indexed.length; a += 1) {
+    const child = indexed[a]!;
+    const c = ringCentroid(child.ring);
+    for (let b = a - 1; b >= 0; b -= 1) {
+      const cand = indexed[b]!;
+      if (cand.area <= child.area + 1e-6) continue;
+      if (pointInRing(c, cand.ring)) {
+        parent[child.i] = cand.i;
+        break;
+      }
+    }
+  }
+
+  const depth = new Array<number>(runs.length).fill(0);
+  const depthOf = (i: number): number => {
+    if (parent[i] < 0) return 0;
+    if (depth[i]) return depth[i]!;
+    depth[i] = depthOf(parent[i]!) + 1;
+    return depth[i]!;
+  };
+  for (let i = 0; i < runs.length; i += 1) depthOf(i);
+
+  const compounds: { outer: Vec2[]; holes: Vec2[][] }[] = [];
+  const outerIndex = new Map<number, number>();
+  for (let i = 0; i < runs.length; i += 1) {
+    if (depth[i]! % 2 === 0) {
+      outerIndex.set(i, compounds.length);
+      compounds.push({ outer: runs[i]!, holes: [] });
+    }
+  }
+  for (let i = 0; i < runs.length; i += 1) {
+    if (depth[i]! % 2 === 0) continue;
+    let p = parent[i]!;
+    while (p >= 0 && depth[p]! % 2 !== 0) p = parent[p]!;
+    const ci = p >= 0 ? outerIndex.get(p) : undefined;
+    if (ci == null) {
+      compounds.push({ outer: runs[i]!, holes: [] });
+    } else {
+      compounds[ci]!.holes.push(runs[i]!);
+    }
+  }
+
+  const parts: FillMesh[] = [];
+  for (const c of compounds) {
+    const m = fillMeshFor(c.outer, c.holes.length ? c.holes : undefined);
+    if (m) parts.push(m);
+  }
+  return mergeFillMeshes(parts);
 }
 
 /** Build fill+stroke for one contour (profiles once). */
@@ -361,20 +518,35 @@ export function buildShapeMeshes(
   let tFill = 0;
   let tStroke = 0;
 
-  if (opts.wantFill && opts.closed) {
+  const runs = splitPolylineContours(points);
+  const primary = runs[0] ?? points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+  if (opts.wantFill && opts.closed && primary.length >= 3) {
     const a = geomNow();
-    fill = fillMeshFor(points, opts.holes);
+    // Fill uses the first contour; holes come from opts (ellipse donut).
+    fill = fillMeshFor(primary, opts.holes);
     tFill = geomNow() - a;
   }
   if (opts.strokeWidth > 0) {
     const a = geomNow();
-    stroke = strokeMeshFor(points, {
+    const strokeOpts: StrokeTessOpts = {
       width: opts.strokeWidth,
       closed: opts.closed,
       align: opts.strokeAlign,
       linejoin: opts.linejoin,
       miterLimit: opts.miterLimit,
-    });
+    };
+    if (runs.length <= 1) {
+      stroke = strokeMeshFor(primary, strokeOpts);
+    } else {
+      // Arrow etc.: stroke each subpath; never bridge across M breaks.
+      const parts: StrokeMesh[] = [];
+      for (const run of runs) {
+        const m = strokeMeshFor(run, { ...strokeOpts, closed: false });
+        if (m) parts.push(m);
+      }
+      stroke = mergeStrokeMeshes(parts);
+    }
     tStroke = geomNow() - a;
   }
 
