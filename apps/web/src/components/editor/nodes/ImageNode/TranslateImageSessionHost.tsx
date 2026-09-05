@@ -135,6 +135,9 @@ function TranslateImageSessionHost({
         className="pointer-events-auto absolute z-[37]"
         style={toolbarStyle}
         onPointerDown={(e) => e.stopPropagation()}
+        // Language list is overflow-y-auto; keep wheel inside the panel so the
+        // canvas / image node does not pan-zoom with the dropdown scroll.
+        onWheel={(e) => e.stopPropagation()}
       >
         <FloatingToolbar className="relative gap-1 px-2.5 py-1.5">
           <span className={imageToolSessionTitle}>
@@ -163,7 +166,10 @@ function TranslateImageSessionHost({
             </button>
 
             {menuOpen ? (
-              <DropdownPanel className="absolute bottom-[calc(100%+6px)] left-1/2 z-50 max-h-64 min-w-[10rem] -translate-x-1/2 overflow-y-auto p-1">
+              <DropdownPanel
+                className="absolute bottom-[calc(100%+6px)] left-1/2 z-50 max-h-64 min-w-[10rem] -translate-x-1/2 overflow-y-auto p-1"
+                onWheel={(e) => e.stopPropagation()}
+              >
                 {TRANSLATE_TARGET_LANGS.map((p) => (
                   <DropdownPanelItem
                     key={p.code}

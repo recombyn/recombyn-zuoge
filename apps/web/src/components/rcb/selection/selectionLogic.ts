@@ -35,6 +35,7 @@ import {
   rememberNodePath2D,
   resizeStrokeByEndpoint,
   strokeEndpointsFromBox,
+  strokeNodeFromEndpoints,
 } from '@/components/rcb/scene/document/sceneShapes';
 import { expandSelectionWithGroups } from '@/components/rcb/scene/document/sceneGroups';
 import {
@@ -125,6 +126,8 @@ export function resolveFrameChromeBox(
   if (liveHost) {
     // Sticky lattice is sub-pixel. After multi-frame mode:move, hosts can lag
     // the committed store — prefer document when the host drifted.
+    // Title-label plate moves keep liveArtboardGeom set through the store write
+    // (see onFrameMoveEnd) so this branch is not the commit-lag glue.
     const drift = Math.hypot(liveHost.left - docBox.left, liveHost.top - docBox.top);
     if (drift <= 1.5) return liveHost;
   }
@@ -700,6 +703,8 @@ export type GeometryPatch = {
   top: number;
   width: number;
   height: number;
+  /** With box in one preview — required for line/arrow endpoint drag (fixed opposite tip). */
+  angle?: number;
 };
 
 /**
@@ -749,6 +754,11 @@ export type DragState = {
    */
   pathEpLocal0?: [number, number];
   pathEpLocal1?: [number, number];
+  /**
+   * Line/arrow: world position of the fixed opposite tip at pointerdown.
+   * Endpoint math must not re-derive it from a drifting live box.
+   */
+  strokeFixedWorld?: { x: number; y: number };
   /**
    * Composer canvas-pick gesture: attach already ran on pointerdown.
    * Skip pointerup onSelect so one-shot clearPick does not steal node selection.
@@ -1654,13 +1664,40 @@ export function strokeEndpointBox(
   }
 
   if (!isStrokeShapeType(shapeType)) return null;
-  // Endpoint math must use the shaft geometry box — painted chrome unions are
-  // stroke-inflated and would move the "fixed" end away from the visible knob.
+  // Prefer the world tip frozen at pointerdown — recomputing from live origins
+  // after preview writes can let the "fixed" end drift.
+  if (drag.strokeFixedWorld) {
+    const fixed = drag.strokeFixedWorld;
+    let nextX = sceneX;
+    let nextY = sceneY;
+    if (shiftKey) {
+      const dx = sceneX - fixed.x;
+      const dy = sceneY - fixed.y;
+      const length = Math.hypot(dx, dy);
+      if (length > 1e-6) {
+        const snapped = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        nextX = fixed.x + Math.cos(snapped) * length;
+        nextY = fixed.y + Math.sin(snapped) * length;
+      }
+    }
+    const placed =
+      drag.handle === 'e'
+        ? strokeNodeFromEndpoints({ x0: fixed.x, y0: fixed.y, x1: nextX, y1: nextY })
+        : strokeNodeFromEndpoints({ x0: nextX, y0: nextY, x1: fixed.x, y1: fixed.y });
+    return {
+      strokeId,
+      angle: placed.angle,
+      next: { left: placed.x, top: placed.y, width: placed.width, height: placed.height },
+    };
+  }
+  // Endpoint math must use the shaft geometry box — painted chrome unions /
+  // liveOrigins are often stroke-inflated and would move the "fixed" end.
   const originBox = drag.origins.find((o) => o.nodeId === strokeId)?.box;
   const node = document.deltaSetLike?.[strokeId];
-  const geomBox = originBox
-    ? { ...originBox }
-    : deflateSelectionBox({ ...drag.union }, node);
+  const geomBox = deflateSelectionBox(
+    originBox ? { ...originBox } : { ...drag.union },
+    node
+  );
   const placed = resizeStrokeByEndpoint(
     geomBox,
     drag.angle0 || 0,
@@ -2164,9 +2201,14 @@ export function resolvePaintedControlChrome(
     const node = document?.deltaSetLike?.[o.nodeId];
     const shapeType = String(node?.attrs?.shapeType || '').toLowerCase();
     const openStroke = shapeType === 'line' || shapeType === 'arrow';
-    // Path control chrome is anchored to the path geometry. Stroke expansion
-    // is visual clearance only and must not move the hit box away from it.
-    lives.push(nodeUsesPathChrome(node) && !openStroke ? { ...live } : inflateSelectionBox(live, node));
+    // HostPathChrome paints line/arrow knobs on path geometry. Inflating the
+    // pick box put (w/e) seats past the blue handles — pointerdown missed
+    // endpoint and fell through to whole-stroke move.
+    lives.push(
+      openStroke || nodeUsesPathChrome(node)
+        ? { ...live }
+        : inflateSelectionBox(live, node)
+    );
   }
   if (lives.length !== origins.length) return fallback;
   const box = origins.length === 1 ? lives[0] : unionOfBoxes(lives);

@@ -1,6 +1,6 @@
 /**
- * WebGL2 backend for SoA rect + ellipse + line + path (ADR 0027).
- * Unit-quad instancing; dense / outlined shapes stamp into the atlas (kind=3).
+ * WebGL2 backend for SoA vector meshes + media atlas stamps (ADR 0027).
+ * Shape fill/stroke are GPU triangles (never bakeShapeInkForAtlas).
  */
 import { rcbCameraCssZoom, rcbCameraScreenOffset, rcbViewportSceneBounds } from '@/components/rcb/core/math';
 import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
@@ -10,12 +10,10 @@ import {
   resolveSoaPaintBox,
   getSoaPaintDocument,
   setSoaPaintDocument,
-  mapSoaPathSampleToLive,
-  soaPathLiveMapFromSlot,
+  sampleLineOrArrowWorldPolyline,
   SOA_FLAG_CANVAS_IDLE,
   SOA_FLAG_DIRTY,
   SOA_FLAG_VISIBLE,
-  SOA_FLAG_BASIC_GEOM,
   SOA_KIND_ELLIPSE,
   SOA_KIND_IMAGE,
   SOA_KIND_LINE,
@@ -24,31 +22,28 @@ import {
   SOA_KIND_RECT,
   SOA_KIND_TEXT,
   soaStrokeWidth,
-  unpackCssColor,
   type SceneRenderBuffer,
 } from '@/components/rcb/render/sceneRenderBuffer';
-import { getLiveCornerRadiusPreviewRadii } from '@/components/rcb/scene/document/sceneRadii';
 import { nodeOwnerFrameId } from '@/components/rcb/frames/frameNodeBinding';
+import { selectionPaintRaises } from '@/components/rcb/frames/frameContentClip';
+import {
+  buildNodeStackZMap,
+  maxDocumentStackZ,
+} from '@/components/rcb/scene/document/sceneDocument';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
-  collectSoaBakeTilesIntoAtlas,
   ensureSharedSoaWebglAtlas,
   recreateSharedSoaWebglAtlas,
-  getSoaAtlasStats,
   pruneSoaAtlasForBuffer,
   pushAtlasRegionInstance,
   releaseSoaAtlasPrefix,
-  releaseSoaAtlasRegion,
   stampImageToAtlas,
-  stampSoaPathToAtlas,
-  stampSoaEllipseToAtlas,
-  type SoaAtlasRegion,
+  atlasZoomBucket,
   type SoaWebglAtlas,
 } from '@/components/rcb/render/webglInstanceAtlas';
 import {
   bakeAudioInkForAtlas,
   bakeMediaInkForAtlas,
-  bakeShapeInkForAtlas,
   bakeTextInkForAtlas,
   bumpSceneCanvasIdlePaint,
   isFillImageWebglUnsafe,
@@ -58,24 +53,14 @@ import {
   type SceneRenderRequest,
   type SceneRenderer,
 } from '@/components/rcb/render/sceneRenderer';
-import {
-  collectReadySoaBakeTilesForView,
-  createSoaBakeCache,
-  getSharedSoaBakeCache,
-  invalidateSoaBakeTilesForDirty,
-  isSoaBakePathAllowed,
-  setSharedSoaBakeCache,
-  shouldUseSoaBake,
-  unionSoaDirtyAabb,
-} from '@/components/rcb/render/soaBakeLayer';
+import { getOrBuildShapeMesh } from '@/components/rcb/render/vector/meshCache';
+import { appendMeshLocal } from '@/components/rcb/render/vector/appendMesh';
 import {
   findClippingFrameForNode,
   frameClipRevealsOverflow,
-  hasFrameClipRevealOverflow,
 } from '@/components/rcb/frames/frameContentClip';
 import {
   buildNormalizedDepthLookup,
-  gpuDofSkipsSoaTileBake,
   shouldRunGpuDepthOfField,
 } from '@/components/rcb/render/gpuDepthOfField';
 import {
@@ -92,6 +77,7 @@ import {
 export const SOA_WEBGL_NO_CLIP: [number, number, number, number] = [-1e8, -1e8, 1e8, 1e8];
 
 const VS = `#version 300 es
+precision mediump float;
 uniform vec2 uPan;
 uniform float uZoom;
 uniform vec2 uStage;
@@ -102,25 +88,16 @@ layout(location = 3) in float aKind;
 layout(location = 4) in float aAngle;
 layout(location = 5) in vec4 aUv;
 layout(location = 6) in vec4 aClip;
-layout(location = 7) in vec4 aStroke;
 out vec2 vUv;
 out vec2 vAtlasUv;
 out vec4 vColor;
 out float vKind;
 out vec2 vWorld;
 out vec4 vClip;
-out vec2 vHalf;
-out vec4 vRadii;
-out vec4 vStroke;
 void main() {
   vec2 local;
   if (aKind > 1.5 && aKind < 2.5) {
     local = vec2(aCorner.x * aRect.z, (aCorner.y - 0.5) * aRect.w);
-  } else if (aKind > 3.5) {
-    // Grow the quad so center-aligned stroke is not clipped by the fill AABB.
-    float pad = aStroke.w * 0.5;
-    vec2 size = aRect.zw + vec2(pad * 2.0);
-    local = aCorner * size - vec2(pad);
   } else {
     local = aCorner * aRect.zw;
   }
@@ -139,20 +116,7 @@ void main() {
   vKind = aKind;
   vWorld = pos;
   vClip = aClip;
-  vHalf = aRect.zw * 0.5;
-  vRadii = aUv;
-  vStroke = aStroke;
 }`;
-
-/** IQ rounded-box SDF; r = (tr, br, tl, bl). */
-const FS_ROUND_SDF = `
-float sdRoundBox(vec2 p, vec2 b, vec4 r) {
-  r.xy = (p.x > 0.0) ? r.xy : r.zw;
-  r.x = (p.y > 0.0) ? r.x : r.y;
-  vec2 q = abs(p) - b + r.x;
-  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r.x;
-}
-`;
 
 const FS = `#version 300 es
 precision mediump float;
@@ -164,46 +128,26 @@ in vec4 vColor;
 in float vKind;
 in vec2 vWorld;
 in vec4 vClip;
-in vec2 vHalf;
-in vec4 vRadii;
-in vec4 vStroke;
 out vec4 outColor;
-${FS_ROUND_SDF}
 void main() {
   if (vWorld.x < vClip.x || vWorld.y < vClip.y || vWorld.x > vClip.z || vWorld.y > vClip.w) {
     discard;
   }
-  // Atlas stamp (paths / bake tiles).
+  // Atlas stamp (closed fills / paths / bake tiles).
   if (vKind > 2.5 && vKind < 3.5) {
     vec4 tex = texture(uAtlas, vAtlasUv);
     if (tex.a < 0.01) discard;
     outColor = tex;
     return;
   }
-  // Shader rounded rect: scene-space fill +/- center stroke.
-  // UV spans the padded quad so SDF samples match the expanded vertex size.
-  // AA is half-fwidth + half-pixel stroke expand so 1px strokes keep SVG-like
-  // optical weight (full fwidth smoothstep alone looks thin vs selected SVG).
-  // Cap AA vs stroke pad / screen px so zoom-out fwidth cannot erase the ring.
-  if (vKind > 3.5) {
-    float sw = max(0.0, vStroke.w);
-    float pad = sw * 0.5;
-    vec2 p = vUv * (vHalf + vec2(pad));
-    // aUv/vRadii stored as tl,tr,br,bl -> IQ order tr,br,tl,bl
-    vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
-    float d = sdRoundBox(p, vHalf, r);
-    float aa = max(0.5 * fwidth(d), 0.0005);
-    float maxAa = max(pad * 0.85, 0.35 / max(uZoom, 0.05));
-    aa = min(aa, maxAa);
-    float halfW = pad + aa * 0.5;
-    float cover = 1.0 - smoothstep(-aa, aa, d - halfW);
-    if (cover < 0.004) discard;
-    vec3 rgb = vColor.rgb;
-    if (sw > 0.001) {
-      float inFill = 1.0 - smoothstep(-aa, aa, d + halfW);
-      rgb = mix(vStroke.rgb, vColor.rgb, inFill);
-    }
-    outColor = vec4(rgb, vColor.a * cover);
+  // Open stroke segment (line/arrow/pen): soft long-edge AA.
+  // Canvas2D atlas (pencil) already AA-bakes; hard quads look staircased on diagonals.
+  if (vKind > 1.5 && vKind < 2.5) {
+    float d = abs(vUv.y);
+    float aa = max(fwidth(d), 1e-4);
+    float cover = 1.0 - smoothstep(1.0 - aa, 1.0, d);
+    if (cover < 0.01) discard;
+    outColor = vec4(vColor.rgb, vColor.a * cover);
     return;
   }
   if (vKind > 0.5 && vKind < 1.5) {
@@ -212,9 +156,44 @@ void main() {
   outColor = vColor;
 }`;
 
+/** World-space triangle mesh program (vector fill/stroke). */
+const MESH_VS = `#version 300 es
+precision mediump float;
+uniform vec2 uPan;
+uniform float uZoom;
+uniform vec2 uStage;
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec4 aColor;
+layout(location = 2) in vec4 aClip;
+out vec4 vColor;
+out vec2 vWorld;
+out vec4 vClip;
+void main() {
+  vec2 screen = aPos * uZoom + uPan;
+  vec2 clip = vec2(
+    (screen.x / uStage.x) * 2.0 - 1.0,
+    1.0 - (screen.y / uStage.y) * 2.0
+  );
+  gl_Position = vec4(clip, 0.0, 1.0);
+  vColor = aColor;
+  vWorld = aPos;
+  vClip = aClip;
+}`;
+
+const MESH_FS = `#version 300 es
+precision mediump float;
+in vec4 vColor;
+in vec2 vWorld;
+in vec4 vClip;
+out vec4 outColor;
+void main() {
+  if (vWorld.x < vClip.x || vWorld.y < vClip.y || vWorld.x > vClip.z || vWorld.y > vClip.w) {
+    discard;
+  }
+  outColor = vColor;
+}`;
+
 const UNIT_QUAD = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
-/** Instanced kind: shader SDF rounded rect (fill ± center stroke). */
-export const SOA_WEBGL_KIND_ROUNDED = 4;
 /** Default line thickness in scene units (used when SoA stroke width is unset). */
 export const SOA_WEBGL_LINE_THICKNESS = 2;
 /** Cap segments emitted per path so one dense stroke cannot explode the instance batch. */
@@ -283,7 +262,7 @@ export function soaWebglInkShadersOk(): boolean {
     const gl = probe.getContext('webgl2', {
       alpha: true,
       premultipliedAlpha: true,
-      antialias: false,
+      antialias: true,
     });
     if (!gl) {
       inkShaderProbeOk = false;
@@ -360,19 +339,6 @@ export function resolveSoaWebglSlotClip(
   return [left, top, right, bottom];
 }
 
-function pushInstanceStroke(
-  strokes: number[] | undefined,
-  rgba: [number, number, number, number] | null,
-  width: number
-) {
-  if (!strokes) return;
-  if (!rgba || width <= 0) {
-    strokes.push(0, 0, 0, 0);
-    return;
-  }
-  strokes.push(rgba[0], rgba[1], rgba[2], width);
-}
-
 function pushLineInstance(
   x0: number,
   y0: number,
@@ -388,8 +354,7 @@ function pushLineInstance(
   depths: number[] | undefined,
   depth: number,
   clips: number[] | undefined,
-  clip: readonly [number, number, number, number],
-  strokes?: number[]
+  clip: readonly [number, number, number, number]
 ) {
   const dx = x1 - x0;
   const dy = y1 - y0;
@@ -402,7 +367,81 @@ function pushLineInstance(
   uvs.push(0, 0, 1, 1);
   if (depths) depths.push(depth);
   pushInstanceClip(clips, clip);
-  pushInstanceStroke(strokes, null, 0);
+}
+
+/**
+ * Fill the outer wedge where two butt-capped stroke quads meet.
+ * Without this, arrow V tips show a flat notch instead of a sharp point.
+ */
+function pushLineMiterJoin(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  rgba: [number, number, number, number],
+  thickness: number,
+  rects: number[],
+  colors: number[],
+  kinds: number[],
+  angles: number[],
+  uvs: number[],
+  depths: number[] | undefined,
+  depth: number,
+  clips: number[] | undefined,
+  clip: readonly [number, number, number, number]
+) {
+  const dx0 = bx - ax;
+  const dy0 = by - ay;
+  const dx1 = cx - bx;
+  const dy1 = cy - by;
+  const len0 = Math.hypot(dx0, dy0) || 1e-6;
+  const len1 = Math.hypot(dx1, dy1) || 1e-6;
+  const ux0 = dx0 / len0;
+  const uy0 = dy0 / len0;
+  const ux1 = dx1 / len1;
+  const uy1 = dy1 / len1;
+  const cross = ux0 * uy1 - uy0 * ux1;
+  if (Math.abs(cross) < 1e-5) return;
+  const thr = thickness > 0 ? thickness : SOA_WEBGL_LINE_THICKNESS;
+  const half = thr / 2;
+  // Outer side of the turn (opposite the left-normal).
+  const outer = cross > 0 ? -1 : 1;
+  const n0x = -uy0 * outer;
+  const n0y = ux0 * outer;
+  const n1x = -uy1 * outer;
+  const n1y = ux1 * outer;
+  const sx = n0x + n1x;
+  const sy = n0y + n1y;
+  const sl = Math.hypot(sx, sy);
+  if (sl < 1e-6) return;
+  // miterLen = half / cos(φ/2) = 2*half / |n0+n1|; cap like SVG miterLimit≈4.
+  const miterLen = Math.min(thr * 4, (2 * half) / sl);
+  const mx = bx + (sx / sl) * miterLen;
+  const my = by + (sy / sl) * miterLen;
+  const o0x = bx + n0x * half;
+  const o0y = by + n0y * half;
+  const o1x = bx + n1x * half;
+  const o1y = by + n1y * half;
+  const chord = Math.hypot(o0x - o1x, o0y - o1y);
+  pushLineInstance(
+    bx,
+    by,
+    mx,
+    my,
+    rgba,
+    Math.max(thr, chord),
+    rects,
+    colors,
+    kinds,
+    angles,
+    uvs,
+    depths,
+    depth,
+    clips,
+    clip
+  );
 }
 
 /**
@@ -428,7 +467,6 @@ export function emitPathStrokeSegments(opts: {
   depth: number;
   clips?: number[];
   paintClips: Array<readonly [number, number, number, number]>;
-  strokes?: number[];
   maxSegs?: number;
 }): number {
   const {
@@ -447,7 +485,6 @@ export function emitPathStrokeSegments(opts: {
     depth,
     clips,
     paintClips,
-    strokes,
   } = opts;
   const ox = opts.ox || 0;
   const oy = opts.oy || 0;
@@ -475,7 +512,6 @@ export function emitPathStrokeSegments(opts: {
         depth,
         clips,
         activeClip,
-        strokes
       );
     }
     emitted += 1;
@@ -512,95 +548,14 @@ export function emitPathStrokeSegments(opts: {
   return emitted;
 }
 
-function countPathSegments(buf: SceneRenderBuffer, index: number): number {
-  const start = buf.pathStart[index];
-  const len = buf.pathLen[index];
-  if (start < 0 || len < 2) return 0;
-  const closed = buf.pathClosed[index] !== 0;
-  const base = start * 2;
-  let segs = 0;
-  let last = -1;
-  let first = -1;
-  for (let p = 0; p < len; p += 1) {
-    const fo = base + p * 2;
-    if (!Number.isFinite(buf.pathXY[fo]) || !Number.isFinite(buf.pathXY[fo + 1])) {
-      if (closed && first >= 0 && last >= 0 && first !== last) segs += 1;
-      last = -1;
-      first = -1;
-      continue;
-    }
-    if (last < 0) {
-      first = fo;
-      last = fo;
-      continue;
-    }
-    segs += 1;
-    last = fo;
-  }
-  if (closed && first >= 0 && last >= 0 && first !== last) segs += 1;
-  return segs;
-}
-
-/** Closed paths must atlas-stamp (segment instances are stroke-only). Open strokes stay crisp segments. */
+/** Legacy: closed paths preferred atlas; vector dual-backend always uses meshes. */
 export function soaPathPrefersAtlasStamp(closed: boolean, _segCount: number): boolean {
   return closed;
-}
-
-/** Live-mapped path samples for atlas (document pathXY stays at slot pose). */
-function buildLiveMappedPathStampXy(
-  buf: SceneRenderBuffer,
-  index: number,
-  live: { x: number; y: number; w: number; h: number }
-): { xy: Float32Array; start: number; len: number } | null {
-  const start = buf.pathStart[index];
-  const len = buf.pathLen[index];
-  if (start < 0 || len < 2) return null;
-  const liveMap = soaPathLiveMapFromSlot(buf, index, live);
-  const samePose =
-    Math.abs(liveMap.liveX - liveMap.baseX) < 1e-4 &&
-    Math.abs(liveMap.liveY - liveMap.baseY) < 1e-4 &&
-    Math.abs(liveMap.liveW - liveMap.baseW) < 1e-4 &&
-    Math.abs(liveMap.liveH - liveMap.baseH) < 1e-4;
-  if (samePose) {
-    return { xy: buf.pathXY, start, len };
-  }
-  const xy = new Float32Array(len * 2);
-  const base = start * 2;
-  for (let p = 0; p < len; p += 1) {
-    const fo = base + p * 2;
-    const mapped = mapSoaPathSampleToLive(buf.pathXY[fo], buf.pathXY[fo + 1], liveMap);
-    xy[p * 2] = mapped.x;
-    xy[p * 2 + 1] = mapped.y;
-  }
-  return { xy, start: 0, len };
 }
 
 function clearSoaDirtyFlag(buf: SceneRenderBuffer, index: number, flags: number, force: boolean) {
   if (!force) return;
   buf.flags[index] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
-}
-
-function commitAtlasRegionInstance(
-  atlas: SoaWebglAtlas,
-  region: SoaAtlasRegion,
-  rects: number[],
-  colors: number[],
-  kinds: number[],
-  angles: number[],
-  uvs: number[],
-  rotRad: number,
-  depthOut: number[] | undefined,
-  slotDepth: number,
-  clips: number[] | undefined,
-  clip: readonly [number, number, number, number],
-  strokes: number[] | undefined,
-  offsetX = 0,
-  offsetY = 0
-) {
-  pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, rotRad, offsetX, offsetY);
-  if (depthOut) depthOut.push(slotDepth);
-  pushInstanceClip(clips, clip);
-  pushInstanceStroke(strokes, null, 0);
 }
 
 export type CollectSoaWebglOpts = {
@@ -611,22 +566,28 @@ export type CollectSoaWebglOpts = {
   depthForId?: (id: string) => number;
   /** Parallel scene-space LTRB clip per instance (clipContent artboards). */
   clips?: number[];
-  /** Parallel stroke rgba+width for rounded SDF (kind 4); zeros for other kinds. */
-  strokes?: number[];
   /** Document for clip resolve; defaults to {@link getSoaPaintDocument}. */
   document?: SceneDocument | null;
-  /** Camera zoom — text atlas greeking threshold. */
+  /** Camera zoom. */
   zoom?: number;
+  /** Device pixel ratio (media stamps). */
+  dpr?: number;
   /**
    * World idle ink: skip nodes with attrs.frameId (ArtboardLayer paints them).
    * Default false for tests / bake helpers that collect everything.
    */
   skipFrameBound?: boolean;
+  /** World-space vector fill/stroke triangle XY (flat). */
+  meshPos?: number[];
+  /** Per-vertex RGBA for meshPos. */
+  meshCol?: number[];
+  /** Per-vertex LTRB clip for meshPos. */
+  meshClip?: number[];
 };
 
 /**
- * Pack visible rect / ellipse / line / path instances intersecting the view.
- * kinds: 0=rect, 1=ellipse, 2=line-or-path-segment, 3=atlas path stamp, 4=rounded SDF.
+ * Pack visible SoA instances intersecting the view.
+ * kinds: 0=rect, 1=ellipse, 2=open stroke segment, 3=atlas stamp.
  */
 export function collectSoaWebglInstances(
   buf: SceneRenderBuffer,
@@ -642,14 +603,21 @@ export function collectSoaWebglInstances(
   const depthOut = opts?.depths;
   const depthForId = opts?.depthForId;
   const clips = opts?.clips;
-  const strokes = opts?.strokes;
   const paintDoc = opts?.document ?? getSoaPaintDocument();
   const zoom = Math.max(0.05, Number(opts?.zoom) || 1);
+  const dpr = Math.max(1, Number(opts?.dpr) || 1);
   const skipFrameBound = opts?.skipFrameBound === true;
+  const meshPos = opts?.meshPos;
+  const meshCol = opts?.meshCol;
+  const meshClip = opts?.meshClip;
   const vl = view.left ?? view.x ?? 0;
   const vt = view.top ?? view.y ?? 0;
   const vr = vl + view.width;
   const vb = vt + view.height;
+
+  // Buffer order ≠ stackOrder. Collect candidates then paint back→front so
+  // selection max+1 and permanent z match Canvas2D idle / SVG data-z.
+  const paintIndices: number[] = [];
   for (let i = 0; i < buf.count; i += 1) {
     const flags = buf.flags[i];
     if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
@@ -657,7 +625,8 @@ export function collectSoaWebglInstances(
     if (idEarly && getNodeTransformPreview(idEarly)?.hidden) continue;
     if (skipFrameBound && paintDoc && idEarly) {
       const node = paintDoc.deltaSetLike?.[idEarly];
-      if (nodeOwnerFrameId(node)) continue;
+      // Selection reveal: paint overflow on world ink (FO stays clipped).
+      if (nodeOwnerFrameId(node) && !frameClipRevealsOverflow(idEarly)) continue;
     }
     const kind = buf.kinds[i];
     if (
@@ -671,8 +640,29 @@ export function collectSoaWebglInstances(
     ) {
       continue;
     }
-    const { x, y, w, h, dx: odx, dy: ody } = resolveSoaPaintBox(buf, i);
+    const { x, y, w, h } = resolveSoaPaintBox(buf, i);
     if (x + w < vl || y + h < vt || x > vr || y > vb) continue;
+    paintIndices.push(i);
+  }
+  if (paintDoc && paintIndices.length > 1) {
+    const zMap = buildNodeStackZMap(
+      paintDoc,
+      paintIndices.map((i) => buf.ids[i] || '')
+    );
+    const raisedZ = maxDocumentStackZ(paintDoc) + 1;
+    paintIndices.sort((a, b) => {
+      const idA = buf.ids[a] || '';
+      const idB = buf.ids[b] || '';
+      const za = selectionPaintRaises(idA) ? raisedZ : zMap.get(idA) || 0;
+      const zb = selectionPaintRaises(idB) ? raisedZ : zMap.get(idB) || 0;
+      return za - zb || (zMap.get(idA) || 0) - (zMap.get(idB) || 0) || a - b;
+    });
+  }
+
+  for (const i of paintIndices) {
+    const flags = buf.flags[i];
+    const kind = buf.kinds[i];
+    const { x, y, w, h, dx: odx, dy: ody } = resolveSoaPaintBox(buf, i);
     const rgba = argbToRgba(buf.colors[i]);
     const strokeRgba = soaWebglStrokeRgba(buf, i);
     const lineW = floorContentStrokeSceneWidth(soaStrokeWidth(buf, i), zoom);
@@ -693,36 +683,42 @@ export function collectSoaWebglInstances(
         continue;
       }
       const isAudio = String(node.key || '') === 'audio';
+      // Empty vs filled must not share atlas keys — otherwise a prior photo
+      // stamp is cache-hit and the empty plate shows the old image colors.
+      const mediaSrc = isAudio ? '' : mediaPaintSrc(node, id);
+      const atlasKey = isAudio
+        ? `aud:${id}:z${atlasZoomBucket(zoom)}`
+        : mediaSrc
+          ? `img:${id}`
+          : `img:${id}:empty:z${atlasZoomBucket(zoom)}`;
       const baked = isAudio
         ? bakeAudioInkForAtlas(node, w, h, zoom)
-        : bakeMediaInkForAtlas(node, w, h, id);
+        : bakeMediaInkForAtlas(node, w, h, id, zoom);
       if (!baked) {
-        if (!isAudio) {
-          const src = mediaPaintSrc(node, id);
-          // Pending decode → bump. CORS/tainted → stop retrying; host will paint.
-          // Empty src should bake a plate — if bake still failed, clear dirty
-          // (do not eternal-bump; that burned CPU and never drew).
-          if (!src || (src && isFillImageWebglUnsafe(src))) {
-            clearSoaDirtyFlag(buf, i, flags, forceStamp);
-          } else {
-            bumpSceneCanvasIdlePaint();
-          }
-        } else clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        const src = mediaSrc;
+        // Pending decode → bump. CORS/tainted → stop retrying; host will paint.
+        // Empty src should bake a plate — if bake still failed, clear dirty
+        // (do not eternal-bump; that burned CPU and never drew).
+        if (isAudio || !src || (src && isFillImageWebglUnsafe(src))) {
+          clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        } else {
+          bumpSceneCanvasIdlePaint();
+        }
         continue;
       }
       const region = stampImageToAtlas(
         atlas,
-        isAudio ? `aud:${id}` : `img:${id}`,
+        atlasKey,
         baked as CanvasImageSource,
         { left: x, top: y, width: w, height: h },
         { force: forceStamp }
       );
       if (region) {
         for (const activeClip of paintClips) {
-          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, odx, ody);
+          // Stamp world is already live x/y — never re-add odx/ody (ghost fill).
+          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, 0, 0);
           if (depthOut) depthOut.push(slotDepth);
           pushInstanceClip(clips, activeClip);
-          pushInstanceStroke(strokes, null, 0);
         }
         if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       }
@@ -735,142 +731,173 @@ export function collectSoaWebglInstances(
         clearSoaDirtyFlag(buf, i, flags, forceStamp);
         continue;
       }
+      const atlasKey = `txt:${id}:z${atlasZoomBucket(zoom)}`;
       const baked = bakeTextInkForAtlas(node, w, h, zoom);
       if (!baked) {
         clearSoaDirtyFlag(buf, i, flags, forceStamp);
         continue;
       }
+      const preview = id ? getNodeTransformPreview(id) : undefined;
+      const liveAngle = Number.isFinite(preview?.angle)
+        ? Number(preview!.angle)
+        : Number(node.attrs?.angle) || 0;
+      const angleRad = (liveAngle * Math.PI) / 180;
       const region = stampImageToAtlas(
         atlas,
-        `txt:${id}`,
+        atlasKey,
         baked as CanvasImageSource,
         { left: x, top: y, width: w, height: h },
         { force: forceStamp }
       );
       if (region) {
         for (const activeClip of paintClips) {
-          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, odx, ody);
+          pushAtlasRegionInstance(
+            atlas,
+            region,
+            rects,
+            colors,
+            kinds,
+            angles,
+            uvs,
+            angleRad,
+            0,
+            0
+          );
           if (depthOut) depthOut.push(slotDepth);
           pushInstanceClip(clips, activeClip);
-          pushInstanceStroke(strokes, null, 0);
         }
         if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       }
       continue;
     }
 
-    // Gradient / rotated / poly / donut — Canvas bake → atlas (not BASIC_GEOM).
+    // All shape ink (closed fills + open strokes): GPU triangle meshes when
+    // mesh buffers + document node exist. Without a node / mesh buffers,
+    // RECT/ELLIPSE use kind 0/1 instances; LINE/PATH/POLY fall through to
+    // kind 2 segment emitters — never swallow open strokes for missing docs.
     if (
-      (flags & SOA_FLAG_BASIC_GEOM) === 0 &&
-      (kind === SOA_KIND_RECT ||
-        kind === SOA_KIND_ELLIPSE ||
-        kind === SOA_KIND_PATH ||
-        kind === SOA_KIND_POLY)
+      kind === SOA_KIND_RECT ||
+      kind === SOA_KIND_ELLIPSE ||
+      kind === SOA_KIND_PATH ||
+      kind === SOA_KIND_POLY ||
+      kind === SOA_KIND_LINE
     ) {
       const node = paintDoc?.deltaSetLike?.[id];
-      if (!node || !atlas) {
-        clearSoaDirtyFlag(buf, i, flags, forceStamp);
-        continue;
+      if (node && meshPos && meshCol && meshClip) {
+        const preview = id ? getNodeTransformPreview(id) : undefined;
+        const liveAngle = Number.isFinite(preview?.angle)
+          ? Number(preview!.angle)
+          : Number(node.attrs?.angle) || 0;
+        const paintNode =
+          Number.isFinite(preview?.angle) &&
+          Math.abs(liveAngle - (Number(node.attrs?.angle) || 0)) > 1e-4
+            ? { ...node, attrs: { ...(node.attrs || {}), angle: liveAngle } }
+            : node;
+        const mesh = getOrBuildShapeMesh(id, paintNode, { width: w, height: h });
+        if (mesh) {
+          const opacity = Math.min(1, Math.max(0, Number(paintNode.attrs?.opacity) || 1));
+          const isPencil =
+            String(paintNode.attrs?.shapeType || '').toLowerCase() === 'pencil';
+          const fillRgba: [number, number, number, number] = [
+            rgba[0],
+            rgba[1],
+            rgba[2],
+            rgba[3] * opacity,
+          ];
+          const strokeBase = soaWebglStrokeRgba(buf, i);
+          const strokeOut: [number, number, number, number] = [
+            strokeBase[0],
+            strokeBase[1],
+            strokeBase[2],
+            strokeBase[3] * opacity,
+          ];
+          const rotOpts = {
+            angleDeg: liveAngle,
+            pivotW: w,
+            pivotH: h,
+          };
+          let wrote = 0;
+          for (const activeClip of paintClips) {
+            // Pencil silhouette is a fill mesh; ink color lives in strokeColors
+            // (fill attrs are typically transparent for freehand).
+            const fillCol =
+              isPencil && mesh.fill && fillRgba[3] < 0.01 ? strokeOut : fillRgba;
+            if (mesh.fill && fillCol[3] > 0.01) {
+              wrote += appendMeshLocal(
+                mesh.fill.positions,
+                x,
+                y,
+                fillCol,
+                activeClip,
+                meshPos,
+                meshCol,
+                meshClip,
+                rotOpts
+              );
+            }
+            // Pencil uses silhouette fill only — skip uniform centerline ribbon.
+            if (
+              mesh.stroke &&
+              lineW > 0 &&
+              strokeOut[3] > 0.01 &&
+              !(isPencil && mesh.fill)
+            ) {
+              wrote += appendMeshLocal(
+                mesh.stroke.positions,
+                x,
+                y,
+                strokeOut,
+                activeClip,
+                meshPos,
+                meshCol,
+                meshClip,
+                rotOpts
+              );
+            }
+          }
+          if (wrote > 0) {
+            if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+            continue;
+          }
+          // Mesh empty (e.g. transparent) — fall through to instance/segment fallback.
+        }
       }
-      const baked = bakeShapeInkForAtlas(node, w, h);
-      if (!baked) {
-        clearSoaDirtyFlag(buf, i, flags, forceStamp);
-        continue;
-      }
-      const region = stampImageToAtlas(
-        atlas,
-        `rich:${id}`,
-        baked as CanvasImageSource,
-        { left: x, top: y, width: w, height: h },
-        { force: forceStamp }
-      );
-      if (region) {
+      // Fallback without mesh buffers: sharp rect/ellipse instances only.
+      if (kind === SOA_KIND_RECT || kind === SOA_KIND_ELLIPSE) {
+        const liveAngle = id ? getNodeTransformPreview(id)?.angle : undefined;
+        let rotRad = 0;
+        if (Number.isFinite(liveAngle) && Math.abs(Number(liveAngle)) > 0.5) {
+          rotRad = (Number(liveAngle) * Math.PI) / 180;
+        }
         for (const activeClip of paintClips) {
-          pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, odx, ody);
+          rects.push(x, y, w, h);
+          colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
+          kinds.push(kind === SOA_KIND_ELLIPSE ? 1 : 0);
+          angles.push(rotRad);
+          uvs.push(0, 0, 1, 1);
           if (depthOut) depthOut.push(slotDepth);
           pushInstanceClip(clips, activeClip);
-          pushInstanceStroke(strokes, null, 0);
         }
-        if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
       }
-      continue;
+      // PATH / LINE / POLY without mesh arrays: open stroke segments only (no atlas).
+      if (kind === SOA_KIND_PATH || kind === SOA_KIND_LINE || kind === SOA_KIND_POLY) {
+        // fall through to segment emitters below
+      } else {
+        clearSoaDirtyFlag(buf, i, flags, forceStamp);
+        continue;
+      }
     }
 
     if (kind === SOA_KIND_PATH) {
       const start = buf.pathStart[i];
       const len = buf.pathLen[i];
       if (start < 0 || len < 2) continue;
-      // Fill lives in colors[]; treat solid fill as closed even if pathClosed lagged.
       const closed = buf.pathClosed[i] !== 0 || buf.colors[i] !== 0;
-      const segCount = countPathSegments(buf, i);
-      // Frame-local live left/top can yield odx/ody — still atlas-stamp (offset the quad).
-      // Blocking stamp on odx≠0 previously skipped closed fills entirely → stroke-only ghost.
-      const canStamp = Boolean(atlas) && soaPathPrefersAtlasStamp(closed, segCount);
       const strokeW = Math.max(0, lineW);
-      if (canStamp && atlas) {
-        const id = buf.ids[i] || String(i);
-        // Stamp in live scene space so frame-local / TransformPreview never
-        // yields a translated AABB ghost (odx on an unmapped stamp).
-        const mapped = buildLiveMappedPathStampXy(buf, i, { x, y, w, h });
-        if (!mapped) {
-          if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
-          continue;
-        }
-        const fillCss = unpackCssColor(buf.colors[i]);
-        const fillRuleAttr = String(
-          paintDoc?.deltaSetLike?.[id]?.attrs?.['fill-rule'] || ''
-        ).toLowerCase();
-        // Fill-only atlas stamp: baked stroke AA + 256px downsample looks 虚.
-        // Crisp outline is emitted as kind=2 segments on top (same as open pens).
-        const region = stampSoaPathToAtlas(
-          atlas,
-          `path:${id}`,
-          mapped.xy,
-          mapped.start,
-          mapped.len,
-          fillCss,
-          true,
-          0,
-          {
-            force: forceStamp,
-            strokeCss: unpackCssColor(buf.strokeColors[i] || 0xff333333),
-            fillRule: fillRuleAttr === 'evenodd' ? 'evenodd' : 'nonzero',
-          }
-        );
-        if (region) {
-          for (const activeClip of paintClips) {
-            pushAtlasRegionInstance(atlas, region, rects, colors, kinds, angles, uvs, 0, 0, 0);
-            if (depthOut) depthOut.push(slotDepth);
-            pushInstanceClip(clips, activeClip);
-            pushInstanceStroke(strokes, null, 0);
-          }
-          if (strokeW > 0) {
-            emitPathStrokeSegments({
-              xy: mapped.xy,
-              start: mapped.start,
-              len: mapped.len,
-              rgba: strokeRgba,
-              thickness: strokeW,
-              closeContours: true,
-              rects,
-              colors,
-              kinds,
-              angles,
-              uvs,
-              depths: depthOut,
-              depth: slotDepth,
-              clips,
-              paintClips,
-              strokes,
-              maxSegs: pathMaxSegs,
-            });
-          }
-          if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
-          continue;
-        }
-      }
-      // Closed fill without atlas cannot use stroke-only segments (border ghost).
-      // Stroke-only closed paths (no fill) still get crisp segments.
+      // Vector dual-backend: shape ink is mesh / Path2D — never atlas-stamped.
+      // Closed fills without mesh cannot use stroke-only segments (border ghost).
       if (closed && buf.colors[i] !== 0) {
         if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
         continue;
@@ -893,7 +920,6 @@ export function collectSoaWebglInstances(
         depth: slotDepth,
         clips,
         paintClips,
-        strokes,
         maxSegs: pathMaxSegs,
       });
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
@@ -901,11 +927,82 @@ export function collectSoaWebglInstances(
     }
 
     if (kind === SOA_KIND_LINE) {
+      // Fallback when mesh buffers unavailable (tests).
+      const node = paintDoc?.deltaSetLike?.[id];
+      const preview = id ? getNodeTransformPreview(id) : undefined;
+      const liveAngle = Number.isFinite(preview?.angle)
+        ? Number(preview!.angle)
+        : Number(node?.attrs?.angle) || 0;
+      const livePts =
+        node &&
+        sampleLineOrArrowWorldPolyline(node, x, y, w, h, liveAngle);
+      if (livePts && livePts.length >= 2) {
+        let emitted = 0;
+        let prevA: { x: number; y: number } | null = null;
+        for (let p = 1; p < livePts.length; p += 1) {
+          if (emitted >= pathMaxSegs) break;
+          const a = livePts[p - 1];
+          const b = livePts[p];
+          if (
+            !a ||
+            !b ||
+            ![a.x, a.y, b.x, b.y].every(Number.isFinite)
+          ) {
+            prevA = null;
+            continue;
+          }
+          for (const activeClip of paintClips) {
+            pushLineInstance(
+              a.x,
+              a.y,
+              b.x,
+              b.y,
+              strokeRgba,
+              lineW,
+              rects,
+              colors,
+              kinds,
+              angles,
+              uvs,
+              depthOut,
+              slotDepth,
+              clips,
+              activeClip,
+            );
+            if (prevA) {
+              pushLineMiterJoin(
+                prevA.x,
+                prevA.y,
+                a.x,
+                a.y,
+                b.x,
+                b.y,
+                strokeRgba,
+                lineW,
+                rects,
+                colors,
+                kinds,
+                angles,
+                uvs,
+                depthOut,
+                slotDepth,
+                clips,
+                activeClip,
+              );
+            }
+          }
+          emitted += 1;
+          prevA = a;
+        }
+        if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+        continue;
+      }
       const start = buf.pathStart[i];
       const len = buf.pathLen[i];
       if (start >= 0 && len >= 2) {
         const base = start * 2;
         let lastFinite = -1;
+        let prevFinite = -1;
         let emitted = 0;
         const emitSeg = (a: number, b: number) => {
           if (emitted >= pathMaxSegs) return;
@@ -926,8 +1023,28 @@ export function collectSoaWebglInstances(
               slotDepth,
               clips,
               activeClip,
-              strokes
             );
+            if (prevFinite >= 0) {
+              pushLineMiterJoin(
+                buf.pathXY[prevFinite] + odx,
+                buf.pathXY[prevFinite + 1] + ody,
+                buf.pathXY[a] + odx,
+                buf.pathXY[a + 1] + ody,
+                buf.pathXY[b] + odx,
+                buf.pathXY[b + 1] + ody,
+                strokeRgba,
+                lineW,
+                rects,
+                colors,
+                kinds,
+                angles,
+                uvs,
+                depthOut,
+                slotDepth,
+                clips,
+                activeClip,
+              );
+            }
           }
           emitted += 1;
         };
@@ -937,6 +1054,7 @@ export function collectSoaWebglInstances(
           const py = buf.pathXY[fo + 1];
           if (!Number.isFinite(px) || !Number.isFinite(py)) {
             lastFinite = -1;
+            prevFinite = -1;
             continue;
           }
           if (lastFinite < 0) {
@@ -944,6 +1062,7 @@ export function collectSoaWebglInstances(
             continue;
           }
           emitSeg(lastFinite, fo);
+          prevFinite = lastFinite;
           lastFinite = fo;
         }
         if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
@@ -951,11 +1070,6 @@ export function collectSoaWebglInstances(
       }
       const x1 = x + w;
       const y1 = y + h;
-      const minX = Math.min(x, x1) - lineW;
-      const minY = Math.min(y, y1) - lineW;
-      const maxX = Math.max(x, x1) + lineW;
-      const maxY = Math.max(y, y1) + lineW;
-      if (maxX < vl || maxY < vt || minX > vr || minY > vb) continue;
       for (const activeClip of paintClips) {
         pushLineInstance(
           x,
@@ -973,104 +1087,17 @@ export function collectSoaWebglInstances(
           slotDepth,
           clips,
           activeClip,
-          strokes
         );
       }
       if (forceStamp) buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       continue;
     }
 
-    const liveAngle = id ? getNodeTransformPreview(id)?.angle : undefined;
-    let rotDeg = 0;
-    if (Number.isFinite(liveAngle) && Math.abs(Number(liveAngle)) > 0.5) {
-      rotDeg = Number(liveAngle);
-    }
-    const rotRad = (rotDeg * Math.PI) / 180;
-
-    const outlineW = floorContentStrokeSceneWidth(buf.strokeWidths[i] || 0, zoom);
-    const outlineArgb = buf.strokeColors[i] || 0;
-    const hasOutline = outlineW > 0 && outlineArgb !== 0;
-    const outlineCss = hasOutline ? unpackCssColor(outlineArgb) : '';
-    const fillCss = unpackCssColor(buf.colors[i]);
-    const worldBox = { left: x, top: y, width: w, height: h };
-
-    // Rounded rects → shader SDF (atlas 256px cell softens large/zoomed idle ink).
-    if (kind === SOA_KIND_RECT) {
-      const ro = i * 4;
-      const liveR = id ? getLiveCornerRadiusPreviewRadii(id) : null;
-      const tl = liveR ? liveR.tl : buf.radii[ro] || 0;
-      const tr = liveR ? liveR.tr : buf.radii[ro + 1] || 0;
-      const br = liveR ? liveR.br : buf.radii[ro + 2] || 0;
-      const bl = liveR ? liveR.bl : buf.radii[ro + 3] || 0;
-      const rounded = tl > 0.5 || tr > 0.5 || br > 0.5 || bl > 0.5;
-      if (rounded || hasOutline) {
-        const outlineRgba = hasOutline ? argbToRgba(outlineArgb) : null;
-        for (const activeClip of paintClips) {
-          rects.push(x, y, w, h);
-          colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
-          kinds.push(SOA_WEBGL_KIND_ROUNDED);
-          angles.push(rotRad);
-          uvs.push(tl, tr, br, bl);
-          if (depthOut) depthOut.push(slotDepth);
-          pushInstanceClip(clips, activeClip);
-          pushInstanceStroke(strokes, outlineRgba, hasOutline ? outlineW : 0);
-        }
-        clearSoaDirtyFlag(buf, i, flags, forceStamp);
-        continue;
-      }
-    }
-
-    // Stroked ellipses → atlas (instanced ellipse has no outline).
-    if (kind === SOA_KIND_ELLIPSE && atlas && odx === 0 && ody === 0 && hasOutline) {
-      const region = stampSoaEllipseToAtlas(
-        atlas,
-        `ellipse:${id || i}`,
-        worldBox,
-        fillCss,
-        {
-          force: forceStamp,
-          strokeCss: outlineCss,
-          strokeWidth: outlineW,
-        }
-      );
-      if (region) {
-        for (const activeClip of paintClips) {
-          commitAtlasRegionInstance(
-            atlas,
-            region,
-            rects,
-            colors,
-            kinds,
-            angles,
-            uvs,
-            rotRad,
-            depthOut,
-            slotDepth,
-            clips,
-            activeClip,
-            strokes
-          );
-        }
-        clearSoaDirtyFlag(buf, i, flags, forceStamp);
-        continue;
-      }
-    }
-
-    for (const activeClip of paintClips) {
-      rects.push(x, y, w, h);
-      colors.push(rgba[0], rgba[1], rgba[2], rgba[3]);
-      kinds.push(kind === SOA_KIND_ELLIPSE ? 1 : 0);
-      angles.push(rotRad);
-      uvs.push(0, 0, 1, 1);
-      if (depthOut) depthOut.push(slotDepth);
-      pushInstanceClip(clips, activeClip);
-      pushInstanceStroke(strokes, null, 0);
-    }
     clearSoaDirtyFlag(buf, i, flags, forceStamp);
   }
 }
 
-/** WebGL ink for SoA axis-aligned rects, ellipses, lines, and path stamps. */
+/** WebGL ink for SoA vector meshes + media atlas stamps. */
 export function createWebglSceneRenderer(
   deps: CanvasSceneRendererDeps
 ): SceneRenderer | null {
@@ -1078,8 +1105,8 @@ export function createWebglSceneRenderer(
   const gl = canvas.getContext('webgl2', {
     alpha: true,
     premultipliedAlpha: true,
-    // SDF already feathers edges — MSAA double-softens 1px strokes vs SVG.
-    antialias: false,
+    // Mesh stroke/fill edges need MSAA — antialias:false made 400% zoom look staircased.
+    antialias: true,
   });
   if (!gl) {
     if (import.meta.env.DEV) {
@@ -1093,6 +1120,9 @@ export function createWebglSceneRenderer(
   const vs = compile(gl, gl.VERTEX_SHADER, VS);
   const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
   const prog = vs && fs ? link(gl, vs, fs) : null;
+  const meshVs = compile(gl, gl.VERTEX_SHADER, MESH_VS);
+  const meshFs = compile(gl, gl.FRAGMENT_SHADER, MESH_FS);
+  const meshProg = meshVs && meshFs ? link(gl, meshVs, meshFs) : null;
   if (!prog || !vs || !fs) {
     if (import.meta.env.DEV) {
       // eslint-disable-next-line no-console
@@ -1102,6 +1132,10 @@ export function createWebglSceneRenderer(
   }
 
   const vao = gl.createVertexArray();
+  const meshVao = gl.createVertexArray();
+  const meshPosBuf = gl.createBuffer();
+  const meshColBuf = gl.createBuffer();
+  const meshClipBuf = gl.createBuffer();
   const cornerBuf = gl.createBuffer();
   const rectBuf = gl.createBuffer();
   const colorBuf = gl.createBuffer();
@@ -1109,7 +1143,6 @@ export function createWebglSceneRenderer(
   const angleBuf = gl.createBuffer();
   const uvBuf = gl.createBuffer();
   const clipBuf = gl.createBuffer();
-  const strokeBuf = gl.createBuffer();
   const depthBuf = gl.createBuffer();
   const atlasTex = gl.createTexture();
   let disposed = false;
@@ -1125,7 +1158,6 @@ export function createWebglSceneRenderer(
   let scratchAngle = new Float32Array(0);
   let scratchUv = new Float32Array(0);
   let scratchClip = new Float32Array(0);
-  let scratchStroke = new Float32Array(0);
   let scratchDepth = new Float32Array(0);
 
   function copyToScratch(src: ArrayLike<number>, prev: Float32Array): Float32Array {
@@ -1151,7 +1183,6 @@ export function createWebglSceneRenderer(
       uvBuf,
       depthBuf,
       clipBuf,
-      strokeBuf
     );
     gl.bindVertexArray(null);
     return dofPass;
@@ -1193,12 +1224,21 @@ export function createWebglSceneRenderer(
   gl.enableVertexAttribArray(6);
   gl.vertexAttribPointer(6, 4, gl.FLOAT, false, 0, 0);
   gl.vertexAttribDivisor(6, 1);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
-  gl.enableVertexAttribArray(7);
-  gl.vertexAttribPointer(7, 4, gl.FLOAT, false, 0, 0);
-  gl.vertexAttribDivisor(7, 1);
   gl.bindVertexArray(null);
+
+  if (meshProg && meshVao && meshPosBuf && meshColBuf && meshClipBuf) {
+    gl.bindVertexArray(meshVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshPosBuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshColBuf);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshClipBuf);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+  }
 
   gl.bindTexture(gl.TEXTURE_2D, atlasTex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1222,8 +1262,6 @@ export function createWebglSceneRenderer(
     gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4 * 4, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, clipBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4 * 4, gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4 * 4, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, depthBuf);
     gl.bufferData(gl.ARRAY_BUFFER, instanceCap * 4, gl.DYNAMIC_DRAW);
@@ -1281,7 +1319,6 @@ export function createWebglSceneRenderer(
       const angles: number[] = [];
       const uvs: number[] = [];
       const clips: number[] = [];
-      const strokes: number[] = [];
       const depths: number[] = [];
 
       let depthLookup: ReturnType<typeof buildNormalizedDepthLookup> | null = null;
@@ -1294,94 +1331,27 @@ export function createWebglSceneRenderer(
         depthLookup = buildNormalizedDepthLookup(req.document, ids);
       }
 
-      let usedBakeAtlas = false;
-      const skipBake = gpuDofSkipsSoaTileBake();
-      // Keep viewport bake during selection raise — chrome / raised ink sit above.
-      if (
-        !skipBake &&
-        shouldUseSoaBake(buf) &&
-        isSoaBakePathAllowed() &&
-        !hasFrameClipRevealOverflow()
-      ) {
-        let cache = getSharedSoaBakeCache();
-        if (!cache || cache.bufferRevision !== buf.revision) {
-          cache = createSoaBakeCache();
-          cache.bufferRevision = buf.revision;
-          setSharedSoaBakeCache(cache);
-          releaseSoaAtlasPrefix(atlas, 'bake:');
-        }
-        const dirty = unionSoaDirtyAabb(buf);
-        if (dirty) {
-          const dropped = invalidateSoaBakeTilesForDirty(buf, cache, dirty);
-          for (const key of dropped) {
-            releaseSoaAtlasRegion(atlas, `bake:${key}`);
-          }
-        }
-        const { tiles: readyTiles, pending: tilesPending } = collectReadySoaBakeTilesForView(
-          buf,
-          view
-        );
-        if (tilesPending) bumpSceneCanvasIdlePaint();
-        // Only switch off live instances when the full viewport tile map is ready.
-        // Partial stamps previously skipped live draw → blank holes / empty board.
-        if (!tilesPending && readyTiles.length > 0) {
-          const tileList: Array<{
-            key: string;
-            canvas: CanvasImageSource;
-            bounds: { left: number; top: number; width: number; height: number };
-            force?: boolean;
-          }> = readyTiles.map((tile) => ({
-            key: tile.key,
-            canvas: tile.canvas as CanvasImageSource,
-            bounds: tile.bounds,
-            force: false,
-          }));
-          const stamped = collectSoaBakeTilesIntoAtlas(
-            atlas,
-            tileList,
-            rects,
-            colors,
-            kinds,
-            angles,
-            uvs
-          );
-          usedBakeAtlas = stamped > 0;
-          // Bake tiles already clip per slot in Canvas2D; disable shader clip.
-          for (let t = 0; t < stamped; t += 1) {
-            clips.push(
-              SOA_WEBGL_NO_CLIP[0],
-              SOA_WEBGL_NO_CLIP[1],
-              SOA_WEBGL_NO_CLIP[2],
-              SOA_WEBGL_NO_CLIP[3]
-            );
-            strokes.push(0, 0, 0, 0);
-          }
-        }
-        if (import.meta.env.DEV && atlas.stats.misses + atlas.stats.hits > 0) {
-          // Lightweight telemetry for QA — avoid spamming: only when restamps happen.
-          if (atlas.stats.restamps > 0 && atlas.stats.restamps % 8 === 0) {
-            // eslint-disable-next-line no-console
-            console.debug('[soa-atlas]', getSoaAtlasStats(atlas));
-          }
-        }
-      }
-
-      if (!usedBakeAtlas) {
-        collectSoaWebglInstances(buf, view, rects, colors, kinds, angles, uvs, {
-          atlas,
-          bufferRevision: buf.revision,
-          depths: useDof ? depths : undefined,
-          depthForId: depthLookup ? (id) => depthLookup!.depthForId(id) : undefined,
-          clips,
-          strokes,
-          document: req.document,
-          zoom: z,
-          // ArtboardLayer owns plate-bound idle ink on per-frame small canvases.
-          skipFrameBound: true,
-        });
-      }
+      const meshPos: number[] = [];
+      const meshCol: number[] = [];
+      const meshClipArr: number[] = [];
+      // Vector dual-backend: skip shape bake tiles; draw live instances + meshes.
+      collectSoaWebglInstances(buf, view, rects, colors, kinds, angles, uvs, {
+        atlas,
+        bufferRevision: buf.revision,
+        depths: useDof ? depths : undefined,
+        depthForId: depthLookup ? (id) => depthLookup!.depthForId(id) : undefined,
+        clips,
+        document: req.document,
+        zoom: z,
+        dpr,
+        skipFrameBound: true,
+        meshPos,
+        meshCol,
+        meshClip: meshClipArr,
+      });
       const count = kinds.length;
-      if (!count) {
+      const meshVertCount = Math.floor(meshPos.length / 2);
+      if (!count && meshVertCount < 3) {
         if (dof) {
           dof.unbindSceneFbo();
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -1392,6 +1362,7 @@ export function createWebglSceneRenderer(
         return;
       }
 
+      if (count > 0) {
       ensureInstanceCapacity(count);
       scratchRect = copyToScratch(rects, scratchRect);
       scratchColor = copyToScratch(colors, scratchColor);
@@ -1415,13 +1386,6 @@ export function createWebglSceneRenderer(
       scratchClip = copyToScratch(clipFill, scratchClip);
       gl.bindBuffer(gl.ARRAY_BUFFER, clipBuf);
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchClip.subarray(0, count * 4));
-      const strokeFill =
-        strokes.length === count * 4
-          ? strokes
-          : Array.from({ length: count * 4 }, () => 0);
-      scratchStroke = copyToScratch(strokeFill, scratchStroke);
-      gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratchStroke.subarray(0, count * 4));
       if (useDof) {
         const depthFill =
           depths.length === count
@@ -1464,6 +1428,23 @@ export function createWebglSceneRenderer(
       gl.bindVertexArray(useDof && dofVao ? dofVao : vao);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
       gl.bindVertexArray(null);
+      }
+
+      if (meshVertCount >= 3 && meshProg) {
+        gl.useProgram(meshProg);
+        gl.uniform2f(gl.getUniformLocation(meshProg, 'uPan'), pan.x, pan.y);
+        gl.uniform1f(gl.getUniformLocation(meshProg, 'uZoom'), z);
+        gl.uniform2f(gl.getUniformLocation(meshProg, 'uStage'), sw, sh);
+        gl.bindVertexArray(meshVao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshPosBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshPos), gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshColBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshCol), gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshClipBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshClipArr), gl.DYNAMIC_DRAW);
+        gl.drawArrays(gl.TRIANGLES, 0, meshVertCount);
+        gl.bindVertexArray(null);
+      }
 
       if (dof) {
         dof.unbindSceneFbo();
@@ -1482,6 +1463,9 @@ export function createWebglSceneRenderer(
       gl.deleteProgram(prog);
       gl.deleteShader(vs);
       gl.deleteShader(fs);
+      if (meshProg) gl.deleteProgram(meshProg);
+      if (meshVs) gl.deleteShader(meshVs);
+      if (meshFs) gl.deleteShader(meshFs);
       gl.deleteBuffer(cornerBuf);
       gl.deleteBuffer(rectBuf);
       gl.deleteBuffer(colorBuf);
@@ -1489,10 +1473,13 @@ export function createWebglSceneRenderer(
       gl.deleteBuffer(angleBuf);
       gl.deleteBuffer(uvBuf);
       gl.deleteBuffer(clipBuf);
-      gl.deleteBuffer(strokeBuf);
       gl.deleteBuffer(depthBuf);
+      if (meshPosBuf) gl.deleteBuffer(meshPosBuf);
+      if (meshColBuf) gl.deleteBuffer(meshColBuf);
+      if (meshClipBuf) gl.deleteBuffer(meshClipBuf);
       gl.deleteTexture(atlasTex);
       gl.deleteVertexArray(vao);
+      if (meshVao) gl.deleteVertexArray(meshVao);
       if (dofVao) gl.deleteVertexArray(dofVao);
     },
   };

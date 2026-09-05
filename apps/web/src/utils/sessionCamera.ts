@@ -18,6 +18,11 @@ export type SessionCameraBandInsets = {
 export type SessionCameraFitOpts = {
   padding?: number;
   maxZoom?: number;
+  /**
+   * When the live camera is already zoomed in past the fit zoom, keep that
+   * zoom and only re-center (opening 关键帧 must not yank 1700% → 140%).
+   */
+  keepZoomIfLarger?: boolean;
   /** Fit + center inside this free band (stage px). */
   bandInsets?: SessionCameraBandInsets;
   /** 0 = top of free band, 1 = bottom (default 0.5). */
@@ -29,6 +34,7 @@ export type SessionCameraPushDetail = {
   bounds: SessionCameraBounds;
   padding?: number;
   maxZoom?: number;
+  keepZoomIfLarger?: boolean;
   bandInsets?: SessionCameraBandInsets;
   bandAnchorY?: number;
 };
@@ -39,6 +45,7 @@ export type SessionCameraFitDetail = {
   bounds: SessionCameraBounds;
   padding?: number;
   maxZoom?: number;
+  keepZoomIfLarger?: boolean;
   bandInsets?: SessionCameraBandInsets;
   bandAnchorY?: number;
 };
@@ -66,6 +73,7 @@ export function pushSessionCamera(
         bounds,
         padding: opts?.padding,
         maxZoom: opts?.maxZoom,
+        keepZoomIfLarger: opts?.keepZoomIfLarger,
         bandInsets: opts?.bandInsets,
         bandAnchorY: opts?.bandAnchorY,
       },
@@ -85,6 +93,7 @@ export function fitSessionCamera(
         bounds,
         padding: opts?.padding,
         maxZoom: opts?.maxZoom,
+        keepZoomIfLarger: opts?.keepZoomIfLarger,
         bandInsets: opts?.bandInsets,
         bandAnchorY: opts?.bandAnchorY,
       },

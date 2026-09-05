@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRcbCamera, useRcbDevicePixelRatio } from '@/components/rcb/camera/context';
 import { HEAVY_PATH_D_CHARS, rememberNodePath2D } from '@/components/rcb/scene/document/sceneShapes';
 import { geometryIndicatorPathD } from '@/components/rcb/scene/paint/outlineToPath';
+import { pathPaintDFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import {
   getShapeHost,
   getSharedNodeEls,
@@ -520,7 +521,12 @@ export function resolveOutlinePathD(node: SceneNodeInput, gw: number, gh: number
   const rawPath = String(node?.attrs?.path || '');
   const shapeType = String(node?.attrs?.shapeType || '');
   if (isVectorStrokeNode(node, shapeType)) {
-    if (rawPath.trim().length >= 2) return rawPath;
+    if (rawPath.trim().length >= 2) {
+      // Match Canvas/SVG paint: closed path + radius* uses filleted silhouette.
+      return (
+        pathPaintDFromAttrs(node.attrs as Record<string, unknown>, { shapeType }) || rawPath
+      );
+    }
     return geometryIndicatorPathD(node, { width: gw, height: gh });
   }
   if (rawPath.length >= HEAVY_PATH_D_CHARS) {

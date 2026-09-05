@@ -1,18 +1,19 @@
 /**
- * Content strokes are authored in **scene** units. Under CSS/`uZoom` camera scale,
- * `sw * zoom` can drop below 1 CSS px — WebGL coverage and SVG hairlines vanish
- * even when every shape stores the same border-width.
+ * Content strokes are authored in **scene** units and scale with the camera.
+ * No on-screen hairline floor, no hard cull, no zoom-out thickening — paint
+ * the geometric width; far zoom may drop below 1 CSS px uniformly.
  *
- * Editor chrome uses a pure screen-constant width (`cssPx / zoom`). Content ink
- * keeps geometric thickness when zoomed in, and floors to ≥ `minCssPx` on screen
- * when zoomed out.
+ * `floorContentStrokeSceneWidth` keeps the historic name/signature for callers
+ * (WebGL / SVG / atlas bake) but returns geometric scene width unchanged.
  */
 
-/** Minimum on-screen stroke weight (CSS px) after camera scale. */
-export const CONTENT_STROKE_MIN_CSS_PX = 1;
+/** @deprecated Content ink no longer floors to a minimum CSS px. Kept as 0. */
+export const CONTENT_STROKE_MIN_CSS_PX = 0;
 
 /**
- * Scene stroke width so `sw * zoom` stays ≥ `minCssPx` CSS px.
+ * Scene stroke width for paint. Returns geometric `sceneWidth` (no screen floor
+ * / no CSS-px quantization). Optional `minCssPx` is ignored when <= 0; when > 0
+ * it still lifts `sw` so `sw * zoom >= minCssPx` (chrome / tests only).
  * Returns 0 when `sceneWidth` is non-positive (no stroke).
  */
 export function floorContentStrokeSceneWidth(
@@ -22,9 +23,10 @@ export function floorContentStrokeSceneWidth(
 ): number {
   const sw = Math.max(0, Number(sceneWidth) || 0);
   if (!(sw > 0)) return 0;
+  const minCss = Math.max(0, Number(minCssPx) || 0);
+  if (!(minCss > 0)) return sw;
   const z = Math.max(0.05, Number(zoom) || 1);
-  const floor = Math.max(0, Number(minCssPx) || 0) / z;
-  return Math.max(sw, floor);
+  return Math.max(sw, minCss / z);
 }
 
 /**

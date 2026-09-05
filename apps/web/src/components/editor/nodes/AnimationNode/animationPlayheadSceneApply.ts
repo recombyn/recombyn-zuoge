@@ -8,7 +8,6 @@
  */
 import { getSharedNodeEls, notifyShapeHostGeometry } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
-  documentPointToNodeLocal,
   isFrameLocalCoordSpace,
   nodeLeftTop,
   previewSvgNodeAngle,
@@ -26,6 +25,7 @@ import {
   isTransformPropAnimated,
   sampleLayerTransformAtFrame,
 } from '@/components/editor/nodes/AnimationNode/animationTimelineMutate';
+import { lottieLayerBaseSize } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import { isPlayheadScenePoseBlocked } from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
@@ -217,8 +217,8 @@ export function resolvePrecompSessionShapePose(opts: {
     frame: frameN,
   });
   const fit = plateFitScale(plate, localAnimW, localAnimH);
-  const baseW = Math.max(1, Number(raw.w) || Number(node.width) || 1);
-  const baseH = Math.max(1, Number(raw.h) || Number(node.height) || 1);
+  // Lottie-local base only — never node.width (already plate-fitted scene px).
+  const baseFromLayer = lottieLayerBaseSize(raw);
 
   const baseOrigin = document
     ? nodeLeftTop(document, node as SceneNodeInput)
@@ -238,11 +238,18 @@ export function resolvePrecompSessionShapePose(opts: {
   }
 
   opacity = sampled.opacity;
-  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 's')) {
+  if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 's') && baseFromLayer) {
     const sx = Math.max(0.01, sampled.scaleX / 100);
     const sy = Math.max(0.01, sampled.scaleY / 100);
-    width = Math.max(1, baseW * sx * fit);
-    height = Math.max(1, baseH * sy * fit);
+    width = Math.max(1, baseFromLayer.w * sx * fit);
+    height = Math.max(1, baseFromLayer.h * sy * fit);
+  }
+  // Shape corner radius is in Lottie local units (rc.r), not ks.rd.
+  if (baseFromLayer && baseFromLayer.r > 0) {
+    roundness = baseFromLayer.r * fit * Math.min(
+      Math.max(0.01, sampled.scaleX / 100),
+      Math.max(0.01, sampled.scaleY / 100)
+    );
   }
   if (layerTransformAnimated(anim, sceneKind, assetId, layerInd, 'p')) {
     const center = lottieLocalToScenePoint(
@@ -283,9 +290,12 @@ function poseDiffers(
   document?: SceneDocument | null
 ): boolean {
   const eps = 0.05;
-  const stored = document
-    ? nodeLeftTop(document, node as SceneNodeInput)
-    : { left: Number(node.x) || 0, top: Number(node.y) || 0 };
+  // Pose plate matches document storage space (frameLocal → {0,0} plate → compare node.x/y).
+  // Do NOT use nodeLeftTop (world) here — that always "differs" by frame.x and rewrites x off-plate.
+  const stored =
+    document && !isFrameLocalCoordSpace(document)
+      ? nodeLeftTop(document, node as SceneNodeInput)
+      : { left: Number(node.x) || 0, top: Number(node.y) || 0 };
   if (Math.abs(stored.left - pose.left) > eps) return true;
   if (Math.abs(stored.top - pose.top) > eps) return true;
   if (Math.abs((Number(node.width) || 0) - pose.width) > eps) return true;
@@ -294,13 +304,21 @@ function poseDiffers(
   if (Math.abs(documentOpacityPct(node) - pose.opacity) > eps) return true;
   if (Math.abs((Number(node.attrs?.skewX) || 0) - pose.skew) > eps) return true;
   if (Math.abs((Number(node.attrs?.skewAxis) || 0) - pose.skewAxis) > eps) return true;
+  if (pose.roundness >= 0) {
+    const curR = Number(node.attrs?.rx ?? node.attrs?.cornerRadius ?? node.attrs?.radiusTL);
+    if (Number.isFinite(curR) && Math.abs(curR - pose.roundness) > eps) return true;
+    if (!Number.isFinite(curR) && pose.roundness > eps) return true;
+  }
   return false;
 }
 
-/** Bake scene pose into stored node x/y (plate-local when frameLocal). */
+/**
+ * Bake pose → document x/y. Plate is already in document storage space
+ * (frameLocal uses {0,0}), so pose.left/top are the stored coords — no subtract.
+ */
 function poseToStoredXY(
-  document: SceneDocument,
-  node: {
+  _document: SceneDocument,
+  _node: {
     x?: unknown;
     y?: unknown;
     width?: unknown;
@@ -309,15 +327,7 @@ function poseToStoredXY(
   },
   pose: PrecompSessionShapePose
 ): { x: number; y: number } {
-  if (!isFrameLocalCoordSpace(document)) {
-    return { x: pose.left, y: pose.top };
-  }
-  const { ox, oy } = {
-    ox: Number(document.x) || 0,
-    oy: Number(document.y) || 0,
-  };
-  // pose is scene paint; documentPointToNodeLocal wants document absolute.
-  return documentPointToNodeLocal(document, node as SceneNodeInput, pose.left + ox, pose.top + oy);
+  return { x: pose.left, y: pose.top };
 }
 
 /** Bake playhead pose into document so host repaints cannot reset siblings. */
@@ -343,10 +353,12 @@ export function collectPrecompSessionDocumentPatches(opts: {
   const frameId = resolveAnimationFrameId(opts.document, host);
   const frames = Array.isArray(opts.document.frames) ? opts.document.frames : [];
   const frame = frameId ? frames.find((f) => String(f?.id) === frameId) : null;
-  // World plate: poses are scene paint, then poseToStoredXY maps to frameLocal.
+  // Match materialize + layerLinkPlate: frameLocal plate is {0,0} so stored x/y stay local.
+  // World plate + live-geometry subtract was writing x≈frame.x+local → shapes paint off-plate.
+  const frameLocal = isFrameLocalCoordSpace(opts.document);
   const plate = {
-    left: Number(frame?.x ?? host.x) || 0,
-    top: Number(frame?.y ?? host.y) || 0,
+    left: frameLocal ? 0 : Number(frame?.x ?? host.x) || 0,
+    top: frameLocal ? 0 : Number(frame?.y ?? host.y) || 0,
     width: Math.max(1, Number(frame?.width ?? host.width) || 1),
     height: Math.max(1, Number(frame?.height ?? host.height) || 1),
   };

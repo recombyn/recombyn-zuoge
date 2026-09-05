@@ -11,6 +11,10 @@ import {
   nodeToSvgElement,
 } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
+  getPencilBrushPaintRev,
+  subscribePencilBrushPaint,
+} from '@/components/rcb/tools/pencilBrushes';
+import {
   blendModeToCss,
   parseBlendMode,
   parseLayerOpacity,
@@ -146,7 +150,10 @@ function RcbShapeHost({
       }),
     []
   );
+  const [brushPaintRev, setBrushPaintRev] = useState(() => getPencilBrushPaintRev());
+  useEffect(() => subscribePencilBrushPaint(() => setBrushPaintRev(getPencilBrushPaintRev())), []);
   const node = document?.deltaSetLike?.[nodeId];
+  const isPencilNode = String(node?.attrs?.shapeType || '').toLowerCase() === 'pencil';
   const clipGeometryToken = [node?.x, node?.y, node?.width, node?.height].join('|');
   const blendMode = parseBlendMode(node?.attrs?.blendMode, { allowPassThrough: false });
   const layerOpacity = parseLayerOpacity(node?.attrs?.opacity, 1);
@@ -200,6 +207,8 @@ function RcbShapeHost({
     // without remounting (full rebuild corrupts boolean / outlined compound paths).
     node?.attrs?.brushStyle,
     node?.attrs?.pathPressure,
+    // Pencil silhouette depends on live brush option overrides (taper/thinning/…).
+    isPencilNode ? brushPaintRev : 0,
     // All effects share the SVG paint path. Include their complete input so a
     // path/line/pen gets the same immediate repaint as an image or rect.
     node?.attrs?.['shadow-enabled'],

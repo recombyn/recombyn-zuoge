@@ -215,9 +215,12 @@ function buildGlyphPathParts(
   const scale = opts.fontSize / font.unitsPerEm;
   const ascentPx = font.ascent * scale;
   const parts: string[] = [];
-  const originY = !opts.autoSize
-    ? textVerticalOriginY(opts.boxH, opts.fontSize, opts.lineHeight, Math.max(1, lines.length))
-    : 0;
+  const originY = textVerticalOriginY(
+    opts.boxH,
+    opts.fontSize,
+    opts.lineHeight,
+    Math.max(1, lines.length)
+  );
 
   for (let lineIdx = 0; lineIdx < lines.length; lineIdx += 1) {
     const line = lines[lineIdx];

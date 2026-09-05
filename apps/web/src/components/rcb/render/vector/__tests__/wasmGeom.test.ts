@@ -1,0 +1,214 @@
+import { describe, expect, it, beforeEach } from 'vitest';
+import type { SceneNodeInput } from '@/components/rcb/sceneNode';
+import { densifyPathDJs } from '@/components/rcb/render/vector/densifyPathDJs';
+import { tessellateFill, tessellateFillWithHoles } from '@/components/rcb/render/vector/tessellateFill';
+import { tessellateStroke } from '@/components/rcb/render/vector/tessellateStroke';
+import {
+  __setWasmGeomApiForTests,
+  densifyPathDWasm,
+  tessellateFillWasm,
+  tessellateStrokeWasm,
+  tessellateFillWithHolesWasm,
+  tessellateBatchFill,
+  getWasmGeomBackend,
+  setWasmGeomForceJs,
+  initWasmGeom,
+} from '@/components/rcb/render/vector/wasmGeom';
+import {
+  clearShapeMeshCache,
+  getOrBuildShapeMesh,
+} from '@/components/rcb/render/vector/meshCache';
+import {
+  resetGeomProfile,
+  setGeomProfileEnabled,
+  getGeomProfileSnapshot,
+  isGeomProfileEnabled,
+} from '@/components/rcb/render/vector/geomProfile';
+
+function almostEqualFlat(a: ArrayLike<number>, b: ArrayLike<number>, eps = 1e-3) {
+  expect(a.length).toBe(b.length);
+  for (let i = 0; i < a.length; i += 1) {
+    expect(Math.abs(Number(a[i]) - Number(b[i]))).toBeLessThanOrEqual(eps);
+  }
+}
+
+describe('wasm geom adapter', () => {
+  beforeEach(() => {
+    __setWasmGeomApiForTests(null);
+    setWasmGeomForceJs(false);
+    clearShapeMeshCache();
+    resetGeomProfile();
+    setGeomProfileEnabled(false);
+  });
+
+  it('falls back to JS densify/fill/stroke when wasm missing', () => {
+    expect(getWasmGeomBackend()).toBe('js');
+    const d = 'M0 0 H40 V30 H0 Z';
+    const js = densifyPathDJs(d);
+    const via = densifyPathDWasm(d);
+    expect(via).toEqual(js);
+    const fill = tessellateFillWasm([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+    ]);
+    expect(fill).not.toBeNull();
+    expect(fill!.triangleCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('mock wasm API matches JS fill triangle count', () => {
+    __setWasmGeomApiForTests({
+      densify_path_d: (d) => {
+        const pts = densifyPathDJs(d);
+        const flat = new Float32Array(pts.length * 2);
+        pts.forEach((p, i) => {
+          flat[i * 2] = p.x;
+          flat[i * 2 + 1] = p.y;
+        });
+        return flat;
+      },
+      tessellate_fill: (xy) => {
+        const pts = [];
+        for (let i = 0; i < xy.length; i += 2) pts.push({ x: xy[i]!, y: xy[i + 1]! });
+        const m = tessellateFill(pts);
+        return m ? m.positions : new Float32Array(0);
+      },
+      tessellate_fill_with_holes: (outer, holesFlat, holeCounts) => {
+        const o = [];
+        for (let i = 0; i < outer.length; i += 2) o.push({ x: outer[i]!, y: outer[i + 1]! });
+        const holes = [];
+        let off = 0;
+        for (let h = 0; h < holeCounts.length; h += 1) {
+          const n = holeCounts[h]!;
+          const ring = [];
+          for (let i = 0; i < n; i += 1) {
+            ring.push({ x: holesFlat[off]!, y: holesFlat[off + 1]! });
+            off += 2;
+          }
+          holes.push(ring);
+        }
+        const m = tessellateFillWithHoles(o, holes);
+        return m ? m.positions : new Float32Array(0);
+      },
+      tessellate_stroke: (xy, width, closed, align, linejoin?: string, miterLimit?: number) => {
+        const pts = [];
+        for (let i = 0; i < xy.length; i += 2) pts.push({ x: xy[i]!, y: xy[i + 1]! });
+        const m = tessellateStroke(pts, {
+          width,
+          closed,
+          align,
+          linejoin: (linejoin as 'miter' | 'round' | 'bevel') || 'miter',
+          miterLimit: miterLimit || 100,
+        });
+        return m ? m.positions : new Float32Array(0);
+      },
+      tessellate_batch_fill: (xyAll, counts) => {
+        const out: number[] = [];
+        let off = 0;
+        for (let c = 0; c < counts.length; c += 1) {
+          const n = counts[c]!;
+          const pts = [];
+          for (let i = 0; i < n; i += 1) {
+            pts.push({ x: xyAll[off]!, y: xyAll[off + 1]! });
+            off += 2;
+          }
+          const m = tessellateFill(pts);
+          const flat = m ? Array.from(m.positions) : [];
+          out.push(flat.length, ...flat);
+        }
+        return new Float32Array(out);
+      },
+    });
+    expect(getWasmGeomBackend()).toBe('wasm');
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 20, y: 0 },
+      { x: 20, y: 10 },
+      { x: 0, y: 10 },
+    ];
+    const js = tessellateFill(pts)!;
+    const wa = tessellateFillWasm(pts)!;
+    almostEqualFlat(js.positions, wa.positions);
+    const strokeJs = tessellateStroke(pts, { width: 2, closed: true })!;
+    const strokeWa = tessellateStrokeWasm(pts, { width: 2, closed: true })!;
+    almostEqualFlat(strokeJs.positions, strokeWa.positions);
+  });
+
+  it('tessellateFillWithHoles emits triangles for donut-like rings', () => {
+    const outer = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 100 },
+      { x: 0, y: 100 },
+    ];
+    const hole = [
+      { x: 30, y: 30 },
+      { x: 70, y: 30 },
+      { x: 70, y: 70 },
+      { x: 30, y: 70 },
+    ];
+    const mesh = tessellateFillWithHoles(outer, [hole]);
+    expect(mesh).not.toBeNull();
+    expect(mesh!.triangleCount).toBeGreaterThanOrEqual(2);
+    const via = tessellateFillWithHolesWasm(outer, [hole]);
+    expect(via).not.toBeNull();
+    expect(via!.triangleCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('batch fill returns one mesh per ring', () => {
+    const rings = [
+      [
+        { x: 0, y: 0 },
+        { x: 5, y: 0 },
+        { x: 5, y: 5 },
+      ],
+      [
+        { x: 0, y: 0 },
+        { x: 8, y: 0 },
+        { x: 8, y: 8 },
+        { x: 0, y: 8 },
+      ],
+    ];
+    const out = tessellateBatchFill(rings);
+    expect(out).toHaveLength(2);
+    expect(out[0]?.triangleCount).toBe(1);
+    expect(out[1]?.triangleCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('geom profile records fill timing when enabled', () => {
+    setGeomProfileEnabled(true);
+    expect(isGeomProfileEnabled()).toBe(true);
+    tessellateFillWasm([
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 0, y: 4 },
+    ]);
+    const snap = getGeomProfileSnapshot();
+    expect(snap.samples).toBeGreaterThanOrEqual(1);
+    expect(snap.fillMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('meshCache builds donut hole for ellipse with inner ratio', () => {
+    const node = {
+      id: 'donut',
+      key: 'shape',
+      width: 80,
+      height: 80,
+      attrs: {
+        shapeType: 'ellipse',
+        'fill-color': '#abc',
+        'ellipse-inner-ratio': 0.4,
+        'stroke-enabled': false,
+      },
+    } as SceneNodeInput;
+    const mesh = getOrBuildShapeMesh('donut', node, { width: 80, height: 80 });
+    expect(mesh?.fill).not.toBeNull();
+    expect(mesh!.fill!.triangleCount).toBeGreaterThanOrEqual(4);
+  });
+
+  it('initWasmGeom resolves false without pkg', async () => {
+    setWasmGeomForceJs(true);
+    await expect(initWasmGeom()).resolves.toBe(false);
+  });
+});

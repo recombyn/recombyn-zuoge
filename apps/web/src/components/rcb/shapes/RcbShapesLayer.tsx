@@ -12,12 +12,13 @@ import {
   sortIdsByRank,
 } from '../core/spatialIndex';
 import {
+  isGeneratorNode,
   isImageProcessRunning,
   isNodeOverlayHidden,
   isNodeStructurallyHiddenInDocument,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import {
-  selectionPaintZIndex,
+  nodePaintZIndex,
   uniqueStringIds,
   worldNodeStacksAboveAnyFrame,
 } from '@/components/rcb/scene/document/sceneDocument';
@@ -28,6 +29,8 @@ import {
   setSelectionPaintRaiseIds,
   setSelectionPaintRaiseFrameIds,
 } from '@/components/rcb/frames/frameContentClip';
+import { nodeOwnerFrameId } from '@/components/rcb/frames/frameNodeBinding';
+import { scheduleArtboardInkPaint } from '@/components/rcb/frames/artboardInkSurface';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
@@ -406,7 +409,7 @@ type Props = {
   keepVisibleIds?: readonly string[];
   /**
    * Node ids that temporarily drop clipContent (selected shapes / path edit).
-   * Must not include frame-selected children — only the frame chrome is selected.
+   * Must not include children of a co-selected artboard — those stay clipped.
    */
   revealOverflowIds?: readonly string[];
   /** Single-select temporary paint raise (max+1). Empty for multi-select. */
@@ -474,9 +477,11 @@ export function pickFullAndCanvasIds(opts: {
    * (RenderDemotionScheduler CANDIDATE / ACTIVE_SVG).
    */
   holdHostIds?: ReadonlySet<string>;
-  /** Single-select paint raise — must share the plate mount (SoA is under plates). */
+  /**
+   * Single-select temporary raise (within-ink z + hit).
+   * Basic shapes stay on SoA; generators promote to SVG so max+1 data-z can cover siblings.
+   */
   paintRaiseIds?: ReadonlySet<string> | readonly string[];
-  /** Kept for API compat; plate raise is data-z on the shared mount. */
   paintRaiseFrameIds?: ReadonlySet<string> | readonly string[];
   zoom: number;
   /** Device pixel ratio for idle media sharpness (defaults to window.devicePixelRatio). */
@@ -486,11 +491,6 @@ export function pickFullAndCanvasIds(opts: {
   const { document, visibleIds, zoom } = opts;
   const forceFullSet = opts.forceFullSet ?? EMPTY_FORCE_FULL_SET;
   const holdHostIds = opts.holdHostIds;
-  const paintRaiseSet = opts.paintRaiseIds
-    ? opts.paintRaiseIds instanceof Set
-      ? opts.paintRaiseIds
-      : new Set(opts.paintRaiseIds)
-    : null;
   const maxCanvasInk = opts.maxCanvasInk ?? MAX_CANVAS_INK_PAINT;
   const dpr =
     opts.dpr ??
@@ -500,15 +500,28 @@ export function pickFullAndCanvasIds(opts: {
   for (const id of visibleIds) {
     const node = document?.deltaSetLike?.[id];
     if (isNodeStructurallyHiddenInDocument(document, node)) continue;
+    const raiseIds = opts.paintRaiseIds;
+    const isPaintRaised = Boolean(
+      raiseIds &&
+        (raiseIds instanceof Set
+          ? raiseIds.has(id)
+          : (raiseIds as readonly string[]).includes(id))
+    );
+    const raiseHost = isPaintRaised && isGeneratorNode(node);
+    // Plate-bound siblings must share ArtboardLayer ink. Zoom-based SVG promote
+    // splits some onto data-z hosts while others stay on the plate canvas →
+    // apparent layer-order flips when the camera zooms.
+    const plateBound = Boolean(nodeOwnerFrameId(node));
     const forceHost =
       forceFullSet.has(id) ||
       Boolean(holdHostIds?.has(id)) ||
-      Boolean(paintRaiseSet?.has(id)) ||
+      raiseHost ||
+      // Basic shapes keep SoA under raise (chrome/z only). Generators must
+      // leave SoA so max+1 data-z can cover sibling SVG hosts — otherwise ink
+      // stays under the stack SVG and drag chrome looks like it "bounces".
       worldNodeStacksAboveAnyFrame(document, id) ||
-      // Atlas cell (~252px) cannot stay sharp for large/zoomed bitmaps.
-      // Empty generators are excluded inside idleMediaNeedsSharpHost so they
-      // stay on SoA and honor unified stackOrder vs rect ink.
-      idleMediaNeedsSharpHost(node, zoom, dpr);
+      // Shape/text sharpness promote retired — media may still leave SoA for crisp hosts.
+      (!plateBound && idleMediaNeedsSharpHost(node, zoom, dpr));
     if (nodeNeedsDomShapeHost(node, forceHost)) fullIds.push(id);
     else canvasRaw.push(id);
   }
@@ -630,8 +643,9 @@ function RcbShapesLayer({
 
   /** Mount only in-view (+ keep) ids —never `ids.filter` over 100k after spatial hits. */
   const visibleIds = useMemo(() => {
+    // Stage not measured yet: mount nothing (returning all ids disabled cull).
     if (!document || !ids.length || stageSize.width < 1 || stageSize.height < 1) {
-      return ids;
+      return [];
     }
     const vp = rcbViewportSceneBounds(cullCam, stageSize);
     const pad = CULL_PAD_SCREEN_PX / Math.max(0.05, cullCam.zoom || 1);
@@ -806,10 +820,9 @@ function RcbShapesLayer({
       if (flipped > 0) flushDemotionPaintWake();
     };
     const unsubRadius = subscribeLiveCornerRadiusPreview(() => {
-      // Corner radius live ink is applied on the DOM host SVG. Forcing the
-      // slot onto SoA canvas idle left WebGL painting a stale sharp AABB under
-      // the rounded host (white corners while dragging R).
-      flipHostInk(getLiveCornerRadiusPreviewNodeId(), 'host');
+      // Live corner radii are applied on SoA/WebGL (getLiveCornerRadiusPreviewRadii).
+      // Keep CANVAS_IDLE — selection no longer mounts an SVG ink host for R-drag.
+      flipHostInk(getLiveCornerRadiusPreviewNodeId(), 'canvas');
     });
     const unsubShapeParams = subscribeLiveShapeParamsPreview(() => {
       // Poly/star sides need SoA live-geo rebuild — demote host for that node.
@@ -944,6 +957,9 @@ function RcbShapesLayer({
         if (!findClippingFrameForNode(sceneDoc, node as never)) continue;
         markSoaDirtyById(buf, id);
         paintDirty += 1;
+        // FO plate must drop/restore clipped ink when selection reveal toggles.
+        const owner = nodeOwnerFrameId(node);
+        if (owner) scheduleArtboardInkPaint(owner);
       }
       // Raise changes z-order for all idle ink. Without a wake, SoA bake keeps
       // the pre-select order (front sibling border stays visible while hits
@@ -1026,7 +1042,7 @@ function RcbShapesLayer({
             key={id}
             nodeId={id}
             document={document}
-            zIndex={selectionPaintZIndex(document, 'node', id, paintRaiseSet.has(id))}
+            zIndex={nodePaintZIndex(document, id, paintRaiseSet.has(id))}
             reloadToken={hostReloadTokenFor(id)}
             frameClipToken={frameClipToken}
             forceHidden={isNodeOverlayHidden(document, node, hiddenNodeId === id)}

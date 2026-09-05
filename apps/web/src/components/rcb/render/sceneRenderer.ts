@@ -17,9 +17,19 @@ import {
   radiiFromAttrs,
 } from '@/components/rcb/scene/document/sceneRadii';
 import { getShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
-import { isImageProcessRunning } from '@/components/rcb/scene/document/nodeCapabilities';
+import {
+  isEmptyGeneratorPlate,
+  isImageProcessRunning,
+} from '@/components/rcb/scene/document/nodeCapabilities';
 import { PROCESS_PLATE_STROKE } from '@/components/rcb/process/processGlow';
 import { paintProcessPlateCanvas } from '@/components/rcb/process/processPlateSvg';
+import { framePlateStrokeSceneWidth, strokeCanvasPlateHairline } from '@/components/rcb/frames/types';
+import { generatorEmptyIconSize, generatorEmptyIconVisible } from '@/components/rcb/core/layout';
+import {
+  GENERATOR_EMPTY_ICON_COLOR,
+} from '@/components/rcb/core/generatorEmptyIcons';
+import { atlasBakePixelScale, SOA_ATLAS_INNER } from '@/components/rcb/render/webglInstanceAtlas';
+import { readDevicePixelRatio } from '@/components/rcb/core/dpr';
 import {
   hitTestUnifiedStackAtPoint,
   type SceneHitBox,
@@ -45,12 +55,24 @@ import {
   mergeLiveShapeParamsIntoAttrs,
   sceneHitSlop,
   shapeVertexPoints,
+  getCachedPath2D,
+  rememberNodePath2D,
 } from '@/components/rcb/scene/document/sceneShapes';
+import {
+  type InkBackend,
+  toInkBackend,
+} from '@/components/rcb/render/vector/inkBackend';
+export type { InkBackend } from '@/components/rcb/render/vector/inkBackend';
+export { toInkBackend, shapeInkForbidsAtlas } from '@/components/rcb/render/vector/inkBackend';
+export { shapeGeomFingerprint } from '@/components/rcb/render/vector/geomFingerprint';
 import {
   resolveFillColor,
   resolveStroke,
   resolveStrokeAlign,
   resolveStrokeAlignForPaint,
+  resolveStrokeLinecap,
+  resolveStrokeLinejoin,
+  resolveStrokeMiterlimit,
   strokeCanvasAligned,
   resolveShadow,
   resolveInnerShadow,
@@ -102,14 +124,20 @@ import {
   parseNodeText,
   parseNodeTextStyle,
   wrapPlainTextLines,
+  textVerticalOriginY,
 } from '@/components/rcb/scene/document/sceneText';
 import { shouldShowPixelGrid } from '@/components/rcb/selection/alignGuides';
-import { parseSimplePathPoints } from '@/components/rcb/tools/pencilBrushes';
+import {
+  parsePathPressures,
+  parseSimplePathPoints,
+  pencilInkPathFromPoints,
+} from '@/components/rcb/tools/pencilBrushes';
+import { pathPaintDFromAttrs } from '@/components/rcb/scene/document/sceneRadii';
 import {
   getSharedSceneRenderBuffer,
   isSoaCanvasShapesEnabled,
   isSoaBasicGeomSufficient,
-  isSoaRichFillAtlasStampable,
+  isSoaAtlasBakeEligible,
   isSoaWebglEnvEnabled,
   paintSoaBufferBasic,
   paintSoaIdleSlot,
@@ -122,8 +150,9 @@ import {
   SOA_KIND_PATH,
   SOA_KIND_RECT,
 } from '@/components/rcb/render/sceneRenderBuffer';
+import { setSoaTextInkPainter } from '@/components/rcb/render/soaTextInkPainter';
 
-export { isSoaBasicGeomSufficient, isSoaRichFillAtlasStampable } from '@/components/rcb/render/sceneRenderBuffer';
+export { isSoaBasicGeomSufficient, isSoaAtlasBakeEligible } from '@/components/rcb/render/sceneRenderBuffer';
 import {
   getSharedSoaBakeCache,
   getSoaBakeCountThreshold,
@@ -134,11 +163,6 @@ import {
   unionSoaDirtyAabb,
 } from '@/components/rcb/render/soaBakeLayer';
 import { createWebglSceneRenderer, soaWebglInkShadersOk } from '@/components/rcb/render/webglSceneRenderer';
-import { createWebgpuSceneRenderer } from '@/components/rcb/render/webgpuSceneRenderer';
-import {
-  resolveGpuDofBackend,
-  shouldRunGpuDepthOfField,
-} from '@/components/rcb/render/gpuDepthOfField';
 import { getVideoIdlePaintFrame } from '@/components/rcb/render/videoIdlePaintFrame';
 
 /** Cap centerline samples when stroking a dense pencil/path as canvas ink. */
@@ -160,7 +184,7 @@ export type SceneRenderRequest = {
   dpr?: number;
 };
 
-export type SceneRendererBackend = 'svg' | 'canvas2d' | 'webgl' | 'webgpu';
+export type SceneRendererBackend = 'svg' | 'canvas2d' | 'webgl';
 
 export type SceneRenderer = {
   readonly backend: SceneRendererBackend;
@@ -962,7 +986,11 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
     return false;
   }
 
-  // Product WebGL: basic + atlas-stamped paths/boolean/image/video/audio/text/gradients.
+  // Empty generator plates: always SVG hosts. Atlas-cell upscale of the center
+  // glyph looks soft; there are only a few plates, not mass paste ink.
+  if (isEmptyGeneratorPlate(node)) return false;
+
+  // Product WebGL: basic geom + Canvas2D Path2D for rich fills; media/text idle.
   // Lottie stays DOM. Puppet-warp images stay DOM hosts.
   // StackOrder above plates still promotes to hosts (shared mount data-z).
   if (isSoaWebglEnvEnabled()) {
@@ -978,25 +1006,22 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
       return true;
     }
     if (isSoaBasicGeomSufficient(node)) return true;
-    return isSoaRichFillAtlasStampable(node);
+    return isSoaAtlasBakeEligible(node);
   }
 
   if (key === 'text') return true;
-  // Idle image / video poster / audio plate — selected media keeps one HTML FO host.
   if (key === 'image' || key === 'video' || key === 'audio') return true;
 
   const fillType = String(attrs['fill-type'] || 'solid').toLowerCase();
-  if (
-    fillType !== 'solid' &&
-    fillType !== '' &&
-    fillType !== 'linear' &&
-    fillType !== 'radial' &&
-    fillType !== 'angular' &&
-    fillType !== 'image' &&
-    fillType !== 'diffuse'
-  ) {
-    return false;
-  }
+  const solidOk =
+    fillType === 'solid' ||
+    fillType === '' ||
+    fillType === 'linear' ||
+    fillType === 'radial' ||
+    fillType === 'angular' ||
+    fillType === 'image' ||
+    fillType === 'diffuse';
+  if (!solidOk) return false;
 
   const t = String(attrs.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
   if (t === 'rect' || t === 'roundrect' || t === '') return true;
@@ -1004,10 +1029,9 @@ export function canIdlePaintOnCanvas(node: SceneNodeInput | null | undefined): b
   if (t === 'line' || t === 'arrow') return true;
   if (t === 'triangle' || t === 'polygon' || t === 'star') return true;
 
-  if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path') {
+  if (t === 'pencil' || t === 'pen' || t === 'path' || key === 'path') {
     const d = String(attrs.path || '').trim();
-    if (!d) return false;
-    if (d.length >= HEAVY_PATH_D_CHARS) return false;
+    if (!d || d.length >= HEAVY_PATH_D_CHARS) return false;
     return true;
   }
 
@@ -1073,11 +1097,34 @@ function getIdleTextOutlinePath(node: SceneNodeInput): Path2D | null {
   if (typeof Path2D === 'undefined') return null;
   const d = idleTextOutlineByKey.get(idleTextOutlineKey(node));
   if (!d) return null;
-  try {
-    return new Path2D(d);
-  } catch {
-    return null;
+  return getCachedPath2D(d);
+}
+
+function allocPaintSurface(
+  w: number,
+  h: number
+): {
+  canvas: OffscreenCanvas | HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+} | null {
+  const tw = Math.max(1, Math.ceil(w));
+  const th = Math.max(1, Math.ceil(h));
+  if (typeof OffscreenCanvas !== 'undefined') {
+    try {
+      const off = new OffscreenCanvas(tw, th);
+      const octx = off.getContext('2d') as CanvasRenderingContext2D | null;
+      if (octx) return { canvas: off, ctx: octx };
+    } catch {
+      /* fall through to HTMLCanvasElement */
+    }
   }
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = tw;
+  c.height = th;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  return { canvas: c, ctx };
 }
 
 function paintLocalInkWithObjectEffects(
@@ -1096,19 +1143,12 @@ function paintLocalInkWithObjectEffects(
     return;
   }
   const pad = Math.ceil((blur?.blur || 0) + (inner?.blur || 0) + 8);
-  const tw = Math.max(1, Math.ceil(opts.width + pad * 2));
-  const th = Math.max(1, Math.ceil(opts.height + pad * 2));
-  const off =
-    typeof OffscreenCanvas !== 'undefined'
-      ? new OffscreenCanvas(tw, th)
-      : document.createElement('canvas');
-  off.width = tw;
-  off.height = th;
-  const octx = off.getContext('2d') as CanvasRenderingContext2D | null;
-  if (!octx) {
+  const surface = allocPaintSurface(opts.width + pad * 2, opts.height + pad * 2);
+  if (!surface) {
     opts.paintCore(ctx);
     return;
   }
+  const { canvas: off, ctx: octx } = surface;
   octx.translate(pad, pad);
   opts.paintCore(octx);
 
@@ -1120,7 +1160,7 @@ function paintLocalInkWithObjectEffects(
     octx.shadowOffsetX = inner.offsetX;
     octx.shadowOffsetY = inner.offsetY;
     octx.fillStyle = '#000';
-    octx.fillRect(-pad, -pad, tw, th);
+    octx.fillRect(-pad, -pad, off.width, off.height);
     octx.restore();
   }
 
@@ -1147,33 +1187,20 @@ function paintLocalInkWithBlend(
     paintLocalInkWithObjectEffects(ctx, opts);
     return;
   }
-  const tw = Math.max(1, Math.ceil(opts.width));
-  const th = Math.max(1, Math.ceil(opts.height));
-  const off =
-    typeof OffscreenCanvas !== 'undefined'
-      ? new OffscreenCanvas(tw, th)
-      : document.createElement('canvas');
-  off.width = tw;
-  off.height = th;
-  const octx = off.getContext('2d') as CanvasRenderingContext2D | null;
-  if (!octx) {
+  const surface = allocPaintSurface(opts.width, opts.height);
+  if (!surface) {
     paintLocalInkWithObjectEffects(ctx, opts);
     return;
   }
+  const { canvas: off, ctx: octx } = surface;
   paintLocalInkWithObjectEffects(octx, { ...opts, paintCore: opts.paintCore });
   ctx.save();
   try {
-    const sample = ctx.getImageData(0, 0, tw, th);
-    const under =
-      typeof OffscreenCanvas !== 'undefined'
-        ? new OffscreenCanvas(tw, th)
-        : document.createElement('canvas');
-    under.width = tw;
-    under.height = th;
-    const uctx = under.getContext('2d') as CanvasRenderingContext2D | null;
-    if (uctx) {
-      uctx.putImageData(sample, 0, 0);
-      ctx.drawImage(under as CanvasImageSource, 0, 0);
+    const sample = ctx.getImageData(0, 0, off.width, off.height);
+    const under = allocPaintSurface(off.width, off.height);
+    if (under) {
+      under.ctx.putImageData(sample, 0, 0);
+      ctx.drawImage(under.canvas as CanvasImageSource, 0, 0);
     }
   } catch {
     /* tainted / security — skip underlay sample */
@@ -1755,7 +1782,9 @@ function paintCanvasShapeInkViaBaseline(
     const d = String(baseline?.d || '').trim();
     if (d) {
       try {
-        const path = new Path2D(d);
+        const path =
+          (nodeId ? rememberNodePath2D(nodeId, d) : null) || getCachedPath2D(d);
+        if (!path) throw new Error('Path2D unavailable');
         paintCanvasFillAndAlignedStroke(ctx, {
           node,
           width: w,
@@ -1911,6 +1940,11 @@ export function paintCanvasShapeInk(
 
   ctx.save();
   ctx.globalAlpha = opacity;
+  // Match SVG host joins — default Canvas miterLimit (10) + AABB pad otherwise
+  // clips star/poly tips and the outline reads thinner than a rect.
+  ctx.lineCap = resolveStrokeLinecap(node.attrs);
+  ctx.lineJoin = resolveStrokeLinejoin(node.attrs);
+  ctx.miterLimit = resolveStrokeMiterlimit(node.attrs);
 
   if (
     paintCanvasShapeInkViaBaseline(ctx, {
@@ -1931,7 +1965,9 @@ export function paintCanvasShapeInk(
       ctx.beginPath();
       ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     } else {
-      const r = clampCornerRadii(radiiFromAttrs(node.attrs), w, h);
+      const nodeId = String(node.id || '');
+      const liveAttrs = mergeLiveCornerRadiiIntoAttrs(nodeId, node.attrs || {});
+      const r = clampCornerRadii(radiiFromAttrs(liveAttrs), w, h);
       traceRoundedRectLocal(ctx, w, h, r);
     }
   };
@@ -1956,7 +1992,7 @@ function canvasFillRuleFromAttr(raw: unknown): CanvasFillRule | undefined {
 
 /**
  * Pen / pencil / path ink in local node space.
- * Pencil ribbons are closed filled outlines; pen/line stroke the path `d`.
+ * Pencil ribbons are closed filled outlines (perfect-freehand); pen/line stroke the path `d`.
  * Falls back to subsampled centerline when Path2D is unavailable.
  */
 export function paintCanvasPathInk(
@@ -1988,12 +2024,53 @@ export function paintCanvasPathInk(
 
   ctx.save();
   ctx.globalAlpha = opacity;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  // Pencil keeps round ribbon caps. Line/arrow/pen use authored cap/join
+  // (default butt/miter) so arrow tips stay sharp — not soft round atlas blobs.
+  if (isPencil) {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  } else {
+    ctx.lineCap = resolveStrokeLinecap(node.attrs);
+    ctx.lineJoin = resolveStrokeLinejoin(node.attrs);
+    ctx.miterLimit = resolveStrokeMiterlimit(node.attrs);
+  }
 
-  if (typeof Path2D !== 'undefined' && d) {
+  let paintD = d;
+  if (isPencil && d) {
+    const customOutline = String(node.attrs?.pencilOutlinePath || '').trim();
+    if (customOutline) {
+      paintD = customOutline;
+    } else {
+      const pts = parseSimplePathPoints(d);
+      const brushId = String(node.attrs?.brushStyle || 'vector-ink');
+      const pressures = parsePathPressures(node.attrs?.pathPressure, pts.length);
+      const pressureEnabled =
+        node.attrs?.pressureEnabled !== false &&
+        String(node.attrs?.pressureEnabled || 'true') !== 'false';
+      const capRaw = String(node.attrs?.strokeLinecap || 'round').toLowerCase();
+      const linecap =
+        capRaw === 'butt' || capRaw === 'square' ? (capRaw as 'butt' | 'square') : 'round';
+      paintD =
+        pencilInkPathFromPoints(pts, lineW, brushId, {
+          linecap,
+          pressures,
+          pressureEnabled,
+          simplify: false,
+          dasharray: String(node.attrs?.strokeDasharray || node.attrs?.dasharray || '').trim() || undefined,
+        }) || d;
+    }
+  } else if (t === 'path' || (t !== 'pen' && d)) {
+    // Closed path + radius* (boolean results): fillet like sceneToSvg so Canvas
+    // fill matches the blue path chrome / SVG host ink.
+    paintD = pathPaintDFromAttrs(node.attrs as Record<string, unknown>, { shapeType: t }) || d;
+  }
+
+  if (typeof Path2D !== 'undefined' && paintD) {
     try {
-      const path = new Path2D(d);
+      const nodeId = String(node.id || '');
+      const path =
+        (nodeId ? rememberNodePath2D(nodeId, paintD) : null) || getCachedPath2D(paintD);
+      if (!path) throw new Error('Path2D unavailable');
       const fillRule = canvasFillRuleFromAttr(node.attrs?.['fill-rule']);
       if (isPencil) {
         ctx.fillStyle = paintColor;
@@ -2022,7 +2099,7 @@ export function paintCanvasPathInk(
   }
 
   paintStrokeCanvasIdle(ctx, {
-    pathD: d,
+    pathD: paintD || d,
     width: w,
     height: h,
     stroke: paintColor,
@@ -2056,7 +2133,8 @@ export function paintCanvasTextInk(
   const innerW = textFrame ? Math.max(1, w - framePad * 2) : w;
   const lines = wrapPlainTextLines(plain, style, innerW);
   const fontSize = Math.max(1, Number(style.fontSize) || 14);
-  const lineH = fontSize * Math.max(0.8, Number(style.lineHeight) || 1.4);
+  const lineHeight = Math.max(0.8, Number(style.lineHeight) || 1.4);
+  const lineH = fontSize * lineHeight;
   const italic = style.fontStyle === 'italic' ? 'italic ' : '';
   const weight = style.fontWeight || 'normal';
   const fillOpacity = Math.max(0, Math.min(100, Number(style.fillOpacity) || 100)) / 100;
@@ -2101,9 +2179,13 @@ export function paintCanvasTextInk(
     x = framePad;
   }
 
+  const innerH = Math.max(1, h - framePad * 2);
+  const originY = textFrame
+    ? 0
+    : textVerticalOriginY(innerH, fontSize, lineHeight, Math.max(1, lines.length));
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] || ' ';
-    const y = framePad + i * lineH;
+    const y = framePad + originY + i * lineH;
     // Fixed text frames: skip lines fully below the plate (scroll lives in HTML).
     if (textFrame && y >= h - framePad) break;
     ctx.fillText(line, x, y);
@@ -2111,6 +2193,9 @@ export function paintCanvasTextInk(
   clearCanvasDropShadow(ctx);
   ctx.restore();
 }
+
+// Wire SoA idle text paint (artboard FO / Canvas2D).
+setSoaTextInkPainter(paintCanvasTextInk);
 
 function traceRoundedRectLocal(
   ctx: CanvasRenderingContext2D,
@@ -2261,6 +2346,10 @@ export function paintTextProxyLines(
  * Idle audio plate (gen-empty wash + waveform bars). Interactive transport stays
  * on the single selected HTML FO — same split as idle video posters.
  */
+/**
+ * Idle audio plate (gen-empty wash + Lucide AudioLines — same glyph as the
+ * selection title). Interactive transport stays on the HTML host.
+ */
 export function paintCanvasAudioInk(
   ctx: CanvasRenderingContext2D,
   opts: {
@@ -2268,6 +2357,8 @@ export function paintCanvasAudioInk(
     width: number;
     height: number;
     opacity?: number;
+    /** Camera zoom — empty-gen border stays ~1 CSS px (same as artboard plate). */
+    zoom?: number;
   }
 ): void {
   const w = Math.max(1, opts.width);
@@ -2287,25 +2378,16 @@ export function paintCanvasAudioInk(
   ctx.fillStyle = '#e9eaee';
   ctx.fill();
   if (isGen) {
-    ctx.strokeStyle = '#c5c9d2';
-    ctx.lineWidth = Math.max(0.75, Math.min(1.5, Math.min(w, h) * 0.01));
-    ctx.stroke();
+    // Screen-constant hairline — never bake 0.75–1.5 scene units (fat at 1000%+).
+    const zoom = Math.max(0.05, Number(opts.zoom) || 1);
+    strokeCanvasPlateHairline(ctx, w, h, {
+      strokeCss: '#c5c9d2',
+      strokeWidth: framePlateStrokeSceneWidth(zoom),
+    });
   }
-  const barN = 7;
-  const padX = Math.max(6, w * 0.12);
-  const padY = Math.max(6, h * 0.22);
-  const railW = Math.max(1, w - padX * 2);
-  const railH = Math.max(1, h - padY * 2);
-  const gap = railW / (barN * 1.6);
-  const barW = Math.max(1.5, gap * 0.55);
-  const midY = padY + railH / 2;
-  ctx.fillStyle = '#9aa3b2';
-  for (let i = 0; i < barN; i += 1) {
-    const t = i / Math.max(1, barN - 1);
-    const amp = 0.35 + 0.55 * Math.abs(Math.sin(t * Math.PI * 1.4 + w * 0.01));
-    const bh = Math.max(2, railH * amp);
-    const x = padX + i * (barW + gap);
-    ctx.fillRect(x, midY - bh / 2, barW, bh);
+  const icon = generatorEmptyIconSize(w, h);
+  if (generatorEmptyIconVisible(icon)) {
+    paintGeneratorEmptyPlateIcon(ctx, 'audio', w / 2, h / 2, icon, GENERATOR_EMPTY_ICON_COLOR);
   }
   ctx.restore();
 }
@@ -2350,43 +2432,128 @@ export function paintMediaProxyIcon(
 
 /**
  * Empty image/video generator plate for canvas / atlas idle ink — rect wash +
- * landscape glyph (same idea as SVG `--gen-empty`, no DOM host required).
+ * filled play (video) or mountain+sun (image), matching the product empty-state
+ * glyphs. Border uses artboard plate hairline (`framePlateStrokeSceneWidth`).
  */
 export function paintGeneratorEmptyInk(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  opacity = 1
+  opacity = 1,
+  opts?: {
+    fill?: boolean;
+    border?: boolean;
+    icon?: boolean;
+    zoom?: number;
+    strokeWidth?: number;
+    /** Default `image` (mountain+sun). Video plates pass `video`. */
+    iconKind?: 'image' | 'video';
+  }
 ): void {
   const width = Math.max(1, w);
   const height = Math.max(1, h);
+  const drawFill = opts?.fill !== false;
+  const drawBorder = opts?.border !== false;
+  const drawIcon = opts?.icon !== false;
   ctx.save();
   ctx.globalAlpha = Math.min(1, Math.max(0.05, opacity));
-  ctx.fillStyle = '#e9eaee';
-  ctx.fillRect(0, 0, width, height);
-  const sw = Math.max(0.75, Math.min(1.5, Math.min(width, height) * 0.008));
-  ctx.strokeStyle = '#c5c9d2';
-  ctx.lineWidth = sw;
-  ctx.strokeRect(sw / 2, sw / 2, Math.max(1, width - sw), Math.max(1, height - sw));
-  const icon = Math.min(width, height) * 0.28;
-  if (icon >= 4) {
-    const cx = width / 2;
-    const cy = height / 2;
-    const s = icon / 24;
-    ctx.fillStyle = '#9aa3b2';
-    ctx.beginPath();
-    ctx.arc(cx + 4.5 * s, cy - 4.5 * s, 2.25 * s, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(cx - 8.5 * s, cy + 6.5 * s);
-    ctx.lineTo(cx - 2.8 * s, cy - 1.8 * s);
-    ctx.lineTo(cx + 1.1 * s, cy + 3.1 * s);
-    ctx.lineTo(cx + 4.4 * s, cy - 0.6 * s);
-    ctx.lineTo(cx + 8.5 * s, cy + 6.5 * s);
-    ctx.closePath();
-    ctx.fill();
+  if (drawFill) {
+    ctx.fillStyle = '#e9eaee';
+    ctx.fillRect(0, 0, width, height);
+  }
+  if (drawBorder) {
+    // Match artboard / sharp SoA rect: closed path + miter, ~1 CSS px on screen.
+    const zoom = Math.max(0.05, Number(opts?.zoom) || 1);
+    const sw =
+      opts?.strokeWidth != null && Number.isFinite(Number(opts.strokeWidth))
+        ? Math.max(0, Number(opts.strokeWidth))
+        : framePlateStrokeSceneWidth(zoom);
+    strokeCanvasPlateHairline(ctx, width, height, {
+      strokeCss: '#c5c9d2',
+      strokeWidth: sw,
+    });
+  }
+  if (drawIcon) {
+    const icon = generatorEmptyIconSize(width, height);
+    if (generatorEmptyIconVisible(icon)) {
+      paintGeneratorEmptyPlateIcon(
+        ctx,
+        opts?.iconKind === 'video' ? 'video' : 'image',
+        width / 2,
+        height / 2,
+        icon,
+        GENERATOR_EMPTY_ICON_COLOR
+      );
+    }
   }
   ctx.restore();
+}
+
+/**
+ * Centered empty-gen plate glyph: filled ▶ (video), mountain+sun (image), or
+ * solid audio bars. Filled shapes stay sharp under atlas LINEAR upscale —
+ * Lucide hairline strokes crushed to a few texels and looked “虚”.
+ */
+export function paintGeneratorEmptyPlateIcon(
+  ctx: CanvasRenderingContext2D,
+  kind: 'image' | 'video' | 'audio',
+  cx: number,
+  cy: number,
+  size: number,
+  color = GENERATOR_EMPTY_ICON_COLOR
+): void {
+  const s = Math.max(0.35, Number(size) || 0);
+  if (!(s > 0)) return;
+  ctx.fillStyle = color;
+  if (kind === 'video') {
+    ctx.beginPath();
+    ctx.moveTo(cx - s * 0.28, cy - s * 0.38);
+    ctx.lineTo(cx + s * 0.42, cy);
+    ctx.lineTo(cx - s * 0.28, cy + s * 0.38);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+  if (kind === 'audio') {
+    // Six bars in the Lucide AudioLines layout, drawn as filled round-caps
+    // (not 2px strokes) so atlas stamps stay crisp.
+    const barW = Math.max(s * 0.08, s * (2 / 24));
+    const xs = [-0.42, -0.25, -0.08, 0.09, 0.26, 0.43];
+    // Normalized half-heights matching LU_AUDIO_LINES_SEGS proportions.
+    const halfHs = [0.12, 0.28, 0.42, 0.22, 0.34, 0.12];
+    for (let i = 0; i < xs.length; i += 1) {
+      const x = cx + s * xs[i]!;
+      const hh = s * halfHs[i]!;
+      const top = cy - hh;
+      const h = hh * 2;
+      const r = Math.min(barW * 0.5, h * 0.45);
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x - barW / 2, top, barW, h, r);
+      } else {
+        ctx.rect(x - barW / 2, top, barW, h);
+      }
+      ctx.fill();
+    }
+    return;
+  }
+  // Mountain + sun
+  const sunR = s * 0.18;
+  ctx.beginPath();
+  ctx.arc(cx - s * 0.22, cy - s * 0.28, sunR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.5, cy + s * 0.38);
+  ctx.lineTo(cx - s * 0.05, cy - s * 0.12);
+  ctx.lineTo(cx + s * 0.35, cy + s * 0.38);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.05, cy + s * 0.38);
+  ctx.lineTo(cx + s * 0.28, cy + s * 0.02);
+  ctx.lineTo(cx + s * 0.55, cy + s * 0.38);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /** Normalized crop from image/video attrs (matches sceneToSvg). */
@@ -2437,6 +2604,7 @@ export function paintCanvasMediaInk(
     height: number;
     opacity?: number;
     nodeId?: string;
+    zoom?: number;
   }
 ): void {
   const w = Math.max(1, opts.width);
@@ -2453,8 +2621,14 @@ export function paintCanvasMediaInk(
       String(attrs.videoGenerator || '') === 'true';
     if (isGen || !src) {
       // Empty generator / missing bitmap: draw plate ink (not wait on src).
-      if (isGen) paintGeneratorEmptyInk(ctx, w, h, opacity);
-      else paintMediaProxyIcon(ctx, w, h, opacity);
+      if (isGen) {
+        const isVideo =
+          attrs.videoGenerator === true || String(attrs.videoGenerator || '') === 'true';
+        paintGeneratorEmptyInk(ctx, w, h, opacity, {
+          zoom: Math.max(0.05, Number(opts.zoom) || 1),
+          iconKind: isVideo ? 'video' : 'image',
+        });
+      } else paintMediaProxyIcon(ctx, w, h, opacity);
     } else {
       // src present but still decoding — soft proxy until ready.
       paintMediaProxyIcon(ctx, w, h, opacity);
@@ -2511,7 +2685,8 @@ export function bakeMediaInkForAtlas(
   node: SceneNodeInput,
   width: number,
   height: number,
-  nodeId?: string
+  nodeId?: string,
+  zoom = 1
 ): HTMLCanvasElement | OffscreenCanvas | null {
   if (nodeNeedsPuppetWarp(node)) return null;
   const id = String(nodeId || node.id || '').trim();
@@ -2522,12 +2697,17 @@ export function bakeMediaInkForAtlas(
   }
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
-  // Cap bake resolution so atlas cells stay sharp without huge canvases.
-  const maxEdge = 512;
-  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const z = Math.max(0.05, Number(zoom) || 1);
+  // Empty plates: fill atlas cell so Lucide Path2D stays sharp (old min(1,…)
+  // left soft densified WebGL strokes as the only idle icon path).
+  // Bitmaps: cap at 512 to avoid huge decode stamps.
+  const scale = src
+    ? Math.min(1, 512 / Math.max(w, h))
+    : atlasBakePixelScale(w, h, z);
   const bw = Math.max(1, Math.round(w * scale));
   const bh = Math.max(1, Math.round(h * scale));
   let canvas: HTMLCanvasElement | OffscreenCanvas;
+  // Prefer OffscreenCanvas in tests — setupTests stubs HTMLCanvasElement.getContext → null.
   if (typeof OffscreenCanvas !== 'undefined') {
     canvas = new OffscreenCanvas(bw, bh);
   } else if (typeof document !== 'undefined') {
@@ -2547,6 +2727,7 @@ export function bakeMediaInkForAtlas(
     height: h,
     opacity: 1,
     nodeId: id || undefined,
+    zoom: z,
   });
   // Never return a tainted bake — stamping it would poison the shared WebGL atlas.
   // Empty plates have no external image; skip the readback gate when there is no src.
@@ -2569,8 +2750,10 @@ export function bakeAudioInkForAtlas(
   if (String(node.key || '') !== 'audio') return null;
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
-  const maxEdge = 512;
-  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const z = Math.max(0.05, Number(zoom) || 1);
+  // Match screen coverage up to atlas cell — tiny high-zoom plates used to bake
+  // as ~16×9 px then upscale soft.
+  const scale = atlasBakePixelScale(w, h, z);
   const bw = Math.max(1, Math.round(w * scale));
   const bh = Math.max(1, Math.round(h * scale));
   let canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -2588,13 +2771,17 @@ export function bakeAudioInkForAtlas(
   if (!ctx) return null;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const opacity = Math.min(1, Math.max(0.05, Number(node.attrs?.opacity) || 1));
-  const screenH = h * Math.max(0.05, zoom || 1);
+  const screenH = h * z;
   if (screenH < 18) {
     const c2 = ctx as CanvasRenderingContext2D;
     c2.save();
     c2.globalAlpha = opacity;
     c2.fillStyle = '#e9eaee';
     c2.fillRect(0, 0, w, h);
+    strokeCanvasPlateHairline(c2, w, h, {
+      strokeCss: '#c5c9d2',
+      strokeWidth: framePlateStrokeSceneWidth(z),
+    });
     c2.restore();
   } else {
     paintCanvasAudioInk(ctx as CanvasRenderingContext2D, {
@@ -2602,71 +2789,27 @@ export function bakeAudioInkForAtlas(
       width: w,
       height: h,
       opacity,
+      zoom: z,
     });
   }
   return canvas;
 }
 
 /**
- * Bake rich shape ink for WebGL atlas (`rich:`): gradients, rotated solids,
- * triangle/polygon/star, donut/arc ellipses.
+ * Shape / text atlas bake — retired (vector dual-backend). Always null.
  */
 export function bakeShapeInkForAtlas(
-  node: SceneNodeInput,
-  width: number,
-  height: number
-): HTMLCanvasElement | OffscreenCanvas | null {
-  if (!isSoaRichFillAtlasStampable(node)) return null;
-  const w = Math.max(1, Math.round(width));
-  const h = Math.max(1, Math.round(height));
-  const maxEdge = 512;
-  const scale = Math.min(1, maxEdge / Math.max(w, h));
-  const bw = Math.max(1, Math.round(w * scale));
-  const bh = Math.max(1, Math.round(h * scale));
-  let canvas: HTMLCanvasElement | OffscreenCanvas;
-  if (typeof OffscreenCanvas !== 'undefined') {
-    canvas = new OffscreenCanvas(bw, bh);
-  } else if (typeof document !== 'undefined') {
-    const c = document.createElement('canvas');
-    c.width = bw;
-    c.height = bh;
-    canvas = c;
-  } else {
-    return null;
-  }
-  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-  if (!ctx) return null;
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  const opacity = Math.min(1, Math.max(0.05, Number(node.attrs?.opacity) || 1));
-  const key = String(node.key || '');
-  const t = String(node.attrs?.shapeType || (key === 'shape' ? 'rect' : key) || '').toLowerCase();
-  const customPath = String(node.attrs?.path || '').trim();
-  const pathLike =
-    t === 'pen' || t === 'pencil' || t === 'path' || key === 'path' || Boolean(customPath);
-  const angle = Number(node.attrs?.angle) || 0;
-  const c2 = ctx as CanvasRenderingContext2D;
-  c2.save();
-  if (Math.abs(angle) > 0.5) {
-    c2.translate(w / 2, h / 2);
-    c2.rotate((angle * Math.PI) / 180);
-    c2.translate(-w / 2, -h / 2);
-  }
-  if (pathLike) {
-    paintCanvasPathInk(c2, { node, width: w, height: h, opacity });
-  } else {
-    paintCanvasShapeInk(c2, { node, width: w, height: h, opacity });
-  }
-  c2.restore();
-  if (!canvasPixelsReadable(canvas)) {
-    const fillSrc = String(node.attrs?.['fill-image-src'] || '').trim();
-    if (fillSrc) markFillImageWebglUnsafe(fillSrc);
-    return null;
-  }
-  return canvas;
+  _node: SceneNodeInput,
+  _width: number,
+  _height: number,
+  _zoom = 1
+): null {
+  return null;
 }
 
 /**
- * Bake static text for WebGL atlas stamp (glyphs or greeking by zoom).
+ * Bake idle text glyphs for WebGL atlas stamp (same ink as Canvas2D idle).
+ * Zoom-scaled bake so glyphs stay sharp when zoomed in.
  */
 export function bakeTextInkForAtlas(
   node: SceneNodeInput,
@@ -2677,8 +2820,8 @@ export function bakeTextInkForAtlas(
   if (String(node.key || '') !== 'text') return null;
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
-  const maxEdge = 512;
-  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  const z = Math.max(0.05, Number(zoom) || 1);
+  const scale = atlasBakePixelScale(w, h, z);
   const bw = Math.max(1, Math.round(w * scale));
   const bh = Math.max(1, Math.round(h * scale));
   let canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -2692,24 +2835,27 @@ export function bakeTextInkForAtlas(
   } else {
     return null;
   }
-  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  const ctx = canvas.getContext('2d') as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D
+    | null;
   if (!ctx) return null;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  const opacity = Math.min(1, Math.max(0.15, Number(node.attrs?.opacity) || 1));
+  const opacity = Math.min(1, Math.max(0.05, Number(node.attrs?.opacity) || 1));
   const fontPx = Math.max(1, Number(node.attrs?.fontSize) || 14);
-  const screenFont = fontPx * Math.max(0.05, zoom || 1);
+  const screenFont = fontPx * z;
   if (screenFont < 7) {
-    const fill = resolveNodeProxyFill(node);
-    (ctx as CanvasRenderingContext2D).save();
-    (ctx as CanvasRenderingContext2D).globalAlpha = opacity;
-    paintTextProxyLines(ctx as CanvasRenderingContext2D, {
+    const c2 = ctx as CanvasRenderingContext2D;
+    c2.save();
+    c2.globalAlpha = opacity;
+    paintTextProxyLines(c2, {
       node,
       width: w,
       height: h,
-      fill,
+      fill: resolveNodeProxyFill(node),
       opacity,
     });
-    (ctx as CanvasRenderingContext2D).restore();
+    c2.restore();
   } else {
     paintCanvasTextInk(ctx as CanvasRenderingContext2D, {
       node,
@@ -2720,22 +2866,6 @@ export function bakeTextInkForAtlas(
   }
   return canvas;
 }
-
-export type CanvasIdleNodePaintOpts = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  node: SceneNodeInput;
-  zoom: number;
-  angle?: number;
-  /** Scene document — clipContent artboard clip for overlay ink. */
-  document?: SceneDocument | null;
-};
-
-/**
- * Clip Canvas ink to the node's owning clipContent frame (scene space).
- */
 export function clipCanvasIdleToOwningFrame(
   ctx: CanvasRenderingContext2D,
   document: SceneDocument | null | undefined,
@@ -2802,21 +2932,32 @@ export function paintCanvasIdleNode(
         return;
       }
       if (key === 'audio') {
-        const screenH = h * Math.max(0.05, opts.zoom || 1);
+        const z = Math.max(0.05, Number(opts.zoom) || 1);
+        const screenH = h * z;
         if (screenH < 18) {
-          // Tiny audio plates: solid wash only (no per-bar path work × thousands).
+          // Tiny audio plates: solid wash + hairline (no per-bar path work).
           c.save();
           c.globalAlpha = opacity;
           c.fillStyle = '#e9eaee';
           c.fillRect(0, 0, w, h);
+          strokeCanvasPlateHairline(c, w, h, {
+            strokeCss: '#c5c9d2',
+            strokeWidth: framePlateStrokeSceneWidth(z),
+          });
           c.restore();
           return;
         }
-        paintCanvasAudioInk(c, { node, width: w, height: h, opacity });
+        paintCanvasAudioInk(c, { node, width: w, height: h, opacity, zoom: z });
         return;
       }
       if (key === 'image' || key === 'video') {
-        paintCanvasMediaInk(c, { node, width: w, height: h, opacity });
+        paintCanvasMediaInk(c, {
+          node,
+          width: w,
+          height: h,
+          opacity,
+          zoom: opts.zoom,
+        });
       } else {
         c.save();
         c.globalAlpha = opacity;
@@ -3056,7 +3197,7 @@ export function listSceneCanvasIdlePaintIds(): readonly string[] {
   return snap.canvasIds.filter((id) => id !== hidden);
 }
 
-/** Default factory — DOM hosts on svg; product ink on webgl / webgpu; canvas2d = grid + tests. */
+/** Default factory — DOM hosts on svg; product ink on webgl; canvas2d = grid + tests. */
 export function createSceneRenderer(
   backend: SceneRendererBackend,
   deps: CanvasSceneRendererDeps | SceneRendererHitDeps
@@ -3093,21 +3234,6 @@ export function createSceneRenderer(
     ensureSoaBakeTileReadyBridge();
     return gl;
   }
-  if (backend === 'webgpu') {
-    const canvasDeps = deps as CanvasSceneRendererDeps;
-    if (!canvasDeps.canvas) {
-      throw new Error('createSceneRenderer(webgpu) requires deps.canvas');
-    }
-    if (!isSoaCanvasShapesEnabled()) {
-      throw new Error('createSceneRenderer(webgpu) requires SoA canvas shapes');
-    }
-    const gpu = createWebgpuSceneRenderer(canvasDeps);
-    if (!gpu) {
-      throw new Error('WebGPU DOF ink unavailable');
-    }
-    ensureSoaBakeTileReadyBridge();
-    return gpu;
-  }
   if (backend === 'canvas2d') {
     const canvasDeps = deps as CanvasSceneRendererDeps;
     if (!canvasDeps.canvas) {
@@ -3119,14 +3245,9 @@ export function createSceneRenderer(
   return createSvgSceneRenderer(deps);
 }
 
-/** Product idle ink: WebGL (WebGPU only when DOF effect resolves to it). */
+/** Product idle ink: WebGL vector when SoA is on, else Canvas2D vector. */
 export function resolveIdleInkBackend(): SceneRendererBackend {
   if (!isSoaCanvasShapesEnabled()) return 'canvas2d';
-  if (shouldRunGpuDepthOfField()) {
-    const dofBackend = resolveGpuDofBackend();
-    if (dofBackend === 'webgpu') return 'webgpu';
-    return 'webgl';
-  }
   return 'webgl';
 }
 

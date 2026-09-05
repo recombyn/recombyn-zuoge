@@ -5,7 +5,7 @@
 import { buildNodeStackZMap } from '@/components/rcb/scene/document/sceneDocument';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 
-export type GpuDofBackend = 'webgpu' | 'webgl2';
+export type GpuDofBackend = 'webgl2';
 
 export type GpuDepthOfFieldParams = {
   /** Master switch — when false, ink backends skip the GPU DOF pass. */
@@ -103,32 +103,21 @@ export function gpuDofSkipsSoaTileBake(): boolean {
   return shouldRunGpuDepthOfField();
 }
 
-export function isWebgpuAvailable(): boolean {
-  return typeof navigator !== 'undefined' && 'gpu' in navigator;
-}
-
-/** Env backend preference: `VITE_GPU_DOF_BACKEND=webgpu|webgl2`. */
+/** Env backend preference (WebGPU removed — always WebGL2 when set). */
 export function resolveGpuDofBackendEnv(): GpuDofBackend | null {
   if (typeof import.meta === 'undefined') return null;
   const raw = String(import.meta.env?.VITE_GPU_DOF_BACKEND ?? '').toLowerCase();
-  if (raw === 'webgpu') return 'webgpu';
-  if (raw === 'webgl2' || raw === 'webgl') return 'webgl2';
+  if (!raw) return null;
+  // Accept legacy `webgpu` as WebGL2 so old .env files keep working.
+  if (raw === 'webgl2' || raw === 'webgl' || raw === 'webgpu') return 'webgl2';
   return null;
 }
 
 /**
- * Prefer WebGPU when available (or env asks for it); otherwise WebGL2.
- * One resolved backend — createSceneRenderer does not cross-fallback.
+ * GPU DOF always uses WebGL2 when enabled (WebGPU ink renderer removed).
  */
 export function resolveGpuDofBackend(): GpuDofBackend | null {
   if (!shouldRunGpuDepthOfField()) return null;
-  const pref = resolveGpuDofBackendEnv();
-  if (pref === 'webgl2') return 'webgl2';
-  if (pref === 'webgpu') {
-    if (!isWebgpuAvailable()) return null;
-    return 'webgpu';
-  }
-  if (isWebgpuAvailable()) return 'webgpu';
   return 'webgl2';
 }
 

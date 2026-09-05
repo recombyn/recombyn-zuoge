@@ -95,9 +95,9 @@ import { rcbCameraCssZoom } from '@/components/rcb/core/math';
 import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
 import { bindUnownedNodesToFrames } from '@/components/rcb/frames/frameNodeBinding';
 import {
-  clearLiveArtboardFrameGeometry,
   framePlateClearsIdleStroke,
   framePlateShowsHighlightEdge,
+  previewArtboardFrameGeometry,
 } from '@/components/rcb/frames/HtmlArtboardFrame';
 import {
   isArtboardVisibleInDocument,
@@ -635,7 +635,25 @@ function EditorStageWorld({
       const next = bindUnownedNodesToFrames(liveDocument, frameIds);
       // Always commit — move preview lived only in the ref during the gesture.
       setDocumentFromCanvas(next);
-      clearLiveArtboardFrameGeometry(frameIds);
+      // Keep live plate geom through the store write so chrome + SVG host stay on
+      // the same box. Bare clearLiveArtboardFrameGeometry() left hosts on preview
+      // while resolveFrameChromeBox fell back to a one-frame-stale document (or
+      // clearFrameGeometryPreview later baked hosts from stale documentRef) —
+      // white fill and blue selection outline drifted after every plate move.
+      for (const id of frameIds) {
+        const frame = (Array.isArray(next.frames) ? next.frames : []).find(
+          (item) => String(item?.id) === String(id)
+        );
+        if (frame) {
+          previewArtboardFrameGeometry({
+            id: String(frame.id),
+            x: Number(frame.x) || 0,
+            y: Number(frame.y) || 0,
+            width: Math.max(1, Number(frame.width) || 1),
+            height: Math.max(1, Number(frame.height) || 1),
+          });
+        }
+      }
     }
     clearNodeTransformPreviews();
     frameDragRef.current = null;
@@ -692,6 +710,17 @@ function EditorStageWorld({
   );
 
   const selectedFrameBox = useMemo(() => frameUnionBox(selectedFrames), [selectedFrames]);
+
+  /** Plates whose bound children own SelectionChrome — clear competing soft edge. */
+  const framesWithBoundChildSelection = useMemo(() => {
+    const set = new Set<string>();
+    const map = document?.deltaSetLike || {};
+    for (const id of selectedNodeIds) {
+      const fid = String(map[id]?.attrs?.frameId || '').trim();
+      if (fid) set.add(fid);
+    }
+    return set;
+  }, [document, selectedNodeIds]);
 
   if (isMobileViewport || !document) return null;
 
@@ -753,6 +782,7 @@ function EditorStageWorld({
                   chromeMode: frameChromeMode,
                   selectedFrameIds,
                   frameId: frame.id,
+                  boundChildSelected: framesWithBoundChildSelection.has(frame.id),
                 })
               }
               highlighted={
@@ -767,6 +797,7 @@ function EditorStageWorld({
                   frameId: frame.id,
                   activeFrameId,
                   moving: movingFrameIdSet.has(frame.id),
+                  boundChildSelected: framesWithBoundChildSelection.has(frame.id),
                 })
               }
               layer="body"
@@ -869,6 +900,14 @@ function EditorStageWorld({
             <HtmlArtboardFrame
               key={`label-${frame.id}`}
               frame={frame}
+              zIndex={selectionPaintZIndex(
+                document,
+                'frame',
+                frame.id,
+                selectedFrameIds.length === 1 &&
+                  selectedNodeIds.length === 0 &&
+                  selectedFrameIds[0] === frame.id
+              )}
               selected={
                 !isDevMode &&
                 !movingFrameIdSet.has(frame.id) &&
@@ -876,6 +915,7 @@ function EditorStageWorld({
                   chromeMode: frameChromeMode,
                   selectedFrameIds,
                   frameId: frame.id,
+                  boundChildSelected: framesWithBoundChildSelection.has(frame.id),
                 })
               }
               highlighted={
@@ -886,6 +926,7 @@ function EditorStageWorld({
                   frameId: frame.id,
                   activeFrameId,
                   moving: movingFrameIdSet.has(frame.id),
+                  boundChildSelected: framesWithBoundChildSelection.has(frame.id),
                 })
               }
               hideTitle={

@@ -25,6 +25,7 @@ import { isAnimationArtboardKind } from '@/components/rcb/frames/types';
 import { getLiveArtboardFrameGeometry } from '@/components/rcb/frames/HtmlArtboardFrame';
 import { frameSceneBounds, nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
+  nodePaintZIndex,
   parseStackKey,
   selectionPaintZIndex,
   stackZIndex,
@@ -403,10 +404,7 @@ export function frameIdAtPoint(
 }
 
 function effectiveNodeStackZ(doc: SceneDocument, nodeId: string): number {
-  if (selectionPaintRaises(nodeId)) {
-    return selectionPaintZIndex(doc, 'node', nodeId, true);
-  }
-  return stackZIndex(doc, 'node', nodeId);
+  return nodePaintZIndex(doc, nodeId, selectionPaintRaises(nodeId));
 }
 
 function effectiveFrameStackZ(
@@ -421,8 +419,9 @@ function effectiveFrameStackZ(
 }
 
 /**
- * True when a higher artboard plate covers (x,y) above this node in **permanent**
- * stackOrder (selection paint raise is paint-only — ideal hit contract).
+ * True when a higher artboard plate covers (x,y) above this node's **paint** z
+ * (empty world generators sit above plates via `nodePaintZIndex`; selection
+ * raise stays paint-only and is ignored here so hit matches idle visibility).
  */
 export function isOccludedByHigherArtboard(
   doc: SceneDocument,
@@ -433,7 +432,8 @@ export function isOccludedByHigherArtboard(
   const nodeId = String(node.id || '');
   if (!nodeId) return false;
   const ownerId = String(node.attrs?.frameId || '').trim();
-  const nodeZ = stackZIndex(doc, 'node', nodeId);
+  // Idle paint z only — selection max+1 must not change pick occlusion.
+  const nodeZ = nodePaintZIndex(doc, nodeId, false);
   if (nodeZ <= 0) return false;
   const frames = Array.isArray(doc.frames) ? doc.frames : [];
   for (const frame of frames) {

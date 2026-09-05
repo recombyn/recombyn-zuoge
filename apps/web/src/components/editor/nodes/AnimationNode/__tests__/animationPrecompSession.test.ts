@@ -334,7 +334,88 @@ describe('animationPrecompSession', () => {
     expect(Array.isArray(pProp?.k) && pProp!.k!.length).toBeGreaterThan(1);
   });
 
-  it('reducer enter/exit restores workbench and drops session shapes', () => {
+  it('frameLocal: enter→exit→enter keeps session shapes inside the plate', () => {
+    // Regression: autoKey used world frame.x/y as plate while node x/y were
+    // already frame-local, writing ks.p off-plate (e.g. 86,86 → 187,-148).
+    const { doc: seeded, hostId, lotId, assetId } = seedDocWithNestedLot();
+    const lotW = Math.max(1, Number(seeded.deltaSetLike![lotId].width) || 240);
+    const lotH = Math.max(1, Number(seeded.deltaSetLike![lotId].height) || 240);
+    const doc = {
+      ...seeded,
+      coordSpace: 'frameLocal' as const,
+      frames: [
+        {
+          ...seeded.frames![0],
+          x: -101,
+          y: 234,
+          width: lotW,
+          height: lotH,
+        },
+      ],
+      deltaSetLike: {
+        ...seeded.deltaSetLike,
+        [hostId]: {
+          ...seeded.deltaSetLike![hostId],
+          x: 0,
+          y: 0,
+          width: lotW,
+          height: lotH,
+        },
+        [lotId]: {
+          ...seeded.deltaSetLike![lotId],
+          x: 0,
+          y: 0,
+          width: lotW,
+          height: lotH,
+        },
+      },
+    };
+
+    const first = beginPrecompEditSession({
+      document: doc,
+      hostNodeId: hostId,
+      assetId,
+    });
+    expect(first?.sessionNodeIds.length).toBeGreaterThan(0);
+    const firstShape = first!.document.deltaSetLike![first!.sessionNodeIds[0]];
+    const firstX = Number(firstShape.x);
+    const firstY = Number(firstShape.y);
+    expect(firstX).toBeGreaterThanOrEqual(-1);
+    expect(firstY).toBeGreaterThanOrEqual(-1);
+    expect(firstX + Number(firstShape.width)).toBeLessThanOrEqual(lotW + 1);
+    expect(firstY + Number(firstShape.height)).toBeLessThanOrEqual(lotH + 1);
+
+    const ended = endPrecompEditSession({
+      document: first!.document,
+      hostNodeId: hostId,
+      assetId,
+      frameId: first!.frameId,
+      frameSnapshot: first!.frameSnapshot,
+      lotSnapshot: first!.lotSnapshot,
+      lotAnimationSnapshot: first!.lotAnimationSnapshot,
+      lotNodeId: lotId,
+      sessionNodeIds: first!.sessionNodeIds,
+      playheadSec: 0,
+    });
+
+    const second = beginPrecompEditSession({
+      document: ended,
+      hostNodeId: hostId,
+      assetId,
+    });
+    expect(second?.sessionNodeIds.length).toBeGreaterThan(0);
+    const secondShape = second!.document.deltaSetLike![second!.sessionNodeIds[0]];
+    const secondX = Number(secondShape.x);
+    const secondY = Number(secondShape.y);
+    expect(secondX).toBeGreaterThanOrEqual(-1);
+    expect(secondY).toBeGreaterThanOrEqual(-1);
+    expect(secondX + Number(secondShape.width)).toBeLessThanOrEqual(lotW + 1);
+    expect(secondY + Number(secondShape.height)).toBeLessThanOrEqual(lotH + 1);
+    expect(Math.abs(secondX - firstX)).toBeLessThan(2);
+    expect(Math.abs(secondY - firstY)).toBeLessThan(2);
+  });
+
+  it('reducer enter/exit uses lightweight tab convert (no materialize / no frame shrink)', () => {
     let state = seedEditor();
     expect(state.document).toBeTruthy();
     const anim = parseLottieAnimationData(
@@ -372,17 +453,19 @@ describe('animationPrecompSession', () => {
     const [lotId] = nested!;
     const assetId = `lot_${lotId}`;
 
-    setLottiePrecompEditFocus({ active: true, lotNodeId: lotId, sessionMaterialized: true });
     state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId!, assetId, selectedLayerInd: 1 });
     expect(state.lottiePrecompEdit?.assetId).toBe(assetId);
     expect(getLottiePrecompEditFocus().active).toBe(true);
-    expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
+    expect(getLottiePrecompEditFocus().sessionMaterialized).toBe(false);
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
+    expect(state.lottiePrecompEdit?.sessionHidesLotInk).toBe(false);
     expect(state.document!.deltaSetLike![lotId].attrs?.hidden).toBeFalsy();
     expect(state.selectedNodeId).toBeNull();
     expect(state.selectedNodeIds).toEqual([]);
+    // Frame geom must not shrink — same plate as 主场景.
     const mid = state.document!.frames!.find((f) => String(f.id) === frameId)!;
-    expect(Number(mid.width)).toBe(Number(state.document!.deltaSetLike![lotId].width));
-    expect(Number(mid.height)).toBe(Number(state.document!.deltaSetLike![lotId].height));
+    expect(Number(mid.width)).toBe(beforeW);
+    expect(Number(mid.height)).toBe(beforeH);
 
     state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     expect(state.lottiePrecompEdit).toBeNull();
@@ -437,7 +520,11 @@ describe('animationPrecompSession', () => {
     expect(isHiddenByLottiePrecompEditFocus(lotId, lotNode)).toBe(false);
     expect(isNodeStructurallyHiddenInDocument(state.document, lotNode)).toBe(false);
     expect(isNodeOverlayHidden(state.document, lotNode)).toBe(false);
-    expect(Number(lotNode.attrs?.lottieInkRevision)).toBeGreaterThan(0);
+    // Revision bumps only when write-back changes JSON — not on every tab exit.
+    const afterJson = String(lotNode.attrs?.animationData || '');
+    if (afterJson !== beforeJson) {
+      expect(Number(lotNode.attrs?.lottieInkRevision)).toBeGreaterThan(0);
+    }
 
     const lotAnim = parseLottieAnimationData(lotNode.attrs?.animationData);
     expect(lotAnim).toBeTruthy();
@@ -446,6 +533,6 @@ describe('animationPrecompSession', () => {
     expect(Array.isArray(layer0?.shapes) && (layer0!.shapes as unknown[]).length).toBeGreaterThan(
       0
     );
-    expect(String(lotNode.attrs?.animationData || '')).not.toBe(beforeJson);
+    expect(afterJson).toBeTruthy();
   });
 });

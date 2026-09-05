@@ -184,6 +184,17 @@ export function boundsOfAnchors(anchors: PenAnchor[], closed = false) {
   };
 }
 
+/**
+ * Pad when boxing a pen commit into node x/y/w/h.
+ * Open stroke: half border so the stored box covers painted ink.
+ * Closed path: **0** — control box stays on path geometry (stroke may paint
+ * outside; chrome / resize never inflate — see strokeChromeOutset).
+ */
+export function penCommitBoxPad(strokeWidth: number, closed: boolean): number {
+  if (closed) return 0;
+  return Math.max(0, Number(strokeWidth) || 0) / 2;
+}
+
 /** Shift anchors into local coords relative to bbox top-left. */
 export function localizeAnchors(anchors: PenAnchor[], left: number, top: number): PenAnchor[] {
   const shift = (x?: number, y?: number) =>

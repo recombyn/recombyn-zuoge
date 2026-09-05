@@ -131,23 +131,34 @@ describe('defaultTextWrapWidthForFontSize', () => {
 });
 
 describe('measurePlainTextSize', () => {
-  it('returns tight width for single-line CJK (no pad inflation)', () => {
+  it('returns tight width; height covers line box (not bare 1em)', () => {
     const text = '移动任务页';
     const fontSize = 14;
-    const size = measurePlainTextSize(text, { fontSize, lineHeight: 1.4 });
+    const lineHeight = 1.4;
+    const size = measurePlainTextSize(text, { fontSize, lineHeight });
     expect(size.width).toBe(Math.max(fontSize, text.length * fontSize));
-    expect(size.height).toBe(Math.ceil(fontSize * 1.4));
+    // jsdom has no font metrics → hug = fontSize × lineHeight.
+    expect(size.height).toBe(Math.ceil(fontSize * lineHeight));
   });
 
   it('at high-zoom fontSize=1 does not keep a document-24px floor', () => {
     const text = '大撤大撒';
     const fontSize = 1;
-    const size = measurePlainTextSize(text, { fontSize, lineHeight: 1.4 });
+    const lineHeight = 1.4;
+    const size = measurePlainTextSize(text, { fontSize, lineHeight });
     // eslint-disable-next-line no-console
     console.log('[test:text-measure@fs1]', { size, oldFloor: 24 });
     expect(size.width).toBeLessThan(24);
     expect(size.width).toBe(Math.max(fontSize, text.length * fontSize));
-    expect(size.height).toBe(Math.ceil(fontSize * 1.4));
+    expect(size.height).toBe(Math.ceil(fontSize * lineHeight));
+  });
+
+  it('multi-line height = first line box + (n-1)×lineHeight·em', () => {
+    const fontSize = 20;
+    const lineHeight = 1.4;
+    const size = measurePlainTextSize('甲\n乙\n丙', { fontSize, lineHeight });
+    const first = fontSize * lineHeight;
+    expect(size.height).toBe(Math.ceil(first + 2 * fontSize * lineHeight));
   });
 });
 

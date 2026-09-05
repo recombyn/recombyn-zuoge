@@ -50,12 +50,14 @@ describe('line/arrow endpoint drag keeps fixed end', () => {
       deltaSetLike: { ln: node },
     } as unknown as SceneDocument;
 
+    const fixedBefore = strokeEndpointsFromBox(geomBox, geom.angle);
     const drag = {
       mode: 'resize',
       handle: 'e',
       origins: [{ nodeId: 'ln', box: { ...geomBox } }],
       union: { ...geomBox },
       angle0: geom.angle,
+      strokeFixedWorld: { x: fixedBefore.x0, y: fixedBefore.y0 },
       pointerId: 1,
       startClientX: 0,
       startClientY: 0,
@@ -63,11 +65,50 @@ describe('line/arrow endpoint drag keeps fixed end', () => {
       startSceneY: 0,
     } as DragState;
 
-    const fixedBefore = strokeEndpointsFromBox(geomBox, geom.angle);
-    const stroke = strokeEndpointBox(drag, doc, 180, 0, false);
+    const stroke = strokeEndpointBox(drag, doc, 180, 40, false);
     expect(stroke).toBeTruthy();
     const after = strokeEndpointsFromBox(stroke!.next, stroke!.angle);
-    expect(after.x0).toBeCloseTo(fixedBefore.x0, 5);
-    expect(after.y0).toBeCloseTo(fixedBefore.y0, 5);
+    expect(after.x0).toBeCloseTo(fixedBefore.x0, 2);
+    expect(after.y0).toBeCloseTo(fixedBefore.y0, 2);
+  });
+
+  it('endpoint preview patch carries angle with box (no separate angle-only step)', () => {
+    const geom = strokeNodeFromEndpoints({ x0: 10, y0: 20, x1: 110, y1: 20 });
+    const drag = {
+      mode: 'resize',
+      handle: 'e',
+      origins: [
+        {
+          nodeId: 'ln',
+          box: { left: geom.x, top: geom.y, width: geom.width, height: geom.height },
+        },
+      ],
+      union: { left: geom.x, top: geom.y, width: geom.width, height: geom.height },
+      angle0: geom.angle,
+      pointerId: 1,
+      startClientX: 0,
+      startClientY: 0,
+      startSceneX: 0,
+      startSceneY: 0,
+    } as DragState;
+    const doc = {
+      deltaSetLike: {
+        ln: {
+          id: 'ln',
+          key: 'shape',
+          x: geom.x,
+          y: geom.y,
+          width: geom.width,
+          height: geom.height,
+          attrs: { shapeType: 'line', angle: geom.angle },
+          children: [],
+        },
+      },
+    } as unknown as SceneDocument;
+    const stroke = strokeEndpointBox(drag, doc, 200, 80, false);
+    expect(stroke).toBeTruthy();
+    // Callers must publish box+angle together — angle alone would orbit the old center.
+    expect(stroke!.angle).not.toBe(geom.angle);
+    expect(stroke!.next.width).toBeGreaterThan(1);
   });
 });

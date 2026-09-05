@@ -234,8 +234,6 @@ export function rcbFitCameraInBand(
   const vh = Math.max(1, viewport.height);
   const aw = Math.max(1, bounds.width);
   const ah = Math.max(1, bounds.height);
-  const ox = bounds.x || 0;
-  const oy = bounds.y || 0;
   const pad = Math.max(0, padding);
   const top = Math.max(0, Number(band.top) || 0);
   const right = Math.max(0, Number(band.right) || 0);
@@ -247,15 +245,42 @@ export function rcbFitCameraInBand(
   const availW = Math.max(1, bandW - pad * 2);
   const availH = Math.max(1, bandH - pad * 2);
   const zoom = rcbClampZoom(Math.min(availW / aw, availH / ah, cap));
+  return rcbCenterCameraInBand(viewport, bounds, band, zoom, bandAnchorY);
+}
+
+/**
+ * Pan so `bounds` sit in the free band at a fixed zoom (no fit / no zoom change).
+ * Used when opening 关键帧 while the user is already zoomed past the fit zoom.
+ */
+export function rcbCenterCameraInBand(
+  viewport: { width: number; height: number },
+  bounds: { x?: number; y?: number; width: number; height: number },
+  band: { top?: number; right?: number; bottom?: number; left?: number },
+  zoom: number,
+  bandAnchorY = 0.5
+): RcbCamera {
+  const vw = Math.max(1, viewport.width);
+  const vh = Math.max(1, viewport.height);
+  const aw = Math.max(1, bounds.width);
+  const ah = Math.max(1, bounds.height);
+  const ox = bounds.x || 0;
+  const oy = bounds.y || 0;
+  const top = Math.max(0, Number(band.top) || 0);
+  const right = Math.max(0, Number(band.right) || 0);
+  const bottom = Math.max(0, Number(band.bottom) || 0);
+  const left = Math.max(0, Number(band.left) || 0);
+  const bandW = Math.max(1, vw - left - right);
+  const bandH = Math.max(1, vh - top - bottom);
+  const z = rcbClampZoom(zoom);
   const ay = Math.max(0, Math.min(1, Number(bandAnchorY) || 0.5));
   const bandCx = left + bandW / 2;
   const bandCy = top + bandH * ay;
   const sceneCx = ox + aw / 2;
   const sceneCy = oy + ah / 2;
   return {
-    zoom,
-    x: bandCx - sceneCx * zoom,
-    y: bandCy - sceneCy * zoom,
+    zoom: z,
+    x: bandCx - sceneCx * z,
+    y: bandCy - sceneCy * z,
   };
 }
 

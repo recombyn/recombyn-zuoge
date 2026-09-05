@@ -59,7 +59,8 @@
   "scripts": {
     "postinstall": "node ./scripts/copy-ffmpeg-core.mjs",
     "predev": "node ./scripts/copy-ffmpeg-core.mjs",
-    "prebuild": "node ./scripts/copy-ffmpeg-core.mjs",
+    "prebuild": "node ./scripts/copy-ffmpeg-core.mjs && node ./scripts/build-wasm.mjs",
+    "build:wasm": "node ./scripts/build-wasm.mjs",
     "dev": "vite",
     "start": "vite",
     "build": "node ./scripts/build.mjs",
@@ -85,7 +86,6 @@
     "@typescript-eslint/parser": "^8.66.0",
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.10",
-    "@webgpu/types": "^0.1.72",
     "autoprefixer": "^10.5.2",
     "eslint": "^10.8.1",
     "eslint-plugin-jsx-a11y": "^6.10.2",

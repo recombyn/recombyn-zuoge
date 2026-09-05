@@ -60,6 +60,7 @@ import {
   RCB_MIN_ZOOM,
   rcbFitCamera,
   rcbFitCameraInBand,
+  rcbCenterCameraInBand,
   rcbViewportSceneBounds,
   zoomAtPoint,
   PENCIL_CURSOR,
@@ -1398,14 +1399,28 @@ function EditorPage() {
         bottom: Math.max(0, Number(detail.bandInsets?.bottom) || 0),
         left: Math.max(0, Number(detail.bandInsets?.left) || 0),
       };
-      const next = rcbFitCameraInBand(
-        { width: vw, height: vh },
+      const viewport = { width: vw, height: vh };
+      const fitted = rcbFitCameraInBand(
+        viewport,
         detail.bounds,
         band,
         detail.padding ?? 96,
         detail.maxZoom ?? 4,
         detail.bandAnchorY ?? 0.5
       );
+      // 关键帧 / session push: never yank an intentional high zoom (e.g. 1700%)
+      // down to the fit cap (old timeline focus maxZoom 1.4 → 140%).
+      const curZoom = cameraRef.current.zoom;
+      const next =
+        detail.keepZoomIfLarger && curZoom > fitted.zoom + 1e-4
+          ? rcbCenterCameraInBand(
+              viewport,
+              detail.bounds,
+              band,
+              curZoom,
+              detail.bandAnchorY ?? 0.5
+            )
+          : fitted;
       setZoomFitActive(false);
       setCamera(next);
     };

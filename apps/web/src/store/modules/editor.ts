@@ -62,7 +62,6 @@ import { syncArtboardChildrenIntoAnimation } from '@/components/editor/nodes/Ani
 import { materializeRootShapeLayers } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
 import { linkedLotNodeIdFromAsset } from '@/components/editor/nodes/AnimationNode/animationPrecompEditModel';
 import {
-  beginPrecompEditSession,
   endPrecompEditFromState,
   persistPrecompSessionEdits,
   resolvePrecompSessionNodeIds,
@@ -85,7 +84,8 @@ import {
   tagCreatedNodeForWorkbenchSurround} from '@/components/editor/nodes/AnimationNode/animationWorkbenchFocus';
 import { isAnimationFrameHostNode } from '@/components/rcb/scene/document/nodeCapabilities';
 import { setLottiePrecompEditFocus } from '@/components/editor/nodes/AnimationNode/animationPrecompEditFocus';
-import { schedulePrecompTabArtboardDump } from '@/components/editor/nodes/AnimationNode/precompTabArtboardDump';
+import { convertLottiePrecompTab } from '@/components/editor/nodes/AnimationNode/lottiePrecompTabConvert';
+import { clearStuckLottieMountVisibility, schedulePrecompTabArtboardDump } from '@/components/editor/nodes/AnimationNode/precompTabArtboardDump';
 import { collectPrecompSessionDocumentPatches } from '@/components/editor/nodes/AnimationNode/animationPlayheadSceneApply';
 import { requestPlayheadSceneApply } from '@/components/editor/nodes/AnimationNode/animationPlayheadApplyEvent';
 import { requestPuppetWarpApply } from '@/components/editor/nodes/ImageNode/puppet/puppetWarpApplyEvent';
@@ -749,9 +749,19 @@ function tearDownLottiePrecompEdit(state: typeof initialState): boolean {
   );
   state.document = doc;
   state.documentPatchToken += 1;
-  state.sceneReloadToken += 1;
+  // Keep the nested-lot LottiePlate that was painting on 第一次打开 / LOT tab.
+  // Forced inkRevision remount here blanked 主场景 and broke nested playback.
   const lotId = prev.lotNodeId ?? linkedLotNodeIdFromAsset(String(prev.assetId || ''));
-  if (lotId) notifyShapeHostGeometry(lotId);
+  if (lotId) {
+    const lot = state.document.deltaSetLike?.[lotId];
+    if (lot && (lot.attrs?.hidden === true || lot.attrs?.hidden === 'true')) {
+      state.document.deltaSetLike[lotId] = {
+        ...lot,
+        attrs: { ...(lot.attrs || {}), hidden: false },
+      };
+    }
+    notifyShapeHostGeometry(lotId);
+  }
   return true;
 }
 
@@ -3532,93 +3542,34 @@ export const editorReducers = {
       const assetId = String(action.payload?.assetId || '').trim();
       if (!hostNodeId || !assetId || !state.document) return;
 
+      // Drop any legacy materialized session (old tab path shrunk the plate).
+      if (state.lottiePrecompEdit?.frameSnapshot) {
+        clearLottiePrecompEdit(state);
+      }
+
       const layerInd = readSelectedLayerInd(action.payload?.selectedLayerInd);
-      const sameSession =
-        state.lottiePrecompEdit?.hostNodeId === hostNodeId &&
-        state.lottiePrecompEdit?.assetId === assetId;
-
-      if (state.lottiePrecompEdit && !sameSession) {
-        clearLottiePrecompEdit(state);
-      }
-
-      if (sameSession && state.lottiePrecompEdit) {
-        const ids = resolvePrecompSessionNodeIds(state.document, state.lottiePrecompEdit);
-        if (ids.length) {
-          state.lottiePrecompEdit.sessionNodeIds = ids;
-          if (layerInd != null) state.lottiePrecompEdit.selectedLayerInd = layerInd;
-          state.selectedNodeId = null;
-          state.selectedNodeIds = [];
-          setLottiePrecompEditFocus({
-            active: true,
-            lotNodeId: state.lottiePrecompEdit.lotNodeId ?? null,
-            sessionMaterialized: Boolean(state.lottiePrecompEdit.sessionHidesLotInk)});
-          bakePrecompSessionDocumentPoses(state);
-          requestPlayheadSceneApply({ afterPaint: true });
-          schedulePrecompTabArtboardDump('enter-session:reuse', {
-            hostNodeId,
-            assetId,
-            frameId: state.lottiePrecompEdit.frameId,
-            lotNodeId: state.lottiePrecompEdit.lotNodeId,
-          });
-          return;
-        }
-        clearLottiePrecompEdit(state);
-      }
-
-      pushHistory(state);
-      const begun = beginPrecompEditSession({
-        document: state.document,
-        hostNodeId,
-        assetId,
-        playheadSec: Number(state.lottiePlayheadSec) || 0});
-      if (!begun) {
-        state.lottiePrecompEdit = { hostNodeId, assetId, selectedLayerInd: layerInd };
-        state.selectedNodeId = null;
-        state.selectedNodeIds = [];
-        schedulePrecompTabArtboardDump('enter-session:no-materialize', {
-          hostNodeId,
-          assetId,
-        });
-        return;
-      }
-
-      state.document = begun.document;
-      state.documentPatchToken += 1;
-      state.sceneReloadToken += 1;
-      state.dirty = true;
-      state.lottiePrecompEdit = {
+      const next = convertLottiePrecompTab({
+        mode: 'lot',
         hostNodeId,
         assetId,
         selectedLayerInd: layerInd,
-        frameId: begun.frameId,
-        frameSnapshot: begun.frameSnapshot,
-        lotSnapshot: begun.lotSnapshot,
-        lotAnimationSnapshot: begun.lotAnimationSnapshot,
-        lotNodeId: begun.lotNodeId,
-        sessionNodeIds: begun.sessionNodeIds,
-        sessionHidesLotInk: begun.sessionHidesLotInk};
-      setLottiePrecompEditFocus({
-        active: true,
-        lotNodeId: begun.lotNodeId ?? null,
-        sessionMaterialized: begun.sessionHidesLotInk});
-      state.document.activeFrameId = begun.frameId;
-      state.selectedFrameIds = [];
+      });
+      state.lottiePrecompEdit = next.lottiePrecompEdit;
+      setLottiePrecompEditFocus(next.focus);
       state.selectedNodeId = null;
       state.selectedNodeIds = [];
-      bakePrecompSessionDocumentPoses(state);
-      requestPlayheadSceneApply({ afterPaint: true });
       requestPrecompCameraFit({ afterPaint: true });
       schedulePrecompTabArtboardDump('enter-session', {
         hostNodeId,
         assetId,
-        frameId: begun.frameId,
-        lotNodeId: begun.lotNodeId,
+        lotNodeId: next.lottiePrecompEdit?.lotNodeId,
       });
     },
     exitLottiePrecompEdit(state) {
       const prev = state.lottiePrecompEdit;
       if (!prev) return;
 
+      // Legacy only: restore geom if an old session still has a snapshot.
       if (prev.frameId && prev.frameSnapshot) {
         pushHistory(state);
         if (tearDownLottiePrecompEdit(state)) {
@@ -3626,34 +3577,21 @@ export const editorReducers = {
           state.document!.activeFrameId = prev.frameId;
           state.selectedFrameIds = [prev.frameId];
         }
-      } else {
-        setLottiePrecompEditFocus({ active: false });
-        const lotId =
-          prev.lotNodeId ?? linkedLotNodeIdFromAsset(String(prev.assetId || ''));
-        if (lotId && state.document?.deltaSetLike?.[lotId]) {
-          const lot = state.document.deltaSetLike[lotId];
-          const prevRev = Number(lot.attrs?.lottieInkRevision);
-          const nextRev = Number.isFinite(prevRev) ? Math.max(0, Math.floor(prevRev)) + 1 : 1;
-          state.document = {
-            ...state.document,
-            deltaSetLike: {
-              ...(state.document.deltaSetLike || {}),
-              [lotId]: {
-                ...lot,
-                attrs: {
-                  ...(lot.attrs || {}),
-                  hidden: false,
-                  lottieInkRevision: nextRev}}}};
-          state.documentPatchToken += 1;
-          state.sceneReloadToken += 1;
-          state.dirty = true;
-        }
       }
 
       const hostNodeId = String(prev.hostNodeId || '').trim();
-      state.lottiePrecompEdit = null;
+      const exitLotId =
+        String(prev.lotNodeId || '').trim() ||
+        linkedLotNodeIdFromAsset(String(prev.assetId || '')) ||
+        '';
+      const next = convertLottiePrecompTab({ mode: 'main' });
+      state.lottiePrecompEdit = next.lottiePrecompEdit;
+      setLottiePrecompEditFocus(next.focus);
       state.selectedNodeId = null;
       state.selectedNodeIds = [];
+      if (exitLotId && typeof window !== 'undefined') {
+        queueMicrotask(() => clearStuckLottieMountVisibility(exitLotId));
+      }
       requestPlayheadSceneApply({ afterPaint: true });
       requestPrecompCameraRelease();
       if (hostNodeId) {
@@ -3662,11 +3600,9 @@ export const editorReducers = {
           timeSec: Number(state.lottiePlayheadSec) || 0,
           afterPaint: true});
       }
-      if (prev.frameId) queueEnsureAnimationFrame(prev.frameId);
       schedulePrecompTabArtboardDump('exit-session', {
         hostNodeId: prev.hostNodeId,
         assetId: prev.assetId,
-        frameId: prev.frameId,
         lotNodeId: prev.lotNodeId,
       });
     },

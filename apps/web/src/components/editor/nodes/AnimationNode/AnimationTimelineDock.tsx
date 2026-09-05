@@ -2113,8 +2113,14 @@ function AnimationTimelineDock({
                     setSceneId(scene.id);
                     setSelectedLayerId(null);
                     setSelectedNodeIds([]);
-                    // LOT tab = materialize insides + resize workbench to the plate.
+                    // LOT tab = same LottiePlate preview as 主场景; unlock layer/timeline edit.
                     const firstInd = scene.layers[0]?.ind;
+                    // eslint-disable-next-line no-console
+                    console.warn('[precomp-tab] CLICK tab→LOT', {
+                      hostNodeId: nodeId,
+                      assetId: scene.assetId,
+                      firstInd,
+                    });
                     logPrecompTabArtboardDump('tab→precomp:before', {
                       hostNodeId: nodeId,
                       assetId: scene.assetId,
@@ -2124,15 +2130,38 @@ function AnimationTimelineDock({
                         assetId: scene.assetId,
                         selectedLayerInd: Number.isFinite(firstInd) ? firstInd : null,
                       });
+                    // enter mutator also schedules dumps; extra after-paint for paste-back
+                    window.setTimeout(
+                      () =>
+                        logPrecompTabArtboardDump('tab→precomp:ui-after', {
+                          hostNodeId: nodeId,
+                          assetId: scene.assetId,
+                        }),
+                      120
+                    );
                   } else {
                     // — — flush LOT session + restore workbench before switching tabs.
+                    // eslint-disable-next-line no-console
+                    console.warn('[precomp-tab] CLICK tab→主场景', {
+                      hostNodeId: nodeId,
+                    });
                     logPrecompTabArtboardDump('tab→main:before', {
                       hostNodeId: nodeId,
+                      assetId: activeScene.kind === 'precomp' ? activeScene.assetId : undefined,
                     });
                     exitLottiePrecompEdit();
                     setSceneId(scene.id);
                     setLottiePrecompSelectedLayer(null);
                     setSelectedNodeIds([]);
+                    window.setTimeout(
+                      () =>
+                        logPrecompTabArtboardDump('tab→main:ui-after', {
+                          hostNodeId: nodeId,
+                          assetId:
+                            activeScene.kind === 'precomp' ? activeScene.assetId : undefined,
+                        }),
+                      120
+                    );
                   }
                 }}
               >

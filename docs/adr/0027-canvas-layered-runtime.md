@@ -54,7 +54,7 @@ Do not sell micro-caches or effects as parallel “optimization schemes.” Prod
 
 **Embedded (not separate products):** path densify, AI mutation lock, TransformPreview live filter.
 
-**Ink surfaces:** Canvas2D paints the **pixel grid**, Vitest helpers, and **ArtboardLayer** per-plate ink (required so FO hosts interleave by `stackOrder`). World unbound idle ink is WebGL (WebGPU only when DOF is on). Soft canvas2d world-ink fallback is survival-only when WebGL2 cannot compile — not the product main path.
+**Ink surfaces:** Canvas2D paints the **pixel grid**, Vitest helpers, and **ArtboardLayer** per-plate ink (required so FO hosts interleave by `stackOrder`). World unbound idle ink is WebGL. Soft canvas2d world-ink fallback is survival-only when WebGL2 cannot compile — not the product main path.
 
 **Do not merge:** `SceneSpatialRuntime` (all-node hit) vs `buf.quadtree` (idle paint/pick) — intentional dual track.
 
@@ -68,7 +68,7 @@ Do not sell micro-caches or effects as parallel “optimization schemes.” Prod
 | 2 | Done (core) | `SceneRenderer` (`svg` hosts + `canvas2d` grid); canvas-capable vectors on idle ink (`canIdlePaintOnCanvas` + rounded/poly Path2D). |
 | 3 | Done (default-on) | **SoA** + world WebGL; **ArtboardLayer** per-frame small canvas (plate + bound idle); stack SVG for plates/hosts by `stackOrder`; selected video/audio ≤1 FO; Lottie / SoftGlow / editors / heavy paths stay DOM hosts. |
 | 4 | Done (default-on) | WebGL2 instancing + atlas for **world** idle ink. Viewport bake ≥800 (unbound slots); camera gesture skips bake. |
-| 5 | Opt-in **effect** (not density roadmap) | **GPU realtime depth-of-field** (`VITE_GPU_DOF=1`): one resolved backend (webgpu *or* webgl2), no create-time cross-fallback. Skips CPU tile bake while active. UI: Effects → Scene depth of field. |
+| 5 | Opt-in **effect** (not density roadmap) | **GPU realtime depth-of-field** (`VITE_GPU_DOF=1`): WebGL2 CoC pass. Skips CPU tile bake while active. UI: Effects → Scene depth of field. |
 | 6 | Done (core) | Artboard = small canvas contract above; world collect/bake use `skipFrameBound`. |
 
 ### Acceptance targets
@@ -125,5 +125,4 @@ Do not sell micro-caches or effects as parallel “optimization schemes.” Prod
 - `apps/web/src/components/rcb/render/soaBakeLayer.ts`
 - `apps/web/src/components/rcb/render/gpuDepthOfField.ts`
 - `apps/web/src/components/rcb/render/webglDepthOfFieldPass.ts`
-- `apps/web/src/components/rcb/render/webgpuSceneRenderer.ts`
 - `apps/web/src/components/rcb/selection/SelectionChrome.tsx`

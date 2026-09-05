@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   createSoaWebglAtlas,
-  stampSoaPathToAtlas,
-  stampSoaRoundedRectToAtlas,
   stampImageToAtlas,
   evictSoaAtlasOldest,
   releaseSoaAtlasRegion,
@@ -14,44 +12,80 @@ import {
   SOA_ATLAS_SEG_THRESHOLD,
   idleMediaNeedsSharpHost,
   idleMediaScreenEdgePx,
+  atlasBakePixelScale,
+  atlasStampSceneScale,
+  atlasCoverageBucket,
+  atlasZoomBucket,
 } from '../webglInstanceAtlas';
 import {
   createSceneRenderBuffer,
-  SOA_KIND_PATH,
+  SOA_KIND_IMAGE,
   SOA_KIND_RECT,
 } from '../sceneRenderBuffer';
 
+function tinySource(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 8;
+  return c;
+}
+
 describe('webglInstanceAtlas', () => {
+  it('fills atlas cell for tiny stamps; bake scale tracks screen coverage', () => {
+    expect(atlasStampSceneScale(13, 13)).toBeCloseTo(SOA_ATLAS_INNER / 13, 5);
+    expect(atlasBakePixelScale(13, 13, 1)).toBeCloseTo(1, 5);
+    expect(atlasBakePixelScale(13, 13, 40)).toBeCloseTo(SOA_ATLAS_INNER / 13, 5);
+    expect(atlasCoverageBucket(100, 100, 1, 1)).toBe(Math.round(100 / 32));
+    expect(atlasCoverageBucket(100, 100, 2, 1)).not.toBe(atlasCoverageBucket(100, 100, 1, 1));
+    expect(atlasZoomBucket(2)).not.toBe(atlasZoomBucket(1));
+    expect(atlasStampSceneScale(800, 600)).toBeCloseTo(SOA_ATLAS_INNER / 800, 5);
+    const atlas = createSoaWebglAtlas(512, 128);
+    if (!atlas) return;
+    const inner = atlas.cell - 4;
+    const region = stampImageToAtlas(atlas, 'tiny-media', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 13,
+      height: 13,
+    });
+    expect(region).toBeTruthy();
+    expect(region!.w).toBeGreaterThanOrEqual(inner - 1);
+    expect(region!.h).toBeGreaterThanOrEqual(inner - 1);
+    expect(region!.w).toBeGreaterThan(20);
+  });
+
   it('idleMediaNeedsSharpHost when screen edge exceeds atlas inner cell', () => {
     expect(SOA_ATLAS_INNER).toBe(SOA_ATLAS_CELL - 4);
     expect(idleMediaScreenEdgePx(80, 60, 1, 1)).toBe(80);
     expect(idleMediaNeedsSharpHost({ key: 'image', width: 80, height: 60 }, 1, 1)).toBe(false);
-    expect(idleMediaNeedsSharpHost({ key: 'image', width: 400, height: 300 }, 1, 1)).toBe(true);
-    expect(idleMediaNeedsSharpHost({ key: 'image', width: 80, height: 60 }, 4, 1)).toBe(true);
-    expect(idleMediaNeedsSharpHost({ key: 'video', width: 400, height: 300 }, 1, 1)).toBe(true);
-    expect(idleMediaNeedsSharpHost({ key: 'shape', width: 400, height: 300 }, 1, 1)).toBe(false);
-    // Empty generators bake a plate glyph — never sharp-host (would break stackOrder).
     expect(
       idleMediaNeedsSharpHost(
-        { key: 'image', width: 360, height: 360, attrs: { src: '', imageGenerator: true } },
+        { key: 'image', width: SOA_ATLAS_INNER + 40, height: 300 },
         1,
         1
       )
-    ).toBe(false);
+    ).toBe(true);
+    expect(idleMediaNeedsSharpHost({ key: 'image', width: 80, height: 60 }, 8, 1)).toBe(true);
     expect(
       idleMediaNeedsSharpHost(
-        { key: 'video', width: 640, height: 360, attrs: { src: '', videoGenerator: true } },
-        2,
-        2
+        { key: 'image', width: 40, height: 40, attrs: { imageGenerator: true } },
+        1,
+        1
       )
-    ).toBe(false);
-    // Filled generator / real media still promote when oversized.
+    ).toBe(true);
+    expect(
+      idleMediaNeedsSharpHost(
+        { key: 'audio', width: 200, height: 80, attrs: { audioGenerator: true } },
+        1,
+        1
+      )
+    ).toBe(true);
     expect(
       idleMediaNeedsSharpHost(
         {
           key: 'image',
-          width: 400,
-          height: 400,
+          width: SOA_ATLAS_INNER + 40,
+          height: SOA_ATLAS_INNER + 40,
           attrs: { src: 'https://example.com/a.png', imageGenerator: true },
         },
         1,
@@ -59,11 +93,17 @@ describe('webglInstanceAtlas', () => {
       )
     ).toBe(true);
   });
-  it('shelf-packs stamped polylines and returns UVs', () => {
+
+  it('shelf-packs media stamps and returns UVs', () => {
     const atlas = createSoaWebglAtlas(512, 128);
     if (!atlas) return;
-    const xy = new Float32Array([0, 0, 10, 0, 20, 5, 30, 0, 40, 8, 50, 0]);
-    const region = stampSoaPathToAtlas(atlas, 'p1', xy, 0, 6, '#112233', false, 2);
+    expect(SOA_ATLAS_SEG_THRESHOLD).toBeGreaterThan(0);
+    const region = stampImageToAtlas(atlas, 'img:p1', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 50,
+      height: 8,
+    });
     expect(region).not.toBeNull();
     expect(region!.w).toBeGreaterThan(0);
     const uv = atlasRegionToUv(atlas, region!);
@@ -71,56 +111,36 @@ describe('webglInstanceAtlas', () => {
     expect(uv.u1).toBeGreaterThan(uv.u0);
     expect(uv.v1).toBeGreaterThan(uv.v0);
 
-    const again = stampSoaPathToAtlas(atlas, 'p1', xy, 0, 6, '#112233', false, 2);
+    const again = stampImageToAtlas(atlas, 'img:p1', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 50,
+      height: 8,
+    });
     expect(again).toBe(region);
-    expect(SOA_ATLAS_SEG_THRESHOLD).toBeGreaterThan(0);
   });
 
   it('LRU-evicts oldest cell when atlas is full', () => {
-    // 2x2 cells
     const atlas = createSoaWebglAtlas(SOA_ATLAS_CELL * 2, SOA_ATLAS_CELL);
     if (!atlas) return;
-    const mk = (key: string, x: number) => {
-      const xy = new Float32Array([x, 0, x + 10, 0, x + 20, 5]);
-      return stampSoaPathToAtlas(atlas!, key, xy, 0, 3, '#000', false, 2);
-    };
+    const mk = (key: string, x: number) =>
+      stampImageToAtlas(atlas!, key, tinySource(), {
+        left: x,
+        top: 0,
+        width: 20,
+        height: 10,
+      });
     expect(mk('a', 0)).not.toBeNull();
     expect(mk('b', 20)).not.toBeNull();
     expect(mk('c', 40)).not.toBeNull();
     expect(mk('d', 60)).not.toBeNull();
     expect(atlas.regions.size).toBe(4);
-    // Touch a so it is newest; b should be oldest among remaining after one more insert
-    stampSoaPathToAtlas(atlas, 'a', new Float32Array([0, 0, 1, 0]), 0, 2, '#000', false, 2);
+    stampImageToAtlas(atlas, 'a', tinySource(), { left: 0, top: 0, width: 20, height: 10 });
     expect(mk('e', 80)).not.toBeNull();
     expect(atlas.regions.has('e')).toBe(true);
-    // One of the untouched early keys should have been evicted
     expect(atlas.regions.size).toBe(4);
     expect(atlas.regions.has('b') || atlas.regions.has('c') || atlas.regions.has('d')).toBe(true);
     expect(evictSoaAtlasOldest(atlas)).toBe(true);
-  });
-
-  it('stamps rounded rects into atlas cells', () => {
-    const atlas = createSoaWebglAtlas(512, 128);
-    if (!atlas) return;
-    const region = stampSoaRoundedRectToAtlas(
-      atlas,
-      'round:a',
-      { left: 10, top: 20, width: 80, height: 40 },
-      '#ffffff',
-      { tl: 12, tr: 12, br: 12, bl: 12 }
-    );
-    expect(region).not.toBeNull();
-    expect(region!.world.width).toBe(80);
-    expect(atlas.stats.misses).toBe(1);
-    const hit = stampSoaRoundedRectToAtlas(
-      atlas,
-      'round:a',
-      { left: 10, top: 20, width: 80, height: 40 },
-      '#ffffff',
-      { tl: 12, tr: 12, br: 12, bl: 12 }
-    );
-    expect(hit).toBe(region);
-    expect(atlas.stats.hits).toBe(1);
   });
 
   it('stamps an image/bake tile into a cell', () => {
@@ -143,7 +163,6 @@ describe('webglInstanceAtlas', () => {
     expect(region!.world.width).toBe(100);
     expect(atlas.stats.misses).toBe(1);
 
-    // Hit
     stampImageToAtlas(atlas, 'bake:0,0', src, {
       left: 0,
       top: 0,
@@ -152,7 +171,6 @@ describe('webglInstanceAtlas', () => {
     });
     expect(atlas.stats.hits).toBe(1);
 
-    // Force restamp keeps same cell
     sctx.fillStyle = '#0f0';
     sctx.fillRect(0, 0, 32, 32);
     const again = stampImageToAtlas(
@@ -169,59 +187,76 @@ describe('webglInstanceAtlas', () => {
   it('releaseSoaAtlasRegion frees a cell for reuse', () => {
     const atlas = createSoaWebglAtlas(SOA_ATLAS_CELL * 2, SOA_ATLAS_CELL);
     if (!atlas) return;
-    const xy = new Float32Array([0, 0, 10, 0, 20, 0]);
-    stampSoaPathToAtlas(atlas, 'path:a', xy, 0, 3, '#000', false, 2);
-    expect(releaseSoaAtlasRegion(atlas, 'path:a')).toBe(true);
-    expect(atlas.regions.has('path:a')).toBe(false);
+    stampImageToAtlas(atlas, 'img:a', tinySource(), { left: 0, top: 0, width: 20, height: 10 });
+    expect(releaseSoaAtlasRegion(atlas, 'img:a')).toBe(true);
+    expect(atlas.regions.has('img:a')).toBe(false);
     expect(atlas.stats.releases).toBe(1);
-    expect(releaseSoaAtlasPrefix(atlas, 'path:')).toBe(0);
+    expect(releaseSoaAtlasPrefix(atlas, 'img:')).toBe(0);
   });
 
-  it('pruneSoaAtlasForBuffer drops orphan path/round keys', () => {
+  it('pruneSoaAtlasForBuffer drops retired shape stamps; keeps media', () => {
     const atlas = createSoaWebglAtlas(SOA_ATLAS_CELL * 2, SOA_ATLAS_CELL);
     if (!atlas) return;
-    const xy = new Float32Array([0, 0, 10, 0, 20, 0]);
-    stampSoaPathToAtlas(atlas, 'path:keep', xy, 0, 3, '#000', false, 2);
-    stampSoaPathToAtlas(atlas, 'path:gone', xy, 0, 3, '#000', false, 2);
-    stampSoaRoundedRectToAtlas(
-      atlas,
-      'round:keep',
-      { left: 0, top: 0, width: 20, height: 10 },
-      '#fff',
-      { tl: 4, tr: 4, br: 4, bl: 4 }
-    );
-    stampImageToAtlas(
-      atlas,
-      'bake:0,0',
-      (() => {
-        const c = document.createElement('canvas');
-        c.width = 8;
-        c.height = 8;
-        return c;
-      })(),
-      { left: 0, top: 0, width: 8, height: 8 }
-    );
+    stampImageToAtlas(atlas, 'path:keep', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 8,
+      height: 8,
+    });
+    stampImageToAtlas(atlas, 'path:gone', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 8,
+      height: 8,
+    });
+    stampImageToAtlas(atlas, 'round:keep', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 8,
+      height: 8,
+    });
+    stampImageToAtlas(atlas, 'img:photo', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 8,
+      height: 8,
+    });
+    stampImageToAtlas(atlas, 'bake:0,0', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 8,
+      height: 8,
+    });
     const buf = createSceneRenderBuffer(4);
     buf.count = 2;
-    buf.ids[0] = 'keep';
-    buf.kinds[0] = SOA_KIND_PATH;
-    buf.ids[1] = 'keep';
+    buf.ids[0] = 'photo';
+    buf.kinds[0] = SOA_KIND_IMAGE;
+    buf.ids[1] = 'shape';
     buf.kinds[1] = SOA_KIND_RECT;
-    expect(pruneSoaAtlasForBuffer(atlas, buf)).toBe(1);
-    expect(atlas.regions.has('path:keep')).toBe(true);
+    expect(pruneSoaAtlasForBuffer(atlas, buf)).toBe(3);
+    expect(atlas.regions.has('path:keep')).toBe(false);
     expect(atlas.regions.has('path:gone')).toBe(false);
-    expect(atlas.regions.has('round:keep')).toBe(true);
+    expect(atlas.regions.has('round:keep')).toBe(false);
+    expect(atlas.regions.has('img:photo')).toBe(true);
     expect(atlas.regions.has('bake:0,0')).toBe(true);
   });
 
-  it('force restamps dirty path cell in place', () => {
+  it('force restamps dirty media cell in place', () => {
     const atlas = createSoaWebglAtlas(512, 128);
     if (!atlas) return;
-    const xy = new Float32Array([0, 0, 10, 0, 20, 5]);
-    const a = stampSoaPathToAtlas(atlas, 'path:p', xy, 0, 3, '#000', false, 2);
-    const b = stampSoaPathToAtlas(atlas, 'path:p', xy, 0, 3, '#f00', false, 4, {
-      force: true,
+    const a = stampImageToAtlas(atlas, 'img:p', tinySource(), {
+      left: 0,
+      top: 0,
+      width: 20,
+      height: 10,
     });
+    const b = stampImageToAtlas(
+      atlas,
+      'img:p',
+      tinySource(),
+      { left: 0, top: 0, width: 20, height: 10 },
+      { force: true }
+    );
     expect(a).not.toBeNull();
     expect(b?.cell).toBe(a!.cell);
     expect(atlas.stats.restamps).toBe(1);

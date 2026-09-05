@@ -3,6 +3,7 @@ import {
   rcbFitImageIntoViewport,
   rcbLayoutGeneratorPlate,
   generatorEmptyIconSize,
+  generatorEmptyIconVisible,
   GENERATOR_EMPTY_STROKE_OUTSET,
 } from '../../core/layout';
 import {
@@ -74,6 +75,14 @@ describe('generator plate place size + grid', () => {
     expect(icon).toBeLessThan(box);
     expect(icon).toBeCloseTo(box * 0.28, 6);
     expect(oldFloor).toBeGreaterThan(box);
+  });
+
+  it('tiny high-zoom plates (5×5) still paint a visible glyph', () => {
+    const icon = generatorEmptyIconSize(5, 5);
+    expect(icon).toBeCloseTo(1.4, 5);
+    // Old `icon >= 4` skipped this — plate looks empty when zoomed in.
+    expect(icon < 4).toBe(true);
+    expect(generatorEmptyIconVisible(icon)).toBe(true);
   });
 
   it('generator plates have no visual stroke outset (inset border === path)', () => {

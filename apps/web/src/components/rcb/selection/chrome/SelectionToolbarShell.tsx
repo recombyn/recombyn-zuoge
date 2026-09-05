@@ -208,6 +208,8 @@ export function WorldScreenChromeRoot({
   hAlign = 'center',
   edgeGapPx = 0,
   railWidth = 0,
+  /** Stretch pill to the full rail (node titles: name left / size right). */
+  fillRail = false,
   className,
   style,
   children,
@@ -225,6 +227,7 @@ export function WorldScreenChromeRoot({
    * pill is flex-aligned inside this rail (selection toolbars).
    */
   railWidth?: number;
+  fillRail?: boolean;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
@@ -275,7 +278,7 @@ export function WorldScreenChromeRoot({
       window.removeEventListener('resize', sync);
       window.removeEventListener('scroll', sync, true);
     };
-  }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y]);
+  }, [screenLeft, screenTop, railScreen, contentTop, anchor, zoom, camera.x, camera.y, fillRail]);
 
   return (
     <RcbOverlayPortal>
@@ -292,7 +295,7 @@ export function WorldScreenChromeRoot({
           // height:0 + default stretch collapses the marker/host to 0×N — Playwright
           // (and hit tests that use host GBR) then treat the chrome as hidden.
           alignItems: 'flex-start',
-          justifyContent: alignEnd ? 'flex-end' : 'center',
+          justifyContent: alignEnd ? 'flex-end' : fillRail ? 'stretch' : 'center',
           pointerEvents: 'none',
           zIndex: 40,
           ...style,
@@ -304,7 +307,8 @@ export function WorldScreenChromeRoot({
           className="pointer-events-auto"
           style={{
             marginTop: contentTop,
-            width: 'max-content',
+            width: fillRail ? '100%' : 'max-content',
+            minWidth: fillRail ? 0 : undefined,
             transform: anchor === 'bottom' ? 'translateY(-100%)' : undefined,
           }}
           {...rest}

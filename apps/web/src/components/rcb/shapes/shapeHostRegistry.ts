@@ -237,7 +237,9 @@ export function syncSharedMountPaintOrder(mount?: SVGGElement | null) {
 
   let ordered = true;
   for (let i = 1; i < siblings.length; i += 1) {
-    if (zOf(siblings[i - 1]) > zOf(siblings[i])) {
+    const prev = siblings[i - 1]!;
+    const cur = siblings[i]!;
+    if (zOf(prev) > zOf(cur)) {
       ordered = false;
       break;
     }

@@ -52,4 +52,35 @@ describe('multi-frame plate stroke', () => {
       })
     ).toBe(true);
   });
+
+  it('clears plate edge when a bound child owns SelectionChrome', () => {
+    expect(
+      framePlateClearsIdleStroke({
+        chromeMode: 'soft',
+        selectedFrameIds: [],
+        frameId: 'a',
+        boundChildSelected: true,
+      })
+    ).toBe(true);
+    expect(
+      framePlateShowsHighlightEdge({
+        chromeMode: 'soft',
+        selectedFrameIds: [],
+        frameId: 'a',
+        activeFrameId: 'a',
+        boundChildSelected: true,
+      })
+    ).toBe(false);
+    // Dragging still keeps a visible plate edge.
+    expect(
+      framePlateShowsHighlightEdge({
+        chromeMode: 'soft',
+        selectedFrameIds: [],
+        frameId: 'a',
+        activeFrameId: 'a',
+        boundChildSelected: true,
+        moving: true,
+      })
+    ).toBe(true);
+  });
 });

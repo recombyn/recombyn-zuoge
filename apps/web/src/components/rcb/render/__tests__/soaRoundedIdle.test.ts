@@ -4,13 +4,59 @@ import {
   createSceneRenderBuffer,
   isSoaBasicGeomSufficient,
   isSoaCanvasEligible,
+  setSoaWebglEnvEnabledForTests,
   syncSceneRenderBufferFromDocument,
+  SOA_FLAG_ATLAS_STAMP,
   SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
 } from '../sceneRenderBuffer';
 import { canIdlePaintOnCanvas } from '../sceneRenderer';
 
 describe('SoA basic geom vs rounded / poly', () => {
+  it('product WebGL: closed fills use BASIC_GEOM vector mesh (not ATLAS_STAMP)', () => {
+    setSoaWebglEnvEnabledForTests(true);
+    try {
+      let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+      for (const [id, shapeType] of [
+        ['r', 'rect'],
+        ['e', 'ellipse'],
+        ['p', 'polygon'],
+        ['s', 'star'],
+      ] as const) {
+        doc = addNodeToDocument(doc, id, {
+          id,
+          key: 'shape',
+          x: 0,
+          y: 0,
+          width: 80,
+          height: 80,
+          attrs: {
+            shapeType,
+            fill: '#ffffff',
+            'fill-color': '#ffffff',
+            'stroke-enabled': true,
+            'border-width': 2,
+            'border-color': '#000',
+            sides: 5,
+            points: 5,
+          },
+          children: [],
+        });
+      }
+      const buf = createSceneRenderBuffer();
+      syncSceneRenderBufferFromDocument(buf, doc);
+      for (let i = 0; i < buf.count; i += 1) {
+        const id = buf.ids[i]!;
+        expect(isSoaBasicGeomSufficient(doc.deltaSetLike[id]), id).toBe(true);
+        expect(buf.flags[i] & SOA_FLAG_BASIC_GEOM, id).toBeTruthy();
+        expect(buf.flags[i] & SOA_FLAG_ATLAS_STAMP, id).toBe(0);
+        expect(buf.flags[i] & SOA_FLAG_CANVAS_IDLE, id).toBeTruthy();
+      }
+    } finally {
+      setSoaWebglEnvEnabledForTests(null);
+    }
+  });
+
   it('marks sharp solid rect as BASIC_GEOM', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'a', {
@@ -89,7 +135,7 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.pathLen[0]).toBeGreaterThan(5);
   });
 
-  it('angled line/arrow stay SoA-basic (idle ink + click-hit after demote)', () => {
+  it('angled line/arrow stay SoA-basic on Canvas2D test path', () => {
     let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
     doc = addNodeToDocument(doc, 'ln', {
       id: 'ln',
@@ -107,6 +153,30 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
     expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
     expect(buf.pathLen[0]).toBeGreaterThanOrEqual(2);
+  });
+
+  it('product WebGL: angled line/arrow stay BASIC_GEOM (crisp segments)', () => {
+    setSoaWebglEnvEnabledForTests(true);
+    try {
+      let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+      doc = addNodeToDocument(doc, 'ln', {
+        id: 'ln',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 1,
+        attrs: { shapeType: 'line', angle: 40, 'border-width': 2, 'border-color': '#111' },
+        children: [],
+      });
+      expect(isSoaBasicGeomSufficient(doc.deltaSetLike.ln)).toBe(true);
+      const buf = createSceneRenderBuffer();
+      syncSceneRenderBufferFromDocument(buf, doc);
+      expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+      expect(buf.flags[0] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
+    } finally {
+      setSoaWebglEnvEnabledForTests(null);
+    }
   });
 
   it('polygon is SoA-basic on Canvas2D path (samples into pathXY)', () => {
@@ -298,7 +368,7 @@ describe('SoA basic geom vs rounded / poly', () => {
       const i = buf.indexById.get(id);
       expect(i).toBeDefined();
       expect(buf.flags[i!] & SOA_FLAG_BASIC_GEOM, id).toBeFalsy();
-      // Rich fills idle via atlas stamp (CANVAS_IDLE), not BASIC_GEOM.
+      // Rich fills idle via Canvas2D Path2D (CANVAS_IDLE), not BASIC_GEOM / ATLAS_STAMP.
       expect(buf.flags[i!] & SOA_FLAG_CANVAS_IDLE, id).toBeTruthy();
     }
     // Static image/text: atlas-stamp idle (CANVAS_IDLE) without BASIC_GEOM.
@@ -320,7 +390,7 @@ describe('SoA basic geom vs rounded / poly', () => {
     expect(canIdlePaintOnCanvas(doc.deltaSetLike.img)).toBe(true);
   });
 
-  it('donut ellipse idles via atlas stamp (not BASIC_GEOM)', () => {
+  it('donut ellipse is not BASIC_GEOM / not SoA idle stamp', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'donut', {
       id: 'donut',
@@ -343,6 +413,27 @@ describe('SoA basic geom vs rounded / poly', () => {
     const i = buf.indexById.get('donut')!;
     expect(buf.flags[i] & SOA_FLAG_BASIC_GEOM).toBeFalsy();
     expect(buf.flags[i] & SOA_FLAG_CANVAS_IDLE).toBeTruthy();
-    expect(canIdlePaintOnCanvas(doc.deltaSetLike.donut)).toBe(true);
+  });
+
+  it('pencil freehand is BASIC_GEOM vector mesh (not atlas stamp)', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'pen', {
+      id: 'pen',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+      attrs: {
+        shapeType: 'pencil',
+        path: 'M0 20 L100 20',
+        'border-color': '#111',
+        'border-width': 8,
+        brushStyle: 'vector-ink',
+      },
+      children: [],
+    });
+    expect(isSoaBasicGeomSufficient(doc.deltaSetLike.pen)).toBe(true);
+    expect(canIdlePaintOnCanvas(doc.deltaSetLike.pen)).toBe(true);
   });
 });

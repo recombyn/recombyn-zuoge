@@ -1,0 +1,3 @@
+# Keep built wasm for JS-only CI; rebuild via npm run build:wasm
+.*
+!.gitignore

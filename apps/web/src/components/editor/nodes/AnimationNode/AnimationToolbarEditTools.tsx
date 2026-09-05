@@ -36,6 +36,23 @@ import { cn } from '@/utils/classnames';
 const TOOL_ICON_SLOT =
   'pointer-events-none inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:block [&>svg]:h-full [&>svg]:w-full';
 
+/**
+ * Floating strip ready gate. Timeline dock only needs layers; workbench play
+ * drives scene pose via AnimationPlayheadSceneSync when the frame-host
+ * lottie-web ink is hidden (all layers linked). Free LOT preview still needs
+ * a registered host.
+ */
+export function animationOutsidePlaybackReady(opts: {
+  hasPlayableContent: boolean;
+  /** 动画工作台 / frame-linked host — play without getLottieHost. */
+  scenePlayWithoutHost: boolean;
+  hasLottieHost: boolean;
+}): boolean {
+  if (!opts.hasPlayableContent) return false;
+  if (opts.scenePlayWithoutHost) return true;
+  return opts.hasLottieHost;
+}
+
 function ToolIconSlot({ children }: { children: ReactNode }) {
   return <span className={TOOL_ICON_SLOT}>{children}</span>;
 }
@@ -129,13 +146,20 @@ function AnimationToolbarEditTools({
 
   useEffect(() => {
     const sync = () => {
-      // Empty — ——still has a plate + host — only enable when layers exist.
-      setPlaybackReady(hasPlayableContent && Boolean(getLottieHost(nodeId)));
+      // Match timeline: layers are enough for workbench scene play. Requiring
+      // getLottieHost disabled the outside strip after materialize (host ink hidden).
+      setPlaybackReady(
+        animationOutsidePlaybackReady({
+          hasPlayableContent,
+          scenePlayWithoutHost: Boolean(workbenchFrame || animationIntent),
+          hasLottieHost: Boolean(getLottieHost(nodeId)),
+        })
+      );
     };
     sync();
     const id = window.setInterval(sync, 400);
     return () => window.clearInterval(id);
-  }, [nodeId, hasPlayableContent]);
+  }, [nodeId, hasPlayableContent, workbenchFrame, animationIntent]);
 
   useEffect(() => {
     if (hasPlayableContent || !lottiePlaying) return;

@@ -113,16 +113,15 @@ describe('collectPrecompSessionDocumentPatches', () => {
       assetId,
       layerInd: 2,
       frameN: 15,
-      plate: { left: 100, top: 80, width: 240, height: 240 },
+      plate: { left: 0, top: 0, width: 240, height: 240 },
       localAnimW: 240,
       localAnimH: 240,
       raw: (anim.assets as any[])[0].layers[0],
       node: doc.deltaSetLike!.shape1,
       document: doc,
     });
-    // Document stores plate-local y; pose is scene paint (world).
-    const plateY = Number(doc.frames?.[0]?.y) || 0;
-    expect(pose?.top).toBeCloseTo(plateY + patches[0]!.patch.y, 1);
+    // frameLocal plate is {0,0}: pose.top equals stored patch.y (no world offset).
+    expect(pose?.top).toBeCloseTo(patches[0]!.patch.y, 1);
   });
 });
 

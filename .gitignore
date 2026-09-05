@@ -92,6 +92,11 @@ apps/web/vitest.config.d.ts
 # (keep real source as TypeScript only under apps/web/src)
 apps/web/src/**/*.js
 apps/web/src/**/*.jsx
+# Exception: wasm-pack glue (rcb_wasm_geom.js) must ship for JS-only CI.
+!apps/web/src/components/rcb/render/vector/wasm/pkg/
+
+# Rust build artifacts for rcb-wasm-geom
+packages/rcb-wasm-geom/target/
 
 npm-debug.log*
 yarn-debug.log*

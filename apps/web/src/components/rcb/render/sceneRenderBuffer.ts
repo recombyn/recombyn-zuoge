@@ -5,7 +5,6 @@
  * contiguous typed arrays for lightweight geometry so Canvas can paint and
  * spatial pick without one SVG host per node.
  */
-import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import {
   isFrameLocalCoordSpace,
   nodeLeftTop,
@@ -15,11 +14,15 @@ import {
   clampCornerRadii,
   getLiveCornerRadiusPreviewRadii,
   mergeLiveCornerRadiiIntoAttrs,
+  pathPaintDFromAttrs,
   radiiFromAttrs,
 } from '@/components/rcb/scene/document/sceneRadii';
 import {
   resolveStroke,
   resolveStrokeAlignForPaint,
+  resolveStrokeLinecap,
+  resolveStrokeLinejoin,
+  resolveStrokeMiterlimit,
   strokeCanvasAligned,
   boolEffectAttr,
 } from '@/components/rcb/scene/document/sceneEffects';
@@ -30,15 +33,23 @@ import {
   getLiveShapeParamsPreview,
   getLiveShapeParamsPreviewNodeId,
   HEAVY_PATH_D_CHARS,
+  getCachedPath2D,
+  invalidateNodePath2D,
   mergeLiveShapeParamsIntoAttrs,
+  rememberNodePath2D,
   shapeVertexPoints,
   starInnerRatioFromAttrs,
 } from '@/components/rcb/scene/document/sceneShapes';
+import { invalidateShapeMesh } from '@/components/rcb/render/vector/meshCache';
+import { pencilSilhouettePathD } from '@/components/rcb/render/vector/contour';
+import { getSoaTextInkPainter } from '@/components/rcb/render/soaTextInkPainter';
 import { getShapeBaseline } from '@/components/rcb/core/geometry/baseline';
+import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import { getShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   pathDLooksClosed,
   sampleSoaPathPolyline,
+  SOA_PATH_CLOSED_MAX_PTS,
   SOA_PATH_MAX_PTS,
 } from '@/components/rcb/render/soaPathSamples';
 import {
@@ -68,8 +79,8 @@ export const SOA_FLAG_BASIC_GEOM = 1 << 4;
 /** Tombstone slot awaiting reuse via freeSlots (skipped by paint/hit). */
 export const SOA_FLAG_FREE = 1 << 5;
 /**
- * Idle ink via Canvas→atlas stamp (gradient / rotated solid / rich fill).
- * Not BASIC_GEOM — collectSoaWebglInstances bakes `rich:` cells.
+ * Legacy atlas-stamp flag — shape ink no longer sets this (vector dual-backend).
+ * Retained for buffer layout / prune of stale atlas keys only.
  */
 export const SOA_FLAG_ATLAS_STAMP = 1 << 6;
 
@@ -79,7 +90,7 @@ export const SOA_KIND_LINE = 2;
 export const SOA_KIND_PATH = 3;
 export const SOA_KIND_IMAGE = 4;
 export const SOA_KIND_POLY = 5;
-/** Static text glyphs — atlas-stamped idle (not BASIC_GEOM). */
+/** Static text — Canvas/DOM vector glyphs (never atlas stamp). */
 export const SOA_KIND_TEXT = 6;
 export const SOA_KIND_OTHER = 15;
 /** Fallback line/path width when attrs omit border-width (matches prior Canvas/WebGL default). */
@@ -154,35 +165,17 @@ function isStrokeInkShapeType(t: string, key: string, customPath: string): boole
   );
 }
 
-/** Rect/ellipse fills that WebGL can stamp with outline (atlas). */
-function isWebglAtlasFillShape(t: string, key: string): boolean {
-  return (
-    t === 'rect' ||
-    t === 'roundrect' ||
-    t === '' ||
-    key === 'shape' ||
-    t === 'circle' ||
-    t === 'ellipse' ||
-    t === 'oval'
-  );
-}
-
-function hasVisibleOutlineStroke(node: SceneNodeInput): boolean {
-  const stroke = resolveStroke(node);
-  if (!(Number(stroke.strokeWidth) > 0)) return false;
-  return !isTransparentCssColor(String(stroke.stroke || ''));
-}
-
 /**
- * True when gradient / image / diffuse / rotated-solid / poly / donut-arc
- * fills can idle via atlas stamp (shared stackOrder: ink under plates; host when above).
+ * True when a node can be Canvas-baked into a WebGL atlas cell (closed fills,
+ * rich fills, light paths). Independent of BASIC_GEOM — Vitest keeps closed
+ * shapes BASIC for Canvas2D idle while product WebGL still bakes them.
  */
-export function isSoaRichFillAtlasStampable(node: SceneNodeInput | null | undefined): boolean {
+export function isSoaAtlasBakeEligible(node: SceneNodeInput | null | undefined): boolean {
   if (!node || !isSoaCanvasEligible(node)) return false;
-  if (isSoaBasicGeomSufficient(node)) return false;
   const key = String(node.key || '');
   if (key === 'text' || key === 'image' || key === 'video' || key === 'audio') return false;
   const attrs = node.attrs || {};
+  const t = shapeTypeToken(node);
   if (attrs.flipX === true || attrs.flipX === 'true') return false;
   if (attrs.flipY === true || attrs.flipY === 'true') return false;
 
@@ -196,44 +189,38 @@ export function isSoaRichFillAtlasStampable(node: SceneNodeInput | null | undefi
   const solidish = !fillType || fillType === 'solid';
   if (!richFill && !solidish) return false;
 
-  const rotated = Math.abs(Number(attrs.angle) || 0) > 0.5;
-  const t = shapeTypeToken(node);
   const customPath = String(attrs.path || '').trim();
   const pathLike =
     t === 'pen' || t === 'pencil' || t === 'path' || key === 'path' || Boolean(customPath);
 
-  // WebGL has no POLY instancing — Canvas-bake → atlas for all eligible fills.
-  if (t === 'triangle' || t === 'polygon' || t === 'star') return true;
+  if (
+    t === 'triangle' ||
+    t === 'polygon' ||
+    t === 'star' ||
+    t === 'rect' ||
+    t === 'roundrect' ||
+    t === '' ||
+    key === 'shape' ||
+    t === 'circle' ||
+    t === 'ellipse' ||
+    t === 'oval'
+  ) {
+    return true;
+  }
+
+  // Open line/arrow: Canvas bake → atlas (same AA path as pencil).
+  if (t === 'line' || t === 'arrow') return true;
 
   if (pathLike) {
     if (!customPath || customPath.length >= HEAVY_PATH_D_CHARS) return false;
-  } else if (
-    t !== 'rect' &&
-    t !== 'roundrect' &&
-    t !== '' &&
-    t !== 'circle' &&
-    t !== 'ellipse' &&
-    t !== 'oval'
-  ) {
-    return false;
+    return true;
   }
-
-  // Donut / pie / annular sector — paintCanvasShapeInk evenodd bake.
-  if (t === 'circle' || t === 'ellipse' || t === 'oval') {
-    if (ellipseInnerRatioFromAttrs(attrs) > 1e-6) return true;
-    const arc = ellipseArcPercentFromAttrs(attrs);
-    if (arc > 0 && arc < 100 - 1e-6) return true;
-  }
-
-  if (richFill) return true;
-  // Rotated solid rect/ellipse/path — bake instead of forcing a DOM host.
-  if (rotated && solidish) return true;
   return false;
 }
 
 /**
- * True when SoA BASIC_GEOM can draw the node on the product WebGL path
- * (or Canvas2D helpers in Vitest). Non-basic → DOM host or atlas stamp.
+ * True when SoA BASIC_GEOM can draw the node on the product WebGL / Canvas2D
+ * vector path (fill+stroke meshes or Path2D — never shape atlas bake).
  */
 export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined): boolean {
   if (!node || !isSoaCanvasEligible(node)) return false;
@@ -246,36 +233,38 @@ export function isSoaBasicGeomSufficient(node: SceneNodeInput | null | undefined
 
   const key = String(node.key || '');
   const t = shapeTypeToken(node);
-  const webgl = isSoaWebglEnvEnabled();
   const customPath = String(attrs.path || '').trim();
   const strokeInk = isStrokeInkShapeType(t, key, customPath);
 
   // Rotated fills stay off basic SoA; stroke ink keeps angle for pick after demote.
   if (!strokeInk && Math.abs(Number(attrs.angle) || 0) > 0.5) return false;
 
-  // Outline on fills: WebGL atlas handles rect/ellipse; other kinds stay DOM.
-  if (!strokeInk && webgl && hasVisibleOutlineStroke(node) && !isWebglAtlasFillShape(t, key)) {
-    return false;
-  }
+  // Line / arrow / pencil: vector stroke mesh (not atlas).
+  if (t === 'line' || t === 'arrow' || t === 'pencil') return true;
 
-  if (t === 'line' || t === 'arrow') return true;
-  if (t === 'triangle' || t === 'polygon' || t === 'star') {
-    // Product WebGL stamps POLY via rich atlas; Vitest Canvas2D uses basic SoA.
-    return !webgl;
-  }
-  if (t === 'pen' || t === 'pencil' || t === 'path' || key === 'path' || customPath) {
-    const d = customPath;
-    if (!d || d.length >= HEAVY_PATH_D_CHARS) return false;
-    // evenodd / outlined (boolean results) stamp via the WebGL atlas like
-    // other closed paths — stackOrder is enforced by the shared plate+host mount,
-    // not by forcing a DOM host.
+  // Closed shapes: vector fill+stroke on both WebGL and Canvas2D.
+  const closedFill =
+    t === 'triangle' ||
+    t === 'polygon' ||
+    t === 'star' ||
+    t === 'rect' ||
+    t === 'roundrect' ||
+    t === '' ||
+    t === 'circle' ||
+    t === 'ellipse' ||
+    t === 'oval';
+  if (closedFill) {
+    if (t === 'circle' || t === 'ellipse' || t === 'oval') {
+      if (ellipseInnerRatioFromAttrs(attrs) > 1e-6) return false;
+      const arc = ellipseArcPercentFromAttrs(attrs);
+      if (arc > 0 && arc < 100 - 1e-6) return false;
+    }
     return true;
   }
-  if (t === 'rect' || t === 'roundrect' || t === '') return true;
-  if (t === 'circle' || t === 'ellipse' || t === 'oval') {
-    if (ellipseInnerRatioFromAttrs(attrs) > 1e-6) return false;
-    const arc = ellipseArcPercentFromAttrs(attrs);
-    if (arc > 0 && arc < 100 - 1e-6) return false;
+
+  if (t === 'pen' || t === 'path' || key === 'path' || customPath) {
+    const d = customPath;
+    if (!d || d.length >= HEAVY_PATH_D_CHARS) return false;
     return true;
   }
   return false;
@@ -341,8 +330,17 @@ export function isSoaCanvasShapesEnabled(): boolean {
   }
 }
 
+/** Test override for {@link isSoaWebglEnvEnabled} (`null` = env default). */
+let soaWebglEnvOverride: boolean | null = null;
+
+/** Vitest: force product WebGL eligibility (closed shapes → atlas, not BASIC). */
+export function setSoaWebglEnvEnabledForTests(enabled: boolean | null) {
+  soaWebglEnvOverride = enabled;
+}
+
 /** WebGL ink — product always on. Vitest off so Canvas2D paint helpers stay testable. */
 export function isSoaWebglEnvEnabled(): boolean {
+  if (soaWebglEnvOverride != null) return soaWebglEnvOverride;
   try {
     if (import.meta.env.MODE === 'test' || import.meta.env.VITEST) return false;
     return true;
@@ -708,14 +706,15 @@ function writeSlot(
   let flags = SOA_FLAG_DIRTY;
   if (!isNodeOverlayHidden(document, node)) flags |= SOA_FLAG_VISIBLE;
   if (node.attrs?.locked) flags |= SOA_FLAG_LOCKED;
-  // BASIC_GEOM → SoA / WebGL vector ink. Image/video/text + rich fills get
-  // CANVAS_IDLE without BASIC_GEOM so collectSoaWebglInstances can atlas-stamp.
+  // BASIC_GEOM → SoA vector ink (WebGL mesh / Canvas2D Path2D). Media/text
+  // keep CANVAS_IDLE without BASIC for texture / glyph paths.
   if (isSoaBasicGeomSufficient(node)) {
     flags |= SOA_FLAG_BASIC_GEOM | SOA_FLAG_CANVAS_IDLE;
   } else if (kind === SOA_KIND_IMAGE || kind === SOA_KIND_TEXT) {
     flags |= SOA_FLAG_CANVAS_IDLE;
-  } else if (isSoaRichFillAtlasStampable(node)) {
-    flags |= SOA_FLAG_CANVAS_IDLE | SOA_FLAG_ATLAS_STAMP;
+  } else if (isSoaAtlasBakeEligible(node)) {
+    // Gradient / donut / etc.: Canvas2D Path2D idle — never ATLAS_STAMP.
+    flags |= SOA_FLAG_CANVAS_IDLE;
   }
   buf.flags[index] = flags >>> 0;
   buf.ids[index] = id;
@@ -729,6 +728,9 @@ function writeSlot(
   } else {
     buf.pathClosed[index] = 0;
   }
+  // Geometry wrote — drop vector caches so next paint rebuilds fill/stroke meshes.
+  invalidateShapeMesh(id);
+  invalidateNodePath2D(id);
   if (!opts?.skipQuad) syncQuadSlot(buf, index);
 }
 
@@ -843,15 +845,23 @@ export function rebuildSoaPathSamples(
       continue;
     }
     if (kind === SOA_KIND_PATH) {
-      const d = String(node.attrs?.path || '');
-      const pts = sampleSoaPathPolyline(d, SOA_PATH_MAX_PTS);
+      const rawD = String(node.attrs?.path || '');
+      const shapeType = String(node.attrs?.shapeType || '').toLowerCase();
+      const d = pathPaintDFromAttrs(node.attrs as Record<string, unknown>, {
+        shapeType,
+      });
+      const closed = pathDLooksClosed(rawD, node.attrs?.closed);
+      const pts = sampleSoaPathPolyline(
+        d || rawD,
+        closed ? SOA_PATH_CLOSED_MAX_PTS : SOA_PATH_MAX_PTS
+      );
       if (pts.length < 2) continue;
       const ox = buf.positions[i * POS_STRIDE];
       const oy = buf.positions[i * POS_STRIDE + 1];
       pending.push({
         index: i,
         pts: pts.map((p) => ({ x: ox + p.x, y: oy + p.y })),
-        closed: pathDLooksClosed(d, node.attrs?.closed),
+        closed,
       });
       floatNeed += pts.length * 2;
       continue;
@@ -1735,6 +1745,12 @@ function paintSoaIdleSlotLiveGeo(
     const noopTrace = () => {
       /* Path2D stroke/fill */
     };
+    const shapeType = String(mergedAttrs.shapeType || '').toLowerCase();
+    ctx.lineCap =
+      shapeType === 'pencil' ? 'round' : resolveStrokeLinecap(mergedAttrs);
+    ctx.lineJoin =
+      shapeType === 'pencil' ? 'round' : resolveStrokeLinejoin(mergedAttrs);
+    ctx.miterLimit = resolveStrokeMiterlimit(mergedAttrs);
     if (doOutline && strokeAlign === 'outside') {
       strokeCanvasAligned(ctx, {
         align: strokeAlign,
@@ -1763,6 +1779,12 @@ function paintSoaIdleSlotLiveGeo(
   };
 
   const paintLocalSamples = (pts: Array<{ x: number; y: number }>) => {
+    const shapeType = String(mergedAttrs.shapeType || '').toLowerCase();
+    ctx.lineCap =
+      shapeType === 'pencil' ? 'round' : resolveStrokeLinecap(mergedAttrs);
+    ctx.lineJoin =
+      shapeType === 'pencil' ? 'round' : resolveStrokeLinejoin(mergedAttrs);
+    ctx.miterLimit = resolveStrokeMiterlimit(mergedAttrs);
     const trace = () => {
       ctx.beginPath();
       let pending = false;
@@ -1813,10 +1835,13 @@ function paintSoaIdleSlotLiveGeo(
   }
   if (typeof Path2D !== 'undefined') {
     try {
-      paintLocalPath(new Path2D(d));
-      ctx.restore();
-      buf.flags[i] = (buf.flags[i] & ~SOA_FLAG_DIRTY) >>> 0;
-      return true;
+      const path = rememberNodePath2D(id, d) || getCachedPath2D(d);
+      if (path) {
+        paintLocalPath(path);
+        ctx.restore();
+        buf.flags[i] = (buf.flags[i] & ~SOA_FLAG_DIRTY) >>> 0;
+        return true;
+      }
     } catch {
       /* fall through to samples */
     }
@@ -1913,7 +1938,8 @@ function mapLocalBaselineToWorld(
   return out;
 }
 
-function sampleLineOrArrowWorldPolyline(
+/** World polyline for line/arrow from live box + angle (TransformPreview-safe). */
+export function sampleLineOrArrowWorldPolyline(
   node: SceneNodeInput,
   left: number,
   top: number,
@@ -1932,6 +1958,26 @@ function sampleLineOrArrowWorldPolyline(
     } as SceneNodeInput,
     { width: w, height: h }
   );
+  const d = String(baseline?.d || '').trim();
+  if (!d) return null;
+  const local = sampleSoaPathPolyline(d, SOA_PATH_MAX_PTS);
+  if (local.length < 2) return null;
+  return mapLocalBaselineToWorld(local, left, top, w, h, angleDeg);
+}
+
+/**
+ * World polyline for any closed/open baseline (rect/roundrect/ellipse/poly…).
+ * Used to emit crisp WebGL stroke segments without SVG hosts or soft atlas AA.
+ */
+export function sampleShapeBaselineWorldPolyline(
+  node: SceneNodeInput,
+  left: number,
+  top: number,
+  w: number,
+  h: number,
+  angleDeg: number
+): Array<{ x: number; y: number }> | null {
+  const baseline = getShapeBaseline(node, { width: w, height: h });
   const d = String(baseline?.d || '').trim();
   if (!d) return null;
   const local = sampleSoaPathPolyline(d, SOA_PATH_MAX_PTS);
@@ -2042,8 +2088,11 @@ export function paintSoaIdleSlot(
       const len = buf.pathLen[i];
       ctx.strokeStyle = unpackCssColor(buf.colors[i]);
       ctx.lineWidth = soaStrokeWidth(buf, i);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+      const lineAttrs = nodeAttrsForId(doc, id);
+      // Match SVG / WebGL: butt + miter so arrow V tips stay sharp (round caps dull the point).
+      ctx.lineCap = resolveStrokeLinecap(lineAttrs);
+      ctx.lineJoin = resolveStrokeLinejoin(lineAttrs);
+      ctx.miterLimit = resolveStrokeMiterlimit(lineAttrs);
       if (start >= 0 && len >= 2) {
         // Baseline samples (line shaft / arrow shaft+V), including NaN breaks.
         const base = start * 2;
@@ -2097,6 +2146,42 @@ export function paintSoaIdleSlot(
       const outlineW = buf.strokeWidths[i];
       const isPoly = kind === SOA_KIND_POLY;
       const nodeAttrs = nodeAttrsForId(doc, id);
+      const pathShapeTypeEarly = String(nodeAttrs?.shapeType || '').toLowerCase();
+      // Pencil idle: fill perfect-freehand silhouette (taper/caps), not centerline stroke.
+      if (!isPoly && pathShapeTypeEarly === 'pencil' && id && doc) {
+        const node = doc.deltaSetLike?.[id] as SceneNodeInput | undefined;
+        if (node && typeof Path2D !== 'undefined') {
+          const sw = Math.max(
+            0.5,
+            Number(node.attrs?.['border-width'] ?? node.attrs?.strokeWidth) ||
+              outlineW ||
+              1
+          );
+          const outlineD = pencilSilhouettePathD({ ...node, id }, sw);
+          if (outlineD) {
+            const path = rememberNodePath2D(id, outlineD) || getCachedPath2D(outlineD);
+            if (path) {
+              const ink = outlineArgb
+                ? unpackCssColor(outlineArgb)
+                : '#333333';
+              const rot = livePreviewAngleDeg(id);
+              ctx.save();
+              ctx.fillStyle = ink;
+              if (rot) {
+                ctx.translate(x + w / 2, y + h / 2);
+                ctx.rotate((rot * Math.PI) / 180);
+                ctx.translate(-w / 2, -h / 2);
+              } else {
+                ctx.translate(x, y);
+              }
+              ctx.fill(path);
+              ctx.restore();
+              buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+              return;
+            }
+          }
+        }
+      }
       const solidFill =
         fillArgb !== 0 && (!nodeAttrs || pathAttrsHaveSolidFill(nodeAttrs));
       // PATH: colors = fill (0 if transparent); strokeColors = stroke.
@@ -2117,6 +2202,18 @@ export function paintSoaIdleSlot(
       const polyDoOutline = Boolean(polyOutline);
       if (isPoly && polyDoOutline) {
         const strokeAlign = polyNode ? resolveStrokeAlignForPaint(polyNode) : 'center';
+        const polyJoinAttrs = nodeAttrs || polyNode?.attrs || null;
+        const shapeType = String(polyJoinAttrs?.shapeType || '').toLowerCase();
+        // Pencil defaults round; stars/polys stay miter so tips stay sharp.
+        ctx.lineCap =
+          shapeType === 'pencil'
+            ? 'round'
+            : resolveStrokeLinecap(polyJoinAttrs);
+        ctx.lineJoin =
+          shapeType === 'pencil'
+            ? 'round'
+            : resolveStrokeLinejoin(polyJoinAttrs);
+        ctx.miterLimit = resolveStrokeMiterlimit(polyJoinAttrs);
         const tracePoly = () => {
           traceSoaSampledContour(ctx, buf, i, pathLive, closed);
         };
@@ -2147,8 +2244,13 @@ export function paintSoaIdleSlot(
       if (doFill) ctx.fillStyle = unpackCssColor(fillArgb);
       ctx.strokeStyle = resolvePathStrokeStyle(strokeArgb, fillArgb);
       ctx.lineWidth = soaPathOrPolyLineWidth(buf, i, isPoly, outlineArgb, outlineW);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+      const pathShapeType = String(nodeAttrs?.shapeType || '').toLowerCase();
+      // Never force round on stars/polygons — that blunts every tip into 圆角.
+      ctx.lineCap =
+        pathShapeType === 'pencil' ? 'round' : resolveStrokeLinecap(nodeAttrs);
+      ctx.lineJoin =
+        pathShapeType === 'pencil' ? 'round' : resolveStrokeLinejoin(nodeAttrs);
+      ctx.miterLimit = resolveStrokeMiterlimit(nodeAttrs);
       const base = start * 2;
       let pending = false;
       const finishContour = () => {
@@ -2184,6 +2286,31 @@ export function paintSoaIdleSlot(
       buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
       return;
     }
+    if (kind === SOA_KIND_TEXT) {
+      const node = id && doc ? (doc.deltaSetLike?.[id] as SceneNodeInput | undefined) : undefined;
+      if (node && getSoaTextInkPainter()) {
+        const paintText = getSoaTextInkPainter()!;
+        const rot = livePreviewAngleDeg(id);
+        const opacity = Math.min(1, Math.max(0.05, Number(node.attrs?.opacity) || 1));
+        ctx.save();
+        if (rot) {
+          ctx.translate(x + w / 2, y + h / 2);
+          ctx.rotate((rot * Math.PI) / 180);
+          ctx.translate(-w / 2, -h / 2);
+        } else {
+          ctx.translate(x, y);
+        }
+        paintText(ctx, {
+          node: { ...node, id: id || node.id },
+          width: w,
+          height: h,
+          opacity,
+        });
+        ctx.restore();
+      }
+      buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+      return;
+    }
     if (kind !== SOA_KIND_RECT && kind !== SOA_KIND_ELLIPSE) return;
     ctx.fillStyle = unpackCssColor(buf.colors[i]);
     const outlineArgb = buf.strokeColors[i] >>> 0;
@@ -2196,6 +2323,78 @@ export function paintSoaIdleSlot(
       : 'center';
     const outlineStroke = outlineArgb ? unpackCssColor(outlineArgb) : '';
     const doOutline = Boolean(outlineArgb && outlineW > 0 && outlineStroke);
+    const rectStrokeAttrs = nodeForRadii?.attrs || null;
+    ctx.lineCap = resolveStrokeLinecap(rectStrokeAttrs);
+    ctx.lineJoin = resolveStrokeLinejoin(rectStrokeAttrs);
+    ctx.miterLimit = resolveStrokeMiterlimit(rectStrokeAttrs);
+
+    // Prefer shared Path2D cache (same kernel as hit-test / Canvas idle).
+    if (nodeForRadii && id && typeof Path2D !== 'undefined') {
+      const shapeType =
+        kind === SOA_KIND_ELLIPSE
+          ? 'circle'
+          : String(nodeForRadii.attrs?.shapeType || 'rect').toLowerCase();
+      const mergedAttrs = soaAttrsWithLiveGeoPreview(
+        id,
+        (nodeForRadii.attrs || {}) as Record<string, unknown>
+      );
+      const baseline = getShapeBaseline(
+        {
+          key: 'shape',
+          width: w,
+          height: h,
+          attrs: { ...mergedAttrs, shapeType },
+        } as SceneNodeInput,
+        { width: w, height: h }
+      );
+      const d = String(baseline?.d || '').trim();
+      const path = d ? rememberNodePath2D(id, d) || getCachedPath2D(d) : null;
+      if (path) {
+        const fillArgb = buf.colors[i] >>> 0;
+        const doFill = fillArgb !== 0;
+        const useEvenodd =
+          kind === SOA_KIND_ELLIPSE &&
+          effectiveEllipseInnerRatioFromAttrs(id, nodeForRadii.attrs) > 1e-4;
+        const paintPath = () => {
+          if (doOutline && strokeAlign === 'outside') {
+            strokeCanvasAligned(ctx, {
+              align: strokeAlign,
+              stroke: outlineStroke,
+              strokeWidth: outlineW,
+              trace: () => undefined,
+              path,
+              fillRule: useEvenodd ? 'evenodd' : undefined,
+            });
+          }
+          if (doFill) {
+            ctx.fillStyle = unpackCssColor(fillArgb);
+            if (useEvenodd) ctx.fill(path, 'evenodd');
+            else ctx.fill(path);
+          }
+          if (doOutline && strokeAlign !== 'outside') {
+            strokeCanvasAligned(ctx, {
+              align: strokeAlign,
+              stroke: outlineStroke,
+              strokeWidth: outlineW,
+              trace: () => undefined,
+              path,
+              fillRule: useEvenodd ? 'evenodd' : undefined,
+            });
+          }
+        };
+        ctx.save();
+        ctx.translate(x, y);
+        if (rot) {
+          ctx.translate(w / 2, h / 2);
+          ctx.rotate((rot * Math.PI) / 180);
+          ctx.translate(-w / 2, -h / 2);
+        }
+        paintPath();
+        ctx.restore();
+        buf.flags[i] = (flags & ~SOA_FLAG_DIRTY) >>> 0;
+        return;
+      }
+    }
 
     const traceLocal = () => {
       if (kind === SOA_KIND_ELLIPSE) {
@@ -2534,6 +2733,8 @@ export function upsertSoaGeom(
   buf.positions[o + 3] = Math.max(0.01, geom.h);
   if (geom.color != null) buf.colors[index] = geom.color >>> 0;
   buf.flags[index] = (buf.flags[index] | SOA_FLAG_DIRTY) >>> 0;
+  invalidateShapeMesh(id);
+  invalidateNodePath2D(id);
   syncQuadSlot(buf, index);
   return index;
 }

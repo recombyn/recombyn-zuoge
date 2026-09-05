@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   findPencilBrush,
+  getPencilBrushPaintRev,
   outlinePathFromPoints,
   pencilSampleMinStep,
   pencilSimplifyEpsilon,
+  resetPencilBrushOptions,
   simplifyPencilCenterline,
+  updatePencilBrushOptions,
   type Pt,
 } from '../pencilBrushes';
 
@@ -38,6 +41,8 @@ describe('pencil stroke smoothness', () => {
     const d = outlinePathFromPoints(pts, 8, 'vector-ink', {
       pressureEnabled: false,
       linecap: 'round',
+      // Keep polyline corners sharp so containment asserts stay deterministic.
+      streamline: 0,
     });
     expect(d.startsWith('M')).toBe(true);
     const nums = d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi)?.map(Number) || [];
@@ -73,5 +78,29 @@ describe('pencil stroke smoothness', () => {
   it('unknown brushStyle falls back to vector-ink', () => {
     expect(findPencilBrush('unknown-id').id).toBe('vector-ink');
     expect(findPencilBrush(undefined).id).toBe('vector-ink');
+  });
+
+  it('start/end taper from brush options change the silhouette', () => {
+    const pts: Pt[] = [
+      { x: 0, y: 20 },
+      { x: 100, y: 20 },
+    ];
+    const flat = outlinePathFromPoints(pts, 12, 'vector-ink', {
+      pressureEnabled: false,
+      streamline: 0,
+    });
+    const rev0 = getPencilBrushPaintRev();
+    updatePencilBrushOptions('vector-ink', {
+      start: { taper: 40 },
+      end: { taper: 40 },
+    });
+    expect(getPencilBrushPaintRev()).toBeGreaterThan(rev0);
+    const tapered = outlinePathFromPoints(pts, 12, 'vector-ink', {
+      pressureEnabled: false,
+      streamline: 0,
+    });
+    resetPencilBrushOptions('vector-ink');
+    expect(tapered).not.toBe(flat);
+    expect(tapered.length).toBeGreaterThan(10);
   });
 });

@@ -110,6 +110,28 @@ function readRectSize(shapes: unknown[]): {
   return null;
 }
 
+/**
+ * Lottie-local base size for a ty:4 layer (layer.w/h or rect/ellipse `s`).
+ * Do NOT fall back to scene node.width — that already includes plate fit and
+ * would double-scale LOT-tab bake / autoKey.
+ */
+export function lottieLayerBaseSize(layer: Record<string, unknown> | null | undefined): {
+  w: number;
+  h: number;
+  r: number;
+} | null {
+  if (!layer) return null;
+  const lw = num(layer.w, 0);
+  const lh = num(layer.h, 0);
+  const shapes = Array.isArray(layer.shapes) ? (layer.shapes as unknown[]) : [];
+  const fromShapes = readRectSize(shapes);
+  if (lw > 0 && lh > 0) {
+    return { w: lw, h: lh, r: fromShapes?.r ?? 0 };
+  }
+  if (fromShapes) return { w: fromShapes.w, h: fromShapes.h, r: fromShapes.r };
+  return null;
+}
+
 /** Root ty:4 layers that materializeRootShapeLayers can explode. */
 export function countMaterializableRootShapeLayers(animationData: unknown): number {
   const root = parseLottieAnimationData(animationData);

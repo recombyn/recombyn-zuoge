@@ -5,14 +5,17 @@ import {
 } from '../strokeScreenFloor';
 
 describe('floorContentStrokeSceneWidth', () => {
-  it('keeps geometric width when already ≥ 1 CSS px on screen', () => {
+  it('keeps geometric width at any zoom (no hairline floor)', () => {
     expect(floorContentStrokeSceneWidth(2, 1)).toBe(2);
     expect(floorContentStrokeSceneWidth(2, 2)).toBe(2);
+    expect(floorContentStrokeSceneWidth(2, 0.25)).toBe(2);
+    expect(floorContentStrokeSceneWidth(1, 0.1)).toBe(1);
+    expect(floorContentStrokeSceneWidth(1, 0.77)).toBe(1);
   });
 
-  it('floors so sw * zoom ≥ 1 CSS px when zoomed out', () => {
-    expect(floorContentStrokeSceneWidth(2, 0.25)).toBe(4);
-    expect(floorContentStrokeSceneWidth(1, 0.1)).toBe(10);
+  it('still honors an explicit minCssPx when callers opt in', () => {
+    expect(floorContentStrokeSceneWidth(2, 0.25, 1)).toBe(4);
+    expect(floorContentStrokeSceneWidth(1, 0.1, 1)).toBe(10);
   });
 
   it('returns 0 for missing stroke', () => {

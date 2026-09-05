@@ -21,6 +21,8 @@ import {
   parseLottieAnimationData,
   serializeLottieAnimationData,
 } from '@/components/rcb/scene/document/nodeFactories';
+import { isFrameLocalCoordSpace } from '@/components/rcb/scene/paint/sceneToSvg';
+import { lottieLayerBaseSize } from '@/components/editor/nodes/AnimationNode/animationLottieMaterialize';
 
 export type AnimationLayerLink = {
   hostId: string;
@@ -46,6 +48,30 @@ function num(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Plate for scene↔Lottie mapping.
+ * Under frameLocal, child x/y are already plate-local — use origin 0,0
+ * (same as artboardSyncPlate). Using world frame.x/y here double-subtracts
+ * the artboard origin and parks rematerialized shapes off-plate after LOT tab exit.
+ */
+function layerLinkPlate(
+  document: any,
+  frame: { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | null | undefined,
+  host: { x?: unknown; y?: unknown; width?: unknown; height?: unknown } | null | undefined
+): { left: number; top: number; width: number; height: number } {
+  const width = Math.max(1, num(frame?.width ?? host?.width, 1));
+  const height = Math.max(1, num(frame?.height ?? host?.height, 1));
+  if (isFrameLocalCoordSpace(document)) {
+    return { left: 0, top: 0, width, height };
+  }
+  return {
+    left: num(frame?.x ?? host?.x),
+    top: num(frame?.y ?? host?.y),
+    width,
+    height,
+  };
+}
+
 /** Resolve host + layer + plate for a scene child on a 动画工作台. */
 export function resolveAnimationLayerLink(
   document: any,
@@ -66,12 +92,7 @@ export function resolveAnimationLayerLink(
   const frames = Array.isArray(document.frames) ? document.frames : [];
   const frame = frames.find((f: any) => String(f?.id) === frameId);
   const host = document.deltaSetLike?.[hostId];
-  const plate = {
-    left: num(frame?.x ?? host?.x),
-    top: num(frame?.y ?? host?.y),
-    width: Math.max(1, num(frame?.width ?? host?.width, 1)),
-    height: Math.max(1, num(frame?.height ?? host?.height, 1)),
-  };
+  const plate = layerLinkPlate(document, frame, host);
 
   const sessionAsset = String(node.attrs?.precompEditSession || '').trim();
   if (sessionAsset) {
@@ -89,6 +110,7 @@ export function resolveAnimationLayerLink(
     if (!layer) return null;
     const animW = Math.max(1, num(asset.w, plate.width));
     const animH = Math.max(1, num(asset.h, plate.height));
+    const base = lottieLayerBaseSize(layer);
     return {
       hostId,
       layerInd: num(layer.ind, layerInd),
@@ -97,8 +119,8 @@ export function resolveAnimationLayerLink(
       plate,
       animW,
       animH,
-      layerBaseW: Math.max(1, num(layer.w, num(node.width, 1))),
-      layerBaseH: Math.max(1, num(layer.h, num(node.height, 1))),
+      layerBaseW: Math.max(1, base?.w ?? num(node.width, 1)),
+      layerBaseH: Math.max(1, base?.h ?? num(node.height, 1)),
       sceneKind: 'precomp',
       assetId: sessionAsset,
     };
@@ -111,8 +133,9 @@ export function resolveAnimationLayerLink(
   const layer = layers.find((raw: unknown) => num(asObj(raw)?.ind) === layerInd) as
     | Record<string, unknown>
     | undefined;
-  const layerBaseW = Math.max(1, num(layer?.w, num(node.width, 1)));
-  const layerBaseH = Math.max(1, num(layer?.h, num(node.height, 1)));
+  const base = lottieLayerBaseSize(layer);
+  const layerBaseW = Math.max(1, base?.w ?? num(node.width, 1));
+  const layerBaseH = Math.max(1, base?.h ?? num(node.height, 1));
 
   return {
     hostId,

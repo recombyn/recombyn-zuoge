@@ -124,7 +124,7 @@ function TextInlineEditor({
   const contentBox = autoSize
     ? hasContent
       ? measurePlainTextSize(value, style)
-      : // Caret line only — never a document-20px floor (blows up at high zoom).
+      :       // Caret line — same hug as measurePlainTextSize (line box, not bare 1em).
         { width: widthWorld, height: Math.ceil(fontSize * lineH) }
     : measureWrappedTextSize(
         value || 'M',
@@ -135,9 +135,9 @@ function TextInlineEditor({
   // Prefer content height (tight, even top/bottom). Grow past nodeH only if wrapping needs it.
   // Text frames keep the authored plate height (image-like) — scroll inside.
   const heightWorld = textFrame
-    ? Math.max(Math.ceil(fontSize * lineH), nodeH)
+    ? Math.max(Math.ceil(fontSize), nodeH)
     : Math.max(
-        Math.ceil(fontSize * lineH),
+        Math.ceil(fontSize),
         Math.ceil(contentBox.height),
         // While edge-dragging width, keep at least the prior node height to avoid flicker.
         isEdgeDragging ? nodeH : 0
@@ -232,7 +232,7 @@ function TextInlineEditor({
       nextW = Math.max(1, Math.round(Number(node.width) || Math.ceil((s.fontSize || 14) * 0.15)));
     }
     const nextH = Math.max(
-      Math.ceil((s.fontSize || 14) * (s.lineHeight || 1.4)),
+      Math.ceil(s.fontSize || 14),
       Math.round(box.height)
     );
     const curW = Math.round(Number(node.width) || 0);

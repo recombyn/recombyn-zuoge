@@ -57,19 +57,23 @@ export function resolveMainSceneNestedLotAnimationJson(
   return parseLottieAnimationData(fallback) ? fallback : null;
 }
 
-/** Resolve lottie JSON for paint/overlay — plate attrs, then nested host precomp. */
+/** Resolve lottie JSON for paint/overlay — nested LOT prefers host precomp (主场景 preview). */
 export function resolveLottieInkJson(
   document: SceneDocument,
   nodeId: string,
   node: { key?: string; attrs?: Record<string, unknown> | null } | null | undefined,
   opts?: { hostFallback?: boolean }
 ): string | null {
-  const plate = String(node?.attrs?.animationData || '').trim();
-  if (parseLottieAnimationData(plate)) return plate;
   const useHost =
     opts?.hostFallback ?? isWorkbenchNestedLottieNode(node, document);
-  if (!useHost) return null;
-  return resolveMainSceneNestedLotAnimationJson(document, nodeId);
+  // 主场景 = locked preview of the same host asset the LOT tab edits.
+  if (useHost && isWorkbenchNestedLottieNode(node, document)) {
+    const fromHost = resolveMainSceneNestedLotAnimationJson(document, nodeId);
+    if (fromHost) return fromHost;
+  }
+  const plate = String(node?.attrs?.animationData || '').trim();
+  if (parseLottieAnimationData(plate)) return plate;
+  return useHost ? resolveMainSceneNestedLotAnimationJson(document, nodeId) : null;
 }
 
 /** True when a lottie node has JSON the SVG stack can mount. */

@@ -43,16 +43,17 @@ describe('createTransformPreviewCoalescer', () => {
     frames[0]();
     expect(chrome).toHaveLength(1);
     expect(chrome[0].union).toEqual({ left: 5, top: 5, width: 10, height: 10 });
-    expect(angles).toEqual([[{ nodeId: 'a', angle: 12 }]]);
+    // Angle folded into geom — no separate angle-only write.
+    expect(angles).toEqual([]);
     expect(geom).toEqual([
       {
-        patches: [{ nodeId: 'a', left: 5, top: 5, width: 10, height: 10 }],
+        patches: [{ nodeId: 'a', left: 5, top: 5, width: 10, height: 10, angle: 12 }],
         opts: undefined,
       },
     ]);
   });
 
-  it('applies angles before geom on the same frame', () => {
+  it('folds angles into geom on the same frame (atomic box+angle)', () => {
     const frames: Array<() => void> = [];
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       frames.push(() => cb(0));
@@ -61,9 +62,13 @@ describe('createTransformPreviewCoalescer', () => {
     vi.stubGlobal('cancelAnimationFrame', () => {});
 
     const order: string[] = [];
+    const geom: unknown[] = [];
     const c = createTransformPreviewCoalescer({
       applyChrome: () => order.push('chrome'),
-      applyGeom: () => order.push('geom'),
+      applyGeom: (patches) => {
+        order.push('geom');
+        geom.push(patches);
+      },
       applyAngles: () => order.push('angles'),
     });
     c.queue({
@@ -71,7 +76,56 @@ describe('createTransformPreviewCoalescer', () => {
       angles: [{ nodeId: 'ln', angle: 30 }],
     });
     frames[0]();
-    expect(order).toEqual(['chrome', 'angles', 'geom']);
+    expect(order).toEqual(['chrome', 'geom']);
+    expect(geom).toEqual([[{ nodeId: 'ln', left: 0, top: 0, width: 40, height: 1, angle: 30 }]]);
+  });
+
+  it('stroke endpoint batch can clear angles and carry angle on geom', () => {
+    const frames: Array<() => void> = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frames.push(() => cb(0));
+      return frames.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+
+    const geom: unknown[] = [];
+    const angles: unknown[] = [];
+    const c = createTransformPreviewCoalescer({
+      applyChrome: () => {},
+      applyGeom: (patches) => geom.push(patches),
+      applyAngles: (a) => angles.push(a),
+    });
+    c.queue({
+      geom: [{ nodeId: 'ln', left: 0, top: 0, width: 40, height: 1 }],
+      angles: [{ nodeId: 'ln', angle: 10 }],
+    });
+    c.queue({
+      geom: [
+        {
+          nodeId: 'ln',
+          left: 5,
+          top: 0,
+          width: 50,
+          height: 1,
+          angle: 25,
+        },
+      ],
+      angles: [],
+    });
+    frames[0]();
+    expect(angles).toEqual([]);
+    expect(geom).toEqual([
+      [
+        {
+          nodeId: 'ln',
+          left: 5,
+          top: 0,
+          width: 50,
+          height: 1,
+          angle: 25,
+        },
+      ],
+    ]);
   });
 
   it('cancel drops pending work without applying', () => {

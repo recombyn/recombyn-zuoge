@@ -56,8 +56,9 @@ import {
   pointInOrientedBox,
   type ResizeHandle,
 } from './resizeGeometry';
-import { rememberNodePath2D } from '@/components/rcb/scene/document/sceneShapes';
+import { rememberNodePath2D, strokeEndpointsFromBox } from '@/components/rcb/scene/document/sceneShapes';
 import { clearNodeTransformPreviews } from '@/components/rcb/core/transformPreview';
+import { nodePaintZIndex } from '@/components/rcb/scene/document/sceneDocument';
 import { expandSelectionWithGroups } from '@/components/rcb/scene/document/sceneGroups';
 import {
   isAudioGeneratorNode,
@@ -388,9 +389,23 @@ export function createTransformPreviewCoalescer(handlers: {
     pending = null;
     if (!batch) return;
     handlers.applyChrome(batch);
-    // Stroke endpoint drag: angle before box so both ends don't jump.
-    if (batch.angles?.length) handlers.applyAngles(batch.angles);
-    if (batch.geom?.length) handlers.applyGeom(batch.geom, batch.geomOpts);
+    // Fold per-node angles into geom so box+angle land in one TransformPreview write.
+    // Angle-then-box rotated the previous shaft about its center (both tips moved).
+    const angles = batch.angles || [];
+    const angleById = new Map(angles.map((a) => [a.nodeId, a.angle]));
+    if (batch.geom?.length) {
+      const merged = batch.geom.map((p) => {
+        if (p.angle !== undefined) return p;
+        const a = angleById.get(p.nodeId);
+        return a !== undefined ? { ...p, angle: a } : p;
+      });
+      handlers.applyGeom(merged, batch.geomOpts);
+      const geomIds = new Set(merged.map((p) => p.nodeId));
+      const leftover = angles.filter((a) => !geomIds.has(a.nodeId));
+      if (leftover.length) handlers.applyAngles(leftover);
+    } else if (angles.length) {
+      handlers.applyAngles(angles);
+    }
     if (batch.frameMove) handlers.applyFrameMove?.(batch.frameMove);
   };
 
@@ -637,6 +652,7 @@ function SelectionFeature({
   const chromePickOptsRef = useRef({
     zoom: 1,
     showHandles: false,
+    allowHandlePick: false,
     showRotate: false,
     lineMode: false,
     cornerHandlesOnly: false,
@@ -1179,9 +1195,6 @@ function SelectionFeature({
       const liveOriginsNow = liveOriginsRef.current;
       const liveAngleNow = liveAngleRef.current;
       const lockedSelection = isSelectionOriginsLocked(sceneDoc, liveOriginsNow);
-      const pickOpts = chromePickOptsRef.current;
-      const storeNodeIds = selectedNodeIdsRef.current;
-      const storeFrameIds = selectedFrameIdsRef.current;
       // Fresh pointerdown owns the gesture. A missed pointerup leaves dragRef +
       // transforming stuck — chrome/toolbars stay hidden (looks unselected) even
       // when storeNodeIds still hold the pick. Clear before any new branch.
@@ -1189,6 +1202,15 @@ function SelectionFeature({
         dragRef.current = null;
         setTransformingNotify(false);
       }
+      // After clear, do not reuse chromePickOptsRef.showHandles from the prior
+      // transforming frame — that skipped endpoint seats → whole-stroke move.
+      const basePickOpts = chromePickOptsRef.current;
+      const pickOpts = {
+        ...basePickOpts,
+        showHandles: Boolean(basePickOpts.allowHandlePick),
+      };
+      const storeNodeIds = selectedNodeIdsRef.current;
+      const storeFrameIds = selectedFrameIdsRef.current;
       const markSessionActive =
         ((store.getState() as { editor?: { imageToolPanel?: ImageToolPanelState | null } })
           .editor?.imageToolPanel?.kind === 'mark');
@@ -1371,14 +1393,38 @@ function SelectionFeature({
           pathEpLocal0 = a;
           pathEpLocal1 = b;
         }
+        // Line/arrow: seed shaft geometry (not stroke-inflated chrome) so the
+        // opposite endpoint stays fixed while this handle moves.
+        const strokeGeom =
+          singleId && (shapeType === 'line' || shapeType === 'arrow')
+            ? deflateSelectionBox(
+                liveOriginsNow[0].box,
+                singleNode
+              )
+            : null;
+        let strokeFixedWorld: { x: number; y: number } | undefined;
+        if (strokeGeom && (handle === 'e' || handle === 'w')) {
+          const ep = strokeEndpointsFromBox(strokeGeom, shared);
+          strokeFixedWorld =
+            handle === 'e'
+              ? { x: ep.x0, y: ep.y0 }
+              : { x: ep.x1, y: ep.y1 };
+        }
         dragRef.current = seed('resize', e, p, {
-          origins: liveOriginsNow.map((o) => ({ nodeId: o.nodeId, box: { ...o.box } })),
-          union: { ...union },
+          origins: liveOriginsNow.map((o) => ({
+            nodeId: o.nodeId,
+            box:
+              strokeGeom && o.nodeId === singleId
+                ? { ...strokeGeom }
+                : { ...o.box },
+          })),
+          union: strokeGeom ? { ...strokeGeom } : { ...union },
           handle,
           angle0: shared,
-          aspectRatio: union.width / Math.max(1, union.height),
+          aspectRatio: (strokeGeom || union).width / Math.max(1, (strokeGeom || union).height),
           pathEpLocal0,
           pathEpLocal1,
+          strokeFixedWorld,
         });
         setLiveUnion(union);
         setLiveAngle(shared);
@@ -1997,6 +2043,8 @@ function SelectionFeature({
         if (screenDistSq < DRAG_DISTANCE_SQUARED) return;
         const stroke = strokeEndpointBox(drag, sceneDoc, p.x, p.y, e.shiftKey);
         if (stroke) {
+          // Box + angle in one geom patch — do not queue a separate angles batch
+          // (that would rotate the previous shaft about its center → both ends move).
           queuePreview({
             union: stroke.next,
             origins: [{ nodeId: stroke.strokeId, box: stroke.next }],
@@ -2009,9 +2057,10 @@ function SelectionFeature({
                 top: stroke.next.top,
                 width: stroke.next.width,
                 height: stroke.next.height,
+                angle: stroke.angle,
               },
             ],
-            angles: [{ nodeId: stroke.strokeId, angle: stroke.angle }],
+            angles: [],
           });
           return;
         }
@@ -2886,6 +2935,8 @@ function SelectionFeature({
   chromePickOptsRef.current = {
     zoom,
     showHandles: !inspectDev && !readOnly && !selectedIsMediaGen && !transforming,
+    /** Same as showHandles but ignores transforming — pointerdown clears stuck transforms. */
+    allowHandlePick: !inspectDev && !readOnly && !selectedIsMediaGen,
     showRotate:
       !inspectDev &&
       !readOnly &&
@@ -3136,6 +3187,7 @@ function SelectionFeature({
           box={chromeUnion!}
           angle={chromeAngle}
           nodeId={singleId!}
+          zIndex={nodePaintZIndex(document, singleId!, singleNode)}
           name={nodeTitleChrome!.name}
           sizeWidth={chromeUnion!.width}
           sizeHeight={chromeUnion!.height}

@@ -209,7 +209,9 @@ describe('precomp tab data compare', () => {
       assetId,
       selectedLayerInd: 1,
     });
-    expect(state.lottiePrecompEdit?.sessionHidesLotInk).toBe(true);
+    // One convert: same ink path; no session materialize / hide.
+    expect(state.lottiePrecompEdit?.sessionHidesLotInk).toBe(false);
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
 
     state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     const after = parseLottieAnimationData(

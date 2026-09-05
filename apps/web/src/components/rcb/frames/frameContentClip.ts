@@ -21,8 +21,9 @@ let paintRaiseNodeIds: ReadonlySet<string> = EMPTY_PAINT_RAISE;
 let paintRaiseFrameIds: ReadonlySet<string> = EMPTY_PAINT_RAISE;
 
 /**
- * Optional registry for hosts that temporarily paint past clipContent.
- * Selection no longer fills this set — clip stays on for select / drag.
+ * Optional registry for hosts that temporarily paint past clipContent
+ * (selected shapes / SoftGlow / path edit). Callers must not include
+ * children of a co-selected artboard — those stay clipped.
  */
 export function setFrameClipRevealOverflowIds(ids: Iterable<string> | null | undefined): void {
   if (!ids) {
@@ -40,6 +41,43 @@ export function setFrameClipRevealOverflowIds(ids: Iterable<string> | null | und
 export function frameClipRevealsOverflow(nodeId: string | null | undefined): boolean {
   if (!nodeId) return false;
   return revealOverflowNodeIds.has(nodeId);
+}
+
+/**
+ * Node ids that may temporarily drop clipContent while selected / editing.
+ * When the owning artboard is also selected (marquee frame+content), keep clip
+ * so overflow does not leak past the plate.
+ */
+export function listSelectionRevealOverflowIds(opts: {
+  selectedNodeIds: readonly string[];
+  selectedFrameIds?: readonly string[];
+  document?: {
+    deltaSetLike?: Record<string, { attrs?: Record<string, unknown> } | undefined> | null;
+  } | null;
+  processingNodeIds?: readonly string[];
+  editingTextId?: string | null;
+  editingPenId?: string | null;
+}): string[] {
+  const selectedFrames = new Set(
+    (opts.selectedFrameIds || []).map((id) => String(id || '').trim()).filter(Boolean)
+  );
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string | null | undefined) => {
+    const id = String(raw || '').trim();
+    if (!id || seen.has(id)) return;
+    if (selectedFrames.size) {
+      const owner = String(opts.document?.deltaSetLike?.[id]?.attrs?.frameId || '').trim();
+      if (owner && selectedFrames.has(owner)) return;
+    }
+    seen.add(id);
+    out.push(id);
+  };
+  for (const id of opts.selectedNodeIds) push(id);
+  for (const id of opts.processingNodeIds || []) push(id);
+  push(opts.editingTextId);
+  push(opts.editingPenId);
+  return out;
 }
 
 /** Single-select temporary paint raise (max+1). Multi-select leaves this empty. */

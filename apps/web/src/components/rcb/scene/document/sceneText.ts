@@ -161,7 +161,7 @@ export function measureTextNodeBoxAfterStyleChange(
     width: Math.max(8, Math.round(wrapped.width)),
     height: Math.max(
       8,
-      Math.round(Math.max(wrapped.height, merged.fontSize * merged.lineHeight))
+      Math.round(Math.max(wrapped.height, merged.fontSize))
     ),
   };
 }
@@ -189,7 +189,7 @@ export function measureTextFrameExitBox(
   const wrapped = measureWrappedTextSize(plain, merged, wrapW);
   return {
     width: Math.max(8, Math.round(wrapW)),
-    height: Math.max(8, Math.round(Math.max(wrapped.height, fontSize * (merged.lineHeight || 1.4)))),
+    height: Math.max(8, Math.round(Math.max(wrapped.height, fontSize))),
   };
 }
 
@@ -297,14 +297,13 @@ export function measurePlainTextSize(text: string, style: Partial<TextStyle> = {
     maxW = Math.max(maxW, measureLineWidth(ctx, line.length ? line : ' ', fontSize, letterSpacing));
   }
 
-  // Tight box = ink metrics only. Floor scales with fontSize so high-zoom
-  // (scene font ~1px) does not keep a document-24px-wide empty chrome.
+  // Tight width = ink metrics. Height = font em-box / line box so control chrome
+  // covers CJK glyphs and matches the inline editor line-height.
+  const emBox = measureTextEmBoxHeight(merged, sample[0] || '永');
+  const height = Math.ceil(textHugContentHeight(fontSize, lineHeight, sample.length, emBox));
   return {
     width: Math.max(Math.ceil(fontSize), Math.ceil(maxW)),
-    height: Math.max(
-      Math.ceil(fontSize * lineHeight),
-      Math.ceil(sample.length * fontSize * lineHeight)
-    ),
+    height: Math.max(Math.ceil(fontSize), height),
   };
 }
 
@@ -322,12 +321,13 @@ export function measureWrappedTextSize(
     Math.round(maxWidth) || DEFAULT_TEXT_BOX_WIDTH
   );
   const lines = wrapPlainTextLines(text, merged, boxW);
+  const emBox = measureTextEmBoxHeight(merged, (lines[0] || '永').slice(0, 1) || '永');
+  const height = Math.ceil(
+    textHugContentHeight(fontSize, lineHeight, Math.max(1, lines.length), emBox)
+  );
   return {
     width: boxW,
-    height: Math.max(
-      Math.ceil(fontSize * lineHeight),
-      Math.ceil(Math.max(1, lines.length) * fontSize * lineHeight)
-    ),
+    height: Math.max(Math.ceil(fontSize), height),
     lines,
   };
 }
@@ -350,7 +350,7 @@ export function resolveTextBoxWidth(
   return Math.max(1, Math.round(fs * 0.15));
 }
 
-/** Content height of n line boxes (CSS-style). */
+/** Content height of n line boxes (CSS-style full leading). */
 export function textContentHeight(
   fontSize: number,
   lineHeight: number,
@@ -362,20 +362,68 @@ export function textContentHeight(
 }
 
 /**
- * SVG text `y` for `dominant-baseline: text-before-edge` so the line box
- * is vertically centered inside the selection height.
+ * AutoSize / selection height that hugs glyph ink + CSS line box.
+ * Single line uses max(em-box metrics, fontSize×lineHeight) so CJK (e.g. 普惠体)
+ * and the inline editor's unitless line-height both fit the control chrome.
+ * Multi-line = first-line hug + (n−1)×lineHeight·em (SVG tspan dy).
+ */
+export function textHugContentHeight(
+  fontSize: number,
+  lineHeight: number,
+  lineCount = 1,
+  emBoxHeight?: number
+) {
+  const fs = Math.max(1, fontSize);
+  const lh = Math.max(0.8, lineHeight);
+  const n = Math.max(1, Math.floor(Number(lineCount)) || 1);
+  const lineBox = fs * lh;
+  const first = Math.max(fs, lineBox, Math.max(0, Number(emBoxHeight) || 0));
+  if (n <= 1) return first;
+  return first + (n - 1) * lineBox;
+}
+
+/**
+ * Font em-box height from Canvas metrics when available (covers ink past 1em).
+ * Falls back to `fontSize` when measure APIs are missing (jsdom / stubs).
+ */
+export function measureTextEmBoxHeight(
+  style: Partial<TextStyle> = {},
+  sample = '永'
+): number {
+  const merged = { ...DEFAULT_TEXT_STYLE, ...style };
+  const fs = Math.max(1, Number(merged.fontSize) || 14);
+  const ctx = getMeasureContext(merged);
+  if (!ctx || typeof ctx.measureText !== 'function') return fs;
+  try {
+    const m = ctx.measureText(String(sample || '永'));
+    const ascent = Number(
+      (m as TextMetrics).fontBoundingBoxAscent ?? (m as TextMetrics).actualBoundingBoxAscent
+    );
+    const descent = Number(
+      (m as TextMetrics).fontBoundingBoxDescent ?? (m as TextMetrics).actualBoundingBoxDescent
+    );
+    if (Number.isFinite(ascent) && Number.isFinite(descent) && ascent + descent > fs * 0.5) {
+      return Math.max(fs, ascent + descent);
+    }
+  } catch {
+    /* ignore */
+  }
+  return fs;
+}
+
+/**
+ * SVG text `y` for `dominant-baseline: text-before-edge` so the hugged line
+ * stack is vertically centered inside the selection height.
  */
 export function textVerticalOriginY(
   boxH: number,
   fontSize: number,
   lineHeight: number,
-  lineCount = 1
+  lineCount = 1,
+  emBoxHeight?: number
 ) {
-  const fs = Math.max(1, fontSize);
-  const lh = Math.max(0.8, lineHeight);
-  const contentH = textContentHeight(fs, lh, lineCount);
-  // Center the CSS line-box stack; do not add half-leading (that pushed ink down
-  // and left a large empty gap above the glyphs inside the selection chrome).
+  const contentH = textHugContentHeight(fontSize, lineHeight, lineCount, emBoxHeight);
+  // Center the ink stack; half-leading above the first line looked like a gap.
   return Math.max(0, (Math.max(1, boxH) - contentH) / 2);
 }
 
