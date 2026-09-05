@@ -52,9 +52,11 @@ async function ensureInit(): Promise<void> {
   if (api) return;
   const mod = await import(
     /* @vite-ignore */
-    './pkg/rcb_wasm_geom.js'
+    '/rcb-wasm/rcb_wasm_geom.js'
   );
-  if (typeof mod.default === 'function') await mod.default();
+  if (typeof mod.default === 'function') {
+    await mod.default({ module_or_path: '/rcb-wasm/rcb_wasm_geom_bg.wasm' });
+  }
   api = {
     tessellate_batch_fill: mod.tessellate_batch_fill,
     trace_rgba_contours:

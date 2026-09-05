@@ -34,12 +34,41 @@ function writeStub() {
   console.warn('[build-wasm] stub written (wasm-pack unavailable) — JS fallback active');
 }
 
+/** Prefer committed pkg over a stub when Rust tooling is missing (Docker/CI). */
+function hasShippedWasm() {
+  const wasmPath = path.join(outDir, 'rcb_wasm_geom_bg.wasm');
+  const jsPath = path.join(outDir, 'rcb_wasm_geom.js');
+  if (!fs.existsSync(wasmPath) || !fs.existsSync(jsPath)) return false;
+  const kb = fs.statSync(wasmPath).size / 1024;
+  const js = fs.readFileSync(jsPath, 'utf8');
+  return kb > 50 && !js.includes('rcb-wasm-geom not built');
+}
+
+/** Copy glue + .wasm into public/ so Vite ships them as static assets. */
+function syncPublicPkg() {
+  if (!hasShippedWasm()) return;
+  const publicDir = path.join(webRoot, 'public/rcb-wasm');
+  fs.mkdirSync(publicDir, { recursive: true });
+  for (const name of ['rcb_wasm_geom.js', 'rcb_wasm_geom_bg.wasm', 'rcb_wasm_geom.d.ts']) {
+    const src = path.join(outDir, name);
+    if (fs.existsSync(src)) fs.copyFileSync(src, path.join(publicDir, name));
+  }
+  const kb = fs.statSync(path.join(publicDir, 'rcb_wasm_geom_bg.wasm')).size / 1024;
+  console.log(`[build-wasm] synced public/rcb-wasm (${kb.toFixed(1)} KiB)`);
+}
+
 if (!fs.existsSync(path.join(crateDir, 'Cargo.toml'))) {
   console.error('[build-wasm] missing crate', crateDir);
   process.exit(1);
 }
 
 if (!hasCmd('wasm-pack') || !hasCmd('rustc')) {
+  if (hasShippedWasm()) {
+    const kb = fs.statSync(path.join(outDir, 'rcb_wasm_geom_bg.wasm')).size / 1024;
+    console.log(`[build-wasm] keeping shipped pkg (${kb.toFixed(1)} KiB; no wasm-pack)`);
+    syncPublicPkg();
+    process.exit(0);
+  }
   writeStub();
   process.exit(0);
 }
@@ -75,6 +104,11 @@ const r = spawnSync(
 );
 
 if (r.status !== 0) {
+  if (hasShippedWasm()) {
+    console.warn('[build-wasm] wasm-pack failed — keeping shipped pkg');
+    syncPublicPkg();
+    process.exit(0);
+  }
   console.warn('[build-wasm] wasm-pack failed — writing stub');
   writeStub();
   process.exit(0);
@@ -91,6 +125,8 @@ const crateReadme = path.join(crateDir, 'README.md');
 if (fs.existsSync(crateReadme)) {
   fs.copyFileSync(crateReadme, path.join(outDir, 'README.md'));
 }
+
+syncPublicPkg();
 
 // Size budget (~349 KiB with opt-level=z); warn above 600 KiB raw.
 const wasmPath = path.join(outDir, 'rcb_wasm_geom_bg.wasm');

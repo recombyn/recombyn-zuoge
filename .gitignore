@@ -157,6 +157,9 @@ e2e/.*.txt
 # FFmpeg.wasm core (~32MB) — copied locally by apps/web/scripts/copy-ffmpeg-core.mjs
 apps/web/public/ffmpeg/
 
+# RCB geom wasm — copied from src/.../wasm/pkg by apps/web/scripts/build-wasm.mjs
+apps/web/public/rcb-wasm/
+
 # Local infra not published with OSS (keep on disk only)
 infra/langfuse/
 
