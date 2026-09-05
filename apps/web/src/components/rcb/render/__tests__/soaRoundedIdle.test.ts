@@ -371,7 +371,7 @@ describe('SoA basic geom vs rounded / poly', () => {
       // Rich fills idle via Canvas2D Path2D (CANVAS_IDLE), not BASIC_GEOM / ATLAS_STAMP.
       expect(buf.flags[i!] & SOA_FLAG_CANVAS_IDLE, id).toBeTruthy();
     }
-    // Static image/text: atlas-stamp idle (CANVAS_IDLE) without BASIC_GEOM.
+    // Static image: atlas-stamp idle. Text: outline mesh. Both CANVAS_IDLE without BASIC_GEOM.
     expect(isSoaBasicGeomSufficient(doc.deltaSetLike.img)).toBe(false);
     const imgIdx = buf.indexById.get('img')!;
     expect(buf.flags[imgIdx] & SOA_FLAG_BASIC_GEOM).toBeFalsy();

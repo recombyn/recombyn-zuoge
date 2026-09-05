@@ -305,11 +305,13 @@ ARTBOARD_INK_MAX_SCALE                     // 导出
 artboardInkScale(zoom, dpr)
 artboardInkBackingInsufficient(zoom, dpr)  // ★
 registerArtboardInkSurface / paintArtboardInkSurface
+→ artboardWebglInk（共享 WebGL + onlyFrameId）→ FO blit；失败时 Canvas2D
 // ★ 新建：artboardInkTiles — 可见分块全分辨率
 
 // Host 拆分（义务）
 pickFullAndCanvasIds(opts) → { fullIds, canvasIds }
-// 调整后：fullIds 不含「因放大糊」；仅义务 + stack-over-plate 等
+// fullIds: 义务 + stack-over-plate + 选中生成器 + **板内 raise/reveal**
+// （世界基础形 raise 仍 SoA；板内必须 host，因世界 GL 在板下）
 nodeNeedsDomShapeHost(node, force?)
 ```
 

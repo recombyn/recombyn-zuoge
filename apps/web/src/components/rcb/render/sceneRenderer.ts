@@ -2796,7 +2796,7 @@ export function bakeAudioInkForAtlas(
 }
 
 /**
- * Shape / text atlas bake — retired (vector dual-backend). Always null.
+ * @deprecated Shape atlas bake retired. Always null.
  */
 export function bakeShapeInkForAtlas(
   _node: SceneNodeInput,
@@ -2807,65 +2807,6 @@ export function bakeShapeInkForAtlas(
   return null;
 }
 
-/**
- * Bake idle text glyphs for WebGL atlas stamp (same ink as Canvas2D idle).
- * Zoom-scaled bake so glyphs stay sharp when zoomed in.
- */
-export function bakeTextInkForAtlas(
-  node: SceneNodeInput,
-  width: number,
-  height: number,
-  zoom = 1
-): HTMLCanvasElement | OffscreenCanvas | null {
-  if (String(node.key || '') !== 'text') return null;
-  const w = Math.max(1, Math.round(width));
-  const h = Math.max(1, Math.round(height));
-  const z = Math.max(0.05, Number(zoom) || 1);
-  const scale = atlasBakePixelScale(w, h, z);
-  const bw = Math.max(1, Math.round(w * scale));
-  const bh = Math.max(1, Math.round(h * scale));
-  let canvas: HTMLCanvasElement | OffscreenCanvas;
-  if (typeof OffscreenCanvas !== 'undefined') {
-    canvas = new OffscreenCanvas(bw, bh);
-  } else if (typeof document !== 'undefined') {
-    const c = document.createElement('canvas');
-    c.width = bw;
-    c.height = bh;
-    canvas = c;
-  } else {
-    return null;
-  }
-  const ctx = canvas.getContext('2d') as
-    | CanvasRenderingContext2D
-    | OffscreenCanvasRenderingContext2D
-    | null;
-  if (!ctx) return null;
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  const opacity = Math.min(1, Math.max(0.05, Number(node.attrs?.opacity) || 1));
-  const fontPx = Math.max(1, Number(node.attrs?.fontSize) || 14);
-  const screenFont = fontPx * z;
-  if (screenFont < 7) {
-    const c2 = ctx as CanvasRenderingContext2D;
-    c2.save();
-    c2.globalAlpha = opacity;
-    paintTextProxyLines(c2, {
-      node,
-      width: w,
-      height: h,
-      fill: resolveNodeProxyFill(node),
-      opacity,
-    });
-    c2.restore();
-  } else {
-    paintCanvasTextInk(ctx as CanvasRenderingContext2D, {
-      node,
-      width: w,
-      height: h,
-      opacity,
-    });
-  }
-  return canvas;
-}
 export function clipCanvasIdleToOwningFrame(
   ctx: CanvasRenderingContext2D,
   document: SceneDocument | null | undefined,

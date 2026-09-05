@@ -30,7 +30,7 @@ SceneDocument（真相：节点 JSON + stackOrder）
 4. Selection chrome SVG  
 
 所以：**世界 SoA 墨水盖不住楼上的画板板面**。  
-但 **绑进画板内的节点不是靠升 SVG host 去「压板」**——见下一节。
+板内 **idle** 不靠升 SVG 压板（跟板 FO 同层）；**选中/reveal** 必须升 SVG host — 见 §0.1 / §4.4。
 
 ---
 
@@ -43,7 +43,7 @@ SceneDocument（真相：节点 JSON + stackOrder）
 └─ g[data-rcb-frame-plate]     ← data-z = 这块板的 stack z
      ├─ rect 填充（板白底）      ← SVG
      ├─ foreignObject
-     │    └─ <canvas>           ← 板内 idle 矩形/图/字画在这里（SoA → Canvas2D）
+     │    └─ <canvas>           ← 板内 idle 矩形/图/字画在这里（SoA → 共享 WebGL→FO）
      └─ rect 描边（板边框）      ← SVG
 ```
 
@@ -51,18 +51,19 @@ SceneDocument（真相：节点 JSON + stackOrder）
 
 | 问题 | 答案 |
 |------|------|
-| 板内矩形是 SVG 画的吗？ | **不是。** 是板 FO 里的 **Canvas2D**（`paintArtboardInkSurface` → `paintSoaIdleSlot`） |
+| 板内矩形是 SVG 画的吗？ | **不是。** 是板 FO 里的 canvas（`paintArtboardInkSurface` → 共享 WebGL SoA/mesh，失败时才 Canvas2D） |
 | SVG 在板里干什么？ | 只提供 **板壳**（底、边、FO 容器、`data-z`、可选 clip） |
 | 为啥看起来在板「上面」？ | 同一 `g` 里 FO/canvas 叠在 fill rect **之后**，跟板一个层级一起排 |
-| 还要升 DomHost 吗？ | 普通板内 idle **不用**。只有 lottie/空生成器/编辑态等义务才挂 host |
-| 世界 WebGL 画板内节点吗？ | **不画**（`skipFrameBound`），避免画在板下面又画一遍 |
+| 还要升 DomHost 吗？ | **idle 普通板内形不用。** 选中 / overflow reveal 时必须升 SVG host（世界 WebGL 在板下，靠 SoA raise 盖不住板） |
+| 世界 WebGL 画板内节点吗？ | **idle 不画**（`skipFrameBound`）。reveal 瞬间若 SoA 未清 idle，可能短暂世界层 fallback；正式路径是 host |
 
 **对比：**
 
 ```
 世界未绑板矩形 → 世界墨水 canvas（WebGL）→ 物理上在所有 SVG 板之下
-板内矩形       → 板自己的 FO canvas     → 跟着板的 data-z 走，看起来就在板里
-世界要盖住某板 → 才需要升 SVG host（和板比 data-z）
+板内矩形（idle） → 板自己的 FO canvas     → 跟着板的 data-z 走，看起来就在板里
+板内矩形（选中） → 升 SVG host（max+1）   → 压住板面；FO 停画防鬼影
+世界要盖住某板   → 才需要升 SVG host（和板比 data-z）
 ```
 
 ---
@@ -102,7 +103,7 @@ SceneDocument（真相：节点 JSON + stackOrder）
 | `VISIBLE` | 在场景里 |
 | `CANVAS_IDLE` | 允许走 SoA/WebGL/板内 canvas（挂了 DomHost 会清掉，防双画） |
 | `BASIC_GEOM` | 开线段（线/箭头/笔路径）→ WebGL **实例化**画 |
-| `ATLAS_STAMP` | 闭合形 / 富填充 / 文字图 → 先烤成小图打进 **atlas** 再贴 |
+| `ATLAS_STAMP` | 媒体等烤图贴 atlas（形状/文字不走这条） |
 | `DIRTY` | 要重烤 / 重上传 |
 | `FREE` | 槽位空了可回收 |
 
@@ -128,6 +129,7 @@ SoA.ids[slot] = id     = 同一个节点在缓冲里的下标
 if 义务必须 Dom（lottie / group / SoftGlow / 空生成器 / …）
    或 世界节点 stack 高于某块画板（盖不住板除非升 SVG）
    或 选中的生成器（raise 要靠 data-z）
+   或 板内绑定 +（选中 paintRaise | overflow reveal）（同上：世界墨水在板下）
    或 放大后 atlas 会糊（*NeedsSharpHost → 升 SVG）   ← 现状有；改造方案要改成 restamp
 → fullIds → SVG DomHost
 
@@ -175,16 +177,20 @@ attrs.frameId = 某板
   → 世界 WebGL 跳过（skipFrameBound）
   → HtmlArtboardFrame 的 foreignObject canvas
   → paintArtboardInkSurface
-  → paintSoaIdleSlot（Canvas2D，板坐标裁剪）
+  → artboardWebglInk（共享 WebGL2 + onlyFrameId 收集 + mesh）
+  → blit 到 FO canvas（板坐标；WebGL 不可用时才 paintSoaIdleSlot）
 ```
 
-板的白底和描边是 **SVG**；板内图形是 **板里那张 canvas**。  
-这张 canvas 有 `ARTBOARD_INK_MAX_SCALE=8`：再放大会糊（现状）。
+板的白底和描边是 **SVG**；板内图形是 **板里那张 canvas**（WebGL ink on FO）。  
+Backing 仍随 `zoom×dpr` 变；`ARTBOARD_INK_MAX_EDGE` 防 OOM，不再靠 8× 永久发虚。
 
 ### 4.4 选中普通矩形
 
-- **仍走 SoA/WebGL**（不升 SVG）  
-- 选中 raise：在 WebGL 排序里临时 `maxZ+1`，**不改** `stackOrder`  
+- **世界 unbound：** 仍走 SoA/WebGL（不升 SVG）；选中 raise 只在墨水排序里临时 `maxZ+1`
+- **板内绑定（`frameId`）：** 必须升 **SVG host**，`data-z = max+1`，并 `revealOverflow` 清 clip  
+  - FO / `onlyFrameId` **跳过** `frameClipRevealsOverflow`（否则板内留下 clip 鬼影，外面世界层再画一半）  
+  - `applySoaHostInkFlags` 清掉 `CANVAS_IDLE`，防 FO+世界+host 三路双画  
+  - 世界 WebGL 在板 SVG **下面**，只靠 SoA raise **盖不住**白底板
 - 手柄在 chrome 层，不是内容墨水
 
 ### 4.5 要「盖在画板上面」的世界矩形
@@ -201,7 +207,7 @@ attrs.frameId = 某板
 | 矩形/椭圆/多边形/星/三角 | atlas 烤图 + stroke pad |
 | 线/箭头 | BASIC_GEOM → WebGL 开线段或 atlas 笔触 |
 | 铅笔 | 富路径 atlas（不是 BASIC 中心线） |
-| 文字 | SoA TEXT → 烤字进 atlas → 贴图（编辑时另说） |
+| 文字 | SoA TEXT → **字形 outline fill mesh**（无 text atlas；编辑时 FO） |
 | 图片 | idle：atlas；CORS/过程/特殊 → DomHost |
 | 视频 | idle 可 atlas；真正播常用 FO `<video>` |
 | 空生成器 | **强制 SVG host**（图标清晰 + 可压板） |
@@ -341,6 +347,6 @@ idle 资格    → render/sceneRenderer.ts → canIdlePaintOnCanvas
 | 放大糊 | 升 SVG / 或糊着 | atlas restamp + 画板 tile |
 | DomHost | 锐利 + 义务混用 | **仅义务** |
 | 矩形简单 | WebGL 实例（已较锐） | 保持 |
-| 板内 | 单张 canvas 有 8× 帽 | 可见 tile 全分辨率 |
+| 板内 | 共享 WebGL→FO；`MAX_EDGE` 帽 | 可见 tile 全分辨率（显存优化） |
 
 写新功能：先按 **本章现状** 接线；锐利相关新逻辑按 **改造方案** 走 restamp，不要再加第四种 `*NeedsSharpHost`。

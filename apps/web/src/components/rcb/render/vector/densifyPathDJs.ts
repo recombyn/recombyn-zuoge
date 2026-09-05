@@ -124,6 +124,7 @@ export function densifyPathDJs(d: string, flatness = DENSIFY_DEFAULT_FLATNESS): 
     const C = cmd.toUpperCase();
     let i = 0;
     if (C === 'M') {
+      let subpathStart = true;
       while (i + 1 < args.length) {
         let x = args[i++]!;
         let y = args[i++]!;
@@ -135,6 +136,11 @@ export function densifyPathDJs(d: string, flatness = DENSIFY_DEFAULT_FLATNESS): 
         cy = y;
         startX = x;
         startY = y;
+        // New subpath — keep a NaN break so stroke mesh does not bridge shaft→V (arrows).
+        if (subpathStart && pts.length > 0) {
+          pts.push({ x: Number.NaN, y: Number.NaN });
+        }
+        subpathStart = false;
         push(x, y);
         while (i + 1 < args.length) {
           let x2 = args[i++]!;
@@ -257,4 +263,20 @@ export function densifyPathDJs(d: string, flatness = DENSIFY_DEFAULT_FLATNESS): 
     }
   }
   return pts;
+}
+
+/** Split densified polylines on NaN,NaN subpath breaks (multi-M paths / arrows). */
+export function splitPolylineContours(points: DensifyVec2[]): DensifyVec2[][] {
+  const runs: DensifyVec2[][] = [];
+  let cur: DensifyVec2[] = [];
+  for (const p of points) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      if (cur.length >= 2) runs.push(cur);
+      cur = [];
+      continue;
+    }
+    cur.push(p);
+  }
+  if (cur.length >= 2) runs.push(cur);
+  return runs;
 }

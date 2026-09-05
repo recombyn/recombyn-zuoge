@@ -231,8 +231,8 @@ describe('vector ink', () => {
     expect(
       shapeInkForbidsAtlas({ key: 'shape', attrs: { shapeType: 'arrow' } })
     ).toBe(true);
-    // Text idle uses atlas bake on WebGL — not forbidden.
-    expect(shapeInkForbidsAtlas({ key: 'text', attrs: {} })).toBe(false);
+    // Text idle is glyph outline mesh — forbids atlas.
+    expect(shapeInkForbidsAtlas({ key: 'text', attrs: {} })).toBe(true);
     expect(shapeInkForbidsAtlas({ key: 'image', attrs: {} })).toBe(false);
     expect(shapeInkForbidsAtlas({ key: 'video', attrs: {} })).toBe(false);
   });
@@ -255,6 +255,49 @@ describe('vector ink', () => {
     expect(mesh).not.toBeNull();
     expect(mesh!.fill).toBeNull();
     expect(mesh!.stroke).not.toBeNull();
+  });
+
+  it('arrow densify keeps NaN break between shaft and V (no zigzag bridge)', () => {
+    const node = {
+      id: 'ar',
+      key: 'shape',
+      width: 100,
+      height: 24,
+      attrs: {
+        shapeType: 'arrow',
+        stroke: '#111',
+        'border-width': 4,
+        'stroke-enabled': true,
+        'fill-enabled': false,
+      },
+    } as SceneNodeInput;
+    const c = contourFromNode(node, { width: 100, height: 24 });
+    expect(c).not.toBeNull();
+    expect(c!.closed).toBe(false);
+    const breaks = c!.points.filter((p) => !Number.isFinite(p.x));
+    expect(breaks.length).toBeGreaterThanOrEqual(1);
+
+    const mesh = getOrBuildShapeMesh('ar', node, { width: 100, height: 24 });
+    expect(mesh?.stroke).not.toBeNull();
+    // Bridged shaft→wing would place verts far off the centerline mid=12.
+    const pos = mesh!.stroke!.positions;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let i = 1; i < pos.length; i += 2) {
+      const y = pos[i]!;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    // Head wing ±0.55*14 ≈ ±7.7 around mid 12 → roughly [0, 24] plus stroke half-width 2.
+    expect(minY).toBeGreaterThan(-8);
+    expect(maxY).toBeLessThan(32);
+    // Bridged diagonal would also inflate Y span beyond a sane arrow head.
+    expect(maxY - minY).toBeLessThan(40);
+  });
+
+  it('densifyPathDJs inserts NaN between subpaths', () => {
+    const pts = densifyPathDJs('M 0 0 L 10 0 M 20 5 L 30 5');
+    expect(pts.some((p) => !Number.isFinite(p.x))).toBe(true);
   });
 
   it('pencil mesh is filled freehand silhouette (not centerline ribbon)', () => {

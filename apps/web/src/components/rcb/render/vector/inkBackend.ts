@@ -15,15 +15,15 @@ export function toInkBackend(backend: LegacySceneInkBackend | string): InkBacken
 }
 
 /**
- * Shape / path ink must never use atlas or bakeShapeInkForAtlas.
- * Text may atlas-stamp for WebGL idle (glyphs); media uses GPU textures.
+ * Shape / text / path ink must never use atlas bake.
+ * Media (image/video/audio) still uses GPU atlas textures.
  */
 export function isShapeInkKey(key: string, shapeType?: string): boolean {
   const k = String(key || '').toLowerCase();
   const t = String(shapeType || '').toLowerCase();
   if (k === 'image' || k === 'video' || k === 'audio' || k === 'lottie') return false;
-  // Text idle is atlas-stamped (bakeTextInkForAtlas) — not mesh vector.
-  if (k === 'text' || t === 'text') return false;
+  // Text idle is glyph outline mesh — not atlas.
+  if (k === 'text' || t === 'text') return true;
   if (k === 'shape' || k === 'path') return true;
   return (
     t === 'rect' ||

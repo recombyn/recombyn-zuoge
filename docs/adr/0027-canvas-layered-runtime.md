@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-15
-- **Updated:** 2026-09-04 — Artboard = small canvas (per-plate ArtboardLayer ink + FO by `stackOrder`); world WebGL unbound-only (`skipFrameBound`). Earlier: unified `stackOrder` paint + ideal hit.
+- **Updated:** 2026-09-06 — Plate-bound selection/reveal promotes to SVG host at max+1 (`pickFullAndCanvasIds`); FO/`onlyFrameId` skips `frameClipRevealsOverflow` (no clipped ghost + under-plate dual paint). 2026-09-05 — ArtboardLayer ink = shared WebGL2 SoA/mesh blit onto per-plate FO canvas (`onlyFrameId`); FO stackOrder unchanged. 2026-09-04 — Artboard = small canvas (per-plate ArtboardLayer ink + FO by `stackOrder`); world WebGL unbound-only (`skipFrameBound`). Earlier: unified `stackOrder` paint + ideal hit.
 - **Supersedes (partial):** [ADR 0002](./0002-canvas-rcb-runtime.md) runtime paint/hit coupling — RCB ownership stays; SVG is no longer the editor runtime fact layer.
 
 ## Context
@@ -28,10 +28,10 @@ Treat the editor runtime as four facts (**this is the product architecture — d
    ```
 
    - **World WebGL2** instanced SoA ink on `[data-rcb-idle-ink-canvas]` paints **unbound** idle nodes only (`collectSoaWebglInstances` + `skipFrameBound`). World tile bake (`soaBakeLayer`) likewise skips plate-bound slots.
-   - **ArtboardLayer** (per `document.frames[]`): plate fill + bound idle SoA ink on a small canvas inside the stack SVG layer (`data-rcb-frame-layer` + `data-z` via `artboardInkSurface` / `HtmlArtboardFrame`). FO/editor hosts for that plate are siblings on the same mount, ordered by `stackOrder`, so a selected video can sit between two artboards.
-   - **DOM hosts** only for FO media, SoftGlow, editors, lottie/group, heavy paths, and unbound nodes stacked above any plate. Bound idle vectors/media posters use ArtboardLayer ink — never SVG hosts for ownership alone.
+   - **ArtboardLayer** (per `document.frames[]`): plate fill on SVG; **bound idle SoA ink via shared WebGL2** (`artboardWebglInk` / `collectSoaWebglInstances` + `onlyFrameId`) blit onto the per-plate FO canvas (`artboardInkSurface` / `HtmlArtboardFrame`). Same mesh path as world ink; FO/editor hosts for that plate stay siblings on the stack mount ordered by `stackOrder`, so a selected video can sit between two artboards.
+   - **DOM hosts** for FO media, SoftGlow, editors, lottie/group, heavy paths, unbound nodes stacked above any plate, **and plate-bound nodes while selected / overflow-revealed** (max+1 `data-z` — world WebGL cannot cover plate fill). Bound **idle** vectors/media posters use ArtboardLayer ink — never SVG hosts for ownership alone. FO/`onlyFrameId` collect **skips** `frameClipRevealsOverflow` so reveal does not leave a clipped ghost on the plate.
    - **Grid** stays on a separate Canvas2D surface. Selection, guides, and drawing previews share the camera surface; screen UI stays in the HTML overlay.
-   - SoftGlow/editors use `RenderDemotionScheduler` (`ACTIVE_SVG` → `CANDIDATE` → `DEPLOYED_SOA`); selection does **not** promote basic shapes onto SVG.
+   - SoftGlow/editors use `RenderDemotionScheduler` (`ACTIVE_SVG` → `CANDIDATE` → `DEPLOYED_SOA`); selection does **not** promote **world** basic shapes onto SVG (within-ink raise only). **Plate-bound** basics **do** promote on raise/reveal.
    - **Forbidden:** per-type CSS z bands, host-occlusion / plate-cutout paint hacks, global “bound idle → SVG host”, or “transparent plate + draw bound ink on world WebGL” (breaks FO between plates).
 
 4. **Independent hit** — root pointer capture → chrome hit → **one** `SceneSpatialRuntime` QT (`searchPoint`, nodes + `frame:id` plates) → permanent `stackOrder` top-first → first precise geometry or plate AABB (`hitTestUnifiedStackAtPoint`). Frame picks return `__frame__:id`. SoA `buf.quadtree` is paint/cull only. `sceneToSvg` stays an **export** path, not the live paint core.
@@ -46,7 +46,7 @@ Do not sell micro-caches or effects as parallel “optimization schemes.” Prod
 |---|--------|------|
 | 1 | SoA `SceneRenderBuffer` | Typed-array paint/pick cache |
 | 2 | Demotion + host viewport cull | DOM budget; who stays SVG vs SoA |
-| 3 | World WebGL2 + ArtboardLayer ink | Unbound idle on world GL; plate-bound idle on per-artboard small canvas |
+| 3 | World WebGL2 + ArtboardLayer ink | Unbound idle on world GL; plate-bound idle = shared GL → FO canvas |
 | 4 | Viewport tile bake + Worker | Second wall when world idle+basic ≥ ~800; live fill until tiles ready |
 | 5 | Select raise keep-bake + overpaint | Select must not disable bake |
 | 6 | Dirty AABB + SoA QT + incremental sync | Avoid O(N) wipe/rebuild |
@@ -54,7 +54,7 @@ Do not sell micro-caches or effects as parallel “optimization schemes.” Prod
 
 **Embedded (not separate products):** path densify, AI mutation lock, TransformPreview live filter.
 
-**Ink surfaces:** Canvas2D paints the **pixel grid**, Vitest helpers, and **ArtboardLayer** per-plate ink (required so FO hosts interleave by `stackOrder`). World unbound idle ink is WebGL. Soft canvas2d world-ink fallback is survival-only when WebGL2 cannot compile — not the product main path.
+**Ink surfaces:** Canvas2D paints the **pixel grid** and Vitest / WebGL-failure survival paths. **ArtboardLayer** product ink is **WebGL on the FO canvas** (shared context + blit; required so FO hosts interleave by `stackOrder`). World unbound idle ink is WebGL. Soft canvas2d world-ink / artboard-ink fallback is survival-only when WebGL2 cannot compile — not the product main path.
 
 **Do not merge:** `SceneSpatialRuntime` (all-node hit) vs `buf.quadtree` (idle paint/pick) — intentional dual track.
 
@@ -99,7 +99,7 @@ Do not sell micro-caches or effects as parallel “optimization schemes.” Prod
 - Contributors must not add new world-layer control SVG that mirrors host `viewBox`.
 - Do not reintroduce dual attr keys (`fill` vs `fill-color`, frame `kind: 'lottie'`, `lottieFrameHost`, axios-shaped error probes).
 - Do not add a second async bake scheduler alongside Worker (no idle/main-thread bake dual path).
-- Shared GL + multi-FBO for ArtboardLayer is a future density option; current per-plate canvas keeps FO interleave correct.
+- Shared GL for ArtboardLayer is **in use** (scratch canvas + blit to FO); per-plate FBO tiling remains a future density option. Do not merge plate ink into the world WebGL framebuffer (breaks FO between plates).
 
 ## Alternatives considered
 
@@ -116,6 +116,7 @@ Do not sell micro-caches or effects as parallel “optimization schemes.” Prod
 - `apps/web/src/components/rcb/canvas/RcbCanvas.tsx`
 - `apps/web/src/components/rcb/frames/HtmlArtboardFrame.tsx`
 - `apps/web/src/components/rcb/frames/artboardInkSurface.ts`
+- `apps/web/src/components/rcb/frames/artboardWebglInk.ts`
 - `apps/web/src/components/rcb/render/sceneRenderer.ts`
 - `apps/web/src/components/rcb/render/sceneRenderBuffer.ts`
 - `apps/web/src/components/rcb/render/renderDemotionScheduler.ts`

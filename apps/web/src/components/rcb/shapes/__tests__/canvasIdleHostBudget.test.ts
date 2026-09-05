@@ -250,7 +250,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(canvasIds.length).toBe(39);
   });
 
-  it('paintRaiseIds only force-host generators (basic shapes stay SoA under raise)', () => {
+  it('paintRaiseIds only force-host generators (world basics stay SoA under raise)', () => {
     const doc = makeDoc({ n0: rect('n0'), n1: rect('n1') });
     const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
@@ -260,6 +260,40 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     });
     expect(fullIds).toEqual([]);
     expect(canvasIds.sort()).toEqual(['n0', 'n1']);
+  });
+
+  it('plate-bound paint raise / reveal leaves FO SoA for max+1 SVG host', () => {
+    const bound = {
+      ...rect('bound'),
+      attrs: { ...rect('bound').attrs, frameId: 'board' },
+    };
+    const idle = {
+      ...rect('idle'),
+      attrs: { ...rect('idle').attrs, frameId: 'board' },
+    };
+    const doc = makeDoc({ bound, idle });
+    doc.frames = [
+      { id: 'board', name: 'A', backgroundColor: '#fff', x: 0, y: 0, width: 200, height: 200 },
+    ];
+
+    const raised = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['bound', 'idle'],
+      paintRaiseIds: ['bound'],
+      zoom: 1,
+    });
+    expect(raised.fullIds).toEqual(['bound']);
+    expect(raised.canvasIds).toEqual(['idle']);
+
+    // Multi-select: paint-raise empty, but overflow reveal still must host-raise.
+    const revealed = pickFullAndCanvasIds({
+      document: doc,
+      visibleIds: ['bound', 'idle'],
+      revealOverflowIds: ['bound'],
+      zoom: 1,
+    });
+    expect(revealed.fullIds).toEqual(['bound']);
+    expect(revealed.canvasIds).toEqual(['idle']);
   });
 
   it('world node above an artboard leaves SoA for shared data-z stacking', () => {

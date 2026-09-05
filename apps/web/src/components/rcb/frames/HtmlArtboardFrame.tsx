@@ -51,8 +51,8 @@ import {
 /**
  * Clear plate stroke only when SelectionChrome owns the outline.
  * - Sole full-chrome plate: SelectionChrome paints **this** plate's box.
- * - Bound child selected: child SelectionChrome must not share a #3388ff edge
- *   with the soft-focus plate stroke (same blue reads as “selection under frame”).
+ * - Bound child selected: keep the idle gray hairline (plate silhouette); blue
+ *   soft-focus is suppressed separately via {@link framePlateShowsHighlightEdge}.
  * Multi-frame full chrome uses a union outline — members must keep their edges.
  */
 export function framePlateClearsIdleStroke(opts: {
@@ -62,8 +62,7 @@ export function framePlateClearsIdleStroke(opts: {
   /** True when a selected scene node is bound to this plate. */
   boundChildSelected?: boolean;
 }): boolean {
-  const { chromeMode, selectedFrameIds, frameId, boundChildSelected = false } = opts;
-  if (boundChildSelected) return true;
+  const { chromeMode, selectedFrameIds, frameId } = opts;
   return (
     chromeMode === 'full' &&
     selectedFrameIds.length === 1 &&

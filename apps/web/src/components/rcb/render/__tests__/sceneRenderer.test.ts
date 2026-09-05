@@ -29,7 +29,6 @@ import {
   canvasCompositeFromBlendMode,
   paintCanvasMediaInk,
   bakeShapeInkForAtlas,
-  bakeTextInkForAtlas,
   isSoaAtlasBakeEligible,
   bakeMediaInkForAtlas,
   paintGeneratorEmptyInk,
@@ -708,23 +707,14 @@ describe('Canvas idle path / text / shape paint', () => {
     expect(bakeShapeInkForAtlas(sharp, 80, 80, 1)).toBeNull();
   });
 
-  it('bakeTextInkForAtlas paints glyphs onto an offscreen canvas', () => {
-    const ops: string[] = [];
-    const ctx = mockCtx(ops);
-    (ctx as { fillText?: (...a: unknown[]) => void }).fillText = () => ops.push('fillText');
-    withStubbedCanvas2d(ctx, () => {
-      const node = {
-        id: 't1',
-        key: 'text',
-        width: 120,
-        height: 40,
-        attrs: { text: 'Hello', fontSize: 16 },
-      } as SceneNodeInput;
-      const baked = bakeTextInkForAtlas(node, 120, 40, 1);
-      expect(baked).not.toBeNull();
-      expect(Number((baked as HTMLCanvasElement).width || 0)).toBeGreaterThan(0);
-      expect(ops).toContain('fillText');
-    });
+  it('idle text uses outline mesh path (bakeTextInkForAtlas removed)', () => {
+    expect(typeof bakeShapeInkForAtlas).toBe('function');
+    expect(bakeShapeInkForAtlas(
+      { id: 't1', key: 'text', width: 120, height: 40, attrs: { text: 'Hello' } } as SceneNodeInput,
+      120,
+      40,
+      1
+    )).toBeNull();
   });
 
   it('paintSoaIdleSlot draws text glyphs', () => {

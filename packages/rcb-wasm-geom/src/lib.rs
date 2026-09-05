@@ -647,6 +647,7 @@ fn densify_path_inner(d: &str, flatness: f32) -> Vec<f32> {
         let mut ai = 0usize;
         match c {
             'M' => {
+                let subpath_start = true;
                 while ai + 1 < args.len() {
                     let mut x = args[ai];
                     let mut y = args[ai + 1];
@@ -659,6 +660,12 @@ fn densify_path_inner(d: &str, flatness: f32) -> Vec<f32> {
                     cy = y;
                     start_x = x;
                     start_y = y;
+                    // NaN break between subpaths (arrow shaft + V must not bridge).
+                    if subpath_start && !pts.is_empty() {
+                        pts.push(f32::NAN);
+                        pts.push(f32::NAN);
+                    }
+                    subpath_start = false;
                     push(&mut pts, x, y);
                     while ai + 1 < args.len() {
                         let mut x2 = args[ai];

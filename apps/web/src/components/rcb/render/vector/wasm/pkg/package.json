@@ -1,7 +1,7 @@
 {
   "name": "rcb-wasm-geom",
   "type": "module",
-  "description": "RCB vector densify, tessellation, and polygon boolean (WebAssembly)",
+  "description": "RCB vector densify, tessellation, boolean, stroke offset, RDP, contour (WebAssembly)",
   "version": "0.1.0",
   "license": "MIT",
   "files": [

@@ -50,19 +50,23 @@ let api: WasmApi | null = null;
 
 async function ensureInit(): Promise<void> {
   if (api) return;
-  const mod = await import(
-    /* @vite-ignore */
-    '/rcb-wasm/rcb_wasm_geom.js'
-  );
+  const dynamicImport = new Function('u', 'return import(u)') as (
+    u: string
+  ) => Promise<Record<string, unknown> & { default?: (opts: { module_or_path: string }) => Promise<void> }>;
+  const mod = await dynamicImport('/rcb-wasm/rcb_wasm_geom.js');
   if (typeof mod.default === 'function') {
     await mod.default({ module_or_path: '/rcb-wasm/rcb_wasm_geom_bg.wasm' });
   }
   api = {
-    tessellate_batch_fill: mod.tessellate_batch_fill,
+    tessellate_batch_fill: mod.tessellate_batch_fill as WasmApi['tessellate_batch_fill'],
     trace_rgba_contours:
-      typeof mod.trace_rgba_contours === 'function' ? mod.trace_rgba_contours : undefined,
+      typeof mod.trace_rgba_contours === 'function'
+        ? (mod.trace_rgba_contours as NonNullable<WasmApi['trace_rgba_contours']>)
+        : undefined,
     simplify_rdp_closed:
-      typeof mod.simplify_rdp_closed === 'function' ? mod.simplify_rdp_closed : undefined,
+      typeof mod.simplify_rdp_closed === 'function'
+        ? (mod.simplify_rdp_closed as NonNullable<WasmApi['simplify_rdp_closed']>)
+        : undefined,
   };
 }
 
