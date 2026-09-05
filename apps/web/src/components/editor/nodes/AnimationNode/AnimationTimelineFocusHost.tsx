@@ -8,6 +8,7 @@ import { useSelector } from '@/store';
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import { nodeLeftTop } from '@/components/rcb/scene/paint/sceneToSvg';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
+import { RCB_MAX_ZOOM } from '@/components/rcb/core/math';
 import {
   popSessionCamera,
   pushSessionCamera,
@@ -36,7 +37,8 @@ const TIMELINE_DOCK_FALLBACK_H = 240;
 const BOTTOM_BAND_GAP = 40;
 /** Top chrome — keep light so the board can sit higher. */
 const TOP_BAND_INSET = 40;
-const TIMELINE_FOCUS_MAX_ZOOM = 1.4;
+/** Allow fit to zoom in for tiny plates; keepZoomIfLarger preserves intentional high zoom. */
+const TIMELINE_FOCUS_MAX_ZOOM = RCB_MAX_ZOOM;
 const TIMELINE_FOCUS_PADDING = 64;
 /** Sit in the upper half of the free band (0 = top, 1 = bottom). */
 const TIMELINE_FOCUS_BAND_ANCHOR_Y = 0.38;
@@ -110,6 +112,8 @@ function fitOptsForWorkbench(
   return {
     padding: TIMELINE_FOCUS_PADDING,
     maxZoom: TIMELINE_FOCUS_MAX_ZOOM,
+    // Opening 关键帧 must not collapse 1700% → 140% (old hard cap).
+    keepZoomIfLarger: true,
     bandInsets,
     bandAnchorY: TIMELINE_FOCUS_BAND_ANCHOR_Y,
   };

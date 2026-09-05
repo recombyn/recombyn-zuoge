@@ -9,6 +9,7 @@ import {
 } from '@/components/rcb/render/gpuDepthOfField';
 
 const SCENE_VS = `#version 300 es
+precision mediump float;
 uniform vec2 uPan;
 uniform float uZoom;
 uniform vec2 uStage;
@@ -20,7 +21,6 @@ layout(location = 4) in float aAngle;
 layout(location = 5) in vec4 aUv;
 layout(location = 6) in float aDepth;
 layout(location = 7) in vec4 aClip;
-layout(location = 8) in vec4 aStroke;
 out vec2 vUv;
 out vec2 vAtlasUv;
 out vec4 vColor;
@@ -28,17 +28,10 @@ out float vKind;
 out float vDepth;
 out vec2 vWorld;
 out vec4 vClip;
-out vec2 vHalf;
-out vec4 vRadii;
-out vec4 vStroke;
 void main() {
   vec2 local;
   if (aKind > 1.5 && aKind < 2.5) {
     local = vec2(aCorner.x * aRect.z, (aCorner.y - 0.5) * aRect.w);
-  } else if (aKind > 3.5) {
-    float pad = aStroke.w * 0.5;
-    vec2 size = aRect.zw + vec2(pad * 2.0);
-    local = aCorner * size - vec2(pad);
   } else {
     local = aCorner * aRect.zw;
   }
@@ -58,9 +51,6 @@ void main() {
   vDepth = aDepth;
   vWorld = pos;
   vClip = aClip;
-  vHalf = aRect.zw * 0.5;
-  vRadii = aUv;
-  vStroke = aStroke;
 }`;
 
 const SCENE_FS = `#version 300 es
@@ -74,17 +64,8 @@ in float vKind;
 in float vDepth;
 in vec2 vWorld;
 in vec4 vClip;
-in vec2 vHalf;
-in vec4 vRadii;
-in vec4 vStroke;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outDepth;
-float sdRoundBox(vec2 p, vec2 b, vec4 r) {
-  r.xy = (p.x > 0.0) ? r.xy : r.zw;
-  r.x = (p.y > 0.0) ? r.x : r.y;
-  vec2 q = abs(p) - b + r.x;
-  return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r.x;
-}
 void main() {
   if (vWorld.x < vClip.x || vWorld.y < vClip.y || vWorld.x > vClip.z || vWorld.y > vClip.w) {
     discard;
@@ -93,27 +74,6 @@ void main() {
     vec4 tex = texture(uAtlas, vAtlasUv);
     if (tex.a < 0.01) discard;
     outColor = tex;
-    outDepth = vec4(vDepth, 0.0, 0.0, 1.0);
-    return;
-  }
-  if (vKind > 3.5) {
-    float sw = max(0.0, vStroke.w);
-    float pad = sw * 0.5;
-    vec2 p = vUv * (vHalf + vec2(pad));
-    vec4 r = vec4(vRadii.y, vRadii.z, vRadii.x, vRadii.w);
-    float d = sdRoundBox(p, vHalf, r);
-    float aa = max(0.5 * fwidth(d), 0.0005);
-    float maxAa = max(pad * 0.85, 0.35 / max(uZoom, 0.05));
-    aa = min(aa, maxAa);
-    float halfW = pad + aa * 0.5;
-    float cover = 1.0 - smoothstep(-aa, aa, d - halfW);
-    if (cover < 0.004) discard;
-    vec3 rgb = vColor.rgb;
-    if (sw > 0.001) {
-      float inFill = 1.0 - smoothstep(-aa, aa, d + halfW);
-      rgb = mix(vStroke.rgb, vColor.rgb, inFill);
-    }
-    outColor = vec4(rgb, vColor.a * cover);
     outDepth = vec4(vDepth, 0.0, 0.0, 1.0);
     return;
   }
@@ -368,7 +328,7 @@ export function createWebglDepthOfFieldPass(gl: WebGL2RenderingContext): WebglDe
   };
 }
 
-/** Scene program: depth (6) + clip LTRB (7) + stroke rgba+width (8). */
+/** Scene program: depth (6) + clip LTRB (7). */
 export function bindWebglDofSceneAttributes(
   gl: WebGL2RenderingContext,
   cornerBuf: WebGLBuffer,
@@ -378,8 +338,7 @@ export function bindWebglDofSceneAttributes(
   angleBuf: WebGLBuffer,
   uvBuf: WebGLBuffer,
   depthBuf: WebGLBuffer,
-  clipBuf: WebGLBuffer,
-  strokeBuf: WebGLBuffer
+  clipBuf: WebGLBuffer
 ) {
   const inst = 1;
   gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
@@ -421,11 +380,6 @@ export function bindWebglDofSceneAttributes(
   gl.enableVertexAttribArray(7);
   gl.vertexAttribPointer(7, 4, gl.FLOAT, false, 0, 0);
   gl.vertexAttribDivisor(7, inst);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, strokeBuf);
-  gl.enableVertexAttribArray(8);
-  gl.vertexAttribPointer(8, 4, gl.FLOAT, false, 0, 0);
-  gl.vertexAttribDivisor(8, inst);
 }
 
 export function createWebglDepthInstanceBuffer(gl: WebGL2RenderingContext) {

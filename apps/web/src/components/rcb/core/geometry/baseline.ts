@@ -46,7 +46,7 @@ function resolveShapeType(node: SceneNodeInput): string {
   return String(node?.attrs?.shapeType || (key === 'shape' ? 'rect' : ''));
 }
 
-/** Open arrow: shaft to tip + V through tip (continuous stroke). */
+/** Open arrow: shaft to tip + V through tip (same geometry as draw preview). */
 export function arrowBaselinePath(width: number, height: number, head = ARROW_HEAD): string {
   const w = Math.max(1, width);
   const mid = Math.max(1, height) / 2;
@@ -148,7 +148,7 @@ export function getShapeBaseline(
     return { d: arrowBaselinePath(w, h, head), closed: false, kind: 'stroke' };
   }
 
-  if (shapeType === 'circle') {
+  if (shapeType === 'circle' || shapeType === 'ellipse' || shapeType === 'oval') {
     const innerRatio = ellipseInnerRatioFromAttrs(node.attrs);
     const arcPercent = ellipseArcPercentFromAttrs(node.attrs);
     const startDeg = ellipseStartDegFromAttrs(node.attrs);

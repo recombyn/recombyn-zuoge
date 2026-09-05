@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode, memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  A4_PORTRAIT
-} from '@/components/rcb/scene/document/sceneDocument';
 import { cn } from '@/utils/classnames';
+
+/** Match `DEFAULT_CANVAS` / A4 @ 96dpi — keep local to avoid sceneDocument import cycles. */
+const A4_PORTRAIT = { width: 794, height: 1123 } as const;
 
 /** Frame / artboard size presets (toolbar dropdown + tabs). */
 export type FramePresetCategory =

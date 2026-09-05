@@ -154,7 +154,7 @@ describe('getShapeBaseline', () => {
     const d = arrowBaselinePath(100, 24);
     expect(d).toContain('M 0 12');
     expect(d).toContain('L 100 12');
-    // V ends at tip
+    // Shaft + V both meet tip (preview geometry).
     expect(d.match(/L 100 12/g)?.length).toBeGreaterThanOrEqual(2);
   });
 

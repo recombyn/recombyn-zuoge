@@ -610,19 +610,28 @@ function layerLabel(
   if (isVideoGeneratorNode(node)) return videoGeneratorLabel || 'Video Generator';
   if (isLottieGeneratorNode(node)) return lottieGeneratorLabel || 'Lottie Generator';
   if (isAudioGeneratorNode(node)) return audioGeneratorLabel || 'Audio Generator';
-  if (node.key === 'video') return String(node.attrs?.name || 'Video');
-  if (node.key === 'lottie') return String(node.attrs?.name || 'Lottie');
-  if (node.key === 'audio') return String(node.attrs?.name || 'Audio');
+
+  // Prefer upload / rename title (same field as canvas NodeTitleLabel).
+  const named = String(node.attrs?.name || '').trim();
+  if (named) return named;
+
+  if (node.key === 'video') return 'Video';
+  if (node.key === 'lottie') return 'Lottie';
+  if (node.key === 'audio') return 'Audio';
+
   const kind = resolveLayerIconKind(node);
   if (kind === 'triangle') return t('editor.tools.polygon');
+  if (kind === 'image') {
+    return t('editor.tools.uploadImage', { defaultValue: 'Image' });
+  }
   const toolLabel = t(`editor.tools.${kind}`, { defaultValue: '' });
   if (toolLabel) return toolLabel;
+  // Fallbacks when i18n key is missing (do not use literal "??" — encoding rot).
   const map: Record<string, string> = {
-    text: '??',
-    image: '??',
-    pen: '??',
-    pencil: '??',
-    path: '??',
+    text: t('editor.tools.text', { defaultValue: 'Text' }),
+    pen: t('editor.tools.pen', { defaultValue: 'Pen' }),
+    pencil: t('editor.tools.pencil', { defaultValue: 'Pencil' }),
+    path: t('editor.tools.path', { defaultValue: 'Path' }),
     svg: 'SVG',
   };
   return map[kind] || kind;

@@ -18,6 +18,7 @@ RCB is zuoge’s infinite vector canvas. This note is for people changing paint,
 | Frame clip (live) | Artboard move: preview plate geom (+ live artboard map) → re-seat bound hosts via `nodeLeftTop` → `syncFrameContentClip` (no child TransformPreview under frameLocal). SoA QT uses the same mid-gesture dirty + liveAabb rescue as TransformPreview so plate-bound ink is not culled with stale AABBs | `EditorStageWorld`, `canvasSession.onGeometryPreview`, `prepareSoaQuadtreeForQuery` |
 | Pointer hit | Overlay seats → chrome **geometry** → one `SceneSpatialRuntime` QT (nodes + `frame:id`) → permanent `stackOrder` top-first → precise Path2D/AABB/plate | `hitTestWithSpatialIndex`, `hitTestUnifiedStackAtPoint`, `setSharedSceneSpatialRuntime` |
 | Document model | Types + Zod | `rcb/sceneNode.ts`, `packages/scene-schema` |
+| Vector geom (WASM) | Densify / tessellate / boolean / stroke offset / text contour; JS fallback | `packages/rcb-wasm-geom`, `rcb/render/vector/wasmGeom.ts`, `outlineToPath.ts`, `shapeBoolean.ts` — see `rcb/docs/HOW_IT_WORKS.md` §10 |
 | Mutations | normalize / stack / CRUD | `rcb/scene/document/sceneDocument.ts` |
 | Live state | `document`, selection, tools | `store/modules/editor.ts` |
 | React subscriptions | Narrow editor hooks only — live vs commit-only document | `store/editorSelectors.ts` (`useEditorDocument` / `useEditorDocumentOnCommit`) |
@@ -168,9 +169,8 @@ Replaces CPU tile bake during interactive DOF (`VITE_GPU_DOF=1`). Does **not** c
 | Backend | Role |
 |---------|------|
 | **WebGL2** (`webglDepthOfFieldPass.ts`) | Color + depth MRT FBO → CoC separable blur → screen. Skips `soaBakeLayer` tile bake. Depth from `buildNodeStackZMap` normalized per frame. |
-| **WebGPU** (`webgpuSceneRenderer.ts`) | Full MRT scene + CoC blur on `navigator.gpu`. Prefer `VITE_GPU_DOF_BACKEND=webgpu`. |
 
-Runtime uniforms: `focalDepth`, `aperture`, `maxCoCPx`, `downsample`. Tunable in Effects panel (**Scene depth of field**) when the env flag is on. `setGpuDepthOfFieldParams` notifies subscribers → ink backend recreate + full repaint. Per-node object blur / backdrop blur unchanged.
+Runtime uniforms: `focalDepth`, `aperture`, `maxCoCPx`, `downsample`. Tunable in Effects panel (**Scene depth of field**) when the env flag is on. `setGpuDepthOfFieldParams` notifies subscribers → full repaint. Per-node object blur / backdrop blur unchanged.
 
 ## Practical capacity
 
@@ -194,7 +194,6 @@ apps/web/src/components/rcb/
   render/soaBakeLayer.ts              # world tile bake (skipFrameBound) + element↔tile maps
   render/gpuDepthOfField.ts           # DOF params + stack depth normalization
   render/webglDepthOfFieldPass.ts     # WebGL2 FBO + CoC blur
-  render/webgpuSceneRenderer.ts       # WebGPU MRT scene + CoC DOF (async device)
   core/soaQuadtree.ts                 # idle + spatial QT
   core/spatialIndex.ts                # SceneSpatialRuntime (QT-backed)
   scene/document/sceneShapes.ts       # Path2D cache + ribbon outline helpers

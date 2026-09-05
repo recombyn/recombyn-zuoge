@@ -5,6 +5,7 @@ import {
   frameClipRevealsOverflow,
   hasFrameClipRevealOverflow,
   hasSelectionPaintRaise,
+  listSelectionRevealOverflowIds,
   setFrameClipRevealOverflowIds,
   setSelectionPaintRaiseIds,
 } from '@/components/rcb/frames/frameContentClip';
@@ -130,5 +131,45 @@ describe('frameClip reveal-overflow registry', () => {
     expect(hasSelectionPaintRaise()).toBe(true);
     setSelectionPaintRaiseIds([]);
     expect(hasSelectionPaintRaise()).toBe(false);
+  });
+});
+
+describe('listSelectionRevealOverflowIds', () => {
+  const doc = {
+    deltaSetLike: {
+      inside: { attrs: { frameId: 'board' } },
+      world: { attrs: {} },
+      other: { attrs: { frameId: 'other' } },
+    },
+  };
+
+  it('reveals selected shapes when their plate is not selected', () => {
+    expect(
+      listSelectionRevealOverflowIds({
+        selectedNodeIds: ['inside', 'world'],
+        selectedFrameIds: [],
+        document: doc,
+      })
+    ).toEqual(['inside', 'world']);
+  });
+
+  it('keeps clip when frame and its children are selected together', () => {
+    expect(
+      listSelectionRevealOverflowIds({
+        selectedNodeIds: ['inside', 'world'],
+        selectedFrameIds: ['board'],
+        document: doc,
+      })
+    ).toEqual(['world']);
+  });
+
+  it('still reveals children of a different unselected plate', () => {
+    expect(
+      listSelectionRevealOverflowIds({
+        selectedNodeIds: ['other'],
+        selectedFrameIds: ['board'],
+        document: doc,
+      })
+    ).toEqual(['other']);
   });
 });

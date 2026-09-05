@@ -1,11 +1,12 @@
 /**
- * Precomp isolation focus — LOT tab shows session shapes; hide lot plate + host ink.
+ * Precomp isolation focus — LOT tab unlocks layer/timeline edit.
+ * Paint stays on the same nested-lot LottiePlate as 主场景 (no explode).
  */
 import { isPrecompEditSessionNode } from '@/components/editor/nodes/AnimationNode/animationPrecompSession';
 
 let precompEditLotNodeId: string | null = null;
 let precompEditActive = false;
-/** True when LOT tab exploded JSON into real scene shapes (hide lot ink). */
+/** Legacy: true only when an old session exploded JSON into scene shapes. */
 let precompEditSessionMaterialized = false;
 
 export function setLottiePrecompEditFocus(opts: {
@@ -42,12 +43,12 @@ export function isHiddenByLottiePrecompEditFocus(
   node: { attrs?: Record<string, unknown> | null; key?: string } | null | undefined
 ): boolean {
   if (!precompEditActive) return false;
-  // Real JSON shapes for this LOT tab stay visible + editable.
   if (isPrecompEditSessionNode(node)) return false;
-  // Nested lot must stay in the SVG tree so 主场景 can remount ink after tab
-  // switch. Overlay hides its lottie-web while session shapes are up.
+  // Same nested lot LottiePlate as 主场景 — never remove from the SVG tree.
   if (precompEditLotNodeId && nodeId === precompEditLotNodeId) return false;
-  // Hide frame host + other workbench children while editing insides.
+  // Lightweight LOT tab: do not isolate-hide siblings (that path remounted hosts
+  // and blanked preview). Legacy materialized sessions still isolate.
+  if (!precompEditSessionMaterialized) return false;
   if (String(node?.attrs?.frameId || '').trim()) return true;
   return false;
 }

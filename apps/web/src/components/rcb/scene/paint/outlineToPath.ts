@@ -1,8 +1,7 @@
 import type { SceneNode, SceneNodeInput } from '@/components/rcb/sceneNode';
 /**
- * Convert geometric shapes / text / strokes into editable SVG path `d`.
- * Used by 轮廓化 — each shapeType has its own outline*Local builder; shared
- * stroke/raster helpers stay below. Result is `shapeType: 'path'`.
+ * Convert geometric shapes / text / strokes into editable SVG path `d`（轮廓化）.
+ * Stroke offset + text canvas contour prefer WASM; result is `shapeType: 'path'`.
  */
 
 import {
@@ -36,6 +35,14 @@ import {
 import { getShapeBaselineD, PathBuilder } from '@/components/rcb/core/geometry';
 import { computeShapeBoolean, type ShapeBox } from '@/components/rcb/selection/shapeBoolean';
 import { getInfiniteSvgPaintZoom } from '@/components/rcb/scene/paint/sceneToSvg';
+import {
+  offsetPolylineWasm,
+  simplifyRdpClosedWasm,
+  traceRgbaContoursWasm,
+  type BoolMultiPolygon,
+} from '@/components/rcb/render/vector/wasmGeom';
+import { simplifyClosedPolylineGrow } from '@/components/rcb/render/vector/contourSimplify';
+import { textGlyphOutlineAsync } from '@/components/rcb/render/vector/wasm/geomWorkerClient';
 
 export type OutlineResult = {
   pathD: string;
@@ -101,18 +108,15 @@ export function ellipsePathD(w: number, h: number): string {
 
 /**
  * Convert SVG arc / shorthand to line segments so penSubpathsFromD can parse.
- * Keeps Q/C as-is (penPath maps Q→cubic). Densifying outlined text Q curves
- * into L polylines used to freeze the UI after Outline.
+ * Keeps Q/C (fontkit outlines); only densify arcs / S/T.
  */
 export function normalizePathDForEdit(d: string, sampleStep?: number): string {
   const raw = String(d || '').trim();
   if (!raw) return '';
   if (typeof document === 'undefined') return raw;
-  // M/L/Q/C/Z (fontkit outlines) — keep; only densify arcs / S/T shorthand.
   if (!/[AaSsTt]/.test(raw)) return raw;
 
-  // Multi-contour: normalize each subpath alone so getTotalLength does not
-  // stitch glyph rings into one polyline (that caused filled “triangles”).
+  // Multi-contour: normalize each subpath alone (avoid stitching glyph rings).
   const chunks = raw.split(/(?=[Mm])/).map((s) => s.trim()).filter(Boolean);
   if (chunks.length > 1) {
     return chunks
@@ -406,10 +410,7 @@ function intersectOffsetLines(
 
 /**
  * Round cap/join as L samples on the circle (no cubics — path-edit diamonds looked floated).
- * `outward` picks the exterior arc (CCW-always scalloped / bow-tie ends).
- *
- * Step size must stay fine on thick strokes: ~60° samples made a semicircle look like
- * a triangle (round tip → needle with tip + two shoulder knobs).
+ * `outward` picks the exterior arc. Keep step fine on thick strokes so round tips stay round.
  */
 function appendCircularArcPolyline(
   parts: string[],
@@ -454,8 +455,7 @@ function appendCircularArcPolyline(
 }
 
 /**
- * Keep centerline verts as drawn. Only drop consecutive duplicates —
- * RDP / min-seg / maxPts used to flatten pen tips before offset.
+ * Keep centerline verts as drawn. Only drop consecutive duplicates.
  */
 function prepareStrokeCenterline(
   ptsIn: Array<[number, number]>,
@@ -535,8 +535,30 @@ function stripOutlineNeedles(
 }
 
 function closedPathDFromPts(pts: Array<[number, number]>): string {
-  if (pts.length < 3) return '';
-  return `M ${pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(' L ')} Z`;
+  if (pts.length < 2) return '';
+  const a = pts[0]!;
+  let d = `M ${a[0].toFixed(2)} ${a[1].toFixed(2)}`;
+  for (let i = 1; i < pts.length; i += 1) {
+    d += ` L ${pts[i]![0].toFixed(2)} ${pts[i]![1].toFixed(2)}`;
+  }
+  return `${d} Z`;
+}
+
+/** MultiPolygon (WASM offset / boolean) → SVG path `d` (absolute, evenodd-friendly). */
+function boolMultiPolygonToPathD(mp: BoolMultiPolygon): string | null {
+  const parts: string[] = [];
+  for (const poly of mp) {
+    for (const ring of poly) {
+      if (!ring || ring.length < 3) continue;
+      const pts: Array<[number, number]> = ring.map((p) => [
+        Number(p[0]) || 0,
+        Number(p[1]) || 0,
+      ]);
+      const d = closedPathDFromPts(dedupePolylinePts(pts, 0.15));
+      if (d) parts.push(d);
+    }
+  }
+  return parts.length ? parts.join(' ') : null;
 }
 
 function parseClosedOutlineVerts(d: string): Array<[number, number]> | null {
@@ -564,9 +586,29 @@ function outlinePolylineStroke(
     if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.05) pts = pts.slice(0, -1);
   }
   if (closed && pts.length >= 3) {
+    const wasmClosed = offsetPolylineWasm(pts, strokeWidth, true, {
+      linejoin,
+      linecap,
+      miterLimit,
+    });
+    if (wasmClosed) {
+      const d = boolMultiPolygonToPathD(wasmClosed);
+      if (d) return d;
+    }
     return outlineClosedPolylineStroke(pts, strokeWidth, linejoin, miterLimit);
   }
   if (pts.length < 2) return null;
+
+  const wasmOpen = offsetPolylineWasm(pts, strokeWidth, false, {
+    linejoin,
+    linecap,
+    miterLimit,
+  });
+  if (wasmOpen) {
+    const d = boolMultiPolygonToPathD(wasmOpen);
+    if (d) return d;
+  }
+
   const join = linejoin;
   const half = Math.max(0.25, strokeWidth / 2);
   const miterCap = half * Math.max(1, miterLimit);
@@ -1030,44 +1072,6 @@ function readStrokeMiterLimit(attrs: Record<string, unknown> | undefined): numbe
   return 100;
 }
 
-function distPointToSeg(
-  p: [number, number],
-  a: [number, number],
-  b: [number, number]
-): number {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const len2 = dx * dx + dy * dy;
-  if (len2 < 1e-12) {
-    const ex = p[0] - a[0];
-    const ey = p[1] - a[1];
-    return Math.hypot(ex, ey);
-  }
-  let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
-}
-
-/** Ramer–Douglas–Peucker polyline simplify (open). */
-function simplifyRdp(pts: Array<[number, number]>, epsilon: number): Array<[number, number]> {
-  if (pts.length <= 2) return pts.slice();
-  let maxDist = 0;
-  let maxIdx = 0;
-  const first = pts[0];
-  const last = pts[pts.length - 1];
-  for (let i = 1; i < pts.length - 1; i += 1) {
-    const d = distPointToSeg(pts[i], first, last);
-    if (d > maxDist) {
-      maxDist = d;
-      maxIdx = i;
-    }
-  }
-  if (maxDist <= epsilon) return [first, last];
-  const left = simplifyRdp(pts.slice(0, maxIdx + 1), epsilon);
-  const right = simplifyRdp(pts.slice(maxIdx), epsilon);
-  return left.slice(0, -1).concat(right);
-}
-
 /** Simplify a closed contour and hard-cap vertex count for path-edit UX. */
 function simplifyClosedPolyline(
   pts: Array<[number, number]>,
@@ -1075,66 +1079,9 @@ function simplifyClosedPolyline(
   maxPts: number,
   maxEpsilon?: number
 ): Array<[number, number]> {
-  if (pts.length < 3) return pts.slice();
-  let ring = pts;
-  const a = ring[0];
-  const b = ring[ring.length - 1];
-  if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6) {
-    ring = ring.slice(0, -1);
-  }
-  if (ring.length < 3) return pts.slice();
-
-  const closeRing = (arr: Array<[number, number]>) => {
-    if (arr.length < 2) return arr;
-    const f = arr[0];
-    const l = arr[arr.length - 1];
-    if (Math.hypot(f[0] - l[0], f[1] - l[1]) < 1e-6) return arr.slice(0, -1);
-    return arr;
-  };
-
-  let out = closeRing(simplifyRdp(ring.concat([ring[0]]), epsilon));
-  if (out.length > maxPts) {
-    // Grow eps only up to maxEpsilon — unbounded growth collapsed thin ribbons
-    // into wedges / digons (line vanished; ends became needles).
-    const epsCap = maxEpsilon ?? Math.max(epsilon * 4, epsilon + 0.5);
-    let eps = epsilon;
-    let guarded = 0;
-    while (out.length > maxPts && guarded < 12 && eps < epsCap - 1e-6) {
-      eps = Math.min(epsCap, eps * 1.35);
-      out = closeRing(simplifyRdp(ring.concat([ring[0]]), eps));
-      guarded += 1;
-    }
-    if (out.length > maxPts) {
-      // Drop least-turny verts (preserve butt corners / round-cap samples).
-      const turnMag = (i: number) => {
-        const n = out.length;
-        const prev = out[(i - 1 + n) % n];
-        const curr = out[i];
-        const next = out[(i + 1) % n];
-        const ax = curr[0] - prev[0];
-        const ay = curr[1] - prev[1];
-        const bx = next[0] - curr[0];
-        const by = next[1] - curr[1];
-        const la = Math.hypot(ax, ay) || 1;
-        const lb = Math.hypot(bx, by) || 1;
-        const dot = Math.max(-1, Math.min(1, (ax / la) * (bx / lb) + (ay / la) * (by / lb)));
-        return Math.acos(dot);
-      };
-      while (out.length > maxPts && out.length > 3) {
-        let minI = 0;
-        let minTurn = Infinity;
-        for (let i = 0; i < out.length; i += 1) {
-          const t = turnMag(i);
-          if (t < minTurn) {
-            minTurn = t;
-            minI = i;
-          }
-        }
-        out = out.filter((_, i) => i !== minI);
-      }
-    }
-  }
-  return out.length >= 3 ? out : ring.slice(0, Math.min(ring.length, maxPts));
+  return simplifyClosedPolylineGrow(pts, epsilon, maxPts, maxEpsilon, (ring, eps) =>
+    simplifyRdpClosedWasm(ring, eps)
+  );
 }
 
 function outlineResultToShapeBox(o: OutlineResult): ShapeBox | null {
@@ -1514,9 +1461,9 @@ function markOutsideEmpty(
 }
 
 /**
- * Approximate text glyphs as closed paths via canvas alpha contour.
- * Fallback when the font file is unavailable — prefer `outlineTextFromFont` (fontkit).
- * Traces each character separately so adjacent CJK glyphs do not merge / cancel.
+ * Approximate text glyphs as closed paths via canvas alpha contour (CJK / no font file).
+ * Prefers WASM `trace_rgba_contours`; JS Moore when WASM is off.
+ * Traces each character separately so adjacent CJK glyphs do not merge.
  */
 function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   if (typeof document === 'undefined') return null;
@@ -1562,9 +1509,12 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
   };
 
   const parts: string[] = [];
-  const originY = !autoSize
-    ? textVerticalOriginY(boxH, style.fontSize, lineHeight, Math.max(1, lines.length))
-    : 0;
+  const originY = textVerticalOriginY(
+    boxH,
+    style.fontSize,
+    lineHeight,
+    Math.max(1, lines.length)
+  );
 
   const pathDecimals =
     fontSizeScene >= 8 ? 1 : fontSizeScene >= 2 ? 2 : fontSizeScene >= 0.5 ? 3 : 4;
@@ -1588,21 +1538,28 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
     ctx.fillText(ch, pad * scale, pad * scale);
 
     const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const solid = (x: number, y: number) => {
-      if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return false;
-      return data[(y * canvas.width + x) * 4 + 3] > 20;
-    };
-    const outside = markOutsideEmpty(solid, canvas.width, canvas.height);
-    const outer = traceContoursInRegion(solid, canvas.width, canvas.height);
-    const hole = traceContoursInRegion(
-      (x, y) => {
+    const wasmContours = traceRgbaContoursWasm(data, canvas.width, canvas.height, 20);
+    let traced: Array<Array<[number, number]>>;
+    if (wasmContours) {
+      traced = wasmContours;
+    } else {
+      const solid = (x: number, y: number) => {
         if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return false;
-        return !solid(x, y) && !outside[y * canvas.width + x];
-      },
-      canvas.width,
-      canvas.height
-    );
-    for (const pts of [...outer, ...hole]) {
+        return data[(y * canvas.width + x) * 4 + 3] > 20;
+      };
+      const outside = markOutsideEmpty(solid, canvas.width, canvas.height);
+      const outer = traceContoursInRegion(solid, canvas.width, canvas.height);
+      const hole = traceContoursInRegion(
+        (x, y) => {
+          if (x < 0 || y < 0 || x >= canvas.width || y >= canvas.height) return false;
+          return !solid(x, y) && !outside[y * canvas.width + x];
+        },
+        canvas.width,
+        canvas.height
+      );
+      traced = [...outer, ...hole];
+    }
+    for (const pts of traced) {
       const world: Array<[number, number]> = pts.map(([px, py]) => [
         px / scale - pad + destX,
         py / scale - pad + destY,
@@ -1639,22 +1596,131 @@ function outlineTextLocal(node: SceneNodeInput): OutlineResult | null {
 }
 
 /**
- * Canvas alpha trace for idle ink (CJK). Yields before sync contour work so the
- * first paint frame stays on fillText; same vectors as Outline UI fallback.
+ * Canvas alpha 轮廓化（CJK）. Paint on main thread; contour+RDP on geom Worker when possible.
  */
 export async function outlineTextLocalAsync(
   node: SceneNodeInput
 ): Promise<OutlineResult | null> {
   if (typeof document === 'undefined') return null;
   await ensureTextFontsLoaded(node);
-  return new Promise((resolve) => {
-    const finish = () => resolve(outlineTextLocal(node));
-    if (typeof requestIdleCallback === 'function') {
-      requestIdleCallback(finish, { timeout: 2500 });
-      return;
+
+  const plain = parseNodeText(node.attrs || {}).trim();
+  if (!plain) return null;
+  const style = parseNodeTextStyle(node.attrs || {});
+  const boxW = Math.max(1, Math.round(Number(node.width) || 1));
+  const boxH = Math.max(1, Math.round(Number(node.height) || 1));
+  const autoSize = String(node.attrs?.autoSize ?? 'true') !== 'false';
+  const pad = 4;
+  const isCjk = /[\u3400-\u9fff\uf900-\ufaff]/.test(plain);
+  const scale = isCjk ? 5 : 12;
+  const fontSizeScene = Math.max(1e-3, Number(style.fontSize) || 14);
+  const fontSize = fontSizeScene * scale;
+  const lineHeight = Math.max(0.8, Number(style.lineHeight) || 1.4);
+  const lh = lineHeight * fontSize;
+  const letterSpacing = (Number(style.letterSpacing) || 0) * scale;
+  const align = String(style.textAlign || 'left');
+  const lines = textVisualLines(plain, style, { width: boxW, autoSize });
+  const family = toFabricFontFamily(style.fontFamily);
+  const fontCss = `${style.fontWeight || 400} ${fontSize}px "${family}"`;
+  const simplifyEps = Math.max(0.015, Math.min(0.18, fontSizeScene * 0.045));
+  const simplifyCap = Math.max(simplifyEps * 3, simplifyEps + fontSizeScene * 0.08);
+  const simplifyMaxPts = isCjk ? 360 : 720;
+
+  const measureCtx = document.createElement('canvas').getContext('2d');
+  if (!measureCtx || typeof measureCtx.measureText !== 'function') {
+    return outlineTextLocal(node);
+  }
+  measureCtx.font = fontCss;
+
+  const measureLine = (line: string) => {
+    if (!letterSpacing) return measureCtx.measureText(line || ' ').width;
+    let total = 0;
+    const chars = Array.from(line);
+    chars.forEach((ch, i) => {
+      total += measureCtx.measureText(ch).width;
+      if (i < chars.length - 1) total += letterSpacing;
+    });
+    return total || measureCtx.measureText(' ').width;
+  };
+
+  const pathDecimals =
+    fontSizeScene >= 8 ? 1 : fontSizeScene >= 2 ? 2 : fontSizeScene >= 0.5 ? 3 : 4;
+  const fmtPt = (a: number, b: number) =>
+    `${a.toFixed(pathDecimals)} ${b.toFixed(pathDecimals)}`;
+
+  const originY = textVerticalOriginY(
+    boxH,
+    style.fontSize,
+    lineHeight,
+    Math.max(1, lines.length)
+  );
+
+  const parts: string[] = [];
+  let workerOk = true;
+
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx += 1) {
+    const line = lines[lineIdx]!;
+    const lineW = measureLine(line) / scale;
+    let cx =
+      align === 'center'
+        ? (boxW - lineW) / 2
+        : align === 'right'
+          ? boxW - lineW
+          : 0;
+    const y = originY + (lineIdx * lh) / scale;
+    const chars: string[] = Array.from(line.length ? line : ' ');
+    for (const ch of chars) {
+      const cw = measureCtx.measureText(ch).width / scale;
+      if (ch.trim() && workerOk) {
+        const metrics = measureCtx.measureText(ch);
+        const gw = Math.ceil(Math.max(metrics.width, fontSize * 0.4) + pad * 2 * scale);
+        const gh = Math.ceil(fontSize * 1.35 + pad * 2 * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(8, gw);
+        canvas.height = Math.max(8, gh);
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#000';
+          ctx.textBaseline = 'top';
+          ctx.font = fontCss;
+          ctx.fillText(ch, pad * scale, pad * scale);
+          const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const rings = await textGlyphOutlineAsync({
+            rgba: data,
+            width: canvas.width,
+            height: canvas.height,
+            alphaThreshold: 20,
+            simplifyEps,
+            simplifyMaxPts,
+            simplifyCap,
+          });
+          if (rings == null) {
+            workerOk = false;
+          } else {
+            for (const pts of rings) {
+              const world: Array<[number, number]> = pts.map(([px, py]) => [
+                px / scale - pad + cx,
+                py / scale - pad + y,
+              ]);
+              if (world.length < 3) continue;
+              parts.push(`M ${world.map(([a, b]) => fmtPt(a, b)).join(' L ')} Z`);
+            }
+          }
+        }
+      }
+      cx += cw + (letterSpacing ? letterSpacing / scale : 0);
     }
-    setTimeout(finish, 0);
-  });
+  }
+
+  if (!workerOk) return outlineTextLocal(node);
+  if (!parts.length) return null;
+  return {
+    pathD: parts.join(' '),
+    closed: true,
+    fillColor: String(style.fill || '#333333'),
+    fillRule: 'evenodd',
+  };
 }
 
 /** Normalize outline into node-local top-left space + tight bounds. */
@@ -1733,9 +1799,7 @@ async function ensureTextFontsLoaded(node: SceneNodeInput): Promise<void> {
 }
 
 /**
- * Text outline: prefer fontkit glyph paths (same vectors as the face file).
- * Last resort: canvas trace of the same CSS face the node paints (延用自身) —
- * never a substitute family that changes corners / counters.
+ * Text outline: fontkit glyph paths when available; else canvas trace of the painted face.
  */
 export async function buildOutlinePathAsync(
   node: SceneNodeInput,
@@ -1752,8 +1816,7 @@ export async function buildOutlinePathAsync(
       console.warn('[outline] fontkit outline failed', err);
     }
     try {
-      await ensureTextFontsLoaded(node);
-      const fromCanvas = outlineTextLocal(node);
+      const fromCanvas = await outlineTextLocalAsync(node);
       if (fromCanvas?.pathD) return fitOutlineResult(fromCanvas);
     } catch (err) {
       console.warn('[outline] canvas text outline failed', err);
@@ -1875,11 +1938,8 @@ export function outlineNodePatch(node: SceneNodeInput, outline: OutlineResult) {
 
 /**
  * Fire after outline so canvas can open path-edit chrome.
- * Prefer not calling this after 轮廓化 (text / pen / …): path-edit force-hides
- * the host so dense silhouettes look like hairlines + knob carpets. Users enter
- * path-edit manually (dblclick / toolbar) when they want anchors.
- *
- * Still skips heavy multi-glyph / dense closed ribbons if a caller invokes it.
+ * Prefer not calling after 轮廓化: path-edit force-hides the host on dense silhouettes.
+ * Users enter path-edit manually (dblclick / toolbar) when they want anchors.
  */
 export function requestEnterPathEdit(
   nodeId: string,

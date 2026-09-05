@@ -584,14 +584,13 @@ function RcbCanvas({
 
   // Stage: grid → SoA ink → shared stack SVG (plates+hosts by stackOrder) → chrome.
   // Hit uses the product SceneSpatialRuntime published by SvgCanvas (one path).
-  // Recreate ink backend when GPU DOF toggles webgl ↔ webgpu.
+  // Recreate ink backend when GPU DOF params change (WebGL2 DOF pass).
   const [inkBackendKey, setInkBackendKey] = useState(() => resolveIdleInkBackend());
   const inkBackendKeyRef = useRef(inkBackendKey);
   inkBackendKeyRef.current = inkBackendKey;
   // If WebGL shaders fail, never bind webgl2 onto the stage ink canvas (blocks 2d).
   // Remount the <canvas> when falling back so a prior failed GL claim is discarded.
-  const inkUsesWebgl =
-    (inkBackendKey === 'webgl' || inkBackendKey === 'webgpu') && soaWebglInkShadersOk();
+  const inkUsesWebgl = inkBackendKey === 'webgl' && soaWebglInkShadersOk();
   const inkSurfaceKey = `${inkBackendKey}:${inkUsesWebgl ? 'gl' : '2d'}`;
   const effectiveInkBackend =
     inkBackendKey === 'webgl' && !inkUsesWebgl ? 'canvas2d' : inkBackendKey;
@@ -600,6 +599,13 @@ function RcbCanvas({
       setInkBackendKey(resolveIdleInkBackend());
       transformPreviewFullPaintRef.current = true;
       paintStageSurfacesNowRef.current({ forceFull: true });
+    });
+  }, []);
+
+  // Idle-preload WASM geom (densify / tessellate / boolean / offset / contour).
+  useEffect(() => {
+    void import('@/components/rcb/render/vector/wasmGeom').then((m) => {
+      m.preloadWasmGeom();
     });
   }, []);
 
@@ -896,7 +902,7 @@ function RcbCanvas({
                   data-rcb-shared-scene-surface="1"
                   data-rcb-scene-surface="1"
                   data-rcb-grid-size={String(g)}
-                  className="pointer-events-none absolute inset-0 z-[2] overflow-visible"
+                  className="pointer-events-none absolute inset-0 z-[2] overflow-hidden"
                   width={stageW}
                   height={stageH}
                   viewBox={`0 0 ${stageW} ${stageH}`}
@@ -905,7 +911,10 @@ function RcbCanvas({
                     width: stageW,
                     height: stageH,
                     display: 'block',
-                    overflow: 'visible',
+                    // Hard clip at the camera viewport (viewBox). Parent also
+                    // overflow-hidden; keep SVG clipped so overflow:visible ink
+                    // cannot paint past the stage edge.
+                    overflow: 'hidden',
                     shapeRendering: 'geometricPrecision',
                     pointerEvents: 'none',
                     isolation: 'isolate',

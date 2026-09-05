@@ -28,6 +28,9 @@ import {
   nodeNeedsCanvasEffectBake,
   canvasCompositeFromBlendMode,
   paintCanvasMediaInk,
+  bakeShapeInkForAtlas,
+  bakeTextInkForAtlas,
+  isSoaAtlasBakeEligible,
   bakeMediaInkForAtlas,
   paintGeneratorEmptyInk,
   clipCanvasIdleToOwningFrame,
@@ -128,6 +131,7 @@ function mockCtx(ops: string[]) {
     },
     clip: () => ops.push('clip'),
     arcTo: () => ops.push('arcTo'),
+    arc: () => ops.push('arc'),
     closePath: () => ops.push('closePath'),
     ellipse: () => ops.push('ellipse'),
     stroke: () => ops.push('stroke'),
@@ -166,6 +170,13 @@ function mockCtx(ops: string[]) {
       return {} as CanvasPattern;
     },
     drawImage: () => ops.push('drawImage'),
+    getImageData: () => ({
+      data: new Uint8ClampedArray(4),
+      width: 1,
+      height: 1,
+      colorSpace: 'srgb' as PredefinedColorSpace,
+    }),
+    putImageData: () => ops.push('putImageData'),
     fillStyle: '' as string | CanvasGradient | CanvasPattern,
     strokeStyle: '',
     lineWidth: 1,
@@ -177,6 +188,28 @@ function mockCtx(ops: string[]) {
     shadowOffsetX: 0,
     shadowOffsetY: 0,
   };
+}
+
+/** setupTests stubs getContext→null; offscreen bake / pattern tiles need a 2d surface. */
+function withStubbedCanvas2d<T>(
+  ctx: ReturnType<typeof mockCtx>,
+  run: () => T
+): T {
+  const spy = vi
+    .spyOn(HTMLCanvasElement.prototype, 'getContext')
+    .mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+  const offSpy =
+    typeof OffscreenCanvas !== 'undefined'
+      ? vi
+          .spyOn(OffscreenCanvas.prototype, 'getContext')
+          .mockReturnValue(ctx as unknown as RenderingContext)
+      : null;
+  try {
+    return run();
+  } finally {
+    spy.mockRestore();
+    offSpy?.mockRestore();
+  }
 }
 
 describe('DirtyRegion helpers', () => {
@@ -650,6 +683,79 @@ describe('scene grid (Canvas underlay)', () => {
 });
 
 describe('Canvas idle path / text / shape paint', () => {
+  it('bakeShapeInkForAtlas returns null for shape ink (vector dual-backend)', () => {
+    const mk = (shapeType: string, extra: Record<string, unknown> = {}) =>
+      ({
+        id: shapeType,
+        key: 'shape',
+        width: 80,
+        height: 80,
+        attrs: {
+          shapeType,
+          'fill-color': '#ffffff',
+          'border-color': '#000000',
+          'border-width': 2,
+          'stroke-enabled': true,
+          sides: 5,
+          points: 5,
+          ...extra,
+        },
+      }) as SceneNodeInput;
+    for (const node of [mk('rect'), mk('ellipse'), mk('polygon'), mk('star')]) {
+      expect(bakeShapeInkForAtlas(node, 80, 80, 1), String(node.attrs!.shapeType)).toBeNull();
+    }
+    const sharp = mk('rect', { 'stroke-enabled': false, cornerRadius: 12 });
+    expect(bakeShapeInkForAtlas(sharp, 80, 80, 1)).toBeNull();
+  });
+
+  it('bakeTextInkForAtlas paints glyphs onto an offscreen canvas', () => {
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    (ctx as { fillText?: (...a: unknown[]) => void }).fillText = () => ops.push('fillText');
+    withStubbedCanvas2d(ctx, () => {
+      const node = {
+        id: 't1',
+        key: 'text',
+        width: 120,
+        height: 40,
+        attrs: { text: 'Hello', fontSize: 16 },
+      } as SceneNodeInput;
+      const baked = bakeTextInkForAtlas(node, 120, 40, 1);
+      expect(baked).not.toBeNull();
+      expect(Number((baked as HTMLCanvasElement).width || 0)).toBeGreaterThan(0);
+      expect(ops).toContain('fillText');
+    });
+  });
+
+  it('paintSoaIdleSlot draws text glyphs', () => {
+    let doc = createEmptyDocument({ width: 400, height: 400, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'txt1', {
+      id: 'txt1',
+      key: 'text',
+      x: 10,
+      y: 10,
+      width: 120,
+      height: 40,
+      attrs: { text: '阿斯顿', fontSize: 16, fill: '#111' },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    const si = buf.indexById.get('txt1');
+    expect(si).toBeTypeOf('number');
+    const ops: string[] = [];
+    const ctx = mockCtx(ops);
+    (ctx as { fillText?: (...a: unknown[]) => void }).fillText = () => ops.push('fillText');
+    paintSoaIdleSlot(
+      ctx as unknown as CanvasRenderingContext2D,
+      buf,
+      si!,
+      { left: 0, top: 0, right: 400, bottom: 400 },
+      doc
+    );
+    expect(ops).toContain('fillText');
+  });
+
   it('strokeCanvasIdleCenterline strokes subsampled path', () => {
     const ops: string[] = [];
     const ctx = mockCtx(ops);
@@ -744,13 +850,15 @@ describe('Canvas idle path / text / shape paint', () => {
     expect(nodeNeedsCanvasEffectBake(blurNode)).toBe(true);
     const ops: string[] = [];
     const ctx = mockCtx(ops);
-    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
-      left: 10,
-      top: 20,
-      width: 40,
-      height: 30,
-      zoom: 1,
-      node: blurNode,
+    withStubbedCanvas2d(ctx, () => {
+      paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
+        left: 10,
+        top: 20,
+        width: 40,
+        height: 30,
+        zoom: 1,
+        node: blurNode,
+      });
     });
     expect(ops).toContain('drawImage');
     expect((ctx as { filter: string }).filter).toBe('none');
@@ -802,21 +910,23 @@ describe('Canvas idle path / text / shape paint', () => {
     };
     (ctx as { getTransform?: () => typeof identity }).getTransform = () => identity;
     (ctx as { canvas?: HTMLCanvasElement }).canvas = document.createElement('canvas');
-    paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
-      left: 0,
-      top: 0,
-      width: 40,
-      height: 30,
-      zoom: 1,
-      node: {
-        key: 'shape',
-        attrs: {
-          shapeType: 'rect',
-          'fill-color': '#ff0000',
-          'border-width': 0,
-          blendMode: 'multiply',
-        },
-      } as SceneNodeInput,
+    withStubbedCanvas2d(ctx, () => {
+      paintCanvasIdleNode(ctx as unknown as CanvasRenderingContext2D, {
+        left: 0,
+        top: 0,
+        width: 40,
+        height: 30,
+        zoom: 1,
+        node: {
+          key: 'shape',
+          attrs: {
+            shapeType: 'rect',
+            'fill-color': '#ff0000',
+            'border-width': 0,
+            blendMode: 'multiply',
+          },
+        } as SceneNodeInput,
+      });
     });
     expect(ops).toContain('drawImage');
   });
@@ -845,22 +955,42 @@ describe('Canvas idle path / text / shape paint', () => {
   });
 
   it('bakeMediaInkForAtlas draws empty generator plate without src', () => {
-    const baked = bakeMediaInkForAtlas(
-      {
-        key: 'image',
-        attrs: { src: '', imageGenerator: true },
-      } as SceneNodeInput,
-      120,
-      120
-    );
-    expect(baked).not.toBeNull();
-    expect((baked as { width: number }).width).toBeGreaterThan(0);
     const ops: string[] = [];
     const ctx = mockCtx(ops);
-    paintGeneratorEmptyInk(ctx as unknown as CanvasRenderingContext2D, 80, 80, 1);
-    expect(ops.some((o) => o.startsWith('fill') || o === 'fillRect' || o.includes('fill'))).toBe(
-      true
-    );
+    // setupTests stubs HTMLCanvasElement.getContext → null for measureText math.
+    const spy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+    const offSpy =
+      typeof OffscreenCanvas !== 'undefined'
+        ? vi
+            .spyOn(OffscreenCanvas.prototype, 'getContext')
+            .mockReturnValue(ctx as unknown as RenderingContext)
+        : null;
+    try {
+      const baked = bakeMediaInkForAtlas(
+        {
+          key: 'image',
+          attrs: { src: '', imageGenerator: true },
+        } as SceneNodeInput,
+        120,
+        120,
+        undefined,
+        10
+      );
+      expect(baked).not.toBeNull();
+      expect((baked as { width: number }).width).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+      offSpy?.mockRestore();
+    }
+    const inkOps: string[] = [];
+    paintGeneratorEmptyInk(mockCtx(inkOps) as unknown as CanvasRenderingContext2D, 80, 80, 1, {
+      zoom: 10,
+    });
+    expect(
+      inkOps.some((o) => o.startsWith('fill') || o === 'fillRect' || o.includes('fill'))
+    ).toBe(true);
   });
 
   it('paintCanvasIdleNode clips media to owning clipContent frame', () => {
@@ -1376,13 +1506,13 @@ describe('Canvas idle path / text / shape paint', () => {
         key: 'audio',
         attrs: { src: '', audioGenerator: true },
       } as SceneNodeInput)
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canIdlePaintOnCanvas({
         key: 'image',
         attrs: { src: '', imageGenerator: true },
       } as SceneNodeInput)
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canIdlePaintOnCanvas({
         key: 'audio',
@@ -1488,28 +1618,25 @@ describe('Canvas idle path / text / shape paint', () => {
     const tile = document.createElement('canvas');
     tile.width = 8;
     tile.height = 8;
-    const tctx = tile.getContext('2d');
-    if (tctx) {
-      tctx.fillStyle = '#ff0000';
-      tctx.fillRect(0, 0, 8, 8);
-    }
     setFillImageCacheEntry(src, tile);
     const ops: string[] = [];
     const ctx = mockCtx(ops);
-    paintCanvasShapeInk(ctx as unknown as CanvasRenderingContext2D, {
-      node: {
-        key: 'shape',
-        attrs: {
-          shapeType: 'rect',
-          'fill-type': 'image',
-          'fill-image-src': src,
-          'fill-image-fit': 'crop',
-          'border-width': 0,
-        },
-      } as SceneNodeInput,
-      width: 40,
-      height: 30,
-      opacity: 1,
+    withStubbedCanvas2d(ctx, () => {
+      paintCanvasShapeInk(ctx as unknown as CanvasRenderingContext2D, {
+        node: {
+          key: 'shape',
+          attrs: {
+            shapeType: 'rect',
+            'fill-type': 'image',
+            'fill-image-src': src,
+            'fill-image-fit': 'crop',
+            'border-width': 0,
+          },
+        } as SceneNodeInput,
+        width: 40,
+        height: 30,
+        opacity: 1,
+      });
     });
     expect(ops).toContain('createPattern');
     expect(ops).toContain('fill');

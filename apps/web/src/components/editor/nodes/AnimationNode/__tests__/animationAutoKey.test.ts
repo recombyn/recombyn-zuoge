@@ -329,6 +329,94 @@ describe('autoKeyAnimatedProp / geometry', () => {
     expect(end?.cy).toBeCloseTo(120, 5);
   });
 
+  it('frameLocal: precomp writeback ignores world frame origin', () => {
+    // Bug dump: local (86,86) + frame (-101,234) → wrongly wrote (187,-148).
+    const assetId = 'lot_nested';
+    const anim = {
+      fr: 30,
+      w: 285,
+      h: 285,
+      layers: [],
+      assets: [
+        {
+          id: assetId,
+          w: 285,
+          h: 285,
+          layers: [
+            {
+              ind: 3,
+              ty: 4,
+              nm: 'Blue Square',
+              ln: 'shape1',
+              w: 113,
+              h: 113,
+              shapes: [{ ty: 'rc', s: { a: 0, k: [113, 113] } }],
+              ks: {
+                p: {
+                  a: 1,
+                  k: [
+                    { t: 0, s: [142.5, 142.5, 0] },
+                    { t: 30, s: [142.5, 142.5, 0] },
+                  ],
+                },
+                a: { a: 0, k: [0, 0, 0] },
+                s: { a: 0, k: [100, 100, 100] },
+                r: { a: 0, k: 0 },
+                o: { a: 0, k: 100 },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const document = {
+      ...makeDoc({
+        anim,
+        nodeId: 'shape1',
+        x: 86.09,
+        y: 86.09,
+        width: 112.81,
+        height: 112.81,
+        nodeAttrs: {
+          lottieLayerInd: 3,
+          precompEditSession: assetId,
+        },
+      }),
+      coordSpace: 'frameLocal',
+      frames: [
+        {
+          id: 'frame1',
+          kind: 'animation',
+          x: -101,
+          y: 234,
+          width: 285,
+          height: 285,
+        },
+      ],
+    };
+    const keyed = autoKeyAnimatedGeometry({
+      document,
+      nodeId: 'shape1',
+      playheadSec: 0,
+      moved: true,
+      resized: false,
+    });
+    expect(keyed).toBeTruthy();
+    const next = JSON.parse(keyed!.animationJson) as Record<string, unknown>;
+    const at0 = sampleLayerTransformAtFrame({
+      animationData: next,
+      sceneKind: 'precomp',
+      assetId,
+      layerInd: 3,
+      frame: 0,
+    });
+    expect(at0?.cx).toBeCloseTo(86.09 + 112.81 / 2, 1);
+    expect(at0?.cy).toBeCloseTo(86.09 + 112.81 / 2, 1);
+    // Must NOT be the double-subtracted world coords (187 / -148 centers).
+    expect(at0?.cx).toBeLessThan(200);
+    expect(at0?.cy).toBeGreaterThan(0);
+  });
+
   it('captures scale percent relative to layer base', () => {
     const node = {
       key: 'shape',

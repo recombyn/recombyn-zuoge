@@ -160,7 +160,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
   it('promotes large/zoomed idle images to DOM hosts (atlas cell would soft-downsample)', () => {
     const large = {
       ...imageNode('big'),
-      width: 400,
+      width: 600,
       height: 300,
     };
     const doc = makeDoc({ big: large, small: imageNode('small') });
@@ -176,7 +176,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     const zoomedSmall = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ['small'],
-      zoom: 4,
+      zoom: 8,
       dpr: 1,
     });
     expect(zoomedSmall.fullIds).toEqual(['small']);
@@ -186,7 +186,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
       document: doc,
       visibleIds: ['small'],
       zoom: 1,
-      dpr: 4,
+      dpr: 8,
     });
     expect(retinaSmall.fullIds).toEqual(['small']);
   });
@@ -228,11 +228,11 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
       zoom: 1,
       dpr: 1,
     });
-    expect(fullIds).toEqual([]);
-    expect(canvasIds.sort()).toEqual(['ag', 'i0', 'ig', 'vg']);
-    expect(canIdlePaintOnCanvas(imgGen as any)).toBe(true);
-    expect(canIdlePaintOnCanvas(vidGen as any)).toBe(true);
-    expect(canIdlePaintOnCanvas(audGen as any)).toBe(true);
+    expect(fullIds.sort()).toEqual(['ag', 'ig', 'vg']);
+    expect(canvasIds).toEqual(['i0']);
+    expect(canIdlePaintOnCanvas(imgGen as any)).toBe(false);
+    expect(canIdlePaintOnCanvas(vidGen as any)).toBe(false);
+    expect(canIdlePaintOnCanvas(audGen as any)).toBe(false);
   });
 
   it('forceFullSet keeps a canvas-ink node as a DOM host', () => {
@@ -250,7 +250,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(canvasIds.length).toBe(39);
   });
 
-  it('paintRaiseIds promote a world node onto the shared plate mount', () => {
+  it('paintRaiseIds only force-host generators (basic shapes stay SoA under raise)', () => {
     const doc = makeDoc({ n0: rect('n0'), n1: rect('n1') });
     const { fullIds, canvasIds } = pickFullAndCanvasIds({
       document: doc,
@@ -258,8 +258,8 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
       paintRaiseIds: ['n0'],
       zoom: 1,
     });
-    expect(fullIds).toEqual(['n0']);
-    expect(canvasIds).toEqual(['n1']);
+    expect(fullIds).toEqual([]);
+    expect(canvasIds.sort()).toEqual(['n0', 'n1']);
   });
 
   it('world node above an artboard leaves SoA for shared data-z stacking', () => {
@@ -387,7 +387,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     expect(selected.canvasIds).toEqual(['n0']);
   });
 
-  it('forceFull selected audio stays DOM host; idle audio on canvas plate', () => {
+  it('forceFull selected audio stays DOM host; idle audio generator is always a host', () => {
     const audio = {
       id: 'a0',
       key: 'audio',
@@ -403,8 +403,8 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
       visibleIds: ['a0', 'n0'],
       zoom: 1,
     });
-    expect(idle.fullIds).toEqual([]);
-    expect(idle.canvasIds.sort()).toEqual(['a0', 'n0']);
+    expect(idle.fullIds).toEqual(['a0']);
+    expect(idle.canvasIds).toEqual(['n0']);
     const selected = pickFullAndCanvasIds({
       document: doc,
       visibleIds: ['a0', 'n0'],
@@ -451,6 +451,7 @@ describe('pickFullAndCanvasIds (single ink path)', () => {
     });
     expect(fullIds).toContain('heavy');
     expect(fullIds).not.toContain('img0');
+    // 400px < 512 atlas cell → stays on SoA ink (sharper bake, no SVG).
     expect(canvasIds).toContain('big');
     expect(canvasIds).toContain('img0');
   });
@@ -476,7 +477,7 @@ describe('canIdlePaintOnCanvas', () => {
         height: 80,
         attrs: { audioGenerator: true },
       } as never)
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canIdlePaintOnCanvas({
         id: 'l0',
@@ -516,6 +517,53 @@ describe('canIdlePaintOnCanvas', () => {
     });
     expect(fullIds).not.toContain('framed');
     expect(canvasIds).toContain('framed');
+  });
+
+  it('framed large / arrow nodes stay on ArtboardLayer at any zoom (no z flip)', () => {
+    const nodes: Record<string, any> = {
+      big: {
+        ...rect('big', 600, 600),
+        attrs: { ...(rect('big', 600, 600).attrs || {}), frameId: 'board', frameOrder: 0 },
+      },
+      arrow: {
+        id: 'arrow',
+        key: 'shape',
+        x: 0,
+        y: 0,
+        width: 80,
+        height: 24,
+        attrs: {
+          shapeType: 'arrow',
+          frameId: 'board',
+          frameOrder: 1,
+          'border-width': 2,
+          stroke: '#333',
+        },
+      },
+    };
+    const doc = makeDoc(nodes);
+    doc.frames = [
+      {
+        id: 'board',
+        name: 'A',
+        backgroundColor: '#fff',
+        x: 0,
+        y: 0,
+        width: 700,
+        height: 700,
+      },
+    ] as never;
+    for (const zoom of [0.25, 1, 4]) {
+      const { fullIds, canvasIds } = pickFullAndCanvasIds({
+        document: doc,
+        visibleIds: ['big', 'arrow'],
+        zoom,
+        dpr: 2,
+      });
+      expect(fullIds).not.toContain('big');
+      expect(fullIds).not.toContain('arrow');
+      expect(canvasIds.sort()).toEqual(['arrow', 'big']);
+    }
   });
 
   it('animation workbench: idle vectors stay on ArtboardLayer; lottie stays FO host', () => {

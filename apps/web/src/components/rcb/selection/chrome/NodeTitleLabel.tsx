@@ -1,13 +1,13 @@
 /**
  * Frame / image / video title row above the control box.
- * HTML under camera scale (same contract as SelectionToolbarShell) — not world SVG.
+ * Same dock as selection toolbars: {@link WorldScreenChromeRoot}
+ * (`rcbSceneToScreen` + screen-constant `edgeGapPx`), so zoom cannot eat the gap.
  */
 import {
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
   type ComponentType,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -20,17 +20,15 @@ import { RiVideoAiLine } from 'react-icons/ri';
 import { HiOutlineVideoCamera } from 'react-icons/hi2';
 import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
 import {
-  RcbOverlayPortal,
   useRcbCamera,
-  useRcbDevicePixelRatio,
   rcbCameraCssZoom,
-  rcbSceneToScreen,
 } from '@/components/rcb';
-import { subscribeShapeHost } from '@/components/rcb/shapes/shapeHostRegistry';
 import {
   NODE_TITLE_LABEL_GAP_PX,
   NODE_TITLE_LABEL_INSET_PX,
   NODE_TITLE_LABEL_LINE_PX,
+  WorldScreenChromeRoot,
+  orientedBoxAabb,
 } from './SelectionToolbarShell';
 import { liveShapeGeomBox } from '../HostPathChrome';
 import { shiftConstrainedMoveDelta } from '../selectionLogic';
@@ -64,7 +62,7 @@ type Props = {
   dataAttr: 'frame-label' | 'image-label';
   icon?: NodeTitleIcon;
   dataProps?: Record<string, string>;
-  /** Degrees; title follows the rotated top edge. */
+  /** Degrees; dock uses oriented AABB (title stays screen-upright). */
   angle?: number;
   hidden?: boolean;
   onSelect?: () => void;
@@ -86,20 +84,14 @@ type Props = {
    * `box` left/top/size from the editor store so the title does not drift after sticky snap.
    */
   nodeId?: string;
+  /** Kept for call-site compat; overlay chrome uses fixed stacking like toolbars. */
+  zIndex?: number;
 };
 
 const MUTED = 'var(--muted)';
-/** Idle + edit font (screen px; parent counter-scales under camera zoom). */
+/** Idle + edit font (screen px). */
 const TITLE_FONT_PX = 11;
 const TITLE_ICON_PX = 12;
-
-const ZERO_BOX: CSSProperties = {
-  position: 'absolute',
-  overflow: 'visible',
-  pointerEvents: 'none',
-  width: 0,
-  height: 0,
-};
 
 const STROKE_ICON = {
   fill: 'none' as const,
@@ -110,8 +102,8 @@ const STROKE_ICON = {
 };
 
 /**
- * Scene-space title layout: used by toolbar clearance math / tests.
- * Paint is HTML (`scale(1/zoom)`); these numbers stay `screenPx / zoom`.
+ * Scene-space title layout contract (toolbar clearance / tests).
+ * Paint uses {@link WorldScreenChromeRoot}; these numbers stay `screenPx / zoom`.
  */
 export function nodeTitleLabelWorldPlacement(
   box: NodeTitleLabelBox,
@@ -170,13 +162,15 @@ export function nodeTitleScreenGapPx(
 function LucideTitleIcon({
   Icon,
   opacity,
+  size = TITLE_ICON_PX,
 }: {
   Icon: ComponentType<SVGProps<SVGSVGElement> & { size?: number; strokeWidth?: number }>;
   opacity?: number;
+  size?: number;
 }): ReactNode {
   return (
     <Icon
-      size={TITLE_ICON_PX}
+      size={size}
       strokeWidth={2}
       className="shrink-0"
       style={{ color: MUTED, opacity }}
@@ -185,11 +179,17 @@ function LucideTitleIcon({
   );
 }
 
-function SvgTitleIcon({ children }: { children: ReactNode }): ReactNode {
+function SvgTitleIcon({
+  children,
+  size = TITLE_ICON_PX,
+}: {
+  children: ReactNode;
+  size?: number;
+}): ReactNode {
   return (
     <svg
-      width={TITLE_ICON_PX}
-      height={TITLE_ICON_PX}
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       className="shrink-0"
       aria-hidden
@@ -200,21 +200,21 @@ function SvgTitleIcon({ children }: { children: ReactNode }): ReactNode {
 }
 
 /** Same glyphs as context-menu Generators. */
-function TitleIcon({ kind }: { kind: NodeTitleIcon }): ReactNode {
+function TitleIcon({ kind, size = TITLE_ICON_PX }: { kind: NodeTitleIcon; size?: number }): ReactNode {
   switch (kind) {
     case 'audio':
-      return <LucideTitleIcon Icon={LuAudioLines} />;
+      return <LucideTitleIcon Icon={LuAudioLines} size={size} />;
     case 'text':
-      return <LucideTitleIcon Icon={LuType} />;
+      return <LucideTitleIcon Icon={LuType} size={size} />;
     case 'image-generator':
-      return <LucideTitleIcon Icon={LuImagePlus} />;
+      return <LucideTitleIcon Icon={LuImagePlus} size={size} />;
     case 'video-generator':
-      return <LucideTitleIcon Icon={RiVideoAiLine} opacity={0.72} />;
+      return <LucideTitleIcon Icon={RiVideoAiLine} opacity={0.72} size={size} />;
     case 'lottie':
     case 'lottie-generator':
       return (
         <AnimationOutlineIcon
-          size={TITLE_ICON_PX}
+          size={size}
           strokeWidth={1.75}
           className="shrink-0"
           style={{ color: MUTED }}
@@ -222,18 +222,18 @@ function TitleIcon({ kind }: { kind: NodeTitleIcon }): ReactNode {
       );
     case 'frame':
       return (
-        <SvgTitleIcon>
-          <rect x={3} y={3} width={18} height={18} rx={2} {...STROKE_ICON} />
-          <path d="M3 9h18" {...STROKE_ICON} />
-          <path d="M9 21V9" {...STROKE_ICON} />
+        <SvgTitleIcon size={size}>
+          <rect x={1.5} y={1.5} width={21} height={21} rx={2} {...STROKE_ICON} />
+          <path d="M1.5 8h21" {...STROKE_ICON} />
+          <path d="M8 22.5V8" {...STROKE_ICON} />
         </SvgTitleIcon>
       );
     case 'video':
-      return <LucideTitleIcon Icon={HiOutlineVideoCamera} />;
+      return <LucideTitleIcon Icon={HiOutlineVideoCamera} size={size} />;
     default:
       return (
-        <SvgTitleIcon>
-          <rect x={3} y={3} width={18} height={18} rx={2} {...STROKE_ICON} />
+        <SvgTitleIcon size={size}>
+          <rect x={1.5} y={1.5} width={21} height={21} rx={2} {...STROKE_ICON} />
           <circle cx={9} cy={9} r={2} {...STROKE_ICON} />
           <path d="M21 15l-5-5L5 21" {...STROKE_ICON} />
         </SvgTitleIcon>
@@ -262,31 +262,23 @@ function TitleNameField({
 }): ReactNode {
   if (!editing) {
     return (
-      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+      <span className="min-w-0 flex-1 truncate leading-none">
         {name}
-        {titleSuffix ? <span className="ml-1 opacity-70">· {titleSuffix}</span> : null}
+        {titleSuffix ? (
+          <span className="ml-1 opacity-70">{titleSuffix}</span>
+        ) : null}
       </span>
     );
   }
-
   return (
     <input
       ref={inputRef}
       data-rcb-title-edit="1"
-      data-text-inline-editor
+      className="min-w-0 flex-1 bg-transparent outline-none leading-none"
+      style={{ color: MUTED, fontSize: TITLE_FONT_PX }}
       defaultValue={name}
       aria-label={renameAriaLabel || name}
-      className="min-w-0 flex-1 appearance-none overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-transparent p-0 font-medium leading-none text-[var(--ink)] shadow-none outline-none ring-0"
-      style={{
-        fontSize: TITLE_FONT_PX,
-        lineHeight: `${NODE_TITLE_LABEL_LINE_PX}px`,
-        height: NODE_TITLE_LABEL_LINE_PX,
-      }}
-      onPointerDown={(e) => e.stopPropagation()}
-      onChange={(e) => {
-        const trimmed = e.currentTarget.value.trim();
-        if (trimmed) onRenameLive(trimmed);
-      }}
+      onChange={(e) => onRenameLive(e.target.value)}
       onBlur={onCommit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -303,7 +295,7 @@ function TitleNameField({
 }
 
 /**
- * Title row above frames / images / generators — HTML chrome, screen-constant type.
+ * Title row above frames / images / generators — overlay chrome like toolbars.
  */
 function NodeTitleLabel({
   box,
@@ -343,17 +335,10 @@ function NodeTitleLabel({
   } | null>(null);
 
   const camera = useRcbCamera();
-  const dpr = useRcbDevicePixelRatio();
-  const z = rcbCameraCssZoom(camera);
+  const z = Math.max(0.05, rcbCameraCssZoom(camera));
   const sizeText = `${Math.round(sizeWidth)} × ${Math.round(sizeHeight)}`;
-
-  // Subscribe so sticky host snaps re-render the title with the control box.
-  const [, setHostEpoch] = useState(0);
-  useEffect(
-    () => (nodeId ? subscribeShapeHost(nodeId, () => setHostEpoch((n) => n + 1)) : undefined),
-    [nodeId]
-  );
   const plate = (nodeId && liveShapeGeomBox(nodeId)) || box;
+  const dock = orientedBoxAabb(plate, angle);
 
   useEffect(() => {
     if (!editing) lastRenamedRef.current = name;
@@ -392,7 +377,6 @@ function NodeTitleLabel({
     const el = inputRef.current;
     if (!el) return;
     if (window.document.activeElement !== el) el.focus({ preventScroll: true });
-    // Select only on edit entry — remounts from live rename must keep the caret.
     if (!wasEditing) el.select();
   }, [editing]);
 
@@ -419,7 +403,6 @@ function NodeTitleLabel({
       : ({ 'data-image-label': true } as const);
 
   const onLabelPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
-    // Right-click opens the canvas context menu (window capture). Do not steal it.
     if (e.button === 2) return;
     e.stopPropagation();
     if (editing) return;
@@ -470,91 +453,69 @@ function NodeTitleLabel({
     window.addEventListener('pointerup', onUpWin);
   };
 
-  const plateW = Math.max(1, plate.width);
-  const plateH = Math.max(1, plate.height);
-  const center = rcbSceneToScreen(
-    camera,
-    plate.left + plateW / 2,
-    plate.top + plateH / 2,
-    dpr
-  );
-  const rotateDeg = Math.abs(angle) > 0.001 ? angle : 0;
-  const titleWidth = Math.max(1, plateW * z - NODE_TITLE_LABEL_INSET_PX);
-
   return (
-    <RcbOverlayPortal>
+    <WorldScreenChromeRoot
+      left={dock.left}
+      top={dock.top}
+      railWidth={Math.max(0, dock.width)}
+      anchor="bottom"
+      edgeGapPx={NODE_TITLE_LABEL_GAP_PX}
+      fillRail
+      data-rcb-node-title="1"
+    >
       <div
-        data-rcb-node-title="1"
-        className="pointer-events-none absolute z-[999990] overflow-visible"
+        {...hitAttr}
+        {...dataProps}
+        role="button"
+        tabIndex={0}
+        aria-label={renameAriaLabel || name}
+        className={cn(
+          'pointer-events-auto flex min-w-0 items-center justify-between overflow-hidden font-medium select-none',
+          onMove ? 'cursor-grab' : 'cursor-default'
+        )}
         style={{
-          ...ZERO_BOX,
-          left: center.x,
-          top: center.y,
-          transform: rotateDeg ? `rotate(${rotateDeg}deg)` : undefined,
-          transformOrigin: '0 0',
+          width: '100%',
+          height: NODE_TITLE_LABEL_LINE_PX,
+          margin: 0,
+          padding: 0,
+          boxSizing: 'border-box',
+          gap: 4,
+          paddingLeft: NODE_TITLE_LABEL_INSET_PX,
+          paddingRight: NODE_TITLE_LABEL_INSET_PX,
+          color: MUTED,
+          fontSize: TITLE_FONT_PX,
+          lineHeight: `${NODE_TITLE_LABEL_LINE_PX}px`,
+        }}
+        onPointerDown={onLabelPointerDown}
+        onKeyDown={(e) => {
+          if (editing || (e.key !== 'Enter' && e.key !== ' ')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect?.();
+          if (e.key === 'Enter') beginRename();
+        }}
+        onDoubleClick={(e) => {
+          if (!onRename) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onSelect?.();
+          beginRename();
         }}
       >
-        <div
-          className="pointer-events-none absolute overflow-visible"
-          style={{
-            ...ZERO_BOX,
-            left: -(plateW * z) / 2,
-            top: -(plateH * z) / 2,
-          }}
-        >
-          <div
-            {...hitAttr}
-            {...dataProps}
-            role="button"
-            tabIndex={0}
-            aria-label={renameAriaLabel || name}
-            className={cn(
-              'pointer-events-auto absolute flex min-w-0 items-center justify-between gap-1 overflow-hidden font-medium select-none',
-              onMove ? 'cursor-grab' : 'cursor-default'
-            )}
-            style={{
-              left: NODE_TITLE_LABEL_INSET_PX,
-              top: -NODE_TITLE_LABEL_GAP_PX,
-              width: titleWidth,
-              maxWidth: titleWidth,
-              height: NODE_TITLE_LABEL_LINE_PX,
-              transform: 'translateY(-100%)',
-              color: MUTED,
-              fontSize: TITLE_FONT_PX,
-              lineHeight: `${NODE_TITLE_LABEL_LINE_PX}px`,
-            }}
-            onPointerDown={onLabelPointerDown}
-            onKeyDown={(e) => {
-              if (editing || (e.key !== 'Enter' && e.key !== ' ')) return;
-              e.preventDefault();
-              e.stopPropagation();
-              onSelect?.();
-              if (e.key === 'Enter') beginRename();
-            }}
-            onDoubleClick={(e) => {
-              if (!onRename) return;
-              e.preventDefault();
-              e.stopPropagation();
-              onSelect?.();
-              beginRename();
-            }}
-          >
-            <TitleIcon kind={iconKind} />
-            <TitleNameField
-              editing={editing && Boolean(onRename)}
-              name={name}
-              titleSuffix={titleSuffix}
-              renameAriaLabel={renameAriaLabel}
-              inputRef={inputRef}
-              onRenameLive={(value) => rename(value, { skipHistory: true })}
-              onCommit={commit}
-              onCancel={cancelRename}
-            />
-            <span className="shrink-0 opacity-80 tabular-nums">{sizeText}</span>
-          </div>
-        </div>
+        <TitleIcon kind={iconKind} />
+        <TitleNameField
+          editing={editing && Boolean(onRename)}
+          name={name}
+          titleSuffix={titleSuffix}
+          renameAriaLabel={renameAriaLabel}
+          inputRef={inputRef}
+          onRenameLive={(value) => rename(value, { skipHistory: true })}
+          onCommit={commit}
+          onCancel={cancelRename}
+        />
+        <span className="shrink-0 opacity-80 tabular-nums leading-none">{sizeText}</span>
       </div>
-    </RcbOverlayPortal>
+    </WorldScreenChromeRoot>
   );
 }
 

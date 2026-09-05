@@ -33,6 +33,7 @@ import type { ArtboardFrame } from '@/components/rcb/frames/types';
 import {
   FRAME_HIGHLIGHT_STROKE,
   FRAME_PLATE_STROKE,
+  applyArtboardPlateEdgeStroke,
   framePlateStrokeSceneWidth,
   isAnimationArtboardKind,
 } from '@/components/rcb/frames/types';
@@ -48,15 +49,21 @@ import {
 } from '@/components/rcb/frames/artboardInkSurface';
 
 /**
- * Clear plate stroke only when SelectionChrome paints **this** plate's box.
+ * Clear plate stroke only when SelectionChrome owns the outline.
+ * - Sole full-chrome plate: SelectionChrome paints **this** plate's box.
+ * - Bound child selected: child SelectionChrome must not share a #3388ff edge
+ *   with the soft-focus plate stroke (same blue reads as “selection under frame”).
  * Multi-frame full chrome uses a union outline — members must keep their edges.
  */
 export function framePlateClearsIdleStroke(opts: {
   chromeMode: 'soft' | 'full';
   selectedFrameIds: readonly string[];
   frameId: string;
+  /** True when a selected scene node is bound to this plate. */
+  boundChildSelected?: boolean;
 }): boolean {
-  const { chromeMode, selectedFrameIds, frameId } = opts;
+  const { chromeMode, selectedFrameIds, frameId, boundChildSelected = false } = opts;
+  if (boundChildSelected) return true;
   return (
     chromeMode === 'full' &&
     selectedFrameIds.length === 1 &&
@@ -71,9 +78,19 @@ export function framePlateShowsHighlightEdge(opts: {
   frameId: string;
   activeFrameId?: string | null;
   moving?: boolean;
+  /** Bound child SelectionChrome — suppress competing plate soft edge. */
+  boundChildSelected?: boolean;
 }): boolean {
-  const { chromeMode, selectedFrameIds, frameId, activeFrameId = null, moving = false } = opts;
+  const {
+    chromeMode,
+    selectedFrameIds,
+    frameId,
+    activeFrameId = null,
+    moving = false,
+    boundChildSelected = false,
+  } = opts;
   if (moving) return true;
+  if (boundChildSelected) return false;
   if (chromeMode === 'soft') {
     return activeFrameId === frameId || selectedFrameIds.includes(frameId);
   }
@@ -216,8 +233,26 @@ export function previewArtboardFrameGeometry(
     );
     return true;
   }
-  const plate = el.querySelector<SVGRectElement>('rect[data-baseline="1"]');
-  if (plate) setAttrs(plate, { width, height });
+  const plate = el.querySelector<SVGRectElement>(
+    'rect[data-rcb-artboard-edge="1"], rect[data-baseline="1"]'
+  );
+  if (plate) {
+    const stroke = String(plate.getAttribute('stroke') || 'none');
+    const sw =
+      stroke !== 'none' ? Math.max(0, Number(plate.getAttribute('stroke-width')) || 0) : 0;
+    if (sw > 0) {
+      setAttrs(plate, {
+        x: sw / 2,
+        y: sw / 2,
+        width: Math.max(0, width - sw),
+        height: Math.max(0, height - sw),
+      });
+    } else {
+      setAttrs(plate, { x: 0, y: 0, width, height });
+    }
+  }
+  const fill = el.querySelector<SVGRectElement>('rect[data-rcb-artboard-fill="1"]');
+  if (fill) setAttrs(fill, { width, height });
   const fo = el.querySelector<SVGForeignObjectElement>('foreignObject[data-rcb-artboard-ink="1"]');
   if (fo) setAttrs(fo, { width, height });
   const inkCanvas = el.querySelector<HTMLCanvasElement>('canvas[data-rcb-artboard-ink-canvas]');
@@ -309,6 +344,27 @@ function mountArtboardInk(
   highlighted: boolean,
   zoom: number
 ): void {
+  // SVG fill owns the plate silhouette so selection chrome AABB matches pixels
+  // (Canvas FO fill under CSS scale could bleed past the blue box by ~1px).
+  const { css, alpha } = (() => {
+    const raw = frame.backgroundColor;
+    const fill = raw && raw !== 'transparent' ? String(raw) : '#FFFFFF';
+    const a = Math.max(0, Math.min(100, Number(frame.backgroundOpacity ?? 100))) / 100;
+    return { css: fill, alpha: a };
+  })();
+  const fillRect = svgEl('rect', {
+    x: 0,
+    y: 0,
+    width: w,
+    height: h,
+    'data-rcb-artboard-fill': '1',
+  });
+  append(g, fillRect);
+  setFill(fillRect, css);
+  setStroke(fillRect, 'none');
+  if (alpha < 1) setAttrs(fillRect, { opacity: String(alpha) });
+  setAttrs(fillRect, { 'pointer-events': 'none' });
+
   const fo = svgEl('foreignObject', {
     x: 0,
     y: 0,
@@ -316,6 +372,8 @@ function mountArtboardInk(
     height: h,
     'data-rcb-artboard-ink': '1',
   }) as SVGForeignObjectElement;
+  // FO default can be visible — keep plate-bound idle pixels inside the board.
+  fo.style.overflow = 'hidden';
   append(g, fo);
 
   const canvas = document.createElement('canvas');
@@ -323,6 +381,7 @@ function mountArtboardInk(
   canvas.style.display = 'block';
   canvas.style.width = `${w}px`;
   canvas.style.height = `${h}px`;
+  // Do not force pixelated — AA strokes + nearest-neighbor looked soft inside plates.
   fo.appendChild(canvas);
 
   g.__artboardInkCanvas = canvas;
@@ -343,11 +402,20 @@ function mountArtboardInk(
     height: h,
     'data-baseline': '1',
     'data-radius-body': '1',
+    'data-rcb-artboard-edge': '1',
   });
   append(g, plate);
   setFill(plate, 'none');
-  setStroke(plate, 'none');
   setAttrs(plate, { 'pointer-events': 'none' });
+  // SVG edge (not canvas): ink FO backing is resolution-capped — canvas
+  // hairlines drop below 1px and vanish when zoomed in.
+  applyArtboardPlateEdgeStroke(plate, {
+    selected,
+    highlighted,
+    zoom,
+    width: w,
+    height: h,
+  });
 }
 
 
@@ -517,6 +585,7 @@ function HtmlArtboardFrame({
           originY={live.y}
           renameAriaLabel="Frame name"
           nodeId={frame.id}
+          zIndex={zIndex}
         />
       </>
     );

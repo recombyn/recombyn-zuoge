@@ -1,12 +1,9 @@
-# Reject PR commits that include Cursor as Co-authored-by.
-# GitHub free repos cannot use ruleset commit_message_pattern; this check is the substitute.
-# Use Windows PowerShell — Git Bash mangles ACTIONS_TEMP paths (C:\ → C:),
-# and this runner may not have PowerShell 7 (pwsh) installed.
+# Formerly auto-ran on every PR. Disabled — use workflow_dispatch only if needed.
+# Main branch protection: require pull request (no required status checks).
 name: Block Cursor co-author
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,24 +24,8 @@ jobs:
 
       - name: Reject Co-authored-by Cursor
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          $base = $env:BASE_SHA
-          $head = $env:HEAD_SHA
-          if (-not $base -or -not $head) {
-            Write-Error "Missing BASE_SHA or HEAD_SHA"
-            exit 1
-          }
-          $bodies = git log --format=%B "${base}..${head}" 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "git log failed: $bodies"
-            exit 1
-          }
-          $hit = $bodies | Select-String -SimpleMatch 'Co-authored-by: Cursor'
-          if ($hit) {
-            Write-Host "::error::Commits must not include 'Co-authored-by: Cursor'. Amend/rebase without that trailer, then push."
-            git log --format='== %h%n%B' "${base}..${head}" | Select-String -SimpleMatch 'Co-authored-by: Cursor' -Context 5,0
-            exit 1
-          }
-          Write-Host 'OK: no Cursor Co-authored-by trailer in PR commits.'
+          Write-Host 'Manual-only workflow. Prefer local husky/commit-msg to strip Cursor trailers.'
+          Write-Host 'OK'

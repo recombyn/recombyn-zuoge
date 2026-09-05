@@ -112,11 +112,12 @@ describe('main scene LOT preview data', () => {
       assetId: `lot_${lotId}`,
       selectedLayerInd: 1,
     });
-    expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
-    // During LOT tab the workbench shrinks; nested lot must rebase to local 0,0.
+    expect(state.lottiePrecompEdit?.assetId).toBe(`lot_${lotId}`);
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
+    // Lightweight LOT tab — geom stays put (same LottiePlate as 主场景).
     const lotDuring = state.document!.deltaSetLike[lotId];
-    expect(Number(lotDuring.x)).toBe(0);
-    expect(Number(lotDuring.y)).toBe(0);
+    expect(Number(lotDuring.x)).toBe(lotXBefore);
+    expect(Number(lotDuring.y)).toBe(lotYBefore);
     expect(isNodeStructurallyHiddenInDocument(state.document, lotDuring)).toBe(false);
 
     state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
@@ -158,8 +159,8 @@ describe('main scene LOT preview data', () => {
     expect(resolveMainSceneNestedLotAnimationJson(state.document!, lotId)).toBe(fromHostBefore);
 
     state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId: `lot_${lotId}`, selectedLayerInd: 1 });
-    expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
-    // Structurally still in document; overlay hides lot ink during LOT tab.
+    expect(state.lottiePrecompEdit?.assetId).toBe(`lot_${lotId}`);
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
     expect(state.document!.deltaSetLike![lotId].attrs?.hidden).toBeFalsy();
 
     state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
@@ -184,10 +185,15 @@ describe('main scene LOT preview data', () => {
     expect(Array.isArray(layer0?.shapes) && (layer0!.shapes as unknown[]).length).toBeGreaterThan(
       0
     );
-    expect(String(lotNode.attrs?.animationData || '')).toBe(lotJson);
+    // Preview prefers host precomp asset; plate JSON may differ in nm/meta only.
+    const plateParsed = parseLottieAnimationData(lotNode.attrs?.animationData);
+    expect(plateParsed).toBeTruthy();
+    expect((plateParsed!.layers as unknown[]).length).toBe(
+      (parsed!.layers as unknown[]).length
+    );
   });
 
-  it('LOT tab round-trip preserves session shape edits in host JSON', () => {
+  it('LOT tab switch keeps same nested-lot preview (no materialize)', () => {
     const anim = lotFixture();
     let state = seedEditor();
     state = reduceEditor(state, editorReducers.placeUploadedLottie, {
@@ -198,49 +204,50 @@ describe('main scene LOT preview data', () => {
     const hostId = String(state.lottieTimelinePanel!.nodeId);
     const lotId = findNestedLot(state, hostId, frameId)!;
     const assetId = `lot_${lotId}`;
+    const before = resolveMainSceneNestedLotAnimationJson(state.document!, lotId);
 
     state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
-    const sessionId = state.lottiePrecompEdit?.sessionNodeIds?.[0];
-    expect(sessionId).toBeTruthy();
-    const widthBefore = Number(state.document!.deltaSetLike[sessionId!].width);
-    expect(widthBefore).toBeGreaterThan(0);
-
-    state = reduceEditor(state, editorReducers.patchDocumentNodes, {
-        patches: [
-          {
-            nodeId: sessionId!,
-            patch: { width: 180, height: 180, x: 140, y: 140 },
-          },
-        ],
-      });
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
+    expect(state.lottiePrecompEdit?.sessionHidesLotInk).toBe(false);
+    expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
 
     state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
     expect(state.lottiePrecompEdit).toBeNull();
     expect(isMainSceneLotPreviewReady(state.document!, lotId)).toBe(true);
-
-    const hostJsonAfterExit = extractPrecompAssetJson(
-      state.document!.deltaSetLike[hostId].attrs?.animationData,
-      assetId
-    );
-    expect(hostJsonAfterExit).toBeTruthy();
-    const hostLayer = (
-      parseLottieAnimationData(hostJsonAfterExit)!.layers as Record<string, unknown>[]
-    )[0];
-    const hostShape = (
-      (hostLayer.shapes as Record<string, unknown>[]) || []
-    ).find((s) => s?.ty === 'rc' || s?.ty === 'el');
-    const hostSize = (hostShape?.s as { k?: number[] })?.k || [];
-    expect(Number(hostSize[0])).toBeGreaterThan(0);
-
-    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
-    const sessionAgain = state.lottiePrecompEdit?.sessionNodeIds?.[0];
-    expect(sessionAgain).toBeTruthy();
-    const widthAgain = Number(state.document!.deltaSetLike[sessionAgain!].width);
-    expect(widthAgain).toBeGreaterThan(widthBefore);
-    expect(widthAgain).not.toBe(widthBefore);
+    expect(resolveMainSceneNestedLotAnimationJson(state.document!, lotId)).toBe(before);
   });
 
-  it('user JSON: tab switch keeps 主场景 preview + persists edits through ensureAnimationFrameMedia', () => {
+  it('user JSON: LOT tab enter keeps nested lot geom (same paint path)', () => {
+    const anim = userLotFixture();
+    expect(anim).toBeTruthy();
+
+    let state = seedEditor();
+    state = reduceEditor(state, editorReducers.placeUploadedLottie, {
+      animationData: anim,
+      name: '重测生成LOT-edited',
+    });
+    const frameId = String(state.selectedFrameIds?.[0] || '');
+    const hostId = String(state.lottieTimelinePanel!.nodeId);
+    const lotId = findNestedLot(state, hostId, frameId)!;
+    const assetId = `lot_${lotId}`;
+    const lotBefore = state.document!.deltaSetLike[lotId];
+    const x0 = Number(lotBefore.x);
+    const y0 = Number(lotBefore.y);
+    const w0 = Number(lotBefore.width);
+
+    state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, {
+      hostNodeId: hostId,
+      assetId,
+      selectedLayerInd: 1,
+    });
+    const lot = state.document!.deltaSetLike[lotId];
+    expect(Number(lot.x)).toBe(x0);
+    expect(Number(lot.y)).toBe(y0);
+    expect(Number(lot.width)).toBe(w0);
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
+  });
+
+  it('user JSON: tab switch keeps 主场景 preview ready', () => {
     const anim = userLotFixture();
     expect(anim).toBeTruthy();
     let state = seedEditor();
@@ -256,18 +263,12 @@ describe('main scene LOT preview data', () => {
 
     const assetId = `lot_${lotId}`;
     state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
-    expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
     expect(isNodeStructurallyHiddenInDocument(state.document, state.document!.deltaSetLike[lotId])).toBe(
       false
     );
     expect(isHiddenByLottiePrecompEditFocus(lotId, state.document!.deltaSetLike[lotId])).toBe(false);
 
-    const sessionId = state.lottiePrecompEdit!.sessionNodeIds![0];
-    const widthBefore = Number(state.document!.deltaSetLike[sessionId].width);
-    state = reduceEditor(state, editorReducers.patchDocumentNodes, {
-        patches: [{ nodeId: sessionId, patch: { width: widthBefore + 40, height: widthBefore + 40 } }],
-      });
-    // Dock effect re-glues host while LOT tab is open — must not wipe edits.
     state = reduceEditor(state, editorReducers.ensureAnimationFrameMedia, { frameId, skipHistory: true });
 
     state = reduceEditor(state, editorReducers.exitLottiePrecompEdit);
@@ -278,9 +279,8 @@ describe('main scene LOT preview data', () => {
     );
 
     state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
-    const again = state.lottiePrecompEdit?.sessionNodeIds?.[0];
-    expect(again).toBeTruthy();
-    expect(Number(state.document!.deltaSetLike[again!].width)).toBeGreaterThan(widthBefore);
+    expect(state.lottiePrecompEdit?.assetId).toBe(assetId);
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
   });
 
   it('user JSON: LOT tab playhead bake does not infinite-loop with persist', () => {
@@ -297,7 +297,8 @@ describe('main scene LOT preview data', () => {
     const assetId = `lot_${lotId}`;
 
     state = reduceEditor(state, editorReducers.enterLottiePrecompEdit, { hostNodeId: hostId, assetId, selectedLayerInd: 1 });
-    expect(state.lottiePrecompEdit?.sessionNodeIds?.length).toBeGreaterThan(0);
+    // Lightweight tab: no materialized session shapes — bake has nothing to patch.
+    expect((state.lottiePrecompEdit?.sessionNodeIds || []).length).toBe(0);
 
     let lastToken = state.documentPatchToken;
     let lastPatches = -1;

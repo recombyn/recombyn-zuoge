@@ -23,6 +23,7 @@ export {
   rcbZoomAtPoint,
   rcbFitCamera,
   rcbFitCameraInBand,
+  rcbCenterCameraInBand,
   rcbViewportSceneBounds,
   rcbStepZoom,
 } from './core/math';
@@ -61,6 +62,7 @@ export {
   paintTextProxyLines,
   paintMediaProxyIcon,
   paintGeneratorEmptyInk,
+  paintGeneratorEmptyPlateIcon,
   strokeCanvasIdleCenterline,
   canvasIdleIsStrokeOnly,
   canvasIdleStrokeWidth,
@@ -102,7 +104,6 @@ export {
   setSoaCanvasShapesEnabledForTests,
   isSoaCanvasEligible,
   isSoaBasicGeomSufficient,
-  isSoaRichFillAtlasStampable,
   soaStrokeWidth,
   SOA_DEFAULT_STROKE_WIDTH,
   hitTestSoaBuffer,
@@ -143,13 +144,11 @@ export {
   pathDLooksClosed,
   sampleSoaArc,
   SOA_PATH_MAX_PTS,
+  SOA_PATH_CLOSED_MAX_PTS,
   SOA_PATH_CURVE_STEP,
 } from './render/soaPathSamples';
 export {
   createSoaWebglAtlas,
-  stampSoaPathToAtlas,
-  stampSoaRoundedRectToAtlas,
-  stampSoaEllipseToAtlas,
   stampImageToAtlas,
   evictSoaAtlasOldest,
   releaseSoaAtlasRegion,
@@ -194,7 +193,6 @@ export {
   createWebglSceneRenderer,
   collectSoaWebglInstances,
 } from './render/webglSceneRenderer';
-export { createWebgpuSceneRenderer } from './render/webgpuSceneRenderer';
 export {
   getGpuDepthOfFieldParams,
   setGpuDepthOfFieldParams,
@@ -238,6 +236,7 @@ export {
   rcbFitImageIntoViewport,
   rcbLayoutGeneratorPlate,
   generatorEmptyIconSize,
+  generatorEmptyIconVisible,
   RCB_PLACE_TEXT_SCREEN_PX,
   RCB_PLACE_STROKE_SCREEN_PX,
   rcbDefaultPlaceFontSize,

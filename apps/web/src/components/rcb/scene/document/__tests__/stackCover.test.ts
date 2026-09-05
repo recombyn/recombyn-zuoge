@@ -4,6 +4,7 @@ import {
   buildNodeStackZMap,
   createBareDocument,
   maxDocumentStackZ,
+  nodePaintZIndex,
   reorderNodesInDocument,
   selectionPaintZIndex,
   listSingleSelectionPaintRaiseNodeIds,
@@ -177,6 +178,28 @@ describe('unified HTML media stack (foreignObject)', () => {
     ];
     doc.stackOrder = ['node:under', 'frame:top'];
     expect(worldNodeStacksAboveAnyFrame(doc, 'under')).toBe(false);
+  });
+
+  it('empty world generator paints above artboard plates without mutating stackOrder', () => {
+    let doc = createBareDocument();
+    const { id, node } = createImageGeneratorNode({ x: 50, y: 50, width: 80, height: 80 });
+    doc = addNodeToDocument(doc, id, node);
+    doc.frames = [
+      { id: 'board', name: 'Frame', backgroundColor: '#fff', x: 0, y: 0, width: 200, height: 300 },
+    ];
+    // Generator under the plate in permanent order (paste-then-frame / older stack).
+    doc.stackOrder = [`node:${id}`, 'frame:board'];
+    const plateZ = stackZIndex(doc, 'frame', 'board');
+    const natural = stackZIndex(doc, 'node', id);
+    expect(natural).toBeLessThan(plateZ);
+    const paintZ = nodePaintZIndex(doc, id, false);
+    expect(paintZ).toBeGreaterThan(plateZ);
+    expect(doc.stackOrder).toEqual([`node:${id}`, 'frame:board']);
+
+    const bound = createImageGeneratorNode({ x: 10, y: 10, width: 40, height: 40 });
+    bound.node.attrs = { ...bound.node.attrs, frameId: 'board', frameOrder: 0 };
+    doc = addNodeToDocument(doc, bound.id, bound.node);
+    expect(nodePaintZIndex(doc, bound.id, false)).toBe(stackZIndex(doc, 'node', bound.id));
   });
 
   it('addNodeToDocument appends new nodes on top of stackOrder', () => {

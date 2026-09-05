@@ -700,6 +700,33 @@ export function filletPathD(
 }
 
 /**
+ * Painted closed-path `d` (boolean / path nodes) — same fillet as sceneToSvg.
+ * Sharp base + radius* attrs → filleted silhouette for Canvas/WebGL idle ink.
+ */
+export function pathPaintDFromAttrs(
+  attrs: Record<string, unknown> | null | undefined,
+  opts?: { shapeType?: string; skipFillet?: boolean }
+): string {
+  const a = attrs || {};
+  const baseD = String(a.path || '').trim();
+  if (!baseD) return '';
+  const shapeType = String(opts?.shapeType || a.shapeType || 'path').toLowerCase();
+  if (opts?.skipFillet || shapeType === 'pen' || shapeType === 'pencil') return baseD;
+  const closed =
+    a.closed === true ||
+    a.closed === 'true' ||
+    a.closed === 1 ||
+    a.closed === '1' ||
+    /\sZ\s*$/i.test(baseD);
+  if (!closed) return baseD;
+  const outlined = a.outlined === true || a.outlined === 'true' || a.outlined === 1 || a.outlined === '1';
+  if (outlined) return baseD;
+  const cornerR = radiiFromAttrs(a);
+  if (maxRadius(cornerR) <= 0.5) return baseD;
+  return filletPathD(baseD, cornerR, a);
+}
+
+/**
  * Rounded polygon path. `radii[i]` fillets vertex `points[i]`.
  * Soft curve-sample vertices are forced to 0 even if radii says otherwise.
  *
@@ -895,6 +922,11 @@ export function mergeLiveCornerRadiiIntoAttrs(
     radiusTR: live.tr,
     radiusBR: live.br,
     radiusBL: live.bl,
+    // Fingerprint / legacy aliases
+    tl: live.tl,
+    tr: live.tr,
+    br: live.br,
+    bl: live.bl,
     radius: avg,
     cornerRadius: avg,
   };

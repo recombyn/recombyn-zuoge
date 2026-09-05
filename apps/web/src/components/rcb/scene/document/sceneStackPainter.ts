@@ -12,6 +12,7 @@
 import type { SceneDocument } from '@/components/rcb/sceneNode';
 import {
   maxDocumentStackZ,
+  nodePaintZIndex,
   selectionPaintZIndex,
   stackZIndex,
 } from '@/components/rcb/scene/document/sceneDocument';
@@ -24,6 +25,7 @@ export function stackPaintZ(
   id: string,
   raised = false
 ): number {
+  if (kind === 'node') return nodePaintZIndex(doc, id, raised);
   return selectionPaintZIndex(doc, kind, id, raised);
 }
 

@@ -251,8 +251,20 @@ function nodeSkewAxisDeg(node: SceneNode): number {
 }
 
 function nodeCornerRadius(node: SceneNode): number {
-  const n = Number(node.attrs?.cornerRadius);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  const attrs = node.attrs || {};
+  for (const key of [
+    'cornerRadius',
+    'rx',
+    'ry',
+    'radiusTL',
+    'radiusTR',
+    'radiusBR',
+    'radiusBL',
+  ] as const) {
+    const n = Number(attrs[key]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
 }
 
 function setLayerPathBox(

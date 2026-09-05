@@ -24,6 +24,7 @@ import {
   localizeAnchors,
   offsetAnchors,
   penAnchorsToD,
+  penCommitBoxPad,
   penSubpathsFromD,
   penSubpathsToD,
   flipAnchorsAroundCenter,
@@ -650,7 +651,8 @@ function PenPathEditFeature({
   const commitDirty = () => {
     const list = subpathsRef.current;
     if (list.length && dirtyRef.current) {
-      const pad = Math.max(0, strokeWidthRef.current) / 2;
+      const allClosed = list.every((s) => s.closed);
+      const pad = penCommitBoxPad(strokeWidthRef.current, allClosed);
       const bounds = boundsOfSubpaths(list);
       const box = {
         left: bounds.left - pad,
@@ -667,7 +669,7 @@ function PenPathEditFeature({
         nodeId,
         pathD: d,
         box,
-        closed: list.every((s) => s.closed),
+        closed: allClosed,
         clearAngle: bakedAngleRef.current,
         clearFlip: bakedFlipRef.current,
       });
@@ -682,7 +684,7 @@ function PenPathEditFeature({
       setDraftCursor(null);
       return false;
     }
-    const pad = Math.max(1, newStrokeWidthRef.current) / 2;
+    const pad = penCommitBoxPad(newStrokeWidthRef.current, closedDraft);
     const bounds = boundsOfAnchors(list, closedDraft);
     const box = {
       left: bounds.left - pad,

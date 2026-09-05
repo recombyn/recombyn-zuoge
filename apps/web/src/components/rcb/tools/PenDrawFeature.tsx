@@ -11,6 +11,7 @@ import {
   localizeAnchors,
   penAnchorsToD,
   boundsOfAnchors,
+  penCommitBoxPad,
   withMirroredHandles,
   resolvePenPlaceAction,
   reversePenAnchors,
@@ -522,7 +523,8 @@ function PenDrawFeature({
     }
     const sw = Math.max(1, Number(strokeWidthRef.current) || 2);
     const bounds = boundsOfAnchors(list, closed);
-    const pad = sw / 2;
+    // Closed → path geom box (not stroke AABB). Open → half stroke pad.
+    const pad = penCommitBoxPad(sw, closed);
     const origin = {
       left: bounds.left - pad,
       top: bounds.top - pad,

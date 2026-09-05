@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   filletPathD,
   parseClosedPathRings,
+  pathPaintDFromAttrs,
   primaryClosedPathRingIndex,
   roundedPolygonPath,
   sharpCornerIndices,
@@ -52,6 +53,26 @@ describe('compound path corner fillet', () => {
     expect(rings.length).toBe(2);
     expect(rings[1].length).toBeGreaterThan(rings[0].length);
     expect(primaryClosedPathRingIndex(rings)).toBe(0);
+  });
+
+  it('pathPaintDFromAttrs fillets closed boolean path like sceneToSvg', () => {
+    const base = 'M 0 0 L 100 0 L 100 80 L 40 80 L 40 40 L 0 40 Z';
+    const painted = pathPaintDFromAttrs(
+      {
+        path: base,
+        closed: 'true',
+        shapeType: 'path',
+        radiusTL: 12,
+        radiusTR: 12,
+        radiusBR: 12,
+        radiusBL: 12,
+        radiusLinked: 'true',
+      },
+      { shapeType: 'path' }
+    );
+    expect(painted).not.toBe(base);
+    expect(painted.toLowerCase()).toContain('a ');
+    expect(pathPaintDFromAttrs({ path: base, closed: 'true' })).toBe(base);
   });
 
   it('fillets exterior and hole when linked R is set', () => {

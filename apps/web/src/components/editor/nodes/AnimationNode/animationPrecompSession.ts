@@ -111,11 +111,20 @@ function unhideLotNode(
 ): SceneDocument {
   if (!doc.deltaSetLike?.[lotId]) return doc;
   const lot = doc.deltaSetLike[lotId];
+  const prevHidden = lot.attrs?.hidden === true || lot.attrs?.hidden === 'true';
+  const prevJson = String(lot.attrs?.animationData || '');
   const attrs: Record<string, unknown> = {
+    ...(lot.attrs || {}),
     hidden: false,
-    [LOTTIE_INK_REVISION_ATTR]: nextLottieInkRevision(lot),
   };
   if (extraAttrs) Object.assign(attrs, extraAttrs);
+  const nextJson = String(attrs.animationData ?? prevJson);
+  // 主场景 preview = same live LottiePlate as first open. Bumping revision on every
+  // LOT→主场景 exit remounts ink and races SVG paint → blank plate + dead playback.
+  if (nextJson !== prevJson) {
+    attrs[LOTTIE_INK_REVISION_ATTR] = nextLottieInkRevision(lot);
+  }
+  if (!prevHidden && nextJson === prevJson && !extraAttrs) return doc;
   return patchNode(doc, lotId, { attrs });
 }
 
@@ -290,8 +299,11 @@ function plateForLot(
 }
 
 /**
- * Stamp `ln` onto existing precomp asset layers by `ind` — keep original shapes/keyframes.
- * Replacing the whole layer list on enter was dropping path ink and blanking the LOT tab.
+ * Stamp `ln` (+ base w/h) onto existing precomp asset layers by `ind` — keep
+ * original shapes/keyframes. Replacing the whole layer list on enter was
+ * dropping path ink and blanking the LOT tab.
+ * Base w/h must land on the host asset so playhead bake / autoKey use Lottie
+ * local size — not scene node.width (which already includes plate fit).
  */
 function stampSessionLinksIntoHostAsset(
   hostAnimationData: unknown,
@@ -300,16 +312,22 @@ function stampSessionLinksIntoHostAsset(
 ): string | null {
   const root = parseLottieAnimationData(hostAnimationData);
   if (!root || !Array.isArray(root.assets)) return null;
-  const lnByInd = new Map<number, string>();
+  const metaByInd = new Map<number, { ln: string; w?: number; h?: number }>();
   for (const raw of maturedLayers) {
     if (!raw || typeof raw !== 'object') continue;
     const layer = raw as Record<string, unknown>;
     const ln = String(layer.ln || '').trim();
     const ind = Math.round(num(layer.ind, NaN));
     if (!ln || !Number.isFinite(ind)) continue;
-    lnByInd.set(ind, ln);
+    const w = num(layer.w, 0);
+    const h = num(layer.h, 0);
+    metaByInd.set(ind, {
+      ln,
+      ...(w > 0 ? { w } : {}),
+      ...(h > 0 ? { h } : {}),
+    });
   }
-  if (!lnByInd.size) return null;
+  if (!metaByInd.size) return null;
 
   const assets = (root.assets as Record<string, unknown>[]).map((asset) => {
     if (!asset || String(asset.id || '') !== assetId) return asset;
@@ -318,8 +336,12 @@ function stampSessionLinksIntoHostAsset(
       if (!raw || typeof raw !== 'object') return raw;
       const layer = { ...(raw as Record<string, unknown>) };
       const ind = Math.round(num(layer.ind, NaN));
-      const ln = Number.isFinite(ind) ? lnByInd.get(ind) : undefined;
-      if (ln) layer.ln = ln;
+      const meta = Number.isFinite(ind) ? metaByInd.get(ind) : undefined;
+      if (meta) {
+        layer.ln = meta.ln;
+        if (meta.w != null && !(num(layer.w, 0) > 0)) layer.w = meta.w;
+        if (meta.h != null && !(num(layer.h, 0) > 0)) layer.h = meta.h;
+      }
       return layer;
     });
     return { ...asset, layers };

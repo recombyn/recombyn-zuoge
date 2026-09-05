@@ -11,6 +11,31 @@ import type {
   ScenePage,
 } from '@/components/rcb/sceneNode';
 
+function attrFlagTrue(value: unknown): boolean {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+/**
+ * Local empty-generator check for paint z — do not import nodeCapabilities here
+ * (that module pulls editor focus helpers → chrome → SizePresetPanel → TDZ on A4).
+ */
+function isEmptyGeneratorPlateForPaintZ(
+  node: SceneNode | SceneNodeInput | null | undefined
+): boolean {
+  if (!node) return false;
+  const key = String(node.key || '');
+  const attrs = node.attrs || {};
+  if (key === 'lottie' && attrFlagTrue(attrs.lottieGenerator)) return true;
+  if (key === 'audio' && attrFlagTrue(attrs.audioGenerator)) return true;
+  if (key === 'image' && attrFlagTrue(attrs.imageGenerator)) {
+    return !String(attrs.src || '').trim();
+  }
+  if (key === 'video' && attrFlagTrue(attrs.videoGenerator)) {
+    return !String(attrs.poster || '').trim() && !String(attrs.src || '').trim();
+  }
+  return false;
+}
+
 /** Default canvas size (approx A4 @ 96dpi); user can change freely */
 export const DEFAULT_CANVAS = { width: 794, height: 1123 };
 
@@ -337,6 +362,41 @@ export function selectionPaintZIndex(
   const plateZ = stackZIndex(doc, 'frame', frameId);
   const localSlot = Math.max(1, natural - plateZ);
   return base + localSlot;
+}
+
+/** Highest permanent z among artboard / 动画工作台 plates. */
+export function maxArtboardPlateStackZ(doc: SceneDocument | null | undefined): number {
+  if (!doc?.frames?.length) return 0;
+  let max = 0;
+  for (const frame of doc.frames) {
+    const id = String(frame?.id || '').trim();
+    if (!id) continue;
+    max = Math.max(max, stackZIndex(doc, 'frame', id));
+  }
+  return max;
+}
+
+/**
+ * Host + hit z for nodes. Empty world generators never sit under opaque artboard
+ * plates: idle SoA used to paint under every plate, and SVG hosts that follow
+ * raw stackOrder vanish under a later 画板 until selection max+1.
+ * Does not mutate `stackOrder`.
+ */
+export function nodePaintZIndex(
+  doc: SceneDocument | null | undefined,
+  id: string,
+  raised: boolean
+): number {
+  if (!doc) return 0;
+  if (raised) return selectionPaintZIndex(doc, 'node', id, true);
+  const natural = stackZIndex(doc, 'node', id);
+  const node = doc.deltaSetLike?.[id];
+  if (!isEmptyGeneratorPlateForPaintZ(node)) return natural;
+  if (String(node?.attrs?.frameId || '').trim()) return natural;
+  const maxFrameZ = maxArtboardPlateStackZ(doc);
+  if (maxFrameZ <= 0 || natural > maxFrameZ) return natural;
+  // Above every plate; keep relative order from permanent stack slots.
+  return maxFrameZ + 1 + Math.floor(natural / STACK_GROUP_STRIDE);
 }
 
 /**

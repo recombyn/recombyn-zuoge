@@ -1,0 +1,24 @@
+[package]
+name = "rcb-wasm-geom"
+version = "0.1.0"
+edition = "2021"
+description = "RCB vector densify, tessellation, boolean, stroke offset, RDP, contour (WebAssembly)"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+i_overlay = "8.1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+
+[package.metadata.wasm-pack.profile.release]
+# Prefer size; disable if binaryen hangs on Windows CI — opt-level=z+strip still helps.
+wasm-opt = false

@@ -6,8 +6,15 @@
  * Multi-subpath contours are separated by a NaN,NaN break in the point stream so
  * paint/WebGL do not draw a spurious chord between contours.
  */
-/** Max vertices retained per path slot (matches Canvas idle stroke budget). */
+import { densifyPathDWasm } from '@/components/rcb/render/vector/wasmGeom';
+
+/** Max vertices retained per path slot (open strokes / light paths). */
 export const SOA_PATH_MAX_PTS = 64;
+/**
+ * Closed filled silhouettes (boolean results, rounded paths) need far more
+ * samples — 64-pt caps turn arcs into visible chords vs SVG/chrome path ink.
+ */
+export const SOA_PATH_CLOSED_MAX_PTS = 384;
 /** Approx scene-unit chord length between cubic/quadratic samples. */
 export const SOA_PATH_CURVE_STEP = 4;
 
@@ -451,39 +458,97 @@ export function densifySoaPathD(
   return out;
 }
 
-/** Drop NaN breaks and uniform-subsample to maxPts while keeping endpoints. */
+/**
+ * Cap densified polyline length for SoA idle ink.
+ * Contours separated by NaN,NaN MUST keep their breaks — dropping them merges
+ * outer+hole into one ring and WebGL atlas fill paints a diagonal/bowtie ghost
+ * (boolean subtract looks correct while SoftGlow-selected, wrong when idle).
+ */
 export function capSoaPathPoints(pts: SoaPathPoint[], maxPts = SOA_PATH_MAX_PTS): SoaPathPoint[] {
   if (pts.length <= maxPts) return pts;
-  // Prefer keeping break markers + endpoints of each contour.
-  const finite = pts.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-  if (finite.length <= maxPts) return pts;
 
-  const step = Math.max(1, Math.ceil(pts.length / maxPts));
-  const out: SoaPathPoint[] = [];
-  for (let i = 0; i < pts.length; i += step) {
-    const p = pts[i];
-    if (p) out.push(p);
+  const contours: SoaPathPoint[][] = [];
+  let cur: SoaPathPoint[] = [];
+  for (const p of pts) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      if (cur.length) {
+        contours.push(cur);
+        cur = [];
+      }
+      continue;
+    }
+    cur.push(p);
   }
-  const last = pts[pts.length - 1];
-  if (last && (out.length === 0 || out[out.length - 1] !== last)) out.push(last);
-  // Ensure we didn't exceed too far past budget after +last
-  if (out.length <= maxPts + 4) return out;
-  const step2 = Math.max(1, Math.ceil(out.length / maxPts));
-  const capped: SoaPathPoint[] = [];
-  for (let i = 0; i < out.length; i += step2) capped.push(out[i]);
-  if (capped[capped.length - 1] !== out[out.length - 1]) capped.push(out[out.length - 1]);
-  return capped;
+  if (cur.length) contours.push(cur);
+  if (!contours.length) return [];
+
+  const subsampleContour = (c: SoaPathPoint[], allot: number): SoaPathPoint[] => {
+    if (c.length <= allot) return c;
+    const keep = Math.max(2, allot);
+    const out: SoaPathPoint[] = [];
+    const step = Math.max(1, Math.ceil((c.length - 1) / (keep - 1)));
+    for (let i = 0; i < c.length; i += step) out.push(c[i]!);
+    const last = c[c.length - 1]!;
+    if (out[out.length - 1] !== last) out.push(last);
+    return out;
+  };
+
+  // Single open stroke: keep the light budget. Closed filled rings (boolean
+  // arcs) need a higher floor so subsample does not chord the silhouette.
+  if (contours.length === 1) {
+    const c = contours[0]!;
+    const first = c[0]!;
+    const last = c[c.length - 1]!;
+    const closed =
+      Number.isFinite(first.x) &&
+      Number.isFinite(last.x) &&
+      Math.hypot(first.x - last.x, first.y - last.y) < 1e-3;
+    const budget = closed
+      ? Math.max(maxPts, Math.min(SOA_PATH_CLOSED_MAX_PTS, Math.max(96, Math.ceil(c.length * 0.85))))
+      : maxPts;
+    return subsampleContour(c, budget);
+  }
+
+  // Compound (boolean holes / islands): never drop breaks. Allow a larger
+  // budget so each ring keeps enough samples after fair split (curves stay round).
+  const breakSlots = contours.length - 1;
+  const budget = Math.max(
+    maxPts,
+    Math.min(
+      SOA_PATH_CLOSED_MAX_PTS,
+      contours.length * Math.max(48, Math.floor(Math.max(maxPts, 96) / 2))
+    )
+  );
+  const pointBudget = Math.max(contours.length * 3, budget - breakSlots);
+  const total = contours.reduce((n, c) => n + c.length, 0);
+  const out: SoaPathPoint[] = [];
+  for (let ci = 0; ci < contours.length; ci += 1) {
+    if (ci > 0) out.push({ x: Number.NaN, y: Number.NaN });
+    const c = contours[ci]!;
+    const allot = Math.max(3, Math.round((c.length / Math.max(1, total)) * pointBudget));
+    out.push(...subsampleContour(c, allot));
+  }
+  return out;
 }
 
 /**
  * Sample path `d` into local polyline points (curves densified, then capped).
  * Prefer this over M/L-only parse for SoA idle ink.
+ * Single-subpath paths share vector densify (WASM/JS); multi-subpath keeps SoA breaks.
  */
 export function sampleSoaPathPolyline(
   d: string,
   maxPts = SOA_PATH_MAX_PTS,
   step = SOA_PATH_CURVE_STEP
 ): SoaPathPoint[] {
+  const src = String(d || '').trim();
+  if (!src) return [];
+  const moveCount = (src.match(/[Mm]/g) || []).length;
+  if (moveCount <= 1) {
+    const flatness = Math.max(0.5, step / 4);
+    const pts = densifyPathDWasm(src, flatness);
+    if (pts.length >= 2) return capSoaPathPoints(pts, maxPts);
+  }
   const densified = densifySoaPathD(d, step);
   const finiteCount = densified.reduce(
     (n, p) => n + (Number.isFinite(p.x) && Number.isFinite(p.y) ? 1 : 0),

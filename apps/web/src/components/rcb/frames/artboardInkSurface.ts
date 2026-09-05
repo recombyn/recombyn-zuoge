@@ -1,14 +1,11 @@
 /**
- * Per-artboard ink surface — plate fill + bound SoA idle nodes on a small canvas.
- * Lives inside the frame's stack SVG layer (data-z) so FO hosts can interleave
- * with other artboards. World WebGL skips frame-bound slots (see skipFrameBound).
+ * Per-artboard ink surface — bound SoA idle nodes on a FO canvas.
+ * Plate fill + edge stay on SVG (HtmlArtboardFrame); painting them here too
+ * double-layers and bleeds past selection chrome under camera scale.
+ *
+ * Backing tracks zoom: FO sits under SVG `scale(zoom)`, so scene×dpr alone mush.
  */
 import type { ArtboardFrame } from '@/components/rcb/frames/types';
-import {
-  FRAME_HIGHLIGHT_STROKE,
-  FRAME_PLATE_STROKE,
-  framePlateStrokeSceneWidth,
-} from '@/components/rcb/frames/types';
 import {
   getSharedSceneRenderBuffer,
   paintSoaIdleSlot,
@@ -23,6 +20,12 @@ import type { SceneDocument, SceneNodeInput } from '@/components/rcb/sceneNode';
 import { getNodeTransformPreview } from '@/components/rcb/core/transformPreview';
 import { readDevicePixelRatio } from '@/components/rcb/core/dpr';
 import { nodeOwnerFrameId } from '@/components/rcb/frames/frameNodeBinding';
+import { frameClipRevealsOverflow } from '@/components/rcb/frames/frameContentClip';
+
+/** Cap on zoom×dpr for a single full-plate ink bitmap (tiles take over past this). */
+export const ARTBOARD_INK_MAX_SCALE = 8;
+/** Longest backing edge (px) so huge plates at high zoom do not OOM. */
+export const ARTBOARD_INK_MAX_EDGE = 4096;
 
 export type ArtboardInkPaintFrame = Pick<
   ArtboardFrame,
@@ -49,22 +52,48 @@ function clampZoom(zoom: number | undefined): number {
   return Math.max(0.05, Number(zoom) || 1);
 }
 
-function plateFillCss(frame: ArtboardInkPaintFrame): { css: string; alpha: number } {
-  const raw = frame.backgroundColor;
-  const css = raw && raw !== 'transparent' ? String(raw) : '#FFFFFF';
-  const alpha = Math.max(0, Math.min(100, Number(frame.backgroundOpacity ?? 100))) / 100;
-  return { css, alpha };
+/** Device pixels per scene unit for artboard FO ink (under camera scale(zoom)). */
+export function artboardInkScale(zoom: number, dpr = 1): number {
+  const z = clampZoom(zoom);
+  const ratio = Math.max(1, Number(dpr) || 1);
+  return Math.min(ARTBOARD_INK_MAX_SCALE, z * ratio);
 }
 
-function resizeInkCanvas(canvas: HTMLCanvasElement, w: number, h: number, dpr: number): void {
-  const bw = Math.max(1, Math.round(w * dpr));
-  const bh = Math.max(1, Math.round(h * dpr));
+/** True when zoom×dpr exceeds the full-plate cap (display would soft-upscale). */
+export function artboardInkBackingInsufficient(zoom: number, dpr = 1): boolean {
+  const z = clampZoom(zoom);
+  const ratio = Math.max(1, Number(dpr) || 1);
+  return z * ratio > ARTBOARD_INK_MAX_SCALE + 1e-6;
+}
+
+/**
+ * Size the FO canvas so CSS scene size × camera zoom maps ~1:1 to device pixels
+ * (up to {@link ARTBOARD_INK_MAX_SCALE} / {@link ARTBOARD_INK_MAX_EDGE}).
+ * Returns the effective scene→backing scale for `setTransform`.
+ */
+function resizeInkCanvas(
+  canvas: HTMLCanvasElement,
+  w: number,
+  h: number,
+  scale: number
+): number {
+  let bw = Math.max(1, Math.round(w * scale));
+  let bh = Math.max(1, Math.round(h * scale));
+  let effective = scale;
+  const edge = Math.max(bw, bh);
+  if (edge > ARTBOARD_INK_MAX_EDGE) {
+    const t = ARTBOARD_INK_MAX_EDGE / edge;
+    bw = Math.max(1, Math.round(bw * t));
+    bh = Math.max(1, Math.round(bh * t));
+    effective = Math.min(bw / w, bh / h);
+  }
   if (canvas.width !== bw || canvas.height !== bh) {
     canvas.width = bw;
     canvas.height = bh;
   }
   canvas.style.width = `${w}px`;
   canvas.style.height = `${h}px`;
+  return effective;
 }
 
 function collectBoundIdleIndices(
@@ -79,6 +108,8 @@ function collectBoundIdleIndices(
     if (!(flags & SOA_FLAG_VISIBLE) || !(flags & SOA_FLAG_CANVAS_IDLE)) continue;
     const id = buf.ids[i];
     if (!id) continue;
+    // Selected / editing: paint on world ink without plate clip (match chrome).
+    if (frameClipRevealsOverflow(id)) continue;
     const node = doc.deltaSetLike?.[id] as SceneNodeInput | undefined;
     if (!node || nodeOwnerFrameId(node) !== frameId) continue;
     if (getNodeTransformPreview(id)?.hidden) continue;
@@ -151,18 +182,15 @@ export function paintArtboardInkSurface(entry: SurfaceEntry): void {
   const w = Math.max(1, Number(frame.width) || 1);
   const h = Math.max(1, Number(frame.height) || 1);
   const dpr = Math.max(1, readDevicePixelRatio() || 1);
-  resizeInkCanvas(entry.canvas, w, h, dpr);
+  const scale = artboardInkScale(entry.zoom, dpr);
+  const effective = resizeInkCanvas(entry.canvas, w, h, scale);
 
   const ctx = entry.canvas.getContext('2d');
   if (!ctx) return;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(effective, 0, 0, effective, 0, 0);
+  // Transparent — SVG `data-rcb-artboard-fill` / edge own the plate. Painting
+  // fill+stroke here too double-layers and bleeds ~1px past selection chrome.
   ctx.clearRect(0, 0, w, h);
-
-  const { css, alpha } = plateFillCss(frame);
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = css;
-  ctx.fillRect(0, 0, w, h);
-  ctx.globalAlpha = 1;
 
   const doc = entry.getDocument();
   if (doc) {
@@ -180,21 +208,6 @@ export function paintArtboardInkSurface(entry: SurfaceEntry): void {
     for (const i of indices) paintSoaIdleSlot(ctx, buf, i, view, doc);
     ctx.restore();
   }
-
-  paintPlateStroke(ctx, w, h, entry);
-}
-
-function paintPlateStroke(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  entry: SurfaceEntry
-): void {
-  if (entry.selected) return;
-  const sw = framePlateStrokeSceneWidth(clampZoom(entry.zoom));
-  ctx.strokeStyle = entry.highlighted ? FRAME_HIGHLIGHT_STROKE : FRAME_PLATE_STROKE;
-  ctx.lineWidth = sw;
-  ctx.strokeRect(sw / 2, sw / 2, Math.max(0, w - sw), Math.max(0, h - sw));
 }
 
 /** True when a SoA slot belongs to an artboard (painted on ArtboardLayer, not world ink). */

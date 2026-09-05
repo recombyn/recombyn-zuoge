@@ -72,6 +72,25 @@ export function isAudioGeneratorNode(node: SceneNodeRef): boolean {
   return Boolean(node) && node!.key === 'audio' && attrFlagTrue(node!.attrs?.audioGenerator);
 }
 
+/**
+ * Empty generator plates (no bitmap/poster yet) — must be SVG hosts so Lucide
+ * icons stay crisp and stackOrder/`data-z` interleaves with other hosts.
+ * WebGL densified line redraws looked soft and sat under all SVG hosts.
+ */
+export function isEmptyGeneratorPlate(node: SceneNodeRef): boolean {
+  if (!node) return false;
+  if (isLottieGeneratorNode(node)) return true;
+  if (isAudioGeneratorNode(node)) return true;
+  if (isImageGeneratorNode(node)) {
+    return !String(node!.attrs?.src || '').trim();
+  }
+  if (isVideoGeneratorNode(node)) {
+    const attrs = node!.attrs || {};
+    return !String(attrs.poster || '').trim() && !String(attrs.src || '').trim();
+  }
+  return false;
+}
+
 /** Image / video / Lottie / audio generator plates — not real scene content (no hide / lock / export). */
 export function isGeneratorNode(node: SceneNodeRef): boolean {
   return (

@@ -223,6 +223,40 @@ const brushEasingOverrides = new Map<
   { easing?: PencilEasingId; start?: PencilEasingId; end?: PencilEasingId }
 >();
 
+/** Bumps when brush options/ink change so Canvas atlas ribbons restamp. */
+let pencilBrushPaintRev = 0;
+const pencilBrushPaintListeners = new Set<() => void>();
+
+export function getPencilBrushPaintRev(): number {
+  return pencilBrushPaintRev;
+}
+
+export function subscribePencilBrushPaint(listener: () => void): () => void {
+  pencilBrushPaintListeners.add(listener);
+  return () => {
+    pencilBrushPaintListeners.delete(listener);
+  };
+}
+
+function bumpPencilBrushPaint() {
+  pencilBrushPaintRev += 1;
+  for (const fn of pencilBrushPaintListeners) {
+    try {
+      fn();
+    } catch {
+      /* ignore */
+    }
+  }
+  // Restamp freehand ribbons on the Canvas/WebGL idle path (avoid SVG host).
+  void import('@/components/rcb/render/sceneRenderer')
+    .then((m) => {
+      m.bumpSceneCanvasIdlePaint();
+    })
+    .catch(() => {
+      /* ignore circular/boot */
+    });
+}
+
 function mergeStrokeEnd(
   base: StrokeOptions['start'] | undefined,
   patch: StrokeOptions['start'] | undefined
@@ -241,6 +275,7 @@ export function updatePencilBrushOptions(
     start: patch.start ? mergeStrokeEnd(current.start, patch.start) : current.start,
     end: patch.end ? mergeStrokeEnd(current.end, patch.end) : current.end,
   });
+  bumpPencilBrushPaint();
 }
 
 export function updatePencilBrushInk(
@@ -253,6 +288,7 @@ export function updatePencilBrushInk(
     next.outlineStrokeWidth = Math.max(0, Math.min(200, Math.round(Number(next.outlineStrokeWidth) || 0)));
   }
   brushInkOverrides.set(id, next);
+  bumpPencilBrushPaint();
 }
 
 export function updatePencilBrushEasing(
@@ -274,6 +310,7 @@ export function resetPencilBrushOptions(id: string) {
   brushOptionOverrides.delete(id);
   brushEasingOverrides.delete(id);
   brushInkOverrides.delete(id);
+  bumpPencilBrushPaint();
 }
 
 export function findPencilBrush(id: string | undefined | null): PencilBrushDef {
@@ -395,6 +432,8 @@ export type PencilStrokeDrawOpts = {
    * `linear`: M/L/Z polygon — for 轮廓化 path-edit (Q midpoints resist sparsify).
    */
   pathStyle?: 'quad' | 'linear';
+  /** Override brush streamline (tests / special commit paths). */
+  streamline?: number;
 };
 
 function outlineStrokePoints(pts: Pt[], hasRealPressure: boolean): Pt[] {
@@ -444,7 +483,9 @@ export function outlinePathFromPoints(
     ...options,
     size,
     thinning: Number(options.thinning ?? 0.5),
-    streamline: 0,
+    streamline: Number(
+      strokeOpts?.streamline != null ? strokeOpts.streamline : (options.streamline ?? 0)
+    ),
     simulatePressure: false,
     start,
     end,

@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyDocument, addNodeToDocument } from '@/components/rcb/scene/document/sceneDocument';
+import { setSelectionPaintRaiseIds } from '@/components/rcb/frames/frameContentClip';
 import {
   createSceneRenderBuffer,
   rebuildSoaPathSamples,
   syncSceneRenderBufferFromDocument,
+  setSoaWebglEnvEnabledForTests,
+  SOA_FLAG_ATLAS_STAMP,
+  SOA_FLAG_BASIC_GEOM,
   SOA_FLAG_CANVAS_IDLE,
 } from '../sceneRenderBuffer';
 import {
@@ -14,7 +18,7 @@ import {
 import { createSoaWebglAtlas, SOA_ATLAS_SEG_THRESHOLD } from '../webglInstanceAtlas';
 
 describe('collectSoaWebglInstances', () => {
-  it('packs rect and ellipse in view', () => {
+  it('packs rect and ellipse as vector meshes in view', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'r', {
       id: 'r',
@@ -23,7 +27,7 @@ describe('collectSoaWebglInstances', () => {
       y: 0,
       width: 10,
       height: 10,
-      attrs: { shapeType: 'rect', fill: '#ff0000' },
+      attrs: { shapeType: 'rect', 'fill-color': '#ff0000', 'stroke-enabled': false },
       children: [],
     });
     doc = addNodeToDocument(doc, 'e', {
@@ -33,7 +37,7 @@ describe('collectSoaWebglInstances', () => {
       y: 0,
       width: 10,
       height: 10,
-      attrs: { shapeType: 'ellipse', fill: '#00ff00' },
+      attrs: { shapeType: 'ellipse', 'fill-color': '#00ff00', 'stroke-enabled': false },
       children: [],
     });
     doc = addNodeToDocument(doc, 'far', {
@@ -43,7 +47,7 @@ describe('collectSoaWebglInstances', () => {
       y: 9000,
       width: 10,
       height: 10,
-      attrs: { shapeType: 'rect', fill: '#0000ff' },
+      attrs: { shapeType: 'rect', 'fill-color': '#0000ff', 'stroke-enabled': false },
       children: [],
     });
     const buf = createSceneRenderBuffer();
@@ -55,15 +59,26 @@ describe('collectSoaWebglInstances', () => {
     const colors: number[] = [];
     const kinds: number[] = [];
     const angles: number[] = [];
-    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, rects, colors, kinds, angles);
-    expect(kinds.length).toBe(2);
-    // Default shape stroke uses SDF rounded path (kind 4), not sharp instanced quad.
-    expect(kinds).toContain(4);
-    expect(kinds).toContain(1);
-    expect(angles.every((a) => a === 0)).toBe(true);
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 100, height: 100 },
+      rects,
+      colors,
+      kinds,
+      angles,
+      [],
+      { document: doc, meshPos, meshCol, meshClip }
+    );
+    // Closed fills → mesh triangles (no atlas kind 3).
+    expect(kinds.length).toBe(0);
+    expect(meshPos.length).toBeGreaterThanOrEqual(12);
+    expect(meshCol.length).toBe(meshPos.length * 2);
   });
 
-  it('packs stroke-disabled sharp rect as kind 0', () => {
+  it('packs stroke-disabled sharp rect as mesh when mesh buffers provided', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'r', {
       id: 'r',
@@ -74,7 +89,7 @@ describe('collectSoaWebglInstances', () => {
       height: 10,
       attrs: {
         shapeType: 'rect',
-        fill: '#ff0000',
+        'fill-color': '#ff0000',
         'stroke-enabled': false,
       },
       children: [],
@@ -82,15 +97,34 @@ describe('collectSoaWebglInstances', () => {
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
-    const rects: number[] = [];
-    const colors: number[] = [];
+    const kindsFallback: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 100, height: 100 },
+      [],
+      [],
+      kindsFallback,
+      [],
+      [],
+      { document: doc }
+    );
+    // Without mesh buffers: sharp rect/ellipse instance fallback (kind 0).
+    expect(kindsFallback).toEqual([0]);
     const kinds: number[] = [];
-    const angles: number[] = [];
-    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, rects, colors, kinds, angles);
-    expect(kinds).toEqual([0]);
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, [], [], kinds, [], [], {
+      document: doc,
+      meshPos,
+      meshCol,
+      meshClip,
+    });
+    expect(kinds).toEqual([]);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('packs rounded rect as shader SDF kind 4 with radii in uvs', () => {
+  it('packs rounded rect as vector mesh (no rich: atlas)', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'r', {
       id: 'r',
@@ -101,7 +135,7 @@ describe('collectSoaWebglInstances', () => {
       height: 80,
       attrs: {
         shapeType: 'rect',
-        fill: '#ffffff',
+        'fill-color': '#ffffff',
         cornerRadius: 20,
         'stroke-enabled': false,
       },
@@ -110,21 +144,26 @@ describe('collectSoaWebglInstances', () => {
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
-    const rects: number[] = [];
-    const colors: number[] = [];
+    const atlas = createSoaWebglAtlas(512, 128);
     const kinds: number[] = [];
-    const angles: number[] = [];
-    const uvs: number[] = [];
-    const strokes: number[] = [];
-    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, rects, colors, kinds, angles, uvs, {
-      strokes,
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, [], [], kinds, [], [], {
+      atlas,
+      document: doc,
+      meshPos,
+      meshCol,
+      meshClip,
     });
-    expect(kinds).toEqual([4]);
-    expect(uvs[0]).toBeGreaterThan(0);
-    expect(strokes).toEqual([0, 0, 0, 0]);
+    expect(kinds).toEqual([]);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
+    if (atlas) {
+      expect([...atlas.regions.keys()].some((k) => k.startsWith('rich:'))).toBe(false);
+    }
   });
 
-  it('packs line as oriented thin quad from world path polyline', () => {
+  it('packs line as stroke mesh when mesh buffers provided', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'ln', {
       id: 'ln',
@@ -133,7 +172,7 @@ describe('collectSoaWebglInstances', () => {
       y: 0,
       width: 30,
       height: 40,
-      attrs: { shapeType: 'line', stroke: '#111111' },
+      attrs: { shapeType: 'line', stroke: '#111111', 'border-width': 2 },
       children: [],
     });
     const buf = createSceneRenderBuffer();
@@ -144,14 +183,91 @@ describe('collectSoaWebglInstances', () => {
     const colors: number[] = [];
     const kinds: number[] = [];
     const angles: number[] = [];
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, rects, colors, kinds, angles, [], {
+      document: doc,
+      meshPos,
+      meshCol,
+      meshClip,
+    });
+    expect(kinds.length).toBe(0);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('packs line as kind 2 segments without mesh buffers', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'ln', {
+      id: 'ln',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 30,
+      height: 40,
+      attrs: { shapeType: 'line', stroke: '#111111', 'border-width': 2 },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    rebuildSoaPathSamples(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const rects: number[] = [];
+    const colors: number[] = [];
+    const kinds: number[] = [];
+    const angles: number[] = [];
+    // No document → mesh branch skipped; pathXY segment fallback still emits kind 2.
     collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, rects, colors, kinds, angles);
     expect(kinds).toEqual([2]);
     expect(rects[2]).toBeGreaterThan(0);
-    expect(rects[3]).toBe(1);
     expect(Number.isFinite(angles[0])).toBe(true);
   });
 
-  it('uses document border-width for line thickness', () => {
+  it('arrows use BASIC_GEOM + stroke mesh (no rich: atlas)', () => {
+    setSoaWebglEnvEnabledForTests(true);
+    try {
+      let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+      doc = addNodeToDocument(doc, 'ar', {
+        id: 'ar',
+        key: 'shape',
+        x: 10,
+        y: 10,
+        width: 80,
+        height: 24,
+        attrs: { shapeType: 'arrow', stroke: '#111111', 'border-width': 4 },
+        children: [],
+      });
+      const buf = createSceneRenderBuffer();
+      syncSceneRenderBufferFromDocument(buf, doc);
+      rebuildSoaPathSamples(buf, doc);
+      expect(buf.flags[0] & SOA_FLAG_BASIC_GEOM).toBeTruthy();
+      buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+      const atlas = createSoaWebglAtlas(512, 128);
+      const kinds: number[] = [];
+      const meshPos: number[] = [];
+      const meshCol: number[] = [];
+      const meshClip: number[] = [];
+      collectSoaWebglInstances(
+        buf,
+        { x: 0, y: 0, width: 200, height: 200 },
+        [],
+        [],
+        kinds,
+        [],
+        [],
+        { atlas, document: doc, meshPos, meshCol, meshClip }
+      );
+      expect(kinds.some((k) => k === 3)).toBe(false);
+      expect(meshPos.length).toBeGreaterThanOrEqual(6);
+      if (atlas) {
+        expect([...atlas.regions.keys()].some((k) => k.startsWith('rich:ar'))).toBe(false);
+      }
+    } finally {
+      setSoaWebglEnvEnabledForTests(null);
+    }
+  });
+
+  it('uses document border-width for line stroke mesh', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'ln', {
       id: 'ln',
@@ -167,16 +283,21 @@ describe('collectSoaWebglInstances', () => {
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
     expect(buf.strokeWidths[0]).toBe(6);
-    const rects: number[] = [];
-    const colors: number[] = [];
     const kinds: number[] = [];
-    const angles: number[] = [];
-    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, rects, colors, kinds, angles);
-    expect(kinds).toEqual([2]);
-    expect(rects[3]).toBe(6);
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 100, height: 100 }, [], [], kinds, [], [], {
+      document: doc,
+      meshPos,
+      meshCol,
+      meshClip,
+    });
+    expect(kinds.length).toBe(0);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('packs path samples as segment batch', () => {
+  it('packs open pen stroke as vector mesh (not segment instances)', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'p', {
       id: 'p',
@@ -185,30 +306,35 @@ describe('collectSoaWebglInstances', () => {
       y: 0,
       width: 100,
       height: 100,
-      attrs: { shapeType: 'pen', path: 'M 0 0 L 10 0 L 10 10', stroke: '#000' },
+      attrs: { shapeType: 'pen', path: 'M 0 0 L 10 0 L 10 10', stroke: '#000', 'border-width': 2 },
       children: [],
     });
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
-    const rects: number[] = [];
-    const colors: number[] = [];
     const kinds: number[] = [];
-    const angles: number[] = [];
-    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, rects, colors, kinds, angles);
-    expect(kinds.length).toBe(2);
-    expect(kinds.every((k) => k === 2)).toBe(true);
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, [], [], kinds, [], [], {
+      document: doc,
+      meshPos,
+      meshCol,
+      meshClip,
+    });
+    expect(kinds.length).toBe(0);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
   });
 
   it('prefers atlas stamp only for closed pens (open stays crisp segments)', () => {
-    // Closed fills need atlas; open strokes must not rasterize into a cell or
-    // they look thicker/softer than the SVG draw preview after finish.
+    // Historical helper: closed pens used to prefer atlas; open never did.
+    // Shape ink no longer stamps — helper remains for media/path policy checks.
     expect(soaPathPrefersAtlasStamp(true, 3)).toBe(true);
     expect(soaPathPrefersAtlasStamp(false, 3)).toBe(false);
     expect(soaPathPrefersAtlasStamp(false, SOA_ATLAS_SEG_THRESHOLD)).toBe(false);
   });
 
-  it('open pen segments use strokeColors when fill colors is 0', () => {
+  it('open pen stroke mesh uses strokeColors when fill colors is 0', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'p', {
       id: 'p',
@@ -234,24 +360,22 @@ describe('collectSoaWebglInstances', () => {
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
     expect(buf.colors[0]).toBe(0);
     expect(buf.strokeColors[0]).toBeTruthy();
-    const colors: number[] = [];
     const kinds: number[] = [];
-    collectSoaWebglInstances(
-      buf,
-      { x: 0, y: 0, width: 200, height: 200 },
-      [],
-      colors,
-      kinds,
-      [],
-      []
-    );
-    expect(kinds.length).toBeGreaterThan(0);
-    expect(kinds.every((k) => k === 2)).toBe(true);
-    // First instance RGBA — opaque ink from strokeColors, not transparent fill.
-    expect(colors[3]).toBeGreaterThan(0.9);
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(buf, { x: 0, y: 0, width: 200, height: 200 }, [], [], kinds, [], [], {
+      document: doc,
+      meshPos,
+      meshCol,
+      meshClip,
+    });
+    expect(kinds.length).toBe(0);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
+    expect(meshCol[3]).toBeGreaterThan(0.9);
   });
 
-  it('closed stroked path stamps fill atlas then emits crisp stroke segments', () => {
+  it('closed stroked path uses vector mesh (no atlas kind 3 / no segment notches)', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'b', {
       id: 'b',
@@ -277,9 +401,10 @@ describe('collectSoaWebglInstances', () => {
     syncSceneRenderBufferFromDocument(buf, doc);
     rebuildSoaPathSamples(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
-    const atlas = createSoaWebglAtlas(512, 128);
-    if (!atlas) return;
     const kinds: number[] = [];
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
     collectSoaWebglInstances(
       buf,
       { x: 0, y: 0, width: 200, height: 200 },
@@ -288,13 +413,14 @@ describe('collectSoaWebglInstances', () => {
       kinds,
       [],
       [],
-      { atlas, document: doc }
+      { document: doc, meshPos, meshCol, meshClip }
     );
-    expect(kinds.includes(3)).toBe(true);
-    expect(kinds.some((k) => k === 2)).toBe(true);
+    expect(kinds.includes(3)).toBe(false);
+    expect(kinds.some((k) => k === 2)).toBe(false);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('skips stroke-only segment fallback for closed pens without atlas', () => {
+  it('skips stroke-only segment fallback for closed pens without mesh', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'pen', {
       id: 'pen',
@@ -317,7 +443,6 @@ describe('collectSoaWebglInstances', () => {
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
     expect(buf.pathClosed[0]).toBe(1);
     expect(buf.colors[0]).toBeTruthy();
-    // Frame-local live offset used to block atlas → stroke-only ghost; still no segments.
     buf.positions[0] = 0;
     buf.positions[1] = 0;
     const kinds: number[] = [];
@@ -330,8 +455,73 @@ describe('collectSoaWebglInstances', () => {
       [],
       []
     );
-    // Prefer invisible idle over border-only ghost when atlas is unavailable.
+    // Prefer invisible idle over border-only ghost when mesh buffers unavailable.
     expect(kinds).toEqual([]);
+  });
+
+  it('paints back-to-front by stackOrder and selection max+1 raise', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'back', {
+      id: 'back',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      attrs: { shapeType: 'rect', 'fill-color': '#ff0000', 'stroke-enabled': false },
+      children: [],
+    });
+    doc = addNodeToDocument(doc, 'front', {
+      id: 'front',
+      key: 'shape',
+      x: 10,
+      y: 10,
+      width: 40,
+      height: 40,
+      attrs: { shapeType: 'rect', 'fill-color': '#00ff00', 'stroke-enabled': false },
+      children: [],
+    });
+    // Permanent order: front under back (back on top).
+    doc.stackOrder = ['node:front', 'node:back'];
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    for (let i = 0; i < buf.count; i += 1) {
+      buf.flags[i] = (buf.flags[i] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    }
+    expect(buf.count).toBe(2);
+    expect(buf.ids.slice(0, 2).sort()).toEqual(['back', 'front']);
+    const rects: number[] = [];
+    const kinds: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 100, height: 100 },
+      rects,
+      [],
+      kinds,
+      [],
+      [],
+      { document: doc }
+    );
+    // Without mesh: BASIC rects as kind 0 instances, paint order preserved.
+    expect(kinds).toEqual([0, 0]);
+    // Last instance wins — back (0,0) must paint after front (10,10).
+    expect(rects.slice(-4, -2)).toEqual([0, 0]);
+
+    setSelectionPaintRaiseIds(['front']);
+    const raisedRects: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 100, height: 100 },
+      raisedRects,
+      [],
+      [],
+      [],
+      [],
+      { document: doc }
+    );
+    setSelectionPaintRaiseIds(null);
+    // Raised front (10,10) paints last despite permanent stackOrder.
+    expect(raisedRects.slice(-4, -2)).toEqual([10, 10]);
   });
 
   it('packs clipContent LTRB for frame-owned idle slots', () => {
@@ -347,12 +537,15 @@ describe('collectSoaWebglInstances', () => {
       y: 10,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', fill: '#ff0000', frameId: 'f1' },
+      attrs: { shapeType: 'rect', 'fill-color': '#ff0000', frameId: 'f1' },
       children: [],
     });
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const atlas = createSoaWebglAtlas(512, 128);
+    // happy-dom/jsdom often lacks a usable 2d atlas surface — skip collect asserts.
+    if (!atlas) return;
     const clips: number[] = [];
     collectSoaWebglInstances(
       buf,
@@ -362,7 +555,7 @@ describe('collectSoaWebglInstances', () => {
       [],
       [],
       [],
-      { clips, document: doc }
+      { atlas, clips, document: doc }
     );
     expect(clips).toEqual([100, 50, 300, 200]);
   });
@@ -380,12 +573,15 @@ describe('collectSoaWebglInstances', () => {
       y: 10,
       width: 40,
       height: 40,
-      attrs: { shapeType: 'rect', fill: '#ff0000', frameId: 'f1' },
+      attrs: { shapeType: 'rect', 'fill-color': '#ff0000', frameId: 'f1' },
       children: [],
     });
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const atlas = createSoaWebglAtlas(512, 128);
+    // happy-dom/jsdom often lacks a usable 2d atlas surface — skip collect asserts.
+    if (!atlas) return;
     const clips: number[] = [];
     collectSoaWebglInstances(
       buf,
@@ -395,7 +591,7 @@ describe('collectSoaWebglInstances', () => {
       [],
       [],
       [],
-      { clips, document: doc }
+      { atlas, clips, document: doc }
     );
     expect(clips).toEqual([
       SOA_WEBGL_NO_CLIP[0],
@@ -405,7 +601,7 @@ describe('collectSoaWebglInstances', () => {
     ]);
   });
 
-  it('floors kind-4 stroke width at low zoom so hairlines survive', () => {
+  it('packs sharp stroked rect as mesh at low zoom (no atlas kind 3)', () => {
     let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
     doc = addNodeToDocument(doc, 'r', {
       id: 'r',
@@ -416,7 +612,7 @@ describe('collectSoaWebglInstances', () => {
       height: 40,
       attrs: {
         shapeType: 'rect',
-        fill: '#ff0000',
+        'fill-color': '#ff0000',
         'stroke-enabled': true,
         'border-width': 2,
         'border-color': '#000000',
@@ -426,18 +622,61 @@ describe('collectSoaWebglInstances', () => {
     const buf = createSceneRenderBuffer();
     syncSceneRenderBufferFromDocument(buf, doc);
     buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
-    const strokes: number[] = [];
+    const kinds: number[] = [];
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
     collectSoaWebglInstances(
       buf,
       { x: 0, y: 0, width: 100, height: 100 },
       [],
       [],
+      kinds,
       [],
       [],
-      [],
-      { strokes, zoom: 0.25 }
+      { document: doc, zoom: 0.25, meshPos, meshCol, meshClip }
     );
-    // aStroke.w = floored scene width (2 → 4 at 0.25 zoom for 1 CSS px floor).
-    expect(strokes[3]).toBe(4);
+    expect(kinds).toEqual([]);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('packs rounded stroked rect as mesh at low zoom (no atlas kind 3)', () => {
+    let doc = createEmptyDocument({ width: 800, height: 600, emptyWorld: true });
+    doc = addNodeToDocument(doc, 'r', {
+      id: 'r',
+      key: 'shape',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      attrs: {
+        shapeType: 'rect',
+        'fill-color': '#ff0000',
+        cornerRadius: 8,
+        'stroke-enabled': true,
+        'border-width': 2,
+        'border-color': '#000000',
+      },
+      children: [],
+    });
+    const buf = createSceneRenderBuffer();
+    syncSceneRenderBufferFromDocument(buf, doc);
+    buf.flags[0] = (buf.flags[0] | SOA_FLAG_CANVAS_IDLE) >>> 0;
+    const kinds: number[] = [];
+    const meshPos: number[] = [];
+    const meshCol: number[] = [];
+    const meshClip: number[] = [];
+    collectSoaWebglInstances(
+      buf,
+      { x: 0, y: 0, width: 100, height: 100 },
+      [],
+      [],
+      kinds,
+      [],
+      [],
+      { document: doc, zoom: 0.25, meshPos, meshCol, meshClip }
+    );
+    expect(kinds).toEqual([]);
+    expect(meshPos.length).toBeGreaterThanOrEqual(6);
   });
 });

@@ -21,6 +21,7 @@ import {
   isAudioNode,
   isLottieNode,
   isNodeMarqueeSkippable,
+  isTextFrameNode,
   isVideoNode,
 } from '@/components/rcb/scene/document/nodeCapabilities';
 import { frameIdAtPoint } from '@/components/rcb/scene/document/sceneHitBridge';
@@ -53,6 +54,7 @@ import {
 import {
   parseNodeText,
   parseNodeTextStyle,
+  measurePlainTextSize,
 } from '@/components/rcb/scene/document/sceneText';
 import {
   clearSceneDragPreview,
@@ -180,6 +182,8 @@ export type GeomPatch = {
   top: number;
   width: number;
   height: number;
+  /** Atomic with box — line/arrow endpoint drag must not angle-preview alone. */
+  angle?: number;
 };
 
 /** Fit generator plate to viewport, center on scene click (or fallback), snap to grid. */
@@ -259,13 +263,28 @@ export function getNodeBoxFromDoc(doc: SceneDocument | null | undefined, nodeId:
   const node = doc?.deltaSetLike?.[nodeId];
   if (!node) return null;
   const { left, top } = nodeLeftTop(doc, node);
+  let width = Math.max(1, Number(node.width) || 1);
+  let height = Math.max(1, Number(node.height) || 1);
+  // AutoSize text: grow chrome to measured line/em box so CJK ink is not clipped
+  // when stored height is still the old 1em hug.
+  if (
+    node.key === 'text' &&
+    !isTextFrameNode(node) &&
+    String(node.attrs?.autoSize ?? 'true') !== 'false'
+  ) {
+    const style = parseNodeTextStyle(node.attrs || {});
+    const plain = parseNodeText(node.attrs || {}) || ' ';
+    const measured = measurePlainTextSize(plain, style);
+    width = Math.max(width, measured.width);
+    height = Math.max(height, measured.height);
+  }
   const paint = effectivePaintBox(
     nodeId,
     {
       left,
       top,
-      width: Math.max(1, Number(node.width) || 1),
-      height: Math.max(1, Number(node.height) || 1),
+      width,
+      height,
     },
     Number(node.attrs?.angle) || 0
   );
@@ -1265,6 +1284,30 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
           textResizeMode: options?.textResizeMode,
         })
       : doc;
+    // Stroke endpoint (and any patch that carries angle): bake attrs.angle with the
+    // same local write as geometry so live doc never shows new angle + old shaft.
+    if (normalized.length) {
+      let angleDelta = next.deltaSetLike;
+      let angleDirty = false;
+      for (const p of normalized) {
+        const nextAngle = Number(p.angle);
+        if (!Number.isFinite(nextAngle)) continue;
+        const node = angleDelta?.[p.nodeId];
+        if (!node) continue;
+        const baked = Number(nextAngle.toFixed(2));
+        const cur = Number(node.attrs?.angle) || 0;
+        if (Math.abs(cur - baked) < 1e-6) continue;
+        if (!angleDirty) {
+          angleDelta = { ...angleDelta };
+          angleDirty = true;
+        }
+        angleDelta[p.nodeId] = {
+          ...node,
+          attrs: { ...node.attrs, angle: baked },
+        };
+      }
+      if (angleDirty) next = { ...next, deltaSetLike: angleDelta };
+    }
     if (normalized.length) {
       next = applyNodeFrameBindings(next, normalized, detachedNodeIds);
       next = promoteNodesToWorldTop(next, detachedNodeIds);
@@ -1320,13 +1363,14 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
             }
           : p;
       previewBoxes.set(p.nodeId, box);
+      const patchAngle = Number(p.angle);
       previewPatches.push({
         nodeId: p.nodeId,
         left: box.left,
         top: box.top,
         width: Math.max(1, box.width),
         height: Math.max(1, box.height),
-        angle: previewAngleDeg(p.nodeId, node),
+        angle: Number.isFinite(patchAngle) ? patchAngle : previewAngleDeg(p.nodeId, node),
       });
       previewMountedHostGeometry(board, p.nodeId, box, {
         textResizeMode: options?.textResizeMode,
@@ -1528,6 +1572,15 @@ export function createCanvasSession(deps: CanvasSessionDeps): CanvasSession {
     // TransformPreview before clip — findClippingFrameForNode prefers preview
     // over node x/y; stale preview + live plate = one-frame spill/jitter.
     setNodeTransformPreviews(previewPatches);
+    // Geom patches that carry angle (stroke endpoints) skip onAnglePreview — sync
+    // SVG host rotate without a second TransformPreview publish.
+    for (const p of previewPatches) {
+      if (!Number.isFinite(p.angle)) continue;
+      if (!board.nodeEls.get(p.nodeId)) continue;
+      previewSvgNodeAngle(board.nodeEls, p.nodeId, Number(p.angle), previewDocument, {
+        publishPreview: false,
+      });
+    }
     // Frame move/resize: clip only hosts bound to the moving plate(s).
     // Infinite canvas: board.root is null — use shared scene world root.
     if (frames.length) {

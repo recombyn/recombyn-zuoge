@@ -248,7 +248,7 @@ describe('unified stackOrder paint', () => {
       y: 0,
       width: 160,
       height: 48,
-      attrs: { src: 'https://example.com/a.mp3', audioGenerator: true },
+      attrs: { src: 'https://example.com/a.mp3' },
       children: [],
     });
     doc.frames = [

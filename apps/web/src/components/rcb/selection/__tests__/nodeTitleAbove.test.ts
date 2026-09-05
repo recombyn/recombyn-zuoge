@@ -21,6 +21,15 @@ const CANVAS_ZOOMS = [0.5, 1, 2.247, 10, 71.61, 80, 100] as const;
 const VIEWPORT_SCALES = [0.75, 0.9, 1, 1.1, 1.25] as const;
 
 describe('nodeTitleLabelWorldPlacement — title layout contract', () => {
+  it('keeps icon left and size right flush with the plate when inset is 0', () => {
+    const box = { left: 12, top: 40, width: 7, height: 6 };
+    const place = nodeTitleLabelWorldPlacement(box, 48, { sizeText: '7 × 6' });
+    expect(place.iconX).toBeCloseTo(box.left, 10);
+    expect(place.sizeX).toBeCloseTo(box.left + box.width, 10);
+    expect(place.hitLeft).toBeCloseTo(box.left, 10);
+    expect(place.hitWidth).toBeCloseTo(box.width, 10);
+  });
+
   it('clips the name so it cannot overlap the size column on a narrow plate', () => {
     const box = { left: 0, top: 10, width: 32, height: 32 };
     const zoom = 12.84;

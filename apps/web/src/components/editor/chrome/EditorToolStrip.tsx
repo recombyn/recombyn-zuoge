@@ -22,7 +22,7 @@ import {
   LuTriangle,
   LuType,
 } from 'react-icons/lu';
-import { RiImageUploadLine, RiVideoUploadLine, RiVideoLine } from 'react-icons/ri';
+import { RiImageUploadLine, RiVideoUploadLine, RiVideoAiLine } from 'react-icons/ri';
 import { AnimationOutlineIcon } from '@/components/editor/nodes/AnimationNode/AnimationOutlineIcon';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 import {
@@ -587,7 +587,7 @@ function EditorToolStrip({
               <MenuLabel
                 label={L.videoGenerator}
                 shortcut={TOOL_SHORTCUT.videoGenerator}
-                icon={<RiVideoLine className={MENU_ICON_CLASS} />}
+                icon={<RiVideoAiLine className={MENU_ICON_CLASS} />}
               />
             ),
           },

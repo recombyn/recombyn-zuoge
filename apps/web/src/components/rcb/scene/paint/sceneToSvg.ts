@@ -64,7 +64,7 @@ import {
   resolveTextFramePlateFill,
   resolveThemeSurfaceFill
 } from '../document/nodeFactories';
-import { generatorEmptyIconSize } from '../../core/layout';
+import { generatorEmptyIconSize, generatorEmptyIconVisible } from '../../core/layout';
 import {
   clampCornerRadii,
   filletPathD,
@@ -1381,11 +1381,9 @@ export async function nodeToSvgElement(
     const lineHeight = Math.max(0.8, Number(style.lineHeight) || 1.4);
     const fontSize = Math.max(1, Number(style.fontSize) || 14);
     const lineCount = Math.max(1, visualLines.length);
-    // Fixed box (button/chip/input label): vertically center ink in the selection height.
-    // Left/right align still centers vertically so placeholders aren't top-heavy.
-    const originY = !autoSize
-      ? textVerticalOriginY(boxH, fontSize, lineHeight, lineCount)
-      : 0;
+    // Always center the hugged ink stack in the selection height (autoSize used
+    // to pin y=0 while height was lineHeight×em → top-heavy empty chrome).
+    const originY = textVerticalOriginY(boxH, fontSize, lineHeight, lineCount);
     let localX = 0;
     const measuredW = boxW > 1 ? boxW : 1;
     if (align === 'middle') localX = measuredW / 2;
@@ -1566,36 +1564,42 @@ export async function nodeToSvgElement(
       }
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
       if (isGen) {
-        // Solid landscape glyph (sun + two peaks) — flat fill, no frame.
-        // Scale with the plate; must fit inside (never a fixed 72 scene-px floor).
-        const iconSize = generatorEmptyIconSize(boxW, boxH);
-        if (iconSize >= 4) {
-        const ix = (boxW - iconSize) / 2;
-        const iy = (boxH - iconSize) / 2;
-        const s = iconSize / 24;
-        const icon = appendChild(
-          g,
-          svgEl('g', {
-            transform: `translate(${ix},${iy}) scale(${s})`,
-            'pointer-events': 'none',
-          })
-        );
-        // Sun (upper-right)
-        const sun = appendChild(
-          icon,
-          svgEl('circle', { cx: 16.5, cy: 7.5, r: 2.25 })
-        );
-        setFill(sun, 'var(--muted)');
-        setStroke(sun, 'none');
-        // Twin peaks silhouette
-        const peaks = appendChild(
-          icon,
-          svgEl('path', {
-            d: 'M3.5 18.5 L9.2 10.2 L13.1 15.1 L16.4 11.4 L20.5 18.5 Z',
-          })
-        );
-        setFill(peaks, 'var(--muted)');
-        setStroke(peaks, 'none');
+        // Filled mountain+sun — same as paintGeneratorEmptyPlateIcon (canvas/WebGL).
+        const s = generatorEmptyIconSize(boxW, boxH);
+        if (generatorEmptyIconVisible(s)) {
+          const cx = boxW / 2;
+          const cy = boxH / 2;
+          const fill = 'var(--muted)';
+          const sunR = s * 0.18;
+          const sun = appendChild(
+            g,
+            svgEl('circle', {
+              cx: cx - s * 0.22,
+              cy: cy - s * 0.28,
+              r: sunR,
+              'pointer-events': 'none',
+            })
+          );
+          setFill(sun, fill);
+          setStroke(sun, 'none');
+          const peak = appendChild(
+            g,
+            svgEl('path', {
+              d: `M${cx - s * 0.5} ${cy + s * 0.38} L${cx - s * 0.05} ${cy - s * 0.12} L${cx + s * 0.35} ${cy + s * 0.38} Z`,
+              'pointer-events': 'none',
+            })
+          );
+          setFill(peak, fill);
+          setStroke(peak, 'none');
+          const ridge = appendChild(
+            g,
+            svgEl('path', {
+              d: `M${cx - s * 0.05} ${cy + s * 0.38} L${cx + s * 0.28} ${cy + s * 0.02} L${cx + s * 0.55} ${cy + s * 0.38} Z`,
+              'pointer-events': 'none',
+            })
+          );
+          setFill(ridge, fill);
+          setStroke(ridge, 'none');
         }
       } else {
         const wash = appendChild(
@@ -1867,29 +1871,21 @@ export async function nodeToSvgElement(
       }
       setAttrs(plate, { 'data-radius-body': '1', 'data-baseline': '1' });
       if (isGen) {
-        // Soft play triangle only — no frame / plus.
+        // Filled play triangle — same as paintGeneratorEmptyPlateIcon (canvas/WebGL).
         const iconSize = generatorEmptyIconSize(boxW, boxH);
-        if (iconSize >= 4) {
-        const ix = (boxW - iconSize) / 2;
-        const iy = (boxH - iconSize) / 2;
-        const s = iconSize / 24;
-        const icon = appendChild(
-          g,
-          svgEl('g', {
-            transform: `translate(${ix},${iy}) scale(${s})`,
-            'pointer-events': 'none',
-          })
-        );
-        const play = appendChild(
-          icon,
-          svgEl('path', {
-            d: 'M9 7.2 L9 16.8 L17.4 12 Z',
-            'stroke-linejoin': 'round',
-            'stroke-linecap': 'round',
-          })
-        );
-        setFill(play, 'var(--muted)');
-        setStroke(play, { color: 'var(--muted)', width: 2.75 });
+        if (generatorEmptyIconVisible(iconSize)) {
+          const cx = boxW / 2;
+          const cy = boxH / 2;
+          const s = iconSize;
+          const play = appendChild(
+            g,
+            svgEl('path', {
+              d: `M${cx - s * 0.28} ${cy - s * 0.38} L${cx + s * 0.42} ${cy} L${cx - s * 0.28} ${cy + s * 0.38} Z`,
+              'pointer-events': 'none',
+            })
+          );
+          setFill(play, 'var(--muted)');
+          setStroke(play, 'none');
         }
       }
       tagNode(g, nodeId, 'video', undefined, left, top, boxW, boxH);
@@ -2026,35 +2022,34 @@ export async function nodeToSvgElement(
         setFill(border, 'none');
         setStroke(border, { color: 'var(--line)', width: sw });
         const iconSize = generatorEmptyIconSize(boxW, boxH);
-        if (iconSize >= 4) {
-          const ix = (boxW - iconSize) / 2;
-          const iy = (boxH - iconSize) / 2;
-          const s = iconSize / 24;
-          const icon = appendChild(
-            g,
-            svgEl('g', {
-              transform: `translate(${ix},${iy}) scale(${s})`,
-              'pointer-events': 'none',
-            })
-          );
-          // Simple waveform mark for empty audio generator.
-          for (const [x, h] of [
-            [6, 8],
-            [10, 14],
-            [14, 10],
-            [18, 16],
-          ] as const) {
+        if (generatorEmptyIconVisible(iconSize)) {
+          const cx = boxW / 2;
+          const cy = boxH / 2;
+          const s = iconSize;
+          const fill = 'var(--muted)';
+          // Filled bars (same as paintGeneratorEmptyPlateIcon audio) — not hairline strokes.
+          const barW = Math.max(s * 0.08, s * (2 / 24));
+          const xs = [-0.42, -0.25, -0.08, 0.09, 0.26, 0.43];
+          const halfHs = [0.12, 0.28, 0.42, 0.22, 0.34, 0.12];
+          for (let i = 0; i < xs.length; i += 1) {
+            const x = cx + s * xs[i]!;
+            const hh = s * halfHs[i]!;
+            const top = cy - hh;
+            const bh = hh * 2;
+            const r = Math.min(barW * 0.5, bh * 0.45);
             const bar = appendChild(
-              icon,
+              g,
               svgEl('rect', {
-                x,
-                y: 12 - h / 2,
-                width: 2.2,
-                height: h,
-                rx: 1,
+                x: x - barW / 2,
+                y: top,
+                width: barW,
+                height: bh,
+                rx: r,
+                ry: r,
+                'pointer-events': 'none',
               })
             );
-            setFill(bar, 'var(--muted)');
+            setFill(bar, fill);
             setStroke(bar, 'none');
           }
         }

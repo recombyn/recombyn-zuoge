@@ -1,3 +1,7 @@
+/**
+ * Shape boolean (union / subtract / intersect / xor).
+ * Prefers WASM `boolean_polygons`; falls back to polygon-clipping.
+ */
 import {
   difference,
   intersection,
@@ -7,6 +11,7 @@ import {
   type Polygon,
   type Ring,
 } from 'polygon-clipping';
+import { booleanPolygonsWasm } from '@/components/rcb/render/vector/wasmGeom';
 import { getShapeBaselineD } from '@/components/rcb/core/geometry';
 import {
   clampCornerRadii,
@@ -690,8 +695,7 @@ function shapeToPolygon(b: ShapeBox): Polygon | null {
     return ellipseLocalPolygon(b).map((ring) => toWorld(ring));
   }
 
-  // Rounded rect: parametric ring (no DOM). Detached SVG A-path length is often 0
-  // in desktop WebView → old code used sharp AABB → boolean became a hard L.
+  // Rounded rect: parametric ring (avoid DOM getTotalLength = 0 → sharp AABB).
   if (t === 'rect') {
     const radii = clampCornerRadii(radiiFromAttrs(b.attrs), b.width, b.height);
     if (maxRadius(radii) > 0.5) {
@@ -804,6 +808,17 @@ function clipShapes(
     polygons.push(poly);
   }
   if (polygons.length < 2) return { failed: true };
+
+  const wasmOp =
+    mode === 'union'
+      ? 'union'
+      : mode === 'subtract'
+        ? 'difference'
+        : mode === 'intersect'
+          ? 'intersection'
+          : 'xor';
+  const wasmMp = booleanPolygonsWasm(wasmOp, polygons);
+  if (wasmMp != null) return { failed: false, mp: wasmMp as MultiPolygon };
 
   try {
     let mp: MultiPolygon;

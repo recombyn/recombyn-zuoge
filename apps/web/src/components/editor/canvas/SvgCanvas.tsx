@@ -82,6 +82,7 @@ import {
   clearLiveArtboardFrameGeometry,
   previewArtboardFrameGeometry,
 } from '@/components/rcb/frames/HtmlArtboardFrame';
+import { listSelectionRevealOverflowIds } from '@/components/rcb/frames/frameContentClip';
 import { previewSvgNodeTransform } from '@/components/rcb/scene/paint/sceneToSvg';
 import {
   abortNodeUpload,
@@ -465,13 +466,20 @@ function SvgCanvas({
   const overlayRoot = useRcbOverlayRoot();
 
   const clearFrameGeometryPreview = useCallback((frameIds?: readonly string[]) => {
+    // Prefer the editor store after setDocumentFromCanvas. documentRef can still
+    // hold a mid-gesture snapshot, or get overwritten by a one-frame-stale
+    // props.document when preserveLiveDocumentRef flips false on pointer-up —
+    // baking hosts from that stale doc desyncs the white plate from the blue box.
+    const storeDoc = (store.getState() as RootState).editor?.document ?? null;
     const liveDoc = documentRef.current;
-    const frames = Array.isArray(liveDoc?.frames) ? liveDoc.frames : [];
+    const framesSource = storeDoc || liveDoc;
+    const frames = Array.isArray(framesSource?.frames) ? framesSource.frames : [];
     // Prefer explicit commit ids — multi-frame mode:move can cancel the last
     // preview rAF so the tracked preview set is empty while hosts are still stale.
     const fromArg = (frameIds || []).map(String).filter(Boolean);
     const fromPreview = [...frameGeometryPreviewIdsRef.current];
     const ids = [...new Set(fromArg.length ? [...fromArg, ...fromPreview] : fromPreview)];
+    if (storeDoc) documentRef.current = storeDoc;
     clearLiveArtboardFrameGeometry(ids.length ? ids : undefined);
     ids.forEach((id) => {
       const frame = frames.find((item: any) => String(item?.id) === id);
@@ -2026,13 +2034,19 @@ function SvgCanvas({
     return out;
   }, [ids, editingTextId, editingPenId, processingNodeIds, document, selectedFrameIds]);
 
-  /** Unclip overflow only for selected shapes (not frame-selected children). */
-  const revealOverflowIds = useMemo(() => {
-    const out = [...ids, ...processingNodeIds];
-    if (editingTextId) out.push(editingTextId);
-    if (editingPenId) out.push(editingPenId);
-    return out;
-  }, [ids, editingTextId, editingPenId, processingNodeIds]);
+  /** Unclip selected shapes only — keep clip when their owning plate is also selected. */
+  const revealOverflowIds = useMemo(
+    () =>
+      listSelectionRevealOverflowIds({
+        selectedNodeIds: ids,
+        selectedFrameIds,
+        document,
+        processingNodeIds,
+        editingTextId,
+        editingPenId,
+      }),
+    [ids, selectedFrameIds, document, processingNodeIds, editingTextId, editingPenId]
+  );
 
   const paintRaiseIds = useMemo(
     () => listSingleSelectionPaintRaiseNodeIds(document, ids, selectedFrameIds),

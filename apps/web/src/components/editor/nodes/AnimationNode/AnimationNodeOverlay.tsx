@@ -3,7 +3,7 @@ import type { SceneDocument, SceneNode } from '@/components/rcb/sceneNode';
  * Lottie ink mounts into the node's nested SVG layer (lottie-web SVG renderer).
  * Preview and edit share the same SVG stack; preview is pointer-events:none.
  */
-import { useEffect, useMemo, useRef, type ReactNode, memo } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode, memo } from 'react';
 import { useSelector } from '@/store';
 import { useSceneReloadToken } from '@/store/editorSelectors';
 import lottie, { type AnimationItem } from 'lottie-web';
@@ -23,6 +23,10 @@ import {
 } from '@/components/editor/nodes/AnimationNode/mainSceneLotPreview';
 import type { MediaGeomOverride } from '@/components/editor/nodes/shared/mediaPlateGeometry';
 import { useHtmlMediaMount } from '@/components/editor/nodes/useHtmlMediaMount';
+import {
+  getShapeHostNodeEpoch,
+  subscribeShapeHost,
+} from '@/components/rcb/shapes/shapeHostRegistry';
 import store from '@/store';
 import { resolveAnimationFrameId } from '@/components/editor/nodes/AnimationNode/resolveAnimationFrameId';
 
@@ -155,6 +159,7 @@ function LottiePlate({
   speed,
   hidden,
   mount,
+  paintEpoch,
 }: {
   nodeId: string;
   animationJson: string;
@@ -162,6 +167,8 @@ function LottiePlate({
   speed: number;
   hidden?: boolean;
   mount: SVGSVGElement;
+  /** Shape-host paint generation — SVG rebuild wipes mount; must reload like 主场景 first open. */
+  paintEpoch: number;
 }) {
   const animRef = useRef<AnimationItem | null>(null);
   const storePlaying = useSelector((s: any) => Boolean(s.editor.lottiePlaying));
@@ -172,13 +179,59 @@ function LottiePlate({
     String(s.editor.lottieTimelinePanel?.nodeId || '').trim()
   );
 
+  // Never leave visibility:hidden on the shared SVG mount — LOT-tab hide used
+  // to stick after remount and blank 主场景 even when JSON was intact.
   useEffect(() => {
-    mount.style.visibility = hidden ? 'hidden' : 'visible';
-  }, [hidden, mount]);
+    mount.style.removeProperty('visibility');
+    return () => {
+      mount.style.removeProperty('visibility');
+    };
+  }, [mount]);
 
   useEffect(() => {
+    // While hidden, destroy — but LOT tab must not set hidden on nested lot (主场景 path).
+    if (hidden) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[precomp-tab] lottie-ink',
+        JSON.stringify({ nodeId, phase: 'hide-destroy', jsonLen: animationJson.length, paintEpoch })
+      );
+      const prev = animRef.current;
+      if (prev) {
+        prev.destroy();
+        animRef.current = null;
+      }
+      if (lottieHosts.get(nodeId)) lottieHosts.delete(nodeId);
+      mount.innerHTML = '';
+      return undefined;
+    }
+
     const data = parseLottieAnimationData(animationJson);
-    if (!data) return undefined;
+    if (!data) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[precomp-tab] lottie-ink PARSE FAIL',
+        JSON.stringify({
+          nodeId,
+          jsonLen: animationJson.length,
+          head: animationJson.slice(0, 200),
+        })
+      );
+      return undefined;
+    }
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[precomp-tab] lottie-ink',
+      JSON.stringify({
+        nodeId,
+        phase: 'load',
+        jsonLen: animationJson.length,
+        w: data.w,
+        h: data.h,
+        layers: Array.isArray(data.layers) ? data.layers.length : 0,
+        paintEpoch,
+      })
+    );
     mount.innerHTML = '';
     let anim: AnimationItem;
     try {
@@ -219,10 +272,11 @@ function LottiePlate({
       animRef.current = null;
       if (lottieHosts.get(nodeId) === api) lottieHosts.delete(nodeId);
       mount.innerHTML = '';
+      mount.style.removeProperty('visibility');
     };
-    // loop/speed applied below — avoid remounting on toolbar toggles.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-  }, [mount, animationJson, nodeId]);
+    // paintEpoch: document/SVG rebuild clears mount without changing the element ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional (loop/speed via other effects)
+  }, [mount, animationJson, nodeId, hidden, paintEpoch]);
 
   useEffect(() => {
     const anim = animRef.current;
@@ -246,7 +300,7 @@ function LottiePlate({
       return;
     }
     if (!api.isPaused()) api.pause();
-  }, [storePlaying, playingHostId, timelineHostId, nodeId, mount, animationJson]);
+  }, [storePlaying, playingHostId, timelineHostId, nodeId, mount, animationJson, hidden]);
 
   useEffect(() => {
     if (hidden) return;
@@ -266,16 +320,20 @@ function shouldHideLottieInk(opts: {
   hidden?: boolean;
   precompAssetId: string;
   precompLotId: string;
+  /** Unused for nested lot — destroying ink on LOT tab is what blanks 主场景 after switch. */
   precompSessionMaterialized: boolean;
 }): boolean {
-  const { node, nodeId, frameHost, hidden, precompAssetId, precompLotId, precompSessionMaterialized } =
-    opts;
+  const { node, nodeId, frameHost, hidden, precompAssetId, precompLotId } = opts;
+  void opts.precompSessionMaterialized;
   if (frameHost && !animationHostHasUnlinkedInk(node.attrs?.animationData)) return true;
   if (hidden || isNodeHidden(node) || isHiddenByAnimationWorkbenchFocus(node)) return true;
-  if (precompAssetId && frameHost) return true;
+  // 主场景 = no precomp → preview ink stays up.
   if (!precompAssetId) return false;
   if (isPrecompEditSessionNode(node)) return false;
-  if (precompLotId && nodeId === precompLotId) return precompSessionMaterialized;
+  // LOT tab = edit session shapes, but nested lot LottiePlate must keep the same
+  // live instance as 第一次打开时间轴. hide-destroy + sceneReload remount is what
+  // leaves a blank selection after tab→主场景.
+  if (precompLotId && nodeId === precompLotId) return false;
   if (frameHost) return true;
   if (String(node.attrs?.frameId || '').trim()) return true;
   return false;
@@ -331,6 +389,11 @@ function LottiePlateHost({
   reloadKey?: string;
 }) {
   const mount = useHtmlMediaMount(nodeId);
+  const paintEpoch = useSyncExternalStore(
+    (onStoreChange) => subscribeShapeHost(nodeId, onStoreChange),
+    () => getShapeHostNodeEpoch(nodeId),
+    () => 0
+  );
   const precompEdit = useSelector(
     (s: any) =>
       s.editor.lottiePrecompEdit as null | {
@@ -346,7 +409,8 @@ function LottiePlateHost({
   const frameHost = isAnimationFrameHostNode(node, document);
   const workbenchNested = isWorkbenchNestedLottieNode(node, document);
   const precompAssetId = String(precompEdit?.assetId || '').trim();
-  const hostFallback = workbenchNested && !precompAssetId;
+  // 主场景 preview: nested LOT prefers host precomp asset JSON.
+  const hostFallback = workbenchNested;
   const animationJson = resolveLottieInkJson(document, nodeId, node, { hostFallback });
   if (!animationJson || !parseLottieAnimationData(animationJson)) return null;
 
@@ -354,6 +418,7 @@ function LottiePlateHost({
   if (!precompLotId && precompAssetId.startsWith('lot_')) {
     precompLotId = precompAssetId.slice(4);
   }
+  const sessionMaterialized = Boolean(precompEdit?.sessionHidesLotInk);
   const hideInk = shouldHideLottieInk({
     node,
     nodeId,
@@ -361,7 +426,7 @@ function LottiePlateHost({
     hidden,
     precompAssetId,
     precompLotId,
-    precompSessionMaterialized: Boolean(precompEdit?.sessionHidesLotInk),
+    precompSessionMaterialized: sessionMaterialized,
   });
   const inkRevision = String(node.attrs?.lottieInkRevision ?? '');
 
@@ -374,6 +439,7 @@ function LottiePlateHost({
       speed={readSpeed(node.attrs)}
       hidden={hideInk}
       mount={mount}
+      paintEpoch={paintEpoch}
     />
   );
 }

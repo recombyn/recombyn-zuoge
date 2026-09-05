@@ -131,6 +131,15 @@ export function generatorEmptyIconSize(boxW: number, boxH: number): number {
   return side * 0.28;
 }
 
+/**
+ * Whether to paint the empty-gen glyph.
+ * High zoom places ~5–18 scene plates — old `>= 4` skipped icons that still
+ * read clearly once CSS/`uZoom` scales the plate up.
+ */
+export function generatorEmptyIconVisible(iconSize: number): boolean {
+  return Number(iconSize) >= 0.35;
+}
+
 /** On-screen target when placing new text (T-tool, paste, agent). ~18 CSS px ≈ readable body copy. */
 export const RCB_PLACE_TEXT_SCREEN_PX = 18;
 

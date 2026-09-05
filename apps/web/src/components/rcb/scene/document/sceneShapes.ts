@@ -549,10 +549,11 @@ export function distPointToSegment(
 }
 
 /**
- * Canvas Path2D geometry cache — reuse for hit-test + overlay batch stroke.
- * Committed ink stays SVG hosts; Path2D is the shared vector kernel.
+ * Canvas Path2D geometry cache — shared by Canvas2D idle paint, artboard ink,
+ * hit-test, and selection overlay. Same geom fingerprint as meshCache (via path `d`).
+ * Zoom must not invalidate entries.
  */
-const PATH2D_CACHE_MAX = 256;
+const PATH2D_CACHE_MAX = 4096;
 const path2dByD = new Map<string, Path2D>();
 const path2dTouch: string[] = [];
 /** nodeId → path `d` fingerprint currently cached for that node. */
@@ -621,6 +622,17 @@ export function invalidateNodePath2D(nodeId: string) {
 /** Drop all node→path fingerprints (full document replace / SoA rebuild). */
 export function clearNodePathFingerprints(): void {
   nodePathFp.clear();
+}
+
+/** Test / probe: Path2D entries currently retained. */
+export function getPath2DCacheSize(): number {
+  return path2dByD.size;
+}
+
+/** Test helper — clear Path2D LRU (does not clear node bindings). */
+export function clearPath2DCache(): void {
+  path2dByD.clear();
+  path2dTouch.length = 0;
 }
 
 export type Path2DHitOpts = {

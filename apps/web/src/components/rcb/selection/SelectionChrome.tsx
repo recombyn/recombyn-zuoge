@@ -738,10 +738,15 @@ export function pickChromeHandleByGeometry(
       ['w', 0, h / 2],
       ['e', w, h / 2],
     ];
+    // Prefer shaft-hit size so thick strokes still grab the tip (not whole move).
+    const lineHitR = Math.max(
+      m.hitR,
+      chromeHandleHitRadiusScene(opts.zoom, CHROME_LINE_SHAFT_HIT_PX, m.hitScale)
+    );
     let best: { handle: 'w' | 'e'; d2: number } | null = null;
     for (const [handle, lx, ly] of ends) {
       const d2 = (local.x - lx) ** 2 + (local.y - ly) ** 2;
-      if (d2 > m.hitR * m.hitR) continue;
+      if (d2 > lineHitR * lineHitR) continue;
       if (!best || d2 < best.d2) best = { handle, d2 };
     }
     if (best) {
@@ -1593,6 +1598,14 @@ function SelectionChrome({
 
   useLayoutEffect(() => {
     keepSelectionChromeOnTop(mount);
+    const root = mount?.ownerSVGElement;
+    if (root && !root.querySelector('style[data-rcb-sel-ep-style]')) {
+      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      style.setAttribute('data-rcb-sel-ep-style', '1');
+      style.textContent =
+        'g.sel-hit:hover > .sel-ep-halo, .sel-ep-halo[data-rcb-endpoint-hover="1"] { opacity: 0.24; }';
+      root.insertBefore(style, root.firstChild);
+    }
   }, [
     mount,
     left,
@@ -1721,14 +1734,24 @@ function SelectionChrome({
         {showLineEndpoints
           ? knobs.map(([dir, lx, ly]) => {
               const p = toScenePoint(lx, ly);
+              const lineEpHalo = CHROME_LINE_ENDPOINT_HALO_PX * inv;
               return (
                 <g
                   key={`ep-${dir}`}
+                  className="sel-hit"
                   transform={`translate(${p.x} ${p.y})`}
                   style={{ pointerEvents: 'none' }}
                 >
                   <circle
+                    className="sel-ep-halo"
+                    r={lineEpHalo / 2}
+                    fill={`${chromeColor}59`}
+                    opacity={0.12}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  <circle
                     data-rcb-sel-knob={dir}
+                    data-rcb-sel-endpoint={dir}
                     {...handleAttrProps}
                     r={Math.max(0.01, lineEpVis / 2 - stroke / 2)}
                     fill="#fff"
